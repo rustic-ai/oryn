@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/lscope-core",
+    "crates/lscope-scanner",
+    "crates/lscope-e",
+    "crates/lscope-h",
+    "crates/lscope-r",
+]

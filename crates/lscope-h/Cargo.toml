@@ -1,0 +1,7 @@
+[package]
+name = "lscope-h"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lscope-core = { path = "../lscope-core" }
