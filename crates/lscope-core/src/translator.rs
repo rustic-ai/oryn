@@ -99,23 +99,29 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
             // Map WaitCondition enum to protocol strings
             // Protocol expects: "exists", "visible", "hidden", "gone", "navigation"
             // WaitCondition: Load, Idle, Visible(T), Hidden(T), Exists(selector/id), Gone(selector/id), Url(s)
-            
+
             let (cond_str, target, timeout) = match condition {
-                crate::command::WaitCondition::Visible(t) => {
-                   match t {
-                       Target::Id(id) => ("visible", Some(id.to_string()), None::<u64>),
-                       Target::Selector(s) => ("visible", Some(s.clone()), None::<u64>), 
-                       _ => return Err(TranslationError::InvalidTarget("Wait visible requires ID or Selector".into())),
-                   }
+                crate::command::WaitCondition::Visible(t) => match t {
+                    Target::Id(id) => ("visible", Some(id.to_string()), None::<u64>),
+                    Target::Selector(s) => ("visible", Some(s.clone()), None::<u64>),
+                    _ => {
+                        return Err(TranslationError::InvalidTarget(
+                            "Wait visible requires ID or Selector".into(),
+                        ));
+                    }
                 },
-                crate::command::WaitCondition::Hidden(t) => {
-                   match t {
-                       Target::Id(id) => ("hidden", Some(id.to_string()), None::<u64>),
-                       Target::Selector(s) => ("hidden", Some(s.clone()), None::<u64>),
-                       _ => return Err(TranslationError::InvalidTarget("Wait hidden requires ID or Selector".into())),
-                   }
+                crate::command::WaitCondition::Hidden(t) => match t {
+                    Target::Id(id) => ("hidden", Some(id.to_string()), None::<u64>),
+                    Target::Selector(s) => ("hidden", Some(s.clone()), None::<u64>),
+                    _ => {
+                        return Err(TranslationError::InvalidTarget(
+                            "Wait hidden requires ID or Selector".into(),
+                        ));
+                    }
                 },
-                crate::command::WaitCondition::Exists(s) => ("exists", Some(s.clone()), None::<u64>),
+                crate::command::WaitCondition::Exists(s) => {
+                    ("exists", Some(s.clone()), None::<u64>)
+                }
                 crate::command::WaitCondition::Gone(s) => ("gone", Some(s.clone()), None::<u64>),
                 crate::command::WaitCondition::Url(_) => ("navigation", None, None::<u64>), // Simple mapping for now
                 crate::command::WaitCondition::Load => ("load", None, None::<u64>), // Not supported by scanner directly usually
@@ -128,13 +134,15 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                 timeout_ms: timeout.or(Some(30000)), // Default 30s
             }))
         }
-        
+
         Command::Storage(op) => {
             // Map 'storage clear' etc to Execute script
             // This is a naive implementation; proper support might need a dedicated protocol message
             // or just using Execute.
             let script = match op.as_str() {
-                "clear" => "localStorage.clear(); sessionStorage.clear(); return 'Storage cleared';",
+                "clear" => {
+                    "localStorage.clear(); sessionStorage.clear(); return 'Storage cleared';"
+                }
                 "ls_clear" => "localStorage.clear(); return 'Local storage cleared';",
                 "ss_clear" => "sessionStorage.clear(); return 'Session storage cleared';",
                 _ => return Err(TranslationError::Unsupported(format!("Storage op: {}", op))),

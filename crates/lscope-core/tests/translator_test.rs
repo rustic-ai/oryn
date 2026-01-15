@@ -31,11 +31,14 @@ fn test_translate_scroll() {
     let mut opts = HashMap::new();
     opts.insert("direction".to_string(), "up".to_string());
     let cmd = Command::Scroll(None, opts);
-    
+
     let req = translate(&cmd).unwrap();
     if let ScannerRequest::Scroll(s) = req {
         assert!(s.id.is_none());
-        assert!(matches!(s.direction, lscope_core::protocol::ScrollDirection::Up));
+        assert!(matches!(
+            s.direction,
+            lscope_core::protocol::ScrollDirection::Up
+        ));
     } else {
         panic!("Wrong request type");
     }
