@@ -1172,6 +1172,7 @@
         wait_for: async (params) => {
             const timeout = params.timeout || 30000;
             const start = performance.now();
+            const initialUrl = window.location.href;
 
             const getElement = () => {
                 if (params.id) return STATE.elementMap.get(params.id);
@@ -1214,6 +1215,10 @@
                         const el = getElement();
                         return el && el.disabled === true;
                     }
+                    case 'navigation': {
+                        // Check if URL has changed from initial
+                        return window.location.href !== initialUrl;
+                    }
                     default:
                         return false;
                 }
@@ -1222,6 +1227,13 @@
             const poll = () => {
                 const elapsed = performance.now() - start;
                 if (elapsed >= timeout) {
+                    // Use NAVIGATION_ERROR for navigation condition timeout
+                    if (params.condition === 'navigation') {
+                        return Promise.reject({
+                            msg: 'Navigation did not occur within timeout',
+                            code: 'NAVIGATION_ERROR'
+                        });
+                    }
                     return Promise.reject({ msg: 'Timeout waiting for condition', code: 'TIMEOUT' });
                 }
 
@@ -1234,10 +1246,16 @@
 
             try {
                 const met = await poll();
-                return Protocol.success({
+                const result = {
                     condition_met: met,
                     waited_ms: Math.round(performance.now() - start)
-                });
+                };
+                // Include URL info for navigation condition
+                if (params.condition === 'navigation') {
+                    result.previous_url = initialUrl;
+                    result.current_url = window.location.href;
+                }
+                return Protocol.success(result);
             } catch (e) {
                 return Protocol.error(e.msg, e.code);
             }

@@ -1270,6 +1270,38 @@ describe('Scanner Protocol Tests', () => {
                 expect(result.data.waited_ms).toBeDefined();
                 expect(result.data.waited_ms).toBeGreaterThanOrEqual(0);
             });
+
+            test('navigation condition detects URL change', async () => {
+                // Schedule URL change via hash
+                await page.evaluate(() => {
+                    setTimeout(() => {
+                        window.location.hash = '#test-nav';
+                    }, 100);
+                });
+
+                const result = await runCommand(page, {
+                    cmd: 'wait_for',
+                    condition: 'navigation',
+                    timeout: 1000
+                });
+
+                expect(result.ok).toBe(true);
+                expect(result.data.condition_met).toBe(true);
+                expect(result.data.previous_url).toBeDefined();
+                expect(result.data.current_url).toBeDefined();
+                expect(result.data.current_url).toContain('#test-nav');
+            });
+
+            test('navigation condition times out with NAVIGATION_ERROR', async () => {
+                const result = await runCommand(page, {
+                    cmd: 'wait_for',
+                    condition: 'navigation',
+                    timeout: 200
+                });
+
+                expect(result.ok).toBe(false);
+                expect(result.code).toBe('NAVIGATION_ERROR');
+            });
         });
 
         // ----------------------------------------------------------

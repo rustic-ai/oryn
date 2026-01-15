@@ -95,9 +95,13 @@ All responses share a common structure:
 | `ELEMENT_NOT_INTERACTABLE` | Cannot interact (covered, etc.) | Use `force` option |
 | `SELECTOR_INVALID` | CSS selector syntax error | Fix selector |
 | `TIMEOUT` | Operation timed out | Increase timeout or verify condition |
-| `NAVIGATION_ERROR` | Page navigation failed | Check URL/network |
+| `NAVIGATION_ERROR` | Page navigation failed or timed out | Check URL/network |
 | `SCRIPT_ERROR` | JavaScript execution error | Check script syntax |
 | `UNKNOWN_COMMAND` | Command not recognized | Check command name |
+| `INVALID_REQUEST` | Missing or malformed command | Check request format |
+| `INVALID_ELEMENT_TYPE` | Element type doesn't match command | Use correct element |
+| `OPTION_NOT_FOUND` | Select option not found | Check value/text/index |
+| `INTERNAL_ERROR` | Unexpected internal error | Report bug |
 
 ---
 
@@ -348,10 +352,12 @@ Condition types:
 - `gone` — Element removed from DOM
 - `enabled` — Element becomes enabled
 - `disabled` — Element becomes disabled
+- `navigation` — URL changes (for detecting page navigation)
 
 **Response Data**
 - Whether condition was met
 - Time waited
+- For `navigation` condition: previous and current URL
 
 ### 3.15 execute
 
