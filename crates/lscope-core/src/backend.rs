@@ -26,6 +26,8 @@ pub enum BackendError {
     Serialization(#[from] serde_json::Error),
     #[error("Other: {0}")]
     Other(String),
+    #[error("Not supported: {0}")]
+    NotSupported(String),
 }
 
 /// The Backend trait is the unified interface all three binaries must implement.

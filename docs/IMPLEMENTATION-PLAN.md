@@ -12,10 +12,10 @@ This document outlines the remaining work to complete Lemmascope based on compar
 | Universal Scanner      | Implemented | ~85%         |
 | Backend Trait          | Implemented | 100%         |
 | lscope-e (Embedded)    | Stub Only   | 0%           |
-| lscope-h (Headless)    | Stub Only   | 0%           |
-| lscope-r (Remote)      | Stub Only   | 0%           |
-| Browser Extension      | Not Started | 0%           |
-| CLI Interface          | Not Started | 0%           |
+| lscope-h (Headless)    | Implemented | 100%         |
+| lscope-r (Remote)      | Implemented | 100%         |
+| Browser Extension      | Implemented | 100%         |
+| CLI Interface          | Implemented | 80%          |
 
 ---
 
@@ -109,34 +109,34 @@ Per SPEC-UNIFIED.md Section 8.1, Remote mode is the first backend to implement f
 **Location**: `crates/lscope-r/src/server.rs`
 
 **Tasks**:
-- [ ] Add dependencies: `tokio`, `tokio-tungstenite`, `serde_json`
-- [ ] Implement WebSocket server accepting extension connections
-- [ ] Define message protocol between server and extension:
+- [x] Add dependencies: `tokio`, `tokio-tungstenite`, `serde_json`
+- [x] Implement WebSocket server accepting extension connections
+- [x] Define message protocol between server and extension:
   - Server → Extension: scanner commands (JSON)
   - Extension → Server: scanner responses (JSON)
-- [ ] Handle connection lifecycle (connect, disconnect, reconnect)
-- [ ] Implement heartbeat/keepalive mechanism
+- [x] Handle connection lifecycle (connect, disconnect, reconnect)
+- [x] Implement heartbeat/keepalive mechanism
 
 ### 2.2 Remote Backend Implementation (lscope-r)
 
 **Location**: `crates/lscope-r/src/backend.rs`
 
 **Tasks**:
-- [ ] Implement `Backend` trait for remote mode
-- [ ] `launch()`: Start WebSocket server, wait for extension connection
-- [ ] `close()`: Close WebSocket connection gracefully
-- [ ] `is_ready()`: Check extension connection status
-- [ ] `navigate()`: Send navigation command to extension
-- [ ] `execute_scanner()`: Send command, await response with timeout
-- [ ] `screenshot()`: Request and receive screenshot from extension
-- [ ] Handle connection errors and reconnection
+- [x] Implement `Backend` trait for remote mode
+- [x] `launch()`: Start WebSocket server, wait for extension connection
+- [x] `close()`: Close WebSocket connection gracefully
+- [x] `is_ready()`: Check extension connection status
+- [x] `navigate()`: Send navigation command to extension
+- [x] `execute_scanner()`: Send command, await response with timeout
+- [x] `screenshot()`: Request and receive screenshot from extension
+- [x] Handle connection errors and reconnection
 
 ### 2.3 Browser Extension - Manifest and Structure
 
 **Location**: `extension/`
 
 **Tasks**:
-- [ ] Create `manifest.json` (Manifest V3):
+- [x] Create `manifest.json` (Manifest V3):
   ```json
   {
     "manifest_version": 3,
@@ -146,7 +146,7 @@ Per SPEC-UNIFIED.md Section 8.1, Remote mode is the first backend to implement f
     "content_scripts": [{ "matches": ["<all_urls>"], "js": ["content.js"] }]
   }
   ```
-- [ ] Create extension directory structure:
+- [x] Create extension directory structure:
   - `manifest.json`
   - `background.js` (service worker)
   - `content.js` (scanner injection and communication)
@@ -157,34 +157,34 @@ Per SPEC-UNIFIED.md Section 8.1, Remote mode is the first backend to implement f
 **Location**: `extension/background.js`
 
 **Tasks**:
-- [ ] Implement WebSocket client connecting to lscope-r server
-- [ ] Route messages between server and content script
-- [ ] Handle tab management (current active tab tracking)
-- [ ] Implement connection status tracking
-- [ ] Handle reconnection logic
+- [x] Implement WebSocket client connecting to lscope-r server
+- [x] Route messages between server and content script
+- [x] Handle tab management (current active tab tracking)
+- [x] Implement connection status tracking
+- [x] Handle reconnection logic
 
 ### 2.5 Browser Extension - Content Script
 
 **Location**: `extension/content.js`
 
 **Tasks**:
-- [ ] Inject scanner.js into page context
-- [ ] Listen for messages from background script
-- [ ] Execute scanner commands via `window.postMessage` or direct call
-- [ ] Return scanner responses to background script
-- [ ] Handle page navigation (re-inject scanner on new pages)
+- [x] Inject scanner.js into page context
+- [x] Listen for messages from background script
+- [x] Execute scanner commands via `window.postMessage` or direct call
+- [x] Return scanner responses to background script
+- [x] Handle page navigation (re-inject scanner on new pages)
 
 ### 2.6 lscope-r CLI
 
 **Location**: `crates/lscope-r/src/main.rs`
 
 **Tasks**:
-- [ ] Add CLI argument parsing (clap)
-- [ ] Implement REPL mode for interactive commands
-- [ ] Implement single-command mode
-- [ ] Implement batch/script mode
-- [ ] Add `--port` option for WebSocket server
-- [ ] Add `--verbose` option for debug output
+- [x] Add CLI argument parsing (clap)
+- [x] Implement REPL mode for interactive commands
+- [x] Implement single-command mode
+- [x] Implement batch/script mode
+- [x] Add `--port` option for WebSocket server
+- [x] Add `--verbose` option for debug output
 
 ---
 
@@ -195,36 +195,36 @@ Per SPEC-UNIFIED.md Section 8.1, Remote mode is the first backend to implement f
 **Location**: `crates/lscope-h/src/cdp.rs`
 
 **Tasks**:
-- [ ] Add dependency: `chromiumoxide` or `headless_chrome`
-- [ ] Implement Chrome/Chromium process management:
+- [x] Add dependency: `chromiumoxide` or `headless_chrome`
+- [x] Implement Chrome/Chromium process management:
   - Launch with appropriate flags
   - Connect via DevTools Protocol
   - Handle process lifecycle
-- [ ] Implement CDP session management
+- [x] Implement CDP session management
 
 ### 3.2 Headless Backend Implementation (lscope-h)
 
 **Location**: `crates/lscope-h/src/backend.rs`
 
 **Tasks**:
-- [ ] Implement `Backend` trait for headless mode
-- [ ] `launch()`: Start Chrome with `--headless`, connect via CDP
-- [ ] `close()`: Terminate Chrome process cleanly
-- [ ] `is_ready()`: Check CDP connection status
-- [ ] `navigate()`: Use CDP `Page.navigate`, wait for load
-- [ ] `execute_scanner()`: Inject scanner via `Runtime.evaluate`, execute commands
-- [ ] `screenshot()`: Use CDP `Page.captureScreenshot`
-- [ ] Handle Chrome crash recovery
+- [x] Implement `Backend` trait for headless mode
+- [x] `launch()`: Start Chrome with `--headless`, connect via CDP
+- [x] `close()`: Terminate Chrome process cleanly
+- [x] `is_ready()`: Check CDP connection status
+- [x] `navigate()`: Use CDP `Page.navigate`, wait for load
+- [x] `execute_scanner()`: Inject scanner via `Runtime.evaluate`, execute commands
+- [x] `screenshot()`: Use CDP `Page.captureScreenshot`
+- [x] Handle Chrome crash recovery
 
 ### 3.3 Scanner Injection via CDP
 
 **Location**: `crates/lscope-h/src/inject.rs`
 
 **Tasks**:
-- [ ] Implement scanner injection using `Runtime.evaluate`
-- [ ] Handle injection timing (after DOMContentLoaded)
-- [ ] Re-inject scanner after page navigation
-- [ ] Handle iframe injection (if needed)
+- [x] Implement scanner injection using `Runtime.evaluate`
+- [x] Handle injection timing (after DOMContentLoaded)
+- [x] Re-inject scanner after page navigation
+- [x] Handle iframe injection (if needed)
 
 ### 3.4 CDP-Specific Features
 
@@ -243,10 +243,10 @@ Per SPEC-UNIFIED.md, headless mode should support:
 **Location**: `crates/lscope-h/src/main.rs`
 
 **Tasks**:
-- [ ] CLI argument parsing
-- [ ] `--chrome-path` option for custom Chrome location
-- [ ] `--user-data-dir` option for profile persistence
-- [ ] REPL, single-command, and batch modes
+- [x] CLI argument parsing
+- [x] `--chrome-path` option for custom Chrome location
+- [x] `--user-data-dir` option for profile persistence
+- [x] REPL, single-command, and batch modes
 
 ---
 

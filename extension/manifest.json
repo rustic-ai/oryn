@@ -1,0 +1,28 @@
+{
+    "manifest_version": 3,
+    "name": "Lemmascope Agent",
+    "version": "0.1.0",
+    "description": "Browser automation agent for Lemmascope",
+    "permissions": [
+        "activeTab",
+        "scripting",
+        "tabs"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "scanner.js",
+                "content.js"
+            ]
+        }
+    ]
+}
