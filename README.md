@@ -14,17 +14,21 @@ Traditional agent-browser interfaces fail because they expose the wrong abstract
 - **Intent language** instead of rigid function schemas  
 - **Consistent behavior** across all deployment environments
 
-## The Three Binaries
+## The Unified CLI
+Lemmascope provides a single unified binary `lscope` that adapts to any environment:
 
-Lemmascope ships as three specialized binaries for different environments:
+```bash
+# Headless Mode (Cloud/CI)
+lscope headless
 
-| Binary | Name | Use Case |
-|--------|------|----------|
-| `lscope-e` | Embedded | IoT, containers, edge devices |
-| `lscope-h` | Headless | Cloud automation, CI/CD, scraping |
-| `lscope-r` | Remote | User assistance, authenticated sessions |
+# Embedded Mode (IoT/Edge)
+lscope embedded --driver-url http://localhost:8080
 
-All three binaries use the same protocol and produce identical behavior for the same inputs.
+# Remote Mode (Debug/Assistance)
+lscope remote --port 9001
+```
+
+See the [User Guide](docs/USER_GUIDE.md) for full usage instructions.
 
 ## Quick Example
 
@@ -89,12 +93,12 @@ Lemmascope presents the web as agents need to see it:
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [SPEC-INTENT-LANGUAGE.md](docs/SPEC-INTENT-LANGUAGE.md) | The agent-facing command protocol |
+| Document                                                  | Description                        |
+| --------------------------------------------------------- | ---------------------------------- |
+| [SPEC-INTENT-LANGUAGE.md](docs/SPEC-INTENT-LANGUAGE.md)   | The agent-facing command protocol  |
 | [SPEC-SCANNER-PROTOCOL.md](docs/SPEC-SCANNER-PROTOCOL.md) | Internal browser-scanner interface |
-| [SPEC-UNIFIED.md](docs/SPEC-UNIFIED.md) | Architecture and mode comparison |
-| [PRODUCT-INTRO.md](docs/PRODUCT-INTRO.md) | Product overview and vision |
+| [SPEC-UNIFIED.md](docs/SPEC-UNIFIED.md)                   | Architecture and mode comparison   |
+| [PRODUCT-INTRO.md](docs/PRODUCT-INTRO.md)                 | Product overview and vision        |
 
 ## Project Structure
 
