@@ -22,3 +22,25 @@ pub fn wpe_capabilities() -> serde_json::Map<String, serde_json::Value> {
     );
     caps
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_url() {
+        assert_eq!(default_cog_url(), "http://localhost:8080");
+    }
+
+    #[test]
+    fn test_wpe_capabilities() {
+        let caps = wpe_capabilities();
+        assert_eq!(caps.get("browserName").unwrap(), "wpe");
+
+        let opts = caps.get("wpe:browserOptions").unwrap();
+        assert!(opts.is_object());
+
+        let path = opts.get("binary").unwrap().as_str().unwrap();
+        assert_eq!(path, "/usr/bin/cog");
+    }
+}

@@ -12,6 +12,7 @@ This document outlines the remaining work to complete Lemmascope based on compar
 | Universal Scanner      | Implemented | ~95%         |
 | Backend Trait          | Implemented | 100%         |
 | lscope-e (Embedded)    | Implemented | 100%         |
+| Phase 5 (Scanner Gaps) | Implemented | 100%         |
 | lscope-h (Headless)    | Implemented | 100%         |
 | lscope-r (Remote)      | Implemented | 100%         |
 | Browser Extension      | Implemented | 100%         |
@@ -305,20 +306,20 @@ Based on SCANNER-GAPS.md and spec comparison:
 **Location**: `crates/lscope-scanner/src/scanner.js`
 
 **Tasks**:
-- [ ] Add `navigation` boolean to click response
-- [ ] Add `dom_changes` details to click response (elements added/removed/modified with IDs)
-- [ ] Add `selector` field to action responses (type, clear, check, etc.)
-- [ ] Add `timing` object to all responses
-- [ ] Add `index` field to select response when selecting by index
-- [ ] Add `form_selector` and `form_id` to submit response
+- [x] Add `navigation` boolean to click response
+- [x] Add `dom_changes` details to click response (elements added/removed/modified with IDs)
+- [x] Add `selector` field to action responses (type, clear, check, etc.)
+- [x] Add `timing` object to all responses
+- [x] Add `index` field to select response when selecting by index
+- [x] Add `form_selector` and `form_id` to submit response
 
 ### 5.2 Missing Command Parameters
 
 **Location**: `crates/lscope-scanner/src/scanner.js`
 
 **Tasks**:
-- [ ] Add `offset` parameter support to `hover` command
-- [ ] Make `poll_interval` configurable in `wait_for` command
+- [x] Add `offset` parameter support to `hover` command
+- [x] Make `poll_interval` configurable in `wait_for` command
 - [x] Add `include_iframes` parameter to scan (currently always true)
 
 ### 5.3 Enhanced Element Attributes
@@ -326,9 +327,9 @@ Based on SCANNER-GAPS.md and spec comparison:
 **Location**: `crates/lscope-scanner/src/scanner.js`
 
 **Tasks**:
-- [ ] Add more `data-*` attribute capture
+- [x] Add more `data-*` attribute capture
 - [ ] Improve selector generation for edge cases
-- [ ] Add `aria-describedby` attribute capture
+- [x] Add `aria-describedby` attribute capture
 
 ### 5.4 Navigation Condition Enhancement
 

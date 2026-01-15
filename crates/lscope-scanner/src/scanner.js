@@ -646,6 +646,14 @@
             // Get associated label text for form elements
             const label = Utils.getLabelText(el);
 
+            // Capture data attributes
+            const dataAttrs = {};
+            for (const name of el.getAttributeNames()) {
+                if (name.startsWith('data-')) {
+                    dataAttrs[name] = el.getAttribute(name);
+                }
+            }
+
             return {
                 id: id,
                 type: el.tagName.toLowerCase(),
@@ -670,10 +678,11 @@
                     'aria-label': el.getAttribute('aria-label') || undefined,
                     'aria-hidden': el.getAttribute('aria-hidden') || undefined,
                     'aria-disabled': el.getAttribute('aria-disabled') || undefined,
+                    'aria-describedby': el.getAttribute('aria-describedby') || undefined,
                     title: el.getAttribute('title') || undefined,
                     class: el.className || undefined,
                     tabindex: el.getAttribute('tabindex') || undefined,
-                    'data-testid': el.getAttribute('data-testid') || undefined
+                    ...dataAttrs
                 },
                 state: state
             };
@@ -1031,7 +1040,7 @@
             el.dispatchEvent(new Event('change', { bubbles: true }));
             el.dispatchEvent(new Event('input', { bubbles: true }));
 
-            return Protocol.success({
+            const response = {
                 action: 'selected',
                 id: params.id,
                 selector: Utils.generateSelector(el),
@@ -1040,7 +1049,14 @@
                     value: previousValue,
                     text: previousText
                 }
-            });
+            };
+
+            // Add index field if selecting by index
+            if (indexes) {
+                response.index = indexes;
+            }
+
+            return Protocol.success(response);
         },
 
         scroll: (params) => {
@@ -1115,8 +1131,16 @@
 
             // Calculate center coordinates
             const rect = el.getBoundingClientRect();
-            const clientX = rect.left + rect.width / 2;
-            const clientY = rect.top + rect.height / 2;
+            let clientX, clientY;
+
+            if (params.offset) {
+                // Offset from top-left of element
+                clientX = rect.left + (params.offset.x || 0);
+                clientY = rect.top + (params.offset.y || 0);
+            } else {
+                clientX = rect.left + rect.width / 2;
+                clientY = rect.top + rect.height / 2;
+            }
 
             const mouseOpts = {
                 view: window,
@@ -1171,6 +1195,7 @@
 
         wait_for: async (params) => {
             const timeout = params.timeout || 30000;
+            const pollInterval = params.poll_interval || 100;
             const start = performance.now();
             const initialUrl = window.location.href;
 
@@ -1241,7 +1266,7 @@
                     return Promise.resolve(true);
                 }
 
-                return new Promise((r) => setTimeout(r, 100)).then(poll);
+                return new Promise((r) => setTimeout(r, pollInterval)).then(poll);
             };
 
             try {
