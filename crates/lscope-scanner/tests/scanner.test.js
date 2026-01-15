@@ -65,7 +65,7 @@ describe('Scanner Protocol Tests', () => {
         describe('2.1 Request Structure', () => {
             test('requires cmd field', async () => {
                 const result = await runCommand(page, {});
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 expect(result.code).toBe('INVALID_REQUEST');
             });
 
@@ -73,28 +73,27 @@ describe('Scanner Protocol Tests', () => {
                 const result = await page.evaluate(async () => {
                     return await window.Lemmascope.process('{"cmd": "version"}');
                 });
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
             });
         });
 
         describe('2.2 Response Structure', () => {
             test('success response has ok=true and data field', async () => {
                 const result = await runCommand(page, { cmd: 'version' });
-                expect(result.ok).toBe(true);
-                expect(result.data).toBeDefined();
+                expect(result.status).toBe('ok');
                 expect(result.error).toBeUndefined();
             });
 
             test('success response includes timing', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
                 expect(result.timing).toBeDefined();
                 expect(result.timing.duration_ms).toBeGreaterThanOrEqual(0);
             });
 
             test('error response has ok=false, error, and code', async () => {
                 const result = await runCommand(page, { cmd: 'click', id: 99999 });
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 expect(result.error).toBeDefined();
                 expect(result.code).toBeDefined();
             });
@@ -109,7 +108,7 @@ describe('Scanner Protocol Tests', () => {
             test('ELEMENT_STALE for removed element', async () => {
                 // Scan first
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 // Remove the element
                 await page.evaluate(() => {
@@ -118,35 +117,35 @@ describe('Scanner Protocol Tests', () => {
 
                 // Try to click
                 const result = await runCommand(page, { cmd: 'click', id: btn.id });
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 expect(result.code).toBe('ELEMENT_STALE');
             });
 
             test('ELEMENT_NOT_VISIBLE for hidden element', async () => {
                 const scan = await runCommand(page, { cmd: 'scan', include_hidden: true });
-                const hiddenBtn = scan.data.elements.find((el) => el.text === 'Hidden Element');
+                const hiddenBtn = scan.elements.find((el) => el.text === 'Hidden Element');
 
                 if (hiddenBtn) {
                     const result = await runCommand(page, { cmd: 'click', id: hiddenBtn.id });
-                    expect(result.ok).toBe(false);
+                    expect(result.status).toBe('error');
                     expect(result.code).toBe('ELEMENT_NOT_VISIBLE');
                 }
             });
 
             test('ELEMENT_DISABLED for disabled element', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const disabledInput = findElement(scan.data.elements, 'id', 'disabled-input');
+                const disabledInput = findElement(scan.elements, 'id', 'disabled-input');
 
                 if (disabledInput) {
                     const result = await runCommand(page, { cmd: 'type', id: disabledInput.id, text: 'test' });
-                    expect(result.ok).toBe(false);
+                    expect(result.status).toBe('error');
                     expect(result.code).toBe('ELEMENT_DISABLED');
                 }
             });
 
             test('SELECTOR_INVALID for bad selector', async () => {
                 const result = await runCommand(page, { cmd: 'scan', within: '###invalid' });
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 // Note: DOMException from querySelector returns numeric code, scanner wraps as error
                 expect(result.code).toBeDefined();
             });
@@ -158,7 +157,7 @@ describe('Scanner Protocol Tests', () => {
                     selector: '#nonexistent-element',
                     timeout: 100
                 });
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 expect(result.code).toBe('TIMEOUT');
             });
 
@@ -167,13 +166,13 @@ describe('Scanner Protocol Tests', () => {
                     cmd: 'execute',
                     script: 'throw new Error("test error")'
                 });
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 expect(result.code).toBe('SCRIPT_ERROR');
             });
 
             test('UNKNOWN_COMMAND for invalid command', async () => {
                 const result = await runCommand(page, { cmd: 'invalid_command' });
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 expect(result.code).toBe('UNKNOWN_COMMAND');
             });
         });
@@ -201,9 +200,9 @@ describe('Scanner Protocol Tests', () => {
 
             test('returns page information', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
 
-                const { page: pageInfo } = result.data;
+                const { page: pageInfo } = result;
                 expect(pageInfo.url).toContain('harness.html');
                 expect(pageInfo.title).toBe('Scanner Harness');
                 expect(pageInfo.viewport).toHaveProperty('width');
@@ -216,7 +215,7 @@ describe('Scanner Protocol Tests', () => {
 
             test('returns element list with required fields', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
-                const elements = result.data.elements;
+                const elements = result.elements;
 
                 expect(elements.length).toBeGreaterThan(0);
 
@@ -238,24 +237,24 @@ describe('Scanner Protocol Tests', () => {
 
             test('max_elements parameter limits results', async () => {
                 const result = await runCommand(page, { cmd: 'scan', max_elements: 5 });
-                expect(result.data.elements.length).toBeLessThanOrEqual(5);
-                expect(result.data.settings_applied.max_elements).toBe(5);
+                expect(result.elements.length).toBeLessThanOrEqual(5);
+                expect(result.settings_applied.max_elements).toBe(5);
             });
 
             test('include_hidden parameter includes hidden elements', async () => {
                 const withoutHidden = await runCommand(page, { cmd: 'scan', include_hidden: false });
                 const withHidden = await runCommand(page, { cmd: 'scan', include_hidden: true });
 
-                expect(withHidden.data.elements.length).toBeGreaterThanOrEqual(withoutHidden.data.elements.length);
-                expect(withHidden.data.settings_applied.include_hidden).toBe(true);
+                expect(withHidden.elements.length).toBeGreaterThanOrEqual(withoutHidden.elements.length);
+                expect(withHidden.settings_applied.include_hidden).toBe(true);
             });
 
             test('within parameter limits to container', async () => {
                 const result = await runCommand(page, { cmd: 'scan', within: '#forms' });
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
 
                 // All elements should be within the forms section
-                const elements = result.data.elements;
+                const elements = result.elements;
                 const nonFormElements = elements.filter(
                     (el) => el.attributes.id === 'btn-1' || el.attributes.id === 'input-1'
                 );
@@ -266,17 +265,17 @@ describe('Scanner Protocol Tests', () => {
                 const allResult = await runCommand(page, { cmd: 'scan', viewport_only: false });
                 const viewportResult = await runCommand(page, { cmd: 'scan', viewport_only: true });
 
-                expect(viewportResult.data.settings_applied.viewport_only).toBe(true);
+                expect(viewportResult.settings_applied.viewport_only).toBe(true);
                 // Viewport-only should have same or fewer elements
-                expect(viewportResult.data.elements.length).toBeLessThanOrEqual(allResult.data.elements.length);
+                expect(viewportResult.elements.length).toBeLessThanOrEqual(allResult.elements.length);
             });
 
             test('near parameter filters by proximity', async () => {
                 const result = await runCommand(page, { cmd: 'scan', near: 'Label For Button' });
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
 
-                const nearBtn = findElement(result.data.elements, 'id', 'near-btn');
-                const farBtn = findElement(result.data.elements, 'id', 'far-btn');
+                const nearBtn = findElement(result.elements, 'id', 'near-btn');
+                const farBtn = findElement(result.elements, 'id', 'far-btn');
 
                 expect(nearBtn).toBeDefined();
                 expect(farBtn).toBeUndefined();
@@ -284,8 +283,8 @@ describe('Scanner Protocol Tests', () => {
 
             test('returns stats', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
-                expect(result.data.stats).toBeDefined();
-                expect(result.data.stats.total).toBeGreaterThan(0);
+                expect(result.stats).toBeDefined();
+                expect(result.stats.total).toBeGreaterThan(0);
             });
 
             test('echoes back settings_applied', async () => {
@@ -297,7 +296,7 @@ describe('Scanner Protocol Tests', () => {
                     viewport_only: true
                 });
 
-                expect(result.data.settings_applied).toEqual({
+                expect(result.settings_applied).toEqual({
                     max_elements: 50,
                     include_hidden: true,
                     include_iframes: false,
@@ -324,12 +323,12 @@ describe('Scanner Protocol Tests', () => {
 
             test('clicks element by ID', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'click', id: btn.id });
-                expect(result.ok).toBe(true);
-                expect(result.data.action).toBe('clicked');
-                expect(result.data.id).toBe(btn.id);
+                expect(result.status).toBe('ok');
+                expect(result.action).toBe('clicked');
+                expect(result.id).toBe(btn.id);
 
                 // Verify side effect
                 const log = await page.evaluate(() => document.getElementById('log').innerText);
@@ -338,106 +337,106 @@ describe('Scanner Protocol Tests', () => {
 
             test('returns selector in response', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'click', id: btn.id });
-                expect(result.data.selector).toBe('#btn-1');
+                expect(result.selector).toBe('#btn-1');
             });
 
             test('returns coordinates in response', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'click', id: btn.id });
-                expect(result.data.coordinates).toHaveProperty('x');
-                expect(result.data.coordinates).toHaveProperty('y');
+                expect(result.coordinates).toHaveProperty('x');
+                expect(result.coordinates).toHaveProperty('y');
             });
 
             test('double-click with click_count=2', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'click', id: btn.id, click_count: 2 });
-                expect(result.ok).toBe(true);
-                expect(result.data.action).toBe('double_clicked');
+                expect(result.status).toBe('ok');
+                expect(result.action).toBe('double_clicked');
             });
 
             test('right-click with button="right"', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'click', id: btn.id, button: 'right' });
-                expect(result.ok).toBe(true);
-                expect(result.data.button).toBe('right');
+                expect(result.status).toBe('ok');
+                expect(result.button).toBe('right');
             });
 
             test('middle-click with button="middle"', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'click', id: btn.id, button: 'middle' });
-                expect(result.ok).toBe(true);
-                expect(result.data.button).toBe('middle');
+                expect(result.status).toBe('ok');
+                expect(result.button).toBe('middle');
             });
 
             test('click with modifiers', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, {
                     cmd: 'click',
                     id: btn.id,
                     modifiers: ['Shift', 'Control']
                 });
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
             });
 
             test('click with offset', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, {
                     cmd: 'click',
                     id: btn.id,
                     offset: { x: 5, y: 5 }
                 });
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
             });
 
             test('force click on covered element', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const coveredBtn = findElement(scan.data.elements, 'id', 'covered-btn');
+                const coveredBtn = findElement(scan.elements, 'id', 'covered-btn');
 
                 if (coveredBtn) {
                     // Without force should fail
                     const failResult = await runCommand(page, { cmd: 'click', id: coveredBtn.id });
-                    expect(failResult.ok).toBe(false);
+                    expect(failResult.status).toBe('error');
 
                     // With force should succeed
                     const forceResult = await runCommand(page, { cmd: 'click', id: coveredBtn.id, force: true });
-                    expect(forceResult.ok).toBe(true);
+                    expect(forceResult.status).toBe('ok');
                 }
             });
 
             test('scroll_into_view=false skips scrolling', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, {
                     cmd: 'click',
                     id: btn.id,
                     scroll_into_view: false
                 });
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
             });
 
             test('detects navigation on click', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const navBtn = findElement(scan.data.elements, 'id', 'nav-btn');
+                const navBtn = findElement(scan.elements, 'id', 'nav-btn');
 
                 const result = await runCommand(page, { cmd: 'click', id: navBtn.id });
-                expect(result.ok).toBe(true);
-                expect(result.data.navigation).toBe(true);
+                expect(result.status).toBe('ok');
+                expect(result.navigation).toBe(true);
             });
 
             test('tracks dom_changes on click', async () => {
@@ -454,11 +453,11 @@ describe('Scanner Protocol Tests', () => {
                 });
 
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'dom-modifier');
+                const btn = findElement(scan.elements, 'id', 'dom-modifier');
 
                 const result = await runCommand(page, { cmd: 'click', id: btn.id });
-                expect(result.data.dom_changes).toBeDefined();
-                expect(result.data.dom_changes.added).toBeGreaterThan(0);
+                expect(result.dom_changes).toBeDefined();
+                expect(result.dom_changes.added).toBeGreaterThan(0);
             });
         });
 
@@ -480,64 +479,64 @@ describe('Scanner Protocol Tests', () => {
 
             test('types text into input', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 const result = await runCommand(page, { cmd: 'type', id: input.id, text: 'Hello World' });
-                expect(result.ok).toBe(true);
-                expect(result.data.action).toBe('typed');
-                expect(result.data.text).toBe('Hello World');
-                expect(result.data.value).toBe('Hello World');
+                expect(result.status).toBe('ok');
+                expect(result.action).toBe('typed');
+                expect(result.text).toBe('Hello World');
+                expect(result.value).toBe('Hello World');
             });
 
             test('returns selector in response', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 const result = await runCommand(page, { cmd: 'type', id: input.id, text: 'test' });
-                expect(result.data.selector).toBeDefined();
+                expect(result.selector).toBeDefined();
             });
 
             test('clears existing content by default', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 // Type initial text
                 await runCommand(page, { cmd: 'type', id: input.id, text: 'First' });
                 // Type again (should clear)
                 const result = await runCommand(page, { cmd: 'type', id: input.id, text: 'Second' });
 
-                expect(result.data.value).toBe('Second');
+                expect(result.value).toBe('Second');
             });
 
             test('clear=false appends to existing', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 await runCommand(page, { cmd: 'type', id: input.id, text: 'First' });
                 const result = await runCommand(page, { cmd: 'type', id: input.id, text: 'Second', clear: false });
 
-                expect(result.data.value).toBe('FirstSecond');
+                expect(result.value).toBe('FirstSecond');
             });
 
             test('types with delay between keystrokes', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 const start = Date.now();
                 const result = await runCommand(page, { cmd: 'type', id: input.id, text: 'ABC', delay: 50 });
                 const elapsed = Date.now() - start;
 
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
                 expect(elapsed).toBeGreaterThanOrEqual(100); // At least 2 delays
             });
 
             test('fails on disabled input', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const disabledInput = findElement(scan.data.elements, 'id', 'disabled-input');
+                const disabledInput = findElement(scan.elements, 'id', 'disabled-input');
 
                 if (disabledInput) {
                     const result = await runCommand(page, { cmd: 'type', id: disabledInput.id, text: 'test' });
-                    expect(result.ok).toBe(false);
+                    expect(result.status).toBe('error');
                     expect(result.code).toBe('ELEMENT_DISABLED');
                 }
             });
@@ -561,27 +560,27 @@ describe('Scanner Protocol Tests', () => {
 
             test('clears input value', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 // Set a value first
                 await runCommand(page, { cmd: 'type', id: input.id, text: 'Some text' });
 
                 // Clear it
                 const result = await runCommand(page, { cmd: 'clear', id: input.id });
-                expect(result.ok).toBe(true);
-                expect(result.data.action).toBe('cleared');
+                expect(result.status).toBe('ok');
+                expect(result.action).toBe('cleared');
 
                 // Verify cleared
                 const value = await runCommand(page, { cmd: 'get_value', id: input.id });
-                expect(value.data.value).toBe('');
+                expect(value.value).toBe('');
             });
 
             test('returns selector in response', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 const result = await runCommand(page, { cmd: 'clear', id: input.id });
-                expect(result.data.selector).toBeDefined();
+                expect(result.selector).toBeDefined();
             });
         });
 
@@ -603,42 +602,42 @@ describe('Scanner Protocol Tests', () => {
 
             test('check sets checkbox to checked', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const checkbox = findElement(scan.data.elements, 'id', 'check-1');
+                const checkbox = findElement(scan.elements, 'id', 'check-1');
 
                 const result = await runCommand(page, { cmd: 'check', id: checkbox.id });
-                expect(result.ok).toBe(true);
-                expect(result.data.action).toBe('checked');
-                expect(result.data.checked).toBe(true);
+                expect(result.status).toBe('ok');
+                expect(result.action).toBe('checked');
+                expect(result.checked).toBe(true);
             });
 
             test('uncheck sets checkbox to unchecked', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const checkbox = findElement(scan.data.elements, 'id', 'check-1');
+                const checkbox = findElement(scan.elements, 'id', 'check-1');
 
                 // First check it
                 await runCommand(page, { cmd: 'check', id: checkbox.id });
                 // Then uncheck
                 const result = await runCommand(page, { cmd: 'uncheck', id: checkbox.id });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.action).toBe('unchecked');
-                expect(result.data.checked).toBe(false);
+                expect(result.status).toBe('ok');
+                expect(result.action).toBe('unchecked');
+                expect(result.checked).toBe(false);
             });
 
             test('returns previous state', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const checkbox = findElement(scan.data.elements, 'id', 'check-1');
+                const checkbox = findElement(scan.elements, 'id', 'check-1');
 
                 const result = await runCommand(page, { cmd: 'check', id: checkbox.id });
-                expect(result.data).toHaveProperty('previous');
+                expect(result).toHaveProperty('previous');
             });
 
             test('returns selector in response', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const checkbox = findElement(scan.data.elements, 'id', 'check-1');
+                const checkbox = findElement(scan.elements, 'id', 'check-1');
 
                 const result = await runCommand(page, { cmd: 'check', id: checkbox.id });
-                expect(result.data.selector).toBeDefined();
+                expect(result.selector).toBeDefined();
             });
         });
 
@@ -660,82 +659,82 @@ describe('Scanner Protocol Tests', () => {
 
             test('selects by value', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const select = findElement(scan.data.elements, 'id', 'select-1');
+                const select = findElement(scan.elements, 'id', 'select-1');
 
                 const result = await runCommand(page, { cmd: 'select', id: select.id, value: '2' });
-                expect(result.ok).toBe(true);
-                expect(result.data.action).toBe('selected');
-                expect(result.data.value).toContain('2');
+                expect(result.status).toBe('ok');
+                expect(result.action).toBe('selected');
+                expect(result.value).toContain('2');
             });
 
             test('selects by text', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const select = findElement(scan.data.elements, 'id', 'select-1');
+                const select = findElement(scan.elements, 'id', 'select-1');
 
                 const result = await runCommand(page, { cmd: 'select', id: select.id, text: 'Option 3' });
-                expect(result.ok).toBe(true);
-                expect(result.data.value).toContain('3');
+                expect(result.status).toBe('ok');
+                expect(result.value).toContain('3');
             });
 
             test('selects by index', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const select = findElement(scan.data.elements, 'id', 'select-1');
+                const select = findElement(scan.elements, 'id', 'select-1');
 
                 const result = await runCommand(page, { cmd: 'select', id: select.id, index: 1 });
-                expect(result.ok).toBe(true);
-                expect(result.data.value).toContain('2'); // Index 1 = Option 2 = value "2"
+                expect(result.status).toBe('ok');
+                expect(result.value).toContain('2'); // Index 1 = Option 2 = value "2"
             });
 
             test('returns previous selection', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const select = findElement(scan.data.elements, 'id', 'select-1');
+                const select = findElement(scan.elements, 'id', 'select-1');
 
                 const result = await runCommand(page, { cmd: 'select', id: select.id, value: '2' });
-                expect(result.data.previous).toBeDefined();
-                expect(result.data.previous).toHaveProperty('value');
-                expect(result.data.previous).toHaveProperty('text');
+                expect(result.previous).toBeDefined();
+                expect(result.previous).toHaveProperty('value');
+                expect(result.previous).toHaveProperty('text');
             });
 
             test('multi-select with array of values', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const multiSelect = findElement(scan.data.elements, 'id', 'multi-select');
+                const multiSelect = findElement(scan.elements, 'id', 'multi-select');
 
                 const result = await runCommand(page, { cmd: 'select', id: multiSelect.id, value: ['1', '3'] });
-                expect(result.ok).toBe(true);
-                expect(result.data.value).toEqual(['1', '3']);
+                expect(result.status).toBe('ok');
+                expect(result.value).toEqual(['1', '3']);
             });
 
             test('multi-select with array of indexes', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const multiSelect = findElement(scan.data.elements, 'id', 'multi-select');
+                const multiSelect = findElement(scan.elements, 'id', 'multi-select');
 
                 const result = await runCommand(page, { cmd: 'select', id: multiSelect.id, index: [0, 2] });
-                expect(result.ok).toBe(true);
-                expect(result.data.value).toEqual(['1', '3']);
+                expect(result.status).toBe('ok');
+                expect(result.value).toEqual(['1', '3']);
             });
 
             test('returns selector in response', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const select = findElement(scan.data.elements, 'id', 'select-1');
+                const select = findElement(scan.elements, 'id', 'select-1');
 
                 const result = await runCommand(page, { cmd: 'select', id: select.id, value: '2' });
-                expect(result.data.selector).toBeDefined();
+                expect(result.selector).toBeDefined();
             });
 
             test('fails for non-select element', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'select', id: btn.id, value: 'x' });
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
             });
 
             test('fails for non-existent option', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const select = findElement(scan.data.elements, 'id', 'select-1');
+                const select = findElement(scan.elements, 'id', 'select-1');
 
                 const result = await runCommand(page, { cmd: 'select', id: select.id, value: 'nonexistent' });
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
             });
         });
 
@@ -757,9 +756,9 @@ describe('Scanner Protocol Tests', () => {
 
             test('scrolls down by direction', async () => {
                 const result = await runCommand(page, { cmd: 'scroll', direction: 'down', amount: 100 });
-                expect(result.ok).toBe(true);
-                expect(result.data.scroll).toBeDefined();
-                expect(result.data.scroll.y).toBeGreaterThanOrEqual(0);
+                expect(result.status).toBe('ok');
+                expect(result.scroll).toBeDefined();
+                expect(result.scroll.y).toBeGreaterThanOrEqual(0);
             });
 
             test('scrolls up by direction', async () => {
@@ -768,18 +767,18 @@ describe('Scanner Protocol Tests', () => {
                 // Then scroll up
                 const result = await runCommand(page, { cmd: 'scroll', direction: 'up', amount: 100 });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.scroll.y).toBeLessThan(200);
+                expect(result.status).toBe('ok');
+                expect(result.scroll.y).toBeLessThan(200);
             });
 
             test('scrolls element into view', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
                 // Find an element that might be below the fold
-                const elements = scan.data.elements;
+                const elements = scan.elements;
                 const lastEl = elements[elements.length - 1];
 
                 const result = await runCommand(page, { cmd: 'scroll', element: lastEl.id });
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
             });
 
             test('scrolls within container', async () => {
@@ -793,16 +792,16 @@ describe('Scanner Protocol Tests', () => {
                     direction: 'down',
                     amount: 100
                 });
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
             });
 
             test('returns scroll position and max', async () => {
                 const result = await runCommand(page, { cmd: 'scroll', direction: 'down', amount: 50 });
 
-                expect(result.data.scroll).toHaveProperty('x');
-                expect(result.data.scroll).toHaveProperty('y');
-                expect(result.data.scroll).toHaveProperty('max_x');
-                expect(result.data.scroll).toHaveProperty('max_y');
+                expect(result.scroll).toHaveProperty('x');
+                expect(result.scroll).toHaveProperty('y');
+                expect(result.scroll).toHaveProperty('max_x');
+                expect(result.scroll).toHaveProperty('max_y');
             });
 
             test('supports smooth behavior', async () => {
@@ -812,7 +811,7 @@ describe('Scanner Protocol Tests', () => {
                     amount: 100,
                     behavior: 'smooth'
                 });
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
             });
         });
 
@@ -834,11 +833,11 @@ describe('Scanner Protocol Tests', () => {
 
             test('focuses element', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 const result = await runCommand(page, { cmd: 'focus', id: input.id });
-                expect(result.ok).toBe(true);
-                expect(result.data.action).toBe('focused');
+                expect(result.status).toBe('ok');
+                expect(result.action).toBe('focused');
 
                 // Verify focus
                 const isFocused = await page.evaluate(() => document.activeElement.id === 'input-1');
@@ -847,10 +846,10 @@ describe('Scanner Protocol Tests', () => {
 
             test('returns selector in response', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 const result = await runCommand(page, { cmd: 'focus', id: input.id });
-                expect(result.data.selector).toBeDefined();
+                expect(result.selector).toBeDefined();
             });
         });
 
@@ -872,37 +871,37 @@ describe('Scanner Protocol Tests', () => {
 
             test('hovers over element', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'hover', id: btn.id });
-                expect(result.ok).toBe(true);
-                expect(result.data.action).toBe('hovered');
+                expect(result.status).toBe('ok');
+                expect(result.action).toBe('hovered');
             });
 
             test('returns coordinates', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'hover', id: btn.id });
-                expect(result.data.coordinates).toHaveProperty('x');
-                expect(result.data.coordinates).toHaveProperty('y');
+                expect(result.coordinates).toHaveProperty('x');
+                expect(result.coordinates).toHaveProperty('y');
             });
 
             test('returns selector in response', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'hover', id: btn.id });
-                expect(result.data.selector).toBeDefined();
+                expect(result.selector).toBeDefined();
             });
 
             test('fails on hidden element', async () => {
                 const scan = await runCommand(page, { cmd: 'scan', include_hidden: true });
-                const hidden = scan.data.elements.find((el) => el.text === 'Hidden Element');
+                const hidden = scan.elements.find((el) => el.text === 'Hidden Element');
 
                 if (hidden) {
                     const result = await runCommand(page, { cmd: 'hover', id: hidden.id });
-                    expect(result.ok).toBe(false);
+                    expect(result.status).toBe('error');
                     expect(result.code).toBe('ELEMENT_NOT_VISIBLE');
                 }
             });
@@ -926,11 +925,11 @@ describe('Scanner Protocol Tests', () => {
 
             test('submits form by element ID within form', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const emailInput = findElement(scan.data.elements, 'id', 'email');
+                const emailInput = findElement(scan.elements, 'id', 'email');
 
                 const result = await runCommand(page, { cmd: 'submit', id: emailInput.id });
-                expect(result.ok).toBe(true);
-                expect(result.data.action).toBe('submitted');
+                expect(result.status).toBe('ok');
+                expect(result.action).toBe('submitted');
 
                 // Verify form submitted (check log)
                 const log = await page.evaluate(() => document.getElementById('log').innerText);
@@ -944,22 +943,22 @@ describe('Scanner Protocol Tests', () => {
 
                 const scan = await runCommand(page, { cmd: 'scan' });
                 // Find any element in the login form
-                const emailInput = findElement(scan.data.elements, 'id', 'login-email');
+                const emailInput = findElement(scan.elements, 'id', 'login-email');
 
                 const result = await runCommand(page, { cmd: 'submit', id: emailInput.id });
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
             });
 
             test('submits focused element form when no ID provided', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const emailInput = findElement(scan.data.elements, 'id', 'email');
+                const emailInput = findElement(scan.elements, 'id', 'email');
 
                 // Focus the input first
                 await runCommand(page, { cmd: 'focus', id: emailInput.id });
                 // Submit without ID
                 const result = await runCommand(page, { cmd: 'submit' });
 
-                expect(result.ok).toBe(true);
+                expect(result.status).toBe('ok');
             });
 
             test('returns form_selector and form_id', async () => {
@@ -967,19 +966,19 @@ describe('Scanner Protocol Tests', () => {
                 await page.evaluate(SCANNER_JS);
 
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const emailInput = findElement(scan.data.elements, 'id', 'login-email');
+                const emailInput = findElement(scan.elements, 'id', 'login-email');
 
                 const result = await runCommand(page, { cmd: 'submit', id: emailInput.id });
-                expect(result.data.form_selector).toBeDefined();
-                expect(result.data.form_id).toBe('login-form');
+                expect(result.form_selector).toBeDefined();
+                expect(result.form_id).toBe('login-form');
             });
 
             test('fails when no form found', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1'); // Not in a form
+                const btn = findElement(scan.elements, 'id', 'btn-1'); // Not in a form
 
                 const result = await runCommand(page, { cmd: 'submit', id: btn.id });
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
             });
         });
 
@@ -1001,47 +1000,47 @@ describe('Scanner Protocol Tests', () => {
 
             test('gets text input value', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 await runCommand(page, { cmd: 'type', id: input.id, text: 'test value' });
                 const result = await runCommand(page, { cmd: 'get_value', id: input.id });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.value).toBe('test value');
+                expect(result.status).toBe('ok');
+                expect(result.value).toBe('test value');
             });
 
             test('gets checkbox value as boolean', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const checkbox = findElement(scan.data.elements, 'id', 'check-1');
+                const checkbox = findElement(scan.elements, 'id', 'check-1');
 
                 await runCommand(page, { cmd: 'check', id: checkbox.id });
                 const result = await runCommand(page, { cmd: 'get_value', id: checkbox.id });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.value).toBe(true);
+                expect(result.status).toBe('ok');
+                expect(result.value).toBe(true);
             });
 
             test('gets select value', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const select = findElement(scan.data.elements, 'id', 'select-1');
+                const select = findElement(scan.elements, 'id', 'select-1');
 
                 await runCommand(page, { cmd: 'select', id: select.id, value: '2' });
                 const result = await runCommand(page, { cmd: 'get_value', id: select.id });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.value).toBe('2');
+                expect(result.status).toBe('ok');
+                expect(result.value).toBe('2');
             });
 
             test('gets multi-select value as array', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const multiSelect = findElement(scan.data.elements, 'id', 'multi-select');
+                const multiSelect = findElement(scan.elements, 'id', 'multi-select');
 
                 await runCommand(page, { cmd: 'select', id: multiSelect.id, value: ['1', '3'] });
                 const result = await runCommand(page, { cmd: 'get_value', id: multiSelect.id });
 
-                expect(result.ok).toBe(true);
-                expect(Array.isArray(result.data.value)).toBe(true);
-                expect(result.data.value).toEqual(['1', '3']);
+                expect(result.status).toBe('ok');
+                expect(Array.isArray(result.value)).toBe(true);
+                expect(result.value).toEqual(['1', '3']);
             });
         });
 
@@ -1063,13 +1062,13 @@ describe('Scanner Protocol Tests', () => {
 
             test('gets text content by selector', async () => {
                 const result = await runCommand(page, { cmd: 'get_text', selector: 'h1' });
-                expect(result.ok).toBe(true);
-                expect(result.data.text).toContain('Scanner Test Harness');
+                expect(result.status).toBe('ok');
+                expect(result.text).toContain('Scanner Test Harness');
             });
 
             test('fails for non-existent selector', async () => {
                 const result = await runCommand(page, { cmd: 'get_text', selector: '#nonexistent' });
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 expect(result.code).toBe('ELEMENT_NOT_FOUND');
             });
         });
@@ -1092,14 +1091,14 @@ describe('Scanner Protocol Tests', () => {
 
             test('returns true for existing element', async () => {
                 const result = await runCommand(page, { cmd: 'exists', selector: '#btn-1' });
-                expect(result.ok).toBe(true);
-                expect(result.data.exists).toBe(true);
+                expect(result.status).toBe('ok');
+                expect(result.exists).toBe(true);
             });
 
             test('returns false for non-existent element', async () => {
                 const result = await runCommand(page, { cmd: 'exists', selector: '#nonexistent' });
-                expect(result.ok).toBe(true);
-                expect(result.data.exists).toBe(false);
+                expect(result.status).toBe('ok');
+                expect(result.exists).toBe(false);
             });
         });
 
@@ -1136,9 +1135,9 @@ describe('Scanner Protocol Tests', () => {
                     timeout: 1000
                 });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.condition_met).toBe(true);
-                expect(result.data.waited_ms).toBeGreaterThanOrEqual(100);
+                expect(result.status).toBe('ok');
+                expect(result.condition_met).toBe(true);
+                expect(result.waited_ms).toBeGreaterThanOrEqual(100);
             });
 
             test('waits for element to be visible', async () => {
@@ -1160,8 +1159,8 @@ describe('Scanner Protocol Tests', () => {
                     timeout: 1000
                 });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.condition_met).toBe(true);
+                expect(result.status).toBe('ok');
+                expect(result.condition_met).toBe(true);
             });
 
             test('waits for element to be hidden', async () => {
@@ -1179,8 +1178,8 @@ describe('Scanner Protocol Tests', () => {
                     timeout: 1000
                 });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.condition_met).toBe(true);
+                expect(result.status).toBe('ok');
+                expect(result.condition_met).toBe(true);
             });
 
             test('waits for element to be gone', async () => {
@@ -1198,8 +1197,8 @@ describe('Scanner Protocol Tests', () => {
                     timeout: 1000
                 });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.condition_met).toBe(true);
+                expect(result.status).toBe('ok');
+                expect(result.condition_met).toBe(true);
             });
 
             test('waits for element to be enabled', async () => {
@@ -1213,7 +1212,7 @@ describe('Scanner Protocol Tests', () => {
                 });
 
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const disabledInput = findElement(scan.data.elements, 'id', 'disabled-input');
+                const disabledInput = findElement(scan.elements, 'id', 'disabled-input');
 
                 if (disabledInput) {
                     const result = await runCommand(page, {
@@ -1223,7 +1222,7 @@ describe('Scanner Protocol Tests', () => {
                         timeout: 1000
                     });
 
-                    expect(result.ok).toBe(true);
+                    expect(result.status).toBe('ok');
                 }
             });
 
@@ -1242,8 +1241,8 @@ describe('Scanner Protocol Tests', () => {
                     timeout: 1000
                 });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.condition_met).toBe(true);
+                expect(result.status).toBe('ok');
+                expect(result.condition_met).toBe(true);
             });
 
             test('times out when condition not met', async () => {
@@ -1254,7 +1253,7 @@ describe('Scanner Protocol Tests', () => {
                     timeout: 200
                 });
 
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 expect(result.code).toBe('TIMEOUT');
             });
 
@@ -1266,9 +1265,9 @@ describe('Scanner Protocol Tests', () => {
                     timeout: 1000
                 });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.waited_ms).toBeDefined();
-                expect(result.data.waited_ms).toBeGreaterThanOrEqual(0);
+                expect(result.status).toBe('ok');
+                expect(result.waited_ms).toBeDefined();
+                expect(result.waited_ms).toBeGreaterThanOrEqual(0);
             });
 
             test('navigation condition detects URL change', async () => {
@@ -1285,11 +1284,11 @@ describe('Scanner Protocol Tests', () => {
                     timeout: 1000
                 });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.condition_met).toBe(true);
-                expect(result.data.previous_url).toBeDefined();
-                expect(result.data.current_url).toBeDefined();
-                expect(result.data.current_url).toContain('#test-nav');
+                expect(result.status).toBe('ok');
+                expect(result.condition_met).toBe(true);
+                expect(result.previous_url).toBeDefined();
+                expect(result.current_url).toBeDefined();
+                expect(result.current_url).toContain('#test-nav');
             });
 
             test('navigation condition times out with NAVIGATION_ERROR', async () => {
@@ -1299,7 +1298,7 @@ describe('Scanner Protocol Tests', () => {
                     timeout: 200
                 });
 
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 expect(result.code).toBe('NAVIGATION_ERROR');
             });
         });
@@ -1326,8 +1325,8 @@ describe('Scanner Protocol Tests', () => {
                     script: 'return 1 + 2'
                 });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.result).toBe(3);
+                expect(result.status).toBe('ok');
+                expect(result.result).toBe(3);
             });
 
             test('passes args to script', async () => {
@@ -1337,8 +1336,8 @@ describe('Scanner Protocol Tests', () => {
                     args: [10, 20]
                 });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.result).toBe(30);
+                expect(result.status).toBe('ok');
+                expect(result.result).toBe(30);
             });
 
             test('returns complex objects', async () => {
@@ -1347,8 +1346,8 @@ describe('Scanner Protocol Tests', () => {
                     script: 'return { a: 1, b: [1, 2, 3] }'
                 });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.result).toEqual({ a: 1, b: [1, 2, 3] });
+                expect(result.status).toBe('ok');
+                expect(result.result).toEqual({ a: 1, b: [1, 2, 3] });
             });
 
             test('returns SCRIPT_ERROR for invalid script', async () => {
@@ -1357,7 +1356,7 @@ describe('Scanner Protocol Tests', () => {
                     script: 'invalid javascript {'
                 });
 
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 expect(result.code).toBe('SCRIPT_ERROR');
             });
         });
@@ -1381,24 +1380,24 @@ describe('Scanner Protocol Tests', () => {
             test('returns protocol version', async () => {
                 const result = await runCommand(page, { cmd: 'version' });
 
-                expect(result.ok).toBe(true);
-                expect(result.data.protocol).toBe('1.0');
+                expect(result.status).toBe('ok');
+                expect(result.protocol).toBe('1.0');
             });
 
             test('returns scanner version', async () => {
                 const result = await runCommand(page, { cmd: 'version' });
 
-                expect(result.data.scanner).toBeDefined();
+                expect(result.scanner).toBeDefined();
             });
 
             test('returns features list', async () => {
                 const result = await runCommand(page, { cmd: 'version' });
 
-                expect(result.data.features).toBeDefined();
-                expect(Array.isArray(result.data.features)).toBe(true);
-                expect(result.data.features).toContain('scan');
-                expect(result.data.features).toContain('click');
-                expect(result.data.features).toContain('type');
+                expect(result.features).toBeDefined();
+                expect(Array.isArray(result.features)).toBe(true);
+                expect(result.features).toContain('scan');
+                expect(result.features).toContain('click');
+                expect(result.features).toContain('type');
             });
         });
     });
@@ -1422,14 +1421,14 @@ describe('Scanner Protocol Tests', () => {
         describe('4.2 Element Roles', () => {
             test('detects email role', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const emailInput = findElement(scan.data.elements, 'id', 'email');
+                const emailInput = findElement(scan.elements, 'id', 'email');
 
                 expect(emailInput.role).toBe('email');
             });
 
             test('detects password role', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const passwordInput = findElement(scan.data.elements, 'id', 'password');
+                const passwordInput = findElement(scan.elements, 'id', 'password');
 
                 expect(passwordInput.role).toBe('password');
             });
@@ -1439,35 +1438,35 @@ describe('Scanner Protocol Tests', () => {
                 await page.evaluate(SCANNER_JS);
 
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const searchInput = findElement(scan.data.elements, 'id', 'search-input');
+                const searchInput = findElement(scan.elements, 'id', 'search-input');
 
                 expect(searchInput.role).toBe('search');
             });
 
             test('detects submit role', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const loginBtn = findElementByText(scan.data.elements, 'Login');
+                const loginBtn = findElementByText(scan.elements, 'Login');
 
                 expect(loginBtn.role).toBe('submit');
             });
 
             test('detects primary role', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const primaryBtn = findElement(scan.data.elements, 'id', 'btn-primary-class');
+                const primaryBtn = findElement(scan.elements, 'id', 'btn-primary-class');
 
                 expect(primaryBtn.role).toBe('primary');
             });
 
             test('detects link role', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const link = findElement(scan.data.elements, 'id', 'link-1');
+                const link = findElement(scan.elements, 'id', 'link-1');
 
                 expect(link.role).toBe('link');
             });
 
             test('detects checkbox role', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const checkbox = findElement(scan.data.elements, 'id', 'check-1');
+                const checkbox = findElement(scan.elements, 'id', 'check-1');
 
                 expect(checkbox.role).toBe('checkbox');
             });
@@ -1476,14 +1475,14 @@ describe('Scanner Protocol Tests', () => {
         describe('4.3 Element Modifiers/State', () => {
             test('tracks visible state', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 expect(btn.state.visible).toBe(true);
             });
 
             test('tracks hidden state', async () => {
                 const scan = await runCommand(page, { cmd: 'scan', include_hidden: true });
-                const hidden = scan.data.elements.find((el) => el.text === 'Hidden Element');
+                const hidden = scan.elements.find((el) => el.text === 'Hidden Element');
 
                 if (hidden) {
                     expect(hidden.state.hidden).toBe(true);
@@ -1493,7 +1492,7 @@ describe('Scanner Protocol Tests', () => {
 
             test('tracks disabled state', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const disabledBtn = findElement(scan.data.elements, 'id', 'disabled-btn');
+                const disabledBtn = findElement(scan.elements, 'id', 'disabled-btn');
 
                 if (disabledBtn) {
                     expect(disabledBtn.state.disabled).toBe(true);
@@ -1505,7 +1504,7 @@ describe('Scanner Protocol Tests', () => {
                 await page.focus('#input-1');
 
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 expect(input.state.focused).toBe(true);
             });
@@ -1515,7 +1514,7 @@ describe('Scanner Protocol Tests', () => {
                 await page.click('#check-1');
 
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const checkbox = findElement(scan.data.elements, 'id', 'check-1');
+                const checkbox = findElement(scan.elements, 'id', 'check-1');
 
                 expect(checkbox.state.checked).toBe(true);
                 expect(checkbox.state.unchecked).toBe(false);
@@ -1526,7 +1525,7 @@ describe('Scanner Protocol Tests', () => {
                 await page.evaluate(SCANNER_JS);
 
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const requiredInput = findElement(scan.data.elements, 'id', 'required-input');
+                const requiredInput = findElement(scan.elements, 'id', 'required-input');
 
                 expect(requiredInput.state.required).toBe(true);
             });
@@ -1536,14 +1535,14 @@ describe('Scanner Protocol Tests', () => {
                 await page.evaluate(SCANNER_JS);
 
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const readonlyInput = findElement(scan.data.elements, 'id', 'readonly-input');
+                const readonlyInput = findElement(scan.elements, 'id', 'readonly-input');
 
                 expect(readonlyInput.state.readonly).toBe(true);
             });
 
             test('tracks primary state', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const loginBtn = findElementByText(scan.data.elements, 'Login');
+                const loginBtn = findElementByText(scan.elements, 'Login');
 
                 expect(loginBtn.state.primary).toBe(true);
             });
@@ -1552,7 +1551,7 @@ describe('Scanner Protocol Tests', () => {
                 await page.type('#input-1', 'test value');
 
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 expect(input.state.value).toBe('test value');
             });
@@ -1561,14 +1560,14 @@ describe('Scanner Protocol Tests', () => {
         describe('Element Attributes', () => {
             test('includes href attribute', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const link = findElement(scan.data.elements, 'id', 'link-1');
+                const link = findElement(scan.elements, 'id', 'link-1');
 
                 expect(link.attributes.href).toBe('#');
             });
 
             test('includes placeholder attribute', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const input = findElement(scan.data.elements, 'id', 'input-1');
+                const input = findElement(scan.elements, 'id', 'input-1');
 
                 expect(input.attributes.placeholder).toBe('Type here...');
             });
@@ -1578,35 +1577,35 @@ describe('Scanner Protocol Tests', () => {
                 await page.evaluate(SCANNER_JS);
 
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const searchInput = findElement(scan.data.elements, 'id', 'search-input');
+                const searchInput = findElement(scan.elements, 'id', 'search-input');
 
                 expect(searchInput.attributes['aria-label']).toBe('Search');
             });
 
             test('includes data-testid attribute', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'attr-btn');
+                const btn = findElement(scan.elements, 'id', 'attr-btn');
 
                 expect(btn.attributes['data-testid']).toBe('test-btn-id');
             });
 
             test('includes title attribute', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'attr-btn');
+                const btn = findElement(scan.elements, 'id', 'attr-btn');
 
                 expect(btn.attributes.title).toBe('Button Title');
             });
 
             test('includes class attribute', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'attr-btn');
+                const btn = findElement(scan.elements, 'id', 'attr-btn');
 
                 expect(btn.attributes.class).toContain('test-class');
             });
 
             test('includes tabindex attribute', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'attr-btn');
+                const btn = findElement(scan.elements, 'id', 'attr-btn');
 
                 expect(btn.attributes.tabindex).toBe('1');
             });
@@ -1633,10 +1632,10 @@ describe('Scanner Protocol Tests', () => {
             test('detects login form with email', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns).toBeDefined();
-                expect(result.data.patterns.login).toBeDefined();
-                expect(result.data.patterns.login.email).toBeDefined();
-                expect(result.data.patterns.login.password).toBeDefined();
+                expect(result.patterns).toBeDefined();
+                expect(result.patterns.login).toBeDefined();
+                expect(result.patterns.login.email).toBeDefined();
+                expect(result.patterns.login.password).toBeDefined();
             });
 
             test('includes submit button in login pattern', async () => {
@@ -1644,21 +1643,21 @@ describe('Scanner Protocol Tests', () => {
 
                 // Submit button detection depends on button text matching patterns
                 // May not always be detected if text doesn't match "sign in", "log in", etc.
-                if (result.data.patterns.login.submit) {
-                    expect(typeof result.data.patterns.login.submit).toBe('number');
+                if (result.patterns.login.submit) {
+                    expect(typeof result.patterns.login.submit).toBe('number');
                 }
             });
 
             test('includes remember checkbox in login pattern', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.login.remember).toBeDefined();
+                expect(result.patterns.login.remember).toBeDefined();
             });
 
             test('includes form selector in login pattern', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.login.form).toBeDefined();
+                expect(result.patterns.login.form).toBeDefined();
             });
         });
 
@@ -1666,14 +1665,14 @@ describe('Scanner Protocol Tests', () => {
             test('detects search form', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.search).toBeDefined();
-                expect(result.data.patterns.search.input).toBeDefined();
+                expect(result.patterns.search).toBeDefined();
+                expect(result.patterns.search.input).toBeDefined();
             });
 
             test('includes submit button in search pattern', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.search.submit).toBeDefined();
+                expect(result.patterns.search.submit).toBeDefined();
             });
         });
 
@@ -1681,21 +1680,21 @@ describe('Scanner Protocol Tests', () => {
             test('detects pagination', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.pagination).toBeDefined();
+                expect(result.patterns.pagination).toBeDefined();
             });
 
             test('includes prev/next in pagination', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.pagination.prev).toBeDefined();
-                expect(result.data.patterns.pagination.next).toBeDefined();
+                expect(result.patterns.pagination.prev).toBeDefined();
+                expect(result.patterns.pagination.next).toBeDefined();
             });
 
             test('includes page numbers in pagination', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.pagination.pages).toBeDefined();
-                expect(result.data.patterns.pagination.pages.length).toBeGreaterThan(0);
+                expect(result.patterns.pagination.pages).toBeDefined();
+                expect(result.patterns.pagination.pages.length).toBeGreaterThan(0);
             });
         });
 
@@ -1706,8 +1705,8 @@ describe('Scanner Protocol Tests', () => {
 
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.modal).toBeDefined();
-                expect(result.data.patterns.modal.container).toBeDefined();
+                expect(result.patterns.modal).toBeDefined();
+                expect(result.patterns.modal.container).toBeDefined();
             });
 
             test('includes close button in modal pattern', async () => {
@@ -1715,7 +1714,7 @@ describe('Scanner Protocol Tests', () => {
 
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.modal.close).toBeDefined();
+                expect(result.patterns.modal.close).toBeDefined();
             });
 
             test('includes title in modal pattern', async () => {
@@ -1723,8 +1722,8 @@ describe('Scanner Protocol Tests', () => {
 
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.modal.title).toBeDefined();
-                expect(result.data.patterns.modal.title).toContain('Confirm');
+                expect(result.patterns.modal.title).toBeDefined();
+                expect(result.patterns.modal.title).toContain('Confirm');
             });
         });
 
@@ -1735,8 +1734,8 @@ describe('Scanner Protocol Tests', () => {
 
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.cookie_banner).toBeDefined();
-                expect(result.data.patterns.cookie_banner.container).toBeDefined();
+                expect(result.patterns.cookie_banner).toBeDefined();
+                expect(result.patterns.cookie_banner.container).toBeDefined();
             });
 
             test('includes accept button in cookie banner', async () => {
@@ -1744,7 +1743,7 @@ describe('Scanner Protocol Tests', () => {
 
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.cookie_banner.accept).toBeDefined();
+                expect(result.patterns.cookie_banner.accept).toBeDefined();
             });
 
             test('includes reject button in cookie banner', async () => {
@@ -1752,7 +1751,7 @@ describe('Scanner Protocol Tests', () => {
 
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.patterns.cookie_banner.reject).toBeDefined();
+                expect(result.patterns.cookie_banner.reject).toBeDefined();
             });
         });
     });
@@ -1776,7 +1775,7 @@ describe('Scanner Protocol Tests', () => {
         describe('6.1 Map Creation', () => {
             test('assigns numeric IDs', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
-                const ids = result.data.elements.map((el) => el.id);
+                const ids = result.elements.map((el) => el.id);
 
                 // All IDs should be positive numbers
                 for (const id of ids) {
@@ -1788,12 +1787,12 @@ describe('Scanner Protocol Tests', () => {
             test('clears previous map on re-scan', async () => {
                 // First scan
                 const scan1 = await runCommand(page, { cmd: 'scan' });
-                const btn1 = findElement(scan1.data.elements, 'id', 'btn-1');
+                const btn1 = findElement(scan1.elements, 'id', 'btn-1');
                 expect(btn1.id).toBeGreaterThan(0);
 
                 // Second scan
                 const scan2 = await runCommand(page, { cmd: 'scan' });
-                const btn2 = findElement(scan2.data.elements, 'id', 'btn-1');
+                const btn2 = findElement(scan2.elements, 'id', 'btn-1');
 
                 // After re-scan, the same element should have the same relative position
                 // IDs reset to start from 1
@@ -1806,7 +1805,7 @@ describe('Scanner Protocol Tests', () => {
         describe('6.3 Map Staleness', () => {
             test('invalidates map on hash change', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 // Trigger hash change
                 await page.evaluate(() => {
@@ -1816,13 +1815,13 @@ describe('Scanner Protocol Tests', () => {
 
                 // Old ID should not work
                 const result = await runCommand(page, { cmd: 'click', id: btn.id });
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 expect(result.code).toBe('ELEMENT_NOT_FOUND');
             });
 
             test('invalidates map on pushState', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 // Trigger pushState with same-origin path (file:// requires special handling)
                 // Use try-catch since file:// protocol has restrictions
@@ -1839,14 +1838,14 @@ describe('Scanner Protocol Tests', () => {
                     await new Promise((r) => setTimeout(r, 100));
                     // Old ID should not work
                     const result = await runCommand(page, { cmd: 'click', id: btn.id });
-                    expect(result.ok).toBe(false);
+                    expect(result.status).toBe('error');
                     expect(result.code).toBe('ELEMENT_NOT_FOUND');
                 }
             });
 
             test('invalidates map on replaceState', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const btn = findElement(scan.data.elements, 'id', 'btn-1');
+                const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 // Trigger replaceState with same-origin path
                 const replaceWorked = await page.evaluate(() => {
@@ -1862,7 +1861,7 @@ describe('Scanner Protocol Tests', () => {
                     await new Promise((r) => setTimeout(r, 100));
                     // Old ID should not work
                     const result = await runCommand(page, { cmd: 'click', id: btn.id });
-                    expect(result.ok).toBe(false);
+                    expect(result.status).toBe('error');
                     expect(result.code).toBe('ELEMENT_NOT_FOUND');
                 }
             });
@@ -1892,14 +1891,14 @@ describe('Scanner Protocol Tests', () => {
                 const result = await runCommand(page, { cmd: 'scan' });
 
                 // Find elements with iframe_context
-                const iframeElements = result.data.elements.filter((el) => el.iframe_context);
+                const iframeElements = result.elements.filter((el) => el.iframe_context);
                 expect(iframeElements.length).toBeGreaterThan(0);
             });
 
             test('includes iframe_context with iframe_id and src', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                const iframeElement = result.data.elements.find((el) => el.iframe_context);
+                const iframeElement = result.elements.find((el) => el.iframe_context);
                 if (iframeElement) {
                     expect(iframeElement.iframe_context).toHaveProperty('iframe_id');
                     expect(iframeElement.iframe_context).toHaveProperty('src');
@@ -1910,22 +1909,22 @@ describe('Scanner Protocol Tests', () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
 
                 // Find button inside iframe
-                const iframeBtn = scan.data.elements.find(
+                const iframeBtn = scan.elements.find(
                     (el) => el.iframe_context && el.attributes?.id === 'iframe-btn-1'
                 );
 
                 if (iframeBtn) {
                     const result = await runCommand(page, { cmd: 'click', id: iframeBtn.id });
-                    expect(result.ok).toBe(true);
+                    expect(result.status).toBe('ok');
                 }
             });
 
             test('reports iframe accessibility in stats', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
 
-                expect(result.data.stats.iframes).toBeDefined();
-                expect(result.data.stats.iframes.total).toBeGreaterThan(0);
-                expect(result.data.stats.iframes.accessible).toBeGreaterThan(0);
+                expect(result.stats.iframes).toBeDefined();
+                expect(result.stats.iframes.total).toBeGreaterThan(0);
+                expect(result.stats.iframes.accessible).toBeGreaterThan(0);
             });
         });
 
@@ -1934,7 +1933,7 @@ describe('Scanner Protocol Tests', () => {
                 const result = await runCommand(page, { cmd: 'scan' });
 
                 // Find iframe element (not content inside)
-                const iframeEl = result.data.elements.find((el) => el.type === 'iframe' && el.iframe);
+                const iframeEl = result.elements.find((el) => el.type === 'iframe' && el.iframe);
 
                 if (iframeEl && !iframeEl.iframe.accessible) {
                     expect(iframeEl.iframe.origin).toBe('cross-origin');
@@ -1947,8 +1946,8 @@ describe('Scanner Protocol Tests', () => {
                 const withIframes = await runCommand(page, { cmd: 'scan', include_iframes: true });
                 const withoutIframes = await runCommand(page, { cmd: 'scan', include_iframes: false });
 
-                const iframeElementsWith = withIframes.data.elements.filter((el) => el.iframe_context);
-                const iframeElementsWithout = withoutIframes.data.elements.filter((el) => el.iframe_context);
+                const iframeElementsWith = withIframes.elements.filter((el) => el.iframe_context);
+                const iframeElementsWithout = withoutIframes.elements.filter((el) => el.iframe_context);
 
                 expect(iframeElementsWith.length).toBeGreaterThan(iframeElementsWithout.length);
             });
@@ -1973,14 +1972,14 @@ describe('Scanner Protocol Tests', () => {
 
         test('generates ID-based selector when ID is unique', async () => {
             const scan = await runCommand(page, { cmd: 'scan' });
-            const btn = findElement(scan.data.elements, 'id', 'btn-1');
+            const btn = findElement(scan.elements, 'id', 'btn-1');
 
             expect(btn.selector).toBe('#btn-1');
         });
 
         test('generates data-testid selector when available and unique', async () => {
             const scan = await runCommand(page, { cmd: 'scan' });
-            const btn = scan.data.elements.find((el) => el.attributes['data-testid'] === 'unique-test-id');
+            const btn = scan.elements.find((el) => el.attributes['data-testid'] === 'unique-test-id');
 
             expect(btn.selector).toBe('[data-testid="unique-test-id"]');
         });
@@ -1990,7 +1989,7 @@ describe('Scanner Protocol Tests', () => {
             await page.evaluate(SCANNER_JS);
 
             const scan = await runCommand(page, { cmd: 'scan' });
-            const searchInput = findElement(scan.data.elements, 'id', 'search-input');
+            const searchInput = findElement(scan.elements, 'id', 'search-input');
 
             // May use aria-label if unique
             expect(searchInput.selector).toBeDefined();
@@ -1999,7 +1998,7 @@ describe('Scanner Protocol Tests', () => {
         test('generates valid CSS selector', async () => {
             const scan = await runCommand(page, { cmd: 'scan' });
 
-            for (const el of scan.data.elements.slice(0, 10)) {
+            for (const el of scan.elements.slice(0, 10)) {
                 // Verify selector works
                 const exists = await page.evaluate((sel) => {
                     try {
@@ -2015,7 +2014,7 @@ describe('Scanner Protocol Tests', () => {
 
         test('generates XPath expression', async () => {
             const scan = await runCommand(page, { cmd: 'scan' });
-            const btn = findElement(scan.data.elements, 'id', 'btn-1');
+            const btn = findElement(scan.elements, 'id', 'btn-1');
 
             expect(btn.xpath).toBeDefined();
             expect(btn.xpath.startsWith('/') || btn.xpath.startsWith('//')).toBe(true);
@@ -2041,21 +2040,21 @@ describe('Scanner Protocol Tests', () => {
         describe('Visibility Edge Cases', () => {
             test('excludes display:none elements by default', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
-                const hidden = findElement(result.data.elements, 'id', 'hidden-btn');
+                const hidden = findElement(result.elements, 'id', 'hidden-btn');
 
                 expect(hidden).toBeUndefined();
             });
 
             test('excludes visibility:hidden elements by default', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
-                const invisible = findElement(result.data.elements, 'id', 'invisible-btn');
+                const invisible = findElement(result.elements, 'id', 'invisible-btn');
 
                 expect(invisible).toBeUndefined();
             });
 
             test('excludes opacity:0 elements by default', async () => {
                 const result = await runCommand(page, { cmd: 'scan' });
-                const transparent = findElement(result.data.elements, 'id', 'transparent-btn');
+                const transparent = findElement(result.elements, 'id', 'transparent-btn');
 
                 expect(transparent).toBeUndefined();
             });
@@ -2073,7 +2072,7 @@ describe('Scanner Protocol Tests', () => {
                 });
 
                 const result = await runCommand(page, { cmd: 'scan' });
-                const zeroSize = findElement(result.data.elements, 'id', 'true-zero-size');
+                const zeroSize = findElement(result.elements, 'id', 'true-zero-size');
 
                 expect(zeroSize).toBeUndefined();
             });
@@ -2082,18 +2081,18 @@ describe('Scanner Protocol Tests', () => {
         describe('Covered Element Handling', () => {
             test('detects covered elements', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const covered = findElement(scan.data.elements, 'id', 'fully-covered-btn');
+                const covered = findElement(scan.elements, 'id', 'fully-covered-btn');
 
                 if (covered) {
                     const result = await runCommand(page, { cmd: 'click', id: covered.id });
-                    expect(result.ok).toBe(false);
+                    expect(result.status).toBe('error');
                     expect(result.code).toBe('ELEMENT_NOT_INTERACTABLE');
                 }
             });
 
             test('allows clicking partially covered elements at center', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const partial = findElement(scan.data.elements, 'id', 'partially-covered-btn');
+                const partial = findElement(scan.elements, 'id', 'partially-covered-btn');
 
                 if (partial) {
                     // Center should be covered, so this should fail
@@ -2107,7 +2106,7 @@ describe('Scanner Protocol Tests', () => {
         describe('Contenteditable Elements', () => {
             test('types into contenteditable div', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const editable = findElement(scan.data.elements, 'id', 'editable-div');
+                const editable = findElement(scan.elements, 'id', 'editable-div');
 
                 if (editable) {
                     const result = await runCommand(page, {
@@ -2115,7 +2114,7 @@ describe('Scanner Protocol Tests', () => {
                         id: editable.id,
                         text: 'New content'
                     });
-                    expect(result.ok).toBe(true);
+                    expect(result.status).toBe('ok');
                 }
             });
         });
@@ -2123,21 +2122,21 @@ describe('Scanner Protocol Tests', () => {
         describe('Custom Interactive Elements', () => {
             test('detects elements with cursor:pointer', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const clickable = findElement(scan.data.elements, 'id', 'clickable-div');
+                const clickable = findElement(scan.elements, 'id', 'clickable-div');
 
                 expect(clickable).toBeDefined();
             });
 
             test('detects elements with onclick', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const onclick = findElement(scan.data.elements, 'id', 'onclick-span');
+                const onclick = findElement(scan.elements, 'id', 'onclick-span');
 
                 expect(onclick).toBeDefined();
             });
 
             test('detects elements with role=button', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const roleBtn = findElement(scan.data.elements, 'id', 'role-button');
+                const roleBtn = findElement(scan.elements, 'id', 'role-button');
 
                 expect(roleBtn).toBeDefined();
             });
@@ -2150,7 +2149,7 @@ describe('Scanner Protocol Tests', () => {
 
                 // Re-scan
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const dynamic = scan.data.elements.find((el) => el.text === 'Dynamic Button');
+                const dynamic = scan.elements.find((el) => el.text === 'Dynamic Button');
 
                 expect(dynamic).toBeDefined();
             });
@@ -2159,14 +2158,14 @@ describe('Scanner Protocol Tests', () => {
         describe('Stale Element Handling', () => {
             test('returns ELEMENT_STALE for removed element', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
-                const staleBtn = findElement(scan.data.elements, 'id', 'stale-btn');
+                const staleBtn = findElement(scan.elements, 'id', 'stale-btn');
 
                 // Remove the element
                 await page.click('#remove-stale-btn');
 
                 // Try to click old reference
                 const result = await runCommand(page, { cmd: 'click', id: staleBtn.id });
-                expect(result.ok).toBe(false);
+                expect(result.status).toBe('error');
                 expect(result.code).toBe('ELEMENT_STALE');
             });
         });

@@ -1,16 +1,11 @@
-use crate::backend::HeadlessBackend;
 use clap::Parser as ClapParser;
 use lscope_core::backend::Backend;
 use lscope_core::command::Command;
 use lscope_core::formatter::format_response;
 use lscope_core::parser::Parser;
 use lscope_core::translator::translate;
+use lscope_h::backend::HeadlessBackend; // Use from lib
 use std::io::{self, Write};
-
-mod backend;
-mod cdp;
-mod features;
-mod inject;
 
 #[derive(ClapParser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -66,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Command::Pdf(path) = &cmd {
                         if let Some(client) = backend.get_client() {
                             println!("Generating PDF to {}...", path);
-                            if let Err(e) = crate::features::generate_pdf(
+                            if let Err(e) = lscope_h::features::generate_pdf(
                                 &client.page,
                                 std::path::Path::new(path),
                             )

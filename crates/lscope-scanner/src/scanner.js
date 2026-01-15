@@ -54,14 +54,14 @@
 
     const Protocol = {
         success: (result = {}, timingStart = null) => {
-            const response = { ok: true, data: result };
+            const response = { status: 'ok', ...result };
             if (timingStart) {
                 response.timing = { duration_ms: performance.now() - timingStart };
             }
             return response;
         },
         error: (msg, code = 'UNKNOWN_ERROR') => {
-            return { ok: false, error: msg, code: code };
+            return { status: 'error', error: msg, code: code, message: msg };
         }
     };
 
@@ -661,19 +661,19 @@
                     height: Math.round(rect.height)
                 },
                 attributes: {
-                    href: el.getAttribute('href'),
-                    src: el.getAttribute('src'),
-                    placeholder: el.getAttribute('placeholder'),
-                    name: el.getAttribute('name'),
-                    id: el.id,
-                    autocomplete: el.getAttribute('autocomplete'),
-                    'aria-label': el.getAttribute('aria-label'),
-                    'aria-hidden': el.getAttribute('aria-hidden'),
-                    'aria-disabled': el.getAttribute('aria-disabled'),
-                    title: el.getAttribute('title'),
-                    class: el.className,
-                    tabindex: el.getAttribute('tabindex'),
-                    'data-testid': el.getAttribute('data-testid')
+                    href: el.getAttribute('href') || undefined,
+                    src: el.getAttribute('src') || undefined,
+                    placeholder: el.getAttribute('placeholder') || undefined,
+                    name: el.getAttribute('name') || undefined,
+                    id: el.id || undefined,
+                    autocomplete: el.getAttribute('autocomplete') || undefined,
+                    'aria-label': el.getAttribute('aria-label') || undefined,
+                    'aria-hidden': el.getAttribute('aria-hidden') || undefined,
+                    'aria-disabled': el.getAttribute('aria-disabled') || undefined,
+                    title: el.getAttribute('title') || undefined,
+                    class: el.className || undefined,
+                    tabindex: el.getAttribute('tabindex') || undefined,
+                    'data-testid': el.getAttribute('data-testid') || undefined
                 },
                 state: state
             };
@@ -1652,7 +1652,7 @@
         try {
             if (typeof message === 'string') message = JSON.parse(message);
 
-            const cmd = message.cmd;
+            const cmd = message.cmd || message.action;
             if (!cmd) return Protocol.error('Missing command', 'INVALID_REQUEST');
 
             // Dispatch

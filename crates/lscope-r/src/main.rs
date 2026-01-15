@@ -1,14 +1,11 @@
-use crate::backend::RemoteBackend;
 use clap::Parser as ClapParser;
 use lscope_core::backend::Backend;
 use lscope_core::command::Command;
 use lscope_core::formatter::format_response;
-use lscope_core::parser::Parser; // My parser struct
+use lscope_core::parser::Parser;
 use lscope_core::translator::translate;
+use lscope_r::backend::RemoteBackend; // Use from lib
 use std::io::{self, Write};
-
-mod backend;
-mod server;
 
 #[derive(ClapParser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -61,11 +58,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match parser.parse() {
             Ok(commands) => {
                 for cmd in commands {
-                    // 2. Translate to Scanner Request
-                    // Handle special commands that Backend trait handles naturally?
-                    // Navigation logic separation?
-                    // For now, simple mapping:
-
                     if let Command::GoTo(url) = &cmd {
                         match backend.navigate(url).await {
                             Ok(res) => println!("Navigated to {}", res.url),
@@ -74,19 +66,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         continue;
                     }
 
-                    // Translate others
                     match translate(&cmd) {
-                        Ok(req) => {
-                            // 3. Execute
-                            match backend.execute_scanner(req).await {
-                                Ok(resp) => {
-                                    // 4. Format
-                                    let out = format_response(&resp);
-                                    println!("{}", out);
-                                }
-                                Err(e) => println!("Backend Error: {}", e),
+                        Ok(req) => match backend.execute_scanner(req).await {
+                            Ok(resp) => {
+                                let out = format_response(&resp);
+                                println!("{}", out);
                             }
-                        }
+                            Err(e) => println!("Backend Error: {}", e),
+                        },
                         Err(e) => println!("Translation Error: {}", e),
                     }
                 }

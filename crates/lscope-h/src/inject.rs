@@ -24,7 +24,7 @@ pub async fn inject_scanner(page: &Page) -> Result<(), Box<dyn Error + Send + Sy
 
 pub async fn execute_command(
     page: &Page,
-    action: &str,
+    _action: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
     inject_scanner(page).await?;
@@ -38,7 +38,9 @@ pub async fn execute_command(
     // We can evaluate an expression that returns a JSON string, then parse it?
     // Or let serialization handle it.
 
-    let expression = format!("window.Lemmascope.process('{}', {})", action, params_json);
+    // We pass params_json as the single argument, which contains "action" field.
+    let expression = format!("window.Lemmascope.process({})", params_json);
+    tracing::info!("Evaluating script: {}", expression);
 
     let result = page
         .evaluate(expression)

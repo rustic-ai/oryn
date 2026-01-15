@@ -127,7 +127,7 @@ fn test_formatter_scan_scanresult() {
         }],
         stats: ScanStats {
             total: 1,
-            duration_ms: 10,
+            scanned: 1,
         },
     };
 

@@ -172,14 +172,16 @@ pub struct PageInfo {
     pub scroll: ScrollInfo,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct ViewportInfo {
     pub width: u32,
     pub height: u32,
     pub scale: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct ScrollInfo {
     pub x: u32,
     pub y: u32,
@@ -221,6 +223,7 @@ pub struct Rect {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct ElementState {
     pub checked: bool,
     pub selected: bool,
@@ -233,7 +236,9 @@ pub struct ElementState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanStats {
     pub total: usize,
-    pub duration_ms: u64,
+    #[serde(default)]
+    pub scanned: usize,
+    // duration_ms moved to top-level timing in response
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

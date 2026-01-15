@@ -23,10 +23,12 @@ impl CdpClient {
         // Spawn handler loop
         let handler_task = tokio::spawn(async move {
             while let Some(h) = handler.next().await {
-                if h.is_err() {
-                    break;
+                if let Err(e) = h {
+                    tracing::error!("Browser handler error (ignoring): {}", e);
+                    continue;
                 }
             }
+            tracing::info!("Browser handler task ended");
         });
 
         // Create page

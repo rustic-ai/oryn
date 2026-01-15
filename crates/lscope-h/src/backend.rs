@@ -19,6 +19,12 @@ impl HeadlessBackend {
     }
 }
 
+impl Default for HeadlessBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl Backend for HeadlessBackend {
     async fn launch(&mut self) -> Result<(), BackendError> {
