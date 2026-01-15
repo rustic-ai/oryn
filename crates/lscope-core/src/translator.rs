@@ -67,29 +67,82 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
             }
         }
 
-        Command::Scroll(target, _options) => {
-            // If target is ID, scroll that element. If None, scroll window.
+        Command::Scroll(target, options) => {
+            // Map ID if present
             let id = if let Some(Target::Id(id)) = target {
                 Some(*id as u32)
             } else {
                 None
             };
 
-            // TODO: Extract direction from options if present
+            // Map direction
+            let direction = if let Some(dir_str) = options.get("direction") {
+                match dir_str.as_str() {
+                    "up" => ScrollDirection::Up,
+                    "down" => ScrollDirection::Down,
+                    "left" => ScrollDirection::Left,
+                    "right" => ScrollDirection::Right,
+                    _ => ScrollDirection::Down,
+                }
+            } else {
+                ScrollDirection::Down
+            };
+
             Ok(ScannerRequest::Scroll(ScrollRequest {
                 id,
-                direction: ScrollDirection::Down, // Default
-                amount: Some("page".to_string()),
+                direction,
+                amount: Some("page".to_string()), // Default amount
             }))
         }
 
         Command::Wait(condition, _options) => {
-            // Basic support for wait
-            let _ = condition; // usage to avoid unused variable warning if we drop match
+            // Map WaitCondition enum to protocol strings
+            // Protocol expects: "exists", "visible", "hidden", "gone", "navigation"
+            // WaitCondition: Load, Idle, Visible(T), Hidden(T), Exists(selector/id), Gone(selector/id), Url(s)
+            
+            let (cond_str, target, timeout) = match condition {
+                crate::command::WaitCondition::Visible(t) => {
+                   match t {
+                       Target::Id(id) => ("visible", Some(id.to_string()), None::<u64>),
+                       Target::Selector(s) => ("visible", Some(s.clone()), None::<u64>), 
+                       _ => return Err(TranslationError::InvalidTarget("Wait visible requires ID or Selector".into())),
+                   }
+                },
+                crate::command::WaitCondition::Hidden(t) => {
+                   match t {
+                       Target::Id(id) => ("hidden", Some(id.to_string()), None::<u64>),
+                       Target::Selector(s) => ("hidden", Some(s.clone()), None::<u64>),
+                       _ => return Err(TranslationError::InvalidTarget("Wait hidden requires ID or Selector".into())),
+                   }
+                },
+                crate::command::WaitCondition::Exists(s) => ("exists", Some(s.clone()), None::<u64>),
+                crate::command::WaitCondition::Gone(s) => ("gone", Some(s.clone()), None::<u64>),
+                crate::command::WaitCondition::Url(_) => ("navigation", None, None::<u64>), // Simple mapping for now
+                crate::command::WaitCondition::Load => ("load", None, None::<u64>), // Not supported by scanner directly usually
+                crate::command::WaitCondition::Idle => ("idle", None, None::<u64>),
+            };
+
             Ok(ScannerRequest::Wait(WaitRequest {
-                condition: "visible".to_string(), // placeholder, need mapping
-                target: None,
-                timeout_ms: Some(5000),
+                condition: cond_str.to_string(),
+                target,
+                timeout_ms: timeout.or(Some(30000)), // Default 30s
+            }))
+        }
+        
+        Command::Storage(op) => {
+            // Map 'storage clear' etc to Execute script
+            // This is a naive implementation; proper support might need a dedicated protocol message
+            // or just using Execute.
+            let script = match op.as_str() {
+                "clear" => "localStorage.clear(); sessionStorage.clear(); return 'Storage cleared';",
+                "ls_clear" => "localStorage.clear(); return 'Local storage cleared';",
+                "ss_clear" => "sessionStorage.clear(); return 'Session storage cleared';",
+                _ => return Err(TranslationError::Unsupported(format!("Storage op: {}", op))),
+            };
+
+            Ok(ScannerRequest::Execute(crate::protocol::ExecuteRequest {
+                script: script.to_string(),
+                args: vec![],
             }))
         }
 

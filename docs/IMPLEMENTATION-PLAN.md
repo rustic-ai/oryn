@@ -352,8 +352,8 @@ Per SPEC-SCANNER-PROTOCOL.md Section 3.14:
 Per SPEC-INTENT-LANGUAGE.md, these commands need implementation:
 
 **Tasks**:
-- [x] Add `submit` command parsing (currently missing)
-- [x] Add `storage` command parsing for localStorage/sessionStorage
+- [x] Add `submit` command parsing (Implemented)
+- [x] Add `storage` command parsing for localStorage/sessionStorage (Implemented)
 - [x] Verify all command aliases are implemented
 
 ### 6.2 Intent Commands (Level 3)
@@ -379,10 +379,10 @@ These require:
 Per SPEC-INTENT-LANGUAGE.md Section 8:
 
 **Tasks**:
-- [x] Implement `near` modifier: `click "Add" near "Cart"`
-- [x] Implement `after`/`before` modifiers
-- [x] Implement `inside` modifier: `click "Submit" inside "Login Form"`
-- [x] Implement `contains` modifier
+- [x] Implement `near` modifier: `click "Add" near "Cart"` (Implemented)
+- [x] Implement `after`/`before` targets (Implemented)
+- [x] Implement `inside` modifier (Implemented)
+- [x] Implement `contains` modifier (Implemented)
 
 ---
 
