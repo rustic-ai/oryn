@@ -1,6 +1,6 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+/// The Universal Scanner JavaScript implementation.
+/// This string is injected into browser contexts by backends.
+pub const SCANNER_JS: &str = include_str!("scanner.js");
 
 #[cfg(test)]
 mod tests {
@@ -8,7 +8,7 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+        assert!(!SCANNER_JS.is_empty());
+        assert!(SCANNER_JS.contains("Lemmascope"));
     }
 }
