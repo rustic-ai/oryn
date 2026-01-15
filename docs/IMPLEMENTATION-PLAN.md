@@ -9,9 +9,9 @@ This document outlines the remaining work to complete Lemmascope based on compar
 | Component              | Status      | Completeness |
 | ---------------------- | ----------- | ------------ |
 | Intent Language Parser | Implemented | 100%         |
-| Universal Scanner      | Implemented | ~85%         |
+| Universal Scanner      | Implemented | ~95%         |
 | Backend Trait          | Implemented | 100%         |
-| lscope-e (Embedded)    | Stub Only   | 0%           |
+| lscope-e (Embedded)    | Implemented | 100%         |
 | lscope-h (Headless)    | Implemented | 100%         |
 | lscope-r (Remote)      | Implemented | 100%         |
 | Browser Extension      | Implemented | 100%         |
@@ -233,10 +233,10 @@ Per SPEC-UNIFIED.md Section 8.1, Remote mode is the first backend to implement f
 Per SPEC-UNIFIED.md, headless mode should support:
 
 **Tasks**:
-- [ ] Network interception (optional, via CDP `Fetch` domain)
-- [ ] PDF generation (`Page.printToPDF`)
+- [x] Network interception (optional, via CDP `Fetch` domain)
+- [x] PDF generation (`Page.printToPDF`)
 - [ ] DevTools debugging integration
-- [ ] Console message capture
+- [x] Console message capture
 
 ### 3.5 lscope-h CLI
 
@@ -257,32 +257,32 @@ Per SPEC-UNIFIED.md, headless mode should support:
 **Location**: `crates/lscope-e/src/webdriver.rs`
 
 **Tasks**:
-- [ ] Add dependency: `fantoccini`
-- [ ] Implement WebDriver session management
-- [ ] Handle geckodriver/chromedriver/COG WebDriver connection
-- [ ] Implement capability negotiation
+- [x] Add dependency: `fantoccini`
+- [x] Implement WebDriver session management
+- [x] Handle geckodriver/chromedriver/COG WebDriver connection
+- [x] Implement capability negotiation
 
 ### 4.2 Embedded Backend Implementation (lscope-e)
 
 **Location**: `crates/lscope-e/src/backend.rs`
 
 **Tasks**:
-- [ ] Implement `Backend` trait for embedded mode
-- [ ] `launch()`: Connect to WebDriver server (COG)
-- [ ] `close()`: End WebDriver session
-- [ ] `is_ready()`: Check WebDriver connection
-- [ ] `navigate()`: Use WebDriver navigation commands
-- [ ] `execute_scanner()`: Inject scanner via `execute_script`
-- [ ] `screenshot()`: Use WebDriver screenshot command
+- [x] Implement `Backend` trait for embedded mode
+- [x] `launch()`: Connect to WebDriver server (COG)
+- [x] `close()`: End WebDriver session
+- [x] `is_ready()`: Check WebDriver connection
+- [x] `navigate()`: Use WebDriver navigation commands
+- [x] `execute_scanner()`: Inject scanner via `execute_script`
+- [x] `screenshot()`: Use WebDriver screenshot command
 
 ### 4.3 COG/WPE WebKit Integration
 
 **Location**: `crates/lscope-e/src/cog.rs`
 
 **Tasks**:
-- [ ] Document COG setup and requirements
-- [ ] Implement COG process management (if needed)
-- [ ] Handle WPE-specific quirks
+- [x] Document COG setup and requirements
+- [x] Implement COG process management (if needed)
+- [x] Handle WPE-specific quirks
 - [ ] Test on resource-constrained environment
 
 ### 4.4 lscope-e CLI
@@ -290,9 +290,9 @@ Per SPEC-UNIFIED.md, headless mode should support:
 **Location**: `crates/lscope-e/src/main.rs`
 
 **Tasks**:
-- [ ] CLI argument parsing
-- [ ] `--webdriver-url` option for WebDriver server
-- [ ] REPL, single-command, and batch modes
+- [x] CLI argument parsing
+- [x] `--webdriver-url` option for WebDriver server
+- [x] REPL, single-command, and batch modes
 
 ---
 
@@ -319,7 +319,7 @@ Based on SCANNER-GAPS.md and spec comparison:
 **Tasks**:
 - [ ] Add `offset` parameter support to `hover` command
 - [ ] Make `poll_interval` configurable in `wait_for` command
-- [ ] Add `include_iframes` parameter to scan (currently always true)
+- [x] Add `include_iframes` parameter to scan (currently always true)
 
 ### 5.3 Enhanced Element Attributes
 
@@ -337,8 +337,8 @@ Based on SCANNER-GAPS.md and spec comparison:
 Per SPEC-SCANNER-PROTOCOL.md Section 3.14:
 
 **Tasks**:
-- [ ] Implement `navigation` wait condition properly
-- [ ] Return previous and current URL in navigation wait response
+- [x] Implement `navigation` wait condition properly
+- [x] Return previous and current URL in navigation wait response
 
 ---
 
@@ -392,9 +392,9 @@ Per SPEC-INTENT-LANGUAGE.md Section 8:
 **Location**: `tests/integration/`
 
 **Tasks**:
-- [ ] Create integration test harness with real browser
-- [ ] Test full flow: Intent command → Parser → Backend → Scanner → Response
-- [ ] Test each backend (e, h, r) with same test suite
+- [x] Create integration test harness with real browser
+- [x] Test full flow: Intent command → Parser → Backend → Scanner → Response
+- [x] Test each backend (e, h, r) with same test suite
 - [ ] Verify behavioral consistency across backends per SPEC-UNIFIED.md Section 6.1
 
 ### 7.2 Cross-Backend Consistency Tests
