@@ -7,6 +7,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::const_is_empty)]
     fn it_works() {
         assert!(!SCANNER_JS.is_empty());
         assert!(SCANNER_JS.contains("Lemmascope"));

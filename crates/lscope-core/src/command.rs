@@ -11,6 +11,31 @@ pub enum Target {
     Role(String),
     /// A raw CSS or XPath selector.
     Selector(String),
+    /// Relational: Target is near another target.
+    Near {
+        target: Box<Target>,
+        anchor: Box<Target>,
+    },
+    /// Relational: Target is inside another target.
+    Inside {
+        target: Box<Target>,
+        container: Box<Target>,
+    },
+    /// Relational: Target is after another target.
+    After {
+        target: Box<Target>,
+        anchor: Box<Target>,
+    },
+    /// Relational: Target is before another target.
+    Before {
+        target: Box<Target>,
+        anchor: Box<Target>,
+    },
+    /// Relational: Target contains another target.
+    Contains {
+        target: Box<Target>,
+        content: Box<Target>,
+    },
 }
 
 /// Supported wait conditions for the `wait` command.
@@ -94,4 +119,22 @@ pub enum Command {
 
     // Tabs
     Tabs(TabAction),
+
+    // Missing Basic Commands
+    Submit(Target),
+
+    // Level 3 Composite Commands
+    Login(String, String, HashMap<String, String>), // User, Pass, Options
+    Search(String, HashMap<String, String>),        // Query, Options
+    Dismiss(String, HashMap<String, String>),       // "popups", etc.
+    Accept(String, HashMap<String, String>),        // "cookies", etc.
+    ScrollUntil(Target, ScrollDirection, HashMap<String, String>), // Target, Direction
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScrollDirection {
+    Up,
+    Down,
+    Left,
+    Right,
 }

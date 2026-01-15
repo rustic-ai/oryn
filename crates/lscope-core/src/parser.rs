@@ -169,7 +169,14 @@ impl<'a> Parser<'a> {
                     "wait" | "sleep" => self.parse_wait(),
                     "extract" => self.parse_extract(),
                     "cookies" | "cookie" => self.parse_cookies(),
+                    "storage" => self.parse_storage(),
                     "tabs" | "tab" => self.parse_tabs(),
+                    "submit" => self.parse_submit(),
+                    "login" => self.parse_login(),
+                    "search" => self.parse_search(),
+                    "dismiss" => self.parse_dismiss(),
+                    "accept" => self.parse_accept(),
+                    "scroll" => self.parse_scroll(),
                     _ => Err(format!("Unknown command: {}", cmd)),
                 }
             }
@@ -235,7 +242,66 @@ impl<'a> Parser<'a> {
         }
     }
 
+    #[allow(clippy::while_let_loop)]
     fn parse_target(&mut self) -> Result<Target, String> {
+        let mut target = self.parse_base_target()?;
+
+        loop {
+            // Check for modifiers
+            if let Some(Token::Word(w)) = self.peek_token() {
+                match w.to_lowercase().as_str() {
+                    "near" => {
+                        self.consume_token();
+                        let anchor = self.parse_base_target()?; // Don't allow chaining immediately or do?
+                        // "click A near B near C" -> (A near B) near C
+                        target = Target::Near {
+                            target: Box::new(target),
+                            anchor: Box::new(anchor),
+                        };
+                    }
+                    "inside" | "in" => {
+                        self.consume_token();
+                        let container = self.parse_base_target()?;
+                        target = Target::Inside {
+                            target: Box::new(target),
+                            container: Box::new(container),
+                        };
+                    }
+                    "after" => {
+                        self.consume_token();
+                        let anchor = self.parse_base_target()?;
+                        target = Target::After {
+                            target: Box::new(target),
+                            anchor: Box::new(anchor),
+                        };
+                    }
+                    "before" => {
+                        self.consume_token();
+                        let anchor = self.parse_base_target()?;
+                        target = Target::Before {
+                            target: Box::new(target),
+                            anchor: Box::new(anchor),
+                        };
+                    }
+                    "contains" => {
+                        self.consume_token();
+                        let content = self.parse_base_target()?;
+                        target = Target::Contains {
+                            target: Box::new(target),
+                            content: Box::new(content),
+                        };
+                    }
+                    _ => break,
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(target)
+    }
+
+    fn parse_base_target(&mut self) -> Result<Target, String> {
         let token = self.consume_token().ok_or("Expected target")?;
         match token {
             Token::Number(n) => Ok(Target::Id(n)),
@@ -243,15 +309,10 @@ impl<'a> Parser<'a> {
             Token::Word(w) => {
                 let lower = w.to_lowercase();
                 if lower == "css" || lower == "xpath" {
-                    // Check if next is (
                     if let Some(Token::Char('(')) = self.peek_token() {
                         let selector = self.consume_parenthesized_content()?;
                         Ok(Target::Selector(selector))
                     } else {
-                        // Treating as text if not function call? Or Role?
-                        // 'css' is not a role.
-                        // Just return text 'css'?
-                        // But wait, what if `click css` means click element with text "css"?
                         Ok(Target::Text(w))
                     }
                 } else if self.is_role(&w) {
@@ -424,6 +485,19 @@ impl<'a> Parser<'a> {
         Ok(Command::Cookies(action))
     }
 
+    fn parse_storage(&mut self) -> Result<Command, String> {
+        // syntax: storage "operation" ? ... spec is vague: "Manage localStorage"
+        // Command enum says: Storage(String). Maybe just the operation/args as string?
+        // Or we should update Command to be more specific?
+        // Spec 3.6 says: "storage — Manage localStorage/sessionStorage" with no details.
+        // Let's implement it as consuming the rest of the line or a string arg for now?
+        // Or "storage clear", "storage get foo".
+        // Let's assume it takes an Action-like string.
+
+        let op = self.parse_string_arg()?;
+        Ok(Command::Storage(op))
+    }
+
     fn parse_tabs(&mut self) -> Result<Command, String> {
         if let Some(Token::Word(w)) = self.peek_token() {
             let lower = w.to_lowercase();
@@ -449,6 +523,168 @@ impl<'a> Parser<'a> {
         Ok(Command::Tabs(TabAction::List))
     }
 
+    fn parse_submit(&mut self) -> Result<Command, String> {
+        let target = self.parse_target()?;
+        Ok(Command::Submit(target))
+    }
+
+    fn parse_login(&mut self) -> Result<Command, String> {
+        // syntax: login "user" "pass"
+        let user = self.parse_string_arg()?;
+        let pass = self.parse_string_arg()?;
+        let options = self.parse_options();
+        Ok(Command::Login(user, pass, options))
+    }
+
+    fn parse_search(&mut self) -> Result<Command, String> {
+        // syntax: search "query"
+        let query = self.parse_string_arg()?;
+        let options = self.parse_options();
+        Ok(Command::Search(query, options))
+    }
+
+    fn parse_dismiss(&mut self) -> Result<Command, String> {
+        // syntax: dismiss popups | modals
+        let target = match self.consume_token() {
+            Some(Token::Word(w)) => w,
+            Some(Token::String(s)) => s,
+            _ => return Err("Expected what to dismiss".into()),
+        };
+        let options = self.parse_options();
+        Ok(Command::Dismiss(target, options))
+    }
+
+    fn parse_accept(&mut self) -> Result<Command, String> {
+        // syntax: accept cookies
+        let target = match self.consume_token() {
+            Some(Token::Word(w)) => w,
+            Some(Token::String(s)) => s,
+            _ => return Err("Expected what to accept".into()),
+        };
+        let options = self.parse_options();
+        Ok(Command::Accept(target, options))
+    }
+
+    #[allow(clippy::collapsible_if)]
+    fn parse_scroll(&mut self) -> Result<Command, String> {
+        // scroll [target] [direction]
+        // or scroll until <target>
+
+        // Handle "scroll until <target>"
+        if let Some(Token::Word(w)) = self.peek_token() {
+            if w.to_lowercase() == "until" {
+                self.consume_token(); // consume 'until'
+                let target = self.parse_target()?;
+                let options = self.parse_options();
+                return Ok(Command::ScrollUntil(target, ScrollDirection::Down, options));
+            }
+        }
+
+        // Normal scroll
+        let mut target = None;
+        let mut direction = ScrollDirection::Down;
+
+        // Try to parse target or direction
+        // This is tricky because target can be "main" (word) and direction "down" (word)
+        // If next is "until", handled above.
+
+        // Peek
+        if let Some(token) = self.peek_token() {
+            match token {
+                Token::Word(w) => {
+                    let lower = w.to_lowercase();
+                    match lower.as_str() {
+                        "up" => {
+                            self.consume_token();
+                            direction = ScrollDirection::Up;
+                        }
+                        "down" => {
+                            self.consume_token();
+                            direction = ScrollDirection::Down;
+                        }
+                        "left" => {
+                            self.consume_token();
+                            direction = ScrollDirection::Left;
+                        }
+                        "right" => {
+                            self.consume_token();
+                            direction = ScrollDirection::Right;
+                        }
+                        _ => {
+                            // Assume it's a target if not a direction keyword
+                            target = Some(self.parse_target()?);
+
+                            // After target, check for direction
+                            if let Some(Token::Word(d)) = self.peek_token() {
+                                let ld = d.to_lowercase();
+                                match ld.as_str() {
+                                    "up" => {
+                                        self.consume_token();
+                                        direction = ScrollDirection::Up;
+                                    }
+                                    "down" => {
+                                        self.consume_token();
+                                        direction = ScrollDirection::Down;
+                                    }
+                                    "left" => {
+                                        self.consume_token();
+                                        direction = ScrollDirection::Left;
+                                    }
+                                    "right" => {
+                                        self.consume_token();
+                                        direction = ScrollDirection::Right;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+                Token::Number(_) | Token::String(_) => {
+                    target = Some(self.parse_target()?);
+                    // Check direction
+                    if let Some(Token::Word(d)) = self.peek_token() {
+                        match d.to_lowercase().as_str() {
+                            "up" => {
+                                self.consume_token();
+                                direction = ScrollDirection::Up;
+                            }
+                            "down" => {
+                                self.consume_token();
+                                direction = ScrollDirection::Down;
+                            }
+                            "left" => {
+                                self.consume_token();
+                                direction = ScrollDirection::Left;
+                            }
+                            "right" => {
+                                self.consume_token();
+                                direction = ScrollDirection::Right;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut options = self.parse_options();
+
+        // Inject parsed direction into options if not present
+        if !options.contains_key("direction") {
+            let dir_str = match direction {
+                ScrollDirection::Up => "up",
+                ScrollDirection::Down => "down",
+                ScrollDirection::Left => "left",
+                ScrollDirection::Right => "right",
+            };
+            options.insert("direction".to_string(), dir_str.to_string());
+        }
+
+        Ok(Command::Scroll(target, options))
+    }
+
     fn parse_string_arg(&mut self) -> Result<String, String> {
         match self.consume_token() {
             Some(Token::Word(w)) | Some(Token::String(w)) => Ok(w),
@@ -461,7 +697,6 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::*;
 
     fn parse_one(input: &str) -> Command {
         let mut parser = Parser::new(input);
