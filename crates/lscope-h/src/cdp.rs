@@ -29,11 +29,47 @@ impl CdpClient {
             }
         });
 
-        // Initialize with blank page
+        // Create page
         let page = browser
             .new_page("about:blank")
             .await
             .map_err(|e| format!("Failed to create page: {}", e))?;
+
+        // Enable Console events
+        // Note: chromiumoxide Page provides methods to subscribe to events easily?
+        // Actually, we can just use `page.event_listener::<Event>()`.
+        // Let's spawn a listener for Console events.
+
+        let mut console_events = page
+            .event_listener::<chromiumoxide::cdp::js_protocol::runtime::EventConsoleApiCalled>()
+            .await
+            .map_err(|e| format!("Failed to subscribe to console events: {}", e))?;
+
+        tokio::spawn(async move {
+            while let Some(event) = console_events.next().await {
+                // Log simplified message
+                // Event has `args` which are RemoteObjects. We might get basic description.
+                let args_str: Vec<String> = event
+                    .args
+                    .iter()
+                    .map(|arg| {
+                        arg.description
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string())
+                    })
+                    .collect();
+                tracing::info!(
+                    "Browser Console [{:?}]: {}",
+                    event.r#type,
+                    args_str.join(" ")
+                );
+            }
+        });
+
+        // Enable Network Logging via features module
+        if let Err(e) = crate::features::enable_network_logging(&page).await {
+            tracing::warn!("Failed to enable network logging: {}", e);
+        }
 
         Ok(Self {
             browser,

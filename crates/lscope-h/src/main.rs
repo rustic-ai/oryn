@@ -9,6 +9,7 @@ use std::io::{self, Write};
 
 mod backend;
 mod cdp;
+mod features;
 mod inject;
 
 #[derive(ClapParser, Debug)]
@@ -58,6 +59,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         match backend.navigate(url).await {
                             Ok(res) => println!("Navigated to {}", res.url),
                             Err(e) => println!("Error: {}", e),
+                        }
+                        continue;
+                    }
+
+                    if let Command::Pdf(path) = &cmd {
+                        if let Some(client) = backend.get_client() {
+                            println!("Generating PDF to {}...", path);
+                            if let Err(e) = crate::features::generate_pdf(
+                                &client.page,
+                                std::path::Path::new(path),
+                            )
+                            .await
+                            {
+                                println!("Error generating PDF: {}", e);
+                            } else {
+                                println!("PDF generated successfully.");
+                            }
+                        } else {
+                            println!("Error: Backend not ready");
                         }
                         continue;
                     }

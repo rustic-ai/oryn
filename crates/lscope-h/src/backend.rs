@@ -13,6 +13,10 @@ impl HeadlessBackend {
     pub fn new() -> Self {
         Self { client: None }
     }
+
+    pub fn get_client(&self) -> Option<&CdpClient> {
+        self.client.as_ref()
+    }
 }
 
 #[async_trait]

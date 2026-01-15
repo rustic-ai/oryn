@@ -129,6 +129,9 @@ pub enum Command {
     Dismiss(String, HashMap<String, String>),       // "popups", etc.
     Accept(String, HashMap<String, String>),        // "cookies", etc.
     ScrollUntil(Target, ScrollDirection, HashMap<String, String>), // Target, Direction
+
+    // Browser Features
+    Pdf(String), // Output path
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -177,6 +177,7 @@ impl<'a> Parser<'a> {
                     "dismiss" => self.parse_dismiss(),
                     "accept" => self.parse_accept(),
                     "scroll" => self.parse_scroll(),
+                    "pdf" => self.parse_pdf(),
                     _ => Err(format!("Unknown command: {}", cmd)),
                 }
             }
@@ -683,6 +684,13 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Command::Scroll(target, options))
+    }
+
+    fn parse_pdf(&mut self) -> Result<Command, String> {
+        // syntax: pdf "path/to/output.pdf"
+        // optional: options?
+        let path = self.parse_string_arg()?;
+        Ok(Command::Pdf(path))
     }
 
     fn parse_string_arg(&mut self) -> Result<String, String> {

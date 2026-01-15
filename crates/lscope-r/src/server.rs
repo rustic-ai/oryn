@@ -29,10 +29,7 @@ pub struct ServerHandle {
 impl RemoteServer {
     pub fn new(port: u16) -> Self {
         let (command_tx, _) = broadcast::channel(100);
-        Self {
-            port,
-            command_tx,
-        }
+        Self { port, command_tx }
     }
 
     pub async fn start(&self) -> Result<ServerHandle, Box<dyn std::error::Error>> {
