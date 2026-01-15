@@ -109,25 +109,31 @@ describe('Scanner Coverage Analysis', () => {
     // Run all commands to maximize coverage
     test('scan command', async () => {
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan' });
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res; // Return full response
         });
         expect(result.ok).toBe(true);
+        expect(result.data).toBeDefined();
     });
 
     test('scan with options', async () => {
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({
+            const res = await window.Lemmascope.process({
                 cmd: 'scan',
                 include_hidden: true,
                 viewport_only: true,
                 max_elements: 50
             });
+            return res;
         });
         expect(result.ok).toBe(true);
     });
 
     test('click command', async () => {
-        const scan = await page.evaluate(async () => window.Lemmascope.process({ cmd: 'scan' }));
+        const scan = await page.evaluate(async () => {
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
+        });
         const btn = scan.elements.find((el) => el.attributes.id === 'btn-1');
 
         const result = await page.evaluate(async (id) => {
@@ -137,7 +143,10 @@ describe('Scanner Coverage Analysis', () => {
     });
 
     test('click with options', async () => {
-        const scan = await page.evaluate(async () => window.Lemmascope.process({ cmd: 'scan' }));
+        const scan = await page.evaluate(async () => {
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
+        });
         const btn = scan.elements.find((el) => el.attributes.id === 'btn-1');
 
         const result = await page.evaluate(async (id) => {
@@ -153,7 +162,10 @@ describe('Scanner Coverage Analysis', () => {
     });
 
     test('type command', async () => {
-        const scan = await page.evaluate(async () => window.Lemmascope.process({ cmd: 'scan' }));
+        const scan = await page.evaluate(async () => {
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
+        });
         const input = scan.elements.find((el) => el.attributes.id === 'input-1');
 
         const result = await page.evaluate(async (id) => {
@@ -163,7 +175,10 @@ describe('Scanner Coverage Analysis', () => {
     });
 
     test('type with delay', async () => {
-        const scan = await page.evaluate(async () => window.Lemmascope.process({ cmd: 'scan' }));
+        const scan = await page.evaluate(async () => {
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
+        });
         const input = scan.elements.find((el) => el.attributes.id === 'input-1');
 
         const result = await page.evaluate(async (id) => {
@@ -173,7 +188,10 @@ describe('Scanner Coverage Analysis', () => {
     });
 
     test('clear command', async () => {
-        const scan = await page.evaluate(async () => window.Lemmascope.process({ cmd: 'scan' }));
+        const scan = await page.evaluate(async () => {
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
+        });
         const input = scan.elements.find((el) => el.attributes.id === 'input-1');
 
         const result = await page.evaluate(async (id) => {
@@ -183,7 +201,10 @@ describe('Scanner Coverage Analysis', () => {
     });
 
     test('check/uncheck commands', async () => {
-        const scan = await page.evaluate(async () => window.Lemmascope.process({ cmd: 'scan' }));
+        const scan = await page.evaluate(async () => {
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
+        });
         const checkbox = scan.elements.find((el) => el.attributes.id === 'check-1');
 
         await page.evaluate(async (id) => window.Lemmascope.process({ cmd: 'check', id: id }), checkbox.id);
@@ -192,7 +213,10 @@ describe('Scanner Coverage Analysis', () => {
     });
 
     test('select command', async () => {
-        const scan = await page.evaluate(async () => window.Lemmascope.process({ cmd: 'scan' }));
+        const scan = await page.evaluate(async () => {
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
+        });
         const select = scan.elements.find((el) => el.attributes.id === 'select-1');
 
         await page.evaluate(async (id) => window.Lemmascope.process({ cmd: 'select', id: id, value: '2' }), select.id);
@@ -211,7 +235,10 @@ describe('Scanner Coverage Analysis', () => {
     });
 
     test('focus command', async () => {
-        const scan = await page.evaluate(async () => window.Lemmascope.process({ cmd: 'scan' }));
+        const scan = await page.evaluate(async () => {
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
+        });
         const input = scan.elements.find((el) => el.attributes.id === 'input-1');
 
         const result = await page.evaluate(async (id) => {
@@ -221,7 +248,10 @@ describe('Scanner Coverage Analysis', () => {
     });
 
     test('hover command', async () => {
-        const scan = await page.evaluate(async () => window.Lemmascope.process({ cmd: 'scan' }));
+        const scan = await page.evaluate(async () => {
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
+        });
         const btn = scan.elements.find((el) => el.attributes.id === 'btn-1');
 
         const result = await page.evaluate(async (id) => {
@@ -231,7 +261,10 @@ describe('Scanner Coverage Analysis', () => {
     });
 
     test('submit command', async () => {
-        const scan = await page.evaluate(async () => window.Lemmascope.process({ cmd: 'scan' }));
+        const scan = await page.evaluate(async () => {
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
+        });
         const email = scan.elements.find((el) => el.attributes.id === 'email');
 
         const result = await page.evaluate(async (id) => {
@@ -241,7 +274,10 @@ describe('Scanner Coverage Analysis', () => {
     });
 
     test('wait_for conditions', async () => {
-        const scan = await page.evaluate(async () => window.Lemmascope.process({ cmd: 'scan' }));
+        const scan = await page.evaluate(async () => {
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
+        });
         const btn = scan.elements.find((el) => el.attributes.id === 'btn-1');
 
         await page.evaluate(async (id) => {
@@ -262,13 +298,17 @@ describe('Scanner Coverage Analysis', () => {
 
     test('get_text command', async () => {
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'get_text', selector: 'h1' });
+            const res = await window.Lemmascope.process({ cmd: 'get_text', selector: 'h1' });
+            return res;
         });
         expect(result.ok).toBe(true);
     });
 
     test('get_value command', async () => {
-        const scan = await page.evaluate(async () => window.Lemmascope.process({ cmd: 'scan' }));
+        const scan = await page.evaluate(async () => {
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
+        });
         const checkbox = scan.elements.find((el) => el.attributes.id === 'check-1');
 
         // Test checkbox value (boolean)
@@ -280,21 +320,24 @@ describe('Scanner Coverage Analysis', () => {
 
     test('exists command', async () => {
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'exists', selector: '#btn-1' });
+            const res = await window.Lemmascope.process({ cmd: 'exists', selector: '#btn-1' });
+            return res.data;
         });
         expect(result.exists).toBe(true);
     });
 
     test('execute command', async () => {
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'execute', script: 'return 1 + 1' });
+            const res = await window.Lemmascope.process({ cmd: 'execute', script: 'return 1 + 1' });
+            return res.data;
         });
         expect(result.result).toBe(2);
     });
 
     test('version command', async () => {
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'version' });
+            const res = await window.Lemmascope.process({ cmd: 'version' });
+            return res.data;
         });
         expect(result.protocol).toBe('1.0');
     });
@@ -303,7 +346,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('primary button detection - by class', async () => {
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan' });
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
         });
 
         // Button with btn-primary class should get 'primary' role
@@ -319,7 +363,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('primary button detection - by text', async () => {
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan' });
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
         });
 
         // Button with "Continue" text should get 'primary' role
@@ -335,7 +380,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('role=button elements', async () => {
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan' });
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
         });
 
         // Div with role="button" should get 'button' role
@@ -351,7 +397,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('aria-labelledby label resolution', async () => {
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan' });
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
         });
 
         // Input with aria-labelledby should have label text resolved
@@ -370,7 +417,8 @@ describe('Scanner Coverage Analysis', () => {
         await new Promise((r) => setTimeout(r, 100)); // Brief wait for srcdoc to render
 
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan', include_iframes: true });
+            const res = await window.Lemmascope.process({ cmd: 'scan', include_iframes: true });
+            return res.data;
         });
 
         // Should find the iframe element itself
@@ -386,7 +434,8 @@ describe('Scanner Coverage Analysis', () => {
         await new Promise((r) => setTimeout(r, 100));
 
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan', include_iframes: true });
+            const res = await window.Lemmascope.process({ cmd: 'scan', include_iframes: true });
+            return res.data;
         });
 
         // Should find elements from within the iframe
@@ -398,7 +447,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('max_elements limit', async () => {
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan', max_elements: 5 });
+            const res = await window.Lemmascope.process({ cmd: 'scan', max_elements: 5 });
+            return res.data;
         });
 
         // Should respect max_elements limit
@@ -410,7 +460,8 @@ describe('Scanner Coverage Analysis', () => {
         await new Promise((r) => setTimeout(r, 100));
 
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan', include_iframes: true, max_elements: 10 });
+            const res = await window.Lemmascope.process({ cmd: 'scan', include_iframes: true, max_elements: 10 });
+            return res.data;
         });
 
         // Should stop at max_elements even with iframes
@@ -419,7 +470,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('submit button in form', async () => {
         const result = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan' });
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
         });
 
         // Button with type="submit" should get 'submit' role
@@ -431,7 +483,8 @@ describe('Scanner Coverage Analysis', () => {
     test('click on hidden element - should fail', async () => {
         // First scan with include_hidden to get the hidden button's ID
         const scan = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan', include_hidden: true });
+            const res = await window.Lemmascope.process({ cmd: 'scan', include_hidden: true });
+            return res.data;
         });
 
         const hiddenBtn = scan.elements.find((el) => el.text === 'Hidden Element');
@@ -448,7 +501,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('click on covered element - should fail', async () => {
         const scan = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan' });
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
         });
 
         const coveredBtn = scan.elements.find((el) => el.attributes.id === 'covered-btn');
@@ -465,7 +519,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('click with force bypasses visibility check', async () => {
         const scan = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan', include_hidden: true });
+            const res = await window.Lemmascope.process({ cmd: 'scan', include_hidden: true });
+            return res.data;
         });
 
         const hiddenBtn = scan.elements.find((el) => el.text === 'Hidden Element');
@@ -481,7 +536,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('click with offset', async () => {
         const scan = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan' });
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
         });
 
         const btn = scan.elements.find((el) => el.attributes.id === 'btn-1');
@@ -501,7 +557,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('click with right button', async () => {
         const scan = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan' });
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
         });
 
         const btn = scan.elements.find((el) => el.attributes.id === 'btn-1');
@@ -521,7 +578,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('click with middle button', async () => {
         const scan = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan' });
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
         });
 
         const btn = scan.elements.find((el) => el.attributes.id === 'btn-1');
@@ -541,7 +599,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('type on disabled input - should fail', async () => {
         const scan = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan' });
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
         });
 
         const disabledInput = scan.elements.find((el) => el.attributes.id === 'disabled-input');
@@ -558,7 +617,8 @@ describe('Scanner Coverage Analysis', () => {
 
     test('type appends when clear=false', async () => {
         const scan = await page.evaluate(async () => {
-            return await window.Lemmascope.process({ cmd: 'scan' });
+            const res = await window.Lemmascope.process({ cmd: 'scan' });
+            return res.data;
         });
 
         const input = scan.elements.find((el) => el.attributes.id === 'input-1');
@@ -578,7 +638,8 @@ describe('Scanner Coverage Analysis', () => {
 
         // Verify the value was appended
         const value = await page.evaluate(async (id) => {
-            return await window.Lemmascope.process({ cmd: 'get_value', id: id });
+            const res = await window.Lemmascope.process({ cmd: 'get_value', id: id });
+            return res.data; // Unpack
         }, input.id);
 
         expect(value.value).toBe('Hello World');

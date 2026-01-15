@@ -17,11 +17,44 @@
         }
     };
 
+    // --- State Management ---
+    const StateManager = {
+        invalidate: () => {
+            STATE.elementMap.clear();
+            STATE.inverseMap.clear();
+            // Keep nextId incrementing or reset?
+            // Spec doesn't strictly say, but unique IDs across sessions are safer.
+            // But existing logic resets on scan.
+            // Clearing map makes old IDs invalid.
+            if (STATE.config.debug) console.log('Scanner state invalidated due to navigation');
+        },
+
+        init: () => {
+            // Navigation listeners
+            window.addEventListener('hashchange', StateManager.invalidate);
+            window.addEventListener('popstate', StateManager.invalidate);
+
+            // Monkeypatch history for SPA
+            const originalPush = window.history.pushState;
+            window.history.pushState = function (...args) {
+                originalPush.apply(this, args);
+                StateManager.invalidate();
+            };
+
+            const originalReplace = window.history.replaceState;
+            window.history.replaceState = function (...args) {
+                originalReplace.apply(this, args);
+                StateManager.invalidate();
+            };
+        }
+    };
+    StateManager.init();
+
     // --- Protocol ---
 
     const Protocol = {
-        success: (data = {}, timingStart = null) => {
-            const response = { ok: true, ...data };
+        success: (result = {}, timingStart = null) => {
+            const response = { ok: true, data: result };
             if (timingStart) {
                 response.timing = { duration_ms: performance.now() - timingStart };
             }
@@ -41,7 +74,9 @@
             const rect = el.getBoundingClientRect();
             if (rect.width === 0 || rect.height === 0) return false;
 
-            const style = window.getComputedStyle(el);
+            // Use element's own document view for computed style (supports iframe elements)
+            const win = el.ownerDocument.defaultView || window;
+            const style = win.getComputedStyle(el);
             if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') return false;
 
             // Allow checking ancestry efficiently?
@@ -55,24 +90,55 @@
         },
 
         generateSelector: (el) => {
-            // Simple robust selector generation
-            if (el.id) return `#${CSS.escape(el.id)}`;
+            // Priority 1: ID
+            if (el.id && /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(el.id)) {
+                // Only use ID if it looks valid/stable (not random junk)
+                // And simple uniqueness check
+                if (document.querySelectorAll(`#${CSS.escape(el.id)}`).length === 1) {
+                    return `#${CSS.escape(el.id)}`;
+                }
+            }
 
-            // Fallback to path
+            // Priority 2: data-testid
+            const testId = el.getAttribute('data-testid');
+            if (testId) {
+                const selector = `[data-testid="${CSS.escape(testId)}"]`;
+                if (document.querySelectorAll(selector).length === 1) return selector;
+            }
+
+            // Priority 3: Aria Label (if unique and exists)
+            const ariaLabel = el.getAttribute('aria-label');
+            if (ariaLabel) {
+                const selector = `${el.tagName.toLowerCase()}[aria-label="${CSS.escape(ariaLabel)}"]`;
+                if (document.querySelectorAll(selector).length === 1) return selector;
+            }
+
+            // Priority 4: Unique Class Combination
+            if (el.className && typeof el.className === 'string') {
+                const classes = el.className.split(/\s+/).filter((c) => c.trim().length > 0);
+                if (classes.length > 0) {
+                    // Start with tag + all classes
+                    const selector = `${el.tagName.toLowerCase()}.${classes.map((c) => CSS.escape(c)).join('.')}`;
+                    if (document.querySelectorAll(selector).length === 1) return selector;
+                }
+            }
+
+            // Fallback: structural path
             const path = [];
-            while (el.nodeType === Node.ELEMENT_NODE) {
-                const tag = el.tagName.toLowerCase();
-                if (el.id) {
-                    path.unshift(`#${CSS.escape(el.id)}`);
+            let current = el;
+            while (current && current.nodeType === Node.ELEMENT_NODE) {
+                const tag = current.tagName.toLowerCase();
+                if (current.id && /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(current.id)) {
+                    path.unshift(`#${CSS.escape(current.id)}`);
                     break;
                 } else {
-                    let sibling = el,
+                    let sibling = current,
                         nth = 1;
                     while ((sibling = sibling.previousElementSibling)) {
                         if (sibling.tagName.toLowerCase() === tag) nth++;
                     }
                     path.unshift(`${tag}:nth-of-type(${nth})`);
-                    el = el.parentNode;
+                    current = current.parentNode;
                 }
             }
             return path.join(' > ');
@@ -269,11 +335,55 @@
             const centerX = rect.left + rect.width / 2;
             const centerY = rect.top + rect.height / 2;
 
-            const topElement = document.elementFromPoint(centerX, centerY);
+            // Use element's own document for elementFromPoint (supports iframe elements)
+            const doc = el.ownerDocument;
+            const topElement = doc.elementFromPoint(centerX, centerY);
 
             // Element is interactable if it's the top element or contains the top element
             if (!topElement) return false;
             return el === topElement || el.contains(topElement) || topElement.contains(el);
+        },
+
+        getTextRects: (searchQuery) => {
+            const results = [];
+            if (!searchQuery) return results;
+            const query = searchQuery.toLowerCase();
+
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+                acceptNode: (node) => {
+                    if (!Utils.isVisible(node.parentElement)) return NodeFilter.FILTER_REJECT;
+                    if (node.textContent.toLowerCase().includes(query)) return NodeFilter.FILTER_ACCEPT;
+                    return NodeFilter.FILTER_REJECT;
+                }
+            });
+
+            while (walker.nextNode()) {
+                const node = walker.currentNode;
+                const range = document.createRange();
+                range.selectNodeContents(node);
+                const rects = range.getClientRects();
+                for (const rect of rects) {
+                    results.push(rect);
+                }
+            }
+            return results;
+        },
+
+        isNear: (elRect, targetRects, threshold = 50) => {
+            if (!targetRects || targetRects.length === 0) return false;
+            // Check if elRect intersects or is close to any targetRect
+            for (const tr of targetRects) {
+                // Expansion needed? Simplified interaction/proximity check
+                // Check intersection first
+                const intersects =
+                    elRect.left < tr.right + threshold &&
+                    elRect.right > tr.left - threshold &&
+                    elRect.top < tr.bottom + threshold &&
+                    elRect.bottom > tr.top - threshold;
+
+                if (intersects) return true;
+            }
+            return false;
         }
     };
 
@@ -314,10 +424,24 @@
                 }
             });
 
+            // Pre-calculate text rects if near is requested
+            let nearRects = null;
+            if (params.near) {
+                nearRects = Utils.getTextRects(params.near);
+                // If near text not found, maybe return warning or empty?
+                // Spec implies filtering, so if nothing found, nothing returned usually.
+            }
+
             while (treeWalker.nextNode() && elements.length < maxElements) {
                 const el = treeWalker.currentNode;
                 if (!includeHidden && !Utils.isVisible(el)) continue;
                 if (params.viewport_only && !Utils.isInViewport(el)) continue;
+
+                // Near Check
+                if (nearRects) {
+                    const elRect = el.getBoundingClientRect();
+                    if (!Utils.isNear(elRect, nearRects)) continue;
+                }
 
                 // Assign ID
                 const id = STATE.nextId++;
@@ -382,6 +506,12 @@
                         max_y: document.documentElement.scrollHeight - window.innerHeight
                     },
                     readyState: document.readyState
+                },
+                settings_applied: {
+                    max_elements: maxElements,
+                    include_hidden: includeHidden,
+                    include_iframes: includeIframes,
+                    viewport_only: !!params.viewport_only
                 },
                 elements: elements,
                 stats: {
@@ -487,10 +617,13 @@
             text = text.trim().substring(0, 100); // Truncate
 
             // Build state object with all modifiers
+            const isVisible = Utils.isVisible(el);
             const state = {
-                visible: Utils.isVisible(el),
+                visible: isVisible,
+                hidden: !isVisible,
                 disabled: !!el.disabled,
-                focused: document.activeElement === el
+                focused: document.activeElement === el,
+                primary: Utils.isPrimaryButton(el)
             };
 
             // Checkbox/radio specific state
@@ -534,7 +667,13 @@
                     name: el.getAttribute('name'),
                     id: el.id,
                     autocomplete: el.getAttribute('autocomplete'),
-                    'aria-label': el.getAttribute('aria-label')
+                    'aria-label': el.getAttribute('aria-label'),
+                    'aria-hidden': el.getAttribute('aria-hidden'),
+                    'aria-disabled': el.getAttribute('aria-disabled'),
+                    title: el.getAttribute('title'),
+                    class: el.className,
+                    tabindex: el.getAttribute('tabindex'),
+                    'data-testid': el.getAttribute('data-testid')
                 },
                 state: state
             };
@@ -608,22 +747,71 @@
             // Number of clicks (for double-click support)
             const clickCount = params.click_count || 1;
 
-            for (let i = 0; i < clickCount; i++) {
-                clickOpts.detail = i + 1; // Click count in event
+            // Setup navigation detection
+            let navigationDetected = false;
+            const initialUrl = window.location.href;
+            const checkNavigation = () => {
+                navigationDetected = true;
+            };
+            window.addEventListener('beforeunload', checkNavigation);
 
-                el.dispatchEvent(new MouseEvent('mousedown', clickOpts));
-                el.dispatchEvent(new MouseEvent('mouseup', clickOpts));
+            // Watch for DOM mutations
+            const domChanges = { added: 0, removed: 0, attributes: 0 };
+            const observer = new window.MutationObserver((mutations) => {
+                mutations.forEach((m) => {
+                    if (m.type === 'childList') {
+                        domChanges.added += m.addedNodes.length;
+                        domChanges.removed += m.removedNodes.length;
+                    } else if (m.type === 'attributes') {
+                        domChanges.attributes++;
+                    }
+                });
+            });
+            observer.observe(document.body, { childList: true, subtree: true, attributes: true });
 
-                if (button === 0) {
-                    el.click(); // Native click for left button
-                } else if (button === 2) {
-                    el.dispatchEvent(new MouseEvent('contextmenu', clickOpts));
+            try {
+                // Perform click sequence...
+                for (let i = 0; i < clickCount; i++) {
+                    clickOpts.detail = i + 1; // Click count in event
+
+                    el.dispatchEvent(new MouseEvent('mousedown', clickOpts));
+                    el.dispatchEvent(new MouseEvent('mouseup', clickOpts));
+
+                    if (button === 0) {
+                        el.click(); // Native click for left button
+                    } else if (button === 2) {
+                        el.dispatchEvent(new MouseEvent('contextmenu', clickOpts));
+                    }
+
+                    // For double-click, also fire dblclick event
+                    if (i === 1) {
+                        el.dispatchEvent(new MouseEvent('dblclick', clickOpts));
+                    }
                 }
+            } finally {
+                window.removeEventListener('beforeunload', checkNavigation);
+                // Allow a small tick for mutations to register?
+                // Synchronous events should trigger mutations immediately but observer callback is async (microtask).
+                // We'll need to wait momentarily? Or just snapshot what we have?
+                // Spec usually implies async effects might not be caught instantly.
+                // But for valid return, we might need a tiny sleep.
+            }
 
-                // For double-click, also fire dblclick event
-                if (i === 1) {
-                    el.dispatchEvent(new MouseEvent('dblclick', clickOpts));
+            // Force observer flush (takeRecords returns queue)
+            const queuedMutations = observer.takeRecords();
+            queuedMutations.forEach((m) => {
+                if (m.type === 'childList') {
+                    domChanges.added += m.addedNodes.length;
+                    domChanges.removed += m.removedNodes.length;
+                } else if (m.type === 'attributes') {
+                    domChanges.attributes++;
                 }
+            });
+            observer.disconnect();
+
+            // Check URL change (SPA nav)
+            if (window.location.href !== initialUrl) {
+                navigationDetected = true;
             }
 
             return Protocol.success({
@@ -632,7 +820,9 @@
                 tag: el.tagName.toLowerCase(),
                 selector: Utils.generateSelector(el),
                 coordinates: { x: Math.round(clientX), y: Math.round(clientY) },
-                button: buttonType
+                button: buttonType,
+                navigation: navigationDetected,
+                dom_changes: domChanges
             });
         },
 
@@ -727,6 +917,7 @@
             return Protocol.success({
                 action: 'typed',
                 id: params.id,
+                selector: Utils.generateSelector(el),
                 text: text,
                 value: el.isContentEditable ? el.innerText : el.value
             });
@@ -737,7 +928,11 @@
             el.value = '';
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
-            return Protocol.success({ action: 'cleared', id: params.id });
+            return Protocol.success({
+                action: 'cleared',
+                id: params.id,
+                selector: Utils.generateSelector(el)
+            });
         },
 
         check: (params, targetState) => {
@@ -756,6 +951,7 @@
             return Protocol.success({
                 action: targetState ? 'checked' : 'unchecked',
                 id: params.id,
+                selector: Utils.generateSelector(el),
                 checked: el.checked,
                 previous: previousState
             });
@@ -770,27 +966,76 @@
             const previousValue = el.value;
             const previousText = el.options[el.selectedIndex]?.text || '';
 
-            let optionToSelect = null;
-            // Strategy: find option by value, then text, then index
-            if (params.value !== undefined) {
-                optionToSelect = Array.from(el.options).find((o) => o.value === params.value);
-            } else if (params.text !== undefined) {
-                optionToSelect = Array.from(el.options).find((o) => o.text.includes(params.text));
-            } else if (params.index !== undefined) {
-                optionToSelect = el.options[params.index];
+            const selectedValues = [];
+            // Note: unselectedValues tracking removed - not needed for current implementation
+
+            // Normalize inputs to arrays
+            let values =
+                params.value !== undefined ? (Array.isArray(params.value) ? params.value : [params.value]) : null;
+            let texts = params.text !== undefined ? (Array.isArray(params.text) ? params.text : [params.text]) : null;
+            let indexes =
+                params.index !== undefined ? (Array.isArray(params.index) ? params.index : [params.index]) : null;
+
+            if (
+                !el.multiple &&
+                ((values && values.length > 1) || (texts && texts.length > 1) || (indexes && indexes.length > 1))
+            ) {
+                // Warn or just select last? Spec says select updates selection.
+                // For single select, let's just pick the last one to be safe/standard
+                if (values) values = [values[values.length - 1]];
+                if (texts) texts = [texts[texts.length - 1]];
+                if (indexes) indexes = [indexes[indexes.length - 1]];
             }
 
-            if (!optionToSelect) throw { msg: 'Option not found', code: 'OPTION_NOT_FOUND' };
+            const options = Array.from(el.options);
+            let foundAny = false;
 
-            el.value = optionToSelect.value;
+            if (values) {
+                options.forEach((o) => {
+                    if (values.includes(o.value)) {
+                        o.selected = true;
+                        selectedValues.push(o.value);
+                        foundAny = true;
+                    } else if (el.multiple) {
+                        // In multiple mode, should we Deselect others? Use case implies 'select these'.
+                        // But standard automation often deselects everything else.
+                        // Let's assume we just ADD selection or SET selection?
+                        // "select" command usually implies "set the selection to THIS".
+                        o.selected = false;
+                    }
+                });
+            } else if (texts) {
+                options.forEach((o) => {
+                    if (texts.some((t) => o.text.includes(t))) {
+                        o.selected = true;
+                        selectedValues.push(o.value);
+                        foundAny = true;
+                    } else if (el.multiple) {
+                        o.selected = false;
+                    }
+                });
+            } else if (indexes) {
+                options.forEach((o, i) => {
+                    if (indexes.includes(i)) {
+                        o.selected = true;
+                        selectedValues.push(o.value);
+                        foundAny = true;
+                    } else if (el.multiple) {
+                        o.selected = false;
+                    }
+                });
+            }
+
+            if (!foundAny && (values || texts || indexes)) throw { msg: 'Option not found', code: 'OPTION_NOT_FOUND' };
+
             el.dispatchEvent(new Event('change', { bubbles: true }));
             el.dispatchEvent(new Event('input', { bubbles: true }));
 
             return Protocol.success({
                 action: 'selected',
                 id: params.id,
-                value: el.value,
-                text: optionToSelect.text,
+                selector: Utils.generateSelector(el),
+                value: selectedValues, // Return array
                 previous: {
                     value: previousValue,
                     text: previousText
@@ -853,7 +1098,11 @@
         focus: (params) => {
             const el = Executor.getElement(params.id);
             el.focus();
-            return Protocol.success({ action: 'focused', id: params.id });
+            return Protocol.success({
+                action: 'focused',
+                id: params.id,
+                selector: Utils.generateSelector(el)
+            });
         },
 
         hover: (params) => {
@@ -885,6 +1134,7 @@
             return Protocol.success({
                 action: 'hovered',
                 id: params.id,
+                selector: Utils.generateSelector(el),
                 coordinates: { x: Math.round(clientX), y: Math.round(clientY) }
             });
         },
@@ -912,7 +1162,11 @@
                 el.requestSubmit ? el.requestSubmit() : el.submit();
             }
 
-            return Protocol.success({ action: 'submitted' });
+            return Protocol.success({
+                action: 'submitted',
+                form_selector: Utils.generateSelector(el),
+                form_id: el.id || null
+            });
         },
 
         wait_for: async (params) => {
@@ -1376,6 +1630,7 @@
     // --- Main Dispatch ---
 
     async function process(message) {
+        const t0 = performance.now();
         try {
             if (typeof message === 'string') message = JSON.parse(message);
 
@@ -1383,51 +1638,75 @@
             if (!cmd) return Protocol.error('Missing command', 'INVALID_REQUEST');
 
             // Dispatch
+            let result;
             switch (cmd) {
                 case 'scan':
-                    return Scanner.scan(message);
+                    result = Scanner.scan(message);
+                    break;
 
                 // Actions
                 case 'click':
-                    return Executor.click(message);
+                    result = Executor.click(message);
+                    break;
                 case 'type':
-                    return await Executor.type(message);
+                    result = await Executor.type(message);
+                    break;
                 case 'clear':
-                    return Executor.clear(message);
+                    result = Executor.clear(message);
+                    break;
                 case 'check':
-                    return Executor.check(message, true);
+                    result = Executor.check(message, true);
+                    break;
                 case 'uncheck':
-                    return Executor.check(message, false);
+                    result = Executor.check(message, false);
+                    break;
                 case 'select':
-                    return Executor.select(message);
+                    result = Executor.select(message);
+                    break;
                 case 'scroll':
-                    return Executor.scroll(message);
+                    result = Executor.scroll(message);
+                    break;
                 case 'focus':
-                    return Executor.focus(message);
+                    result = Executor.focus(message);
+                    break;
                 case 'hover':
-                    return Executor.hover(message);
+                    result = Executor.hover(message);
+                    break;
                 case 'submit':
-                    return Executor.submit(message);
+                    result = Executor.submit(message);
+                    break;
                 case 'wait_for':
-                    return await Executor.wait_for(message);
+                    result = await Executor.wait_for(message);
+                    break;
 
                 // Extraction
                 case 'get_text':
-                    return Extractor.get_text(message);
+                    result = Extractor.get_text(message);
+                    break;
                 case 'get_value':
-                    return Extractor.get_value(message);
+                    result = Extractor.get_value(message);
+                    break;
                 case 'exists':
-                    return Extractor.exists(message);
+                    result = Extractor.exists(message);
+                    break;
                 case 'execute':
-                    return Extractor.execute(message);
+                    result = Extractor.execute(message);
+                    break;
 
                 // System
                 case 'version':
-                    return System.version();
+                    result = System.version();
+                    break;
 
                 default:
                     return Protocol.error(`Unknown command: ${cmd}`, 'UNKNOWN_COMMAND');
             }
+
+            // Ensure timing is present on success
+            if (result && result.ok && !result.timing) {
+                result.timing = { duration_ms: performance.now() - t0 };
+            }
+            return result;
         } catch (e) {
             console.error('Scanner error:', e);
             if (e.code) return Protocol.error(e.msg || e.message, e.code);

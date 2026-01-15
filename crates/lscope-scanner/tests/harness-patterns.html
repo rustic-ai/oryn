@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Pattern Detection Harness</title>
+        <style>
+            body {
+                font-family: sans-serif;
+                padding: 20px;
+            }
+            section {
+                margin: 20px 0;
+                padding: 20px;
+                border: 1px solid #ddd;
+            }
+            .modal {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 20px;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                z-index: 1000;
+                display: none;
+            }
+            .modal.show {
+                display: block;
+            }
+            .modal-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 999;
+                display: none;
+            }
+            .modal-overlay.show {
+                display: block;
+            }
+            .cookie-banner {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                background: #333;
+                color: white;
+                padding: 15px;
+                display: none;
+                z-index: 100;
+            }
+            .cookie-banner.show {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .pagination {
+                display: flex;
+                gap: 5px;
+            }
+            .pagination a {
+                padding: 5px 10px;
+                border: 1px solid #ccc;
+                text-decoration: none;
+            }
+            .hidden {
+                display: none !important;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Pattern Detection Test Harness</h1>
+
+        <!-- Login Form Pattern -->
+        <section id="login-section">
+            <h2>Login Form Pattern</h2>
+            <form id="login-form">
+                <div>
+                    <label for="login-email">Email Address</label>
+                    <input type="email" id="login-email" name="email" autocomplete="email" placeholder="Enter email" />
+                </div>
+                <div>
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" name="password" autocomplete="current-password" />
+                </div>
+                <div>
+                    <input type="checkbox" id="login-remember" name="remember" />
+                    <label for="login-remember">Remember me</label>
+                </div>
+                <button type="submit" id="login-submit">Sign In</button>
+            </form>
+        </section>
+
+        <!-- Username-based Login (alternative) -->
+        <section id="username-login-section">
+            <h2>Username Login Pattern</h2>
+            <form id="username-login-form">
+                <div>
+                    <label for="username-field">Username</label>
+                    <input
+                        type="text"
+                        id="username-field"
+                        name="username"
+                        autocomplete="username"
+                        placeholder="Enter username"
+                    />
+                </div>
+                <div>
+                    <label for="username-password">Password</label>
+                    <input type="password" id="username-password" name="password" />
+                </div>
+                <button type="submit" id="username-login-btn">Log In</button>
+            </form>
+        </section>
+
+        <!-- Search Form Pattern -->
+        <section id="search-section">
+            <h2>Search Form Pattern</h2>
+            <form id="search-form" role="search">
+                <input type="search" id="search-input" name="q" placeholder="Search..." aria-label="Search" />
+                <button type="submit" id="search-submit">Search</button>
+            </form>
+        </section>
+
+        <!-- Alternative Search (by name) -->
+        <section id="search-alt-section">
+            <h2>Alternative Search Pattern</h2>
+            <input type="text" id="query-input" name="query" placeholder="Enter search query" />
+            <button id="query-submit">Go</button>
+        </section>
+
+        <!-- Pagination Pattern -->
+        <section id="pagination-section">
+            <h2>Pagination Pattern</h2>
+            <nav class="pagination" aria-label="Pagination">
+                <a href="#" id="page-prev" aria-label="Previous page">&#8249; Prev</a>
+                <a href="#" id="page-1">1</a>
+                <a href="#" id="page-2">2</a>
+                <a href="#" id="page-3">3</a>
+                <a href="#" id="page-4">4</a>
+                <a href="#" id="page-5">5</a>
+                <a href="#" id="page-next" aria-label="Next page">Next &#8250;</a>
+            </nav>
+        </section>
+
+        <!-- Modal Dialog Pattern -->
+        <div class="modal-overlay" id="modal-overlay"></div>
+        <div class="modal" id="test-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <h3 id="modal-title" class="modal-title">Confirm Action</h3>
+            <p>Are you sure you want to proceed?</p>
+            <button id="modal-confirm">Confirm</button>
+            <button id="modal-close" class="close" aria-label="Close modal">Cancel</button>
+        </div>
+        <button id="open-modal-btn" onclick="openModal()">Open Modal</button>
+
+        <!-- Cookie Banner Pattern -->
+        <div class="cookie-banner" id="cookie-banner">
+            <span>We use cookies to improve your experience. By continuing, you agree to our cookie policy.</span>
+            <div>
+                <button id="cookie-accept" class="btn-accept">Accept All</button>
+                <button id="cookie-reject" class="btn-reject">Reject</button>
+            </div>
+        </div>
+        <button id="show-cookie-btn" onclick="showCookieBanner()">Show Cookie Banner</button>
+
+        <!-- GDPR Consent (alternative cookie pattern) -->
+        <div
+            id="gdpr-consent"
+            class="hidden"
+            style="
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                background: #f0f0f0;
+                padding: 15px;
+                border: 1px solid #ccc;
+            "
+        >
+            <p>This site uses cookies for analytics.</p>
+            <button id="gdpr-agree">I Agree</button>
+            <button id="gdpr-decline">No Thanks</button>
+        </div>
+        <button id="show-gdpr-btn" onclick="showGdpr()">Show GDPR</button>
+
+        <script>
+            function openModal() {
+                document.getElementById('test-modal').classList.add('show');
+                document.getElementById('modal-overlay').classList.add('show');
+            }
+            function closeModal() {
+                document.getElementById('test-modal').classList.remove('show');
+                document.getElementById('modal-overlay').classList.remove('show');
+            }
+            document.getElementById('modal-close').onclick = closeModal;
+            document.getElementById('modal-confirm').onclick = closeModal;
+
+            function showCookieBanner() {
+                document.getElementById('cookie-banner').classList.add('show');
+            }
+            function hideCookieBanner() {
+                document.getElementById('cookie-banner').classList.remove('show');
+            }
+            document.getElementById('cookie-accept').onclick = hideCookieBanner;
+            document.getElementById('cookie-reject').onclick = hideCookieBanner;
+
+            function showGdpr() {
+                document.getElementById('gdpr-consent').classList.remove('hidden');
+            }
+            function hideGdpr() {
+                document.getElementById('gdpr-consent').classList.add('hidden');
+            }
+            document.getElementById('gdpr-agree').onclick = hideGdpr;
+            document.getElementById('gdpr-decline').onclick = hideGdpr;
+        </script>
+    </body>
+</html>
