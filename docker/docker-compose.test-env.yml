@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  test-harness:
+    build:
+      context: ../test-harness
+      dockerfile: Dockerfile
+    image: lemmascope-test-harness:latest
+    container_name: test-harness
+    ports:
+      - "3001:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+    networks:
+      - lscope-test-net
+
+networks:
+  lscope-test-net:
+    driver: bridge

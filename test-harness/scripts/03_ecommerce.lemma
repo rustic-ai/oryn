@@ -1,0 +1,10 @@
+goto "http://localhost:3000/shop/catalog.html"
+observe
+select "Filter by Category:" "Electronics"
+click "Add to Cart" near "Laptop"
+click "View Cart"
+observe
+click "Proceed to Checkout"
+type "Full Name" "Alice"
+type "Address" "123 Main St"
+click "Place Order"

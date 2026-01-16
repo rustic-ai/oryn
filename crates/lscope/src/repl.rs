@@ -112,6 +112,133 @@ fn command_needs_resolution(cmd: &Command) -> bool {
     }
 }
 
+pub async fn run_file(mut backend: Box<dyn Backend>, path: &str) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(path)?;
+    let mut state = ReplState::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        execute_line(&mut backend, &mut state, trimmed).await?;
+    }
+
+    backend.close().await?;
+    Ok(())
+}
+
+async fn execute_line(
+    backend: &mut Box<dyn Backend>,
+    state: &mut ReplState,
+    line: &str,
+) -> anyhow::Result<()> {
+    // 1. Parse Intent Command
+    let mut parser = Parser::new(line);
+    match parser.parse() {
+        Ok(commands) => {
+            for cmd in commands {
+                execute_command(backend, state, cmd).await?;
+            }
+        }
+        Err(e) => println!("Parse Error: {}", e),
+    }
+    Ok(())
+}
+
+async fn execute_command(
+    backend: &mut Box<dyn Backend>,
+    state: &mut ReplState,
+    cmd: Command,
+) -> anyhow::Result<()> {
+    // Handle backend-direct commands
+    match &cmd {
+        Command::GoTo(url) => {
+            match backend.navigate(url).await {
+                Ok(res) => println!("Navigated to {}", res.url),
+                Err(e) => println!("Navigation Error: {}", e),
+            }
+            return Ok(());
+        }
+        Command::Back => {
+            match backend.go_back().await {
+                Ok(res) => println!("Back to {}", res.url),
+                Err(e) => println!("Navigation Error: {}", e),
+            }
+            return Ok(());
+        }
+        Command::Forward => {
+            match backend.go_forward().await {
+                Ok(res) => println!("Forward to {}", res.url),
+                Err(e) => println!("Navigation Error: {}", e),
+            }
+            return Ok(());
+        }
+        Command::Refresh(_) => {
+            match backend.refresh().await {
+                Ok(res) => println!("Refreshed {}", res.url),
+                Err(e) => println!("Refresh Error: {}", e),
+            }
+            return Ok(());
+        }
+        Command::Screenshot(_) => {
+            match backend.screenshot().await {
+                Ok(bytes) => {
+                    println!("Screenshot captured ({} bytes)", bytes.len())
+                }
+                Err(e) => println!("Screenshot Error: {}", e),
+            }
+            return Ok(());
+        }
+        Command::Press(key, opts) => {
+            let modifiers: Vec<String> = opts
+                .iter()
+                .filter_map(|(k, v)| if v == "true" { Some(k.clone()) } else { None })
+                .collect();
+            match backend.press_key(key, &modifiers).await {
+                Ok(_) => println!("Pressed {}", key),
+                Err(e) => println!("Key Error: {}", e),
+            }
+            return Ok(());
+        }
+        _ => {}
+    }
+
+    // 2. Resolve semantic targets if needed
+    let resolved_cmd = if command_needs_resolution(&cmd) {
+        match state.get_context() {
+            Some(ctx) => match resolve_command(&cmd, ctx) {
+                Ok(resolved) => resolved,
+                Err(e) => {
+                    println!("Resolution Error: {} (hint: run 'observe' first)", e);
+                    return Ok(());
+                }
+            },
+            None => {
+                println!("No scan context. Run 'observe' first to enable semantic targeting.");
+                return Ok(());
+            }
+        }
+    } else {
+        cmd.clone()
+    };
+
+    // 3. Translate and execute
+    match translate(&resolved_cmd) {
+        Ok(req) => match backend.execute_scanner(req).await {
+            Ok(resp) => {
+                // Update resolver context if this was a scan
+                state.update_from_response(&resp);
+                let out = format_response(&resp);
+                println!("{}", out);
+            }
+            Err(e) => println!("Backend Error: {}", e),
+        },
+        Err(e) => println!("Translation Error: {}", e),
+    }
+    Ok(())
+}
+
 pub async fn run_repl(mut backend: Box<dyn Backend>) -> anyhow::Result<()> {
     println!("Backend launched. Enter commands (e.g., 'goto google.com', 'observe').");
     println!("Semantic targets supported: click \"Sign In\", type email \"user@test.com\"");
@@ -138,108 +265,7 @@ pub async fn run_repl(mut backend: Box<dyn Backend>) -> anyhow::Result<()> {
             break;
         }
 
-        // 1. Parse Intent Command
-        let mut parser = Parser::new(trimmed);
-        match parser.parse() {
-            Ok(commands) => {
-                for cmd in commands {
-                    // Handle backend-direct commands
-                    match &cmd {
-                        Command::GoTo(url) => {
-                            match backend.navigate(url).await {
-                                Ok(res) => println!("Navigated to {}", res.url),
-                                Err(e) => println!("Navigation Error: {}", e),
-                            }
-                            continue;
-                        }
-                        Command::Back => {
-                            match backend.go_back().await {
-                                Ok(res) => println!("Back to {}", res.url),
-                                Err(e) => println!("Navigation Error: {}", e),
-                            }
-                            continue;
-                        }
-                        Command::Forward => {
-                            match backend.go_forward().await {
-                                Ok(res) => println!("Forward to {}", res.url),
-                                Err(e) => println!("Navigation Error: {}", e),
-                            }
-                            continue;
-                        }
-                        Command::Refresh(_) => {
-                            match backend.refresh().await {
-                                Ok(res) => println!("Refreshed {}", res.url),
-                                Err(e) => println!("Refresh Error: {}", e),
-                            }
-                            continue;
-                        }
-                        Command::Screenshot(_) => {
-                            match backend.screenshot().await {
-                                Ok(bytes) => {
-                                    println!("Screenshot captured ({} bytes)", bytes.len())
-                                }
-                                Err(e) => println!("Screenshot Error: {}", e),
-                            }
-                            continue;
-                        }
-                        Command::Press(key, opts) => {
-                            let modifiers: Vec<String> = opts
-                                .iter()
-                                .filter_map(
-                                    |(k, v)| {
-                                        if v == "true" {
-                                            Some(k.clone())
-                                        } else {
-                                            None
-                                        }
-                                    },
-                                )
-                                .collect();
-                            match backend.press_key(key, &modifiers).await {
-                                Ok(_) => println!("Pressed {}", key),
-                                Err(e) => println!("Key Error: {}", e),
-                            }
-                            continue;
-                        }
-                        _ => {}
-                    }
-
-                    // 2. Resolve semantic targets if needed
-                    let resolved_cmd = if command_needs_resolution(&cmd) {
-                        match state.get_context() {
-                            Some(ctx) => match resolve_command(&cmd, ctx) {
-                                Ok(resolved) => resolved,
-                                Err(e) => {
-                                    println!("Resolution Error: {} (hint: run 'observe' first)", e);
-                                    continue;
-                                }
-                            },
-                            None => {
-                                println!("No scan context. Run 'observe' first to enable semantic targeting.");
-                                continue;
-                            }
-                        }
-                    } else {
-                        cmd.clone()
-                    };
-
-                    // 3. Translate and execute
-                    match translate(&resolved_cmd) {
-                        Ok(req) => match backend.execute_scanner(req).await {
-                            Ok(resp) => {
-                                // Update resolver context if this was a scan
-                                state.update_from_response(&resp);
-                                let out = format_response(&resp);
-                                println!("{}", out);
-                            }
-                            Err(e) => println!("Backend Error: {}", e),
-                        },
-                        Err(e) => println!("Translation Error: {}", e),
-                    }
-                }
-            }
-            Err(e) => println!("Parse Error: {}", e),
-        }
+        execute_line(&mut backend, &mut state, trimmed).await?;
     }
 
     backend.close().await?;

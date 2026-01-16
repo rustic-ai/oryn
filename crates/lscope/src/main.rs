@@ -12,6 +12,10 @@ mod repl;
 struct Args {
     #[command(subcommand)]
     mode: Mode,
+
+    /// Scripts to execute (non-interactive mode)
+    #[arg(long)]
+    file: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -54,8 +58,15 @@ async fn main() {
         exit(1);
     }
 
-    if let Err(e) = repl::run_repl(backend_ptr).await {
-        eprintln!("Error during session: {}", e);
-        exit(1);
+    if let Some(file_path) = args.file {
+        if let Err(e) = repl::run_file(backend_ptr, &file_path).await {
+            eprintln!("Error executing file {}: {}", file_path, e);
+            exit(1);
+        }
+    } else {
+        if let Err(e) = repl::run_repl(backend_ptr).await {
+            eprintln!("Error during session: {}", e);
+            exit(1);
+        }
     }
 }

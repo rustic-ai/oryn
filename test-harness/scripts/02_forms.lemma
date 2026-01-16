@@ -1,0 +1,22 @@
+goto "http://localhost:3000/forms/login.html"
+observe
+type "Email Address" "test@example.com"
+type "Password" "password123"
+check "Remember me"
+click "Sign In"
+wait visible css(.modal-content)
+dismiss "modal"
+
+goto "http://localhost:3000/forms/registration.html"
+observe
+type "First Name" "John"
+type "Last Name" "Doe"
+type "Email Address" "john@example.com"
+select "Primary Role" "developer"
+click "Create Account"
+
+goto "http://localhost:3000/forms/survey.html"
+check "JavaScript"
+check "Rust"
+click "Mid-level (2-5 years)"
+click "Submit Survey"

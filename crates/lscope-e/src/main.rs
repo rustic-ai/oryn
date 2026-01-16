@@ -15,6 +15,10 @@ struct Args {
     #[arg(short, long)]
     webdriver_url: Option<String>,
 
+    /// Script file to execute
+    #[arg(short, long)]
+    file: Option<String>,
+
     /// Verbose logging
     #[arg(short, long)]
     verbose: bool,
@@ -46,10 +50,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!(
-        "Backend ready. Enter commands (e.g., 'goto google.com', 'scan').Type 'exit' to quit."
-    );
+    if let Some(file_path) = args.file {
+        run_file(&mut backend, &file_path).await?;
+    } else {
+        run_repl(&mut backend).await?;
+    }
 
+    backend.close().await?;
+    Ok(())
+}
+
+async fn run_file(backend: &mut EmbeddedBackend, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let content = std::fs::read_to_string(path)?;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        execute_line(backend, trimmed).await?;
+    }
+    Ok(())
+}
+
+async fn run_repl(backend: &mut EmbeddedBackend) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Backend ready. Enter commands (e.g., 'goto google.com', 'scan').Type 'exit' to quit.");
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     let mut input = String::new();
@@ -61,50 +85,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if stdin.read_line(&mut input)? == 0 {
             break;
         }
-
         let trimmed = input.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if trimmed == "exit" || trimmed == "quit" {
-            break;
-        }
+        if trimmed.is_empty() { continue; }
+        if trimmed == "exit" || trimmed == "quit" { break; }
+        execute_line(backend, trimmed).await?;
+    }
+    Ok(())
+}
 
-        // Parse
-        let mut parser = Parser::new(trimmed);
-        match parser.parse() {
-            Ok(commands) => {
-                for cmd in commands {
-                    // Handle Navigation Directly? Or use backend.navigate only via translator?
-                    // Implementation Plan says "Command -> ScannerCommand translation".
-                    // But GoTo is not a ScannerCommand. It's a high level command.
-                    // Let's handle GoTo explicitly like lscope-h.
+async fn execute_line(backend: &mut EmbeddedBackend, line: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut parser = Parser::new(line);
+    match parser.parse() {
+        Ok(commands) => {
+            for cmd in commands {
+                if let Command::GoTo(url) = &cmd {
+                    match backend.navigate(url).await {
+                        Ok(res) => println!("Navigated to {}", res.url),
+                        Err(e) => error!("Navigation failed: {}", e),
+                    }
+                    continue;
+                }
 
-                    if let Command::GoTo(url) = &cmd {
-                        match backend.navigate(url).await {
-                            Ok(res) => println!("Navigated to {}", res.url),
-                            Err(e) => error!("Navigation failed: {}", e),
+                match translate(&cmd) {
+                    Ok(req) => match backend.execute_scanner(req).await {
+                        Ok(resp) => {
+                            let out = format_response(&resp);
+                            println!("{}", out);
                         }
-                        continue;
-                    }
-
-                    // Translate to ScannerCommand
-                    match translate(&cmd) {
-                        Ok(req) => match backend.execute_scanner(req).await {
-                            Ok(resp) => {
-                                let out = format_response(&resp);
-                                println!("{}", out);
-                            }
-                            Err(e) => error!("Backend Error: {}", e),
-                        },
-                        Err(e) => error!("Translation Error: {}", e),
-                    }
+                        Err(e) => error!("Backend Error: {}", e),
+                    },
+                    Err(e) => error!("Translation Error: {}", e),
                 }
             }
-            Err(e) => error!("Parse Error: {}", e),
         }
+        Err(e) => error!("Parse Error: {}", e),
     }
-
-    backend.close().await?;
     Ok(())
 }

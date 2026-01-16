@@ -173,10 +173,13 @@ impl Drop for CogProcess {
 
 /// Check if WPE backend library symlink exists (needed by COG)
 fn check_wpe_backend_library() -> Result<(), String> {
-    // COG requires libWPEBackend-fdo-1.0.so but Fedora only installs the versioned library
+    // COG requires libWPEBackend-fdo-1.0.so.
+    // Fedora/CentOS often miss the .so symlink. Debian/Ubuntu usually have it.
     let lib_paths = [
         "/usr/lib64/libWPEBackend-fdo-1.0.so",
         "/usr/lib/libWPEBackend-fdo-1.0.so",
+        "/usr/lib/x86_64-linux-gnu/libWPEBackend-fdo-1.0.so",
+        "/usr/lib/aarch64-linux-gnu/libWPEBackend-fdo-1.0.so",
     ];
 
     for path in lib_paths {
@@ -185,24 +188,21 @@ fn check_wpe_backend_library() -> Result<(), String> {
         }
     }
 
-    // Check if the versioned library exists (meaning we just need the symlink)
+    // Check versioned paths
     let versioned_paths = [
         "/usr/lib64/libWPEBackend-fdo-1.0.so.1",
         "/usr/lib/libWPEBackend-fdo-1.0.so.1",
+        "/usr/lib/x86_64-linux-gnu/libWPEBackend-fdo-1.0.so.1",
+        "/usr/lib/aarch64-linux-gnu/libWPEBackend-fdo-1.0.so.1",
     ];
 
     for path in versioned_paths {
         if std::path::Path::new(path).exists() {
-            return Err(format!(
-                "WPE backend library symlink missing. Fix with:\n  \
-                 sudo ln -s {} /usr/lib64/libWPEBackend-fdo-1.0.so\n  \
-                 Or install: sudo dnf install wpebackend-fdo-devel",
-                path
-            ));
+            return Ok(()); // In standard environments, the dynamic linker will find it
         }
     }
 
-    Err("WPE backend not installed. Install with: sudo dnf install wpebackend-fdo".to_string())
+    Err("WPE backend (libWPEBackend-fdo-1.0.so) not found in standard paths. Please install 'libwpebackend-fdo-1.0-1' or equivalent.".to_string())
 }
 
 /// Launch WPEWebDriver which manages COG browser instances

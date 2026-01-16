@@ -1,0 +1,15 @@
+goto "http://localhost:3000/modals/basic.html"
+observe
+click "Open Modal"
+wait visible css(#basic-modal)
+click "Confirm"
+click "Show Toast"
+wait visible css(#toast)
+
+goto "http://localhost:3000/spa/react/"
+observe
+click "Users"
+wait visible css(.user-list)
+click "Settings"
+check "Enable Notifications"
+click "Save Changes"

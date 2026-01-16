@@ -1,0 +1,12 @@
+goto "http://localhost:3000/dynamic/infinite-scroll.html"
+scroll down
+scroll down
+observe
+scroll down
+
+goto "http://localhost:3000/dynamic/live-search.html"
+type "Search components..." "Modal"
+wait visible "Modal"
+clear "Search components..."
+type "Search components..." "Card"
+wait visible "Card"

@@ -1,0 +1,14 @@
+goto "http://localhost:3000/edge/iframes.html"
+observe
+# Note: implementation of cross-frame selection varies by backend
+# but the script serves as a test case for target resolution.
+
+goto "http://localhost:3000/edge/shadow-dom.html"
+observe
+click "Open Action"
+
+goto "http://localhost:3000/edge/accessibility.html"
+observe
+click "Search"
+click "Settings"
+click css([role="button"])
