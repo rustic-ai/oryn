@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadow DOM - Lemmascope Edge Cases</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Index</a></nav>
+        <h1>Shadow DOM</h1>
+        <p>Testing discovery of elements inside Shadow Roots.</p>
+
+        <div id="shadow-host" class="card" style="margin-top: 2rem;"></div>
+
+        <div id="open-shadow-host" class="card" style="margin-top: 2rem;"></div>
+    </div>
+
+    <script>
+        // Encapsulated component
+        const host = document.getElementById('shadow-host');
+        const shadow = host.attachShadow({ mode: 'closed' });
+        shadow.innerHTML = `
+            <style>
+                .inner { padding: 1rem; background: #fee2e2; border-radius: 4px; }
+                button { background: #ef4444; color: white; border: none; padding: 0.5rem; cursor: pointer; }
+            </style>
+            <div class="inner">
+                <h3>Closed Shadow Root</h3>
+                <p>This content is hidden from standard querySelectors.</p>
+                <button id="secret-btn">Secret Action</button>
+            </div>
+        `;
+        shadow.getElementById('secret-btn').onclick = () => alert('Shadow action!');
+
+        // Open shadow root
+        const openHost = document.getElementById('open-shadow-host');
+        const openShadow = openHost.attachShadow({ mode: 'open' });
+        openShadow.innerHTML = `
+            <style>
+                .inner { padding: 1rem; background: #dcfce7; border-radius: 4px; }
+                button { background: #22c55e; color: white; border: none; padding: 0.5rem; cursor: pointer; }
+            </style>
+            <div class="inner">
+                <h3>Open Shadow Root</h3>
+                <p>This root is accessible via element.shadowRoot.</p>
+                <button id="open-btn">Open Action</button>
+            </div>
+        `;
+        openShadow.getElementById('open-btn').onclick = () => alert('Open shadow action!');
+    </script>
+</body>
+
+</html>

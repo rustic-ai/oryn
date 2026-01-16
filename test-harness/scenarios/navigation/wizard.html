@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wizard - Lemmascope Navigation</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .step {
+            display: none;
+        }
+
+        .step.active {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            margin-bottom: 2rem;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--primary);
+            width: 33%;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Index</a></nav>
+        <h1>Multi-step Setup</h1>
+
+        <div class="progress-bar">
+            <div id="progress" class="progress-fill"></div>
+        </div>
+
+        <form id="wizard-form">
+            <!-- Step 1 -->
+            <div id="step-1" class="step active">
+                <h2>Step 1: Account Type</h2>
+                <div class="grid">
+                    <label class="card" style="cursor: pointer;">
+                        <input type="radio" name="accountType" value="personal" checked> Personal
+                    </label>
+                    <label class="card" style="cursor: pointer;">
+                        <input type="radio" name="accountType" value="business"> Business
+                    </label>
+                </div>
+            </div>
+
+            <!-- Step 2 -->
+            <div id="step-2" class="step">
+                <h2>Step 2: Profile Details</h2>
+                <label for="username">Pick a username</label>
+                <input type="text" id="username" name="username">
+            </div>
+
+            <!-- Step 3 -->
+            <div id="step-3" class="step">
+                <h2>Step 3: Confirmation</h2>
+                <p>Please review your details before submitting.</p>
+                <div id="review-area" class="card"></div>
+            </div>
+
+            <div style="margin-top: 2rem; display: flex; justify-content: space-between;">
+                <button type="button" id="prev-btn" style="display: none; background: #64748b;">Previous</button>
+                <button type="button" id="next-btn">Next</button>
+                <button type="submit" id="submit-btn" style="display: none;">Complete Setup</button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        let currentStep = 1;
+        const totalSteps = 3;
+
+        document.getElementById('next-btn').onclick = () => {
+            if (currentStep < totalSteps) {
+                if (currentStep === 2) {
+                    const type = document.querySelector('input[name="accountType"]:checked').value;
+                    const user = document.getElementById('username').value;
+                    document.getElementById('review-area').innerHTML = `
+                        <strong>Type:</strong> ${type}<br>
+                        <strong>Username:</strong> ${user}
+                    `;
+                }
+                goToStep(currentStep + 1);
+            }
+        };
+
+        document.getElementById('prev-btn').onclick = () => {
+            if (currentStep > 1) goToStep(currentStep - 1);
+        };
+
+        function goToStep(step) {
+            document.getElementById(`step-${currentStep}`).classList.remove('active');
+            currentStep = step;
+            document.getElementById(`step-${currentStep}`).classList.add('active');
+
+            document.getElementById('progress').style.width = (step / totalSteps) * 100 + '%';
+
+            document.getElementById('prev-btn').style.display = step === 1 ? 'none' : 'block';
+            document.getElementById('next-btn').style.display = step === totalSteps ? 'none' : 'block';
+            document.getElementById('submit-btn').style.display = step === totalSteps ? 'block' : 'none';
+        }
+
+        document.getElementById('wizard-form').onsubmit = (e) => {
+            e.preventDefault();
+            alert('Setup complete!');
+            window.location.href = '/';
+        };
+    </script>
+</body>
+
+</html>

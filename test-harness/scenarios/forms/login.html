@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Scenario - Lemmascope</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Index</a></nav>
+        <h1>Sign In</h1>
+        <form id="login-form" action="/forms/success" method="GET">
+            <div class="field">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" required placeholder="name@company.com">
+            </div>
+            <div class="field">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <div class="field">
+                <label style="display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" name="remember" style="width: auto; margin: 0;"> Remember me
+                </label>
+            </div>
+            <button type="submit" id="submit-btn" style="width: 100%;">Sign In</button>
+        </form>
+        <p style="text-align: center; margin-top: 1rem;">
+            <a href="#">Forgot password?</a>
+        </p>
+    </div>
+    <script>
+        document.getElementById('login-form').onsubmit = (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            alert('Login attempted for: ' + email);
+        };
+    </script>
+</body>
+
+</html>

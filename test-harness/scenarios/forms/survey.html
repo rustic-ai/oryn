@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Survey Scenario - Lemmascope</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Index</a></nav>
+        <h1>Developer Survey</h1>
+        <form id="survey-form">
+            <fieldset style="border: none; margin-bottom: 2rem;">
+                <legend style="font-weight: bold; margin-bottom: 1rem;">Which languages do you use? (Check all that
+                    apply)</legend>
+                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal;">
+                    <input type="checkbox" name="lang" value="js" style="width: auto; margin: 0;"> JavaScript
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal;">
+                    <input type="checkbox" name="lang" value="rust" style="width: auto; margin: 0;"> Rust
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal;">
+                    <input type="checkbox" name="lang" value="python" style="width: auto; margin: 0;"> Python
+                </label>
+            </fieldset>
+
+            <fieldset style="border: none; margin-bottom: 2rem;">
+                <legend style="font-weight: bold; margin-bottom: 1rem;">Experience level?</legend>
+                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal;">
+                    <input type="radio" name="exp" value="junior" style="width: auto; margin: 0;"> Junior (0-2 years)
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal;">
+                    <input type="radio" name="exp" value="mid" style="width: auto; margin: 0;"> Mid-level (2-5 years)
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal;">
+                    <input type="radio" name="exp" value="senior" style="width: auto; margin: 0;"> Senior (5+ years)
+                </label>
+            </fieldset>
+
+            <label for="satisfaction">Satisfaction with current tools (1-10)</label>
+            <input type="range" id="satisfaction" name="satisfaction" min="1" max="10" value="5" style="width: 100%;">
+
+            <button type="submit" style="width: 100%;">Submit Survey</button>
+        </form>
+    </div>
+    <script>
+        document.getElementById('survey-form').onsubmit = (e) => {
+            e.preventDefault();
+            alert('Survey submitted!');
+        };
+    </script>
+</body>
+
+</html>

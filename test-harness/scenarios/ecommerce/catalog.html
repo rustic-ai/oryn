@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Catalog - Lemmascope Shop</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .product-card {
+            border: 1px solid var(--border);
+            padding: 1rem;
+            border-radius: var(--radius);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .price {
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .filters {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            align-items: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container" style="max-width: 1000px;">
+        <nav><a href="/">&larr; Back to Index</a> | <a href="/shop/cart.html">View Cart (<span
+                    id="cart-count">0</span>)</a></nav>
+        <h1>Product Catalog</h1>
+
+        <div class="filters">
+            <label for="category-filter">Filter by Category:</label>
+            <select id="category-filter" style="margin-bottom: 0; width: auto;">
+                <option value="">All Categories</option>
+                <option value="Electronics">Electronics</option>
+                <option value="Home">Home</option>
+                <option value="Apparel">Apparel</option>
+            </select>
+        </div>
+
+        <div id="product-list" class="grid">
+            <!-- Products will be loaded here -->
+            <p>Loading products...</p>
+        </div>
+    </div>
+
+    <script>
+        async function loadProducts(category = '') {
+            const list = document.getElementById('product-list');
+            list.innerHTML = '<p>Loading products...</p>';
+
+            const url = category ? `/shop/api/products?category=${category}` : '/shop/api/products';
+            const res = await fetch(url);
+            const products = await res.json();
+
+            list.innerHTML = '';
+            products.forEach(p => {
+                const card = document.createElement('div');
+                card.className = 'product-card';
+                card.innerHTML = `
+                    <h3>${p.name}</h3>
+                    <p>${p.description}</p>
+                    <div class="price">$${p.price}</div>
+                    <button onclick="addToCart(${p.id})">Add to Cart</button>
+                `;
+                list.appendChild(card);
+            });
+        }
+
+        async function addToCart(productId) {
+            const res = await fetch('/shop/api/cart', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ productId, quantity: 1 })
+            });
+            const data = await res.json();
+            updateCartCount();
+            alert('Added to cart!');
+        }
+
+        async function updateCartCount() {
+            const res = await fetch('/shop/api/cart');
+            const cart = await res.json();
+            document.getElementById('cart-count').innerText = cart.length;
+        }
+
+        document.getElementById('category-filter').onchange = (e) => {
+            loadProducts(e.target.value);
+        };
+
+        loadProducts();
+        updateCartCount();
+    </script>
+</body>
+
+</html>
