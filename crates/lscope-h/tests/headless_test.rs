@@ -92,6 +92,18 @@ async fn test_headless_lifecycle_and_scan() {
         panic!("Client not available");
     }
 
-    // 5. Close
+    // 6. Test Backend Trait methods
+    let cookies = backend.get_cookies().await.expect("Get cookies failed");
+    // Since it's a data URL, there might be no cookies, but it shouldn't error
+    println!("Cookies: {:?}", cookies);
+
+    let tabs = backend.get_tabs().await.expect("Get tabs failed");
+    assert!(!tabs.is_empty(), "Tabs should not be empty");
+    assert!(tabs.iter().any(|t| t.url.contains("data:text/html")));
+
+    let pdf_bytes = backend.pdf().await.expect("Trait PDF failed");
+    assert!(!pdf_bytes.is_empty(), "PDF should not be empty");
+
+    // 7. Close
     backend.close().await.expect("Close failed");
 }

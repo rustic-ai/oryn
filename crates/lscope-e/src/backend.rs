@@ -199,6 +199,48 @@ impl Backend for EmbeddedBackend {
         Ok(bytes)
     }
 
+    async fn get_cookies(&mut self) -> Result<Vec<lscope_core::protocol::Cookie>, BackendError> {
+        let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
+        let cookies = client
+            .client
+            .get_all_cookies()
+            .await
+            .map_err(|e| BackendError::Other(format!("Get cookies failed: {}", e)))?;
+
+        Ok(cookies
+            .into_iter()
+            .map(|c| lscope_core::protocol::Cookie {
+                name: c.name().to_string(),
+                value: c.value().to_string(),
+                domain: c.domain().map(|s| s.to_string()),
+                path: c.path().map(|s| s.to_string()),
+                expires: None, // fantoccini 0.19 Cookie doesn't easily expose expiry for all backends
+                http_only: c.http_only(),
+                secure: c.secure(),
+            })
+            .collect())
+    }
+
+    async fn get_tabs(&mut self) -> Result<Vec<lscope_core::protocol::TabInfo>, BackendError> {
+        let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
+        let handles = client
+            .client
+            .windows()
+            .await
+            .map_err(|e| BackendError::Other(format!("Get windows failed: {}", e)))?;
+
+        let mut tabs = Vec::new();
+        for handle in handles {
+            tabs.push(lscope_core::protocol::TabInfo {
+                id: format!("{:?}", handle),
+                url: "unknown".to_string(),
+                title: "unknown".to_string(),
+                active: false,
+            });
+        }
+        Ok(tabs)
+    }
+
     async fn go_back(&mut self) -> Result<NavigationResult, BackendError> {
         let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
 

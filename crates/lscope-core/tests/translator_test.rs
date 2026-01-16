@@ -1,4 +1,4 @@
-use lscope_core::command::{Command, Target, WaitCondition};
+use lscope_core::command::{Command, ExtractSource, Target, WaitCondition};
 use lscope_core::protocol::ScannerRequest;
 use lscope_core::translator::translate;
 use std::collections::HashMap;
@@ -62,6 +62,51 @@ fn test_translate_storage() {
     let req = translate(&cmd).unwrap();
     if let ScannerRequest::Execute(e) = req {
         assert!(e.script.contains("localStorage.clear()"));
+    } else {
+        panic!("Wrong request type");
+    }
+}
+
+#[test]
+fn test_translate_extract() {
+    let cmd = Command::Extract(ExtractSource::Links);
+    let req = translate(&cmd).unwrap();
+    if let ScannerRequest::Extract(e) = req {
+        assert_eq!(e.source, "links");
+    } else {
+        panic!("Wrong request type");
+    }
+}
+
+#[test]
+fn test_translate_login() {
+    let cmd = Command::Login("user".to_string(), "pass".to_string(), HashMap::new());
+    let req = translate(&cmd).unwrap();
+    if let ScannerRequest::Login(l) = req {
+        assert_eq!(l.username, "user");
+        assert_eq!(l.password, "pass");
+    } else {
+        panic!("Wrong request type");
+    }
+}
+
+#[test]
+fn test_translate_search() {
+    let cmd = Command::Search("lscope".to_string(), HashMap::new());
+    let req = translate(&cmd).unwrap();
+    if let ScannerRequest::Search(s) = req {
+        assert_eq!(s.query, "lscope");
+    } else {
+        panic!("Wrong request type");
+    }
+}
+
+#[test]
+fn test_translate_accept() {
+    let cmd = Command::Accept("cookies".to_string(), HashMap::new());
+    let req = translate(&cmd).unwrap();
+    if let ScannerRequest::Accept(a) = req {
+        assert_eq!(a.target, "cookies");
     } else {
         panic!("Wrong request type");
     }

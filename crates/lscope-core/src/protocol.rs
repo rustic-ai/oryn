@@ -17,6 +17,11 @@ pub enum ScannerRequest {
     Focus(FocusRequest),
     Clear(ClearRequest),
     Execute(ExecuteRequest),
+    Extract(ExtractRequest),
+    Login(LoginRequest),
+    Search(SearchRequest),
+    Dismiss(DismissRequest),
+    Accept(AcceptRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -124,6 +129,33 @@ pub struct ClearRequest {
 pub struct ExecuteRequest {
     pub script: String,
     pub args: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractRequest {
+    pub source: String, // "links", "images", "tables", "meta", "css"
+    pub selector: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchRequest {
+    pub query: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DismissRequest {
+    pub target: String, // "popups", "modals", "cookie_banners"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcceptRequest {
+    pub target: String, // "cookies"
 }
 
 /// Responses received from the scanner.
@@ -342,4 +374,28 @@ pub struct ActionResult {
     pub success: bool,
     pub message: Option<String>,
     pub navigation: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Cookie {
+    pub name: String,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_only: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secure: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TabInfo {
+    pub id: String,
+    pub url: String,
+    pub title: String,
+    pub active: bool,
 }

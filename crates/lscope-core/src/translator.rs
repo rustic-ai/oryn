@@ -1,8 +1,9 @@
 use crate::command::{Command, Target};
 use crate::protocol::{
-    CheckRequest, ClearRequest, ClickRequest, ExecuteRequest, FocusRequest, HoverRequest,
-    MouseButton, ScanRequest, ScannerRequest, ScrollDirection, ScrollRequest, SelectRequest,
-    TypeRequest, WaitRequest,
+    AcceptRequest, CheckRequest, ClearRequest, ClickRequest, DismissRequest, ExecuteRequest,
+    ExtractRequest, FocusRequest, HoverRequest, LoginRequest, MouseButton, ScanRequest,
+    ScannerRequest, ScrollDirection, ScrollRequest, SearchRequest, SelectRequest, TypeRequest,
+    WaitRequest,
 };
 use thiserror::Error;
 
@@ -267,6 +268,37 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                 args: vec![],
             }))
         }
+
+        Command::Extract(source) => {
+            let (source_str, selector) = match source {
+                crate::command::ExtractSource::Links => ("links".to_string(), None),
+                crate::command::ExtractSource::Images => ("images".to_string(), None),
+                crate::command::ExtractSource::Tables => ("tables".to_string(), None),
+                crate::command::ExtractSource::Meta => ("meta".to_string(), None),
+                crate::command::ExtractSource::Css(s) => ("css".to_string(), Some(s.clone())),
+            };
+            Ok(ScannerRequest::Extract(ExtractRequest {
+                source: source_str,
+                selector,
+            }))
+        }
+
+        Command::Login(user, pass, _opts) => Ok(ScannerRequest::Login(LoginRequest {
+            username: user.clone(),
+            password: pass.clone(),
+        })),
+
+        Command::Search(query, _opts) => Ok(ScannerRequest::Search(SearchRequest {
+            query: query.clone(),
+        })),
+
+        Command::Dismiss(target, _opts) => Ok(ScannerRequest::Dismiss(DismissRequest {
+            target: target.clone(),
+        })),
+
+        Command::Accept(target, _opts) => Ok(ScannerRequest::Accept(AcceptRequest {
+            target: target.clone(),
+        })),
 
         // Navigation commands are handled by Backend trait methods
         // Command::GoTo(_) => handled by backend.navigate()

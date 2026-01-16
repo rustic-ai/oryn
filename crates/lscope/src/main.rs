@@ -63,10 +63,8 @@ async fn main() {
             eprintln!("Error executing file {}: {}", file_path, e);
             exit(1);
         }
-    } else {
-        if let Err(e) = repl::run_repl(backend_ptr).await {
-            eprintln!("Error during session: {}", e);
-            exit(1);
-        }
+    } else if let Err(e) = repl::run_repl(backend_ptr).await {
+        eprintln!("Error during session: {}", e);
+        exit(1);
     }
 }

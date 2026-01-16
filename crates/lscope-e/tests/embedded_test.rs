@@ -115,5 +115,14 @@ async fn test_embedded_navigation() {
     assert!(fwd_res.is_ok(), "Go forward failed: {:?}", fwd_res.err());
     println!("Go forward result: {}", fwd_res.unwrap().url);
 
+    // Test cookies
+    let cookies = backend.get_cookies().await.expect("Get cookies failed");
+    println!("Cookies: {:?}", cookies);
+
+    // Test tabs
+    let tabs = backend.get_tabs().await.expect("Get tabs failed");
+    assert!(!tabs.is_empty(), "Tabs should not be empty");
+    println!("Tabs: {:?}", tabs);
+
     let _ = backend.close().await;
 }

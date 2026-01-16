@@ -132,6 +132,65 @@ impl Backend for HeadlessBackend {
         Ok(bytes)
     }
 
+    async fn pdf(&mut self) -> Result<Vec<u8>, BackendError> {
+        let client = self.client.as_ref().ok_or(BackendError::NotReady)?;
+        let bytes = client
+            .page
+            .pdf(chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams::builder().build())
+            .await
+            .map_err(|e| BackendError::Other(format!("PDF generation failed: {}", e)))?;
+
+        Ok(bytes)
+    }
+
+    async fn get_cookies(&mut self) -> Result<Vec<lscope_core::protocol::Cookie>, BackendError> {
+        let client = self.client.as_ref().ok_or(BackendError::NotReady)?;
+        let cookies = client
+            .page
+            .get_cookies()
+            .await
+            .map_err(|e| BackendError::Other(format!("Get cookies failed: {}", e)))?;
+
+        Ok(cookies
+            .into_iter()
+            .map(|c| lscope_core::protocol::Cookie {
+                name: c.name,
+                value: c.value,
+                domain: Some(c.domain),
+                path: Some(c.path),
+                expires: Some(c.expires),
+                http_only: Some(c.http_only),
+                secure: Some(c.secure),
+            })
+            .collect())
+    }
+
+    async fn get_tabs(&mut self) -> Result<Vec<lscope_core::protocol::TabInfo>, BackendError> {
+        let client = self.client.as_ref().ok_or(BackendError::NotReady)?;
+        let pages = client
+            .browser
+            .pages()
+            .await
+            .map_err(|e| BackendError::Other(format!("Get pages failed: {}", e)))?;
+
+        let mut tabs = Vec::new();
+        for page in pages {
+            let url = page.url().await.unwrap_or_default().unwrap_or_default();
+            let title = page
+                .get_title()
+                .await
+                .unwrap_or_default()
+                .unwrap_or_default();
+            tabs.push(lscope_core::protocol::TabInfo {
+                id: "unknown".to_string(),
+                url,
+                title,
+                active: false,
+            });
+        }
+        Ok(tabs)
+    }
+
     async fn go_back(&mut self) -> Result<NavigationResult, BackendError> {
         let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
 

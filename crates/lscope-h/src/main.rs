@@ -35,7 +35,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn run_file(backend: &mut HeadlessBackend, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_file(
+    backend: &mut HeadlessBackend,
+    path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let content = std::fs::read_to_string(path)?;
     for line in content.lines() {
         let trimmed = line.trim();
@@ -61,14 +64,21 @@ async fn run_repl(backend: &mut HeadlessBackend) -> Result<(), Box<dyn std::erro
             break;
         }
         let trimmed = input.trim();
-        if trimmed.is_empty() { continue; }
-        if trimmed == "exit" || trimmed == "quit" { break; }
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed == "exit" || trimmed == "quit" {
+            break;
+        }
         execute_line(backend, trimmed).await?;
     }
     Ok(())
 }
 
-async fn execute_line(backend: &mut HeadlessBackend, line: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn execute_line(
+    backend: &mut HeadlessBackend,
+    line: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut parser = Parser::new(line);
     match parser.parse() {
         Ok(commands) => {
@@ -84,7 +94,12 @@ async fn execute_line(backend: &mut HeadlessBackend, line: &str) -> Result<(), B
                 if let Command::Pdf(path) = &cmd {
                     if let Some(client) = backend.get_client() {
                         println!("Generating PDF to {}...", path);
-                        if let Err(e) = lscope_h::features::generate_pdf(&client.page, std::path::Path::new(path)).await {
+                        if let Err(e) = lscope_h::features::generate_pdf(
+                            &client.page,
+                            std::path::Path::new(path),
+                        )
+                        .await
+                        {
                             println!("Error generating PDF: {}", e);
                         } else {
                             println!("PDF generated successfully.");

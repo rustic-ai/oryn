@@ -60,7 +60,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn run_file(backend: &mut EmbeddedBackend, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_file(
+    backend: &mut EmbeddedBackend,
+    path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let content = std::fs::read_to_string(path)?;
     for line in content.lines() {
         let trimmed = line.trim();
@@ -73,7 +76,9 @@ async fn run_file(backend: &mut EmbeddedBackend, path: &str) -> Result<(), Box<d
 }
 
 async fn run_repl(backend: &mut EmbeddedBackend) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Backend ready. Enter commands (e.g., 'goto google.com', 'scan').Type 'exit' to quit.");
+    println!(
+        "Backend ready. Enter commands (e.g., 'goto google.com', 'scan').Type 'exit' to quit."
+    );
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     let mut input = String::new();
@@ -86,14 +91,21 @@ async fn run_repl(backend: &mut EmbeddedBackend) -> Result<(), Box<dyn std::erro
             break;
         }
         let trimmed = input.trim();
-        if trimmed.is_empty() { continue; }
-        if trimmed == "exit" || trimmed == "quit" { break; }
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed == "exit" || trimmed == "quit" {
+            break;
+        }
         execute_line(backend, trimmed).await?;
     }
     Ok(())
 }
 
-async fn execute_line(backend: &mut EmbeddedBackend, line: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn execute_line(
+    backend: &mut EmbeddedBackend,
+    line: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut parser = Parser::new(line);
     match parser.parse() {
         Ok(commands) => {

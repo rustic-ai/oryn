@@ -1909,9 +1909,7 @@ describe('Scanner Protocol Tests', () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
 
                 // Find button inside iframe
-                const iframeBtn = scan.elements.find(
-                    (el) => el.iframe_context && el.attributes?.id === 'iframe-btn-1'
-                );
+                const iframeBtn = scan.elements.find((el) => el.iframe_context && el.attributes?.id === 'iframe-btn-1');
 
                 if (iframeBtn) {
                     const result = await runCommand(page, { cmd: 'click', id: iframeBtn.id });

@@ -190,6 +190,39 @@ async fn execute_command(
             }
             return Ok(());
         }
+        Command::Pdf(_) => {
+            match backend.pdf().await {
+                Ok(bytes) => {
+                    println!("PDF captured ({} bytes)", bytes.len())
+                }
+                Err(e) => println!("PDF Error: {}", e),
+            }
+            return Ok(());
+        }
+        Command::Cookies(_) => {
+            match backend.get_cookies().await {
+                Ok(cookies) => {
+                    println!("Cookies ({}):", cookies.len());
+                    for c in cookies {
+                        println!("  {} = {} (domain: {:?})", c.name, c.value, c.domain);
+                    }
+                }
+                Err(e) => println!("Cookies Error: {}", e),
+            }
+            return Ok(());
+        }
+        Command::Tabs(_) => {
+            match backend.get_tabs().await {
+                Ok(tabs) => {
+                    println!("Tabs ({}):", tabs.len());
+                    for t in tabs {
+                        println!("  - [{}] {} ({})", t.id, t.title, t.url);
+                    }
+                }
+                Err(e) => println!("Tabs Error: {}", e),
+            }
+            return Ok(());
+        }
         Command::Press(key, opts) => {
             let modifiers: Vec<String> = opts
                 .iter()

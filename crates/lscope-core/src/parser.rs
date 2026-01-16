@@ -152,7 +152,7 @@ impl<'a> Parser<'a> {
                     "forward" => Ok(Command::Forward),
                     "refresh" | "reload" => Ok(Command::Refresh(self.parse_options())),
                     "url" => Ok(Command::Url),
-                    "observe" | "scan" => Ok(Command::Observe(self.parse_options())),
+                    "observe" | "scan" | "see" => Ok(Command::Observe(self.parse_options())),
                     "html" => Ok(Command::Html(self.parse_options())),
                     "text" => Ok(Command::Text(self.parse_options())),
                     "title" => Ok(Command::Title),
@@ -517,6 +517,10 @@ impl<'a> Parser<'a> {
                     self.consume_token();
                     let id = self.parse_string_arg()?;
                     return Ok(Command::Tabs(TabAction::Close(id)));
+                }
+                "list" => {
+                    self.consume_token();
+                    return Ok(Command::Tabs(TabAction::List));
                 }
                 _ => {}
             }

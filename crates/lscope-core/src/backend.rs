@@ -54,6 +54,26 @@ pub trait Backend: Send + Sync {
     /// Capture a screenshot of the current viewport.
     async fn screenshot(&mut self) -> Result<Vec<u8>, BackendError>;
 
+    /// Generate a PDF of the current page.
+    async fn pdf(&mut self) -> Result<Vec<u8>, BackendError> {
+        Err(BackendError::NotSupported("pdf".into()))
+    }
+
+    /// Get all cookies from the current session.
+    async fn get_cookies(&mut self) -> Result<Vec<crate::protocol::Cookie>, BackendError> {
+        Err(BackendError::NotSupported("get_cookies".into()))
+    }
+
+    /// Set a cookie in the current session.
+    async fn set_cookie(&mut self, _cookie: crate::protocol::Cookie) -> Result<(), BackendError> {
+        Err(BackendError::NotSupported("set_cookie".into()))
+    }
+
+    /// Get all open tabs/windows.
+    async fn get_tabs(&mut self) -> Result<Vec<crate::protocol::TabInfo>, BackendError> {
+        Err(BackendError::NotSupported("get_tabs".into()))
+    }
+
     /// Navigate back in browser history.
     async fn go_back(&mut self) -> Result<NavigationResult, BackendError> {
         Err(BackendError::NotSupported("go_back".into()))
