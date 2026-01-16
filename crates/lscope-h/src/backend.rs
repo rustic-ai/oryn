@@ -131,4 +131,152 @@ impl Backend for HeadlessBackend {
 
         Ok(bytes)
     }
+
+    async fn go_back(&mut self) -> Result<NavigationResult, BackendError> {
+        let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
+
+        // Use JavaScript history.back()
+        client
+            .page
+            .evaluate("history.back();")
+            .await
+            .map_err(|e| BackendError::Navigation(format!("go_back failed: {}", e)))?;
+
+        // Wait for navigation
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+
+        let title = client
+            .page
+            .get_title()
+            .await
+            .unwrap_or_default()
+            .unwrap_or_default();
+
+        let url = client
+            .page
+            .url()
+            .await
+            .map_err(|e| BackendError::Navigation(e.to_string()))?
+            .unwrap_or_default();
+
+        Ok(NavigationResult {
+            url: url.to_string(),
+            title,
+            status: 200,
+        })
+    }
+
+    async fn go_forward(&mut self) -> Result<NavigationResult, BackendError> {
+        let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
+
+        // Use JavaScript history.forward()
+        client
+            .page
+            .evaluate("history.forward();")
+            .await
+            .map_err(|e| BackendError::Navigation(format!("go_forward failed: {}", e)))?;
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+
+        let title = client
+            .page
+            .get_title()
+            .await
+            .unwrap_or_default()
+            .unwrap_or_default();
+
+        let url = client
+            .page
+            .url()
+            .await
+            .map_err(|e| BackendError::Navigation(e.to_string()))?
+            .unwrap_or_default();
+
+        Ok(NavigationResult {
+            url: url.to_string(),
+            title,
+            status: 200,
+        })
+    }
+
+    async fn refresh(&mut self) -> Result<NavigationResult, BackendError> {
+        let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
+
+        client
+            .page
+            .reload()
+            .await
+            .map_err(|e| BackendError::Navigation(format!("refresh failed: {}", e)))?;
+
+        let title = client
+            .page
+            .get_title()
+            .await
+            .unwrap_or_default()
+            .unwrap_or_default();
+
+        let url = client
+            .page
+            .url()
+            .await
+            .map_err(|e| BackendError::Navigation(e.to_string()))?
+            .unwrap_or_default();
+
+        Ok(NavigationResult {
+            url: url.to_string(),
+            title,
+            status: 200,
+        })
+    }
+
+    async fn press_key(&mut self, key: &str, modifiers: &[String]) -> Result<(), BackendError> {
+        let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
+
+        // Build modifier flags
+        let mut modifier_flags = 0;
+        for m in modifiers {
+            match m.to_lowercase().as_str() {
+                "alt" => modifier_flags |= 1,
+                "ctrl" | "control" => modifier_flags |= 2,
+                "meta" | "cmd" | "command" => modifier_flags |= 4,
+                "shift" => modifier_flags |= 8,
+                _ => {}
+            }
+        }
+
+        // Send key down and up events via CDP Input.dispatchKeyEvent
+        use chromiumoxide::cdp::browser_protocol::input::{
+            DispatchKeyEventParams, DispatchKeyEventType,
+        };
+
+        // Key down
+        let key_down = DispatchKeyEventParams::builder()
+            .r#type(DispatchKeyEventType::KeyDown)
+            .key(key)
+            .modifiers(modifier_flags)
+            .build()
+            .map_err(|e| BackendError::Other(format!("Failed to build key event: {:?}", e)))?;
+
+        client
+            .page
+            .execute(key_down)
+            .await
+            .map_err(|e| BackendError::Other(format!("press_key down failed: {}", e)))?;
+
+        // Key up
+        let key_up = DispatchKeyEventParams::builder()
+            .r#type(DispatchKeyEventType::KeyUp)
+            .key(key)
+            .modifiers(modifier_flags)
+            .build()
+            .map_err(|e| BackendError::Other(format!("Failed to build key event: {:?}", e)))?;
+
+        client
+            .page
+            .execute(key_up)
+            .await
+            .map_err(|e| BackendError::Other(format!("press_key up failed: {}", e)))?;
+
+        Ok(())
+    }
 }

@@ -5,16 +5,15 @@ use lscope_core::formatter::format_response;
 use lscope_core::parser::Parser;
 use lscope_core::translator::translate;
 use lscope_e::backend::EmbeddedBackend;
-use lscope_e::cog;
 use std::io::{self, Write};
 use tracing::{error, info};
 
 #[derive(ClapParser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// URL of the WebDriver server (e.g., http://localhost:8080)
-    #[arg(short, long, default_value_t = cog::default_cog_url())]
-    webdriver_url: String,
+    /// URL of an external WebDriver server. If not provided, COG will be launched automatically.
+    #[arg(short, long)]
+    webdriver_url: Option<String>,
 
     /// Verbose logging
     #[arg(short, long)]
@@ -30,15 +29,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     info!("Starting Lemmascope Embedded Backend...");
-    info!("Target WebDriver: {}", args.webdriver_url);
 
-    let mut backend = EmbeddedBackend::new(args.webdriver_url);
+    let mut backend = if let Some(url) = args.webdriver_url {
+        info!("Using external WebDriver at {}", url);
+        EmbeddedBackend::with_url(url)
+    } else {
+        info!("Auto-launching COG browser...");
+        EmbeddedBackend::new()
+    };
 
     match backend.launch().await {
-        Ok(_) => info!("Connected to WebDriver successfully."),
+        Ok(_) => info!("Backend ready."),
         Err(e) => {
-            error!("Failed to connect to WebDriver: {}", e);
-            error!("Ensure COG or another WebDriver is running.");
+            error!("Failed to launch: {}", e);
             std::process::exit(1);
         }
     }

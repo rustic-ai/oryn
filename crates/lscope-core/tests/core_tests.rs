@@ -79,7 +79,7 @@ fn test_formatter_ok() {
     });
 
     let resp = ScannerProtocolResponse::Ok {
-        data: result,
+        data: Box::new(result),
         warnings: vec![],
     };
 
@@ -129,10 +129,12 @@ fn test_formatter_scan_scanresult() {
             total: 1,
             scanned: 1,
         },
+        patterns: None,
+        changes: None,
     };
 
     let resp = ScannerProtocolResponse::Ok {
-        data: ScannerData::Scan(scan_res),
+        data: Box::new(ScannerData::Scan(scan_res)),
         warnings: vec![],
     };
 

@@ -1,0 +1,97 @@
+# lscope-h: Headless browser backend using Chromium
+# Ubuntu slim-based image for maximum browser compatibility
+
+# ============================================================================
+# Stage 1: Build the Rust binary
+# ============================================================================
+# Rust 1.87+ required for edition 2024 with let_chains
+FROM rust:1-slim-bookworm AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+# Build release binary
+RUN cargo build --release --package lscope-h \
+    && strip /build/target/release/lscope-h
+
+# ============================================================================
+# Stage 2: Runtime image with Chromium
+# ============================================================================
+FROM ubuntu:latest
+
+LABEL org.opencontainers.image.title="lscope-h"
+LABEL org.opencontainers.image.description="Lemmascope headless browser backend (Chromium)"
+LABEL org.opencontainers.image.source="https://github.com/anthropics/lemmascope"
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Chromium and dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Chromium browser
+    chromium-browser \
+    # Required libraries
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2t64 \
+    libpango-1.0-0 \
+    libcairo2 \
+    # Fonts for proper rendering
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    # CA certificates for HTTPS
+    ca-certificates \
+    # Process management
+    tini \
+    # Useful utilities
+    dumb-init \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user for security (use different UID to avoid conflicts)
+RUN useradd --create-home --uid 1001 lscope
+
+# Set up directories for Chromium
+RUN mkdir -p /home/lscope/.cache/chromium \
+    && mkdir -p /home/lscope/.config/chromium \
+    && chown -R lscope:lscope /home/lscope
+
+# Copy binary from builder
+COPY --from=builder /build/target/release/lscope-h /usr/local/bin/lscope-h
+
+# Environment for headless Chromium
+ENV HOME=/home/lscope
+ENV CHROME_BIN=/usr/bin/chromium-browser
+ENV CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage --disable-gpu"
+
+# Switch to non-root user
+USER lscope
+WORKDIR /home/lscope
+
+# Expose default port if running as server
+EXPOSE 9222
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD pgrep -f "lscope-h|chromium" || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["lscope-h", "--help"]

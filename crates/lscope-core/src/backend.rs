@@ -53,4 +53,24 @@ pub trait Backend: Send + Sync {
 
     /// Capture a screenshot of the current viewport.
     async fn screenshot(&mut self) -> Result<Vec<u8>, BackendError>;
+
+    /// Navigate back in browser history.
+    async fn go_back(&mut self) -> Result<NavigationResult, BackendError> {
+        Err(BackendError::NotSupported("go_back".into()))
+    }
+
+    /// Navigate forward in browser history.
+    async fn go_forward(&mut self) -> Result<NavigationResult, BackendError> {
+        Err(BackendError::NotSupported("go_forward".into()))
+    }
+
+    /// Refresh the current page.
+    async fn refresh(&mut self) -> Result<NavigationResult, BackendError> {
+        Err(BackendError::NotSupported("refresh".into()))
+    }
+
+    /// Press a key (with optional modifiers).
+    async fn press_key(&mut self, _key: &str, _modifiers: &[String]) -> Result<(), BackendError> {
+        Err(BackendError::NotSupported("press_key".into()))
+    }
 }

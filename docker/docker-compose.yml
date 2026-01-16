@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # Embedded backend - WPE WebKit on Alpine (~50MB footprint)
+  # Note: Alpine WPE support is experimental; use lscope-e-debian for reliability
+  lscope-e:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.lscope-e
+    image: lscope-e:latest
+    container_name: lscope-e
+    environment:
+      - XDG_RUNTIME_DIR=/run/user/1000
+      - COG_PLATFORM_NAME=headless
+    volumes:
+      - /dev/shm:/dev/shm
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - SYS_ADMIN
+    stdin_open: true
+    tty: true
+
+  # Embedded backend - WPE WebKit on Debian (recommended, ~80MB footprint)
+  lscope-e-debian:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.lscope-e.debian
+    image: lscope-e:debian
+    container_name: lscope-e-debian
+    environment:
+      - XDG_RUNTIME_DIR=/run/user/1000
+      - COG_PLATFORM_NAME=headless
+    volumes:
+      - /dev/shm:/dev/shm
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - SYS_ADMIN
+    stdin_open: true
+    tty: true
+
+  # Headless backend - Chromium (full compatibility)
+  lscope-h:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.lscope-h
+    image: lscope-h:latest
+    container_name: lscope-h
+    environment:
+      - CHROME_BIN=/usr/bin/chromium-browser
+    volumes:
+      - /dev/shm:/dev/shm
+    shm_size: 2gb
+    security_opt:
+      - seccomp:unconfined
+    stdin_open: true
+    tty: true

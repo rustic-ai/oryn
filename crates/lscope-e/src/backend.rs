@@ -1,3 +1,4 @@
+use crate::cog::{self, CogProcess};
 use crate::webdriver::WebDriverClient;
 use async_trait::async_trait;
 use lscope_core::backend::{Backend, BackendError, NavigationResult};
@@ -6,23 +7,91 @@ use tracing::info;
 
 pub struct EmbeddedBackend {
     client: Option<WebDriverClient>,
-    webdriver_url: String,
+    webdriver_url: Option<String>,
+    cog_process: Option<CogProcess>,
+    force_headless: bool,
+    port: u16,
 }
 
 impl EmbeddedBackend {
-    pub fn new(webdriver_url: String) -> Self {
+    /// Create a new embedded backend that will auto-launch COG
+    /// Uses headless mode if no display is available
+    pub fn new() -> Self {
         Self {
             client: None,
-            webdriver_url,
+            webdriver_url: None,
+            cog_process: None,
+            force_headless: false,
+            port: cog::DEFAULT_COG_PORT,
         }
+    }
+
+    /// Create a new embedded backend that always runs headless
+    /// Useful for CI/testing environments
+    pub fn new_headless() -> Self {
+        Self {
+            client: None,
+            webdriver_url: None,
+            cog_process: None,
+            force_headless: true,
+            port: cog::DEFAULT_COG_PORT,
+        }
+    }
+
+    /// Create a new embedded backend that runs headless on a specific port
+    /// Useful for parallel testing
+    pub fn new_headless_on_port(port: u16) -> Self {
+        Self {
+            client: None,
+            webdriver_url: None,
+            cog_process: None,
+            force_headless: true,
+            port,
+        }
+    }
+
+    /// Create a new embedded backend connecting to an existing WebDriver
+    pub fn with_url(webdriver_url: String) -> Self {
+        Self {
+            client: None,
+            webdriver_url: Some(webdriver_url),
+            cog_process: None,
+            force_headless: false,
+            port: cog::DEFAULT_COG_PORT,
+        }
+    }
+}
+
+impl Default for EmbeddedBackend {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[async_trait]
 impl Backend for EmbeddedBackend {
     async fn launch(&mut self) -> Result<(), BackendError> {
-        info!("Connecting to WebDriver at {}...", self.webdriver_url);
-        let client = WebDriverClient::connect(&self.webdriver_url, None)
+        let (webdriver_url, capabilities) = if let Some(url) = &self.webdriver_url {
+            // Use provided URL (external WebDriver) - no special capabilities needed
+            info!("Connecting to external WebDriver at {}...", url);
+            (url.clone(), None)
+        } else {
+            // Auto-launch WPEWebDriver which will spawn COG
+            info!(
+                "Launching WPEWebDriver for COG browser on port {}...",
+                self.port
+            );
+            let cog = cog::launch_cog(self.port, self.force_headless)
+                .await
+                .map_err(BackendError::Other)?;
+            let url = cog.webdriver_url();
+            self.cog_process = Some(cog);
+            info!("WPEWebDriver launched at {}", url);
+            // Pass WPE capabilities to tell WPEWebDriver to use COG
+            (url, Some(cog::wpe_capabilities()))
+        };
+
+        let client = WebDriverClient::connect(&webdriver_url, capabilities)
             .await
             .map_err(|e| BackendError::Other(e.to_string()))?;
         self.client = Some(client);
@@ -128,5 +197,107 @@ impl Backend for EmbeddedBackend {
             .await
             .map_err(|e| BackendError::Other(format!("Screenshot failed: {}", e)))?;
         Ok(bytes)
+    }
+
+    async fn go_back(&mut self) -> Result<NavigationResult, BackendError> {
+        let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
+
+        client
+            .client
+            .back()
+            .await
+            .map_err(|e| BackendError::Navigation(format!("go_back failed: {}", e)))?;
+
+        let title = client.client.title().await.unwrap_or_default();
+        let url = client
+            .client
+            .current_url()
+            .await
+            .map(|u| u.to_string())
+            .unwrap_or_default();
+
+        Ok(NavigationResult {
+            url,
+            title,
+            status: 200,
+        })
+    }
+
+    async fn go_forward(&mut self) -> Result<NavigationResult, BackendError> {
+        let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
+
+        client
+            .client
+            .forward()
+            .await
+            .map_err(|e| BackendError::Navigation(format!("go_forward failed: {}", e)))?;
+
+        let title = client.client.title().await.unwrap_or_default();
+        let url = client
+            .client
+            .current_url()
+            .await
+            .map(|u| u.to_string())
+            .unwrap_or_default();
+
+        Ok(NavigationResult {
+            url,
+            title,
+            status: 200,
+        })
+    }
+
+    async fn refresh(&mut self) -> Result<NavigationResult, BackendError> {
+        let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
+
+        client
+            .client
+            .refresh()
+            .await
+            .map_err(|e| BackendError::Navigation(format!("refresh failed: {}", e)))?;
+
+        let title = client.client.title().await.unwrap_or_default();
+        let url = client
+            .client
+            .current_url()
+            .await
+            .map(|u| u.to_string())
+            .unwrap_or_default();
+
+        Ok(NavigationResult {
+            url,
+            title,
+            status: 200,
+        })
+    }
+
+    async fn press_key(&mut self, key: &str, _modifiers: &[String]) -> Result<(), BackendError> {
+        let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
+
+        // WebDriver uses Actions API for key presses
+        // For simple keys, we can use execute script
+        let script = format!(
+            r#"
+            const event = new KeyboardEvent('keydown', {{
+                key: '{}',
+                bubbles: true
+            }});
+            document.activeElement.dispatchEvent(event);
+            const eventUp = new KeyboardEvent('keyup', {{
+                key: '{}',
+                bubbles: true
+            }});
+            document.activeElement.dispatchEvent(eventUp);
+            "#,
+            key, key
+        );
+
+        client
+            .client
+            .execute(&script, vec![])
+            .await
+            .map_err(|e| BackendError::Other(format!("press_key failed: {}", e)))?;
+
+        Ok(())
     }
 }

@@ -59,7 +59,9 @@ async fn test_server_connection_and_messaging() {
 
     // 5. Send response from Client -> Server
     let test_resp = ScannerProtocolResponse::Ok {
-        data: lscope_core::protocol::ScannerData::Value(serde_json::json!({ "foo": "bar" })),
+        data: Box::new(lscope_core::protocol::ScannerData::Value(
+            serde_json::json!({ "foo": "bar" }),
+        )),
         warnings: vec![],
     };
 

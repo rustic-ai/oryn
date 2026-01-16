@@ -132,7 +132,7 @@ pub struct ExecuteRequest {
 pub enum ScannerProtocolResponse {
     Ok {
         #[serde(flatten)]
-        data: ScannerData,
+        data: Box<ScannerData>,
         #[serde(default)]
         warnings: Vec<String>,
     },
@@ -158,6 +158,102 @@ pub struct ScanResult {
     pub page: PageInfo,
     pub elements: Vec<Element>,
     pub stats: ScanStats,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patterns: Option<DetectedPatterns>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changes: Option<Vec<ElementChange>>,
+}
+
+/// Detected UI patterns on the page.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DetectedPatterns {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login: Option<LoginPattern>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<SearchPattern>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pagination: Option<PaginationPattern>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modal: Option<ModalPattern>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cookie_banner: Option<CookieBannerPattern>,
+}
+
+/// Login form pattern.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoginPattern {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<u32>,
+    pub password: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submit: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remember: Option<u32>,
+}
+
+/// Search box pattern.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchPattern {
+    pub input: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submit: Option<u32>,
+}
+
+/// Pagination pattern.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaginationPattern {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<u32>,
+    #[serde(default)]
+    pub pages: Vec<u32>,
+}
+
+/// Modal/dialog pattern.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModalPattern {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub close: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirm: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel: Option<u32>,
+}
+
+/// Cookie consent banner pattern.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CookieBannerPattern {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accept: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reject: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<u32>,
+}
+
+/// Element change between scans.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ElementChange {
+    pub id: u32,
+    pub change_type: ChangeType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_value: Option<String>,
+}
+
+/// Type of change detected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeType {
+    Appeared,
+    Disappeared,
+    TextChanged,
+    StateChanged,
+    PositionChanged,
 }
 
 // Keeping it separate for now in case we need to differentiate "response from scan command"

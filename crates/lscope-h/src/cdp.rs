@@ -10,10 +10,17 @@ pub struct CdpClient {
 
 impl CdpClient {
     pub async fn launch() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let mut config_builder = BrowserConfig::builder();
+        config_builder = config_builder.no_sandbox(); // Often needed in docker/CI/restricted envs
+
+        // Support custom Chrome path via CHROME_BIN environment variable
+        if let Ok(chrome_bin) = std::env::var("CHROME_BIN") {
+            tracing::info!("Using custom Chrome binary: {}", chrome_bin);
+            config_builder = config_builder.chrome_executable(chrome_bin);
+        }
+
         let (browser, mut handler) = Browser::launch(
-            BrowserConfig::builder()
-                .no_sandbox() // Often needed in docker/CI/restricted envs
-                // .with_head() // Uncomment for debugging
+            config_builder
                 .build()
                 .map_err(|e| format!("Failed to build browser config: {}", e))?,
         )

@@ -95,6 +95,8 @@ Lemmascope presents the web as agents need to see it:
 
 | Document                                                  | Description                        |
 | --------------------------------------------------------- | ---------------------------------- |
+| [USER_GUIDE.md](docs/USER_GUIDE.md)                       | Full installation and usage guide  |
+| [GOOGLE_ADK_TUTORIAL.md](docs/GOOGLE_ADK_TUTORIAL.md)     | Integration with Google ADK Agents |
 | [SPEC-INTENT-LANGUAGE.md](docs/SPEC-INTENT-LANGUAGE.md)   | The agent-facing command protocol  |
 | [SPEC-SCANNER-PROTOCOL.md](docs/SPEC-SCANNER-PROTOCOL.md) | Internal browser-scanner interface |
 | [SPEC-UNIFIED.md](docs/SPEC-UNIFIED.md)                   | Architecture and mode comparison   |

@@ -53,7 +53,7 @@ async fn test_headless_lifecycle_and_scan() {
 
     // Verify response
     if let lscope_core::protocol::ScannerProtocolResponse::Ok { data, .. } = resp {
-        match data {
+        match *data {
             lscope_core::protocol::ScannerData::Scan(result)
             | lscope_core::protocol::ScannerData::ScanValidation(result) => {
                 assert_eq!(result.page.title, "Test Page");

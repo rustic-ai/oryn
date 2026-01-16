@@ -76,8 +76,149 @@ impl Backend for RemoteBackend {
     }
 
     async fn screenshot(&mut self) -> Result<Vec<u8>, BackendError> {
-        Err(BackendError::NotSupported(
-            "Screenshot not implemented in Remote Mode yet".into(),
-        ))
+        // Send screenshot request to extension
+        // The extension should respond with base64-encoded PNG
+        use lscope_core::protocol::ExecuteRequest;
+
+        let script = r#"
+            return new Promise((resolve, reject) => {
+                if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+                    chrome.runtime.sendMessage({ action: 'screenshot' }, (response) => {
+                        if (chrome.runtime.lastError) {
+                            reject(chrome.runtime.lastError.message);
+                        } else if (response && response.data) {
+                            resolve(response.data);
+                        } else {
+                            reject('No screenshot data received');
+                        }
+                    });
+                } else {
+                    reject('Extension API not available');
+                }
+            });
+        "#;
+
+        let req = ScannerRequest::Execute(ExecuteRequest {
+            script: script.to_string(),
+            args: vec![],
+        });
+
+        let resp = self.execute_scanner(req).await?;
+
+        // Extract base64 data from response
+        match resp {
+            ScannerProtocolResponse::Ok { data, .. } => {
+                if let lscope_core::protocol::ScannerData::Value(value) = *data {
+                    if let Some(base64_str) = value.as_str() {
+                        use base64::Engine;
+                        let bytes = base64::engine::general_purpose::STANDARD
+                            .decode(base64_str)
+                            .map_err(|e| {
+                                BackendError::Other(format!("Base64 decode failed: {}", e))
+                            })?;
+                        return Ok(bytes);
+                    }
+                }
+                Err(BackendError::Other(
+                    "Invalid screenshot response format".into(),
+                ))
+            }
+            ScannerProtocolResponse::Error { message, .. } => Err(BackendError::Other(format!(
+                "Screenshot failed: {}",
+                message
+            ))),
+        }
+    }
+
+    async fn go_back(&mut self) -> Result<NavigationResult, BackendError> {
+        use lscope_core::protocol::ExecuteRequest;
+
+        let script = "history.back(); return { url: window.location.href, title: document.title };";
+        let req = ScannerRequest::Execute(ExecuteRequest {
+            script: script.to_string(),
+            args: vec![],
+        });
+
+        self.execute_scanner(req).await?;
+
+        // Wait a bit for navigation
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+
+        Ok(NavigationResult {
+            url: String::new(), // Will be updated by next scan
+            title: String::new(),
+            status: 200,
+        })
+    }
+
+    async fn go_forward(&mut self) -> Result<NavigationResult, BackendError> {
+        use lscope_core::protocol::ExecuteRequest;
+
+        let script =
+            "history.forward(); return { url: window.location.href, title: document.title };";
+        let req = ScannerRequest::Execute(ExecuteRequest {
+            script: script.to_string(),
+            args: vec![],
+        });
+
+        self.execute_scanner(req).await?;
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+
+        Ok(NavigationResult {
+            url: String::new(),
+            title: String::new(),
+            status: 200,
+        })
+    }
+
+    async fn refresh(&mut self) -> Result<NavigationResult, BackendError> {
+        use lscope_core::protocol::ExecuteRequest;
+
+        let script = "location.reload(); return true;";
+        let req = ScannerRequest::Execute(ExecuteRequest {
+            script: script.to_string(),
+            args: vec![],
+        });
+
+        self.execute_scanner(req).await?;
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        Ok(NavigationResult {
+            url: String::new(),
+            title: String::new(),
+            status: 200,
+        })
+    }
+
+    async fn press_key(&mut self, key: &str, _modifiers: &[String]) -> Result<(), BackendError> {
+        use lscope_core::protocol::ExecuteRequest;
+
+        let script = format!(
+            r#"
+            const event = new KeyboardEvent('keydown', {{
+                key: '{}',
+                bubbles: true
+            }});
+            document.activeElement.dispatchEvent(event);
+            const eventUp = new KeyboardEvent('keyup', {{
+                key: '{}',
+                bubbles: true
+            }});
+            document.activeElement.dispatchEvent(eventUp);
+            return true;
+            "#,
+            key, key
+        );
+
+        let req = ScannerRequest::Execute(ExecuteRequest {
+            script,
+            args: vec![],
+        });
+
+        self.execute_scanner(req).await?;
+
+        Ok(())
     }
 }

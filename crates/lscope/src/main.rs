@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use lscope_core::backend::Backend;
-use lscope_h::backend::HeadlessBackend;
 use lscope_e::backend::EmbeddedBackend;
+use lscope_h::backend::HeadlessBackend;
 use lscope_r::backend::RemoteBackend;
 use std::process::exit;
 
@@ -18,11 +18,11 @@ struct Args {
 enum Mode {
     /// Use headless browser (Chromium) via CDP
     Headless,
-    /// Use embedded browser (WebDriver/COG)
+    /// Use embedded browser (WebDriver/COG). Auto-launches COG if no URL provided.
     Embedded {
-        /// WebDriver URL
-        #[arg(long, default_value = "http://localhost:8080")]
-        driver_url: String,
+        /// External WebDriver URL (optional - COG auto-launches if not provided)
+        #[arg(long)]
+        driver_url: Option<String>,
     },
     /// Use remote browser extension via WebSocket
     Remote {
@@ -36,12 +36,15 @@ enum Mode {
 async fn main() {
     // Initialize logging if not already done by env logger
     tracing_subscriber::fmt::init();
-    
+
     let args = Args::parse();
 
     let backend: Box<dyn Backend> = match args.mode {
         Mode::Headless => Box::new(HeadlessBackend::new()),
-        Mode::Embedded { driver_url } => Box::new(EmbeddedBackend::new(driver_url)),
+        Mode::Embedded { driver_url } => match driver_url {
+            Some(url) => Box::new(EmbeddedBackend::with_url(url)),
+            None => Box::new(EmbeddedBackend::new()), // Auto-launch COG
+        },
         Mode::Remote { port } => Box::new(RemoteBackend::new(port)),
     };
 

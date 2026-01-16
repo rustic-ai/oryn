@@ -1,6 +1,7 @@
 use crate::command::{Command, Target};
 use crate::protocol::{
-    ClickRequest, MouseButton, ScanRequest, ScannerRequest, ScrollDirection, ScrollRequest,
+    CheckRequest, ClearRequest, ClickRequest, ExecuteRequest, FocusRequest, HoverRequest,
+    MouseButton, ScanRequest, ScannerRequest, ScrollDirection, ScrollRequest, SelectRequest,
     TypeRequest, WaitRequest,
 };
 use thiserror::Error;
@@ -154,8 +155,125 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
             }))
         }
 
-        // Navigation commands are handled by Backend::navigate usually, but if we need a scanner equivalent:
-        // Command::GoTo(_) => ...
+        // Group A: Direct protocol mapping (existing types)
+        Command::Check(target) => {
+            if let Target::Id(id) = target {
+                Ok(ScannerRequest::Check(CheckRequest {
+                    id: *id as u32,
+                    state: true,
+                }))
+            } else {
+                Err(TranslationError::InvalidTarget(
+                    "Check requires a resolved numeric ID target".into(),
+                ))
+            }
+        }
+
+        Command::Uncheck(target) => {
+            if let Target::Id(id) = target {
+                Ok(ScannerRequest::Check(CheckRequest {
+                    id: *id as u32,
+                    state: false,
+                }))
+            } else {
+                Err(TranslationError::InvalidTarget(
+                    "Uncheck requires a resolved numeric ID target".into(),
+                ))
+            }
+        }
+
+        Command::Clear(target) => {
+            if let Target::Id(id) = target {
+                Ok(ScannerRequest::Clear(ClearRequest { id: *id as u32 }))
+            } else {
+                Err(TranslationError::InvalidTarget(
+                    "Clear requires a resolved numeric ID target".into(),
+                ))
+            }
+        }
+
+        Command::Focus(target) => {
+            if let Target::Id(id) = target {
+                Ok(ScannerRequest::Focus(FocusRequest { id: *id as u32 }))
+            } else {
+                Err(TranslationError::InvalidTarget(
+                    "Focus requires a resolved numeric ID target".into(),
+                ))
+            }
+        }
+
+        Command::Hover(target) => {
+            if let Target::Id(id) = target {
+                Ok(ScannerRequest::Hover(HoverRequest { id: *id as u32 }))
+            } else {
+                Err(TranslationError::InvalidTarget(
+                    "Hover requires a resolved numeric ID target".into(),
+                ))
+            }
+        }
+
+        Command::Select(target, value) => {
+            if let Target::Id(id) = target {
+                Ok(ScannerRequest::Select(SelectRequest {
+                    id: *id as u32,
+                    value: None,
+                    index: None,
+                    label: Some(value.clone()), // Use label for text matching
+                }))
+            } else {
+                Err(TranslationError::InvalidTarget(
+                    "Select requires a resolved numeric ID target".into(),
+                ))
+            }
+        }
+
+        // Group C: Content extraction via Execute
+        Command::Url => Ok(ScannerRequest::Execute(ExecuteRequest {
+            script: "return window.location.href;".to_string(),
+            args: vec![],
+        })),
+
+        Command::Title => Ok(ScannerRequest::Execute(ExecuteRequest {
+            script: "return document.title;".to_string(),
+            args: vec![],
+        })),
+
+        Command::Text(options) => {
+            let script = if let Some(selector) = options.get("selector") {
+                format!(
+                    "var el = document.querySelector('{}'); return el ? el.innerText : null;",
+                    selector.replace('\'', "\\'")
+                )
+            } else {
+                "return document.body.innerText;".to_string()
+            };
+            Ok(ScannerRequest::Execute(ExecuteRequest {
+                script,
+                args: vec![],
+            }))
+        }
+
+        Command::Html(options) => {
+            let script = if let Some(selector) = options.get("selector") {
+                format!(
+                    "var el = document.querySelector('{}'); return el ? el.outerHTML : null;",
+                    selector.replace('\'', "\\'")
+                )
+            } else {
+                "return document.documentElement.outerHTML;".to_string()
+            };
+            Ok(ScannerRequest::Execute(ExecuteRequest {
+                script,
+                args: vec![],
+            }))
+        }
+
+        // Navigation commands are handled by Backend trait methods
+        // Command::GoTo(_) => handled by backend.navigate()
+        // Command::Back => needs backend.go_back()
+        // Command::Forward => needs backend.go_forward()
+        // Command::Refresh(_) => needs backend.refresh()
+        // Command::Screenshot(_) => handled by backend.screenshot()
         _ => Err(TranslationError::Unsupported(format!("{:?}", command))),
     }
 }
