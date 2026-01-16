@@ -2,8 +2,10 @@ use lscope_core::backend::Backend;
 use lscope_core::parser::Parser;
 use lscope_core::translator::translate;
 use lscope_h::backend::HeadlessBackend;
+use serial_test::serial;
 
 #[tokio::test]
+#[serial]
 async fn test_full_flow_search() {
     // 1. Setup Backend (Headless)
     let _chrome_path =
@@ -78,6 +80,7 @@ async fn test_full_flow_search() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_error_handling() {
     let mut backend = HeadlessBackend::new();
     if backend.launch().await.is_err() {
@@ -112,6 +115,7 @@ async fn test_error_handling() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_interaction_type() {
     let mut backend = HeadlessBackend::new();
     if backend.launch().await.is_err() {

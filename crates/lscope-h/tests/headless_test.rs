@@ -1,10 +1,12 @@
 use lscope_core::backend::Backend;
 use lscope_core::protocol::{ScanRequest, ScannerRequest};
 use lscope_h::backend::HeadlessBackend;
+use serial_test::serial;
 use std::path::Path;
 use tokio::fs;
 
 #[tokio::test]
+#[serial]
 async fn test_headless_lifecycle_and_scan() {
     tracing_subscriber::fmt()
         .with_test_writer()

@@ -1,16 +1,15 @@
 //! Embedded backend integration tests
 //!
 //! These tests launch real COG browser instances via WPEWebDriver.
-//! Run with: `cargo test -p lscope-e -- --test-threads=1`
-//!
-//! Note: Tests must run sequentially (--test-threads=1) to avoid
-//! resource contention with browser processes and network requests.
+//! Tests run sequentially via `#[serial]` to avoid resource contention.
 
 use lscope_core::backend::Backend;
 use lscope_core::protocol::ScannerRequest;
 use lscope_e::backend::EmbeddedBackend;
+use serial_test::serial;
 
 #[tokio::test]
+#[serial]
 async fn test_embedded_lifecycle() {
     // Test basic lifecycle: launch -> navigate -> close
     // Use port 8081 to avoid conflicts with parallel tests
@@ -33,6 +32,7 @@ async fn test_embedded_lifecycle() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_embedded_features() {
     // Use port 8082 to avoid conflicts with parallel tests
     let mut backend = EmbeddedBackend::new_headless_on_port(8082);
@@ -84,6 +84,7 @@ async fn test_embedded_features() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_embedded_navigation() {
     // Use port 8083 to avoid conflicts with parallel tests
     let mut backend = EmbeddedBackend::new_headless_on_port(8083);
