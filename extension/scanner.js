@@ -10,7 +10,8 @@
 
     const STATE = {
         elementMap: new Map(), // ID (number) -> Element
-        inverseMap: new Map(), // Element -> ID (number)
+        inverseMap: new WeakMap(), // Element -> ID (number)
+        cache: new Map(), // ID (number) -> LastSerializedData
         nextId: 1,
         config: {
             debug: false
@@ -21,11 +22,10 @@
     const StateManager = {
         invalidate: () => {
             STATE.elementMap.clear();
-            STATE.inverseMap.clear();
-            // Keep nextId incrementing or reset?
-            // Spec doesn't strictly say, but unique IDs across sessions are safer.
-            // But existing logic resets on scan.
-            // Clearing map makes old IDs invalid.
+            // inverseMap (WeakMap) will clear as elements are GC'd,
+            // but we can't clear it explicitly. That's fine.
+            STATE.cache.clear();
+            STATE.nextId = 1;
             if (STATE.config.debug) console.log('Scanner state invalidated due to navigation');
         },
 
@@ -54,16 +54,14 @@
 
     const Protocol = {
         success: (result = {}, timingStart = null) => {
-            // Rust protocol expects { status: "ok", ...result_fields }
-            const response = { status: "ok", ...result };
+            const response = { status: 'ok', ...result };
             if (timingStart) {
                 response.timing = { duration_ms: performance.now() - timingStart };
             }
             return response;
         },
         error: (msg, code = 'UNKNOWN_ERROR') => {
-            // Rust protocol expects { status: "error", message: "...", code: "..." }
-            return { status: "error", message: msg, code: code };
+            return { status: 'error', error: msg, code: code, message: msg };
         }
     };
 
@@ -400,14 +398,16 @@
             const contextNode = params.within ? document.querySelector(params.within) : document.body;
 
             if (!contextNode) return Protocol.error('Container not found', 'SELECTOR_INVALID');
-
-            // 1. Reset Map
-            STATE.elementMap.clear();
-            STATE.inverseMap.clear();
-            STATE.nextId = 1;
+            const monitorChanges = params.monitor_changes === true;
 
             const elements = [];
             const iframes = [];
+            const seenIds = new Set();
+            const changes = [];
+
+            // 1. Reset check - if first scan or forced clean, we could reset.
+            // But usually we want persistent IDs.
+            // We will prune STATE.elementMap at the end.
 
             // 2. Discover main document elements
             const treeWalker = document.createTreeWalker(contextNode, NodeFilter.SHOW_ELEMENT, {
@@ -445,12 +445,30 @@
                     if (!Utils.isNear(elRect, nearRects)) continue;
                 }
 
-                // Assign ID
-                const id = STATE.nextId++;
-                STATE.elementMap.set(id, el);
-                STATE.inverseMap.set(el, id);
+                // Assign or get persistent ID
+                let id = STATE.inverseMap.get(el);
+                if (!id) {
+                    id = STATE.nextId++;
+                    STATE.inverseMap.set(el, id);
+                    STATE.elementMap.set(id, el);
+                    if (monitorChanges) changes.push({ id, change_type: 'appeared' });
+                }
+                seenIds.add(id);
 
-                elements.push(Scanner.serializeElement(el, id));
+                const serialized = Scanner.serializeElement(el, id);
+
+                if (monitorChanges) {
+                    const cached = STATE.cache.get(id);
+                    if (cached) {
+                        const elementChanges = Scanner.diffElements(cached, serialized);
+                        if (elementChanges.length > 0) {
+                            changes.push(...elementChanges);
+                        }
+                    }
+                    STATE.cache.set(id, serialized);
+                }
+
+                elements.push(serialized);
             }
 
             // 3. Process iframes
@@ -463,7 +481,9 @@
                         iframe,
                         includeHidden,
                         params.viewport_only,
-                        maxElements - elements.length
+                        maxElements - elements.length,
+                        monitorChanges,
+                        changes
                     );
 
                     // Add iframe element itself
@@ -480,19 +500,35 @@
                     elements.push(iframeElement);
                     iframeInfo.push(iframeElement.iframe);
 
+                    seenIds.add(iframeId);
+
                     // Add elements from accessible iframes
                     if (iframeData.accessible && iframeData.elements) {
-                        for (const el of iframeData.elements) {
+                        for (const elData of iframeData.elements) {
                             if (elements.length >= maxElements) break;
-                            el.iframe_context = {
+                            elData.iframe_context = {
                                 iframe_id: iframeId,
                                 src: iframe.src || ''
                             };
-                            elements.push(el);
+                            elements.push(elData);
+                            // IDs for iframe elements are already handled in processIframe
+                            seenIds.add(elData.id);
                         }
                     }
                 }
             }
+
+            // --- Cleanup Disappeared elements ---
+            for (const id of STATE.elementMap.keys()) {
+                if (!seenIds.has(id)) {
+                    if (monitorChanges) {
+                        changes.push({ id, change_type: 'disappeared' });
+                        STATE.cache.delete(id);
+                    }
+                    STATE.elementMap.delete(id);
+                }
+            }
+            // ------------------------------------
 
             // Detect patterns
             const patterns = Patterns.detectAll(elements);
@@ -527,14 +563,54 @@
                 }
             };
 
-            if (patterns) {
-                response.patterns = patterns;
+            if (patterns) response.patterns = patterns;
+
+            if (monitorChanges) {
+                response.changes = changes;
             }
 
             return Protocol.success(response, t0);
         },
 
-        processIframe: (iframe, includeHidden, viewportOnly, maxElements) => {
+        diffElements: (oldData, newData) => {
+            const changes = [];
+            const id = newData.id;
+
+            // 1. Text change
+            if (oldData.text !== newData.text) {
+                changes.push({
+                    id,
+                    change_type: 'text_changed',
+                    old_value: oldData.text,
+                    new_value: newData.text
+                });
+            }
+
+            // 2. State change (checked, disabled, etc.)
+            const stateKeys = ['checked', 'disabled', 'selected', 'focused', 'expanded'];
+            for (const key of stateKeys) {
+                if (oldData.state[key] !== newData.state[key]) {
+                    changes.push({
+                        id,
+                        change_type: 'state_changed',
+                        old_value: `${key}:${oldData.state[key]}`,
+                        new_value: `${key}:${newData.state[key]}`
+                    });
+                }
+            }
+
+            // 3. Position/Size change (if significant)
+            const threshold = 5;
+            const r1 = oldData.rect;
+            const r2 = newData.rect;
+            if (Math.abs(r1.x - r2.x) > threshold || Math.abs(r1.y - r2.y) > threshold) {
+                changes.push({ id, change_type: 'position_changed' });
+            }
+
+            return changes;
+        },
+
+        processIframe: (iframe, includeHidden, viewportOnly, maxElements, monitorChanges, changes) => {
             const result = {
                 accessible: false,
                 origin: null,
@@ -574,12 +650,29 @@
                     // Visibility check within iframe
                     if (!includeHidden && !Utils.isVisible(el)) continue;
 
-                    // Assign ID and track element
-                    const id = STATE.nextId++;
-                    STATE.elementMap.set(id, el);
-                    STATE.inverseMap.set(el, id);
+                    // Assign or get persistent ID
+                    let id = STATE.inverseMap.get(el);
+                    if (!id) {
+                        id = STATE.nextId++;
+                        STATE.inverseMap.set(el, id);
+                        STATE.elementMap.set(id, el);
+                        if (monitorChanges) changes.push({ id, change_type: 'appeared' });
+                    }
 
-                    result.elements.push(Scanner.serializeElement(el, id));
+                    const serialized = Scanner.serializeElement(el, id);
+
+                    if (monitorChanges) {
+                        const cached = STATE.cache.get(id);
+                        if (cached) {
+                            const elementChanges = Scanner.diffElements(cached, serialized);
+                            if (elementChanges.length > 0) {
+                                changes.push(...elementChanges);
+                            }
+                        }
+                        STATE.cache.set(id, serialized);
+                    }
+
+                    result.elements.push(serialized);
                 }
             } catch (_e) {
                 // Cross-origin access denied
@@ -593,7 +686,7 @@
         isReferenceable: (el) => {
             const tag = el.tagName.toLowerCase();
             // Always accept form controls
-            if (['input', 'select', 'textarea', 'button', 'a'].includes(tag)) return true;
+            if (['input', 'select', 'textarea', 'button', 'a', 'img', 'table'].includes(tag)) return true;
             if (el.getAttribute('role')) return true;
             if (el.hasAttribute('onclick') || el.isContentEditable) return true;
 
@@ -648,6 +741,14 @@
             // Get associated label text for form elements
             const label = Utils.getLabelText(el);
 
+            // Capture data attributes
+            const dataAttrs = {};
+            for (const name of el.getAttributeNames()) {
+                if (name.startsWith('data-')) {
+                    dataAttrs[name] = el.getAttribute(name);
+                }
+            }
+
             return {
                 id: id,
                 type: el.tagName.toLowerCase(),
@@ -663,19 +764,20 @@
                     height: Math.round(rect.height)
                 },
                 attributes: {
-                    href: el.getAttribute('href'),
-                    src: el.getAttribute('src'),
-                    placeholder: el.getAttribute('placeholder'),
-                    name: el.getAttribute('name'),
-                    id: el.id,
-                    autocomplete: el.getAttribute('autocomplete'),
-                    'aria-label': el.getAttribute('aria-label'),
-                    'aria-hidden': el.getAttribute('aria-hidden'),
-                    'aria-disabled': el.getAttribute('aria-disabled'),
-                    title: el.getAttribute('title'),
-                    class: el.className,
-                    tabindex: el.getAttribute('tabindex'),
-                    'data-testid': el.getAttribute('data-testid')
+                    href: el.getAttribute('href') || undefined,
+                    src: el.getAttribute('src') || undefined,
+                    placeholder: el.getAttribute('placeholder') || undefined,
+                    name: el.getAttribute('name') || undefined,
+                    id: el.id || undefined,
+                    autocomplete: el.getAttribute('autocomplete') || undefined,
+                    'aria-label': el.getAttribute('aria-label') || undefined,
+                    'aria-hidden': el.getAttribute('aria-hidden') || undefined,
+                    'aria-disabled': el.getAttribute('aria-disabled') || undefined,
+                    'aria-describedby': el.getAttribute('aria-describedby') || undefined,
+                    title: el.getAttribute('title') || undefined,
+                    class: el.className || undefined,
+                    tabindex: el.getAttribute('tabindex') || undefined,
+                    ...dataAttrs
                 },
                 state: state
             };
@@ -1033,7 +1135,7 @@
             el.dispatchEvent(new Event('change', { bubbles: true }));
             el.dispatchEvent(new Event('input', { bubbles: true }));
 
-            return Protocol.success({
+            const response = {
                 action: 'selected',
                 id: params.id,
                 selector: Utils.generateSelector(el),
@@ -1042,7 +1144,14 @@
                     value: previousValue,
                     text: previousText
                 }
-            });
+            };
+
+            // Add index field if selecting by index
+            if (indexes) {
+                response.index = indexes;
+            }
+
+            return Protocol.success(response);
         },
 
         scroll: (params) => {
@@ -1117,8 +1226,16 @@
 
             // Calculate center coordinates
             const rect = el.getBoundingClientRect();
-            const clientX = rect.left + rect.width / 2;
-            const clientY = rect.top + rect.height / 2;
+            let clientX, clientY;
+
+            if (params.offset) {
+                // Offset from top-left of element
+                clientX = rect.left + (params.offset.x || 0);
+                clientY = rect.top + (params.offset.y || 0);
+            } else {
+                clientX = rect.left + rect.width / 2;
+                clientY = rect.top + rect.height / 2;
+            }
 
             const mouseOpts = {
                 view: window,
@@ -1173,6 +1290,7 @@
 
         wait_for: async (params) => {
             const timeout = params.timeout || 30000;
+            const pollInterval = params.poll_interval || 100;
             const start = performance.now();
             const initialUrl = window.location.href;
 
@@ -1243,7 +1361,7 @@
                     return Promise.resolve(true);
                 }
 
-                return new Promise((r) => setTimeout(r, 100)).then(poll);
+                return new Promise((r) => setTimeout(r, pollInterval)).then(poll);
             };
 
             try {
@@ -1261,6 +1379,91 @@
             } catch (e) {
                 return Protocol.error(e.msg, e.code);
             }
+        },
+
+        login: async (params) => {
+            const scanRes = Scanner.scan({ max_elements: 500 });
+            if (!scanRes.patterns || !scanRes.patterns.login) {
+                throw { msg: 'Login form not detected', code: 'PATTERN_NOT_FOUND' };
+            }
+            const login = scanRes.patterns.login;
+
+            if (login.email && params.username) {
+                await Executor.type({ id: login.email, text: params.username });
+            } else if (login.username && params.username) {
+                await Executor.type({ id: login.username, text: params.username });
+            }
+
+            await Executor.type({ id: login.password, text: params.password });
+
+            if (login.submit) {
+                Executor.click({ id: login.submit });
+            } else {
+                const pwEl = STATE.elementMap.get(login.password);
+                if (pwEl && pwEl.form) pwEl.form.submit();
+            }
+
+            return Protocol.success({ action: 'login_initiated' });
+        },
+
+        search: async (params) => {
+            const scanRes = Scanner.scan({ max_elements: 500 });
+            if (!scanRes.patterns || !scanRes.patterns.search) {
+                throw { msg: 'Search box not detected', code: 'PATTERN_NOT_FOUND' };
+            }
+            const search = scanRes.patterns.search;
+
+            await Executor.type({ id: search.input, text: params.query });
+
+            if (search.submit) {
+                Executor.click({ id: search.submit });
+            } else {
+                const inputEl = STATE.elementMap.get(search.input);
+                if (inputEl && inputEl.form) inputEl.form.submit();
+                else {
+                    // Try pressing Enter
+                    const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+                    inputEl.dispatchEvent(enterEvent);
+                }
+            }
+
+            return Protocol.success({ action: 'search_initiated' });
+        },
+
+        dismiss: (params) => {
+            const target = params.target || 'popups';
+            const scanRes = Scanner.scan({ max_elements: 500 });
+            let clicked = false;
+
+            if (target === 'popups' || target === 'modals') {
+                if (scanRes.patterns?.modal?.close) {
+                    Executor.click({ id: scanRes.patterns.modal.close });
+                    clicked = true;
+                }
+            } else if (target === 'cookie_banners' || target === 'cookies') {
+                if (scanRes.patterns?.cookie_banner?.reject) {
+                    Executor.click({ id: scanRes.patterns.cookie_banner.reject });
+                    clicked = true;
+                } else if (scanRes.patterns?.cookie_banner?.accept) {
+                    Executor.click({ id: scanRes.patterns.cookie_banner.accept });
+                    clicked = true;
+                }
+            }
+
+            if (!clicked) throw { msg: `Could not find anything to dismiss for: ${target}`, code: 'NOT_FOUND' };
+            return Protocol.success({ action: 'dismissed', target });
+        },
+
+        accept: (params) => {
+            const target = params.target || 'cookies';
+            if (target === 'cookies' || target === 'cookie_banners') {
+                const scanRes = Scanner.scan({ max_elements: 500 });
+                if (scanRes.patterns?.cookie_banner?.accept) {
+                    Executor.click({ id: scanRes.patterns.cookie_banner.accept });
+                    return Protocol.success({ action: 'accepted', target });
+                }
+            }
+            throw { msg: `Could not find anything to accept for: ${target}`, code: 'NOT_FOUND' };
         }
     };
 
@@ -1308,6 +1511,55 @@
             } catch (e) {
                 return Protocol.error(e.message, 'SCRIPT_ERROR');
             }
+        },
+
+        extract: (params) => {
+            const source = params.source || 'links';
+            const container = params.selector ? document.querySelector(params.selector) : document.body;
+            if (!container) throw { msg: 'Container not found', code: 'ELEMENT_NOT_FOUND' };
+
+            let results = [];
+            switch (source) {
+                case 'links':
+                    results = Array.from(container.querySelectorAll('a[href]')).map((a) => ({
+                        text: a.innerText.trim(),
+                        url: a.href,
+                        id: STATE.inverseMap.get(a)
+                    }));
+                    break;
+                case 'images':
+                    results = Array.from(container.querySelectorAll('img')).map((img) => ({
+                        alt: img.alt,
+                        src: img.src,
+                        id: STATE.inverseMap.get(img)
+                    }));
+                    break;
+                case 'tables':
+                    results = Array.from(container.querySelectorAll('table')).map((table) => {
+                        const rows = Array.from(table.rows).map((row) =>
+                            Array.from(row.cells).map((cell) => cell.innerText.trim())
+                        );
+                        return { rows, id: STATE.inverseMap.get(table) };
+                    });
+                    break;
+                case 'meta':
+                    results = Array.from(document.querySelectorAll('meta')).map((m) => ({
+                        name: m.name || m.getAttribute('property'),
+                        content: m.content
+                    }));
+                    break;
+                case 'css':
+                    if (!params.selector) throw { msg: 'Selector required for CSS extraction', code: 'INVALID_PARAMS' };
+                    results = Array.from(document.querySelectorAll(params.selector)).map((el) => ({
+                        text: el.innerText,
+                        html: el.outerHTML,
+                        id: STATE.inverseMap.get(el)
+                    }));
+                    break;
+                default:
+                    throw { msg: `Unknown extraction source: ${source}`, code: 'INVALID_PARAMS' };
+            }
+            return Protocol.success({ results });
         }
     };
 
@@ -1355,9 +1607,9 @@
                     emailField = el.id;
                 }
 
-                // Username field detection (input that mentions username/user/login but not email)
+                // Username field detection
                 if (
-                    role === 'input' &&
+                    (role === 'username' || role === 'input') &&
                     !emailField &&
                     (name.includes('user') ||
                         name.includes('login') ||
@@ -1374,13 +1626,11 @@
 
                 // Submit button - look for button with sign in/login/submit text
                 if (
-                    (role === 'button' || type === 'input') &&
+                    (role === 'button' || role === 'primary' || role === 'submit' || type === 'input') &&
                     (text.includes('sign in') ||
                         text.includes('log in') ||
                         text.includes('login') ||
-                        text.includes('submit') ||
-                        text === 'sign in' ||
-                        text === 'log in')
+                        text.includes('submit'))
                 ) {
                     submitButton = el.id;
                 }
@@ -1426,19 +1676,20 @@
                 // Search input
                 if (
                     role === 'search' ||
+                    type === 'search' ||
                     name.includes('search') ||
                     name === 'q' ||
                     name === 'query' ||
-                    placeholder.includes('search')
+                    placeholder.includes('search') ||
+                    el.type === 'search'
                 ) {
                     searchInput = el.id;
                 }
 
                 // Search submit button
                 if (
-                    searchInput &&
-                    (role === 'button' || type === 'input') &&
-                    (text.includes('search') || text === 'go' || text === '')
+                    (role === 'button' || role === 'submit' || type === 'input') &&
+                    (text.includes('search') || text === 'go' || name.includes('search'))
                 ) {
                     submitButton = el.id;
                 }
@@ -1654,7 +1905,7 @@
         try {
             if (typeof message === 'string') message = JSON.parse(message);
 
-            const cmd = message.cmd;
+            const cmd = message.cmd || message.action;
             if (!cmd) return Protocol.error('Missing command', 'INVALID_REQUEST');
 
             // Dispatch
@@ -1698,6 +1949,18 @@
                 case 'wait_for':
                     result = await Executor.wait_for(message);
                     break;
+                case 'login':
+                    result = await Executor.login(message);
+                    break;
+                case 'search':
+                    result = await Executor.search(message);
+                    break;
+                case 'dismiss':
+                    result = Executor.dismiss(message);
+                    break;
+                case 'accept':
+                    result = Executor.accept(message);
+                    break;
 
                 // Extraction
                 case 'get_text':
@@ -1708,6 +1971,9 @@
                     break;
                 case 'exists':
                     result = Extractor.exists(message);
+                    break;
+                case 'extract':
+                    result = Extractor.extract(message);
                     break;
                 case 'execute':
                     result = Extractor.execute(message);

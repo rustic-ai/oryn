@@ -21,6 +21,18 @@ function connect() {
         remoteLog("Received command: " + event.data);
         try {
             const command = JSON.parse(event.data);
+
+            // Handle navigation commands at the background level (not content script)
+            if (command.action === "navigate" && command.url) {
+                handleNavigate(command.url);
+                return;
+            }
+            if (command.action === "back") {
+                handleBack();
+                return;
+            }
+
+            // Forward other commands to content script
             chrome.tabs.query({ active: true }, (tabs) => {
                 let activeTab = tabs[0];
                 if (!activeTab) {
@@ -39,6 +51,82 @@ function connect() {
             remoteLog("Failed to parse command: " + e.message);
         }
     };
+
+    function handleNavigate(url) {
+        remoteLog("Navigating to: " + url);
+        chrome.tabs.query({ active: true }, (tabs) => {
+            let tab = tabs[0];
+            if (!tab) {
+                chrome.tabs.query({}, (allTabs) => {
+                    if (allTabs.length > 0) {
+                        doNavigate(allTabs[0].id, url);
+                    } else {
+                        sendResponse({ status: "error", code: "NO_TAB", message: "No tabs found" });
+                    }
+                });
+            } else {
+                doNavigate(tab.id, url);
+            }
+        });
+    }
+
+    function doNavigate(tabId, url) {
+        chrome.tabs.update(tabId, { url: url }, (tab) => {
+            if (chrome.runtime.lastError) {
+                sendResponse({ status: "error", code: "NAVIGATE_ERROR", message: chrome.runtime.lastError.message });
+                return;
+            }
+            // Wait for the page to load
+            chrome.tabs.onUpdated.addListener(function listener(updatedTabId, changeInfo) {
+                if (updatedTabId === tabId && changeInfo.status === "complete") {
+                    chrome.tabs.onUpdated.removeListener(listener);
+                    remoteLog("Navigation complete to: " + url);
+                    sendResponse({ status: "ok", url: url });
+                }
+            });
+        });
+    }
+
+    function handleBack() {
+        remoteLog("Going back in history");
+        chrome.tabs.query({ active: true }, (tabs) => {
+            let tab = tabs[0];
+            if (!tab) {
+                chrome.tabs.query({}, (allTabs) => {
+                    if (allTabs.length > 0) {
+                        doGoBack(allTabs[0].id);
+                    } else {
+                        sendResponse({ status: "error", code: "NO_TAB", message: "No tabs found" });
+                    }
+                });
+            } else {
+                doGoBack(tab.id);
+            }
+        });
+    }
+
+    function doGoBack(tabId) {
+        chrome.tabs.goBack(tabId, () => {
+            if (chrome.runtime.lastError) {
+                sendResponse({ status: "error", code: "BACK_ERROR", message: chrome.runtime.lastError.message });
+                return;
+            }
+            // Wait for the page to load
+            chrome.tabs.onUpdated.addListener(function listener(updatedTabId, changeInfo) {
+                if (updatedTabId === tabId && changeInfo.status === "complete") {
+                    chrome.tabs.onUpdated.removeListener(listener);
+                    remoteLog("Back navigation complete");
+                    sendResponse({ status: "ok" });
+                }
+            });
+        });
+    }
+
+    function sendResponse(response) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify(response));
+        }
+    }
 
     function sendCommandToTab(tab, command) {
         remoteLog("Sending to tab: " + tab.id + " " + tab.url);

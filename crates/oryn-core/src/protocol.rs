@@ -22,7 +22,19 @@ pub enum ScannerRequest {
     Search(SearchRequest),
     Dismiss(DismissRequest),
     Accept(AcceptRequest),
+    /// Navigate to a URL (handled by background script, not content script)
+    Navigate(NavigateRequest),
+    /// Go back in browser history (handled by background script)
+    Back(BackRequest),
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NavigateRequest {
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BackRequest {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ScanRequest {

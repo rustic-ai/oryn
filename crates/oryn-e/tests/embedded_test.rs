@@ -8,9 +8,16 @@ use oryn_core::protocol::ScannerRequest;
 use oryn_e::backend::EmbeddedBackend;
 use serial_test::serial;
 
+fn init_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
+}
+
 #[tokio::test]
 #[serial]
 async fn test_embedded_lifecycle() {
+    init_tracing();
     // Test basic lifecycle: launch -> navigate -> close
     // Use port 8081 to avoid conflicts with parallel tests
     let mut backend = EmbeddedBackend::new_headless_on_port(8081);
@@ -34,6 +41,7 @@ async fn test_embedded_lifecycle() {
 #[tokio::test]
 #[serial]
 async fn test_embedded_features() {
+    init_tracing();
     // Use port 8082 to avoid conflicts with parallel tests
     let mut backend = EmbeddedBackend::new_headless_on_port(8082);
 
@@ -86,6 +94,7 @@ async fn test_embedded_features() {
 #[tokio::test]
 #[serial]
 async fn test_embedded_navigation() {
+    init_tracing();
     // Use port 8083 to avoid conflicts with parallel tests
     let mut backend = EmbeddedBackend::new_headless_on_port(8083);
     backend.launch().await.expect("Failed to launch backend");

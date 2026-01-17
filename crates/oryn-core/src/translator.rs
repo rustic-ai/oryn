@@ -90,22 +90,28 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                 ScrollDirection::Down
             };
 
+            // Read amount from options, default to "page"
+            let amount = options
+                .get("amount")
+                .cloned()
+                .or_else(|| Some("page".to_string()));
+
             Ok(ScannerRequest::Scroll(ScrollRequest {
                 id,
                 direction,
-                amount: Some("page".to_string()), // Default amount
+                amount,
             }))
         }
 
-        Command::Wait(condition, _options) => {
+        Command::Wait(condition, options) => {
             // Map WaitCondition enum to protocol strings
             // Protocol expects: "exists", "visible", "hidden", "gone", "navigation"
             // WaitCondition: Load, Idle, Visible(T), Hidden(T), Exists(selector/id), Gone(selector/id), Url(s)
 
-            let (cond_str, target, timeout) = match condition {
+            let (cond_str, target) = match condition {
                 crate::command::WaitCondition::Visible(t) => match t {
-                    Target::Id(id) => ("visible", Some(id.to_string()), None::<u64>),
-                    Target::Selector(s) => ("visible", Some(s.clone()), None::<u64>),
+                    Target::Id(id) => ("visible", Some(id.to_string())),
+                    Target::Selector(s) => ("visible", Some(s.clone())),
                     _ => {
                         return Err(TranslationError::InvalidTarget(
                             "Wait visible requires ID or Selector".into(),
@@ -113,27 +119,31 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                     }
                 },
                 crate::command::WaitCondition::Hidden(t) => match t {
-                    Target::Id(id) => ("hidden", Some(id.to_string()), None::<u64>),
-                    Target::Selector(s) => ("hidden", Some(s.clone()), None::<u64>),
+                    Target::Id(id) => ("hidden", Some(id.to_string())),
+                    Target::Selector(s) => ("hidden", Some(s.clone())),
                     _ => {
                         return Err(TranslationError::InvalidTarget(
                             "Wait hidden requires ID or Selector".into(),
                         ));
                     }
                 },
-                crate::command::WaitCondition::Exists(s) => {
-                    ("exists", Some(s.clone()), None::<u64>)
-                }
-                crate::command::WaitCondition::Gone(s) => ("gone", Some(s.clone()), None::<u64>),
-                crate::command::WaitCondition::Url(_) => ("navigation", None, None::<u64>), // Simple mapping for now
-                crate::command::WaitCondition::Load => ("load", None, None::<u64>), // Not supported by scanner directly usually
-                crate::command::WaitCondition::Idle => ("idle", None, None::<u64>),
+                crate::command::WaitCondition::Exists(s) => ("exists", Some(s.clone())),
+                crate::command::WaitCondition::Gone(s) => ("gone", Some(s.clone())),
+                crate::command::WaitCondition::Url(_) => ("navigation", None), // Simple mapping for now
+                crate::command::WaitCondition::Load => ("load", None), // Not supported by scanner directly usually
+                crate::command::WaitCondition::Idle => ("idle", None),
             };
+
+            // Read timeout from options, default to 30000ms (30s)
+            let timeout_ms = options
+                .get("timeout")
+                .and_then(|t| t.parse::<u64>().ok())
+                .or(Some(30000));
 
             Ok(ScannerRequest::Wait(WaitRequest {
                 condition: cond_str.to_string(),
                 target,
-                timeout_ms: timeout.or(Some(30000)), // Default 30s
+                timeout_ms,
             }))
         }
 
@@ -215,11 +225,20 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
 
         Command::Select(target, value) => {
             if let Target::Id(id) = target {
+                // Smart detection: if value is a pure number, use as index; otherwise use as label
+                let (value_opt, index_opt, label_opt) = if let Ok(idx) = value.parse::<usize>() {
+                    // Pure numeric value - treat as index
+                    (None, Some(idx), None)
+                } else {
+                    // Text value - treat as label
+                    (None, None, Some(value.clone()))
+                };
+
                 Ok(ScannerRequest::Select(SelectRequest {
                     id: *id as u32,
-                    value: None,
-                    index: None,
-                    label: Some(value.clone()), // Use label for text matching
+                    value: value_opt,
+                    index: index_opt,
+                    label: label_opt,
                 }))
             } else {
                 Err(TranslationError::InvalidTarget(

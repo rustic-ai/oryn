@@ -798,4 +798,759 @@ mod tests {
         );
         assert!(matches!(result, Ok(Target::Selector(_))));
     }
+
+    // ============================================================
+    // Helper for positioned elements (relational tests)
+    // ============================================================
+
+    #[allow(clippy::too_many_arguments)]
+    fn make_element_at(
+        id: u32,
+        text: Option<&str>,
+        role: Option<&str>,
+        element_type: &str,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    ) -> Element {
+        Element {
+            id,
+            element_type: element_type.to_string(),
+            role: role.map(|s| s.to_string()),
+            text: text.map(|s| s.to_string()),
+            label: None,
+            value: None,
+            placeholder: None,
+            selector: format!("#elem-{}", id),
+            xpath: None,
+            rect: Rect {
+                x,
+                y,
+                width,
+                height,
+            },
+            attributes: HashMap::new(),
+            state: ElementState::default(),
+            children: vec![],
+        }
+    }
+
+    // ============================================================
+    // Text Resolution Field Tests
+    // ============================================================
+
+    #[test]
+    fn test_resolve_text_by_label() {
+        let mut elem = make_element(1, None, None, "input");
+        elem.label = Some("Email Address".to_string());
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Text("Email Address".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_text_by_label_contains() {
+        let mut elem = make_element(1, None, None, "input");
+        elem.label = Some("Enter your email address here".to_string());
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Text("email".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_text_by_placeholder() {
+        let mut elem = make_element(1, None, None, "input");
+        elem.placeholder = Some("Enter password".to_string());
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Text("Enter password".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_text_by_placeholder_contains() {
+        let mut elem = make_element(1, None, None, "input");
+        elem.placeholder = Some("Search for products...".to_string());
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Text("products".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_text_by_value() {
+        let mut elem = make_element(1, None, None, "input");
+        elem.value = Some("john@example.com".to_string());
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Text("john@example.com".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_text_by_aria_label() {
+        let mut elem = make_element(1, None, None, "button");
+        elem.attributes
+            .insert("aria-label".to_string(), "Close dialog".to_string());
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Text("Close dialog".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_text_by_aria_label_contains() {
+        let mut elem = make_element(1, None, None, "button");
+        elem.attributes.insert(
+            "aria-label".to_string(),
+            "Close this dialog window".to_string(),
+        );
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Text("dialog".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_text_by_title() {
+        let mut elem = make_element(1, None, None, "a");
+        elem.attributes
+            .insert("title".to_string(), "Visit our homepage".to_string());
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Text("Visit our homepage".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_text_scoring_prefers_exact_over_contains() {
+        // Element 1 has "Sign" in text (contains match)
+        // Element 2 has exact "Sign In" text (exact match)
+        let elem1 = make_element(1, Some("Sign Up Now"), None, "button");
+        let elem2 = make_element(2, Some("Sign In"), None, "button");
+        let ctx = make_context(vec![elem1, elem2]);
+        let result = resolve_target(
+            &Target::Text("Sign In".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        // Should prefer exact match (element 2)
+        assert!(matches!(result, Ok(Target::Id(2))));
+    }
+
+    // ============================================================
+    // Role Resolution Tests
+    // ============================================================
+
+    #[test]
+    fn test_resolve_role_by_aria_role() {
+        let mut elem = make_element(1, None, None, "div");
+        elem.attributes
+            .insert("role".to_string(), "button".to_string());
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Role("button".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_role_by_element_type() {
+        let elem = make_element(1, Some("Click me"), None, "button");
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Role("button".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_role_by_autocomplete() {
+        let mut elem = make_element(1, None, None, "input");
+        elem.attributes
+            .insert("autocomplete".to_string(), "email".to_string());
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Role("email".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_role_submit_button() {
+        let mut elem = make_element(1, Some("Submit"), None, "button");
+        elem.attributes
+            .insert("type".to_string(), "submit".to_string());
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Role("submit".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_role_disabled_penalty() {
+        // Element 1 is disabled, Element 2 is not
+        let mut elem1 = make_element(1, None, Some("textbox"), "input");
+        elem1
+            .attributes
+            .insert("type".to_string(), "email".to_string());
+        elem1.state.disabled = true;
+
+        let mut elem2 = make_element(2, None, Some("textbox"), "input");
+        elem2
+            .attributes
+            .insert("type".to_string(), "email".to_string());
+        elem2.state.disabled = false;
+
+        let ctx = make_context(vec![elem1, elem2]);
+        let result = resolve_target(
+            &Target::Role("email".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        // Should prefer enabled element (element 2) due to disabled penalty
+        assert!(matches!(result, Ok(Target::Id(2))));
+    }
+
+    #[test]
+    fn test_resolve_role_case_insensitive() {
+        let elem = make_element(1, Some("Click"), None, "button");
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Role("BUTTON".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    // ============================================================
+    // Resolution Strategy Tests
+    // ============================================================
+
+    #[test]
+    fn test_strategy_unique_success() {
+        let ctx = make_context(vec![
+            make_element(1, Some("Submit"), None, "button"),
+            make_element(2, Some("Cancel"), None, "button"),
+        ]);
+        let result = resolve_target(
+            &Target::Text("Submit".into()),
+            &ctx,
+            ResolutionStrategy::Unique,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_strategy_unique_ambiguous_error() {
+        // Both elements have same text - should error
+        let ctx = make_context(vec![
+            make_element(1, Some("Submit"), None, "button"),
+            make_element(2, Some("Submit"), None, "button"),
+        ]);
+        let result = resolve_target(
+            &Target::Text("Submit".into()),
+            &ctx,
+            ResolutionStrategy::Unique,
+        );
+        assert!(matches!(
+            result,
+            Err(ResolverError::AmbiguousMatch { count: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn test_strategy_unique_different_scores_success() {
+        // Element 1 has exact match (100 pts), Element 2 has contains match (50 pts)
+        let ctx = make_context(vec![
+            make_element(1, Some("Submit"), None, "button"),
+            make_element(2, Some("Submit Form"), None, "button"),
+        ]);
+        let result = resolve_target(
+            &Target::Text("Submit".into()),
+            &ctx,
+            ResolutionStrategy::Unique,
+        );
+        // Should succeed because scores are different
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_strategy_best_returns_highest_score() {
+        let ctx = make_context(vec![
+            make_element(1, Some("Click Submit button"), None, "button"), // contains: 50
+            make_element(2, Some("Submit"), None, "button"),              // exact: 100
+        ]);
+        let result = resolve_target(
+            &Target::Text("Submit".into()),
+            &ctx,
+            ResolutionStrategy::Best,
+        );
+        assert!(matches!(result, Ok(Target::Id(2))));
+    }
+
+    // ============================================================
+    // Relational Resolution: resolve_near
+    // ============================================================
+
+    #[test]
+    fn test_resolve_near_basic() {
+        // Layout: [Anchor at 0,0] [Target at 150,0] [Farther at 300,0]
+        let anchor = make_element_at(1, Some("Username"), None, "label", 0.0, 0.0, 100.0, 30.0);
+        let target = make_element_at(2, None, None, "input", 150.0, 0.0, 100.0, 30.0);
+        let farther = make_element_at(3, None, None, "input", 300.0, 0.0, 100.0, 30.0);
+
+        let ctx = make_context(vec![anchor, target, farther]);
+        let result = resolve_target(
+            &Target::Near {
+                target: Box::new(Target::Role("input".into())),
+                anchor: Box::new(Target::Text("Username".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        // Should select element 2 (closest input to Username label)
+        assert!(matches!(result, Ok(Target::Id(2))));
+    }
+
+    #[test]
+    fn test_resolve_near_selects_closest() {
+        // Layout: [Anchor] .... [Close target] .......... [Far target]
+        let anchor = make_element_at(1, Some("Email"), None, "label", 0.0, 0.0, 80.0, 30.0);
+        let close = make_element_at(2, None, None, "input", 100.0, 0.0, 100.0, 30.0);
+        let far = make_element_at(3, None, None, "input", 500.0, 0.0, 100.0, 30.0);
+
+        let ctx = make_context(vec![anchor, far, close]); // Order shouldn't matter
+        let result = resolve_target(
+            &Target::Near {
+                target: Box::new(Target::Role("input".into())),
+                anchor: Box::new(Target::Text("Email".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(2))));
+    }
+
+    #[test]
+    fn test_resolve_near_anchor_not_found() {
+        let target = make_element_at(1, None, None, "input", 100.0, 0.0, 100.0, 30.0);
+        let ctx = make_context(vec![target]);
+        let result = resolve_target(
+            &Target::Near {
+                target: Box::new(Target::Role("input".into())),
+                anchor: Box::new(Target::Text("Nonexistent".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Err(ResolverError::NoMatch(_))));
+    }
+
+    #[test]
+    fn test_resolve_near_target_not_found() {
+        let anchor = make_element_at(1, Some("Label"), None, "label", 0.0, 0.0, 80.0, 30.0);
+        let ctx = make_context(vec![anchor]);
+        let result = resolve_target(
+            &Target::Near {
+                target: Box::new(Target::Role("input".into())),
+                anchor: Box::new(Target::Text("Label".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Err(ResolverError::NoMatch(_))));
+    }
+
+    #[test]
+    fn test_resolve_near_vertical_proximity() {
+        // Anchor above, two inputs below at different distances
+        let anchor = make_element_at(1, Some("Form"), None, "label", 100.0, 0.0, 80.0, 30.0);
+        let close = make_element_at(2, None, None, "input", 100.0, 50.0, 100.0, 30.0);
+        let far = make_element_at(3, None, None, "input", 100.0, 200.0, 100.0, 30.0);
+
+        let ctx = make_context(vec![anchor, far, close]);
+        let result = resolve_target(
+            &Target::Near {
+                target: Box::new(Target::Role("input".into())),
+                anchor: Box::new(Target::Text("Form".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(2))));
+    }
+
+    // ============================================================
+    // Relational Resolution: resolve_inside
+    // ============================================================
+
+    #[test]
+    fn test_resolve_inside_basic() {
+        // Container at (0,0) 500x500, button inside at (50,50) 100x30
+        let container = make_element_at(1, Some("Form"), None, "form", 0.0, 0.0, 500.0, 500.0);
+        let inside_btn =
+            make_element_at(2, Some("Submit"), None, "button", 50.0, 50.0, 100.0, 30.0);
+        let outside_btn =
+            make_element_at(3, Some("Other"), None, "button", 600.0, 50.0, 100.0, 30.0);
+
+        let ctx = make_context(vec![container, inside_btn, outside_btn]);
+        let result = resolve_target(
+            &Target::Inside {
+                target: Box::new(Target::Role("button".into())),
+                container: Box::new(Target::Text("Form".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(2))));
+    }
+
+    #[test]
+    fn test_resolve_inside_partial_overlap_excluded() {
+        // Container at (0,0) 200x200, button partially outside at (150,50) 100x30
+        let container = make_element_at(1, Some("Box"), None, "div", 0.0, 0.0, 200.0, 200.0);
+        let partial = make_element_at(2, Some("Button"), None, "button", 150.0, 50.0, 100.0, 30.0);
+
+        let ctx = make_context(vec![container, partial]);
+        let result = resolve_target(
+            &Target::Inside {
+                target: Box::new(Target::Role("button".into())),
+                container: Box::new(Target::Text("Box".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        // Partial overlap should be excluded
+        assert!(matches!(result, Err(ResolverError::NoMatch(_))));
+    }
+
+    #[test]
+    fn test_resolve_inside_container_not_found() {
+        let btn = make_element_at(1, Some("Submit"), None, "button", 50.0, 50.0, 100.0, 30.0);
+        let ctx = make_context(vec![btn]);
+        let result = resolve_target(
+            &Target::Inside {
+                target: Box::new(Target::Role("button".into())),
+                container: Box::new(Target::Text("Nonexistent".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Err(ResolverError::NoMatch(_))));
+    }
+
+    #[test]
+    fn test_resolve_inside_multiple_elements() {
+        // Container with two buttons inside
+        let container = make_element_at(1, Some("Form"), None, "form", 0.0, 0.0, 500.0, 500.0);
+        let btn1 = make_element_at(2, Some("Submit"), None, "button", 50.0, 50.0, 100.0, 30.0);
+        let btn2 = make_element_at(3, Some("Cancel"), None, "button", 50.0, 100.0, 100.0, 30.0);
+
+        let ctx = make_context(vec![container, btn1, btn2]);
+        let result = resolve_target(
+            &Target::Inside {
+                target: Box::new(Target::Text("Cancel".into())),
+                container: Box::new(Target::Text("Form".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(3))));
+    }
+
+    // ============================================================
+    // Relational Resolution: resolve_after
+    // ============================================================
+
+    #[test]
+    fn test_resolve_after_below() {
+        // Anchor at top, target below
+        let anchor = make_element_at(1, Some("Name"), None, "label", 0.0, 0.0, 100.0, 30.0);
+        let below = make_element_at(2, None, None, "input", 0.0, 50.0, 200.0, 30.0);
+
+        let ctx = make_context(vec![anchor, below]);
+        let result = resolve_target(
+            &Target::After {
+                target: Box::new(Target::Role("input".into())),
+                anchor: Box::new(Target::Text("Name".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(2))));
+    }
+
+    #[test]
+    fn test_resolve_after_right_same_row() {
+        // Anchor on left, target to the right on same row
+        let anchor = make_element_at(1, Some("Label"), None, "label", 0.0, 0.0, 80.0, 30.0);
+        let right = make_element_at(2, None, None, "input", 100.0, 0.0, 150.0, 30.0);
+
+        let ctx = make_context(vec![anchor, right]);
+        let result = resolve_target(
+            &Target::After {
+                target: Box::new(Target::Role("input".into())),
+                anchor: Box::new(Target::Text("Label".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(2))));
+    }
+
+    #[test]
+    fn test_resolve_after_selects_closest() {
+        let anchor = make_element_at(1, Some("Start"), None, "label", 0.0, 0.0, 80.0, 30.0);
+        let close = make_element_at(2, None, None, "input", 0.0, 40.0, 100.0, 30.0);
+        let far = make_element_at(3, None, None, "input", 0.0, 200.0, 100.0, 30.0);
+
+        let ctx = make_context(vec![anchor, far, close]);
+        let result = resolve_target(
+            &Target::After {
+                target: Box::new(Target::Role("input".into())),
+                anchor: Box::new(Target::Text("Start".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(2))));
+    }
+
+    #[test]
+    fn test_resolve_after_no_elements_after() {
+        // Element is above/before anchor
+        let anchor = make_element_at(1, Some("End"), None, "label", 0.0, 100.0, 80.0, 30.0);
+        let before = make_element_at(2, None, None, "input", 0.0, 0.0, 100.0, 30.0);
+
+        let ctx = make_context(vec![anchor, before]);
+        let result = resolve_target(
+            &Target::After {
+                target: Box::new(Target::Role("input".into())),
+                anchor: Box::new(Target::Text("End".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Err(ResolverError::NoMatch(_))));
+    }
+
+    // ============================================================
+    // Relational Resolution: resolve_before
+    // ============================================================
+
+    #[test]
+    fn test_resolve_before_above() {
+        let above = make_element_at(1, Some("Title"), None, "label", 0.0, 0.0, 100.0, 30.0);
+        let anchor = make_element_at(2, Some("Input"), None, "input", 0.0, 50.0, 200.0, 30.0);
+
+        let ctx = make_context(vec![above, anchor]);
+        let result = resolve_target(
+            &Target::Before {
+                target: Box::new(Target::Text("Title".into())),
+                anchor: Box::new(Target::Role("input".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_before_left_same_row() {
+        let left = make_element_at(1, Some("Label"), None, "label", 0.0, 0.0, 80.0, 30.0);
+        let anchor = make_element_at(2, None, None, "input", 100.0, 0.0, 150.0, 30.0);
+
+        let ctx = make_context(vec![left, anchor]);
+        let result = resolve_target(
+            &Target::Before {
+                target: Box::new(Target::Text("Label".into())),
+                anchor: Box::new(Target::Role("input".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_before_selects_closest() {
+        let far = make_element_at(1, Some("Far"), None, "label", 0.0, 0.0, 80.0, 30.0);
+        let close = make_element_at(2, Some("Close"), None, "label", 0.0, 150.0, 80.0, 30.0);
+        let anchor = make_element_at(3, None, None, "input", 0.0, 200.0, 100.0, 30.0);
+
+        let ctx = make_context(vec![far, close, anchor]);
+        let result = resolve_target(
+            &Target::Before {
+                target: Box::new(Target::Role("label".into())),
+                anchor: Box::new(Target::Role("input".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        // Should select closest label (element 2)
+        assert!(matches!(result, Ok(Target::Id(2))));
+    }
+
+    #[test]
+    fn test_resolve_before_no_elements_before() {
+        let anchor = make_element_at(1, Some("First"), None, "label", 0.0, 0.0, 80.0, 30.0);
+        let after = make_element_at(2, None, None, "input", 0.0, 100.0, 100.0, 30.0);
+
+        let ctx = make_context(vec![anchor, after]);
+        let result = resolve_target(
+            &Target::Before {
+                target: Box::new(Target::Role("input".into())),
+                anchor: Box::new(Target::Text("First".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Err(ResolverError::NoMatch(_))));
+    }
+
+    // ============================================================
+    // Relational Resolution: resolve_contains
+    // ============================================================
+
+    #[test]
+    fn test_resolve_contains_basic() {
+        // Outer div contains inner button
+        let outer = make_element_at(1, Some("Card"), None, "div", 0.0, 0.0, 300.0, 200.0);
+        let inner = make_element_at(2, Some("Action"), None, "button", 50.0, 50.0, 80.0, 30.0);
+
+        let ctx = make_context(vec![outer, inner]);
+        let result = resolve_target(
+            &Target::Contains {
+                target: Box::new(Target::Text("Card".into())),
+                content: Box::new(Target::Text("Action".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
+
+    #[test]
+    fn test_resolve_contains_content_not_found() {
+        let outer = make_element_at(1, Some("Card"), None, "div", 0.0, 0.0, 300.0, 200.0);
+        let ctx = make_context(vec![outer]);
+        let result = resolve_target(
+            &Target::Contains {
+                target: Box::new(Target::Text("Card".into())),
+                content: Box::new(Target::Text("Nonexistent".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Err(ResolverError::NoMatch(_))));
+    }
+
+    #[test]
+    fn test_resolve_contains_no_container() {
+        // Content exists but no target contains it
+        let content = make_element_at(1, Some("Button"), None, "button", 50.0, 50.0, 80.0, 30.0);
+        let non_container =
+            make_element_at(2, Some("Other"), None, "div", 500.0, 500.0, 100.0, 100.0);
+
+        let ctx = make_context(vec![content, non_container]);
+        let result = resolve_target(
+            &Target::Contains {
+                target: Box::new(Target::Text("Other".into())),
+                content: Box::new(Target::Text("Button".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Err(ResolverError::NoMatch(_))));
+    }
+
+    #[test]
+    fn test_resolve_contains_multiple_containers() {
+        // Nested containers: outer > middle > inner
+        let outer = make_element_at(1, Some("Outer"), None, "div", 0.0, 0.0, 400.0, 400.0);
+        let middle = make_element_at(2, Some("Middle"), None, "div", 50.0, 50.0, 300.0, 300.0);
+        let inner = make_element_at(3, Some("Inner"), None, "button", 100.0, 100.0, 80.0, 30.0);
+
+        let ctx = make_context(vec![outer, middle, inner]);
+        // Ask for div that contains Inner - both outer and middle qualify
+        let result = resolve_target(
+            &Target::Contains {
+                target: Box::new(Target::Role("div".into())),
+                content: Box::new(Target::Text("Inner".into())),
+            },
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        // First match should be returned (element 1 in this case, sorted by score)
+        assert!(matches!(result, Ok(Target::Id(1))) || matches!(result, Ok(Target::Id(2))));
+    }
+
+    // ============================================================
+    // Edge Cases
+    // ============================================================
+
+    #[test]
+    fn test_empty_context() {
+        let ctx = ResolverContext::empty();
+        assert!(ctx.is_empty());
+        assert_eq!(ctx.len(), 0);
+
+        let result = resolve_target(
+            &Target::Text("anything".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Err(ResolverError::NoMatch(_))));
+    }
+
+    #[test]
+    fn test_normalize_text_whitespace() {
+        // Text with extra whitespace should still match
+        let elem = make_element(1, Some("  Sign   In  "), None, "button");
+        let ctx = make_context(vec![elem]);
+        let result = resolve_target(
+            &Target::Text("Sign In".into()),
+            &ctx,
+            ResolutionStrategy::First,
+        );
+        assert!(matches!(result, Ok(Target::Id(1))));
+    }
 }

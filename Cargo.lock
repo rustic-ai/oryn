@@ -1496,7 +1496,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
- "chromiumoxide",
  "clap",
  "futures",
  "oryn-core",

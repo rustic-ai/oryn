@@ -42,11 +42,9 @@ impl Backend for RemoteBackend {
     }
 
     async fn navigate(&mut self, url: &str) -> Result<NavigationResult, BackendError> {
-        use oryn_core::protocol::ExecuteRequest;
-        let script = format!("window.location.href = '{}';", url);
-        let req = ScannerRequest::Execute(ExecuteRequest {
-            script,
-            args: vec![],
+        use oryn_core::protocol::NavigateRequest;
+        let req = ScannerRequest::Navigate(NavigateRequest {
+            url: url.to_string(),
         });
 
         self.execute_scanner(req).await?;
@@ -140,18 +138,11 @@ impl Backend for RemoteBackend {
     }
 
     async fn go_back(&mut self) -> Result<NavigationResult, BackendError> {
-        use oryn_core::protocol::ExecuteRequest;
+        use oryn_core::protocol::BackRequest;
 
-        let script = "history.back(); return { url: window.location.href, title: document.title };";
-        let req = ScannerRequest::Execute(ExecuteRequest {
-            script: script.to_string(),
-            args: vec![],
-        });
+        let req = ScannerRequest::Back(BackRequest {});
 
         self.execute_scanner(req).await?;
-
-        // Wait a bit for navigation
-        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
 
         Ok(NavigationResult {
             url: String::new(), // Will be updated by next scan
