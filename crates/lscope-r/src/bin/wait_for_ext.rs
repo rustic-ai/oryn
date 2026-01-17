@@ -7,7 +7,7 @@ async fn main() {
     let server = RemoteServer::new(port);
     let handle = server.start().await.unwrap();
     println!("Server started on port {}", port);
-    
+
     loop {
         let count = handle.command_tx.receiver_count();
         println!("Receiver count: {}", count);

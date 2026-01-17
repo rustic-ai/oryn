@@ -36,7 +36,7 @@ async fn test_all_lemma_scripts_remote() {
     let src_extension_path = root.join("../../extension");
     let tmp_dir = tempdir().unwrap();
     let ext_tmp_path = tmp_dir.path();
-    
+
     for entry in fs::read_dir(src_extension_path).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
@@ -45,25 +45,33 @@ async fn test_all_lemma_scripts_remote() {
             fs::copy(&path, &dest).unwrap();
         }
     }
-    
+
     let bg_path = ext_tmp_path.join("background.js");
     let bg_content = fs::read_to_string(&bg_path).unwrap();
     let patched_content = bg_content.replace("localhost:9001", &format!("127.0.0.1:{}", port));
     fs::write(&bg_path, &patched_content).unwrap();
-    println!("Patched background.js: {}", patched_content.lines().next().unwrap());
+    println!(
+        "Patched background.js: {}",
+        patched_content.lines().next().unwrap()
+    );
     let extension_path_str = ext_tmp_path.to_str().expect("Valid path");
 
     // 3. Launch Browser via Process (bypass chromiumoxide bug)
     let profile_dir = tempdir().unwrap();
-    let chrome_bin = "/usr/bin/google-chrome";
-    
-    println!("Launching browser process: {} --headless=new --load-extension={}", chrome_bin, extension_path_str);
+    let chrome_bin = "/usr/lib64/chromium-browser/chromium-browser";
+
+    println!(
+        "Launching browser process: {} --load-extension={}",
+        chrome_bin, extension_path_str
+    );
     let mut chrome_process = StdCommand::new(chrome_bin)
-        .arg("--headless=new")
         .arg("--no-sandbox")
         .arg("--disable-gpu")
         .arg(format!("--user-data-dir={}", profile_dir.path().display()))
-        .arg(format!("--disable-extensions-except={}", extension_path_str))
+        .arg(format!(
+            "--disable-extensions-except={}",
+            extension_path_str
+        ))
         .arg(format!("--load-extension={}", extension_path_str))
         .arg("http://127.0.0.1:3000/scenarios/01_static.html") // Wake up content scripts
         .stdout(std::process::Stdio::inherit())
@@ -86,7 +94,10 @@ async fn test_all_lemma_scripts_remote() {
 
     // 5. Run Scripts
     let scripts_dir = root.join("../../test-harness/scripts");
-    let mut entries: Vec<_> = fs::read_dir(scripts_dir).unwrap().map(|r| r.unwrap()).collect();
+    let mut entries: Vec<_> = fs::read_dir(scripts_dir)
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
     entries.sort_by_key(|e| e.file_name());
 
     for entry in entries.into_iter().take(2) {
@@ -94,14 +105,16 @@ async fn test_all_lemma_scripts_remote() {
         if path.extension().and_then(|s| s.to_str()) != Some("lemma") {
             continue;
         }
-        
+
         let script_name = path.file_name().unwrap().to_str().unwrap();
         println!("\n================================================================");
         println!("RUNNING SCRIPT: {}", script_name);
         println!("================================================================");
 
         let content = fs::read_to_string(&path).unwrap();
-        let mut state = TestState { resolver_context: None };
+        let mut state = TestState {
+            resolver_context: None,
+        };
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -121,8 +134,8 @@ async fn test_all_lemma_scripts_remote() {
 
             for cmd in commands {
                 if let Err(e) = execute_test_command(&mut backend, &mut state, cmd).await {
-                     println!("  Execution Error: {}", e);
-                     panic!("Test failed on script {}: {}", script_name, e);
+                    println!("  Execution Error: {}", e);
+                    panic!("Test failed on script {}: {}", script_name, e);
                 }
             }
         }
@@ -153,13 +166,23 @@ async fn execute_test_command(
     // Resolve semantic targets
     let resolved_cmd = match &cmd {
         Command::Click(target, opts) if !matches!(target, lscope_core::command::Target::Id(_)) => {
-            let ctx = state.resolver_context.as_ref().ok_or_else(|| anyhow::anyhow!("No context for Click"))?;
-            let resolved = resolve_target(target, ctx, ResolutionStrategy::First).map_err(|e| anyhow::anyhow!(e))?;
+            let ctx = state
+                .resolver_context
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No context for Click"))?;
+            let resolved = resolve_target(target, ctx, ResolutionStrategy::First)
+                .map_err(|e| anyhow::anyhow!(e))?;
             Command::Click(resolved, opts.clone())
         }
-        Command::Type(target, text, opts) if !matches!(target, lscope_core::command::Target::Id(_)) => {
-            let ctx = state.resolver_context.as_ref().ok_or_else(|| anyhow::anyhow!("No context for Type"))?;
-            let resolved = resolve_target(target, ctx, ResolutionStrategy::First).map_err(|e| anyhow::anyhow!(e))?;
+        Command::Type(target, text, opts)
+            if !matches!(target, lscope_core::command::Target::Id(_)) =>
+        {
+            let ctx = state
+                .resolver_context
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No context for Type"))?;
+            let resolved = resolve_target(target, ctx, ResolutionStrategy::First)
+                .map_err(|e| anyhow::anyhow!(e))?;
             Command::Type(resolved, text.clone(), opts.clone())
         }
         _ => cmd.clone(),

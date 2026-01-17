@@ -40,10 +40,22 @@ fn test_parser_actions_missing() {
 
 #[test]
 fn test_parser_extract_expanded() {
-    assert_eq!(parse_one("extract links"), Command::Extract(ExtractSource::Links));
-    assert_eq!(parse_one("extract images"), Command::Extract(ExtractSource::Images));
-    assert_eq!(parse_one("extract tables"), Command::Extract(ExtractSource::Tables));
-    assert_eq!(parse_one("extract meta"), Command::Extract(ExtractSource::Meta));
+    assert_eq!(
+        parse_one("extract links"),
+        Command::Extract(ExtractSource::Links)
+    );
+    assert_eq!(
+        parse_one("extract images"),
+        Command::Extract(ExtractSource::Images)
+    );
+    assert_eq!(
+        parse_one("extract tables"),
+        Command::Extract(ExtractSource::Tables)
+    );
+    assert_eq!(
+        parse_one("extract meta"),
+        Command::Extract(ExtractSource::Meta)
+    );
     assert_eq!(
         parse_one("extract css(.item)"),
         Command::Extract(ExtractSource::Css(".item".into()))
@@ -52,7 +64,10 @@ fn test_parser_extract_expanded() {
 
 #[test]
 fn test_parser_cookies_expanded() {
-    assert_eq!(parse_one("cookies list"), Command::Cookies(CookieAction::List));
+    assert_eq!(
+        parse_one("cookies list"),
+        Command::Cookies(CookieAction::List)
+    );
     assert_eq!(
         parse_one("cookies get session"),
         Command::Cookies(CookieAction::Get("session".into()))

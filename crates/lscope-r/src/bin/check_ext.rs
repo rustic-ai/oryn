@@ -8,7 +8,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading extension from {:?}", ext_path);
 
     let config = BrowserConfig::builder()
-        .headless()
         .no_sandbox()
         .args(vec![
             format!("--load-extension={}", ext_path.display()),
