@@ -6,13 +6,13 @@ set -e
 # Configuration
 PORT=9001
 DEBUG_PORT=9002
-LCOPE_BIN="./target/debug/lscope"
+LCOPE_BIN="${LCOPE_BIN:-./target/debug/lscope}"
 ENV_EXT_DIR="extension"
 
 # Use /tmp to avoid Snap/Sandbox permission issues
 EXT_PATCH_DIR="/tmp/lscope_ext_$(date +%s)"
 USER_DATA_DIR="/tmp/lscope_chrome_data_$(date +%s)"
-CHROME_BIN="/usr/lib64/chromium-browser/chromium-browser"
+CHROME_BIN="${CHROME_BIN:-/usr/lib64/chromium-browser/chromium-browser}"
 
 # Colors
 RED='\033[0;31m'
@@ -39,8 +39,12 @@ cleanup() {
 # trap cleanup EXIT
 
 # 0. Build Rust
-log_info "Building lscope..."
-cargo build --package lscope --quiet
+if [ "$SKIP_BUILD" != "true" ]; then
+    log_info "Building lscope..."
+    cargo build --package lscope --quiet
+else
+    log_info "Skipping build (SKIP_BUILD=true)..."
+fi
 
 # 0.5 Start Harness
 log_info "Starting Test Harness..."
@@ -94,21 +98,48 @@ for script in test-harness/scripts/*.lemma; do
     log_info "Verifying extension at $EXT_PATCH_DIR:"
     ls -F "$EXT_PATCH_DIR"
 
-    # 3. Launch Chrome (Headless)
-    log_info "Launching Chrome (Headless)..."
-    CMD="$CHROME_BIN \
-        --headless=new \
-        --no-sandbox \
-        --disable-gpu \
-        --disable-first-run-ui \
-        --no-first-run \
-        --no-default-browser-check \
-        --enable-logging \
-        --v=1 \
-        --user-data-dir=$USER_DATA_DIR \
-        --load-extension=$EXT_PATCH_DIR \
-        --remote-debugging-port=$DEBUG_PORT \
-        http://localhost:3000/"
+    # 3. Launch Chrome
+    if [ "$USE_DOCKER" = "true" ]; then
+        log_info "Launching Chrome (Dockerized zenika/alpine-chrome)..."
+        
+        # Ensure Docker container can access files
+        chmod -R 755 "$EXT_PATCH_DIR"
+        chmod -R 777 "$USER_DATA_DIR"
+
+        CMD="docker run --rm \
+            --network host \
+            -v $EXT_PATCH_DIR:$EXT_PATCH_DIR:z \
+            -v $USER_DATA_DIR:$USER_DATA_DIR:z \
+            zenika/alpine-chrome:with-node \
+            chromium-browser \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-first-run-ui \
+            --no-first-run \
+            --no-default-browser-check \
+            --enable-logging \
+            --v=1 \
+            --user-data-dir=$USER_DATA_DIR \
+            --load-extension=$EXT_PATCH_DIR \
+            --remote-debugging-port=$DEBUG_PORT \
+            http://localhost:3000/"
+    else
+        log_info "Launching Chrome (Local Binary)..."
+        CMD="$CHROME_BIN \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-first-run-ui \
+            --no-first-run \
+            --no-default-browser-check \
+            --enable-logging \
+            --v=1 \
+            --user-data-dir=$USER_DATA_DIR \
+            --load-extension=$EXT_PATCH_DIR \
+            --remote-debugging-port=$DEBUG_PORT \
+            http://localhost:3000/"
+    fi
 
     echo "Running: $CMD"
     $CMD > "chrome_$script_name.log" 2>&1 &
