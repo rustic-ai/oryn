@@ -1,6 +1,6 @@
-# Embedded Mode Guide (lscope-e)
+# Embedded Mode Guide (oryn-e)
 
-**Lemmascope Embedded Mode** (`lscope-e`) provides a backend for executing Intent Language commands against embedded browsers like **WPE WebKit** or **Cognition (COG)** via the WebDriver protocol. It is designed for low-resource environments (IoT, Set-top boxes) where a full desktop browser is not available.
+**Oryn Embedded Mode** (`oryn-e`) provides a backend for executing Intent Language commands against embedded browsers like **WPE WebKit** or **Cognition (COG)** via the WebDriver protocol. It is designed for low-resource environments (IoT, Set-top boxes) where a full desktop browser is not available.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@
 - **WebDriver-compatible Embedded Browser**:
   - **COG** (WPE WebKit Launcher): Recommended.
   - **WPE WebKit**: With a WebDriver interface enabled.
-  - Any standard WebDriver implementation (chromedriver, geckodriver) can theoretically work, but `lscope-e` is optimized for embedded use cases.
+  - Any standard WebDriver implementation (chromedriver, geckodriver) can theoretically work, but `oryn-e` is optimized for embedded use cases.
 
 ## Installation
 
@@ -22,20 +22,20 @@ sudo apt-get install cog
 
 Or build from source via [WPE WebKit](https://wpewebkit.org/).
 
-### 2. Build lscope-e
+### 2. Build oryn-e
 
 Build the binary from source:
 
 ```bash
-cargo build --bin lscope-e --release
-# Binary will be at target/release/lscope-e
+cargo build --bin oryn-e --release
+# Binary will be at target/release/oryn-e
 ```
 
 ## Setup & Running
 
 ### 1. Start the WebDriver
 
-You must start the browser's WebDriver server before launching `lscope-e`.
+You must start the browser's WebDriver server before launching `oryn-e`.
 
 For **COG**:
 ```bash
@@ -47,16 +47,16 @@ cog --automation
 
 *Note: Determining the exact command differs by distribution. Consult your WPE/COG documentation.*
 
-### 2. Run lscope-e
+### 2. Run oryn-e
 
-Connect `lscope-e` to the running WebDriver instance.
+Connect `oryn-e` to the running WebDriver instance.
 
 ```bash
 # Default connects to http://localhost:8080
-./target/release/lscope-e
+./target/release/oryn-e
 
 # Or specify a custom URL
-./target/release/lscope-e --webdriver-url "http://localhost:4444"
+./target/release/oryn-e --webdriver-url "http://localhost:4444"
 ```
 
 You will see:
@@ -69,7 +69,7 @@ Backend launched. Enter commands.
 
 ## Basic Usage
 
-`lscope-e` accepts **Intent Language** commands, just like Headless and Remote modes.
+`oryn-e` accepts **Intent Language** commands, just like Headless and Remote modes.
 
 | Command | Usage                        | Description                                             |
 | ------- | ---------------------------- | ------------------------------------------------------- |
@@ -102,7 +102,7 @@ OK Waited for "Releases" (visible)
 
 **"Session not created"**:
 - Ensure the installed WebDriver version matches your browser version.
-- `lscope-e` requests capability `browserName: "wpe"` by default. If using another browser, this might fail (future versions will allow custom capabilities).
+- `oryn-e` requests capability `browserName: "wpe"` by default. If using another browser, this might fail (future versions will allow custom capabilities).
 
 **No visual output?**:
 - WPE is often used full-screen handling the framebuffer directly. If running on a desktop, you might need a windowed backend (e.g., `WPE_BACKEND=fdo`).

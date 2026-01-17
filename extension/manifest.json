@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
-    "name": "Lemmascope Agent",
+    "name": "Oryn Agent",
     "version": "0.1.0",
-    "description": "Browser automation agent for Lemmascope",
+    "description": "Browser automation agent for Oryn",
     "permissions": [
         "activeTab",
         "scripting",

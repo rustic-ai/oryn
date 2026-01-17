@@ -5,7 +5,7 @@ services:
     build:
       context: ../test-harness
       dockerfile: Dockerfile
-    image: lemmascope-test-harness:latest
+    image: oryn-test-harness:latest
     container_name: test-harness
     ports:
       - "3001:3000"
@@ -15,8 +15,8 @@ services:
       timeout: 2s
       retries: 5
     networks:
-      - lscope-test-net
+      - oryn-test-net
 
 networks:
-  lscope-test-net:
+  oryn-test-net:
     driver: bridge

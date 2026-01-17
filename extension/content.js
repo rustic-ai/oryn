@@ -1,6 +1,6 @@
-// Checks if Lemmascope scanner is loaded
+// Checks if Oryn scanner is loaded
 function isScannerLoaded() {
-    return window.Lemmascope && typeof window.Lemmascope.process === 'function';
+    return window.Oryn && typeof window.Oryn.process === 'function';
 }
 
 // Prepare to receive messages
@@ -8,12 +8,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // console.log("Content script received request:", request);
 
     if (!isScannerLoaded()) {
-        console.error("Lemmascope Scanner not loaded on page.");
+        console.error("Oryn Scanner not loaded on page.");
         sendResponse({ ok: false, error: "Scanner not loaded", code: "SCANNER_MISSING" });
         return true;
     }
 
-    // Route message to Lemmascope.process
+    // Route message to Oryn.process
     (async () => {
         try {
             // Compatibility: Mapping action to cmd if needed
@@ -22,7 +22,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }
 
             // Pass the entire request object to the scanner
-            const result = await window.Lemmascope.process(request);
+            const result = await window.Oryn.process(request);
 
             // Ensure result is an object/protocol response
             sendResponse(result || { status: "ok" });
@@ -47,5 +47,5 @@ function remoteLog(msg) {
     fetch("/log?msg=" + encodeURIComponent("[CONTENT] " + msg)).catch(() => { });
 }
 
-remoteLog("Lemmascope Content Script Initialized on " + window.location.href);
+remoteLog("Oryn Content Script Initialized on " + window.location.href);
 chrome.runtime.sendMessage({ type: "ping" });

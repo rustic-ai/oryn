@@ -1,9 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/lscope-core",
-    "crates/lscope-r",
-    "crates/lscope-h",
-    "crates/lscope-e",
-    "crates/lscope",
+    "crates/oryn-core",
+    "crates/oryn-scanner",
+    "crates/oryn-e",
+    "crates/oryn-h",
+    "crates/oryn-r",
+    "crates/oryn",
 ]

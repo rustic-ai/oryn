@@ -1,4 +1,4 @@
-# Lemmascope Client Libraries and Remote Extension Specification
+# Oryn Client Libraries and Remote Extension Specification
 
 ## Version 1.0
 
@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-This document specifies the architecture and protocols for Lemmascope client libraries and the remote mode browser extension. It establishes conventions for how agents written in any language communicate with Lemmascope engines across all three modes (Embedded, Headless, Remote).
+This document specifies the architecture and protocols for Oryn client libraries and the remote mode browser extension. It establishes conventions for how agents written in any language communicate with Oryn engines across all three modes (Embedded, Headless, Remote).
 
 ### 1.1 Design Principles
 
@@ -20,7 +20,7 @@ For Embedded and Headless modes, clients spawn the engine binary as a subprocess
 
 **Client-Owned Server for Remote**
 
-In Remote mode, the browser extension connects as a WebSocket client to an endpoint provided by the user's infrastructure. Lemmascope does not provide or require a relay server. What runs behind the WebSocket endpoint is entirely the client's concern.
+In Remote mode, the browser extension connects as a WebSocket client to an endpoint provided by the user's infrastructure. Oryn does not provide or require a relay server. What runs behind the WebSocket endpoint is entirely the client's concern.
 
 **Engine in Extension**
 
@@ -56,7 +56,7 @@ This specification does not cover:
 │  │ Agent Code (Python/TypeScript/Any Language)                         │   │
 │  │                                                                      │   │
 │  │  ┌───────────────────────────────────────────────────────────────┐  │   │
-│  │  │ Lemmascope Client Library                                      │  │   │
+│  │  │ Oryn Client Library                                      │  │   │
 │  │  │ • Spawn subprocess                                             │  │   │
 │  │  │ • Write commands to stdin                                      │  │   │
 │  │  │ • Read responses from stdout                                   │  │   │
@@ -65,7 +65,7 @@ This specification does not cover:
 │                              │ stdin/stdout                                 │
 │                              ↓                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ lscope-e or lscope-h (subprocess)                                   │   │
+│  │ oryn-e or oryn-h (subprocess)                                   │   │
 │  │                                                                      │   │
 │  │ • Intent Language Parser                                            │   │
 │  │ • Semantic Resolver                                                 │   │
@@ -107,7 +107,7 @@ This specification does not cover:
 │ User's Browser                       │                                      │
 │                                      ↓                                      │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ Lemmascope Extension                                                │   │
+│  │ Oryn Extension                                                │   │
 │  │                                                                      │   │
 │  │  ┌───────────────────────────────────────────────────────────────┐  │   │
 │  │  │ Service Worker                                                 │  │   │
@@ -197,7 +197,7 @@ For Embedded and Headless modes, the client spawns the engine binary as a subpro
 
 **Process Lifecycle**
 
-1. Client locates binary (lscope-e or lscope-h) in PATH
+1. Client locates binary (oryn-e or oryn-h) in PATH
 2. Client spawns process with stdin/stdout pipes
 3. Client reads ready signal from stdout
 4. Client enters command-response loop
@@ -266,8 +266,8 @@ Official client libraries are provided for:
 
 | Language | Package | Transport |
 |----------|---------|-----------|
-| Python | lemmascope | asyncio subprocess / websockets |
-| TypeScript | lemmascope | child_process / ws |
+| Python | oryn | asyncio subprocess / websockets |
+| TypeScript | oryn | child_process / ws |
 
 The protocol is simple enough that clients in other languages can be implemented easily. The specification is:
 
@@ -291,11 +291,11 @@ The remote extension consists of three components:
 
 **WASM Engine**
 
-- Compiled from lscope-core Rust crate
+- Compiled from oryn-core Rust crate
 - Parses Intent Language commands
 - Resolves semantic targets
 - Formats responses
-- Identical logic to lscope-e and lscope-h engines
+- Identical logic to oryn-e and oryn-h engines
 
 **Content Script (Scanner.js)**
 
@@ -398,15 +398,15 @@ All other commands (observe, click, type, etc.) are routed to Scanner.js in the 
 
 ### 4.6.1 Cross-Mode Behavior Consistency
 
-Lemmascope promises consistent behavior across modes, but some commands have inherent platform differences:
+Oryn promises consistent behavior across modes, but some commands have inherent platform differences:
 
 **Screenshot Semantics**
 
 | Mode | Implementation | Captures |
 |------|----------------|----------|
-| lscope-e | WebDriver screenshot | Full page (configurable) |
-| lscope-h | CDP Page.captureScreenshot | Full page or viewport |
-| lscope-r | chrome.tabs.captureVisibleTab | Visible viewport only |
+| oryn-e | WebDriver screenshot | Full page (configurable) |
+| oryn-h | CDP Page.captureScreenshot | Full page or viewport |
+| oryn-r | chrome.tabs.captureVisibleTab | Visible viewport only |
 
 To maintain consistency:
 - Default `screenshot` captures visible viewport in all modes
@@ -633,7 +633,7 @@ Wire format:
 
 Examples:
 ```
-ready lscope-h v1.0.0
+ready oryn-h v1.0.0
 ---
 ```
 
@@ -817,8 +817,8 @@ Extension-specific errors:
 
 | Language | Registry | Package Name |
 |----------|----------|--------------|
-| Python | PyPI | lemmascope |
-| TypeScript | npm | lemmascope |
+| Python | PyPI | oryn |
+| TypeScript | npm | oryn |
 
 Client libraries are pure Python/TypeScript with no native dependencies. They require the engine binary to be installed separately for embedded/headless modes.
 
@@ -826,12 +826,12 @@ Client libraries are pure Python/TypeScript with no native dependencies. They re
 
 | Channel | Command |
 |---------|---------|
-| Cargo | cargo install lemmascope |
-| Homebrew | brew install lemmascope |
+| Cargo | cargo install oryn |
+| Homebrew | brew install oryn |
 | GitHub Releases | Download from releases page |
 | Linux Packages | apt/dnf repositories (future) |
 
-Binary package provides: lscope-e, lscope-h
+Binary package provides: oryn-e, oryn-h
 
 ### 6.3 Browser Extension
 
@@ -912,7 +912,7 @@ The Intent Language engine runs as WASM in the extension rather than server-side
 
 **Minimal Server Requirements**
 
-If the server must process Intent Language, it must run Lemmascope. With WASM in extension, the server just forwards strings.
+If the server must process Intent Language, it must run Oryn. With WASM in extension, the server just forwards strings.
 
 **Consistent Behavior**
 
@@ -952,8 +952,8 @@ A single client server could accept connections from multiple extension instance
 
 For simplified deployment, optional packages could bundle the engine binary:
 
-- lemmascope-bin (Python): Contains platform-specific binary
-- @lemmascope/bin (npm): Contains platform-specific binary
+- oryn-bin (Python): Contains platform-specific binary
+- @oryn/bin (npm): Contains platform-specific binary
 
 These would be separate packages to keep the core client library pure and lightweight.
 

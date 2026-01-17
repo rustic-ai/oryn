@@ -6,12 +6,12 @@ set -e
 # Configuration
 PORT=9001
 DEBUG_PORT=9002
-LCOPE_BIN="${LCOPE_BIN:-./target/debug/lscope}"
+LCOPE_BIN="${LCOPE_BIN:-./target/debug/oryn}"
 ENV_EXT_DIR="extension"
 
 # Use /tmp to avoid Snap/Sandbox permission issues
-EXT_PATCH_DIR="/tmp/lscope_ext_$(date +%s)"
-USER_DATA_DIR="/tmp/lscope_chrome_data_$(date +%s)"
+EXT_PATCH_DIR="/tmp/oryn_ext_$(date +%s)"
+USER_DATA_DIR="/tmp/oryn_chrome_data_$(date +%s)"
 CHROME_BIN="${CHROME_BIN:-/usr/lib64/chromium-browser/chromium-browser}"
 
 # Colors
@@ -40,8 +40,8 @@ cleanup() {
 
 # 0. Build Rust
 if [ "$SKIP_BUILD" != "true" ]; then
-    log_info "Building lscope..."
-    cargo build --package lscope --quiet
+    log_info "Building oryn..."
+    cargo build --package oryn --quiet
 else
     log_info "Skipping build (SKIP_BUILD=true)..."
 fi
@@ -79,13 +79,13 @@ for script in test-harness/scripts/*.lemma; do
     rm -rf "$USER_DATA_DIR"
     mkdir -p "$USER_DATA_DIR"
 
-    # 1. Start lscope Server (Background)
-    log_info "Starting lscope Backend..."
-    RUST_LOG=info $LCOPE_BIN --file "$script" remote --port $PORT > "lscope_$script_name.log" 2>&1 &
+    # 1. Start oryn Server (Background)
+    log_info "Starting oryn Backend..."
+    RUST_LOG=info $LCOPE_BIN --file "$script" remote --port $PORT > "oryn_$script_name.log" 2>&1 &
     LSCOPE_PID=$!
     
     # 2. Wait for Port 9001
-    log_info "Waiting for lscope to listen on $PORT..."
+    log_info "Waiting for oryn to listen on $PORT..."
     for i in {1..30}; do
         if nc -z 127.0.0.1 $PORT; then
             log_pass "Server is UP"
@@ -145,7 +145,7 @@ for script in test-harness/scripts/*.lemma; do
     $CMD > "chrome_$script_name.log" 2>&1 &
     CHROME_PID=$!
 
-    # 4. Wait for lscope to finish
+    # 4. Wait for oryn to finish
     log_info "Waiting for test completion..."
     wait "$LSCOPE_PID"
     EXIT_CODE=$?
@@ -156,7 +156,7 @@ for script in test-harness/scripts/*.lemma; do
     else
         log_error "$script_name failed with exit code $EXIT_CODE"
         echo "| $script_name | ❌ FAIL |" >> "$RESULTS_FILE"
-        cat "lscope_$script_name.log" | tail -n 20
+        cat "oryn_$script_name.log" | tail -n 20
         cat "chrome_$script_name.log" | tail -n 20
     fi
 

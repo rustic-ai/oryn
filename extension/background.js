@@ -14,7 +14,7 @@ function connect() {
     socket = new WebSocket(WEBSOCKET_URL);
 
     socket.onopen = () => {
-        remoteLog("Connected to Lemmascope Server");
+        remoteLog("Connected to Oryn Server");
     };
 
     socket.onmessage = (event) => {

@@ -1,36 +1,36 @@
-# Integrating Lemmascope with Google ADK
+# Integrating Oryn with Google ADK
 
-This tutorial demonstrates how to give **Google ADK Agents** the ability to browse the web using **Lemmascope**.
+This tutorial demonstrates how to give **Google ADK Agents** the ability to browse the web using **Oryn**.
 
-By wrapping the unified `lscope` CLI as a custom tool, your agents can perform semantic web interactions (navigation, reading, clicking) without dealing with raw HTML or complex browser automation scripts.
+By wrapping the unified `oryn` CLI as a custom tool, your agents can perform semantic web interactions (navigation, reading, clicking) without dealing with raw HTML or complex browser automation scripts.
 
 ## Prerequisites
 
-1.  **Lemmascope**: Installed and available in your PATH as `lscope`.
+1.  **Oryn**: Installed and available in your PATH as `oryn`.
     - Follow the [User Guide](USER_GUIDE.md) to build and install.
 2.  **Google ADK**: Python environment set up with `google-adk` (or equivalent Gen AI SDK).
-3.  **Headless Browser**: Chromium installed (for `lscope headless`).
+3.  **Headless Browser**: Chromium installed (for `oryn headless`).
 
 ## Concept
 
-We will create a **Python Tool** that wraps the `lscope` binary. The agent will send natural language Intent Commands (e.g., `goto google.com`, `click "Search"`) to this tool, and the tool will return the semantic response from Lemmascope.
+We will create a **Python Tool** that wraps the `oryn` binary. The agent will send natural language Intent Commands (e.g., `goto google.com`, `click "Search"`) to this tool, and the tool will return the semantic response from Oryn.
 
-## Step 1: Create the Lemmascope Tool Wrapper
+## Step 1: Create the Oryn Tool Wrapper
 
-Create a file named `lemmascope_tool.py`. This class manages a persistent subprocess for `lscope`.
+Create a file named `oryn_tool.py`. This class manages a persistent subprocess for `oryn`.
 
 ```python
 import subprocess
 import time
 import threading
 
-class LemmascopeTool:
+class OrynTool:
     def __init__(self, mode="headless", port=None, driver_url=None):
         self.mode = mode
         self.process = None
         
         # Build command
-        cmd = ["lscope", mode]
+        cmd = ["oryn", mode]
         if mode == "embedded" and driver_url:
             cmd.extend(["--driver-url", driver_url])
         elif mode == "remote" and port:
@@ -62,7 +62,7 @@ class LemmascopeTool:
         return "".join(output[:-2]).strip()
 
     def execute(self, command: str) -> str:
-        """Sends an Intent Command to Lemmascope and returns the response."""
+        """Sends an Intent Command to Oryn and returns the response."""
         if not self.process:
             return "Error: Browser not running."
             
@@ -85,11 +85,11 @@ Now, expose this class as a function or tool definition that your ADK agent can 
 from google.generativeai import tools
 
 # Initialize the global browser instance
-browser = LemmascopeTool(mode="headless")
+browser = OrynTool(mode="headless")
 
 def browser_action(command: str) -> str:
     """
-    Executes a browser action using Lemmascope Intent Language.
+    Executes a browser action using Oryn Intent Language.
     
     Args:
         command: The intent command (e.g., 'goto google.com', 'scan', 'click "Login"').
@@ -100,7 +100,7 @@ def browser_action(command: str) -> str:
     return browser.execute(command)
 
 # Create the tool definition
-lemmascope_tool = tools.Tool.from_function(browser_action)
+oryn_tool = tools.Tool.from_function(browser_action)
 ```
 
 ## Step 3: Create the Agent
@@ -112,7 +112,7 @@ import google.generativeai as genai
 
 model = genai.GenerativeModel(
     model_name='gemini-pro',
-    tools=[lemmascope_tool]
+    tools=[oryn_tool]
 )
 
 chat = model.start_chat()
@@ -120,7 +120,7 @@ chat = model.start_chat()
 # Task: Research
 prompt = """
 You are a research agent. Use the browser_action tool to find information.
-Go to 'wikipedia.org', search for 'Lemmascope', and summarize the first paragraph if found.
+Go to 'wikipedia.org', search for 'Oryn', and summarize the first paragraph if found.
 Start by navigating to the page.
 """
 
@@ -130,7 +130,7 @@ print(response.text)
 
 ## Supported Commands
 
-The agent can now use the full Lemmascope Intent Language:
+The agent can now use the full Oryn Intent Language:
 
 *   **Navigation**: `goto <url>`
 *   **Observation**: `scan` (Returns list of interactive elements)
@@ -141,4 +141,4 @@ The agent can now use the full Lemmascope Intent Language:
 
 1.  **Always Scan First**: Before clicking or typing, the agent should issue `scan` (or `observe`) to get the current IDs of elements. IDs are dynamic and change after navigation.
 2.  **Use Semantic Targets**: "click 'Submit'" is robust, but "click 42" requires a fresh scan. Encourage the agent to rely on the IDs returned by the most recent scan.
-3.  **Handle Errors**: If Lemmascope returns `ELEMENT_NOT_FOUND`, the agent should retry with a new `scan` to refresh its view of the page.
+3.  **Handle Errors**: If Oryn returns `ELEMENT_NOT_FOUND`, the agent should retry with a new `scan` to refresh its view of the page.

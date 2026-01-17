@@ -1,4 +1,4 @@
-# Lemmascope: Unified Tri-Modal Architecture
+# Oryn: Unified Tri-Modal Architecture
 
 ## Version 1.0
 
@@ -6,15 +6,15 @@
 
 ## 1. Executive Summary
 
-Lemmascope is an agent-native browser designed from the ground up for AI agents. Rather than forcing agents to interpret screenshots, parse raw HTML, or construct complex function calls, Lemmascope provides a semantic intent language that speaks directly to how agents think about web interaction.
+Oryn is an agent-native browser designed from the ground up for AI agents. Rather than forcing agents to interpret screenshots, parse raw HTML, or construct complex function calls, Oryn provides a semantic intent language that speaks directly to how agents think about web interaction.
 
 The system comprises three specialized binaries unified by a single Universal Scanner:
 
 | Binary | Name | Environment |
 |--------|------|-------------|
-| **lscope-e** | Embedded | IoT, containers, edge devices |
-| **lscope-h** | Headless | Cloud automation, CI/CD, scraping |
-| **lscope-r** | Remote | User assistance, real browser sessions |
+| **oryn-e** | Embedded | IoT, containers, edge devices |
+| **oryn-h** | Headless | Cloud automation, CI/CD, scraping |
+| **oryn-r** | Remote | User assistance, real browser sessions |
 
 All three binaries share the same protocol, the same intent language, and the same scanner implementation—ensuring consistent behavior regardless of deployment environment.
 
@@ -47,9 +47,9 @@ Agents must construct precise function calls with typed parameters. This require
 - No tolerance for natural variation
 - Verbose tool definitions consuming context
 
-### 2.2 The Lemmascope Solution
+### 2.2 The Oryn Solution
 
-Lemmascope inverts the traditional model. Instead of exposing browser complexity to agents, it provides:
+Oryn inverts the traditional model. Instead of exposing browser complexity to agents, it provides:
 
 **Semantic Observations**
 Structured descriptions of interactive elements with meaningful labels, types, roles, and states—not raw HTML or pixels.
@@ -67,7 +67,7 @@ Identical semantics across embedded, headless, and remote modes—not per-enviro
 ### 3.1 System Layers
 
 **Agent Layer**
-AI agents communicate with Lemmascope using the Intent Language. They receive observations, make decisions, and issue commands. Agents never interact with raw browser APIs or HTML.
+AI agents communicate with Oryn using the Intent Language. They receive observations, make decisions, and issue commands. Agents never interact with raw browser APIs or HTML.
 
 **Protocol Layer**
 The Intent Parser interprets agent commands with forgiveness for variations. The Semantic Resolver translates targets (text matches, roles) to concrete elements. The Change Tracker monitors DOM modifications.
@@ -82,9 +82,9 @@ JavaScript running inside the browser context that scans, labels, and interacts 
 
 The scanner is the architectural keystone. All three backends inject the identical JavaScript into their browser contexts:
 
-**lscope-e**: Injects via WebDriver execute_script  
-**lscope-h**: Injects via CDP Runtime.evaluate  
-**lscope-r**: Runs as browser extension content script  
+**oryn-e**: Injects via WebDriver execute_script  
+**oryn-h**: Injects via CDP Runtime.evaluate  
+**oryn-r**: Runs as browser extension content script  
 
 Because the same scanner code executes in all contexts, behavioral consistency is guaranteed. The Rust layer never parses HTML directly—it only processes the scanner's JSON responses.
 
@@ -100,7 +100,7 @@ If HTML were parsed differently per backend, behavior would diverge. The Univers
 
 ### 4.1 Mode Comparison
 
-| Aspect | lscope-e (Embedded) | lscope-h (Headless) | lscope-r (Remote) |
+| Aspect | oryn-e (Embedded) | oryn-h (Headless) | oryn-r (Remote) |
 |--------|---------------------|---------------------|-------------------|
 | **Browser Engine** | WPE WebKit | Chromium | User's Browser |
 | **Protocol** | WebDriver (HTTP) | CDP (WebSocket) | Custom (WebSocket) |
@@ -109,7 +109,7 @@ If HTML were parsed differently per backend, behavior would diverge. The Univers
 | **Compatibility** | ~95% (WebKit) | **~99%** ⭐ | **~99%** ⭐ |
 | **Anti-Bot Bypass** | Weak | Medium | **Strong** ⭐ |
 
-### 4.2 lscope-e: Embedded Mode
+### 4.2 oryn-e: Embedded Mode
 
 **Technology Stack**
 - COG browser (WPE WebKit)
@@ -129,7 +129,7 @@ If HTML were parsed differently per backend, behavior would diverge. The Univers
 - Some anti-bot detection vulnerability (recognizable fingerprint)
 - Self-contained deployment possible
 
-### 4.3 lscope-h: Headless Mode
+### 4.3 oryn-h: Headless Mode
 
 **Technology Stack**
 - Chromium browser
@@ -150,7 +150,7 @@ If HTML were parsed differently per backend, behavior would diverge. The Univers
 - PDF generation and printing
 - DevTools debugging integration
 
-### 4.4 lscope-r: Remote Mode
+### 4.4 oryn-r: Remote Mode
 
 **Technology Stack**
 - Browser extension in user's own browser
@@ -214,25 +214,25 @@ The JSON format is identical regardless of transport. Only the communication mec
 ### 6.1 Consistency
 
 Given the same page state and the same command:
-- lscope-e, lscope-h, and lscope-r produce identical observations
-- lscope-e, lscope-h, and lscope-r execute identical actions
-- lscope-e, lscope-h, and lscope-r report identical results
+- oryn-e, oryn-h, and oryn-r produce identical observations
+- oryn-e, oryn-h, and oryn-r execute identical actions
+- oryn-e, oryn-h, and oryn-r report identical results
 
 ### 6.2 Limitations
 
 Each mode has inherent limitations from its underlying technology:
 
-**lscope-e Limitations**
+**oryn-e Limitations**
 - WebKit may render some pages differently than Chromium
 - Some cutting-edge web features may lag Chromium support
 - WebDriver protocol has performance overhead versus CDP
 
-**lscope-h Limitations**
+**oryn-h Limitations**
 - Headless Chrome has detectable fingerprint
 - Higher resource requirements
 - Chrome installation required (not bundled)
 
-**lscope-r Limitations**
+**oryn-r Limitations**
 - Requires user to install and connect extension
 - User's browser must remain open
 - Network dependent (WebSocket connection)
@@ -246,7 +246,7 @@ Each mode has inherent limitations from its underlying technology:
 
 **Use Case**: Smart home controller running automation agents
 
-**Recommended**: lscope-e (Embedded)
+**Recommended**: oryn-e (Embedded)
 
 **Why**: Raspberry Pi has limited RAM. The ~50MB footprint of WPE WebKit leaves resources for the agent itself. COG provides reliable rendering without Chromium overhead.
 
@@ -254,7 +254,7 @@ Each mode has inherent limitations from its underlying technology:
 
 **Use Case**: High-volume data extraction from multiple sites
 
-**Recommended**: lscope-h (Headless)
+**Recommended**: oryn-h (Headless)
 
 **Why**: Maximum compatibility ensures complex SPAs render correctly. DevTools integration enables network interception for API discovery. Cloud resources handle RAM requirements.
 
@@ -262,7 +262,7 @@ Each mode has inherent limitations from its underlying technology:
 
 **Use Case**: Agent helps user book travel, manage accounts
 
-**Recommended**: lscope-r (Remote)
+**Recommended**: oryn-r (Remote)
 
 **Why**: Agent needs access to user's authenticated sessions. Real browser fingerprint bypasses anti-bot. User can watch and verify agent actions. No credentials passed to server.
 
@@ -270,7 +270,7 @@ Each mode has inherent limitations from its underlying technology:
 
 **Use Case**: Automated testing of web application
 
-**Recommended**: lscope-h (Headless)
+**Recommended**: oryn-h (Headless)
 
 **Why**: Chromium matches production browser. Headless operation fits CI environment. Screenshot capture documents failures. Network interception enables API mocking.
 
@@ -278,7 +278,7 @@ Each mode has inherent limitations from its underlying technology:
 
 **Use Case**: In-store kiosk with voice-controlled web agent
 
-**Recommended**: lscope-e (Embedded)
+**Recommended**: oryn-e (Embedded)
 
 **Why**: Self-contained deployment without Chrome dependency. Low resource requirements for embedded hardware. WebKit provides adequate compatibility for specific target sites.
 
@@ -333,9 +333,9 @@ Each mode has inherent limitations from its underlying technology:
 |-----------|----------------|
 | **Universal Scanner** | JavaScript injected into all browser contexts |
 | **Backend Trait** | Unified Rust interface for all modes |
-| **lscope-e** | WebDriver → COG → WPE WebKit |
-| **lscope-h** | CDP → Chromium |
-| **lscope-r** | WebSocket → Browser Extension |
+| **oryn-e** | WebDriver → COG → WPE WebKit |
+| **oryn-h** | CDP → Chromium |
+| **oryn-r** | WebSocket → Browser Extension |
 | **Intent Language** | Agent-facing protocol |
 | **Scanner Protocol** | Internal JSON protocol |
 

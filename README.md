@@ -1,31 +1,31 @@
-# Lemmascope
+# Oryn
 
 **The browser built for AI agents.**
 
 ---
 
-## What is Lemmascope?
+## What is Oryn?
 
-Lemmascope is a browser automation system designed specifically for AI agents. Instead of forcing agents to understand screenshots, parse HTML, or construct complex function calls, Lemmascope provides a semantic intent language that speaks naturally to how agents think about web interaction.
+Oryn is a browser automation system designed specifically for AI agents. Instead of forcing agents to understand screenshots, parse HTML, or construct complex function calls, Oryn provides a semantic intent language that speaks naturally to how agents think about web interaction.
 
-Traditional agent-browser interfaces fail because they expose the wrong abstraction. Lemmascope fixes this by providing:
+Traditional agent-browser interfaces fail because they expose the wrong abstraction. Oryn fixes this by providing:
 
 - **Semantic observations** instead of raw HTML or pixels
 - **Intent language** instead of rigid function schemas  
 - **Consistent behavior** across all deployment environments
 
 ## The Unified CLI
-Lemmascope provides a single unified binary `lscope` that adapts to any environment:
+Oryn provides a single unified binary `oryn` that adapts to any environment:
 
 ```bash
 # Headless Mode (Cloud/CI)
-lscope headless
+oryn headless
 
 # Embedded Mode (IoT/Edge)
-lscope embedded --driver-url http://localhost:8080
+oryn embedded --driver-url http://localhost:8080
 
 # Remote Mode (Debug/Assistance)
-lscope remote --port 9001
+oryn remote --port 9001
 ```
 
 See the [User Guide](docs/USER_GUIDE.md) for full usage instructions.
@@ -50,7 +50,7 @@ click 3
 
 The agent sees labeled interactive elements and issues simple commands. No CSS selectors, no XPath, no DOM traversal—just intent.
 
-## Why Lemmascope?
+## Why Oryn?
 
 ### The Problem
 
@@ -64,7 +64,7 @@ Current approaches force agents into unnatural workflows:
 
 ### The Solution
 
-Lemmascope presents the web as agents need to see it:
+Oryn presents the web as agents need to see it:
 
 - Interactive elements are labeled and typed
 - State is explicit (required, disabled, checked)
@@ -73,19 +73,19 @@ Lemmascope presents the web as agents need to see it:
 
 ## Mode Selection Guide
 
-**Choose lscope-e (Embedded) when:**
+**Choose oryn-e (Embedded) when:**
 - Running on Raspberry Pi or IoT hardware
 - Deploying to resource-constrained containers
 - RAM is precious (~50MB footprint)
 - WebKit compatibility is sufficient
 
-**Choose lscope-h (Headless) when:**
+**Choose oryn-h (Headless) when:**
 - Running cloud-based automation
 - Maximum browser compatibility needed (~99%)
 - Handling complex SPAs
 - Network interception required
 
-**Choose lscope-r (Remote) when:**
+**Choose oryn-r (Remote) when:**
 - Agent needs user's logged-in sessions
 - Anti-bot bypass is critical (real browser fingerprint)
 - User wants to watch agent actions
@@ -105,13 +105,13 @@ Lemmascope presents the web as agents need to see it:
 ## Project Structure
 
 ```
-lemmascope/
+oryn/
 ├── crates/
-│   ├── lscope-core/          # Shared protocol and types
-│   ├── lscope-scanner/       # Universal JavaScript scanner
-│   ├── lscope-e/             # Embedded mode binary
-│   ├── lscope-h/             # Headless mode binary
-│   └── lscope-r/             # Remote mode binary
+│   ├── oryn-core/          # Shared protocol and types
+│   ├── oryn-scanner/       # Universal JavaScript scanner
+│   ├── oryn-e/             # Embedded mode binary
+│   ├── oryn-h/             # Headless mode binary
+│   └── oryn-r/             # Remote mode binary
 ├── extension/                 # Browser extension for remote mode
 ├── docs/
 │   ├── SPEC-INTENT-LANGUAGE.md
@@ -140,15 +140,15 @@ All binaries implement the same interface. Agents can switch modes without chang
 
 ## Requirements
 
-**lscope-e (Embedded)**
+**oryn-e (Embedded)**
 - Linux with WPE WebKit / COG
 - ~50MB RAM available
 
-**lscope-h (Headless)**
+**oryn-h (Headless)**
 - Chromium browser installed
 - ~300MB+ RAM available
 
-**lscope-r (Remote)**
+**oryn-r (Remote)**
 - Browser extension installed
 - WebSocket connection to server
 
@@ -162,4 +162,4 @@ All binaries implement the same interface. Agents can switch modes without chang
 
 ---
 
-*Lemmascope: Intent, not implementation.*
+*Oryn: Intent, not implementation.*

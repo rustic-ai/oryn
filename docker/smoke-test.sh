@@ -1,14 +1,14 @@
 #!/bin/bash
-# Quick smoke test for pre-built Lemmascope Docker images
+# Quick smoke test for pre-built Oryn Docker images
 # Usage: ./smoke-test.sh <image-name>
 #
 # Example:
-#   ./smoke-test.sh lscope-e:alpine
-#   ./smoke-test.sh lscope-h:ubuntu
+#   ./smoke-test.sh oryn-e:alpine
+#   ./smoke-test.sh oryn-h:ubuntu
 
 set -e
 
-IMAGE=${1:-"lscope-e:alpine"}
+IMAGE=${1:-"oryn-e:alpine"}
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -24,11 +24,11 @@ echo "Smoke Test: $IMAGE"
 echo "=============================================="
 
 # Detect image type
-if echo "$IMAGE" | grep -q "lscope-h"; then
-    BINARY="lscope-h"
+if echo "$IMAGE" | grep -q "oryn-h"; then
+    BINARY="oryn-h"
     BROWSER="chromium"
 else
-    BINARY="lscope-e"
+    BINARY="oryn-e"
     BROWSER="wpe"
 fi
 
@@ -75,7 +75,7 @@ fi
 # Test 4: Security - non-root user
 log_info "Checking security..."
 USER=$(docker run --rm "$IMAGE" whoami)
-if [ "$USER" = "lscope" ]; then
+if [ "$USER" = "oryn" ]; then
     log_pass "Running as non-root user"
 else
     log_fail "Running as root (insecure)"

@@ -1,6 +1,6 @@
-# Lemmascope Test Harness
+# Oryn Test Harness
 
-A Node.js/Express application serving multiple test scenarios for comprehensive Lemmascope testing.
+A Node.js/Express application serving multiple test scenarios for comprehensive Oryn testing.
 
 ## Quick Start
 
@@ -21,7 +21,7 @@ A collection of pre-defined Lemma scripts is available in the `scripts/` directo
 
 ```bash
 # Example: Run the e-commerce test
-./target/debug/lscope-h --file scripts/03_ecommerce.lemma
+./target/debug/oryn-h --file scripts/03_ecommerce.lemma
 ```
 
 ## Scenario Categories

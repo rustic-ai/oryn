@@ -1,9 +1,9 @@
 /**
- * Lemmascope Universal Scanner
+ * Oryn Universal Scanner
  * Version 1.0
  *
  * Implements the scanner protocol for element discovery, interaction, and state extraction.
- * Works across Embedded (lscope-e), Headless (lscope-h), and Remote (lscope-r) backends.
+ * Works across Embedded (oryn-e), Headless (oryn-h), and Remote (oryn-r) backends.
  */
 (function (global) {
     // --- State ---
@@ -1735,8 +1735,8 @@
     }
 
     // Attach to global
-    global.Lemmascope = global.Lemmascope || {};
-    global.Lemmascope.process = process;
-    global.Lemmascope.Scanner = Scanner; // Export for debugging
-    global.Lemmascope.State = STATE;
+    global.Oryn = global.Oryn || {};
+    global.Oryn.process = process;
+    global.Oryn.Scanner = Scanner; // Export for debugging
+    global.Oryn.State = STATE;
 })(window);

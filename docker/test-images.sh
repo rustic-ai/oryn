@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test script for Lemmascope Docker images
+# Test script for Oryn Docker images
 # Usage: ./test-images.sh [alpine|debian|ubuntu|all]
 
 set -e
@@ -152,10 +152,10 @@ test_environment() {
     # Test user
     local user
     user=$(docker run --rm "$image" whoami)
-    if [ "$user" = "lscope" ]; then
-        log_pass "$image: Running as non-root user 'lscope'"
+    if [ "$user" = "oryn" ]; then
+        log_pass "$image: Running as non-root user 'oryn'"
     else
-        log_fail "$image: Expected user 'lscope', got '$user'"
+        log_fail "$image: Expected user 'oryn', got '$user'"
     fi
 
     # Test XDG_RUNTIME_DIR
@@ -178,7 +178,7 @@ test_environment() {
 # ============================================================================
 
 test_alpine_image() {
-    local image="lscope-e:alpine"
+    local image="oryn-e:alpine"
 
     echo ""
     echo "=============================================="
@@ -187,7 +187,7 @@ test_alpine_image() {
 
     # Build image
     log_info "Building $image..."
-    if docker build -f "$SCRIPT_DIR/Dockerfile.lscope-e" -t "$image" "$PROJECT_DIR" >/dev/null 2>&1; then
+    if docker build -f "$SCRIPT_DIR/Dockerfile.oryn-e" -t "$image" "$PROJECT_DIR" >/dev/null 2>&1; then
         log_pass "Built $image"
     else
         log_fail "Failed to build $image"
@@ -200,19 +200,19 @@ test_alpine_image() {
     log_info "$image size: $size"
 
     # Run tests
-    test_binary_exists "$image" "lscope-e"
-    test_binary_runs "$image" "lscope-e" "--help"
+    test_binary_exists "$image" "oryn-e"
+    test_binary_runs "$image" "oryn-e" "--help"
     test_wpe_components "$image"
     test_environment "$image"
 
     # Optional: navigation test (slower)
     if [ "${RUN_NAVIGATION_TESTS:-false}" = "true" ]; then
-        test_headless_navigation "$image" "lscope-e"
+        test_headless_navigation "$image" "oryn-e"
     fi
 }
 
 test_debian_image() {
-    local image="lscope-e:debian"
+    local image="oryn-e:debian"
 
     echo ""
     echo "=============================================="
@@ -221,7 +221,7 @@ test_debian_image() {
 
     # Build image
     log_info "Building $image..."
-    if docker build -f "$SCRIPT_DIR/Dockerfile.lscope-e.debian" -t "$image" "$PROJECT_DIR" >/dev/null 2>&1; then
+    if docker build -f "$SCRIPT_DIR/Dockerfile.oryn-e.debian" -t "$image" "$PROJECT_DIR" >/dev/null 2>&1; then
         log_pass "Built $image"
     else
         log_fail "Failed to build $image"
@@ -234,19 +234,19 @@ test_debian_image() {
     log_info "$image size: $size"
 
     # Run tests
-    test_binary_exists "$image" "lscope-e"
-    test_binary_runs "$image" "lscope-e" "--help"
+    test_binary_exists "$image" "oryn-e"
+    test_binary_runs "$image" "oryn-e" "--help"
     test_wpe_components "$image"
     test_environment "$image"
 
     # Optional: navigation test
     if [ "${RUN_NAVIGATION_TESTS:-false}" = "true" ]; then
-        test_headless_navigation "$image" "lscope-e"
+        test_headless_navigation "$image" "oryn-e"
     fi
 }
 
 test_ubuntu_image() {
-    local image="lscope-h:ubuntu"
+    local image="oryn-h:ubuntu"
 
     echo ""
     echo "=============================================="
@@ -255,7 +255,7 @@ test_ubuntu_image() {
 
     # Build image
     log_info "Building $image..."
-    if docker build -f "$SCRIPT_DIR/Dockerfile.lscope-h" -t "$image" "$PROJECT_DIR" >/dev/null 2>&1; then
+    if docker build -f "$SCRIPT_DIR/Dockerfile.oryn-h" -t "$image" "$PROJECT_DIR" >/dev/null 2>&1; then
         log_pass "Built $image"
     else
         log_fail "Failed to build $image"
@@ -268,14 +268,14 @@ test_ubuntu_image() {
     log_info "$image size: $size"
 
     # Run tests
-    test_binary_exists "$image" "lscope-h"
-    test_binary_runs "$image" "lscope-h" "--help"
+    test_binary_exists "$image" "oryn-h"
+    test_binary_runs "$image" "oryn-h" "--help"
     test_chromium_components "$image"
     test_environment "$image"
 
     # Optional: navigation test
     if [ "${RUN_NAVIGATION_TESTS:-false}" = "true" ]; then
-        test_headless_navigation "$image" "lscope-h"
+        test_headless_navigation "$image" "oryn-h"
     fi
 }
 
@@ -323,7 +323,7 @@ main() {
     done
 
     echo "=============================================="
-    echo "Lemmascope Docker Image Tests"
+    echo "Oryn Docker Image Tests"
     echo "=============================================="
     echo "Project: $PROJECT_DIR"
     echo "Target: $target"

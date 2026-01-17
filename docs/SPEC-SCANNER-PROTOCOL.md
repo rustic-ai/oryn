@@ -1,4 +1,4 @@
-# Lemmascope Scanner Protocol Specification
+# Oryn Scanner Protocol Specification
 
 ## Version 1.0
 
@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-The Universal Scanner Protocol defines the interface between Lemmascope backends and the JavaScript scanner that runs inside web browsers. This protocol ensures consistent behavior across all three execution modes: Embedded (lscope-e), Headless (lscope-h), and Remote (lscope-r).
+The Universal Scanner Protocol defines the interface between Oryn backends and the JavaScript scanner that runs inside web browsers. This protocol ensures consistent behavior across all three execution modes: Embedded (oryn-e), Headless (oryn-h), and Remote (oryn-r).
 
 ### 1.1 Design Goals
 
@@ -27,10 +27,10 @@ Clear error messages, predictable structure, and explicit state representation m
 The architecture follows a clean separation of concerns:
 
 **Backend Layer**
-Each Lemmascope binary (lscope-e, lscope-h, lscope-r) implements browser communication using the appropriate protocol for its environment:
-- lscope-e (Embedded): WebDriver over HTTP
-- lscope-h (Headless): Chrome DevTools Protocol over WebSocket
-- lscope-r (Remote): Custom protocol over WebSocket to browser extension
+Each Oryn binary (oryn-e, oryn-h, oryn-r) implements browser communication using the appropriate protocol for its environment:
+- oryn-e (Embedded): WebDriver over HTTP
+- oryn-h (Headless): Chrome DevTools Protocol over WebSocket
+- oryn-r (Remote): Custom protocol over WebSocket to browser extension
 
 **Scanner Layer**
 A single JavaScript implementation runs inside all browser contexts. Backends inject this same script regardless of their underlying browser engine. The scanner understands a JSON command vocabulary and returns JSON responses.
@@ -42,9 +42,9 @@ The JSON message format is identical across all transport mechanisms. Backends t
 
 | Binary | Browser Engine | Protocol | Transport |
 |--------|----------------|----------|-----------|
-| lscope-e | WPE WebKit (COG) | WebDriver | HTTP |
-| lscope-h | Chromium | CDP | WebSocket |
-| lscope-r | User's Browser | Custom | WebSocket |
+| oryn-e | WPE WebKit (COG) | WebDriver | HTTP |
+| oryn-h | Chromium | CDP | WebSocket |
+| oryn-r | User's Browser | Custom | WebSocket |
 
 All transports use the same JSON message format. The scanner implementation is byte-for-byte identical across all contexts.
 

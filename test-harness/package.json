@@ -1,7 +1,7 @@
 {
-    "name": "lemmascope-test-harness",
+    "name": "oryn-test-harness",
     "version": "1.0.0",
-    "description": "Test harness for Lemmascope browser automation",
+    "description": "Test harness for Oryn browser automation",
     "main": "server.js",
     "scripts": {
         "start": "node server.js",

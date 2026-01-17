@@ -1,5 +1,5 @@
 #!/bin/bash
-# run-docker-e2e.sh: Run Lemmascope Docker images against the test harness
+# run-docker-e2e.sh: Run Oryn Docker images against the test harness
 # This script builds the images and executes the .lemma test suite.
 
 set -e
@@ -28,7 +28,7 @@ trap cleanup EXIT
 
 # 1. Build and start test harness
 log_info "Starting test harness..."
-docker-compose -p lscope-test -f "$SCRIPT_DIR/docker-compose.test-env.yml" up -d --build
+docker-compose -p oryn-test -f "$SCRIPT_DIR/docker-compose.test-env.yml" up -d --build
 log_info "Waiting for test harness to be healthy..."
 until [ "$(docker inspect -f '{{.State.Health.Status}}' test-harness)" == "healthy" ]; do
     sleep 1
@@ -38,10 +38,10 @@ log_pass "Test harness is up at $HARNESS_IP"
 
 # 2. Define images to test
 IMAGES=(
-    "lscope-h:latest"
-    "lscope-h:headless"
-    "lscope-e:debian"
-    "lscope-e:latest"
+    "oryn-h:latest"
+    "oryn-h:headless"
+    "oryn-e:debian"
+    "oryn-e:latest"
 )
 
 # 3. Execution loop
@@ -50,7 +50,7 @@ REPORT_FILE="$SCRIPT_DIR/test-report.md"
 
 # Initialize Report
 cat <<EOF > "$REPORT_FILE"
-# Lemmascope Docker E2E Test Report
+# Oryn Docker E2E Test Report
 Generated on: $(date)
 
 ## Summary
@@ -58,7 +58,7 @@ Generated on: $(date)
 |-------|--------|--------|--------|
 EOF
 
-NETWORK_NAME="lscope-test_lscope-test-net"
+NETWORK_NAME="oryn-test_oryn-test-net"
 
 for IMAGE in "${IMAGES[@]}"; do
     echo -e "\n${BOLD}================================================================${NC}"
@@ -69,17 +69,17 @@ for IMAGE in "${IMAGES[@]}"; do
     log_info "Building $IMAGE..."
     DOCKERFILE=""
     case "$IMAGE" in
-        "lscope-h:latest")   DOCKERFILE="Dockerfile.lscope-h" ;;
-        "lscope-h:headless") DOCKERFILE="Dockerfile.lscope-h.headless" ;;
-        "lscope-e:latest")   DOCKERFILE="Dockerfile.lscope-e" ;;
-        "lscope-e:debian")   DOCKERFILE="Dockerfile.lscope-e.debian" ;;
+        "oryn-h:latest")   DOCKERFILE="Dockerfile.oryn-h" ;;
+        "oryn-h:headless") DOCKERFILE="Dockerfile.oryn-h.headless" ;;
+        "oryn-e:latest")   DOCKERFILE="Dockerfile.oryn-e" ;;
+        "oryn-e:debian")   DOCKERFILE="Dockerfile.oryn-e.debian" ;;
     esac
 
     docker build -t "$IMAGE" -f "$SCRIPT_DIR/$DOCKERFILE" "$PROJECT_DIR" >/dev/null
 
     # Decide binary
-    BINARY="lscope-e"
-    if [[ "$IMAGE" == lscope-h* ]]; then BINARY="lscope-h"; fi
+    BINARY="oryn-e"
+    if [[ "$IMAGE" == oryn-h* ]]; then BINARY="oryn-h"; fi
 
     # Run each script
     script_count=0
@@ -98,13 +98,13 @@ for IMAGE in "${IMAGES[@]}"; do
             -v "$SCRIPTS_DIR":/scripts:z \
             -e COG_PLATFORM_NAME=headless \
             "$IMAGE" \
-            "$BINARY" --file "/scripts/$SCRIPT_NAME" > /tmp/lscope_out.log 2>&1; then
+            "$BINARY" --file "/scripts/$SCRIPT_NAME" > /tmp/oryn_out.log 2>&1; then
             log_pass "$SCRIPT_NAME passed"
             image_results="$image_results\n| $SCRIPT_NAME | ✅ PASS |"
             ((script_count++)) || true
         else
             log_error "$SCRIPT_NAME failed"
-            tail -n 20 /tmp/lscope_out.log
+            tail -n 20 /tmp/oryn_out.log
             image_results="$image_results\n| $SCRIPT_NAME | ❌ FAIL |"
             ((script_failed++)) || true
         fi

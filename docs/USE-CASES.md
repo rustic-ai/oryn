@@ -1,4 +1,4 @@
-# Lemmascope: Validation Use Cases
+# Oryn: Validation Use Cases
 
 ## Five Scenarios to Test and Validate the Solution
 
@@ -6,7 +6,7 @@
 
 ## Overview
 
-These five use cases are designed to validate that Lemmascope's intent language approach provides meaningful advantages over screenshot-based, HTML-parsing, and function-call approaches. Each scenario exercises different system capabilities and presents challenges that expose the weaknesses of traditional methods.
+These five use cases are designed to validate that Oryn's intent language approach provides meaningful advantages over screenshot-based, HTML-parsing, and function-call approaches. Each scenario exercises different system capabilities and presents challenges that expose the weaknesses of traditional methods.
 
 ### Validation Criteria
 
@@ -15,7 +15,7 @@ For each use case, we evaluate:
 1. **Task Completion**: Can the agent accomplish the goal?
 2. **Token Efficiency**: How much context is consumed?
 3. **Error Recovery**: How does the agent handle unexpected states?
-4. **Consistency**: Does behavior match across lscope-e, lscope-h, and lscope-r?
+4. **Consistency**: Does behavior match across oryn-e, oryn-h, and oryn-r?
 5. **Comparison**: How would screenshot/HTML/function approaches fare?
 
 ---
@@ -28,7 +28,7 @@ An agent conducts multi-source research on a topic, gathering information from v
 
 **Goal**: Research "the environmental impact of lithium mining for EV batteries" using at least 5 different sources, extract key statistics and claims, note source credibility, and identify areas of consensus and disagreement.
 
-### Why This Tests Lemmascope
+### Why This Tests Oryn
 
 Research requires:
 - Navigating search engines and following result links
@@ -145,7 +145,7 @@ Different sites present different challenges:
 - **Corporate sites**: Marketing language, navigation complexity
 - **Government sites**: Dense text, bureaucratic structure
 
-Lemmascope pattern detection handles common obstacles:
+Oryn pattern detection handles common obstacles:
 
 ```
 @ reuters.com/article "The Hidden Environmental Cost..."
@@ -180,7 +180,7 @@ After visiting 5+ sources, agent has extracted:
 | Task Completion | Did agent gather data from 5+ diverse sources? |
 | Token Efficiency | Compare context used vs. HTML dump approach |
 | Error Recovery | Did agent handle cookie banners, paywalls gracefully? |
-| Consistency | Same results across lscope-e/h/r? |
+| Consistency | Same results across oryn-e/h/r? |
 | Comparison | Screenshot approach would struggle with text extraction; HTML approach would consume massive context |
 
 ### Why Traditional Approaches Fail Here
@@ -201,7 +201,7 @@ An agent completes an end-to-end purchase: searching for a product, comparing op
 
 **Goal**: Purchase a "men's blue oxford shirt, size large" from an online retailer, selecting the option with best value (considering price, reviews, and shipping time).
 
-### Why This Tests Lemmascope
+### Why This Tests Oryn
 
 E-commerce involves:
 - Product search with filters and sorting
@@ -369,7 +369,7 @@ An agent books a complete trip: searching flights, comparing options across crit
 
 **Goal**: Book a round-trip flight from San Francisco (SFO) to New York (JFK), departing January 25, returning January 28, for one adult, preferring morning departure and window seat.
 
-### Why This Tests Lemmascope
+### Why This Tests Oryn
 
 Travel booking involves:
 - Complex date picker interactions
@@ -532,10 +532,10 @@ An agent manages account settings across a complex web application: updating pro
 
 **Goal**: Log into a user's GitHub account, update the profile bio, enable two-factor authentication, configure email notification preferences to reduce noise, and review recent security events.
 
-### Why This Tests Lemmascope
+### Why This Tests Oryn
 
 Account management involves:
-- Authentication with existing sessions (lscope-r) or credentials
+- Authentication with existing sessions (oryn-r) or credentials
 - Navigation through nested settings hierarchies
 - Toggle switches and preference grids
 - Security-sensitive operations
@@ -546,7 +546,7 @@ Account management involves:
 
 **Phase 1: Authentication**
 
-Using lscope-r (Remote) mode to leverage existing session:
+Using oryn-r (Remote) mode to leverage existing session:
 
 ```
 observe
@@ -561,7 +561,7 @@ observe
 
 Agent is already authenticated via user's browser session.
 
-Using lscope-h (Headless) would require login:
+Using oryn-h (Headless) would require login:
 ```
 goto github.com/login
 observe
@@ -637,7 +637,7 @@ click 3
 ...
 ```
 
-At this point, agent would need to communicate with user (lscope-r scenario) or have access to TOTP generation.
+At this point, agent would need to communicate with user (oryn-r scenario) or have access to TOTP generation.
 
 **Phase 4: Notification Preferences**
 
@@ -722,7 +722,7 @@ An agent creates and publishes content on a platform: composing a post with rich
 
 **Goal**: Create a LinkedIn post announcing a new project, including formatted text, an image, relevant hashtags, and configured for optimal visibility. Then respond to the first comment received.
 
-### Why This Tests Lemmascope
+### Why This Tests Oryn
 
 Content publishing involves:
 - Rich text editors with formatting controls
@@ -774,9 +774,9 @@ click 1
 
 Agent composes post:
 ```
-type 2 "🚀 Excited to announce the launch of Lemmascope!
+type 2 "🚀 Excited to announce the launch of Oryn!
 
-We've been working on a new approach to AI-browser interaction. Instead of forcing agents to parse screenshots or HTML, Lemmascope provides a semantic intent language designed for how AI actually thinks.
+We've been working on a new approach to AI-browser interaction. Instead of forcing agents to parse screenshots or HTML, Oryn provides a semantic intent language designed for how AI actually thinks.
 
 Key highlights:
 • Three deployment modes for any environment
@@ -808,7 +808,7 @@ After upload:
 @ linkedin.com/feed "LinkedIn Feed"
 ...
 [2] textarea "🚀 Excited to announce..." {value: "🚀 Excited..."}
-[15] image "lemmascope-logo.png" {uploaded}
+[15] image "oryn-logo.png" {uploaded}
 [16] button "Remove image"
 [17] input/text "Add alt text"
 [8] button/primary "Post" {primary, enabled}
@@ -817,7 +817,7 @@ After upload:
 
 Agent adds accessibility:
 ```
-type 17 "Lemmascope logo - a stylized browser icon with three connected nodes"
+type 17 "Oryn logo - a stylized browser icon with three connected nodes"
 ```
 
 **Phase 4: Configure and Publish**
@@ -843,7 +843,7 @@ observe
 
 @ linkedin.com/feed "LinkedIn Feed"
 ...
-[30] post "You: 🚀 Excited to announce the launch of Lemmascope..."
+[30] post "You: 🚀 Excited to announce the launch of Oryn..."
     reactions: 47
     comments: 3
 [31] button "Like"
@@ -855,7 +855,7 @@ click 30  # View full post
 ```
 
 ```
-@ linkedin.com/posts/... "Your Lemmascope Post"
+@ linkedin.com/posts/... "Your Oryn Post"
 [1] post "🚀 Excited to announce..."
 [2] text "47 reactions"
 [3] text "3 comments"
@@ -876,7 +876,7 @@ click 5  # Reply to Alice
 [20] textarea "Reply to Alice..." {focused}
 ...
 
-type 20 "Thanks Alice! Great question - Lemmascope's Universal Scanner handles SPAs beautifully because it runs inside the browser context, seeing the DOM exactly as rendered after JavaScript execution. The key is that we never parse HTML server-side."
+type 20 "Thanks Alice! Great question - Oryn's Universal Scanner handles SPAs beautifully because it runs inside the browser context, seeing the DOM exactly as rendered after JavaScript execution. The key is that we never parse HTML server-side."
 press Enter
 ```
 
@@ -923,7 +923,7 @@ press Enter
 
 ## Success Criteria Summary
 
-For Lemmascope validation to be considered successful:
+For Oryn validation to be considered successful:
 
 1. **All five use cases complete end-to-end** without requiring fallback to screenshots, raw HTML, or custom function definitions.
 
@@ -931,7 +931,7 @@ For Lemmascope validation to be considered successful:
 
 3. **Error recovery is automatic** for common obstacles (cookie banners, modals, stale elements) without agent-side special handling.
 
-4. **Behavior is identical** across lscope-e, lscope-h, and lscope-r for the same page states.
+4. **Behavior is identical** across oryn-e, oryn-h, and oryn-r for the same page states.
 
 5. **Agent development time is reduced** compared to building equivalent functionality with existing tools (target: 50% faster implementation).
 

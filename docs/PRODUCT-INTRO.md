@@ -1,4 +1,4 @@
-# Lemmascope: Product Introduction
+# Oryn: Product Introduction
 
 ## The Browser Designed for Agents
 
@@ -10,7 +10,7 @@ AI agents are transforming how we interact with software. They can reason, plan,
 
 Why? Because browsers weren't built for them.
 
-Lemmascope changes that. It's the first browser designed from the ground up with AI agents as the primary user.
+Oryn changes that. It's the first browser designed from the ground up with AI agents as the primary user.
 
 ---
 
@@ -43,11 +43,11 @@ None of the current approaches deliver this cleanly.
 
 ---
 
-## The Lemmascope Solution
+## The Oryn Solution
 
 ### Intent Over Implementation
 
-Lemmascope inverts the traditional model. Instead of exposing browser complexity, it provides a semantic layer that matches agent cognition.
+Oryn inverts the traditional model. Instead of exposing browser complexity, it provides a semantic layer that matches agent cognition.
 
 **Observations are structured and meaningful:**
 
@@ -86,7 +86,7 @@ This isn't incremental improvement. It's a fundamental shift in abstraction leve
 
 ### Universal Scanner
 
-At the heart of Lemmascope is the Universal Scanner—a JavaScript module that runs inside web pages and understands them the way agents need to.
+At the heart of Oryn is the Universal Scanner—a JavaScript module that runs inside web pages and understands them the way agents need to.
 
 The scanner:
 - Identifies all interactive elements
@@ -100,7 +100,7 @@ This same scanner code runs in all environments—embedded devices, headless ser
 
 ### Intent Language
 
-The Lemmascope Intent Language (LIL) is designed for agent ergonomics:
+The Oryn Intent Language (LIL) is designed for agent ergonomics:
 
 **Token Efficient**: Minimal verbosity means more context for reasoning
 
@@ -112,13 +112,13 @@ The Lemmascope Intent Language (LIL) is designed for agent ergonomics:
 
 ### Three Deployment Modes
 
-Lemmascope adapts to your environment:
+Oryn adapts to your environment:
 
 | Mode | Binary | Best For |
 |------|--------|----------|
-| Embedded | lscope-e | IoT, edge, containers |
-| Headless | lscope-h | Cloud, CI/CD, scraping |
-| Remote | lscope-r | Assistance, auth sessions |
+| Embedded | oryn-e | IoT, edge, containers |
+| Headless | oryn-h | Cloud, CI/CD, scraping |
+| Remote | oryn-r | Assistance, auth sessions |
 
 Same protocol. Same behavior. Different deployment targets.
 
@@ -136,7 +136,7 @@ click "Sign in"                  # By text
 check "Remember me"              # By label
 ```
 
-Lemmascope resolves these to concrete elements. The agent doesn't need to know the CSS selector.
+Oryn resolves these to concrete elements. The agent doesn't need to know the CSS selector.
 
 ### Pattern Detection
 
@@ -152,7 +152,7 @@ Agents can immediately understand page structure without element-by-element anal
 
 ### Change Tracking
 
-After actions, Lemmascope reports what changed:
+After actions, Oryn reports what changed:
 
 ```
 ok click 3
@@ -186,7 +186,7 @@ Not just failure—a path forward.
 
 An agent helps a user book travel:
 
-- lscope-r connects to user's browser
+- oryn-r connects to user's browser
 - Agent has access to user's authenticated sessions
 - User watches agent navigate booking sites
 - Real browser fingerprint bypasses anti-bot measures
@@ -195,7 +195,7 @@ An agent helps a user book travel:
 
 A system monitors competitor pricing:
 
-- lscope-h runs in cloud containers
+- oryn-h runs in cloud containers
 - Headless Chrome handles complex SPAs
 - Network interception captures API responses
 - High-volume parallel execution
@@ -204,7 +204,7 @@ A system monitors competitor pricing:
 
 A retail kiosk provides voice-controlled browsing:
 
-- lscope-e runs on embedded hardware
+- oryn-e runs on embedded hardware
 - 50MB footprint leaves room for voice processing
 - Self-contained without Chrome dependency
 - WebKit handles target site compatibility
@@ -213,7 +213,7 @@ A retail kiosk provides voice-controlled browsing:
 
 An AI agent writes and executes tests:
 
-- lscope-h provides consistent Chromium environment
+- oryn-h provides consistent Chromium environment
 - Screenshots document failures
 - Network mocking isolates tests
 - Same browser as production users
@@ -240,17 +240,17 @@ The same JSON protocol flows between scanner and backend regardless of transport
 
 | Mode | RAM | Notes |
 |------|-----|-------|
-| lscope-e | ~50MB | WPE WebKit, minimal footprint |
-| lscope-h | ~300MB+ | Full Chromium, maximum compatibility |
-| lscope-r | Zero server | Runs in user's browser |
+| oryn-e | ~50MB | WPE WebKit, minimal footprint |
+| oryn-h | ~300MB+ | Full Chromium, maximum compatibility |
+| oryn-r | Zero server | Runs in user's browser |
 
 ### Compatibility
 
 | Mode | Browser Engine | Web Compatibility |
 |------|----------------|-------------------|
-| lscope-e | WPE WebKit | ~95% |
-| lscope-h | Chromium | ~99% |
-| lscope-r | User's Browser | ~99% |
+| oryn-e | WPE WebKit | ~95% |
+| oryn-h | Chromium | ~99% |
+| oryn-r | User's Browser | ~99% |
 
 ---
 
@@ -258,27 +258,27 @@ The same JSON protocol flows between scanner and backend regardless of transport
 
 ### Versus Screenshot-Based Tools
 
-Screenshot tools require vision models and produce unreliable results. Lemmascope provides structured observations with explicit state.
+Screenshot tools require vision models and produce unreliable results. Oryn provides structured observations with explicit state.
 
-**Lemmascope advantage**: No vision overhead, precise state information, token efficiency
+**Oryn advantage**: No vision overhead, precise state information, token efficiency
 
 ### Versus HTML Injection Tools
 
-HTML injection consumes context and requires complex parsing logic. Lemmascope pre-processes HTML into semantic observations.
+HTML injection consumes context and requires complex parsing logic. Oryn pre-processes HTML into semantic observations.
 
-**Lemmascope advantage**: Smaller context, higher accuracy, automatic pattern detection
+**Oryn advantage**: Smaller context, higher accuracy, automatic pattern detection
 
 ### Versus Function-Call Tools
 
-Function tools require rigid schemas and verbose definitions. Lemmascope accepts natural, forgiving syntax.
+Function tools require rigid schemas and verbose definitions. Oryn accepts natural, forgiving syntax.
 
-**Lemmascope advantage**: Fewer failures, simpler prompts, multi-level abstraction
+**Oryn advantage**: Fewer failures, simpler prompts, multi-level abstraction
 
 ### Versus General Browser Automation
 
-Playwright, Puppeteer, and Selenium are designed for developers writing scripts. Lemmascope is designed for AI agents expressing intent.
+Playwright, Puppeteer, and Selenium are designed for developers writing scripts. Oryn is designed for AI agents expressing intent.
 
-**Lemmascope advantage**: Agent-native interface, semantic targeting, built-in pattern recognition
+**Oryn advantage**: Agent-native interface, semantic targeting, built-in pattern recognition
 
 ---
 
@@ -286,7 +286,7 @@ Playwright, Puppeteer, and Selenium are designed for developers writing scripts.
 
 ### Goal-Level Commands
 
-Beyond intent commands, Lemmascope will support natural language goals:
+Beyond intent commands, Oryn will support natural language goals:
 
 ```
 goal: add "Blue T-Shirt Size M" to cart
@@ -294,7 +294,7 @@ goal: find the contact email on this page
 goal: subscribe to the newsletter
 ```
 
-The agent expresses what it wants to achieve; Lemmascope plans the execution.
+The agent expresses what it wants to achieve; Oryn plans the execution.
 
 ### Learning Patterns
 
@@ -302,23 +302,23 @@ Site-specific pattern recognition will improve through observed interactions, au
 
 ### Multi-Page Flows
 
-Complex workflows spanning multiple pages will be expressible as single high-level commands, with Lemmascope managing state across navigation.
+Complex workflows spanning multiple pages will be expressible as single high-level commands, with Oryn managing state across navigation.
 
 ---
 
 ## Summary
 
-Lemmascope represents a fundamental rethinking of how AI agents interact with the web.
+Oryn represents a fundamental rethinking of how AI agents interact with the web.
 
 **The Core Insight**: A browser that provides agent-friendly intent language will always outperform systems that ask agents to understand images, parse HTML, or construct function calls.
 
-**The Product**: Three binaries (lscope-e, lscope-h, lscope-r) unified by a common protocol and universal scanner, deployable from IoT devices to cloud infrastructure to user browsers.
+**The Product**: Three binaries (oryn-e, oryn-h, oryn-r) unified by a common protocol and universal scanner, deployable from IoT devices to cloud infrastructure to user browsers.
 
 **The Result**: Agents that can navigate the web naturally, reliably, and efficiently.
 
 ---
 
-*Lemmascope: The browser that speaks agent.*
+*Oryn: The browser that speaks agent.*
 
 ---
 

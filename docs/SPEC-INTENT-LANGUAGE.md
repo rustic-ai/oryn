@@ -1,4 +1,4 @@
-# Lemmascope Intent Language Specification
+# Oryn Intent Language Specification
 
 ## Version 1.0
 
@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-The Lemmascope Intent Language (LIL) is a token-efficient, human-readable protocol designed specifically for AI agents to control web browsers. Unlike traditional approaches that force agents to interpret screenshots, parse raw HTML, or construct complex function calls, LIL provides a semantic abstraction layer that speaks the language of web interaction.
+The Oryn Intent Language (LIL) is a token-efficient, human-readable protocol designed specifically for AI agents to control web browsers. Unlike traditional approaches that force agents to interpret screenshots, parse raw HTML, or construct complex function calls, LIL provides a semantic abstraction layer that speaks the language of web interaction.
 
 ### 1.1 Design Philosophy
 
@@ -16,7 +16,7 @@ LIL is built on four foundational principles:
 Multiple syntactic variations are accepted for the same action. The parser prioritizes understanding agent intent over enforcing rigid formatting rules. This dramatically reduces failed commands due to minor syntax variations.
 
 **Semantic Targeting**  
-Agents can reference elements by meaning rather than implementation details. Instead of hunting for CSS selectors or XPath expressions, agents simply say "click login" or "type email" and let Lemmascope resolve the target.
+Agents can reference elements by meaning rather than implementation details. Instead of hunting for CSS selectors or XPath expressions, agents simply say "click login" or "type email" and let Oryn resolve the target.
 
 **Token Efficiency**
 Every character counts in an agent's context window. LIL minimizes verbosity while maximizing expressiveness, allowing agents to accomplish more within their token budgets.
@@ -30,9 +30,9 @@ LIL deliberately rejects several common paradigms:
 
 - **Not JSON**: JSON is verbose and error-prone for language models. Bracket matching, quote escaping, and strict formatting requirements create unnecessary failure modes.
 
-- **Not Screenshot-Based**: Agents should not need computer vision to understand a web page. Lemmascope provides structured observations that convey semantic meaning directly.
+- **Not Screenshot-Based**: Agents should not need computer vision to understand a web page. Oryn provides structured observations that convey semantic meaning directly.
 
-- **Not HTML Parsing**: Raw HTML is designed for browsers, not agents. Lemmascope abstracts away the complexity of DOM structure, presenting only the interactive elements that matter.
+- **Not HTML Parsing**: Raw HTML is designed for browsers, not agents. Oryn abstracts away the complexity of DOM structure, presenting only the interactive elements that matter.
 
 - **Not Function Calls**: Complex tool schemas with rigid type requirements create friction. LIL's natural language-inspired syntax reduces cognitive load on agents.
 
@@ -40,13 +40,13 @@ LIL deliberately rejects several common paradigms:
 
 The interaction model follows a simple request-response pattern:
 
-**Agent to Lemmascope:**
+**Agent to Oryn:**
 The agent generates commands in plain text. These might be single commands or batched sequences. Commands express intent at the appropriate level of abstraction.
 
-**Lemmascope Processing:**
+**Oryn Processing:**
 Commands are parsed with forgiveness, targets are resolved semantically, actions are executed against the browser backend, and responses are formatted consistently.
 
-**Lemmascope to Agent:**
+**Oryn to Agent:**
 Structured text responses provide the information agents need to make decisions. Changes are clearly marked, errors include recovery hints, and observations present a digestible view of page state.
 
 ---
@@ -71,7 +71,7 @@ command [target] [arguments] [--options]
 
 ### 2.2 Target Resolution
 
-Lemmascope supports multiple targeting strategies, automatically resolving the most specific match:
+Oryn supports multiple targeting strategies, automatically resolving the most specific match:
 
 **ID Targeting**
 Direct reference by numbered label from observations. Example: `click 5` targets the element labeled [5].
@@ -299,7 +299,7 @@ check 7
 
 ### Level 2: Semantic Commands
 
-Operate on roles or text; Lemmascope resolves to IDs:
+Operate on roles or text; Oryn resolves to IDs:
 ```
 click "Sign in"
 type email "user@test.com"
@@ -354,7 +354,7 @@ Options can use `--option`, `-option`, or just `option` after the command.
 
 ### 6.2 Error Recovery
 
-When parsing fails, Lemmascope provides helpful corrections:
+When parsing fails, Oryn provides helpful corrections:
 
 - Unknown commands suggest similar valid commands
 - Unterminated strings indicate where quotes should be added

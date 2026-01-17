@@ -1,6 +1,6 @@
-# Headless Mode Guide (lscope-h)
+# Headless Mode Guide (oryn-h)
 
-**Lemmascope Headless Mode** (`lscope-h`) provides a backend for executing Intent Language commands against a headless Chromium instance. It is designed for automated testing, scraping, and verifiable execution without a visible UI.
+**Oryn Headless Mode** (`oryn-h`) provides a backend for executing Intent Language commands against a headless Chromium instance. It is designed for automated testing, scraping, and verifiable execution without a visible UI.
 
 ## Prerequisites
 
@@ -14,8 +14,8 @@
 Build the binary from source:
 
 ```bash
-cargo build --bin lscope-h --release
-# Binary will be at target/release/lscope-h
+cargo build --bin oryn-h --release
+# Binary will be at target/release/oryn-h
 ```
 
 ## Basic Usage
@@ -23,19 +23,19 @@ cargo build --bin lscope-h --release
 Run the tool to enter the Interactive REPL:
 
 ```bash
-./target/release/lscope-h
+./target/release/oryn-h
 ```
 
 You will see:
 ```text
-Starting Lemmascope Headless Backend...
+Starting Oryn Headless Backend...
 Backend launched. Enter commands (e.g., 'goto google.com', 'scan').
 >
 ```
 
 ### Supported Commands
 
-`lscope-h` accepts **Intent Language** commands.
+`oryn-h` accepts **Intent Language** commands.
 
 | Command  | Usage                        | Description                                              |
 | -------- | ---------------------------- | -------------------------------------------------------- |
@@ -66,24 +66,24 @@ PDF generated successfully.
 ## Features
 
 ### 1. Automatic Logging
-`lscope-h` automatically captures and logs:
+`oryn-h` automatically captures and logs:
 - **Console Messages**: Browser console logs (`console.log`, `console.error`) are printed to stdout.
 - **Network Activity**: Fetch/XHR requests are logged via the `tracing` framework.
 
 To see verbose logs, run with:
 ```bash
-RUST_LOG=info ./lscope-h
+RUST_LOG=info ./oryn-h
 ```
 
 ### 2. PDF Generation
 Unique to Headless Mode, you can render the full page to a PDF file useful for snapshots/archiving.
 
 ### 3. Resilience
-The backend manages the browser process lifecycle automatically. If the browser crashes, `lscope-h` will report the error (automatic restart is planned for future versions).
+The backend manages the browser process lifecycle automatically. If the browser crashes, `oryn-h` will report the error (automatic restart is planned for future versions).
 
 ## Configuration
 
-Currently, `lscope-h` uses the default system browser installation.
+Currently, `oryn-h` uses the default system browser installation.
 - To use a specific Chrome binary or user profile, configuration support is planned for future releases.
 
 ## Troubleshooting

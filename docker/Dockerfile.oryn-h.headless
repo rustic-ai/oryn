@@ -1,0 +1,66 @@
+# oryn-h: Headless browser backend using Chrome Headless Shell
+# Based on chromedp/headless-shell for minimal size (~330MB total)
+
+# ============================================================================
+# Stage 1: Build the Rust binary
+# ============================================================================
+FROM rust:1-slim-bookworm AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+# Build release binary
+RUN cargo build --release --package oryn-h \
+    && strip /build/target/release/oryn-h
+
+# ============================================================================
+# Stage 2: Runtime image with Chrome Headless Shell
+# ============================================================================
+FROM chromedp/headless-shell:latest
+
+LABEL org.opencontainers.image.title="oryn-h"
+LABEL org.opencontainers.image.description="Oryn headless browser backend (Chrome Headless Shell)"
+LABEL org.opencontainers.image.source="https://github.com/anthropics/oryn"
+
+# Install tini for proper process management (prevents zombie processes)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tini \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd --create-home --uid 1001 oryn
+
+# Set up directories
+RUN mkdir -p /home/oryn/.cache \
+    && chown -R oryn:oryn /home/oryn
+
+# Copy binary from builder
+COPY --from=builder /build/target/release/oryn-h /usr/local/bin/oryn-h
+
+# Environment for headless Chrome
+ENV HOME=/home/oryn
+ENV CHROME_BIN=/headless-shell/headless-shell
+
+# Switch to non-root user
+USER oryn
+WORKDIR /home/oryn
+
+# Expose CDP port
+EXPOSE 9222
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD pgrep -f "oryn-h|headless-shell" || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["oryn-h", "--help"]

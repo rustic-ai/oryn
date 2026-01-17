@@ -2,13 +2,13 @@ version: '3.8'
 
 services:
   # Embedded backend - WPE WebKit on Alpine (~50MB footprint)
-  # Note: Alpine WPE support is experimental; use lscope-e-debian for reliability
-  lscope-e:
+  # Note: Alpine WPE support is experimental; use oryn-e-debian for reliability
+  oryn-e:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.lscope-e
-    image: lscope-e:latest
-    container_name: lscope-e
+      dockerfile: docker/Dockerfile.oryn-e
+    image: oryn-e:latest
+    container_name: oryn-e
     environment:
       - XDG_RUNTIME_DIR=/run/user/1000
       - COG_PLATFORM_NAME=headless
@@ -22,12 +22,12 @@ services:
     tty: true
 
   # Embedded backend - WPE WebKit on Debian (recommended, ~80MB footprint)
-  lscope-e-debian:
+  oryn-e-debian:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.lscope-e.debian
-    image: lscope-e:debian
-    container_name: lscope-e-debian
+      dockerfile: docker/Dockerfile.oryn-e.debian
+    image: oryn-e:debian
+    container_name: oryn-e-debian
     environment:
       - XDG_RUNTIME_DIR=/run/user/1000
       - COG_PLATFORM_NAME=headless
@@ -41,12 +41,12 @@ services:
     tty: true
 
   # Headless backend - Chromium (full compatibility)
-  lscope-h:
+  oryn-h:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.lscope-h
-    image: lscope-h:latest
-    container_name: lscope-h
+      dockerfile: docker/Dockerfile.oryn-h
+    image: oryn-h:latest
+    container_name: oryn-h
     environment:
       - CHROME_BIN=/usr/bin/chromium-browser
     volumes:

@@ -6,8 +6,8 @@ set -e
 
 # Setup identical environment
 EXT_SRC="extension"
-EXT_DIR="/tmp/lscope_debug_ext_$(date +%s)"
-USER_DATA="/tmp/lscope_debug_profile_$(date +%s)"
+EXT_DIR="/tmp/oryn_debug_ext_$(date +%s)"
+USER_DATA="/tmp/oryn_debug_profile_$(date +%s)"
 
 echo "Preparing extension in $EXT_DIR..."
 mkdir -p "$EXT_DIR"
@@ -25,7 +25,7 @@ echo "Launching Chrome..."
 echo "1. GO TO: chrome://version"
 echo "2. CHECK: Look at the 'Command Line' row."
 echo "   - Does it contain '--load-extension'?"
-echo "   - Does it point to the /tmp/lscope_debug_ext_... path?"
+echo "   - Does it point to the /tmp/oryn_debug_ext_... path?"
 
 CHROME_BIN="/usr/lib64/chromium-browser/chromium-browser"
 

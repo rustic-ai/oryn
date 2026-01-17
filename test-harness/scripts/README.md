@@ -1,6 +1,6 @@
-# Lemmascope Test Scripts
+# Oryn Test Scripts
 
-This directory contains a suite of `.lemma` scripts designed to exercise the Lemmascope backends against the [Test Harness](../index.html).
+This directory contains a suite of `.lemma` scripts designed to exercise the Oryn backends against the [Test Harness](../index.html).
 
 ## Scripts Overview
 
@@ -15,17 +15,17 @@ This directory contains a suite of `.lemma` scripts designed to exercise the Lem
 
 ## Running Scripts
 
-To run these scripts, use any of the Lemmascope backends (`lscope-h`, `lscope-e`, or `lscope-r`).
+To run these scripts, use any of the Oryn backends (`oryn-h`, `oryn-e`, or `oryn-r`).
 
-### Headless Mode (lscope-h)
+### Headless Mode (oryn-h)
 ```bash
-cargo run --bin lscope-h --file scripts/01_static.lemma
+cargo run --bin oryn-h --file scripts/01_static.lemma
 ```
 
 ### REPL Mode
 You can also copy-paste commands from these scripts into the REPL:
 ```bash
-cargo run --bin lscope-h
+cargo run --bin oryn-h
 > goto "http://localhost:3000/static/article.html"
 > observe
 ```

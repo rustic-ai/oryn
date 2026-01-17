@@ -1310,91 +1310,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lscope"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "lscope-core",
- "lscope-e",
- "lscope-h",
- "lscope-r",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "lscope-core"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
-]
-
-[[package]]
-name = "lscope-e"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "clap",
- "fantoccini",
- "lscope-core",
- "lscope-scanner",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "serial_test",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "lscope-h"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chromiumoxide",
- "clap",
- "futures",
- "lscope-core",
- "serde",
- "serde_json",
- "serial_test",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "lscope-r"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "chromiumoxide",
- "clap",
- "futures",
- "lscope-core",
- "serde",
- "serde_json",
- "serial_test",
- "tempfile",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "lscope-scanner"
-version = "0.1.0"
-
-[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1513,6 +1428,91 @@ dependencies = [
  "pkg-config",
  "vcpkg",
 ]
+
+[[package]]
+name = "oryn"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "oryn-core",
+ "oryn-e",
+ "oryn-h",
+ "oryn-r",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "oryn-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "oryn-e"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "clap",
+ "fantoccini",
+ "oryn-core",
+ "oryn-scanner",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "oryn-h"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chromiumoxide",
+ "clap",
+ "futures",
+ "oryn-core",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "oryn-r"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chromiumoxide",
+ "clap",
+ "futures",
+ "oryn-core",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "oryn-scanner"
+version = "0.1.0"
 
 [[package]]
 name = "parking"
