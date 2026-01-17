@@ -54,14 +54,16 @@
 
     const Protocol = {
         success: (result = {}, timingStart = null) => {
-            const response = { ok: true, data: result };
+            // Rust protocol expects { status: "ok", ...result_fields }
+            const response = { status: "ok", ...result };
             if (timingStart) {
                 response.timing = { duration_ms: performance.now() - timingStart };
             }
             return response;
         },
         error: (msg, code = 'UNKNOWN_ERROR') => {
-            return { ok: false, error: msg, code: code };
+            // Rust protocol expects { status: "error", message: "...", code: "..." }
+            return { status: "error", message: msg, code: code };
         }
     };
 

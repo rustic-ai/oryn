@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+
+<body>
+    <h1>WebSocket Diagnostic</h1>
+    <div id="status">Testing...</div>
+    <script>
+        const status = document.getElementById('status');
+        const url = new URLSearchParams(window.location.search).get('url');
+        console.log("Attempting to connect to " + url);
+        try {
+            const ws = new WebSocket(url);
+            ws.onopen = () => {
+                console.log("DIAGNOSTIC_SUCCESS: Connected to " + url);
+                status.innerText = "CONNECTED";
+            };
+            ws.onmessage = (e) => console.log("Received: " + e.data);
+            ws.onerror = (e) => {
+                console.log("DIAGNOSTIC_ERROR: Failed to connect to " + url);
+                status.innerText = "ERROR";
+            };
+            ws.onclose = () => console.log("DIAGNOSTIC_CLOSED");
+        } catch (e) {
+            console.log("DIAGNOSTIC_CRASH: " + e.message);
+            status.innerText = "CRASH: " + e.message;
+        }
+    </script>
+</body>
+
+</html>

@@ -1373,13 +1373,17 @@ dependencies = [
 name = "lscope-r"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "chromiumoxide",
  "clap",
  "futures",
  "lscope-core",
  "serde",
  "serde_json",
+ "serial_test",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
  "tracing",

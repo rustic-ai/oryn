@@ -64,6 +64,15 @@ impl Backend for RemoteBackend {
     ) -> Result<ScannerProtocolResponse, BackendError> {
         let handle = self.server_handle.as_ref().ok_or(BackendError::NotReady)?;
 
+        // Wait for at least one extension to connect
+        if handle.command_tx.receiver_count() == 0 {
+            info!("Waiting for browser extension to connect...");
+            while handle.command_tx.receiver_count() == 0 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+            info!("Extension connected.");
+        }
+
         if let Err(e) = handle.command_tx.send(command) {
             return Err(BackendError::Other(format!("Failed to broadcast: {}", e)));
         }

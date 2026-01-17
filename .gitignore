@@ -7,6 +7,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
 
 # OS
 .DS_Store
@@ -21,3 +22,8 @@ Thumbs.db
 # Environment
 .env
 .env.local
+# Test Artifacts
+.*_user/
+.debug_monitor/
+remote-test-results.md
+docker/test-report.md

@@ -36,6 +36,7 @@ impl RemoteServer {
         let addr = SocketAddr::from(([127, 0, 0, 1], self.port));
         let listener = TcpListener::bind(&addr).await?;
         info!("Remote Server listening on: {}", addr);
+        println!("INFO: Remote Server listening on: {}", addr);
 
         let (response_tx, response_rx) = mpsc::channel(100);
         let command_tx = self.command_tx.clone();
@@ -43,11 +44,13 @@ impl RemoteServer {
         let server_cmd_tx = command_tx.clone();
 
         tokio::spawn(async move {
+            info!("Server accept loop started");
             while let Ok((stream, _)) = listener.accept().await {
                 let peer = stream
                     .peer_addr()
                     .expect("connected streams should have a peer address");
-                info!("Peer address: {}", peer);
+                info!("Accepted TCP connection from: {}", peer);
+                println!("INFO: Accepted TCP connection from: {}", peer);
 
                 let cmd_rx = server_cmd_tx.subscribe();
                 let resp_tx = response_tx.clone();
@@ -69,7 +72,10 @@ async fn accept_connection(
     resp_tx: mpsc::Sender<ScannerProtocolResponse>,
 ) {
     let ws_stream = match accept_async(stream).await {
-        Ok(ws) => ws,
+        Ok(ws) => {
+            println!("INFO: WebSocket Handshake Successful");
+            ws
+        }
         Err(e) => {
             error!("Error during the websocket handshake occurred: {}", e);
             return;

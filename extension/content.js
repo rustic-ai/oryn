@@ -14,23 +14,38 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     // Route message to Lemmascope.process
-    try {
-        const result = window.Lemmascope.process(request.action, request);
+    (async () => {
+        try {
+            // Compatibility: Mapping action to cmd if needed
+            if (request.action && !request.cmd) {
+                request.cmd = request.action;
+            }
 
-        // Ensure result is an object/protocol response
-        sendResponse(result || { ok: true });
+            // Pass the entire request object to the scanner
+            const result = await window.Lemmascope.process(request);
 
-    } catch (e) {
-        console.error("Execution error:", e);
-        sendResponse({
-            ok: false,
-            error: e.msg || e.message || "Unknown error",
-            code: e.code || "EXECUTION_ERROR",
-            details: e
-        });
-    }
+            // Ensure result is an object/protocol response
+            sendResponse(result || { status: "ok" });
 
-    return true; // Indicate async response potentially
+        } catch (e) {
+            console.error("Execution error:", e);
+            sendResponse({
+                status: "error",
+                message: e.msg || e.message || "Unknown error",
+                code: e.code || "EXECUTION_ERROR",
+                details: e
+            });
+        }
+    })();
+
+    return true; // Keep channel open for async sendResponse
 });
 
-console.log("Lemmascope Content Script Initialized");
+function remoteLog(msg) {
+    console.log("[CONTENT] " + msg);
+    // Use relative URL to avoid CORS (since we are on localhost:3000)
+    fetch("/log?msg=" + encodeURIComponent("[CONTENT] " + msg)).catch(() => { });
+}
+
+remoteLog("Lemmascope Content Script Initialized on " + window.location.href);
+chrome.runtime.sendMessage({ type: "ping" });

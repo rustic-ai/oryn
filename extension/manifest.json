@@ -6,18 +6,26 @@
     "permissions": [
         "activeTab",
         "scripting",
-        "tabs"
+        "tabs",
+        "alarms"
     ],
     "host_permissions": [
-        "<all_urls>"
+        "<all_urls>",
+        "http://127.0.0.1/*",
+        "http://localhost/*"
     ],
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; object-src 'self'; connect-src * ws: wss: http: https: data:;"
+    },
     "background": {
         "service_worker": "background.js"
     },
     "content_scripts": [
         {
             "matches": [
-                "<all_urls>"
+                "<all_urls>",
+                "http://127.0.0.1/*",
+                "http://localhost/*"
             ],
             "js": [
                 "scanner.js",
