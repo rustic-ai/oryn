@@ -94,9 +94,10 @@ for script in test-harness/scripts/*.lemma; do
     log_info "Verifying extension at $EXT_PATCH_DIR:"
     ls -F "$EXT_PATCH_DIR"
 
-    # 3. Launch Chrome (Headed)
-    log_info "Launching Chrome (Headed)..."
+    # 3. Launch Chrome (Headless)
+    log_info "Launching Chrome (Headless)..."
     CMD="$CHROME_BIN \
+        --headless=new \
         --no-sandbox \
         --disable-gpu \
         --disable-first-run-ui \
