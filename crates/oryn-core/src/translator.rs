@@ -21,9 +21,7 @@ pub enum TranslationError {
 pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> {
     match command {
         Command::Observe(options) => {
-            let max_elements = options
-                .get("max")
-                .and_then(|v| v.parse::<usize>().ok());
+            let max_elements = options.get("max").and_then(|v| v.parse::<usize>().ok());
             let near = options.get("near").cloned();
             let viewport_only = options.contains_key("viewport");
             let view_all = options.contains_key("full");

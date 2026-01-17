@@ -20,8 +20,7 @@ fn test_protocol_serialization() {
     });
 
     let json = serde_json::to_string(&req).unwrap();
-    let expected =
-        r#"{"action":"click","id":42,"button":"left","double":false,"modifiers":["Alt"],"force":false}"#;
+    let expected = r#"{"action":"click","id":42,"button":"left","double":false,"modifiers":["Alt"],"force":false}"#;
     assert_eq!(json, expected);
 
     // Test ScanRequest serialization defaults

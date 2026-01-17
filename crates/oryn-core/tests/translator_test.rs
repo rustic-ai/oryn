@@ -1,4 +1,6 @@
-use oryn_core::command::{Command, ExtractSource, StorageAction, StorageType, Target, WaitCondition};
+use oryn_core::command::{
+    Command, ExtractSource, StorageAction, StorageType, Target, WaitCondition,
+};
 use oryn_core::protocol::ScannerRequest;
 use oryn_core::translator::translate;
 use std::collections::HashMap;
