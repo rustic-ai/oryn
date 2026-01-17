@@ -40,6 +40,23 @@ services:
     stdin_open: true
     tty: true
 
+  # Embedded backend - WPE WebKit with Weston headless compositor
+  # Uses weston --backend=headless as the Wayland compositor
+  oryn-e-weston:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.oryn-e.weston
+    image: oryn-e:weston
+    container_name: oryn-e-weston
+    privileged: true
+    volumes:
+      - /dev/shm:/dev/shm
+    shm_size: 1gb
+    security_opt:
+      - seccomp:unconfined
+    stdin_open: true
+    tty: true
+
   # Headless backend - Chromium (full compatibility)
   oryn-h:
     build:

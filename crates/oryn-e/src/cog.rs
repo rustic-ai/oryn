@@ -245,12 +245,11 @@ pub async fn launch_cog(port: u16, force_headless: bool) -> Result<CogProcess, S
         );
     }
 
-    // TODO: weston-headless support is disabled due to WPE/dmabuf incompatibility.
-    // The WPEWebProcess crashes with: "dmabuf_feedback_check_main_device: Assertion failed"
-    // when running with weston --backend=headless. This appears to be a compatibility issue
-    // between WPE's wayland-egldisplay and weston's headless dmabuf implementation.
-    // COG's native headless mode (COG_PLATFORM_NAME=headless) works reliably.
-    // Re-enable when WPE/weston compatibility is resolved.
+    // Weston headless is an alternative to COG's native headless mode.
+    // Tested working with weston 14.0.0 + WPE WebKit on Alpine 3.21.
+    // See docker/Dockerfile.oryn-e.weston for weston-based headless setup.
+    // For simplicity, we use COG's native headless (COG_PLATFORM_NAME=headless) by default
+    // as it doesn't require launching a separate compositor process.
     let weston_process: Option<Child> = None;
 
     info!("Launching WPEWebDriver from: {}", webdriver_path);

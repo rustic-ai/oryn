@@ -42,6 +42,7 @@ IMAGES=(
     "oryn-h:headless"
     "oryn-e:debian"
     "oryn-e:latest"
+    "oryn-e:weston"
 )
 
 # 3. Execution loop
@@ -73,6 +74,7 @@ for IMAGE in "${IMAGES[@]}"; do
         "oryn-h:headless") DOCKERFILE="Dockerfile.oryn-h.headless" ;;
         "oryn-e:latest")   DOCKERFILE="Dockerfile.oryn-e" ;;
         "oryn-e:debian")   DOCKERFILE="Dockerfile.oryn-e.debian" ;;
+        "oryn-e:weston")   DOCKERFILE="Dockerfile.oryn-e.weston" ;;
     esac
 
     docker build -t "$IMAGE" -f "$SCRIPT_DIR/$DOCKERFILE" "$PROJECT_DIR" >/dev/null
