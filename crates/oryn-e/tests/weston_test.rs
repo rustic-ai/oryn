@@ -181,6 +181,8 @@ async fn test_weston_scanner() {
         include_hidden: false,
         monitor_changes: false,
         view_all: false,
+        near: None,
+        viewport_only: false,
     });
 
     let scan_res = backend.execute_scanner(scan_req).await;

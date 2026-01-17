@@ -1018,12 +1018,33 @@
 
             el.dispatchEvent(new Event('change', { bubbles: true }));
 
+            // Handle submit-after-type if requested
+            if (params.submit) {
+                const form = el.form || el.closest('form');
+                if (form) {
+                    form.requestSubmit?.() ?? form.submit();
+                } else {
+                    // No form found - dispatch Enter keydown event
+                    el.dispatchEvent(
+                        new KeyboardEvent('keydown', {
+                            key: 'Enter',
+                            code: 'Enter',
+                            keyCode: 13,
+                            which: 13,
+                            bubbles: true,
+                            cancelable: true
+                        })
+                    );
+                }
+            }
+
             return Protocol.success({
                 action: 'typed',
                 id: params.id,
                 selector: Utils.generateSelector(el),
                 text: text,
-                value: el.isContentEditable ? el.innerText : el.value
+                value: el.isContentEditable ? el.innerText : el.value,
+                submitted: !!params.submit
             });
         },
 

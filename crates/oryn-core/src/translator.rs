@@ -20,20 +20,48 @@ pub enum TranslationError {
 /// Translates a high-level Intent Command into a low-level ScannerRequest.
 pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> {
     match command {
-        Command::Observe(_) => Ok(ScannerRequest::Scan(ScanRequest {
-            max_elements: None, // TODO: support options
-            monitor_changes: false,
-            include_hidden: false,
-            view_all: false,
-        })),
+        Command::Observe(options) => {
+            let max_elements = options
+                .get("max")
+                .and_then(|v| v.parse::<usize>().ok());
+            let near = options.get("near").cloned();
+            let viewport_only = options.contains_key("viewport");
+            let view_all = options.contains_key("full");
+            let include_hidden = options.contains_key("hidden");
 
-        Command::Click(target, _options) => {
+            Ok(ScannerRequest::Scan(ScanRequest {
+                max_elements,
+                monitor_changes: false,
+                include_hidden,
+                view_all,
+                near,
+                viewport_only,
+            }))
+        }
+
+        Command::Click(target, options) => {
             if let Target::Id(id) = target {
+                // Parse mouse button from options
+                let button = if options.contains_key("right") {
+                    MouseButton::Right
+                } else if options.contains_key("middle") {
+                    MouseButton::Middle
+                } else {
+                    MouseButton::Left
+                };
+
+                // Parse double-click
+                let double = options.contains_key("double");
+
+                // Parse force flag
+                let force = options.contains_key("force");
+
                 Ok(ScannerRequest::Click(ClickRequest {
                     id: *id as u32,
-                    button: MouseButton::Left,
-                    double: false,
+                    button,
+                    double,
                     modifiers: vec![],
+                    force,
                 }))
             } else {
                 Err(TranslationError::InvalidTarget(
@@ -42,13 +70,23 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
             }
         }
 
-        Command::Type(target, text, _options) => {
+        Command::Type(target, text, options) => {
             if let Target::Id(id) = target {
+                // --append means don't clear (inverse logic)
+                let clear = !options.contains_key("append");
+
+                // --enter means submit after typing
+                let submit = options.contains_key("enter");
+
+                // --delay N for character-by-character typing
+                let delay = options.get("delay").and_then(|v| v.parse::<u64>().ok());
+
                 Ok(ScannerRequest::Type(TypeRequest {
                     id: *id as u32,
                     text: text.clone(),
-                    clear: false,
-                    submit: false,
+                    clear,
+                    submit,
+                    delay,
                 }))
             } else {
                 Err(TranslationError::InvalidTarget(
@@ -147,21 +185,86 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
             }))
         }
 
-        Command::Storage(op) => {
-            // Map 'storage clear' etc to Execute script
-            // This is a naive implementation; proper support might need a dedicated protocol message
-            // or just using Execute.
-            let script = match op.as_str() {
-                "clear" => {
-                    "localStorage.clear(); sessionStorage.clear(); return 'Storage cleared';"
+        Command::Storage(action) => {
+            use crate::command::{StorageAction, StorageType};
+
+            let script = match action {
+                StorageAction::Get { storage_type, key } => {
+                    let key_escaped = key.replace('\'', "\\'");
+                    match storage_type {
+                        StorageType::Local => {
+                            format!("return localStorage.getItem('{}');", key_escaped)
+                        }
+                        StorageType::Session => {
+                            format!("return sessionStorage.getItem('{}');", key_escaped)
+                        }
+                        StorageType::Both => {
+                            format!(
+                                "var v = localStorage.getItem('{}'); \
+                                 if (v !== null) return {{ local: v }}; \
+                                 v = sessionStorage.getItem('{}'); \
+                                 return v !== null ? {{ session: v }} : null;",
+                                key_escaped, key_escaped
+                            )
+                        }
+                    }
                 }
-                "ls_clear" => "localStorage.clear(); return 'Local storage cleared';",
-                "ss_clear" => "sessionStorage.clear(); return 'Session storage cleared';",
-                _ => return Err(TranslationError::Unsupported(format!("Storage op: {}", op))),
+                StorageAction::Set {
+                    storage_type,
+                    key,
+                    value,
+                } => {
+                    let key_escaped = key.replace('\'', "\\'");
+                    let value_escaped = value.replace('\'', "\\'");
+                    match storage_type {
+                        StorageType::Local => {
+                            format!(
+                                "localStorage.setItem('{}', '{}'); return 'Set in localStorage';",
+                                key_escaped, value_escaped
+                            )
+                        }
+                        StorageType::Session => {
+                            format!(
+                                "sessionStorage.setItem('{}', '{}'); return 'Set in sessionStorage';",
+                                key_escaped, value_escaped
+                            )
+                        }
+                        StorageType::Both => {
+                            format!(
+                                "localStorage.setItem('{}', '{}'); \
+                                 sessionStorage.setItem('{}', '{}'); \
+                                 return 'Set in both storages';",
+                                key_escaped, value_escaped, key_escaped, value_escaped
+                            )
+                        }
+                    }
+                }
+                StorageAction::List { storage_type } => match storage_type {
+                    StorageType::Local => {
+                        "return Object.keys(localStorage);".to_string()
+                    }
+                    StorageType::Session => {
+                        "return Object.keys(sessionStorage);".to_string()
+                    }
+                    StorageType::Both => {
+                        "return { local: Object.keys(localStorage), session: Object.keys(sessionStorage) };".to_string()
+                    }
+                },
+                StorageAction::Clear { storage_type } => match storage_type {
+                    StorageType::Local => {
+                        "localStorage.clear(); return 'Local storage cleared';".to_string()
+                    }
+                    StorageType::Session => {
+                        "sessionStorage.clear(); return 'Session storage cleared';".to_string()
+                    }
+                    StorageType::Both => {
+                        "localStorage.clear(); sessionStorage.clear(); return 'Both storages cleared';".to_string()
+                    }
+                },
             };
 
             Ok(ScannerRequest::Execute(crate::protocol::ExecuteRequest {
-                script: script.to_string(),
+                script,
                 args: vec![],
             }))
         }

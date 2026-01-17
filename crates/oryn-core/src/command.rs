@@ -69,6 +69,35 @@ pub enum CookieAction {
     Delete(String),
 }
 
+/// Storage type for localStorage/sessionStorage operations.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum StorageType {
+    Local,
+    Session,
+    #[default]
+    Both,
+}
+
+/// Sub-commands for storage management.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StorageAction {
+    Get {
+        storage_type: StorageType,
+        key: String,
+    },
+    Set {
+        storage_type: StorageType,
+        key: String,
+        value: String,
+    },
+    List {
+        storage_type: StorageType,
+    },
+    Clear {
+        storage_type: StorageType,
+    },
+}
+
 /// Sub-commands for tab management.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TabAction {
@@ -115,7 +144,7 @@ pub enum Command {
 
     // Session
     Cookies(CookieAction),
-    Storage(String), // "Manage localStorage", spec is vague. Maybe just subcmd?
+    Storage(StorageAction),
 
     // Tabs
     Tabs(TabAction),

@@ -1,4 +1,7 @@
-use crate::command::*;
+use crate::command::{
+    Command, CookieAction, ExtractSource, ScrollDirection, StorageAction, StorageType, TabAction,
+    Target, WaitCondition,
+};
 use std::collections::HashMap;
 use std::iter::Peekable;
 use std::str::Chars;
@@ -488,16 +491,57 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_storage(&mut self) -> Result<Command, String> {
-        // syntax: storage "operation" ? ... spec is vague: "Manage localStorage"
-        // Command enum says: Storage(String). Maybe just the operation/args as string?
-        // Or we should update Command to be more specific?
-        // Spec 3.6 says: "storage — Manage localStorage/sessionStorage" with no details.
-        // Let's implement it as consuming the rest of the line or a string arg for now?
-        // Or "storage clear", "storage get foo".
-        // Let's assume it takes an Action-like string.
+        // Syntax: storage [local|session] <action> [args]
+        // Examples:
+        //   storage get "key"          - get from both storages
+        //   storage local get "key"    - get from localStorage only
+        //   storage session set "k" "v" - set in sessionStorage
+        //   storage list               - list keys from both
+        //   storage clear              - clear both storages
 
-        let op = self.parse_string_arg()?;
-        Ok(Command::Storage(op))
+        // First, check if next token is a storage type
+        let storage_type = if let Some(Token::Word(w)) = self.peek_token() {
+            match w.to_lowercase().as_str() {
+                "local" => {
+                    self.consume_token();
+                    StorageType::Local
+                }
+                "session" => {
+                    self.consume_token();
+                    StorageType::Session
+                }
+                _ => StorageType::Both,
+            }
+        } else {
+            StorageType::Both
+        };
+
+        // Now parse the action
+        let action_word = match self.consume_token() {
+            Some(Token::Word(w)) => w.to_lowercase(),
+            _ => return Err("Expected storage action (get/set/list/clear)".to_string()),
+        };
+
+        let action = match action_word.as_str() {
+            "get" => {
+                let key = self.parse_string_arg()?;
+                StorageAction::Get { storage_type, key }
+            }
+            "set" => {
+                let key = self.parse_string_arg()?;
+                let value = self.parse_string_arg()?;
+                StorageAction::Set {
+                    storage_type,
+                    key,
+                    value,
+                }
+            }
+            "list" | "ls" | "keys" => StorageAction::List { storage_type },
+            "clear" => StorageAction::Clear { storage_type },
+            _ => return Err(format!("Unknown storage action: {}", action_word)),
+        };
+
+        Ok(Command::Storage(action))
     }
 
     fn parse_tabs(&mut self) -> Result<Command, String> {

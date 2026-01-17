@@ -16,11 +16,12 @@ fn test_protocol_serialization() {
         button: oryn_core::protocol::MouseButton::Left,
         double: false,
         modifiers: vec!["Alt".to_string()],
+        force: false,
     });
 
     let json = serde_json::to_string(&req).unwrap();
     let expected =
-        r#"{"action":"click","id":42,"button":"left","double":false,"modifiers":["Alt"]}"#;
+        r#"{"action":"click","id":42,"button":"left","double":false,"modifiers":["Alt"],"force":false}"#;
     assert_eq!(json, expected);
 
     // Test ScanRequest serialization defaults

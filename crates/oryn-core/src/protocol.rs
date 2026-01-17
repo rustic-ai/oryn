@@ -46,6 +46,10 @@ pub struct ScanRequest {
     pub include_hidden: bool,
     #[serde(default)]
     pub view_all: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub near: Option<String>,
+    #[serde(default)]
+    pub viewport_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +61,8 @@ pub struct ClickRequest {
     pub double: bool,
     #[serde(default)]
     pub modifiers: Vec<String>,
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -76,6 +82,8 @@ pub struct TypeRequest {
     pub clear: bool,
     #[serde(default)]
     pub submit: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delay: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

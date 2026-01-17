@@ -33,6 +33,8 @@ async fn test_server_connection_and_messaging() {
         monitor_changes: false,
         include_hidden: false,
         view_all: false,
+        near: None,
+        viewport_only: false,
     });
 
     // Send via server handle
