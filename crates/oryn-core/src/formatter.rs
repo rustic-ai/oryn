@@ -71,5 +71,24 @@ fn format_scan_result(result: &ScanResult) -> String {
         ));
     }
 
+    if let Some(patterns) = &result.patterns {
+        out.push_str("\nPatterns:\n");
+        if patterns.login.is_some() {
+            out.push_str("  - Login Form\n");
+        }
+        if patterns.search.is_some() {
+            out.push_str("  - Search Box\n");
+        }
+        if patterns.pagination.is_some() {
+            out.push_str("  - Pagination\n");
+        }
+        if patterns.modal.is_some() {
+            out.push_str("  - Modal Dialog\n");
+        }
+        if patterns.cookie_banner.is_some() {
+            out.push_str("  - Cookie Banner\n");
+        }
+    }
+
     out
 }
