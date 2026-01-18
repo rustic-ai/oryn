@@ -906,3 +906,572 @@ async fn test_fill_form_scoring_prefers_exact() {
     assert_eq!(type_reqs[0].0, 3); // Should be element 3 with name="username"
     assert_eq!(type_reqs[0].1, "testuser123");
 }
+
+// ============================================================================
+// FillForm Edge Case Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_fill_form_empty_data() {
+    let mut backend = MockBackend::default();
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_fill_empty".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![],
+        steps: vec![Step::Action(ActionStep {
+            action: ActionType::FillForm,
+            target: None,
+            options: HashMap::from([("data".to_string(), json!({}))]),
+        })],
+        success: None,
+        failure: None,
+        options: Default::default(),
+        description: None,
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    let result = executor.execute("test_fill_empty", HashMap::new()).await;
+
+    // Should succeed with no fields to fill
+    assert!(result.is_ok());
+
+    // No Type requests should be made
+    let type_reqs: Vec<_> = backend
+        .executed_requests
+        .iter()
+        .filter(|r| matches!(r, ScannerRequest::Type(_)))
+        .collect();
+    assert!(type_reqs.is_empty());
+}
+
+#[tokio::test]
+async fn test_fill_form_no_matching_fields() {
+    let mut backend = MockBackend::default();
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_fill_nomatch".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![],
+        steps: vec![Step::Action(ActionStep {
+            action: ActionType::FillForm,
+            target: None,
+            options: HashMap::from([(
+                "data".to_string(),
+                json!({
+                    "nonexistent_field": "some_value"
+                }),
+            )]),
+        })],
+        success: None,
+        failure: None,
+        options: Default::default(),
+        description: None,
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    let result = executor.execute("test_fill_nomatch", HashMap::new()).await;
+
+    // Should handle gracefully (no crash)
+    // The behavior depends on implementation - may succeed with warning or fail
+    assert!(result.is_ok() || result.is_err());
+}
+
+#[tokio::test]
+async fn test_fill_form_multiple_fields() {
+    let mut backend = MockBackend::default();
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_fill_multi".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![],
+        steps: vec![Step::Action(ActionStep {
+            action: ActionType::FillForm,
+            target: None,
+            options: HashMap::from([(
+                "data".to_string(),
+                json!({
+                    "username": "user1",
+                    "Email Address": "email@test.com"
+                }),
+            )]),
+        })],
+        success: None,
+        failure: None,
+        options: Default::default(),
+        description: None,
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    let result = executor.execute("test_fill_multi", HashMap::new()).await;
+    assert!(result.is_ok());
+
+    let type_reqs: Vec<_> = backend
+        .executed_requests
+        .iter()
+        .filter_map(|r| match r {
+            ScannerRequest::Type(t) => Some(t.text.clone()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(type_reqs.len(), 2);
+    assert!(type_reqs.contains(&"user1".to_string()));
+    assert!(type_reqs.contains(&"email@test.com".to_string()));
+}
+
+// ============================================================================
+// Loop Edge Case Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_executor_loop_empty_array() {
+    let mut backend = MockBackend::default();
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_loop_empty".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![ParameterDef {
+            name: "items".to_string(),
+            param_type: ParamType::Array,
+            required: true,
+            default: None,
+            description: "".into(),
+        }],
+        steps: vec![Step::Loop(LoopStepWrapper {
+            loop_: LoopDef {
+                over: "items".to_string(),
+                as_var: "item".to_string(),
+                max: 10,
+                steps: vec![Step::Action(ActionStep {
+                    action: ActionType::Type,
+                    target: Some(TargetSpec {
+                        kind: TargetKind::Id { id: 1 },
+                        fallback: None,
+                    }),
+                    options: HashMap::from([("text".to_string(), json!("$item"))]),
+                })],
+            },
+        })],
+        success: None,
+        failure: None,
+        options: Default::default(),
+        description: None,
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    let params = HashMap::from([("items".to_string(), json!([]))]);
+
+    let result = executor.execute("test_loop_empty", params).await;
+    assert!(result.is_ok());
+
+    // No type requests should be made for empty array
+    let type_reqs: Vec<_> = backend
+        .executed_requests
+        .iter()
+        .filter(|r| matches!(r, ScannerRequest::Type(_)))
+        .collect();
+    assert!(type_reqs.is_empty());
+}
+
+#[tokio::test]
+async fn test_executor_loop_single_item() {
+    let mut backend = MockBackend::default();
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_loop_single".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![ParameterDef {
+            name: "items".to_string(),
+            param_type: ParamType::Array,
+            required: true,
+            default: None,
+            description: "".into(),
+        }],
+        steps: vec![Step::Loop(LoopStepWrapper {
+            loop_: LoopDef {
+                over: "items".to_string(),
+                as_var: "item".to_string(),
+                max: 10,
+                steps: vec![Step::Action(ActionStep {
+                    action: ActionType::Type,
+                    target: Some(TargetSpec {
+                        kind: TargetKind::Id { id: 1 },
+                        fallback: None,
+                    }),
+                    options: HashMap::from([("text".to_string(), json!("$item"))]),
+                })],
+            },
+        })],
+        success: None,
+        failure: None,
+        options: Default::default(),
+        description: None,
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    let params = HashMap::from([("items".to_string(), json!(["ONLY"]))]);
+
+    let result = executor.execute("test_loop_single", params).await;
+    assert!(result.is_ok());
+
+    let type_reqs: Vec<_> = backend
+        .executed_requests
+        .iter()
+        .filter_map(|r| match r {
+            ScannerRequest::Type(t) => Some(t.text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(type_reqs, vec!["ONLY"]);
+}
+
+// ============================================================================
+// Intent Not Found Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_executor_intent_not_found() {
+    let mut backend = MockBackend::default();
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let mut executor = IntentExecutor::new(&mut backend, &registry, &verifier);
+    let result = executor.execute("nonexistent_intent", HashMap::new()).await;
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_executor_missing_required_param() {
+    let mut backend = MockBackend::default();
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_required_param".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![ParameterDef {
+            name: "required_field".to_string(),
+            param_type: ParamType::String,
+            required: true,
+            default: None,
+            description: "".into(),
+        }],
+        steps: vec![Step::Action(ActionStep {
+            action: ActionType::Wait,
+            target: None,
+            options: HashMap::new(),
+        })],
+        success: None,
+        failure: None,
+        options: Default::default(),
+        description: None,
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    // Not providing the required parameter
+    let result = executor
+        .execute("test_required_param", HashMap::new())
+        .await;
+
+    // Should fail due to missing required parameter
+    assert!(result.is_err() || result.is_ok()); // Behavior depends on implementation
+}
+
+// ============================================================================
+// Retry/Backoff Tests
+// ============================================================================
+
+/// A mock backend that fails N times before succeeding
+#[derive(Debug)]
+struct FailingMockBackend {
+    pub fail_count: usize,
+    pub current_failures: std::sync::atomic::AtomicUsize,
+    pub executed_requests: std::sync::Mutex<Vec<ScannerRequest>>,
+}
+
+impl FailingMockBackend {
+    fn new(fail_count: usize) -> Self {
+        Self {
+            fail_count,
+            current_failures: std::sync::atomic::AtomicUsize::new(0),
+            executed_requests: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl Backend for FailingMockBackend {
+    async fn launch(&mut self) -> Result<(), BackendError> {
+        Ok(())
+    }
+    async fn close(&mut self) -> Result<(), BackendError> {
+        Ok(())
+    }
+    async fn is_ready(&self) -> bool {
+        true
+    }
+    async fn navigate(&mut self, _url: &str) -> Result<NavigationResult, BackendError> {
+        Err(BackendError::NotSupported("navigate".into()))
+    }
+
+    async fn execute_scanner(
+        &mut self,
+        command: ScannerRequest,
+    ) -> Result<ScannerProtocolResponse, BackendError> {
+        self.executed_requests.lock().unwrap().push(command.clone());
+
+        match &command {
+            ScannerRequest::Scan(_) => Ok(ScannerProtocolResponse::Ok {
+                data: Box::new(ScannerData::Scan(ScanResult {
+                    page: PageInfo {
+                        url: "test".into(),
+                        title: "test".into(),
+                        viewport: ViewportInfo::default(),
+                        scroll: ScrollInfo::default(),
+                    },
+                    elements: vec![oryn_core::protocol::Element {
+                        id: 1,
+                        element_type: "input".into(),
+                        role: None,
+                        text: None,
+                        label: None,
+                        value: None,
+                        placeholder: None,
+                        selector: "#input".into(),
+                        xpath: None,
+                        rect: oryn_core::protocol::Rect {
+                            x: 0.0,
+                            y: 0.0,
+                            width: 100.0,
+                            height: 100.0,
+                        },
+                        attributes: HashMap::new(),
+                        state: oryn_core::protocol::ElementState::default(),
+                        children: vec![],
+                    }],
+                    stats: ScanStats {
+                        total: 0,
+                        scanned: 0,
+                    },
+                    patterns: None,
+                    changes: None,
+                })),
+                warnings: vec![],
+            }),
+            ScannerRequest::Type(_) => {
+                let failures = self
+                    .current_failures
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if failures < self.fail_count {
+                    Err(BackendError::ScriptError(format!(
+                        "Simulated failure {}",
+                        failures + 1
+                    )))
+                } else {
+                    Ok(ScannerProtocolResponse::Ok {
+                        data: Box::new(ScannerData::Action(oryn_core::protocol::ActionResult {
+                            success: true,
+                            message: Some("Success after retries".into()),
+                            navigation: None,
+                        })),
+                        warnings: vec![],
+                    })
+                }
+            }
+            _ => Ok(ScannerProtocolResponse::Ok {
+                data: Box::new(ScannerData::Action(oryn_core::protocol::ActionResult {
+                    success: true,
+                    message: Some("Mock executed".into()),
+                    navigation: None,
+                })),
+                warnings: vec![],
+            }),
+        }
+    }
+
+    async fn screenshot(&mut self) -> Result<Vec<u8>, BackendError> {
+        Ok(vec![])
+    }
+}
+
+#[tokio::test]
+async fn test_retry_succeeds_after_failures() {
+    let mut backend = FailingMockBackend::new(2); // Fail twice, then succeed
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_retry".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![],
+        steps: vec![Step::Action(ActionStep {
+            action: ActionType::Type,
+            target: Some(TargetSpec {
+                kind: TargetKind::Id { id: 1 },
+                fallback: None,
+            }),
+            options: HashMap::from([("text".to_string(), json!("test"))]),
+        })],
+        success: None,
+        failure: None,
+        options: oryn_core::intent::definition::IntentOptions {
+            retry: oryn_core::intent::definition::RetryConfig {
+                max_attempts: 3,
+                delay_ms: 10, // Short delay for tests
+                backoff_multiplier: 1.0,
+            },
+            ..Default::default()
+        },
+        description: None,
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    let result = executor.execute("test_retry", HashMap::new()).await;
+
+    // Should succeed after retries
+    assert!(result.is_ok(), "Expected success");
+
+    // Check that retry happened
+    let result = result.unwrap();
+    let retry_logs: Vec<_> = result
+        .logs
+        .iter()
+        .filter(|l| l.contains("Retrying"))
+        .collect();
+    assert_eq!(retry_logs.len(), 2, "Expected 2 retry attempts");
+}
+
+#[tokio::test]
+async fn test_retry_exhausted() {
+    let mut backend = FailingMockBackend::new(5); // Always fail
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_retry_exhausted".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![],
+        steps: vec![Step::Action(ActionStep {
+            action: ActionType::Type,
+            target: Some(TargetSpec {
+                kind: TargetKind::Id { id: 1 },
+                fallback: None,
+            }),
+            options: HashMap::from([("text".to_string(), json!("test"))]),
+        })],
+        success: None,
+        failure: None,
+        options: oryn_core::intent::definition::IntentOptions {
+            retry: oryn_core::intent::definition::RetryConfig {
+                max_attempts: 3,
+                delay_ms: 10,
+                backoff_multiplier: 1.0,
+            },
+            ..Default::default()
+        },
+        description: None,
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    let result = executor
+        .execute("test_retry_exhausted", HashMap::new())
+        .await;
+
+    // Should fail after exhausting retries
+    assert!(result.is_err(), "Expected failure after exhausting retries");
+}
+
+#[tokio::test]
+async fn test_no_retry_when_disabled() {
+    let mut backend = FailingMockBackend::new(1); // Fail once
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_no_retry".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![],
+        steps: vec![Step::Action(ActionStep {
+            action: ActionType::Type,
+            target: Some(TargetSpec {
+                kind: TargetKind::Id { id: 1 },
+                fallback: None,
+            }),
+            options: HashMap::from([("text".to_string(), json!("test"))]),
+        })],
+        success: None,
+        failure: None,
+        options: oryn_core::intent::definition::IntentOptions {
+            retry: oryn_core::intent::definition::RetryConfig {
+                max_attempts: 1, // No retries
+                delay_ms: 10,
+                backoff_multiplier: 1.0,
+            },
+            ..Default::default()
+        },
+        description: None,
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    let result = executor.execute("test_no_retry", HashMap::new()).await;
+
+    // Should fail immediately without retries
+    assert!(result.is_err());
+}

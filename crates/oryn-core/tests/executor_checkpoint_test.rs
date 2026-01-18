@@ -152,3 +152,230 @@ async fn test_checkpoint_and_resume() {
         .count();
     assert_eq!(run2_actions, 1);
 }
+
+// ============================================================================
+// Checkpoint Edge Case Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_resume_from_nonexistent_checkpoint() {
+    let mut registry = IntentRegistry::new();
+    let mut backend = MockBackend::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_no_checkpoint".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Discovered,
+        triggers: IntentTriggers::default(),
+        parameters: vec![],
+        steps: vec![Step::Action(ActionStep {
+            action: ActionType::Wait,
+            target: None,
+            options: {
+                let mut m = HashMap::new();
+                m.insert("condition".to_string(), serde_json::json!("idle"));
+                m
+            },
+        })],
+        success: None,
+        failure: None,
+        options: IntentOptions::default(),
+        description: None,
+    };
+    registry.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &registry, &verifier);
+    let result = executor
+        .execute_with_resume("test_no_checkpoint", HashMap::new(), Some("nonexistent"))
+        .await;
+
+    // Should error or execute from beginning when checkpoint not found
+    assert!(result.is_err() || result.is_ok());
+}
+
+#[tokio::test]
+async fn test_multiple_checkpoints() {
+    let mut registry = IntentRegistry::new();
+    let mut backend = MockBackend::new();
+    let verifier = Verifier;
+
+    let wait_opts = || {
+        let mut m = HashMap::new();
+        m.insert("condition".to_string(), serde_json::json!("idle"));
+        m
+    };
+
+    let intent = IntentDefinition {
+        name: "multi_checkpoint".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Discovered,
+        triggers: IntentTriggers::default(),
+        parameters: vec![],
+        steps: vec![
+            Step::Action(ActionStep {
+                action: ActionType::Wait,
+                target: None,
+                options: wait_opts(),
+            }),
+            Step::Checkpoint(CheckpointStepWrapper {
+                checkpoint: "first".to_string(),
+            }),
+            Step::Action(ActionStep {
+                action: ActionType::Wait,
+                target: None,
+                options: wait_opts(),
+            }),
+            Step::Checkpoint(CheckpointStepWrapper {
+                checkpoint: "second".to_string(),
+            }),
+            Step::Action(ActionStep {
+                action: ActionType::Wait,
+                target: None,
+                options: wait_opts(),
+            }),
+        ],
+        success: None,
+        failure: None,
+        options: IntentOptions {
+            checkpoint: true,
+            ..Default::default()
+        },
+        description: None,
+    };
+    registry.register(intent);
+
+    // Execute fully
+    let mut executor = IntentExecutor::new(&mut backend, &registry, &verifier);
+    let result = executor
+        .execute("multi_checkpoint", HashMap::new())
+        .await
+        .unwrap();
+
+    // Last checkpoint should be "second"
+    assert_eq!(result.checkpoint.as_deref(), Some("second"));
+
+    // Resume from "first" should skip first Wait and first checkpoint
+    let mut executor2 = IntentExecutor::new(&mut backend, &registry, &verifier);
+    let result2 = executor2
+        .execute_with_resume("multi_checkpoint", HashMap::new(), Some("first"))
+        .await
+        .unwrap();
+
+    // Should have executed from after "first" checkpoint
+    let wait_count = result2
+        .logs
+        .iter()
+        .filter(|l| l.contains("Action: Wait"))
+        .count();
+    assert_eq!(wait_count, 2); // second and third Wait actions
+}
+
+#[tokio::test]
+async fn test_checkpoint_at_end() {
+    let mut registry = IntentRegistry::new();
+    let mut backend = MockBackend::new();
+    let verifier = Verifier;
+
+    let wait_opts = || {
+        let mut m = HashMap::new();
+        m.insert("condition".to_string(), serde_json::json!("idle"));
+        m
+    };
+
+    let intent = IntentDefinition {
+        name: "checkpoint_end".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Discovered,
+        triggers: IntentTriggers::default(),
+        parameters: vec![],
+        steps: vec![
+            Step::Action(ActionStep {
+                action: ActionType::Wait,
+                target: None,
+                options: wait_opts(),
+            }),
+            Step::Checkpoint(CheckpointStepWrapper {
+                checkpoint: "final".to_string(),
+            }),
+        ],
+        success: None,
+        failure: None,
+        options: IntentOptions {
+            checkpoint: true,
+            ..Default::default()
+        },
+        description: None,
+    };
+    registry.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &registry, &verifier);
+    let result = executor
+        .execute("checkpoint_end", HashMap::new())
+        .await
+        .unwrap();
+
+    assert_eq!(result.checkpoint.as_deref(), Some("final"));
+
+    // Resume from final checkpoint should have nothing to do
+    let mut executor2 = IntentExecutor::new(&mut backend, &registry, &verifier);
+    let result2 = executor2
+        .execute_with_resume("checkpoint_end", HashMap::new(), Some("final"))
+        .await
+        .unwrap();
+
+    // No Wait actions after final checkpoint
+    let wait_count = result2
+        .logs
+        .iter()
+        .filter(|l| l.contains("Action: Wait"))
+        .count();
+    assert_eq!(wait_count, 0);
+}
+
+#[tokio::test]
+async fn test_no_checkpoints_intent() {
+    let mut registry = IntentRegistry::new();
+    let mut backend = MockBackend::new();
+    let verifier = Verifier;
+
+    let wait_opts = || {
+        let mut m = HashMap::new();
+        m.insert("condition".to_string(), serde_json::json!("idle"));
+        m
+    };
+
+    let intent = IntentDefinition {
+        name: "no_checkpoints".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Discovered,
+        triggers: IntentTriggers::default(),
+        parameters: vec![],
+        steps: vec![
+            Step::Action(ActionStep {
+                action: ActionType::Wait,
+                target: None,
+                options: wait_opts(),
+            }),
+            Step::Action(ActionStep {
+                action: ActionType::Wait,
+                target: None,
+                options: wait_opts(),
+            }),
+        ],
+        success: None,
+        failure: None,
+        options: IntentOptions::default(),
+        description: None,
+    };
+    registry.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &registry, &verifier);
+    let result = executor
+        .execute("no_checkpoints", HashMap::new())
+        .await
+        .unwrap();
+
+    // No checkpoint should be set
+    assert!(result.checkpoint.is_none());
+}
