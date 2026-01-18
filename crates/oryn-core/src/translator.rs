@@ -17,6 +17,34 @@ pub enum TranslationError {
     MissingParameter(String),
 }
 
+/// Extracts the numeric ID from a Target, returning an error if the target is not an ID.
+fn extract_id(target: &Target, command_name: &str) -> Result<u32, TranslationError> {
+    match target {
+        Target::Id(id) => Ok(*id as u32),
+        _ => Err(TranslationError::InvalidTarget(format!(
+            "{} requires a resolved numeric ID target",
+            command_name
+        ))),
+    }
+}
+
+/// Extracts a target string (ID or selector) for wait conditions.
+fn extract_wait_target(target: &Target, condition_name: &str) -> Result<String, TranslationError> {
+    match target {
+        Target::Id(id) => Ok(id.to_string()),
+        Target::Selector(s) => Ok(s.clone()),
+        _ => Err(TranslationError::InvalidTarget(format!(
+            "Wait {} requires ID or Selector",
+            condition_name
+        ))),
+    }
+}
+
+/// Escapes a string for use in JavaScript single-quoted strings.
+fn js_escape(s: &str) -> String {
+    s.replace('\'', "\\'")
+}
+
 /// Translates a high-level Intent Command into a low-level ScannerRequest.
 pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> {
     match command {
@@ -38,139 +66,81 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
         }
 
         Command::Click(target, options) => {
-            if let Target::Id(id) = target {
-                // Parse mouse button from options
-                let button = if options.contains_key("right") {
-                    MouseButton::Right
-                } else if options.contains_key("middle") {
-                    MouseButton::Middle
-                } else {
-                    MouseButton::Left
-                };
-
-                // Parse double-click
-                let double = options.contains_key("double");
-
-                // Parse force flag
-                let force = options.contains_key("force");
-
-                Ok(ScannerRequest::Click(ClickRequest {
-                    id: *id as u32,
-                    button,
-                    double,
-                    modifiers: vec![],
-                    force,
-                }))
+            let id = extract_id(target, "Click")?;
+            let button = if options.contains_key("right") {
+                MouseButton::Right
+            } else if options.contains_key("middle") {
+                MouseButton::Middle
             } else {
-                Err(TranslationError::InvalidTarget(
-                    "Click requires a resolved numeric ID target".into(),
-                ))
-            }
+                MouseButton::Left
+            };
+
+            Ok(ScannerRequest::Click(ClickRequest {
+                id,
+                button,
+                double: options.contains_key("double"),
+                modifiers: vec![],
+                force: options.contains_key("force"),
+            }))
         }
 
         Command::Type(target, text, options) => {
-            if let Target::Id(id) = target {
-                // --append means don't clear (inverse logic)
-                let clear = !options.contains_key("append");
-
-                // --enter means submit after typing
-                let submit = options.contains_key("enter");
-
-                // --delay N for character-by-character typing
-                let delay = options.get("delay").and_then(|v| v.parse::<u64>().ok());
-
-                Ok(ScannerRequest::Type(TypeRequest {
-                    id: *id as u32,
-                    text: text.clone(),
-                    clear,
-                    submit,
-                    delay,
-                }))
-            } else {
-                Err(TranslationError::InvalidTarget(
-                    "Type requires a resolved numeric ID target".into(),
-                ))
-            }
+            let id = extract_id(target, "Type")?;
+            Ok(ScannerRequest::Type(TypeRequest {
+                id,
+                text: text.clone(),
+                clear: !options.contains_key("append"),
+                submit: options.contains_key("enter"),
+                delay: options.get("delay").and_then(|v| v.parse::<u64>().ok()),
+            }))
         }
 
         Command::Submit(target) => {
-            if let Target::Id(id) = target {
-                Ok(ScannerRequest::Submit(crate::protocol::SubmitRequest {
-                    id: *id as u32,
-                }))
-            } else {
-                Err(TranslationError::InvalidTarget(
-                    "Submit requires a resolved numeric ID target".into(),
-                ))
-            }
+            let id = extract_id(target, "Submit")?;
+            Ok(ScannerRequest::Submit(crate::protocol::SubmitRequest {
+                id,
+            }))
         }
 
         Command::Scroll(target, options) => {
-            // Map ID if present
-            let id = if let Some(Target::Id(id)) = target {
-                Some(*id as u32)
-            } else {
-                None
-            };
+            let id = target.as_ref().and_then(|t| {
+                if let Target::Id(id) = t {
+                    Some(*id as u32)
+                } else {
+                    None
+                }
+            });
 
-            // Map direction
-            let direction = if let Some(dir_str) = options.get("direction") {
-                match dir_str.as_str() {
+            let direction = options
+                .get("direction")
+                .map(|dir| match dir.as_str() {
                     "up" => ScrollDirection::Up,
-                    "down" => ScrollDirection::Down,
                     "left" => ScrollDirection::Left,
                     "right" => ScrollDirection::Right,
                     _ => ScrollDirection::Down,
-                }
-            } else {
-                ScrollDirection::Down
-            };
-
-            // Read amount from options, default to "page"
-            let amount = options
-                .get("amount")
-                .cloned()
-                .or_else(|| Some("page".to_string()));
+                })
+                .unwrap_or(ScrollDirection::Down);
 
             Ok(ScannerRequest::Scroll(ScrollRequest {
                 id,
                 direction,
-                amount,
+                amount: options.get("amount").cloned().or(Some("page".to_string())),
             }))
         }
 
         Command::Wait(condition, options) => {
-            // Map WaitCondition enum to protocol strings
-            // Protocol expects: "exists", "visible", "hidden", "gone", "navigation"
-            // WaitCondition: Load, Idle, Visible(T), Hidden(T), Exists(selector/id), Gone(selector/id), Url(s)
+            use crate::command::WaitCondition;
 
             let (cond_str, target) = match condition {
-                crate::command::WaitCondition::Visible(t) => match t {
-                    Target::Id(id) => ("visible", Some(id.to_string())),
-                    Target::Selector(s) => ("visible", Some(s.clone())),
-                    _ => {
-                        return Err(TranslationError::InvalidTarget(
-                            "Wait visible requires ID or Selector".into(),
-                        ));
-                    }
-                },
-                crate::command::WaitCondition::Hidden(t) => match t {
-                    Target::Id(id) => ("hidden", Some(id.to_string())),
-                    Target::Selector(s) => ("hidden", Some(s.clone())),
-                    _ => {
-                        return Err(TranslationError::InvalidTarget(
-                            "Wait hidden requires ID or Selector".into(),
-                        ));
-                    }
-                },
-                crate::command::WaitCondition::Exists(s) => ("exists", Some(s.clone())),
-                crate::command::WaitCondition::Gone(s) => ("gone", Some(s.clone())),
-                crate::command::WaitCondition::Url(_) => ("navigation", None), // Simple mapping for now
-                crate::command::WaitCondition::Load => ("load", None), // Not supported by scanner directly usually
-                crate::command::WaitCondition::Idle => ("idle", None),
+                WaitCondition::Visible(t) => ("visible", Some(extract_wait_target(t, "visible")?)),
+                WaitCondition::Hidden(t) => ("hidden", Some(extract_wait_target(t, "hidden")?)),
+                WaitCondition::Exists(s) => ("exists", Some(s.clone())),
+                WaitCondition::Gone(s) => ("gone", Some(s.clone())),
+                WaitCondition::Url(_) => ("navigation", None),
+                WaitCondition::Load => ("load", None),
+                WaitCondition::Idle => ("idle", None),
             };
 
-            // Read timeout from options, default to 30000ms (30s)
             let timeout_ms = options
                 .get("timeout")
                 .and_then(|t| t.parse::<u64>().ok())
@@ -188,164 +158,92 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
 
             let script = match action {
                 StorageAction::Get { storage_type, key } => {
-                    let key_escaped = key.replace('\'', "\\'");
+                    let k = js_escape(key);
                     match storage_type {
-                        StorageType::Local => {
-                            format!("return localStorage.getItem('{}');", key_escaped)
-                        }
-                        StorageType::Session => {
-                            format!("return sessionStorage.getItem('{}');", key_escaped)
-                        }
-                        StorageType::Both => {
-                            format!(
-                                "var v = localStorage.getItem('{}'); \
-                                 if (v !== null) return {{ local: v }}; \
-                                 v = sessionStorage.getItem('{}'); \
-                                 return v !== null ? {{ session: v }} : null;",
-                                key_escaped, key_escaped
-                            )
-                        }
+                        StorageType::Local => format!("return localStorage.getItem('{}');", k),
+                        StorageType::Session => format!("return sessionStorage.getItem('{}');", k),
+                        StorageType::Both => format!(
+                            "var v = localStorage.getItem('{k}'); \
+                             if (v !== null) return {{ local: v }}; \
+                             v = sessionStorage.getItem('{k}'); \
+                             return v !== null ? {{ session: v }} : null;"
+                        ),
                     }
                 }
-                StorageAction::Set {
-                    storage_type,
-                    key,
-                    value,
-                } => {
-                    let key_escaped = key.replace('\'', "\\'");
-                    let value_escaped = value.replace('\'', "\\'");
+                StorageAction::Set { storage_type, key, value } => {
+                    let k = js_escape(key);
+                    let v = js_escape(value);
                     match storage_type {
-                        StorageType::Local => {
-                            format!(
-                                "localStorage.setItem('{}', '{}'); return 'Set in localStorage';",
-                                key_escaped, value_escaped
-                            )
-                        }
-                        StorageType::Session => {
-                            format!(
-                                "sessionStorage.setItem('{}', '{}'); return 'Set in sessionStorage';",
-                                key_escaped, value_escaped
-                            )
-                        }
-                        StorageType::Both => {
-                            format!(
-                                "localStorage.setItem('{}', '{}'); \
-                                 sessionStorage.setItem('{}', '{}'); \
-                                 return 'Set in both storages';",
-                                key_escaped, value_escaped, key_escaped, value_escaped
-                            )
-                        }
+                        StorageType::Local => format!(
+                            "localStorage.setItem('{k}', '{v}'); return 'Set in localStorage';"
+                        ),
+                        StorageType::Session => format!(
+                            "sessionStorage.setItem('{k}', '{v}'); return 'Set in sessionStorage';"
+                        ),
+                        StorageType::Both => format!(
+                            "localStorage.setItem('{k}', '{v}'); \
+                             sessionStorage.setItem('{k}', '{v}'); \
+                             return 'Set in both storages';"
+                        ),
                     }
                 }
                 StorageAction::List { storage_type } => match storage_type {
-                    StorageType::Local => {
-                        "return Object.keys(localStorage);".to_string()
-                    }
-                    StorageType::Session => {
-                        "return Object.keys(sessionStorage);".to_string()
-                    }
-                    StorageType::Both => {
-                        "return { local: Object.keys(localStorage), session: Object.keys(sessionStorage) };".to_string()
-                    }
+                    StorageType::Local => "return Object.keys(localStorage);".into(),
+                    StorageType::Session => "return Object.keys(sessionStorage);".into(),
+                    StorageType::Both => "return { local: Object.keys(localStorage), session: Object.keys(sessionStorage) };".into(),
                 },
                 StorageAction::Clear { storage_type } => match storage_type {
-                    StorageType::Local => {
-                        "localStorage.clear(); return 'Local storage cleared';".to_string()
-                    }
-                    StorageType::Session => {
-                        "sessionStorage.clear(); return 'Session storage cleared';".to_string()
-                    }
-                    StorageType::Both => {
-                        "localStorage.clear(); sessionStorage.clear(); return 'Both storages cleared';".to_string()
-                    }
+                    StorageType::Local => "localStorage.clear(); return 'Local storage cleared';".into(),
+                    StorageType::Session => "sessionStorage.clear(); return 'Session storage cleared';".into(),
+                    StorageType::Both => "localStorage.clear(); sessionStorage.clear(); return 'Both storages cleared';".into(),
                 },
             };
 
-            Ok(ScannerRequest::Execute(crate::protocol::ExecuteRequest {
+            Ok(ScannerRequest::Execute(ExecuteRequest {
                 script,
                 args: vec![],
             }))
         }
 
-        // Group A: Direct protocol mapping (existing types)
         Command::Check(target) => {
-            if let Target::Id(id) = target {
-                Ok(ScannerRequest::Check(CheckRequest {
-                    id: *id as u32,
-                    state: true,
-                }))
-            } else {
-                Err(TranslationError::InvalidTarget(
-                    "Check requires a resolved numeric ID target".into(),
-                ))
-            }
+            let id = extract_id(target, "Check")?;
+            Ok(ScannerRequest::Check(CheckRequest { id, state: true }))
         }
 
         Command::Uncheck(target) => {
-            if let Target::Id(id) = target {
-                Ok(ScannerRequest::Check(CheckRequest {
-                    id: *id as u32,
-                    state: false,
-                }))
-            } else {
-                Err(TranslationError::InvalidTarget(
-                    "Uncheck requires a resolved numeric ID target".into(),
-                ))
-            }
+            let id = extract_id(target, "Uncheck")?;
+            Ok(ScannerRequest::Check(CheckRequest { id, state: false }))
         }
 
         Command::Clear(target) => {
-            if let Target::Id(id) = target {
-                Ok(ScannerRequest::Clear(ClearRequest { id: *id as u32 }))
-            } else {
-                Err(TranslationError::InvalidTarget(
-                    "Clear requires a resolved numeric ID target".into(),
-                ))
-            }
+            let id = extract_id(target, "Clear")?;
+            Ok(ScannerRequest::Clear(ClearRequest { id }))
         }
 
         Command::Focus(target) => {
-            if let Target::Id(id) = target {
-                Ok(ScannerRequest::Focus(FocusRequest { id: *id as u32 }))
-            } else {
-                Err(TranslationError::InvalidTarget(
-                    "Focus requires a resolved numeric ID target".into(),
-                ))
-            }
+            let id = extract_id(target, "Focus")?;
+            Ok(ScannerRequest::Focus(FocusRequest { id }))
         }
 
         Command::Hover(target) => {
-            if let Target::Id(id) = target {
-                Ok(ScannerRequest::Hover(HoverRequest { id: *id as u32 }))
-            } else {
-                Err(TranslationError::InvalidTarget(
-                    "Hover requires a resolved numeric ID target".into(),
-                ))
-            }
+            let id = extract_id(target, "Hover")?;
+            Ok(ScannerRequest::Hover(HoverRequest { id }))
         }
 
         Command::Select(target, value) => {
-            if let Target::Id(id) = target {
-                // Smart detection: if value is a pure number, use as index; otherwise use as label
-                let (value_opt, index_opt, label_opt) = if let Ok(idx) = value.parse::<usize>() {
-                    // Pure numeric value - treat as index
-                    (None, Some(idx), None)
-                } else {
-                    // Text value - treat as label
-                    (None, None, Some(value.clone()))
-                };
+            let id = extract_id(target, "Select")?;
+            // Smart detection: if value is a pure number, use as index; otherwise use as label
+            let (index, label) = match value.parse::<usize>() {
+                Ok(idx) => (Some(idx), None),
+                Err(_) => (None, Some(value.clone())),
+            };
 
-                Ok(ScannerRequest::Select(SelectRequest {
-                    id: *id as u32,
-                    value: value_opt,
-                    index: index_opt,
-                    label: label_opt,
-                }))
-            } else {
-                Err(TranslationError::InvalidTarget(
-                    "Select requires a resolved numeric ID target".into(),
-                ))
-            }
+            Ok(ScannerRequest::Select(SelectRequest {
+                id,
+                value: None,
+                index,
+                label,
+            }))
         }
 
         // Group C: Content extraction via Execute
@@ -360,13 +258,12 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
         })),
 
         Command::Text(options) => {
-            let script = if let Some(selector) = options.get("selector") {
-                format!(
+            let script = match options.get("selector") {
+                Some(sel) => format!(
                     "var el = document.querySelector('{}'); return el ? el.innerText : null;",
-                    selector.replace('\'', "\\'")
-                )
-            } else {
-                "return document.body.innerText;".to_string()
+                    js_escape(sel)
+                ),
+                None => "return document.body.innerText;".into(),
             };
             Ok(ScannerRequest::Execute(ExecuteRequest {
                 script,
@@ -375,13 +272,12 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
         }
 
         Command::Html(options) => {
-            let script = if let Some(selector) = options.get("selector") {
-                format!(
+            let script = match options.get("selector") {
+                Some(sel) => format!(
                     "var el = document.querySelector('{}'); return el ? el.outerHTML : null;",
-                    selector.replace('\'', "\\'")
-                )
-            } else {
-                "return document.documentElement.outerHTML;".to_string()
+                    js_escape(sel)
+                ),
+                None => "return document.documentElement.outerHTML;".into(),
             };
             Ok(ScannerRequest::Execute(ExecuteRequest {
                 script,
@@ -390,15 +286,16 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
         }
 
         Command::Extract(source) => {
+            use crate::command::ExtractSource;
             let (source_str, selector) = match source {
-                crate::command::ExtractSource::Links => ("links".to_string(), None),
-                crate::command::ExtractSource::Images => ("images".to_string(), None),
-                crate::command::ExtractSource::Tables => ("tables".to_string(), None),
-                crate::command::ExtractSource::Meta => ("meta".to_string(), None),
-                crate::command::ExtractSource::Css(s) => ("css".to_string(), Some(s.clone())),
+                ExtractSource::Links => ("links", None),
+                ExtractSource::Images => ("images", None),
+                ExtractSource::Tables => ("tables", None),
+                ExtractSource::Meta => ("meta", None),
+                ExtractSource::Css(s) => ("css", Some(s.clone())),
             };
             Ok(ScannerRequest::Extract(ExtractRequest {
-                source: source_str,
+                source: source_str.into(),
                 selector,
             }))
         }

@@ -1,178 +1,140 @@
 use oryn_core::command::{
     Command, ExtractSource, StorageAction, StorageType, Target, WaitCondition,
 };
-use oryn_core::protocol::ScannerRequest;
+use oryn_core::protocol::{MouseButton, ScannerRequest, ScrollDirection};
 use oryn_core::translator::translate;
 use std::collections::HashMap;
+
+/// Creates a HashMap of options from key-value pairs.
+fn opts(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
 
 #[test]
 fn test_translate_click() {
     let cmd = Command::Click(Target::Id(5), HashMap::new());
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Click(c) = req {
-        assert_eq!(c.id, 5);
-        assert!(!c.force);
-        assert!(!c.double);
-        assert!(matches!(c.button, oryn_core::protocol::MouseButton::Left));
-    } else {
-        panic!("Wrong request type");
-    }
+    let ScannerRequest::Click(c) = translate(&cmd).unwrap() else {
+        panic!("Expected Click request");
+    };
+    assert_eq!(c.id, 5);
+    assert!(!c.force);
+    assert!(!c.double);
+    assert!(matches!(c.button, MouseButton::Left));
 }
 
 #[test]
 fn test_translate_click_with_options() {
     // Test --force option
-    let mut opts = HashMap::new();
-    opts.insert("force".to_string(), "true".to_string());
-    let cmd = Command::Click(Target::Id(5), opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Click(c) = req {
-        assert!(c.force);
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Click(Target::Id(5), opts(&[("force", "true")]));
+    let ScannerRequest::Click(c) = translate(&cmd).unwrap() else {
+        panic!("Expected Click request");
+    };
+    assert!(c.force);
 
     // Test --double option
-    let mut opts = HashMap::new();
-    opts.insert("double".to_string(), "true".to_string());
-    let cmd = Command::Click(Target::Id(5), opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Click(c) = req {
-        assert!(c.double);
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Click(Target::Id(5), opts(&[("double", "true")]));
+    let ScannerRequest::Click(c) = translate(&cmd).unwrap() else {
+        panic!("Expected Click request");
+    };
+    assert!(c.double);
 
     // Test --right option
-    let mut opts = HashMap::new();
-    opts.insert("right".to_string(), "true".to_string());
-    let cmd = Command::Click(Target::Id(5), opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Click(c) = req {
-        assert!(matches!(c.button, oryn_core::protocol::MouseButton::Right));
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Click(Target::Id(5), opts(&[("right", "true")]));
+    let ScannerRequest::Click(c) = translate(&cmd).unwrap() else {
+        panic!("Expected Click request");
+    };
+    assert!(matches!(c.button, MouseButton::Right));
 
     // Test --middle option
-    let mut opts = HashMap::new();
-    opts.insert("middle".to_string(), "true".to_string());
-    let cmd = Command::Click(Target::Id(5), opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Click(c) = req {
-        assert!(matches!(c.button, oryn_core::protocol::MouseButton::Middle));
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Click(Target::Id(5), opts(&[("middle", "true")]));
+    let ScannerRequest::Click(c) = translate(&cmd).unwrap() else {
+        panic!("Expected Click request");
+    };
+    assert!(matches!(c.button, MouseButton::Middle));
 
     // Test combined options
-    let mut opts = HashMap::new();
-    opts.insert("force".to_string(), "true".to_string());
-    opts.insert("double".to_string(), "true".to_string());
-    let cmd = Command::Click(Target::Id(5), opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Click(c) = req {
-        assert!(c.force);
-        assert!(c.double);
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Click(
+        Target::Id(5),
+        opts(&[("force", "true"), ("double", "true")]),
+    );
+    let ScannerRequest::Click(c) = translate(&cmd).unwrap() else {
+        panic!("Expected Click request");
+    };
+    assert!(c.force);
+    assert!(c.double);
 }
 
 #[test]
 fn test_translate_type() {
-    let cmd = Command::Type(Target::Id(10), "hello".to_string(), HashMap::new());
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Type(t) = req {
-        assert_eq!(t.id, 10);
-        assert_eq!(t.text, "hello");
-        assert!(t.clear); // Default is to clear
-        assert!(!t.submit);
-        assert!(t.delay.is_none());
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Type(Target::Id(10), "hello".into(), HashMap::new());
+    let ScannerRequest::Type(t) = translate(&cmd).unwrap() else {
+        panic!("Expected Type request");
+    };
+    assert_eq!(t.id, 10);
+    assert_eq!(t.text, "hello");
+    assert!(t.clear); // Default is to clear
+    assert!(!t.submit);
+    assert!(t.delay.is_none());
 }
 
 #[test]
 fn test_translate_type_with_options() {
     // Test --append option (inverse of clear)
-    let mut opts = HashMap::new();
-    opts.insert("append".to_string(), "true".to_string());
-    let cmd = Command::Type(Target::Id(10), "hello".to_string(), opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Type(t) = req {
-        assert!(!t.clear); // append means don't clear
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Type(Target::Id(10), "hello".into(), opts(&[("append", "true")]));
+    let ScannerRequest::Type(t) = translate(&cmd).unwrap() else {
+        panic!("Expected Type request");
+    };
+    assert!(!t.clear);
 
     // Test --enter option (submit)
-    let mut opts = HashMap::new();
-    opts.insert("enter".to_string(), "true".to_string());
-    let cmd = Command::Type(Target::Id(10), "hello".to_string(), opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Type(t) = req {
-        assert!(t.submit);
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Type(Target::Id(10), "hello".into(), opts(&[("enter", "true")]));
+    let ScannerRequest::Type(t) = translate(&cmd).unwrap() else {
+        panic!("Expected Type request");
+    };
+    assert!(t.submit);
 
     // Test --delay option
-    let mut opts = HashMap::new();
-    opts.insert("delay".to_string(), "50".to_string());
-    let cmd = Command::Type(Target::Id(10), "hello".to_string(), opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Type(t) = req {
-        assert_eq!(t.delay, Some(50));
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Type(Target::Id(10), "hello".into(), opts(&[("delay", "50")]));
+    let ScannerRequest::Type(t) = translate(&cmd).unwrap() else {
+        panic!("Expected Type request");
+    };
+    assert_eq!(t.delay, Some(50));
 
     // Test combined options
-    let mut opts = HashMap::new();
-    opts.insert("append".to_string(), "true".to_string());
-    opts.insert("enter".to_string(), "true".to_string());
-    opts.insert("delay".to_string(), "100".to_string());
-    let cmd = Command::Type(Target::Id(10), "hello".to_string(), opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Type(t) = req {
-        assert!(!t.clear);
-        assert!(t.submit);
-        assert_eq!(t.delay, Some(100));
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Type(
+        Target::Id(10),
+        "hello".into(),
+        opts(&[("append", "true"), ("enter", "true"), ("delay", "100")]),
+    );
+    let ScannerRequest::Type(t) = translate(&cmd).unwrap() else {
+        panic!("Expected Type request");
+    };
+    assert!(!t.clear);
+    assert!(t.submit);
+    assert_eq!(t.delay, Some(100));
 }
 
 #[test]
 fn test_translate_scroll() {
-    let mut opts = HashMap::new();
-    opts.insert("direction".to_string(), "up".to_string());
-    let cmd = Command::Scroll(None, opts);
-
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Scroll(s) = req {
-        assert!(s.id.is_none());
-        assert!(matches!(
-            s.direction,
-            oryn_core::protocol::ScrollDirection::Up
-        ));
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Scroll(None, opts(&[("direction", "up")]));
+    let ScannerRequest::Scroll(s) = translate(&cmd).unwrap() else {
+        panic!("Expected Scroll request");
+    };
+    assert!(s.id.is_none());
+    assert!(matches!(s.direction, ScrollDirection::Up));
 }
 
 #[test]
 fn test_translate_wait_visible() {
     let cmd = Command::Wait(WaitCondition::Visible(Target::Id(123)), HashMap::new());
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Wait(w) = req {
-        assert_eq!(w.condition, "visible");
-        assert_eq!(w.target.unwrap(), "123");
-    } else {
-        panic!("Wrong request type");
-    }
+    let ScannerRequest::Wait(w) = translate(&cmd).unwrap() else {
+        panic!("Expected Wait request");
+    };
+    assert_eq!(w.condition, "visible");
+    assert_eq!(w.target.unwrap(), "123");
 }
 
 #[test]
@@ -181,184 +143,143 @@ fn test_translate_storage() {
     let cmd = Command::Storage(StorageAction::Clear {
         storage_type: StorageType::Both,
     });
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Execute(e) = req {
-        assert!(e.script.contains("localStorage.clear()"));
-        assert!(e.script.contains("sessionStorage.clear()"));
-    } else {
-        panic!("Wrong request type for storage clear");
-    }
+    let ScannerRequest::Execute(e) = translate(&cmd).unwrap() else {
+        panic!("Expected Execute request for storage clear");
+    };
+    assert!(e.script.contains("localStorage.clear()"));
+    assert!(e.script.contains("sessionStorage.clear()"));
 
     // Test get from local storage
     let cmd = Command::Storage(StorageAction::Get {
         storage_type: StorageType::Local,
-        key: "myKey".to_string(),
+        key: "myKey".into(),
     });
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Execute(e) = req {
-        assert!(e.script.contains("localStorage.getItem"));
-        assert!(e.script.contains("myKey"));
-    } else {
-        panic!("Wrong request type for storage get");
-    }
+    let ScannerRequest::Execute(e) = translate(&cmd).unwrap() else {
+        panic!("Expected Execute request for storage get");
+    };
+    assert!(e.script.contains("localStorage.getItem"));
+    assert!(e.script.contains("myKey"));
 
     // Test set in session storage
     let cmd = Command::Storage(StorageAction::Set {
         storage_type: StorageType::Session,
-        key: "theme".to_string(),
-        value: "dark".to_string(),
+        key: "theme".into(),
+        value: "dark".into(),
     });
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Execute(e) = req {
-        assert!(e.script.contains("sessionStorage.setItem"));
-        assert!(e.script.contains("theme"));
-        assert!(e.script.contains("dark"));
-    } else {
-        panic!("Wrong request type for storage set");
-    }
+    let ScannerRequest::Execute(e) = translate(&cmd).unwrap() else {
+        panic!("Expected Execute request for storage set");
+    };
+    assert!(e.script.contains("sessionStorage.setItem"));
+    assert!(e.script.contains("theme"));
+    assert!(e.script.contains("dark"));
 
     // Test list local storage
     let cmd = Command::Storage(StorageAction::List {
         storage_type: StorageType::Local,
     });
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Execute(e) = req {
-        assert!(e.script.contains("Object.keys(localStorage)"));
-    } else {
-        panic!("Wrong request type for storage list");
-    }
+    let ScannerRequest::Execute(e) = translate(&cmd).unwrap() else {
+        panic!("Expected Execute request for storage list");
+    };
+    assert!(e.script.contains("Object.keys(localStorage)"));
 }
 
 #[test]
 fn test_translate_extract() {
     let cmd = Command::Extract(ExtractSource::Links);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Extract(e) = req {
-        assert_eq!(e.source, "links");
-    } else {
-        panic!("Wrong request type");
-    }
+    let ScannerRequest::Extract(e) = translate(&cmd).unwrap() else {
+        panic!("Expected Extract request");
+    };
+    assert_eq!(e.source, "links");
 }
 
 #[test]
 fn test_translate_login() {
-    let cmd = Command::Login("user".to_string(), "pass".to_string(), HashMap::new());
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Login(l) = req {
-        assert_eq!(l.username, "user");
-        assert_eq!(l.password, "pass");
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Login("user".into(), "pass".into(), HashMap::new());
+    let ScannerRequest::Login(l) = translate(&cmd).unwrap() else {
+        panic!("Expected Login request");
+    };
+    assert_eq!(l.username, "user");
+    assert_eq!(l.password, "pass");
 }
 
 #[test]
 fn test_translate_search() {
-    let cmd = Command::Search("oryn".to_string(), HashMap::new());
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Search(s) = req {
-        assert_eq!(s.query, "oryn");
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Search("oryn".into(), HashMap::new());
+    let ScannerRequest::Search(s) = translate(&cmd).unwrap() else {
+        panic!("Expected Search request");
+    };
+    assert_eq!(s.query, "oryn");
 }
 
 #[test]
 fn test_translate_accept() {
-    let cmd = Command::Accept("cookies".to_string(), HashMap::new());
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Accept(a) = req {
-        assert_eq!(a.target, "cookies");
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Accept("cookies".into(), HashMap::new());
+    let ScannerRequest::Accept(a) = translate(&cmd).unwrap() else {
+        panic!("Expected Accept request");
+    };
+    assert_eq!(a.target, "cookies");
 }
 
 #[test]
 fn test_translate_observe() {
-    // Test default observe (no options)
     let cmd = Command::Observe(HashMap::new());
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Scan(s) = req {
-        assert!(s.max_elements.is_none());
-        assert!(s.near.is_none());
-        assert!(!s.viewport_only);
-        assert!(!s.view_all);
-        assert!(!s.include_hidden);
-    } else {
-        panic!("Wrong request type");
-    }
+    let ScannerRequest::Scan(s) = translate(&cmd).unwrap() else {
+        panic!("Expected Scan request");
+    };
+    assert!(s.max_elements.is_none());
+    assert!(s.near.is_none());
+    assert!(!s.viewport_only);
+    assert!(!s.view_all);
+    assert!(!s.include_hidden);
 }
 
 #[test]
 fn test_translate_observe_with_options() {
     // Test --near option
-    let mut opts = HashMap::new();
-    opts.insert("near".to_string(), "Login".to_string());
-    let cmd = Command::Observe(opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Scan(s) = req {
-        assert_eq!(s.near, Some("Login".to_string()));
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Observe(opts(&[("near", "Login")]));
+    let ScannerRequest::Scan(s) = translate(&cmd).unwrap() else {
+        panic!("Expected Scan request");
+    };
+    assert_eq!(s.near, Some("Login".into()));
 
     // Test --viewport option
-    let mut opts = HashMap::new();
-    opts.insert("viewport".to_string(), "true".to_string());
-    let cmd = Command::Observe(opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Scan(s) = req {
-        assert!(s.viewport_only);
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Observe(opts(&[("viewport", "true")]));
+    let ScannerRequest::Scan(s) = translate(&cmd).unwrap() else {
+        panic!("Expected Scan request");
+    };
+    assert!(s.viewport_only);
 
     // Test --max option
-    let mut opts = HashMap::new();
-    opts.insert("max".to_string(), "50".to_string());
-    let cmd = Command::Observe(opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Scan(s) = req {
-        assert_eq!(s.max_elements, Some(50));
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Observe(opts(&[("max", "50")]));
+    let ScannerRequest::Scan(s) = translate(&cmd).unwrap() else {
+        panic!("Expected Scan request");
+    };
+    assert_eq!(s.max_elements, Some(50));
 
     // Test --full option
-    let mut opts = HashMap::new();
-    opts.insert("full".to_string(), "true".to_string());
-    let cmd = Command::Observe(opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Scan(s) = req {
-        assert!(s.view_all);
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Observe(opts(&[("full", "true")]));
+    let ScannerRequest::Scan(s) = translate(&cmd).unwrap() else {
+        panic!("Expected Scan request");
+    };
+    assert!(s.view_all);
 
     // Test --hidden option
-    let mut opts = HashMap::new();
-    opts.insert("hidden".to_string(), "true".to_string());
-    let cmd = Command::Observe(opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Scan(s) = req {
-        assert!(s.include_hidden);
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Observe(opts(&[("hidden", "true")]));
+    let ScannerRequest::Scan(s) = translate(&cmd).unwrap() else {
+        panic!("Expected Scan request");
+    };
+    assert!(s.include_hidden);
 
     // Test combined options
-    let mut opts = HashMap::new();
-    opts.insert("near".to_string(), "Submit".to_string());
-    opts.insert("viewport".to_string(), "true".to_string());
-    opts.insert("max".to_string(), "100".to_string());
-    let cmd = Command::Observe(opts);
-    let req = translate(&cmd).unwrap();
-    if let ScannerRequest::Scan(s) = req {
-        assert_eq!(s.near, Some("Submit".to_string()));
-        assert!(s.viewport_only);
-        assert_eq!(s.max_elements, Some(100));
-    } else {
-        panic!("Wrong request type");
-    }
+    let cmd = Command::Observe(opts(&[
+        ("near", "Submit"),
+        ("viewport", "true"),
+        ("max", "100"),
+    ]));
+    let ScannerRequest::Scan(s) = translate(&cmd).unwrap() else {
+        panic!("Expected Scan request");
+    };
+    assert_eq!(s.near, Some("Submit".into()));
+    assert!(s.viewport_only);
+    assert_eq!(s.max_elements, Some(100));
 }
