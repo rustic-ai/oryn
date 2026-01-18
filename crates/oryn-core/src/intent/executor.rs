@@ -96,7 +96,7 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
             // Need fresh scan for final verification
             self.perform_scan().await?;
             if let Some(scan) = &self.last_scan {
-                let ctx = VerifierContext::new(scan);
+                let ctx = VerifierContext::with_variables(scan, &self.variables);
                 let passed = self
                     .verifier
                     .verify(&Condition::All(success_cond.conditions.clone()), &ctx)
@@ -279,10 +279,7 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
                 self.backend.execute_scanner(req).await?;
             }
             ActionType::FillForm => {
-                // Note: data_var was resolved but we parse data differently below
-                let _ = self.resolve_variable(step.options.get("data"));
-                // This resolves to a string value of the variable name if passed as "$data"
-                // But we need the actual object.
+                // Resolve the data parameter, which can be a variable reference or inline object
                 let data_json = if let Some(v) = step.options.get("data") {
                     if let Some(s) = v.as_str() {
                         if let Some(res) = self.resolve_variable_value(s) {
@@ -303,45 +300,14 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
                         let mut found_via_scan = false;
 
                         if let Some(scan) = &self.last_scan {
-                            // Strategy: Find best matching element in scan result
-                            // 1. Exact match on name or id
-                            // 2. Exact match on label
-                            // 3. Contains match on label
-
-                            let best_match = scan.elements.iter().find(|e| {
-                                let name_match = e.attributes.get("name").map(|s| s.as_str())
-                                    == Some(key)
-                                    || e.attributes.get("id").map(|s| s.as_str()) == Some(key);
-                                if name_match {
-                                    return true;
-                                }
-
-                                // Only consider form fields
-                                if matches!(
-                                    e.element_type.as_str(),
-                                    "input" | "textarea" | "select"
-                                ) {
-                                    if let Some(label) = &e.label {
-                                        if label.eq_ignore_ascii_case(key) {
-                                            return true;
-                                        }
-                                    }
-                                    if let Some(aria) = e.attributes.get("aria-label") {
-                                        if aria.eq_ignore_ascii_case(key) {
-                                            return true;
-                                        }
-                                    }
-                                }
-                                false
-                            });
-
-                            if let Some(el) = best_match {
+                            // Use scoring-based matching to find the best form field
+                            if let Some(el) = find_best_form_field(&scan.elements, key) {
                                 let t = Target::Id(el.id as usize);
                                 let cmd = Command::Type(t, val_str.clone(), HashMap::new());
-                                if let Ok(req) = translator::translate(&cmd) {
-                                    if let Ok(_) = self.backend.execute_scanner(req).await {
-                                        found_via_scan = true;
-                                    }
+                                if let Ok(req) = translator::translate(&cmd)
+                                    && self.backend.execute_scanner(req).await.is_ok()
+                                {
+                                    found_via_scan = true;
                                 }
                             }
                         }
@@ -412,7 +378,7 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
         self.perform_scan().await?;
 
         if let Some(scan) = &self.last_scan {
-            let ctx = VerifierContext::new(scan);
+            let ctx = VerifierContext::with_variables(scan, &self.variables);
             self.verifier
                 .verify(cond, &ctx)
                 .await
@@ -457,4 +423,162 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
             })
             .collect()
     }
+}
+
+/// Normalizes text for comparison by lowercasing and removing extra whitespace.
+fn normalize_text(s: &str) -> String {
+    s.trim()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Calculates a match score for a form field based on the key.
+/// Higher scores indicate better matches.
+fn score_form_field(element: &crate::protocol::Element, key: &str) -> u32 {
+    // Only consider form fields
+    if !matches!(
+        element.element_type.as_str(),
+        "input" | "textarea" | "select"
+    ) {
+        return 0;
+    }
+
+    let key_normalized = normalize_text(key);
+    let mut score = 0u32;
+
+    // Exact name match: 100 points
+    if let Some(name) = element.attributes.get("name")
+        && normalize_text(name) == key_normalized
+    {
+        return 100;
+    }
+
+    // Exact id match: 100 points
+    if let Some(id) = element.attributes.get("id")
+        && normalize_text(id) == key_normalized
+    {
+        return 100;
+    }
+
+    // Label matching
+    if let Some(label) = &element.label {
+        let label_normalized = normalize_text(label);
+        if label_normalized == key_normalized {
+            score = score.max(90); // Exact label: 90 points
+        } else if label_normalized.contains(&key_normalized) {
+            score = score.max(45); // Label contains: 45 points
+        }
+    }
+
+    // Placeholder matching
+    if let Some(placeholder) = &element.placeholder {
+        let ph_normalized = normalize_text(placeholder);
+        if ph_normalized == key_normalized {
+            score = score.max(80); // Exact placeholder: 80 points
+        } else if ph_normalized.contains(&key_normalized) {
+            score = score.max(40); // Placeholder contains: 40 points
+        }
+    }
+
+    // ARIA label matching
+    if let Some(aria) = element.attributes.get("aria-label") {
+        let aria_normalized = normalize_text(aria);
+        if aria_normalized == key_normalized {
+            score = score.max(85); // Exact ARIA label: 85 points
+        } else if aria_normalized.contains(&key_normalized) {
+            score = score.max(42); // ARIA label contains: 42 points
+        }
+    }
+
+    // Semantic type matching: 75 points
+    let semantic_score = semantic_field_score(element, &key_normalized);
+    if semantic_score > 0 {
+        score = score.max(semantic_score);
+    }
+
+    score
+}
+
+/// Returns a score based on semantic matching between the key and input type/autocomplete.
+fn semantic_field_score(element: &crate::protocol::Element, key_normalized: &str) -> u32 {
+    let input_type = element
+        .attributes
+        .get("type")
+        .map(|s| s.as_str())
+        .unwrap_or("text");
+    let autocomplete = element
+        .attributes
+        .get("autocomplete")
+        .map(|s| normalize_text(s));
+
+    match key_normalized {
+        "email" | "e-mail" | "email address" => {
+            if input_type == "email" || autocomplete.as_deref() == Some("email") {
+                return 75;
+            }
+        }
+        "password" | "pass" | "pwd" => {
+            if input_type == "password"
+                || autocomplete.as_deref() == Some("current-password")
+                || autocomplete.as_deref() == Some("new-password")
+            {
+                return 75;
+            }
+        }
+        "phone" | "telephone" | "phone number" | "tel" => {
+            if input_type == "tel" || autocomplete.as_deref() == Some("tel") {
+                return 75;
+            }
+        }
+        "username" | "user" | "login" => {
+            if autocomplete.as_deref() == Some("username") {
+                return 75;
+            }
+        }
+        "name" | "full name" | "your name" => {
+            if autocomplete.as_deref() == Some("name") {
+                return 75;
+            }
+        }
+        "first name" | "firstname" | "given name" => {
+            if autocomplete.as_deref() == Some("given-name") {
+                return 75;
+            }
+        }
+        "last name" | "lastname" | "surname" | "family name" => {
+            if autocomplete.as_deref() == Some("family-name") {
+                return 75;
+            }
+        }
+        _ => {}
+    }
+
+    0
+}
+
+/// Finds the best matching form field for a given key from scan results.
+fn find_best_form_field<'a>(
+    elements: &'a [crate::protocol::Element],
+    key: &str,
+) -> Option<&'a crate::protocol::Element> {
+    let mut best_match: Option<(&crate::protocol::Element, u32)> = None;
+
+    for element in elements {
+        let score = score_form_field(element, key);
+        if score > 0 {
+            match &best_match {
+                Some((_, best_score)) if score > *best_score => {
+                    best_match = Some((element, score));
+                }
+                None => {
+                    best_match = Some((element, score));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    best_match.map(|(el, _)| el)
 }

@@ -4,6 +4,8 @@ use crate::protocol::ScanResult;
 use crate::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
 use async_recursion::async_recursion;
 use regex::Regex;
+use serde_json::Value;
+use std::collections::HashMap;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VerificationError {
@@ -17,11 +19,25 @@ pub enum VerificationError {
 
 pub struct VerifierContext<'a> {
     pub scan_result: &'a ScanResult,
+    pub variables: Option<&'a HashMap<String, Value>>,
 }
 
 impl<'a> VerifierContext<'a> {
     pub fn new(scan_result: &'a ScanResult) -> Self {
-        Self { scan_result }
+        Self {
+            scan_result,
+            variables: None,
+        }
+    }
+
+    pub fn with_variables(
+        scan_result: &'a ScanResult,
+        variables: &'a HashMap<String, Value>,
+    ) -> Self {
+        Self {
+            scan_result,
+            variables: Some(variables),
+        }
     }
 
     pub fn resolve_target_exists(
@@ -45,7 +61,9 @@ impl<'a> VerifierContext<'a> {
         Ok(match &spec.kind {
             TargetKind::Pattern { pattern } => Target::Text(pattern.clone()),
             TargetKind::Role { role } => Target::Role(role.clone()),
-            TargetKind::Text { text, .. } => Target::Text(text.clone()), // TODO: Handle match_type
+            // Note: MatchType::Regex is intentionally not implemented - the resolver's
+            // scoring handles exact/contains matching well. See definition.rs for details.
+            TargetKind::Text { text, .. } => Target::Text(text.clone()),
             TargetKind::Selector { selector } => Target::Selector(selector.clone()),
             TargetKind::Id { id } => Target::Id(*id as usize),
         })
@@ -170,10 +188,33 @@ impl Verifier {
                 }
                 Ok(true)
             }
-            Condition::Expression(expr) => Err(VerificationError::Error(format!(
-                "Expression evaluation not supported yet: {}",
-                expr
-            ))),
+            Condition::Expression(expr) => {
+                // Handle variable references like "$reject"
+                if let Some(var_name) = expr.strip_prefix('$') {
+                    if let Some(vars) = context.variables
+                        && let Some(value) = vars.get(var_name)
+                    {
+                        return Ok(is_truthy(value));
+                    }
+                    // Variable not found = falsy
+                    Ok(false)
+                } else {
+                    // Literal expression: "true" or "1" are truthy
+                    Ok(expr == "true" || expr == "1")
+                }
+            }
         }
+    }
+}
+
+/// Determines if a JSON value is "truthy" for condition evaluation.
+fn is_truthy(value: &Value) -> bool {
+    match value {
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().map(|f| f != 0.0).unwrap_or(false),
+        Value::String(s) => !s.is_empty() && s != "false" && s != "0",
+        Value::Array(a) => !a.is_empty(),
+        Value::Object(o) => !o.is_empty(),
+        Value::Null => false,
     }
 }

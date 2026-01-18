@@ -611,3 +611,288 @@ async fn test_executor_loop_max_limit() {
 
     assert_eq!(type_reqs, vec!["1", "2", "3"]);
 }
+
+/// A mock backend that returns scan results with placeholder-based fields.
+#[derive(Debug, Default)]
+struct PlaceholderMockBackend {
+    pub executed_requests: Vec<ScannerRequest>,
+}
+
+#[async_trait]
+impl Backend for PlaceholderMockBackend {
+    async fn launch(&mut self) -> Result<(), BackendError> {
+        Ok(())
+    }
+    async fn close(&mut self) -> Result<(), BackendError> {
+        Ok(())
+    }
+    async fn is_ready(&self) -> bool {
+        true
+    }
+    async fn navigate(&mut self, _url: &str) -> Result<NavigationResult, BackendError> {
+        Err(BackendError::NotSupported("navigate".into()))
+    }
+
+    async fn execute_scanner(
+        &mut self,
+        command: ScannerRequest,
+    ) -> Result<ScannerProtocolResponse, BackendError> {
+        self.executed_requests.push(command.clone());
+
+        match &command {
+            ScannerRequest::Scan(_) => {
+                Ok(ScannerProtocolResponse::Ok {
+                    data: Box::new(ScannerData::Scan(ScanResult {
+                        page: PageInfo {
+                            url: "test".into(),
+                            title: "test".into(),
+                            viewport: ViewportInfo::default(),
+                            scroll: ScrollInfo::default(),
+                        },
+                        elements: vec![
+                            // Field with placeholder only
+                            oryn_core::protocol::Element {
+                                id: 1,
+                                element_type: "input".into(),
+                                role: None,
+                                text: None,
+                                label: None,
+                                value: None,
+                                placeholder: Some("Enter your email".to_string()),
+                                selector: "#email-field".into(),
+                                xpath: None,
+                                rect: oryn_core::protocol::Rect {
+                                    x: 0.0,
+                                    y: 0.0,
+                                    width: 100.0,
+                                    height: 30.0,
+                                },
+                                attributes: HashMap::new(),
+                                state: oryn_core::protocol::ElementState::default(),
+                                children: vec![],
+                            },
+                            // Field with semantic type="email"
+                            oryn_core::protocol::Element {
+                                id: 2,
+                                element_type: "input".into(),
+                                role: None,
+                                text: None,
+                                label: None,
+                                value: None,
+                                placeholder: None,
+                                selector: "#contact-email".into(),
+                                xpath: None,
+                                rect: oryn_core::protocol::Rect {
+                                    x: 0.0,
+                                    y: 0.0,
+                                    width: 100.0,
+                                    height: 30.0,
+                                },
+                                attributes: HashMap::from([(
+                                    "type".to_string(),
+                                    "email".to_string(),
+                                )]),
+                                state: oryn_core::protocol::ElementState::default(),
+                                children: vec![],
+                            },
+                            // Field with exact name (should win)
+                            oryn_core::protocol::Element {
+                                id: 3,
+                                element_type: "input".into(),
+                                role: None,
+                                text: None,
+                                label: None,
+                                value: None,
+                                placeholder: Some("Your username".to_string()),
+                                selector: "#username-field".into(),
+                                xpath: None,
+                                rect: oryn_core::protocol::Rect {
+                                    x: 0.0,
+                                    y: 0.0,
+                                    width: 100.0,
+                                    height: 30.0,
+                                },
+                                attributes: HashMap::from([(
+                                    "name".to_string(),
+                                    "username".to_string(),
+                                )]),
+                                state: oryn_core::protocol::ElementState::default(),
+                                children: vec![],
+                            },
+                        ],
+                        stats: ScanStats {
+                            total: 0,
+                            scanned: 0,
+                        },
+                        patterns: None,
+                        changes: None,
+                    })),
+                    warnings: vec![],
+                })
+            }
+            _ => Ok(ScannerProtocolResponse::Ok {
+                data: Box::new(ScannerData::Action(oryn_core::protocol::ActionResult {
+                    success: true,
+                    message: Some("Mock executed".into()),
+                    navigation: None,
+                })),
+                warnings: vec![],
+            }),
+        }
+    }
+
+    async fn screenshot(&mut self) -> Result<Vec<u8>, BackendError> {
+        Ok(vec![])
+    }
+}
+
+#[tokio::test]
+async fn test_fill_form_placeholder_match() {
+    let mut backend = PlaceholderMockBackend::default();
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_fill_placeholder".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![],
+        steps: vec![Step::Action(ActionStep {
+            action: ActionType::FillForm,
+            target: None,
+            options: HashMap::from([(
+                "data".to_string(),
+                json!({
+                    "email": "user@test.com"
+                }),
+            )]),
+        })],
+        success: None,
+        failure: None,
+        options: Default::default(),
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    let result = executor
+        .execute("test_fill_placeholder", HashMap::new())
+        .await;
+    assert!(result.is_ok());
+
+    // Should have matched field with placeholder "Enter your email" (id 1)
+    // which contains "email"
+    let reqs = &backend.executed_requests;
+    let type_reqs: Vec<_> = reqs
+        .iter()
+        .filter_map(|r| match r {
+            ScannerRequest::Type(t) => Some((t.id, t.text.clone())),
+            _ => None,
+        })
+        .collect();
+
+    // The type="email" field (id 2) should match via semantic scoring
+    // since it has a higher score than placeholder contains
+    assert_eq!(type_reqs.len(), 1);
+    assert_eq!(type_reqs[0].1, "user@test.com");
+}
+
+#[tokio::test]
+async fn test_fill_form_semantic_email() {
+    let mut backend = PlaceholderMockBackend::default();
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_semantic_email".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![],
+        steps: vec![Step::Action(ActionStep {
+            action: ActionType::FillForm,
+            target: None,
+            options: HashMap::from([(
+                "data".to_string(),
+                json!({
+                    "email": "semantic@test.com"
+                }),
+            )]),
+        })],
+        success: None,
+        failure: None,
+        options: Default::default(),
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    let result = executor
+        .execute("test_semantic_email", HashMap::new())
+        .await;
+    assert!(result.is_ok());
+
+    let reqs = &backend.executed_requests;
+    let type_reqs: Vec<_> = reqs
+        .iter()
+        .filter_map(|r| match r {
+            ScannerRequest::Type(t) => Some(t.text.clone()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(type_reqs.contains(&"semantic@test.com".to_string()));
+}
+
+#[tokio::test]
+async fn test_fill_form_scoring_prefers_exact() {
+    let mut backend = PlaceholderMockBackend::default();
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_exact_match".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![],
+        steps: vec![Step::Action(ActionStep {
+            action: ActionType::FillForm,
+            target: None,
+            options: HashMap::from([(
+                "data".to_string(),
+                json!({
+                    "username": "testuser123"
+                }),
+            )]),
+        })],
+        success: None,
+        failure: None,
+        options: Default::default(),
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    let result = executor.execute("test_exact_match", HashMap::new()).await;
+    assert!(result.is_ok());
+
+    // Should have matched field with name="username" (id 3) via exact match
+    // even though another field has "username" in placeholder
+    let reqs = &backend.executed_requests;
+    let type_reqs: Vec<_> = reqs
+        .iter()
+        .filter_map(|r| match r {
+            ScannerRequest::Type(t) => Some((t.id, t.text.clone())),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(type_reqs.len(), 1);
+    assert_eq!(type_reqs[0].0, 3); // Should be element 3 with name="username"
+    assert_eq!(type_reqs[0].1, "testuser123");
+}

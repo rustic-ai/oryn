@@ -420,3 +420,162 @@ async fn test_verify_count() {
             .unwrap()
     );
 }
+
+#[tokio::test]
+async fn test_verify_expression_true_boolean() {
+    let scan = make_scan_result(vec![], None);
+    let mut variables = HashMap::new();
+    variables.insert("flag".to_string(), serde_json::json!(true));
+
+    let ctx = VerifierContext::with_variables(&scan, &variables);
+    let verifier = Verifier;
+
+    let cond = Condition::Expression("$flag".to_string());
+    assert!(verifier.verify(&cond, &ctx).await.unwrap());
+}
+
+#[tokio::test]
+async fn test_verify_expression_false_boolean() {
+    let scan = make_scan_result(vec![], None);
+    let mut variables = HashMap::new();
+    variables.insert("disabled".to_string(), serde_json::json!(false));
+
+    let ctx = VerifierContext::with_variables(&scan, &variables);
+    let verifier = Verifier;
+
+    let cond = Condition::Expression("$disabled".to_string());
+    assert!(!verifier.verify(&cond, &ctx).await.unwrap());
+}
+
+#[tokio::test]
+async fn test_verify_expression_truthy_string() {
+    let scan = make_scan_result(vec![], None);
+    let mut variables = HashMap::new();
+    variables.insert("name".to_string(), serde_json::json!("hello"));
+    variables.insert("empty".to_string(), serde_json::json!(""));
+    variables.insert("false_str".to_string(), serde_json::json!("false"));
+    variables.insert("zero_str".to_string(), serde_json::json!("0"));
+
+    let ctx = VerifierContext::with_variables(&scan, &variables);
+    let verifier = Verifier;
+
+    // Non-empty string is truthy
+    assert!(
+        verifier
+            .verify(&Condition::Expression("$name".to_string()), &ctx)
+            .await
+            .unwrap()
+    );
+
+    // Empty string is falsy
+    assert!(
+        !verifier
+            .verify(&Condition::Expression("$empty".to_string()), &ctx)
+            .await
+            .unwrap()
+    );
+
+    // "false" string is falsy
+    assert!(
+        !verifier
+            .verify(&Condition::Expression("$false_str".to_string()), &ctx)
+            .await
+            .unwrap()
+    );
+
+    // "0" string is falsy
+    assert!(
+        !verifier
+            .verify(&Condition::Expression("$zero_str".to_string()), &ctx)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_verify_expression_missing_variable() {
+    let scan = make_scan_result(vec![], None);
+    let variables = HashMap::new();
+
+    let ctx = VerifierContext::with_variables(&scan, &variables);
+    let verifier = Verifier;
+
+    // Missing variable is falsy
+    let cond = Condition::Expression("$nonexistent".to_string());
+    assert!(!verifier.verify(&cond, &ctx).await.unwrap());
+}
+
+#[tokio::test]
+async fn test_verify_expression_literal() {
+    let scan = make_scan_result(vec![], None);
+    let ctx = VerifierContext::new(&scan);
+    let verifier = Verifier;
+
+    // Literal "true" is truthy
+    assert!(
+        verifier
+            .verify(&Condition::Expression("true".to_string()), &ctx)
+            .await
+            .unwrap()
+    );
+
+    // Literal "1" is truthy
+    assert!(
+        verifier
+            .verify(&Condition::Expression("1".to_string()), &ctx)
+            .await
+            .unwrap()
+    );
+
+    // Literal "false" is falsy
+    assert!(
+        !verifier
+            .verify(&Condition::Expression("false".to_string()), &ctx)
+            .await
+            .unwrap()
+    );
+
+    // Literal "0" is falsy
+    assert!(
+        !verifier
+            .verify(&Condition::Expression("0".to_string()), &ctx)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_verify_expression_number_truthy() {
+    let scan = make_scan_result(vec![], None);
+    let mut variables = HashMap::new();
+    variables.insert("positive".to_string(), serde_json::json!(42));
+    variables.insert("zero".to_string(), serde_json::json!(0));
+    variables.insert("negative".to_string(), serde_json::json!(-1));
+
+    let ctx = VerifierContext::with_variables(&scan, &variables);
+    let verifier = Verifier;
+
+    // Positive number is truthy
+    assert!(
+        verifier
+            .verify(&Condition::Expression("$positive".to_string()), &ctx)
+            .await
+            .unwrap()
+    );
+
+    // Zero is falsy
+    assert!(
+        !verifier
+            .verify(&Condition::Expression("$zero".to_string()), &ctx)
+            .await
+            .unwrap()
+    );
+
+    // Negative number is truthy
+    assert!(
+        verifier
+            .verify(&Condition::Expression("$negative".to_string()), &ctx)
+            .await
+            .unwrap()
+    );
+}

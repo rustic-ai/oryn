@@ -177,9 +177,16 @@ pub enum TargetKind {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchType {
+    /// Exact string match.
     Exact,
+    /// Substring match (default).
     #[default]
     Contains,
+    /// Regex matching - intentionally not implemented.
+    ///
+    /// The resolver's scoring system handles exact/contains matching well,
+    /// and no builtin intents currently require regex matching.
+    /// This variant exists for future extensibility if a clear use case emerges.
     Regex,
 }
 
