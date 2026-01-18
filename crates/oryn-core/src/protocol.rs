@@ -216,6 +216,27 @@ pub struct ScanResult {
     pub patterns: Option<DetectedPatterns>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changes: Option<Vec<ElementChange>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_intents: Option<Vec<IntentAvailability>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntentAvailability {
+    pub name: String,
+    pub status: AvailabilityStatus,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AvailabilityStatus {
+    Ready,
+    NavigateRequired,
+    MissingPattern,
+    Unavailable,
 }
 
 /// Detected UI patterns on the page.

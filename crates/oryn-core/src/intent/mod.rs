@@ -5,5 +5,6 @@ pub mod executor;
 pub mod loader;
 pub mod mapper;
 pub mod registry;
+pub mod schema;
 pub mod session;
 pub mod verifier;

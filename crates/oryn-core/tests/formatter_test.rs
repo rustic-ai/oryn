@@ -32,6 +32,7 @@ fn mock_scan_result_with_login() -> ScannerProtocolResponse {
         },
         patterns: Some(patterns),
         changes: None,
+        available_intents: None,
     };
 
     ScannerProtocolResponse::Ok {
@@ -53,7 +54,7 @@ fn mock_intent(name: &str) -> IntentDefinition {
         options: Default::default(),
         description: None,
     };
-    // Map login pattern to this intent
+    // Map login pattern to this intent (must match formatter's pattern name)
     intent.triggers.patterns.push("login_form".to_string());
     intent
 }
@@ -74,6 +75,6 @@ fn test_format_response_with_intent() {
     registry.register(mock_intent("builtin_login"));
 
     let output = format_response_with_intent(&resp, Some(&registry));
-    assert!(output.contains("Available Intents:"));
+    assert!(output.contains("Available Intents (inferred):"));
     assert!(output.contains("- builtin_login (v1.0.0)"));
 }

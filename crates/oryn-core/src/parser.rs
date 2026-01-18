@@ -836,11 +836,11 @@ impl<'a> Parser<'a> {
     fn parse_intents(&mut self) -> Result<Command, String> {
         // intents [--session]
         let mut filter = IntentFilter::All;
-        if let Some(Token::Flag(flag)) = self.peek_token() {
-            if flag == "session" {
-                self.consume_token();
-                filter = IntentFilter::Session;
-            }
+        if let Some(Token::Flag(flag)) = self.peek_token()
+            && flag == "session"
+        {
+            self.consume_token();
+            filter = IntentFilter::Session;
         }
         Ok(Command::Intents(filter))
     }

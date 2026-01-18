@@ -17,14 +17,49 @@ pub struct PackManager {
     loaded_packs: HashMap<String, PackMetadata>, // Map pack name to metadata
     registry: IntentRegistry,
     pack_paths: Vec<PathBuf>,
+    // Index of available packs (scanned but not necessarily loaded)
+    available_packs: HashMap<String, PackMetadata>,
+    // Map domain -> pack name for auto-loading
+    domain_map: HashMap<String, String>,
 }
 
 impl PackManager {
-    pub fn new(registry: IntentRegistry, pack_paths: Vec<PathBuf>) -> Self {
-        Self {
+    pub async fn new(registry: IntentRegistry, pack_paths: Vec<PathBuf>) -> Self {
+        let mut manager = Self {
             loaded_packs: HashMap::new(),
             registry,
-            pack_paths,
+            pack_paths: pack_paths.clone(),
+            available_packs: HashMap::new(),
+            domain_map: HashMap::new(),
+        };
+
+        // Scan for available packs on startup
+        manager.scan_available_packs().await;
+
+        manager
+    }
+
+    /// Scans pack_paths for valid packs and populates available_packs and domain_map
+    async fn scan_available_packs(&mut self) {
+        for path in &self.pack_paths {
+            // Read directory
+            if let Ok(mut entries) = tokio::fs::read_dir(path).await {
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    if entry.path().is_dir() {
+                        // Try to load metadata only (cheap)
+                        if let Ok(metadata) = PackLoader::load_metadata(&entry.path()).await {
+                            let name = metadata.pack.clone();
+
+                            // Map domains to this pack
+                            for domain in &metadata.domains {
+                                self.domain_map.insert(domain.clone(), name.clone());
+                            }
+
+                            self.available_packs.insert(name, metadata);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -40,8 +75,17 @@ impl PackManager {
         self.loaded_packs.values().collect()
     }
 
+    pub fn list_available(&self) -> Vec<&PackMetadata> {
+        self.available_packs.values().collect()
+    }
+
     pub async fn load_pack_by_name(&mut self, name: &str) -> Result<(), PackError> {
-        // Simple resolution: check each pack path for a directory with the name
+        // Check if already loaded
+        if self.loaded_packs.contains_key(name) {
+            return Ok(());
+        }
+
+        // Find path
         for path in &self.pack_paths {
             let pack_dir = path.join(name);
             if pack_dir.exists() {
@@ -55,11 +99,11 @@ impl PackManager {
         let loaded = PackLoader::load_pack(path).await?;
 
         // Register intents
-        for _intent in loaded.intents {
-            // Register as discovered tiers? Or builtin?
-            // For now, let's assume they are Discovered or have a new tier.
-            // self.registry.register(intent);
-            // TODO: Expose register method on registry that takes a definition
+        for intent in loaded.intents {
+            // Register as Loaded tier to override built-ins if needed
+            let mut intent = intent;
+            intent.tier = crate::intent::definition::IntentTier::Loaded;
+            self.registry.register(intent);
         }
 
         self.loaded_packs
@@ -78,13 +122,19 @@ impl PackManager {
     }
 
     pub fn should_auto_load(&self, url: &str) -> Option<String> {
-        // Heuristic: check if URL contains any known domain?
-        // Or we need an index of all available packs and their domains.
-        // For MVP, maybe we scan all packs once on startup to build an index?
-        // Or simpler: mapping domain -> pack name
-        if url.contains("github.com") {
-            // This is hardcoded for now as an example, ideally we check against available packs
-            return Some("github.com".to_string());
+        if let Ok(parsed) = url::Url::parse(url)
+            && let Some(domain) = parsed.host_str()
+        {
+            // Check exact match
+            if let Some(pack_name) = self.domain_map.get(domain) {
+                // Only auto-load if not already loaded
+                if !self.loaded_packs.contains_key(pack_name) {
+                    return Some(pack_name.clone());
+                }
+            }
+
+            // TODO: Support wildcard domains or suffix matching if needed
+            // e.g. *.github.com -> github-pack
         }
         None
     }

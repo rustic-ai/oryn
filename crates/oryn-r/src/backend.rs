@@ -115,16 +115,14 @@ impl Backend for RemoteBackend {
         // Extract base64 data from response
         match resp {
             ScannerProtocolResponse::Ok { data, .. } => {
-                if let oryn_core::protocol::ScannerData::Value(value) = *data {
-                    if let Some(base64_str) = value.as_str() {
-                        use base64::Engine;
-                        let bytes = base64::engine::general_purpose::STANDARD
-                            .decode(base64_str)
-                            .map_err(|e| {
-                                BackendError::Other(format!("Base64 decode failed: {}", e))
-                            })?;
-                        return Ok(bytes);
-                    }
+                if let oryn_core::protocol::ScannerData::Value(value) = *data
+                    && let Some(base64_str) = value.as_str()
+                {
+                    use base64::Engine;
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(base64_str)
+                        .map_err(|e| BackendError::Other(format!("Base64 decode failed: {}", e)))?;
+                    return Ok(bytes);
                 }
                 Err(BackendError::Other(
                     "Invalid screenshot response format".into(),

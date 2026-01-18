@@ -67,14 +67,13 @@ fn create_minibrowser_symlink(cog_path: &str) -> Result<PathBuf, String> {
 /// Find WPEWebDriver binary on the system
 pub fn find_webdriver_binary() -> Option<String> {
     // First check PATH
-    if let Ok(output) = Command::new("which").arg("WPEWebDriver").output() {
-        if output.status.success() {
-            if let Ok(path) = String::from_utf8(output.stdout) {
-                let path = path.trim();
-                if !path.is_empty() {
-                    return Some(path.to_string());
-                }
-            }
+    if let Ok(output) = Command::new("which").arg("WPEWebDriver").output()
+        && output.status.success()
+        && let Ok(path) = String::from_utf8(output.stdout)
+    {
+        let path = path.trim();
+        if !path.is_empty() {
+            return Some(path.to_string());
         }
     }
 
@@ -91,14 +90,13 @@ pub fn find_webdriver_binary() -> Option<String> {
 /// Find weston binary on the system
 pub fn find_weston_binary() -> Option<String> {
     // First check PATH
-    if let Ok(output) = Command::new("which").arg("weston").output() {
-        if output.status.success() {
-            if let Ok(path) = String::from_utf8(output.stdout) {
-                let path = path.trim();
-                if !path.is_empty() {
-                    return Some(path.to_string());
-                }
-            }
+    if let Ok(output) = Command::new("which").arg("weston").output()
+        && output.status.success()
+        && let Ok(path) = String::from_utf8(output.stdout)
+    {
+        let path = path.trim();
+        if !path.is_empty() {
+            return Some(path.to_string());
         }
     }
 
@@ -115,14 +113,13 @@ pub fn find_weston_binary() -> Option<String> {
 /// Find COG binary on the system
 pub fn find_cog_binary() -> Option<String> {
     // First check PATH
-    if let Ok(output) = Command::new("which").arg("cog").output() {
-        if output.status.success() {
-            if let Ok(path) = String::from_utf8(output.stdout) {
-                let path = path.trim();
-                if !path.is_empty() {
-                    return Some(path.to_string());
-                }
-            }
+    if let Ok(output) = Command::new("which").arg("cog").output()
+        && output.status.success()
+        && let Ok(path) = String::from_utf8(output.stdout)
+    {
+        let path = path.trim();
+        if !path.is_empty() {
+            return Some(path.to_string());
         }
     }
 

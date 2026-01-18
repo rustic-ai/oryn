@@ -66,6 +66,7 @@ impl Backend for MockBackend {
                     scanned: 0,
                 },
                 changes: None,
+                available_intents: None,
             })),
             warnings: vec![],
         })

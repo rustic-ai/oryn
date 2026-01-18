@@ -42,7 +42,7 @@ impl ReplState {
         });
 
         let pack_paths = config.packs.pack_paths.clone();
-        let pack_manager = PackManager::new(registry, pack_paths);
+        let pack_manager = PackManager::new(registry, pack_paths).await;
 
         let storage = oryn_core::learner::storage::ObservationStorage::new();
         let observer =
@@ -63,10 +63,10 @@ impl ReplState {
     }
 
     fn update_from_response(&mut self, resp: &ScannerProtocolResponse) {
-        if let ScannerProtocolResponse::Ok { data, .. } = resp {
-            if let ScannerData::Scan(scan_result) = data.as_ref() {
-                self.resolver_context = Some(ResolverContext::new(scan_result));
-            }
+        if let ScannerProtocolResponse::Ok { data, .. } = resp
+            && let ScannerData::Scan(scan_result) = data.as_ref()
+        {
+            self.resolver_context = Some(ResolverContext::new(scan_result));
         }
     }
 
@@ -198,14 +198,14 @@ async fn execute_command(
     match &cmd {
         Command::GoTo(url) => {
             // Auto-load pack if configured
-            if state.config.packs.auto_load {
-                if let Some(domain) = state.pack_manager.should_auto_load(url) {
-                    if let Err(e) = state.pack_manager.load_pack_by_name(&domain).await {
-                        // Simplify: Just log error for now, don't fail navigation
-                        eprintln!("Warning: Failed to auto-load pack for {}: {}", domain, e);
-                    } else {
-                        println!("Auto-loaded pack: {}", domain);
-                    }
+            if state.config.packs.auto_load
+                && let Some(pack_name) = state.pack_manager.should_auto_load(url)
+            {
+                if let Err(e) = state.pack_manager.load_pack_by_name(&pack_name).await {
+                    // Simplify: Just log error for now, don't fail navigation
+                    eprintln!("Warning: Failed to auto-load pack for {}: {}", pack_name, e);
+                } else {
+                    println!("Auto-loaded pack: {}", pack_name);
                 }
             }
 
@@ -573,18 +573,15 @@ async fn execute_command(
     }
 
     // Record observation if learning enabled and context available
-    if state.config.learning.enabled {
-        if let Some(ctx) = state.get_context() {
-            // Extract domain from URL
-            if let Ok(url) = url::Url::parse(ctx.url()) {
-                if let Some(domain) = url.host_str() {
-                    // Convert command to string for MVP
-                    state
-                        .observer
-                        .record(domain, url.as_str(), &format!("{:?}", cmd));
-                }
-            }
-        }
+    if state.config.learning.enabled
+        && let Some(ctx) = state.get_context()
+        && let Ok(url) = url::Url::parse(ctx.url())
+        && let Some(domain) = url.host_str()
+    {
+        // Convert command to string for MVP
+        state
+            .observer
+            .record(domain, url.as_str(), &format!("{:?}", cmd));
     }
 
     // 2. Resolve semantic targets if needed

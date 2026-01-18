@@ -1,5 +1,6 @@
 use crate::intent::definition::IntentDefinition;
 use crate::intent::registry::IntentRegistry;
+use crate::intent::schema::{Validatable, ValidationError};
 use glob::glob;
 use std::fs;
 use std::path::Path;
@@ -12,6 +13,8 @@ pub enum LoaderError {
     Glob(#[from] glob::PatternError),
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_yaml::Error),
+    #[error("Validation error: {0}")]
+    Validation(#[from] ValidationError),
 }
 
 pub struct IntentLoader;
@@ -32,7 +35,13 @@ impl IntentLoader {
             };
 
             let intent = match serde_yaml::from_str::<IntentDefinition>(&content) {
-                Ok(i) => i,
+                Ok(i) => {
+                    if let Err(e) = i.validate() {
+                        eprintln!("Failed to validate intent from {:?}: {}", file_path, e);
+                        continue;
+                    }
+                    i
+                }
                 Err(e) => {
                     eprintln!("Failed to parse intent from {:?}: {}", file_path, e);
                     continue;

@@ -169,6 +169,16 @@ pub trait Backend: Send + Sync {
         command: ScannerRequest,
     ) -> Result<ScannerProtocolResponse, BackendError>;
 
+    /// Execute a script in the browser context.
+    /// This is a convenience method that might wrap a scanner request or call the backend directly.
+    async fn execute_script(&mut self, _script: &str) -> Result<serde_json::Value, BackendError> {
+        // Default implementation via Scanner request?
+        // Or just return NotSupported by default.
+        // Since it's used by Execute action, it should probably be supported or optional.
+        // Let's make it return NotSupported by default.
+        Err(BackendError::NotSupported("execute_script".into()))
+    }
+
     /// Capture a screenshot of the current viewport.
     async fn screenshot(&mut self) -> Result<Vec<u8>, BackendError>;
 

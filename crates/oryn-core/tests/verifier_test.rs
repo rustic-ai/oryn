@@ -21,6 +21,7 @@ fn make_scan_result(elements: Vec<Element>, patterns: Option<DetectedPatterns>) 
         },
         patterns,
         changes: None,
+        available_intents: None,
     }
 }
 

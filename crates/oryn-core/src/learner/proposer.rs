@@ -2,6 +2,7 @@ use super::recognizer::Pattern;
 use crate::intent::define_parser::parse_define;
 use crate::intent::definition::{IntentDefinition, IntentTier};
 
+#[derive(Default)]
 pub struct Proposer;
 
 impl Proposer {

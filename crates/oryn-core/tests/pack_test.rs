@@ -62,7 +62,8 @@ name: "test_intent"
 description: "A test intent"
 version: "1.0.0"
 tier: "loaded"
-steps: []
+steps:
+  - checkpoint: "start"
     "#;
     fs::write(&intent_path, intent_yaml).await.unwrap();
 
@@ -90,17 +91,22 @@ domains: ["test.com"]
     fs::write(&manifest_path, metadata).await.unwrap();
 
     let registry = IntentRegistry::new();
-    let mut manager = PackManager::new(registry, vec![root.to_path_buf()]);
+    let mut manager = PackManager::new(registry, vec![root.to_path_buf()]).await;
+
+    // Test Auto Load BEFORE loading - should return pack name for configured domain
+    assert_eq!(
+        manager.should_auto_load("https://test.com/page"),
+        Some("test.com".to_string())
+    );
+    // Should return None for non-configured domains
+    assert!(manager.should_auto_load("https://github.com/foo").is_none());
 
     // Test Load
     manager.load_pack_by_name("test.com").await.unwrap();
     assert_eq!(manager.list_loaded().len(), 1);
 
-    // Test Auto Load
-    assert_eq!(
-        manager.should_auto_load("https://github.com/foo"),
-        Some("github.com".to_string())
-    );
+    // After loading, should_auto_load returns None (already loaded)
+    assert!(manager.should_auto_load("https://test.com/page").is_none());
 
     // Test Unload
     manager.unload_pack("test.com").unwrap();
@@ -118,7 +124,7 @@ domains: ["test.com"]
 #[tokio::test]
 async fn test_pack_manager_unload_nonexistent() {
     let registry = IntentRegistry::new();
-    let mut manager = PackManager::new(registry, vec![]);
+    let mut manager = PackManager::new(registry, vec![]).await;
 
     let result = manager.unload_pack("nonexistent");
     assert!(result.is_err());
@@ -142,7 +148,7 @@ domains: ["test.com"]
     fs::write(&manifest_path, metadata).await.unwrap();
 
     let registry = IntentRegistry::new();
-    let mut manager = PackManager::new(registry, vec![root.to_path_buf()]);
+    let mut manager = PackManager::new(registry, vec![root.to_path_buf()]).await;
 
     // Load first time - should succeed
     manager.load_pack_by_name("test.com").await.unwrap();
@@ -156,7 +162,7 @@ domains: ["test.com"]
 #[tokio::test]
 async fn test_pack_manager_empty_paths() {
     let registry = IntentRegistry::new();
-    let manager = PackManager::new(registry, vec![]);
+    let manager = PackManager::new(registry, vec![]).await;
 
     // With no pack paths, list should be empty
     assert!(manager.list_loaded().is_empty());
@@ -206,7 +212,8 @@ domains: ["pack2.com"]
             temp_dir1.path().to_path_buf(),
             temp_dir2.path().to_path_buf(),
         ],
-    );
+    )
+    .await;
 
     // Should be able to load from both paths
     manager.load_pack_by_name("pack1.com").await.unwrap();
@@ -321,8 +328,23 @@ intents: ["intents/*.yaml"]
 
 #[tokio::test]
 async fn test_pack_manager_auto_load_github_subpath() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = temp_dir.path();
+
+    // Create a github.com pack
+    let pack_dir = root.join("github.com");
+    fs::create_dir(&pack_dir).await.unwrap();
+    let manifest_path = pack_dir.join("pack.yaml");
+    let metadata = r#"
+pack: "github.com"
+version: "1.0.0"
+description: "GitHub Pack"
+domains: ["github.com"]
+"#;
+    fs::write(&manifest_path, metadata).await.unwrap();
+
     let registry = IntentRegistry::new();
-    let manager = PackManager::new(registry, vec![]);
+    let manager = PackManager::new(registry, vec![root.to_path_buf()]).await;
 
     // Various GitHub URLs should match
     assert_eq!(
@@ -338,7 +360,7 @@ async fn test_pack_manager_auto_load_github_subpath() {
 #[tokio::test]
 async fn test_pack_manager_auto_load_no_match() {
     let registry = IntentRegistry::new();
-    let manager = PackManager::new(registry, vec![]);
+    let manager = PackManager::new(registry, vec![]).await;
 
     // Non-GitHub URLs should not match
     assert!(

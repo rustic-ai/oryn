@@ -14,7 +14,8 @@ version: 1.0.0
 tier: loaded
 triggers:
   patterns: ["test_pattern"]
-steps: []
+steps:
+  - checkpoint: "start"
 "#;
 
     fs::write(&file_path, yaml_content).unwrap();
@@ -63,14 +64,16 @@ name: intent1
 version: 1.0.0
 tier: loaded
 triggers: {}
-steps: []
+steps:
+  - checkpoint: "start"
 "#;
     let content2 = r#"
 name: intent2
 version: 1.0.0
 tier: loaded
 triggers: {}
-steps: []
+steps:
+  - checkpoint: "start"
 "#;
 
     fs::write(dir.path().join("intent1.yaml"), content1).unwrap();

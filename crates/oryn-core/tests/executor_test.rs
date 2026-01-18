@@ -126,6 +126,7 @@ impl Backend for MockBackend {
                         },
                         patterns: None,
                         changes: None,
+                        available_intents: None,
                     })),
                     warnings: vec![],
                 })
@@ -733,6 +734,7 @@ impl Backend for PlaceholderMockBackend {
                         },
                         patterns: None,
                         changes: None,
+                        available_intents: None,
                     })),
                     warnings: vec![],
                 })
@@ -1297,6 +1299,7 @@ impl Backend for FailingMockBackend {
                     },
                     patterns: None,
                     changes: None,
+                    available_intents: None,
                 })),
                 warnings: vec![],
             }),

@@ -53,7 +53,6 @@ When an intent cannot execute as defined, the engine falls back to heuristics, p
 │  • Intent Registry (built-in, loaded, discovered)           │
 │  • Pattern Matcher (maps page patterns to available intents)│
 │  • Intent Executor (expands and runs intent steps)          │
-│  • Intent Learner (observes patterns, proposes intents)     │
 │  • Pack Manager (loads site-specific intent packs)          │
 └─────────────────────────┬───────────────────────────────────┘
                           │
@@ -1112,176 +1111,9 @@ ok export add_to_wishlist
 
 ---
 
-## 8. Intent Learning
+## 8. Site-Specific Intent Packs
 
-### 8.1 Observation Mode
-
-The Intent Learner watches agent command sequences and identifies patterns:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Learner observes command sequences across sessions:        │
-│                                                             │
-│  Session 1:                                                 │
-│    click "Write a review"                                   │
-│    wait 2s                                                  │
-│    click [star_5]                                           │
-│    type [14] "Great product, highly recommend!"             │
-│    click "Submit Review"                                    │
-│                                                             │
-│  Session 2:                                                 │
-│    click "Write a review"                                   │
-│    click [star_4]                                           │
-│    type [14] "Good quality, fast shipping"                  │
-│    click "Submit"                                           │
-│                                                             │
-│  Session 3:                                                 │
-│    click "Leave a Review"     # text variation              │
-│    click [star_5]                                           │
-│    type [review_textarea] "Amazing!"                        │
-│    click "Post Review"        # text variation              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 8.2 Pattern Recognition
-
-The learner identifies:
-
-**Structural Similarity**
-- Same sequence of action types (click → click → type → click)
-- Similar target patterns (text containing "review", star elements, textarea, submit)
-
-**Parameterizable Elements**
-- Star rating varies (4, 5) → parameter `rating`
-- Review text varies → parameter `text`
-
-**Text Variations**
-- "Write a review" / "Leave a Review" → same intent trigger
-- "Submit Review" / "Submit" / "Post Review" → same submit action
-
-### 8.3 Intent Proposal
-
-When confidence threshold is met:
-
-```
-# discovered intent proposal
-
-Intent Learner has identified a repeated pattern:
-
-  intent: write_review
-  confidence: 0.89
-  observations: 3
-  
-  inferred parameters:
-    - rating: number (values seen: 4, 5)
-    - text: string (variable content)
-  
-  inferred steps:
-    1. click { text_contains: [review, write] }
-    2. click { class_contains: star, index: $rating }
-    3. type { role: textarea } $text
-    4. click { text_contains: [submit, post], role: submit }
-  
-  Accept? [yes / no / refine]
-```
-
-### 8.4 Refinement Interface
-
-```
-refine write_review
-
-# Current definition:
-intent: write_review
-parameters:
-  - rating: number
-  - text: string
-steps:
-  - click { text_contains: [review, write] }
-  - click { class_contains: star, index: $rating }
-  - type { role: textarea } $text
-  - click { text_contains: [submit, post] }
-
-# Commands:
-#   add param <name>:<type>     Add parameter
-#   remove param <name>         Remove parameter
-#   edit step <n>               Modify step
-#   add step <position>         Insert step
-#   remove step <n>             Delete step
-#   test                        Test current definition
-#   save                        Accept and save
-#   cancel                      Discard changes
-
-> add param title:string --optional
-
-# Updated:
-parameters:
-  - rating: number
-  - text: string
-  - title: string (optional)
-
-> edit step 3
-
-# Step 3: type { role: textarea } $text
-# New definition:
-
-> type { pattern: review_form.body } $text
-
-# Updated step 3: type { pattern: review_form.body } $text
-
-> test --rating 5 --text "Test review"
-
-# Testing write_review...
-✓ Step 1: click "Write a review"
-✓ Step 2: click [star_5]
-✓ Step 3: type [14] "Test review"
-✓ Step 4: click "Submit Review"
-✓ Success: text "review submitted" found
-
-> save
-
-ok save write_review
-
-# Intent 'write_review' saved to discovered intents.
-# Use 'export write_review' to persist to file.
-```
-
-### 8.5 Learning Configuration
-
-```yaml
-# ~/.lemmascope/config.yaml
-
-intent_learner:
-  enabled: true
-  
-  # Minimum observations before proposing
-  min_observations: 3
-  
-  # Minimum confidence to propose
-  min_confidence: 0.75
-  
-  # How to handle proposals
-  auto_accept: false      # Require explicit approval
-  
-  # What to learn from
-  learn_from:
-    - direct_commands     # click, type, etc.
-    - failed_intents      # Learn from what agents try
-  
-  # Scope
-  persistence: session    # session | user | global
-  
-  # Privacy
-  exclude_fields:
-    - password
-    - credit_card
-    - ssn
-```
-
----
-
-## 9. Site-Specific Intent Packs
-
-### 9.1 Pack Structure
+### 8.1 Pack Structure
 
 Intent packs bundle site-specific patterns and intents:
 
@@ -1310,7 +1142,7 @@ intent-packs/
         └── advanced_search.yaml
 ```
 
-### 9.2 Pack Metadata
+### 8.2 Pack Metadata
 
 ```yaml
 # intent-packs/github.com/pack.yaml
@@ -1341,7 +1173,7 @@ auto_load:
   - "https://gist.github.com/*"
 ```
 
-### 9.3 Site-Specific Patterns
+### 8.3 Site-Specific Patterns
 
 ```yaml
 # intent-packs/github.com/patterns.yaml
@@ -1393,7 +1225,7 @@ patterns:
         text_contains: ["Create pull request", "Create PR"]
 ```
 
-### 9.4 Site-Specific Intents
+### 8.4 Site-Specific Intents
 
 ```yaml
 # intent-packs/github.com/intents/create_issue.yaml
@@ -1492,32 +1324,7 @@ failure:
     - action: observe
 ```
 
-### 9.5 Pack Loading
-
-```
-# List available packs
-packs
-
-# Available intent packs:
-# ✓ github.com (v1.2.0) - loaded
-# ✓ amazon.com (v1.1.0) - loaded
-#   twitter.com (v1.0.0) - available
-#   linkedin.com (v0.9.0) - available
-
-# Load a pack manually
-pack load twitter.com
-
-# Unload a pack
-pack unload github.com
-
-# Update packs
-pack update
-
-# Install community pack
-pack install stripe.com --source community
-```
-
-### 9.6 Auto-Loading
+### 8.5 Auto-Loading
 
 When navigating to a URL, the engine checks for matching packs:
 
@@ -1539,119 +1346,56 @@ Loading intent pack: github.com (v1.2.0)
 
 ---
 
-## 10. Response Format
+## 9. Response Format
 
-### 10.1 Success Response
+Intent execution returns a structured result containing:
 
-```
-ok <intent> [<summary>]
+### 9.1 IntentResult Structure
 
-# actions
-<action log>
+```rust
+pub struct IntentResult {
+    pub intent_name: String,
+    pub status: IntentStatus,
+    pub data: Option<Value>,       // Extracted data on success
+    pub logs: Vec<ExecutionLog>,   // Chronological action log
+    pub changes: PageChanges,      // Before/after page state diff
+    pub checkpoint: Option<String>, // Last checkpoint reached (on failure)
+}
 
-# changes
-<change notation>
-
-# result (if extract defined)
-<extracted data>
-```
-
-**Example**
-```
-ok login "user@example.com"
-
-# actions
-scan
-type [1] "user@example.com"
-type [2] "••••••••"
-click [3] "Sign in"
-wait navigation (2.3s)
-scan
-
-# changes
-~ url: github.com/login → github.com
-~ title: "Sign in" → "GitHub"
-- [1] input/email
-- [2] input/password
-- [3] button/submit
-- login_form
-+ [1] nav "Dashboard"
-+ user_menu
-
-# result
-authenticated: true
-redirect: github.com
+pub enum IntentStatus {
+    Success,
+    PartialSuccess {
+        completed_steps: usize,
+        total_steps: usize,
+    },
+    Failed {
+        step: usize,
+        error: String,
+    },
+}
 ```
 
-### 10.2 Failure Response
+### 9.2 Status Types
 
-```
-error <intent>: <message>
+| Status | Description |
+|--------|-------------|
+| `Success` | All steps completed and success conditions verified |
+| `PartialSuccess` | Some steps completed before failure; checkpoint available for resume |
+| `Failed` | Intent could not complete; error details provided |
 
-# actions
-<action log up to failure>
+### 9.3 Page Changes
 
-# checkpoint (if applicable)
-<last successful checkpoint>
-
-# context
-<relevant page state>
-
-# hint
-<recovery suggestions>
-```
-
-**Example**
-```
-error checkout: payment form validation failed
-
-# actions
-click [5] "Proceed to checkout"
-wait shipping_form (1.2s)
-fill_form shipping [success]
-click [12] "Continue"
-wait payment_form (1.8s)
-fill_form payment
-click [18] "Place order"
-
-# checkpoint
-payment_started
-
-# context
-Form errors detected:
-  - "Card number is invalid"
-  - "Expiration date is required"
-
-# hint
-Payment form has validation errors. Check:
-  - card_number: format should be 16 digits
-  - expiration: format should be MM/YY
-Retry: checkout --resume payment_started --payment {...}
-```
-
-### 10.3 Partial Success Response
-
-```
-partial <intent>: <summary>
-
-# completed
-<successful steps>
-
-# failed
-<failed steps>
-
-# result
-<partial data extracted>
-
-# hint
-<how to complete remaining steps>
-```
+The `changes` field captures the diff between page state before and after intent execution:
+- Elements added/removed
+- URL changes
+- Title changes
+- Patterns detected/disappeared
 
 ---
 
-## 11. Configuration
+## 10. Configuration
 
-### 11.1 Engine Configuration
+### 10.1 Engine Configuration
 
 ```yaml
 # ~/.lemmascope/config.yaml
@@ -1698,7 +1442,7 @@ intent_engine:
     community_repo: https://packs.lemmascope.dev
 ```
 
-### 11.2 Per-Intent Options
+### 10.2 Per-Intent Options
 
 Override engine defaults for specific intents:
 
@@ -1708,93 +1452,11 @@ login "user" "pass" --timeout 60s --no-verify
 checkout --retry 5 --checkpoint-resume shipping_complete
 ```
 
-### 11.3 Runtime Configuration
-
-```
-# View current config
-config show intent_engine
-
-# Modify at runtime
-config set intent_engine.execution.default_timeout 60s
-config set intent_engine.learning.enabled false
-
-# Reset to defaults
-config reset intent_engine.execution
-```
-
 ---
 
-## 12. Extensibility
+## 11. Security Considerations
 
-### 12.1 Custom Step Actions
-
-Packs can define custom actions:
-
-```yaml
-# In pack definition
-custom_actions:
-  github_api:
-    description: "Make authenticated GitHub API call"
-    parameters:
-      - endpoint: string
-      - method: string
-      - body: object
-    implementation:
-      type: javascript
-      code: |
-        async function(params, context) {
-          const token = await context.getCookie('github_token');
-          const response = await fetch(`https://api.github.com${params.endpoint}`, {
-            method: params.method,
-            headers: { 'Authorization': `token ${token}` },
-            body: JSON.stringify(params.body)
-          });
-          return response.json();
-        }
-```
-
-### 12.2 Custom Conditions
-
-```yaml
-custom_conditions:
-  github_authenticated:
-    description: "Check if logged into GitHub"
-    implementation:
-      type: pattern_check
-      patterns:
-        - user_menu
-      # OR
-      type: javascript
-      code: |
-        function(context) {
-          return context.patterns.includes('user_menu');
-        }
-```
-
-### 12.3 Hooks
-
-```yaml
-# Pack-level hooks
-hooks:
-  before_intent:
-    - action: dismiss_popups
-      condition: { pattern_exists: modal_dialog }
-      
-  after_navigate:
-    - action: wait
-      condition: idle
-      timeout: 2s
-      
-  on_error:
-    - action: screenshot
-      output: "./errors/{timestamp}.png"
-```
-
----
-
-## 13. Security Considerations
-
-### 13.1 Sensitive Data Handling
+### 11.1 Sensitive Data Handling
 
 **Password Masking**
 ```
@@ -1807,7 +1469,6 @@ type [2] "••••••••"  # Never show actual password
 The engine recognizes sensitive field types and:
 - Never logs their values
 - Masks them in responses
-- Excludes them from learning
 
 ```yaml
 sensitive_fields:
@@ -1822,7 +1483,7 @@ sensitive_fields:
   - api_key
 ```
 
-### 13.2 Intent Validation
+### 11.2 Intent Validation
 
 Loaded intents are validated for:
 - Schema compliance
@@ -1830,7 +1491,7 @@ Loaded intents are validated for:
 - Bounded loops (max iterations)
 - Reasonable timeouts
 
-### 13.3 Pack Trust
+### 11.3 Pack Trust
 
 ```yaml
 # Trust levels for packs
@@ -1843,15 +1504,14 @@ pack_trust:
 
 **Sandboxed Capabilities**
 - No `execute` steps (arbitrary JavaScript)
-- No custom actions with JavaScript
 - No file system access
 - Network limited to current domain
 
 ---
 
-## 14. Future Directions
+## 12. Future Directions
 
-### 14.1 Goal-Level Commands
+### 12.1 Goal-Level Commands
 
 Natural language goals that the engine plans automatically:
 
@@ -1873,7 +1533,7 @@ Estimated steps: 12-15
 Execute? [yes / modify / cancel]
 ```
 
-### 14.2 Multi-Page Flows
+### 12.2 Multi-Page Flows
 
 Intents that span multiple page navigations:
 
@@ -1897,7 +1557,7 @@ pages:
     extract: [order_number, total]
 ```
 
-### 14.3 Collaborative Learning
+### 12.3 Collaborative Learning
 
 Share learned intents across users:
 
@@ -1912,7 +1572,7 @@ search intents "newsletter subscribe"
 install intent subscribe_newsletter --author trusted_user
 ```
 
-### 14.4 Intent Composition
+### 12.4 Intent Composition
 
 Build complex intents from simpler ones:
 

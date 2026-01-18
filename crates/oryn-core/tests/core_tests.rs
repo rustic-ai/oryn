@@ -122,6 +122,7 @@ fn test_formatter_scan_scanresult() {
         },
         patterns: None,
         changes: None,
+        available_intents: None,
     };
 
     let resp = ScannerProtocolResponse::Ok {

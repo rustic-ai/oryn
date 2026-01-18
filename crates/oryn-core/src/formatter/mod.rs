@@ -177,24 +177,52 @@ pub fn format_response_with_intent(
                     }
                 }
 
-                if let Some(registry) = _registry
+                if let Some(intents) = &scan.available_intents {
+                    if !intents.is_empty() {
+                        output.push_str("\n\nAvailable Intents:");
+                        // Sort by status then name
+                        let mut sorted = intents.clone();
+                        sorted.sort_by(|a, b| {
+                            // Status ordering: Ready types first
+                            let status_ord = match (&a.status, &b.status) {
+                                (
+                                    crate::protocol::AvailabilityStatus::Ready,
+                                    crate::protocol::AvailabilityStatus::Ready,
+                                ) => std::cmp::Ordering::Equal,
+                                (crate::protocol::AvailabilityStatus::Ready, _) => {
+                                    std::cmp::Ordering::Less
+                                }
+                                (_, crate::protocol::AvailabilityStatus::Ready) => {
+                                    std::cmp::Ordering::Greater
+                                }
+                                _ => std::cmp::Ordering::Equal,
+                            };
+                            status_ord.then(a.name.cmp(&b.name))
+                        });
+
+                        for intent in sorted {
+                            let status_icon = match intent.status {
+                                crate::protocol::AvailabilityStatus::Ready => "🟢",
+                                crate::protocol::AvailabilityStatus::NavigateRequired => "🟠",
+                                crate::protocol::AvailabilityStatus::MissingPattern => "🔴",
+                                crate::protocol::AvailabilityStatus::Unavailable => "⚫",
+                            };
+
+                            output.push_str(&format!("\n- {} {}", status_icon, intent.name));
+                            if !intent.parameters.is_empty() {
+                                output.push_str(&format!(" ({})", intent.parameters.join(", ")));
+                            }
+                            // Reason?
+                            if let Some(reason) = &intent.trigger_reason {
+                                output.push_str(&format!(" [{}]", reason));
+                            }
+                        }
+                    }
+                } else if let Some(registry) = _registry
                     && let Some(patterns) = &scan.patterns
                 {
-                    let mut available = Vec::new();
-                    if patterns.login.is_some() {
-                        available.push("login");
-                    }
-                    if patterns.search.is_some() {
-                        available.push("search");
-                    }
-                    // ... other patterns
-
-                    // Find intents triggered by these patterns
-                    // Registry has `patterns_to_intents`.
-
-                    let mut intents = Vec::new(); // (Name, Version)
-
-                    // Helper to check
+                    // Fallback to legacy simulated logic if available_intents not populated
+                    let mut intents = Vec::new();
                     let mut check_pattern = |p: &str, valid: bool| {
                         if valid {
                             let defs = registry.get_by_pattern(p);
@@ -206,18 +234,16 @@ pub fn format_response_with_intent(
 
                     check_pattern("login_form", patterns.login.is_some());
                     check_pattern("search_box", patterns.search.is_some());
+                    // ... others
 
                     if !intents.is_empty() {
-                        output.push_str("\n\nAvailable Intents:");
+                        output.push_str("\n\nAvailable Intents (inferred):");
                         intents.sort();
                         intents.dedup();
                         for (name, ver) in intents {
                             output.push_str(&format!("\n- {} (v{})", name, ver));
                         }
                     }
-
-                    // Silence unused warning
-                    let _ = available;
                 }
                 output
             }
@@ -249,11 +275,10 @@ fn mask_sensitive_log(log: &str) -> String {
     for key in sensitive_keys {
         if lower_log.contains(key) {
             // Naive masking of quoted strings if key is present
-            if let Some(start) = masked.find('"') {
-                if let Some(end) = masked[start + 1..].rfind('"') {
-                    // mask content
-                    masked.replace_range(start + 1..start + 1 + end, "********");
-                }
+            if let Some(start) = masked.find('"')
+                && let Some(end) = masked[start + 1..].rfind('"')
+            {
+                masked.replace_range(start + 1..start + 1 + end, "********");
             }
             // Break after first mask to avoid double masking if multiple keys present?
             // Or continue? Implementation detail: replace_range modifies in place, indices might shift if replacement length differs.

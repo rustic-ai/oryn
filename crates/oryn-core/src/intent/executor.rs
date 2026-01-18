@@ -111,9 +111,34 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
         self.initial_scan = self.last_scan.clone();
 
         // 4. EXECUTE
+        let mut steps_completed = 0;
+        let total_steps = intent.steps.len();
+
         for step in &intent.steps {
-            self.execute_step_with_retry(step, &intent.options.retry)
-                .await?;
+            match self
+                .execute_step_with_retry(step, &intent.options.retry)
+                .await
+            {
+                Ok(_) => steps_completed += 1,
+                Err(e) => {
+                    // Return PartialSuccess if some steps completed
+                    if steps_completed > 0 {
+                        return Ok(IntentResult {
+                            status: IntentStatus::PartialSuccess {
+                                completed: steps_completed,
+                                total: total_steps,
+                            },
+                            data: None,
+                            logs: self.logs.clone(),
+                            checkpoint: self.last_checkpoint.clone(),
+                            hints: vec![format!("Failed at step {}: {}", steps_completed + 1, e)],
+                            changes: self.calculate_changes(),
+                        });
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
         }
 
         // 5. VERIFY
@@ -127,9 +152,18 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
                     .verify(&Condition::All(success_cond.conditions.clone()), &ctx)
                     .await?;
                 if !passed {
-                    return Err(ExecutorError::IntentFailed(
-                        "Success conditions not met".into(),
-                    ));
+                    // Verification failed after steps executed
+                    return Ok(IntentResult {
+                        status: IntentStatus::PartialSuccess {
+                            completed: steps_completed,
+                            total: total_steps,
+                        },
+                        data: None,
+                        logs: self.logs.clone(),
+                        checkpoint: self.last_checkpoint.clone(),
+                        hints: vec!["Steps completed but verification failed".to_string()],
+                        changes: self.calculate_changes(),
+                    });
                 }
             }
         } else {
@@ -281,16 +315,93 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
         }
     }
 
-    async fn perform_scan(&mut self) -> Result<(), ExecutorError> {
+    pub async fn perform_scan(&mut self) -> Result<(), ExecutorError> {
         let scan_req = ScannerRequest::Scan(ScanRequest::default());
         let resp = self.backend.execute_scanner(scan_req).await?;
 
         if let ScannerProtocolResponse::Ok { data, .. } = resp
-            && let ScannerData::Scan(result) = *data
+            && let ScannerData::Scan(mut result) = *data
         {
+            // Calculate available intents
+            result.available_intents = Some(self.calculate_available_intents(&result));
             self.last_scan = Some(result);
         }
         Ok(())
+    }
+
+    fn calculate_available_intents(
+        &self,
+        scan: &ScanResult,
+    ) -> Vec<crate::protocol::IntentAvailability> {
+        let mut availability = Vec::new();
+
+        for intent in self.registry.list() {
+            let mut status = crate::protocol::AvailabilityStatus::Ready;
+            let mut reason = None;
+
+            // 1. Check URL RegEx (Any match is sufficient)
+            if !intent.triggers.urls.is_empty() {
+                let mut url_matched = false;
+                for url_pattern in &intent.triggers.urls {
+                    match regex::Regex::new(url_pattern) {
+                        Ok(re) => {
+                            if re.is_match(&scan.page.url) {
+                                url_matched = true;
+                                break;
+                            }
+                        }
+                        Err(_) => {
+                            reason = Some(format!("Invalid URL regex: {}", url_pattern));
+                            // Continue checking others? Or fail hard?
+                            // Let's mark as unavailable if any regex is invalid to be safe/noisy?
+                            // Or just ignore invalid ones?
+                            // Let's record reason and fail this specific pattern match.
+                        }
+                    }
+                }
+
+                if !url_matched && reason.is_none() {
+                    status = crate::protocol::AvailabilityStatus::NavigateRequired;
+                } else if !url_matched {
+                    status = crate::protocol::AvailabilityStatus::Unavailable;
+                }
+            }
+
+            // 2. Check Patterns
+            // Only check patterns if URL is fine (Ready so far)
+            if status == crate::protocol::AvailabilityStatus::Ready {
+                if let Some(patterns) = &scan.patterns {
+                    for required_pattern in &intent.triggers.patterns {
+                        let found = match required_pattern.as_str() {
+                            "login_form" => patterns.login.is_some(),
+                            "search_box" => patterns.search.is_some(),
+                            "pagination" => patterns.pagination.is_some(),
+                            "modal" => patterns.modal.is_some(),
+                            "cookie_banner" => patterns.cookie_banner.is_some(),
+                            _ => false, // Unknown pattern
+                        };
+
+                        if !found {
+                            status = crate::protocol::AvailabilityStatus::MissingPattern;
+                            reason = Some(format!("Missing pattern: {}", required_pattern));
+                            break;
+                        }
+                    }
+                } else if !intent.triggers.patterns.is_empty() {
+                    // No patterns detected but intent requires some
+                    status = crate::protocol::AvailabilityStatus::MissingPattern;
+                    reason = Some("No patterns detected on page".to_string());
+                }
+            }
+
+            availability.push(crate::protocol::IntentAvailability {
+                name: intent.name.clone(),
+                status,
+                parameters: intent.parameters.iter().map(|p| p.name.clone()).collect(),
+                trigger_reason: reason,
+            });
+        }
+        availability
     }
 
     fn bind_parameters(
@@ -330,12 +441,22 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
                 let items = if let Some(val) = self.variables.get(&wrapper.loop_.over) {
                     // Loop over array variable
                     val.as_array().cloned().unwrap_or_default()
+                } else if let Ok(n) = wrapper.loop_.over.parse::<usize>() {
+                    // Treat as count 0..N
+                    (0..n).map(|i| json!(i)).collect()
                 } else {
-                    // Treat 'over' as a numeric range "0..N" or just run max times if logic requires
-                    // For now, simple range loop support if 'over' matches "start..end"
-                    // Or if it's not a var, maybe it's a fixed list?
-                    // Fallback: run 'max' times
-                    (0..wrapper.loop_.max).map(|i| json!(i)).collect()
+                    // Fallback: see if it looks like "start..end"
+                    if let Some((start, end)) = wrapper.loop_.over.split_once("..") {
+                        if let (Ok(s), Ok(e)) = (start.parse::<usize>(), end.parse::<usize>()) {
+                            (s..e).map(|i| json!(i)).collect()
+                        } else {
+                            // Fallback: run 'max' times
+                            (0..wrapper.loop_.max).map(|i| json!(i)).collect()
+                        }
+                    } else {
+                        // Fallback: run 'max' times
+                        (0..wrapper.loop_.max).map(|i| json!(i)).collect()
+                    }
                 };
 
                 let limit = wrapper.loop_.max;
@@ -511,10 +632,151 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
                     }
                 }
             }
-            _ => {
-                // Implement other actions like Wait, Scroll
-                // Wait is essentially verify with retry
+            ActionType::Select => {
+                if let Some(t) = target {
+                    // Option value/text/index
+                    let value = self.resolve_variable(step.options.get("value"));
+                    // If no value, maybe index?
+                    // For now, Command::Select takes Target and String value.
+                    // If empty, it might mean "select the target itself" if it's an option?
+                    // But usually Select(Target, Value).
+                    let cmd = Command::Select(t, value);
+                    let req = translator::translate(&cmd)?;
+                    self.backend.execute_scanner(req).await?;
+                }
             }
+            ActionType::Check => {
+                if let Some(t) = target {
+                    let cmd = Command::Check(t);
+                    let req = translator::translate(&cmd)?;
+                    self.backend.execute_scanner(req).await?;
+                }
+            }
+            ActionType::Uncheck => {
+                if let Some(t) = target {
+                    let cmd = Command::Uncheck(t);
+                    let req = translator::translate(&cmd)?;
+                    self.backend.execute_scanner(req).await?;
+                }
+            }
+            ActionType::Clear => {
+                if let Some(t) = target {
+                    let cmd = Command::Clear(t);
+                    let req = translator::translate(&cmd)?;
+                    self.backend.execute_scanner(req).await?;
+                }
+            }
+            ActionType::Scroll => {
+                // Scroll to target OR scroll based on options (up/down/etc)
+                let options = self.convert_options(&step.options);
+                let cmd = Command::Scroll(target, options);
+                let req = translator::translate(&cmd)?;
+                self.backend.execute_scanner(req).await?;
+            }
+            ActionType::Execute => {
+                // Run raw script
+                if let Some(script) = step.options.get("script").and_then(|v| v.as_str()) {
+                    let _ = self.backend.execute_script(script).await?;
+                }
+            }
+            ActionType::Intent => {
+                // Intent Composition
+                if let Some(sub_intent_name) = step.options.get("name").and_then(|v| v.as_str()) {
+                    self.logs
+                        .push(format!("Executing Sub-Intent: {}", sub_intent_name));
+                    // Pass parameters from options
+                    let _params = step.options.clone();
+
+                    // We need to resolve parameters that reference variables?
+                    // convert_options resolves string values.
+                    // But executor.execute takes HashMap<String, Value>.
+                    // We need to map `options` back to `Value` but resolved.
+                    let mut resolved_params = HashMap::new();
+                    for (k, v) in step.options.iter() {
+                        if k == "name" {
+                            continue;
+                        }
+                        if let Some(s) = v.as_str() {
+                            // If it's a variable reference, resolve it to Value
+                            if let Some(val) = self.resolve_variable_value(s) {
+                                resolved_params.insert(k.clone(), val);
+                            } else {
+                                // Literal string
+                                resolved_params.insert(k.clone(), v.clone());
+                            }
+                        } else {
+                            // Non-string value, keep as is
+                            resolved_params.insert(k.clone(), v.clone());
+                        }
+                    }
+
+                    // We need *recur* here.
+                    // Since we act on `&mut self`, we can't easily recurse with `self.execute`.
+                    // `execute` takes `&mut self`.
+                    // BUT `execute` resets state (logs, variables?).
+                    // Wait, `execute` uses self.variables.
+                    // A sub-intent should have its OWN scope or inherit?
+                    // Usually sub-intents have isolated scope passing params.
+                    // But `self` holds `backend`, `registry`.
+                    // If we reuse `self`, we pollute `self.variables`?
+
+                    // Better: Create a sub-executor.
+                    // We need to temporarily borrow backend/registry/verifier.
+                    // Problem: `self` borrows them.
+
+                    // Option 1: `execute_sub_intent` method that creates a new executor on the stack
+                    // borrowing necessary fields from `self` (careful with mutable borrow of backend).
+                    // We *can* borrow `self.backend` mutably if we don't borrow `self` elsewhere.
+
+                    // Let's delegate to a helper that takes explicit args.
+                    let sub_result = {
+                        // Create temporary scope
+                        // We need to construct a new Executor.
+                        let mut sub_executor = IntentExecutor::new(
+                            self.backend, // We re-borrow backend? `self.backend`
+                            self.registry,
+                            self.verifier,
+                        );
+                        // Execute sub-intent
+                        sub_executor.execute(sub_intent_name, resolved_params).await
+                    };
+
+                    match sub_result {
+                        Ok(res) => {
+                            self.logs.push(format!(
+                                "Sub-Intent '{}' finished: {:?}",
+                                sub_intent_name, res.status
+                            ));
+                            // Append logs?
+                            self.logs.extend(res.logs);
+                            if let IntentStatus::Failed(e) = res.status {
+                                return Err(ExecutorError::IntentFailed(format!(
+                                    "Sub-intent failed: {}",
+                                    e
+                                )));
+                            }
+                            if let IntentStatus::PartialSuccess { .. } = res.status {
+                                // Treat partial success of sub-intent as failure of this step??
+                                // Or just bubble?
+                                // Simplest: If not full success, fail this step.
+                                return Err(ExecutorError::IntentFailed(
+                                    "Sub-intent partial success".into(),
+                                ));
+                            }
+                        }
+                        Err(e) => {
+                            return Err(ExecutorError::StepFailed(format!(
+                                "Sub-intent execution error: {}",
+                                e
+                            )));
+                        }
+                    }
+                } else {
+                    return Err(ExecutorError::MissingParameter(
+                        "name for intent action".into(),
+                    ));
+                }
+            } // All variants covered
         }
         Ok(())
     }

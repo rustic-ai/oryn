@@ -730,6 +730,7 @@ mod tests {
             },
             patterns: None,
             changes: None,
+            available_intents: None,
         };
         ResolverContext::new(&scan_result)
     }
