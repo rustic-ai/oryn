@@ -16,6 +16,7 @@ fn init_tracing() {
 
 #[tokio::test]
 #[serial]
+#[ignore] // Requires weston/cog - run via ./scripts/run-tests.sh or in Docker
 async fn test_embedded_lifecycle() {
     init_tracing();
     // Test basic lifecycle: launch -> navigate -> close
@@ -40,6 +41,7 @@ async fn test_embedded_lifecycle() {
 
 #[tokio::test]
 #[serial]
+#[ignore] // Requires weston/cog - run via ./scripts/run-tests.sh or in Docker
 async fn test_embedded_features() {
     init_tracing();
     // Use port 8082 to avoid conflicts with parallel tests
@@ -95,6 +97,7 @@ async fn test_embedded_features() {
 
 #[tokio::test]
 #[serial]
+#[ignore] // Requires weston/cog - run via ./scripts/run-tests.sh or in Docker
 async fn test_embedded_navigation() {
     init_tracing();
     // Use port 8083 to avoid conflicts with parallel tests

@@ -132,18 +132,18 @@ main() {
         TEST_STATUS=1
     fi
 
-    # 5. Run weston tests if weston is available
-    if command -v weston &> /dev/null; then
+    # 5. Run weston tests only in e2e/Docker environment (not locally)
+    if [ -n "$ORYN_E2E" ] || [ -n "$CI" ]; then
         echo ""
         echo -e "${CYAN}─── Weston Headless Tests ───${NC}"
-        log_info "Weston found, running weston-headless tests..."
+        log_info "E2E environment detected, running weston-headless tests..."
         if cargo test -p oryn-e weston -- --ignored 2>&1 | tee -a /tmp/test-output.txt; then
             log_pass "Weston tests passed"
         else
             log_warn "Weston tests failed (non-fatal)"
         fi
     else
-        log_info "Weston not available, skipping weston-headless tests"
+        log_info "Skipping weston tests (run in Docker with ORYN_E2E=1 or CI=1)"
     fi
 
     # Parse results
