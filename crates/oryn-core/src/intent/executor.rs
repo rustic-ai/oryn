@@ -300,28 +300,70 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
                 if let Some(obj) = data_json.as_object() {
                     for (key, val) in obj {
                         let val_str = val.as_str().unwrap_or_default().to_string();
-                        // Try to find field by name/id
-                        // Strategy: Try name=key, id=key, aria-label=key
-                        // We construct a specific Target::Selector
-                        // TODO: Robust field finding
-                        let selector = format!(
-                            "input[name='{}'], input[id='{}'], textarea[name='{}']",
-                            key, key, key
-                        );
-                        // We can define a TargetSpec on the fly
-                        let spec = TargetSpec {
-                            kind: TargetKind::Selector { selector },
-                            fallback: None,
-                        };
+                        let mut found_via_scan = false;
 
-                        // Try to resolve
-                        if let Ok(t) = self.resolve_target_spec(&spec).await {
-                            let cmd = Command::Type(t, val_str, HashMap::new());
-                            let req = translator::translate(&cmd)?;
-                            self.backend.execute_scanner(req).await?;
-                        } else {
-                            self.logs
-                                .push(format!("Could not find field for key: {}", key));
+                        if let Some(scan) = &self.last_scan {
+                            // Strategy: Find best matching element in scan result
+                            // 1. Exact match on name or id
+                            // 2. Exact match on label
+                            // 3. Contains match on label
+
+                            let best_match = scan.elements.iter().find(|e| {
+                                let name_match = e.attributes.get("name").map(|s| s.as_str())
+                                    == Some(key)
+                                    || e.attributes.get("id").map(|s| s.as_str()) == Some(key);
+                                if name_match {
+                                    return true;
+                                }
+
+                                // Only consider form fields
+                                if matches!(
+                                    e.element_type.as_str(),
+                                    "input" | "textarea" | "select"
+                                ) {
+                                    if let Some(label) = &e.label {
+                                        if label.eq_ignore_ascii_case(key) {
+                                            return true;
+                                        }
+                                    }
+                                    if let Some(aria) = e.attributes.get("aria-label") {
+                                        if aria.eq_ignore_ascii_case(key) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                                false
+                            });
+
+                            if let Some(el) = best_match {
+                                let t = Target::Id(el.id as usize);
+                                let cmd = Command::Type(t, val_str.clone(), HashMap::new());
+                                if let Ok(req) = translator::translate(&cmd) {
+                                    if let Ok(_) = self.backend.execute_scanner(req).await {
+                                        found_via_scan = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if !found_via_scan {
+                            // Fallback to selector strategy for hidden/unscanned fields
+                            let selector = format!(
+                                "input[name='{}'], input[id='{}'], textarea[name='{}']",
+                                key, key, key
+                            );
+                            let spec = TargetSpec {
+                                kind: TargetKind::Selector { selector },
+                                fallback: None,
+                            };
+                            if let Ok(t) = self.resolve_target_spec(&spec).await {
+                                let cmd = Command::Type(t, val_str, HashMap::new());
+                                let req = translator::translate(&cmd)?;
+                                self.backend.execute_scanner(req).await?;
+                            } else {
+                                self.logs
+                                    .push(format!("Could not find field for key: {}", key));
+                            }
                         }
                     }
                 }

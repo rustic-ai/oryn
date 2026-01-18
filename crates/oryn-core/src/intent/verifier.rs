@@ -3,6 +3,7 @@ use crate::intent::definition::{Condition, TargetKind};
 use crate::protocol::ScanResult;
 use crate::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
 use async_recursion::async_recursion;
+use regex::Regex;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VerificationError {
@@ -93,6 +94,21 @@ impl Verifier {
                     Ok(false)
                 }
             }
+            Condition::PatternGone(pattern_name) => {
+                if let Some(patterns) = &context.scan_result.patterns {
+                    let exists = match pattern_name.as_str() {
+                        "login" => patterns.login.is_some(),
+                        "search" => patterns.search.is_some(),
+                        "pagination" => patterns.pagination.is_some(),
+                        "modal" => patterns.modal.is_some(),
+                        "cookie_banner" => patterns.cookie_banner.is_some(),
+                        _ => false,
+                    };
+                    Ok(!exists)
+                } else {
+                    Ok(true)
+                }
+            }
             Condition::Visible(target) => Ok(context.resolve_target_exists(target)?.is_some()),
             Condition::Hidden(target) => Ok(context.resolve_target_exists(target)?.is_none()),
             Condition::UrlContains(substrings) => {
@@ -100,11 +116,13 @@ impl Verifier {
                 Ok(substrings.iter().any(|s| url.contains(s)))
             }
             Condition::UrlMatches(regex) => {
-                // Simple strict equality for now, or use `regex` crate if needed
-                // Implementation plan says "UrlMatches"
-                // Assuming regex check or wildcard. For MVP, equality or simple contains.
-                // Let's implement basics.
-                Ok(context.scan_result.page.url.contains(regex))
+                match Regex::new(regex) {
+                    Ok(re) => Ok(re.is_match(&context.scan_result.page.url)),
+                    Err(_) => {
+                        // Fallback to contains for invalid regex
+                        Ok(context.scan_result.page.url.contains(regex))
+                    }
+                }
             }
             Condition::TextContains { text, within } => {
                 if let Some(target_spec) = within {
@@ -152,7 +170,10 @@ impl Verifier {
                 }
                 Ok(true)
             }
-            Condition::Expression(_) => Ok(false), // Placeholder
+            Condition::Expression(expr) => Err(VerificationError::Error(format!(
+                "Expression evaluation not supported yet: {}",
+                expr
+            ))),
         }
     }
 }

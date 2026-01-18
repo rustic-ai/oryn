@@ -187,6 +187,7 @@ pub enum MatchType {
 #[serde(rename_all = "snake_case")]
 pub enum Condition {
     PatternExists(String),
+    PatternGone(String),
     Visible(TargetSpec),
     Hidden(TargetSpec),
     UrlContains(Vec<String>),

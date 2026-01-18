@@ -164,3 +164,259 @@ async fn test_verify_logic_operators() {
             .unwrap()
     );
 }
+
+#[tokio::test]
+async fn test_verify_pattern_gone() {
+    let patterns = DetectedPatterns {
+        login: Some(oryn_core::protocol::LoginPattern {
+            email: None,
+            username: None,
+            password: 0,
+            submit: None,
+            remember: None,
+        }),
+        ..Default::default()
+    };
+
+    let scan = make_scan_result(vec![], Some(patterns));
+    let ctx = VerifierContext::new(&scan);
+    let verifier = Verifier;
+
+    let cond = Condition::PatternGone("search".to_string());
+    assert!(verifier.verify(&cond, &ctx).await.unwrap());
+
+    let cond_fail = Condition::PatternGone("login".to_string());
+    assert!(!verifier.verify(&cond_fail, &ctx).await.unwrap());
+}
+
+#[tokio::test]
+async fn test_verify_pattern_gone_no_patterns() {
+    let scan = make_scan_result(vec![], None);
+    let ctx = VerifierContext::new(&scan);
+    let verifier = Verifier;
+
+    let cond = Condition::PatternGone("login".to_string());
+    assert!(verifier.verify(&cond, &ctx).await.unwrap());
+}
+
+#[tokio::test]
+async fn test_verify_url_matches_regex() {
+    let scan = make_scan_result(vec![], None);
+    let ctx = VerifierContext::new(&scan);
+    let verifier = Verifier;
+
+    // Test valid regex
+    let cond = Condition::UrlMatches(r"^https://.*\.com/login$".to_string());
+    assert!(verifier.verify(&cond, &ctx).await.unwrap());
+
+    let cond_fail = Condition::UrlMatches(r"^http://".to_string());
+    assert!(!verifier.verify(&cond_fail, &ctx).await.unwrap());
+
+    // Test invalid regex fallback (contains)
+    let cond_fallback = Condition::UrlMatches("example.com".to_string());
+    // Force invalid regex syntax that is valid string
+    // "log[in" is invalid regex because unclosed bracket.
+    // But it might be in the string?
+    // "https://example.com/login" does NOT contain "log[in".
+    // So verify should return false.
+    let cond_invalid_regex = Condition::UrlMatches("log[in".to_string());
+    assert!(!verifier.verify(&cond_invalid_regex, &ctx).await.unwrap());
+
+    // Test simple contains fallback
+    assert!(
+        verifier
+            .verify(&Condition::UrlMatches("login".to_string()), &ctx)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_verify_hidden() {
+    let el = make_element(1, Some("Submit"), Some("button"));
+    let scan = make_scan_result(vec![el], None);
+    let ctx = VerifierContext::new(&scan);
+    let verifier = Verifier;
+
+    // Visible el
+    let target_visible = TargetSpec {
+        kind: TargetKind::Id { id: 1 },
+        fallback: None,
+    };
+
+    // Check if HIDDEN(id=1) -> False
+    assert!(
+        !verifier
+            .verify(&Condition::Hidden(target_visible.clone()), &ctx)
+            .await
+            .unwrap()
+    );
+
+    // Non-existent element
+    let target_hidden = TargetSpec {
+        kind: TargetKind::Id { id: 99 },
+        fallback: None,
+    };
+    // Check if HIDDEN(id=99) -> True
+    assert!(
+        verifier
+            .verify(&Condition::Hidden(target_hidden), &ctx)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_verify_text_contains() {
+    let el1 = make_element(1, Some("Hello World"), None);
+    let el2 = make_element(2, Some("Goodbye"), Some("footer"));
+    let scan = make_scan_result(vec![el1, el2], None);
+    let ctx = VerifierContext::new(&scan);
+    let verifier = Verifier;
+
+    // Global search
+    assert!(
+        verifier
+            .verify(
+                &Condition::TextContains {
+                    text: "Hello".to_string(),
+                    within: None
+                },
+                &ctx
+            )
+            .await
+            .unwrap()
+    );
+
+    assert!(
+        verifier
+            .verify(
+                &Condition::TextContains {
+                    text: "World".to_string(),
+                    within: None
+                },
+                &ctx
+            )
+            .await
+            .unwrap()
+    );
+
+    assert!(
+        !verifier
+            .verify(
+                &Condition::TextContains {
+                    text: "NotFound".to_string(),
+                    within: None
+                },
+                &ctx
+            )
+            .await
+            .unwrap()
+    );
+
+    // Scoped search
+    let within_target = Some(TargetSpec {
+        kind: TargetKind::Id { id: 1 },
+        fallback: None,
+    });
+
+    assert!(
+        verifier
+            .verify(
+                &Condition::TextContains {
+                    text: "Hello".to_string(),
+                    within: within_target.clone()
+                },
+                &ctx
+            )
+            .await
+            .unwrap()
+    );
+
+    // "Goodbye" is NOT in id=1
+    assert!(
+        !verifier
+            .verify(
+                &Condition::TextContains {
+                    text: "Goodbye".to_string(),
+                    within: within_target
+                },
+                &ctx
+            )
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_verify_count() {
+    let el1 = make_element(1, None, None); // div
+    let el2 = make_element(2, None, None); // div
+    let el3 = make_element(3, None, None); // div
+    let mut scan = make_scan_result(vec![el1, el2, el3], None);
+    // Element selector is format!("#el-{}", id), element_type is "div"
+    // Condition::Count checks selector match OR type match
+
+    let ctx = VerifierContext::new(&scan);
+    let verifier = Verifier;
+
+    // Count divs = 3
+    assert!(
+        verifier
+            .verify(
+                &Condition::Count {
+                    selector: "div".to_string(),
+                    min: Some(3),
+                    max: Some(3)
+                },
+                &ctx
+            )
+            .await
+            .unwrap()
+    );
+
+    // Min 2 -> pass
+    assert!(
+        verifier
+            .verify(
+                &Condition::Count {
+                    selector: "div".to_string(),
+                    min: Some(2),
+                    max: None
+                },
+                &ctx
+            )
+            .await
+            .unwrap()
+    );
+
+    // Max 2 -> fail
+    assert!(
+        !verifier
+            .verify(
+                &Condition::Count {
+                    selector: "div".to_string(),
+                    min: None,
+                    max: Some(2)
+                },
+                &ctx
+            )
+            .await
+            .unwrap()
+    );
+
+    // Count exact 3 -> pass
+    assert!(
+        verifier
+            .verify(
+                &Condition::Count {
+                    selector: "div".to_string(),
+                    min: Some(3),
+                    max: Some(3)
+                },
+                &ctx
+            )
+            .await
+            .unwrap()
+    );
+}
