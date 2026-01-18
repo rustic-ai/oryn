@@ -2,13 +2,15 @@ use crate::backend::{Backend, BackendError};
 use crate::command::{Command, Target};
 use crate::intent::definition::{ActionStep, ActionType, Condition, Step, TargetKind, TargetSpec};
 use crate::intent::registry::IntentRegistry;
-use crate::intent::verifier::Verifier;
-use crate::protocol::{ScanRequest, ScannerData, ScannerProtocolResponse, ScannerRequest};
+use crate::intent::verifier::{Verifier, VerifierContext};
+use crate::protocol::{
+    ScanRequest, ScanResult, ScannerData, ScannerProtocolResponse, ScannerRequest,
+};
 use crate::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
 use crate::translator;
 use async_recursion::async_recursion;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::HashMap;
 
 #[derive(Debug, thiserror::Error)]
@@ -46,6 +48,7 @@ pub struct IntentExecutor<'a, B: Backend> {
     verifier: &'a Verifier,
     variables: HashMap<String, Value>,
     logs: Vec<String>,
+    last_scan: Option<ScanResult>,
 }
 
 impl<'a, B: Backend> IntentExecutor<'a, B> {
@@ -56,6 +59,7 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
             verifier,
             variables: HashMap::new(),
             logs: Vec::new(),
+            last_scan: None,
         }
     }
 
@@ -77,10 +81,10 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
         self.bind_parameters(&intent.parameters, &params)?;
 
         // 3. PLAN (Scan initial state)
-        // Ensure we have a fresh scan for resolution
         if !self.backend.is_ready().await {
             self.backend.launch().await?;
         }
+        self.perform_scan().await?;
 
         // 4. EXECUTE
         for step in &intent.steps {
@@ -88,17 +92,41 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
         }
 
         // 5. VERIFY
-        if let Some(_success_cond) = &intent.success {
-            // Verify success conditions
-            // self.verifier.verify(&success_cond.conditions)...
+        if let Some(success_cond) = &intent.success {
+            // Need fresh scan for final verification
+            self.perform_scan().await?;
+            if let Some(scan) = &self.last_scan {
+                let ctx = VerifierContext::new(scan);
+                let passed = self
+                    .verifier
+                    .verify(&Condition::All(success_cond.conditions.clone()), &ctx)
+                    .await?;
+                if !passed {
+                    return Err(ExecutorError::IntentFailed(
+                        "Success conditions not met".into(),
+                    ));
+                }
+            }
         }
 
         // 6. RESPOND
         Ok(IntentResult {
             success: true,
-            data: None,
+            data: None, // TODO: Implement extraction
             logs: self.logs.clone(),
         })
+    }
+
+    async fn perform_scan(&mut self) -> Result<(), ExecutorError> {
+        let scan_req = ScannerRequest::Scan(ScanRequest::default());
+        let resp = self.backend.execute_scanner(scan_req).await?;
+
+        if let ScannerProtocolResponse::Ok { data, .. } = resp
+            && let ScannerData::Scan(result) = *data
+        {
+            self.last_scan = Some(result);
+        }
+        Ok(())
     }
 
     fn bind_parameters(
@@ -133,15 +161,44 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
                 }
                 Ok(())
             }
-            Step::Loop(_wrapper) => {
-                // TODO: Implement loop logic - evaluate 'over' expression and iterate
+            Step::Loop(wrapper) => {
+                // Determine what to loop over
+                let items = if let Some(val) = self.variables.get(&wrapper.loop_.over) {
+                    // Loop over array variable
+                    val.as_array().cloned().unwrap_or_default()
+                } else {
+                    // Treat 'over' as a numeric range "0..N" or just run max times if logic requires
+                    // For now, simple range loop support if 'over' matches "start..end"
+                    // Or if it's not a var, maybe it's a fixed list?
+                    // Fallback: run 'max' times
+                    (0..wrapper.loop_.max).map(|i| json!(i)).collect()
+                };
+
+                let limit = wrapper.loop_.max;
+                for item in items.iter().take(limit) {
+                    self.variables
+                        .insert(wrapper.loop_.as_var.clone(), item.clone());
+                    for s in &wrapper.loop_.steps {
+                        self.execute_step(s).await?;
+                    }
+                }
                 Ok(())
             }
             Step::Try(wrapper) => {
+                let mut success = true;
                 for s in &wrapper.try_.steps {
-                    self.execute_step(s).await?;
+                    if let Err(e) = self.execute_step(s).await {
+                        self.logs.push(format!("Try block step failed: {}", e));
+                        success = false;
+                        break;
+                    }
                 }
-                // TODO: Implement catch logic on error
+
+                if !success {
+                    for s in &wrapper.try_.catch {
+                        self.execute_step(s).await?;
+                    }
+                }
                 Ok(())
             }
             Step::Checkpoint(_) => Ok(()),
@@ -173,28 +230,120 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
                 }
             }
             ActionType::Wait => {
-                // Translate to Command::Wait
+                let cond_str = step
+                    .options
+                    .get("condition")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("visible");
+
+                let wait_cond = match cond_str {
+                    "visible" => {
+                        if let Some(t) = target {
+                            crate::command::WaitCondition::Visible(t)
+                        } else {
+                            return Err(ExecutorError::MissingParameter(
+                                "target for wait visible".into(),
+                            ));
+                        }
+                    }
+                    "hidden" => {
+                        if let Some(t) = target {
+                            crate::command::WaitCondition::Hidden(t)
+                        } else {
+                            return Err(ExecutorError::MissingParameter(
+                                "target for wait hidden".into(),
+                            ));
+                        }
+                    }
+                    "load" => crate::command::WaitCondition::Load,
+                    "idle" => crate::command::WaitCondition::Idle,
+                    "url" => {
+                        if let Some(p) = step.options.get("pattern").and_then(|v| v.as_str()) {
+                            crate::command::WaitCondition::Url(p.to_string())
+                        } else {
+                            return Err(ExecutorError::MissingParameter(
+                                "pattern for wait url".into(),
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(ExecutorError::InvalidParameterType(format!(
+                            "Unknown wait condition: {}",
+                            cond_str
+                        )));
+                    }
+                };
+
+                let cmd = Command::Wait(wait_cond, self.convert_options(&step.options));
+                let req = translator::translate(&cmd)?;
+                self.backend.execute_scanner(req).await?;
             }
             ActionType::FillForm => {
-                // Custom logic
+                // Note: data_var was resolved but we parse data differently below
+                let _ = self.resolve_variable(step.options.get("data"));
+                // This resolves to a string value of the variable name if passed as "$data"
+                // But we need the actual object.
+                let data_json = if let Some(v) = step.options.get("data") {
+                    if let Some(s) = v.as_str() {
+                        if let Some(res) = self.resolve_variable_value(s) {
+                            res
+                        } else {
+                            v.clone()
+                        }
+                    } else {
+                        v.clone()
+                    }
+                } else {
+                    json!({})
+                };
+
+                if let Some(obj) = data_json.as_object() {
+                    for (key, val) in obj {
+                        let val_str = val.as_str().unwrap_or_default().to_string();
+                        // Try to find field by name/id
+                        // Strategy: Try name=key, id=key, aria-label=key
+                        // We construct a specific Target::Selector
+                        // TODO: Robust field finding
+                        let selector = format!(
+                            "input[name='{}'], input[id='{}'], textarea[name='{}']",
+                            key, key, key
+                        );
+                        // We can define a TargetSpec on the fly
+                        let spec = TargetSpec {
+                            kind: TargetKind::Selector { selector },
+                            fallback: None,
+                        };
+
+                        // Try to resolve
+                        if let Ok(t) = self.resolve_target_spec(&spec).await {
+                            let cmd = Command::Type(t, val_str, HashMap::new());
+                            let req = translator::translate(&cmd)?;
+                            self.backend.execute_scanner(req).await?;
+                        } else {
+                            self.logs
+                                .push(format!("Could not find field for key: {}", key));
+                        }
+                    }
+                }
             }
             _ => {
-                // Implement other actions
+                // Implement other actions like Wait, Scroll
+                // Wait is essentially verify with retry
             }
         }
         Ok(())
     }
 
     async fn resolve_target_spec(&mut self, spec: &TargetSpec) -> Result<Target, ExecutorError> {
-        let scan_req = ScannerRequest::Scan(ScanRequest::default());
-        let resp = self.backend.execute_scanner(scan_req).await?;
+        // Refresh scan if needed?
+        // For now, always refresh to point to latest DOM state
+        self.perform_scan().await?;
 
-        let ctx = match resp {
-            ScannerProtocolResponse::Ok { data, .. } => match *data {
-                ScannerData::Scan(result) => ResolverContext::new(&result),
-                _ => ResolverContext::empty(),
-            },
-            _ => ResolverContext::empty(),
+        // Use last_scan
+        let ctx = if let Some(scan) = &self.last_scan {
+            ResolverContext::new(scan)
+        } else {
+            ResolverContext::empty()
         };
 
         self.convert_target_spec(spec, &ctx)
@@ -216,11 +365,20 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
         Ok(resolve_target(&target, ctx, ResolutionStrategy::Best)?)
     }
 
-    async fn evaluate_condition(&self, cond: &Condition) -> Result<bool, ExecutorError> {
-        self.verifier
-            .verify(cond)
-            .await
-            .map_err(ExecutorError::Verification)
+    async fn evaluate_condition(&mut self, cond: &Condition) -> Result<bool, ExecutorError> {
+        // Condition might rely on latest state
+        self.perform_scan().await?;
+
+        if let Some(scan) = &self.last_scan {
+            let ctx = VerifierContext::new(scan);
+            self.verifier
+                .verify(cond, &ctx)
+                .await
+                .map_err(ExecutorError::Verification)
+        } else {
+            // No scan available?
+            Ok(false)
+        }
     }
 
     fn resolve_variable(&self, val: Option<&Value>) -> String {
@@ -234,6 +392,14 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
             return v.as_str().unwrap_or_default().to_string();
         }
         s.clone()
+    }
+
+    fn resolve_variable_value(&self, s: &str) -> Option<Value> {
+        if let Some(var_name) = s.strip_prefix('$') {
+            self.variables.get(var_name).cloned()
+        } else {
+            None
+        }
     }
 
     fn convert_options(&self, options: &HashMap<String, Value>) -> HashMap<String, String> {

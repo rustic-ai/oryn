@@ -1,9 +1,18 @@
+use crate::intent::mapper::IntentMapper;
+use crate::intent::registry::IntentRegistry;
 use crate::protocol::{ScanResult, ScannerData, ScannerProtocolResponse};
 
 pub fn format_response(response: &ScannerProtocolResponse) -> String {
+    format_response_with_intent(response, None)
+}
+
+pub fn format_response_with_intent(
+    response: &ScannerProtocolResponse,
+    registry: Option<&IntentRegistry>,
+) -> String {
     match response {
         ScannerProtocolResponse::Ok { data, warnings } => {
-            let mut output = format_data(data);
+            let mut output = format_data(data, registry);
             if !warnings.is_empty() {
                 output.push_str(&format!("\nWarnings: {:?}", warnings));
             }
@@ -27,10 +36,10 @@ pub fn format_response(response: &ScannerProtocolResponse) -> String {
     }
 }
 
-fn format_data(data: &ScannerData) -> String {
+fn format_data(data: &ScannerData, registry: Option<&IntentRegistry>) -> String {
     match data {
-        ScannerData::Scan(result) => format_scan_result(result),
-        ScannerData::ScanValidation(result) => format_scan_result(result),
+        ScannerData::Scan(result) => format_scan_result(result, registry),
+        ScannerData::ScanValidation(result) => format_scan_result(result, registry),
         ScannerData::Action(result) => {
             if result.success {
                 format!("OK {}", result.message.as_deref().unwrap_or(""))
@@ -45,7 +54,7 @@ fn format_data(data: &ScannerData) -> String {
     }
 }
 
-fn format_scan_result(result: &ScanResult) -> String {
+fn format_scan_result(result: &ScanResult, registry: Option<&IntentRegistry>) -> String {
     let mut out = String::new();
     out.push_str(&format!(
         "@ {} \"{}\"\n",
@@ -87,6 +96,17 @@ fn format_scan_result(result: &ScanResult) -> String {
         }
         if patterns.cookie_banner.is_some() {
             out.push_str("  - Cookie Banner\n");
+        }
+    }
+
+    if let Some(reg) = registry {
+        let mapper = IntentMapper::new(reg);
+        let available = mapper.available_intents(result);
+        if !available.is_empty() {
+            out.push_str("\nAvailable Intents:\n");
+            for intent in available {
+                out.push_str(&format!("  - {} (v{})\n", intent.name, intent.version));
+            }
         }
     }
 

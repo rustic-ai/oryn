@@ -1,6 +1,8 @@
 use oryn_core::backend::Backend;
 use oryn_core::command::{Command, ScrollDirection, Target};
-use oryn_core::formatter::format_response;
+use oryn_core::formatter::format_response_with_intent;
+use oryn_core::intent::builtin;
+use oryn_core::intent::registry::IntentRegistry;
 use oryn_core::parser::Parser;
 use oryn_core::protocol::{
     ScanRequest, ScannerData, ScannerProtocolResponse, ScannerRequest, ScrollRequest,
@@ -12,12 +14,17 @@ use std::io::{self, Write};
 /// REPL state holding the last scan result for target resolution.
 struct ReplState {
     resolver_context: Option<ResolverContext>,
+    registry: IntentRegistry,
 }
 
 impl ReplState {
     fn new() -> Self {
+        let mut registry = IntentRegistry::new();
+        builtin::register_all(&mut registry);
+
         Self {
             resolver_context: None,
+            registry,
         }
     }
 
@@ -323,7 +330,7 @@ async fn execute_command(
             Ok(resp) => {
                 // Update resolver context if this was a scan
                 state.update_from_response(&resp);
-                let out = format_response(&resp);
+                let out = format_response_with_intent(&resp, Some(&state.registry));
                 println!("{}", out);
             }
             Err(e) => println!("Backend Error: {}", e),
