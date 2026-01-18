@@ -1,9 +1,8 @@
+use oryn_core::learner::LearningConfig;
 use oryn_core::learner::observer::Observer;
 use oryn_core::learner::proposer::Proposer;
 use oryn_core::learner::recognizer::Recognizer;
 use oryn_core::learner::storage::ObservationStorage;
-use oryn_core::learner::{LearningConfig, SessionLog};
-use std::time::SystemTime;
 
 #[test]
 fn test_learner_pipeline() {

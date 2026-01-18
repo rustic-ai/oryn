@@ -39,12 +39,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install COG browser (pulls in wpewebkit as dependency)
 # Bookworm has LLVM 15 (smaller than Alpine's LLVM 19)
+# libgles2 required - WPE uses OpenGL ES for rendering
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cog \
     wpewebkit-driver \
     fonts-dejavu-core \
     ca-certificates \
     tini \
+    libgles2 \
     && rm -rf /var/lib/apt/lists/* \
     # Remove unnecessary files
     && rm -rf /usr/share/doc/* \

@@ -112,9 +112,12 @@ fn setup_weston_env() -> Option<(WestonGuard, String)> {
     println!("Started weston with WAYLAND_DISPLAY={}", display);
 
     // Set environment for COG to find weston
-    std::env::set_var("WAYLAND_DISPLAY", &display);
-    // Unset COG_PLATFORM_NAME to use Wayland backend instead of native headless
-    std::env::remove_var("COG_PLATFORM_NAME");
+    // SAFETY: These tests run serially and no other threads access these env vars
+    unsafe {
+        std::env::set_var("WAYLAND_DISPLAY", &display);
+        // Unset COG_PLATFORM_NAME to use Wayland backend instead of native headless
+        std::env::remove_var("COG_PLATFORM_NAME");
+    }
 
     Some((WestonGuard(Some(child)), display))
 }

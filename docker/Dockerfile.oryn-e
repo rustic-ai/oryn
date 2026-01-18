@@ -36,12 +36,16 @@ LABEL org.opencontainers.image.source="https://github.com/anthropics/oryn"
 
 # Install COG browser (pulls in wpewebkit as dependency)
 # Note: mesa/LLVM are transitive dependencies via libgbm
+# mesa-gles required - WPE uses OpenGL ES for rendering
 RUN apk add --no-cache \
     cog \
     fontconfig \
     ttf-liberation \
     ca-certificates \
     tini \
+    mesa-gles \
+    bubblewrap \
+    xdg-dbus-proxy \
     # Strip LLVM components not needed at runtime
     && rm -rf /usr/lib/llvm19/bin \
     && rm -rf /usr/lib/llvm19/share \

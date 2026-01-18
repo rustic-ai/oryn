@@ -10,7 +10,7 @@ use oryn_core::parser::Parser;
 use oryn_core::protocol::{
     ScanRequest, ScannerData, ScannerProtocolResponse, ScannerRequest, ScrollRequest,
 };
-use oryn_core::resolver::{resolve_target, ResolutionStrategy, ResolverContext};
+use oryn_core::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
 use oryn_core::translator::translate;
 use serde_json::Value;
 use std::io::{self, Write};
@@ -24,7 +24,6 @@ struct ReplState {
     observer: oryn_core::learner::observer::Observer,
     recognizer: oryn_core::learner::recognizer::Recognizer,
     proposer: oryn_core::learner::proposer::Proposer,
-    storage: oryn_core::learner::storage::ObservationStorage,
     pending_proposals: Vec<oryn_core::intent::definition::IntentDefinition>,
 }
 
@@ -47,7 +46,7 @@ impl ReplState {
 
         let storage = oryn_core::learner::storage::ObservationStorage::new();
         let observer =
-            oryn_core::learner::observer::Observer::new(config.learning.clone(), storage.clone());
+            oryn_core::learner::observer::Observer::new(config.learning.clone(), storage);
         let recognizer = oryn_core::learner::recognizer::Recognizer::new(config.learning.clone());
         let proposer = oryn_core::learner::proposer::Proposer::new();
 
@@ -59,7 +58,6 @@ impl ReplState {
             observer,
             recognizer,
             proposer,
-            storage,
             pending_proposals: Vec::new(),
         }
     }
