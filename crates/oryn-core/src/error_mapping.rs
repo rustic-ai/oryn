@@ -85,6 +85,25 @@ pub fn map_scanner_error(code: &str, message: &str, details: Option<&Value>) -> 
     }
 }
 
+/// Returns a recovery hint for the given error code.
+///
+/// These hints provide actionable guidance for users when errors occur.
+pub fn hint_for_code(code: &str) -> Option<&'static str> {
+    match code {
+        "ELEMENT_NOT_FOUND" | "ELEMENT_STALE" => Some("Run observe to refresh element map"),
+        "ELEMENT_NOT_VISIBLE" => Some("Scroll element into view or wait visible"),
+        "ELEMENT_DISABLED" => Some("Wait for element to become enabled"),
+        "ELEMENT_NOT_INTERACTABLE" => Some("Element may be covered; try scrolling or waiting"),
+        "TIMEOUT" => Some("Increase timeout or verify condition"),
+        "INVALID_ELEMENT_TYPE" => Some("Verify target element type matches command"),
+        "OPTION_NOT_FOUND" => Some("Check available options in select element"),
+        "SELECTOR_INVALID" => Some("Verify CSS selector syntax"),
+        "NAVIGATION_ERROR" => Some("Check URL is valid and accessible"),
+        "PATTERN_NOT_FOUND" | "NOT_FOUND" => Some("Run observe to scan page patterns"),
+        _ => None,
+    }
+}
+
 /// Extract element ID from details JSON.
 fn extract_id(details: Option<&Value>) -> u32 {
     details
@@ -238,5 +257,34 @@ mod tests {
 
         let err = BackendError::Timeout;
         assert!(err.recovery_hint().contains("timeout"));
+    }
+
+    #[test]
+    fn test_hint_for_code() {
+        // Known error codes should return hints
+        assert_eq!(
+            hint_for_code("ELEMENT_NOT_FOUND"),
+            Some("Run observe to refresh element map")
+        );
+        assert_eq!(
+            hint_for_code("ELEMENT_STALE"),
+            Some("Run observe to refresh element map")
+        );
+        assert_eq!(
+            hint_for_code("ELEMENT_NOT_VISIBLE"),
+            Some("Scroll element into view or wait visible")
+        );
+        assert_eq!(
+            hint_for_code("ELEMENT_DISABLED"),
+            Some("Wait for element to become enabled")
+        );
+        assert_eq!(
+            hint_for_code("TIMEOUT"),
+            Some("Increase timeout or verify condition")
+        );
+
+        // Unknown codes return None
+        assert_eq!(hint_for_code("UNKNOWN_CODE"), None);
+        assert_eq!(hint_for_code("INTERNAL_ERROR"), None);
     }
 }

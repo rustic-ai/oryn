@@ -137,10 +137,26 @@ fn test_formatter_error() {
         code: "ELEMENT_NOT_FOUND".into(),
         message: "Element 999 not found".into(),
         details: Some(json!({ "id": 999 })),
+        hint: None,
     };
 
     assert_eq!(
         formatter::format_response(&resp),
-        "ERROR [ELEMENT_NOT_FOUND]: Element 999 not found (Some(Object {\"id\": Number(999)}))"
+        "ERROR [ELEMENT_NOT_FOUND]: Element 999 not found (Object {\"id\": Number(999)})"
+    );
+}
+
+#[test]
+fn test_formatter_error_with_hint() {
+    let resp = ScannerProtocolResponse::Error {
+        code: "ELEMENT_NOT_FOUND".into(),
+        message: "Element 42 not found".into(),
+        details: None,
+        hint: Some("Run observe to refresh element map".into()),
+    };
+
+    assert_eq!(
+        formatter::format_response(&resp),
+        "ERROR [ELEMENT_NOT_FOUND]: Element 42 not found\n# hint: Run observe to refresh element map"
     );
 }

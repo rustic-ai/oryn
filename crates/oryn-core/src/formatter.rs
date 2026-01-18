@@ -13,8 +13,16 @@ pub fn format_response(response: &ScannerProtocolResponse) -> String {
             code,
             message,
             details,
+            hint,
         } => {
-            format!("ERROR [{}]: {} ({:?})", code, message, details)
+            let mut output = format!("ERROR [{}]: {}", code, message);
+            if let Some(d) = details {
+                output.push_str(&format!(" ({:?})", d));
+            }
+            if let Some(h) = hint {
+                output.push_str(&format!("\n# hint: {}", h));
+            }
+            output
         }
     }
 }

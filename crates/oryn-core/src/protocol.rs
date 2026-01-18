@@ -193,6 +193,8 @@ pub enum ScannerProtocolResponse {
         message: String,
         #[serde(default)]
         details: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hint: Option<String>,
     },
 }
 

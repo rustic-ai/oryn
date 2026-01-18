@@ -1,8 +1,10 @@
 use oryn_core::backend::Backend;
-use oryn_core::command::{Command, Target};
+use oryn_core::command::{Command, ScrollDirection, Target};
 use oryn_core::formatter::format_response;
 use oryn_core::parser::Parser;
-use oryn_core::protocol::{ScannerData, ScannerProtocolResponse};
+use oryn_core::protocol::{
+    ScanRequest, ScannerData, ScannerProtocolResponse, ScannerRequest, ScrollRequest,
+};
 use oryn_core::resolver::{resolve_target, ResolutionStrategy, ResolverContext};
 use oryn_core::translator::translate;
 use std::io::{self, Write};
@@ -232,6 +234,65 @@ async fn execute_command(
                 Ok(_) => println!("Pressed {}", key),
                 Err(e) => println!("Key Error: {}", e),
             }
+            return Ok(());
+        }
+        Command::ScrollUntil(target, direction, options) => {
+            let max_iterations: usize = options
+                .get("max")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10);
+
+            let scroll_dir = match direction {
+                ScrollDirection::Up => oryn_core::protocol::ScrollDirection::Up,
+                ScrollDirection::Down => oryn_core::protocol::ScrollDirection::Down,
+                ScrollDirection::Left => oryn_core::protocol::ScrollDirection::Left,
+                ScrollDirection::Right => oryn_core::protocol::ScrollDirection::Right,
+            };
+
+            for iteration in 1..=max_iterations {
+                // 1. Scroll in the specified direction
+                let scroll_req = ScannerRequest::Scroll(ScrollRequest {
+                    id: None,
+                    direction: scroll_dir.clone(),
+                    amount: Some("page".to_string()),
+                });
+
+                if let Err(e) = backend.execute_scanner(scroll_req).await {
+                    println!("Scroll Error: {}", e);
+                    return Ok(());
+                }
+
+                // 2. Observe/scan the page
+                let scan_req = ScannerRequest::Scan(ScanRequest::default());
+                match backend.execute_scanner(scan_req).await {
+                    Ok(resp) => {
+                        // Update resolver context
+                        state.update_from_response(&resp);
+
+                        // 3. Check if target is now visible
+                        if let Some(ctx) = state.get_context() {
+                            match resolve_target(target, ctx, ResolutionStrategy::First) {
+                                Ok(Target::Id(id)) => {
+                                    println!("Found target [{}] after {} scroll(s)", id, iteration);
+                                    return Ok(());
+                                }
+                                _ => {
+                                    // Target not found yet, continue scrolling
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("Scan Error: {}", e);
+                        return Ok(());
+                    }
+                }
+            }
+
+            println!(
+                "Target not found after {} scrolls (hint: try increasing --max)",
+                max_iterations
+            );
             return Ok(());
         }
         _ => {}
