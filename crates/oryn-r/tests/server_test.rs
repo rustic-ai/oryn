@@ -3,7 +3,7 @@ use oryn_core::protocol::{ScannerProtocolResponse, ScannerRequest};
 use oryn_r::server::RemoteServer;
 use std::time::Duration;
 use tokio::net::TcpStream;
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 async fn connect_simulated_client(port: u16) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
     let url = format!("ws://localhost:{}", port);

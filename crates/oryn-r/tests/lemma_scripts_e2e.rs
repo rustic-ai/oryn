@@ -1,7 +1,7 @@
 use oryn_core::backend::Backend;
 use oryn_core::command::Command;
 use oryn_core::parser::Parser;
-use oryn_core::resolver::{resolve_target, ResolutionStrategy, ResolverContext};
+use oryn_core::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
 use oryn_core::translator::translate;
 use oryn_r::backend::RemoteBackend;
 use serial_test::serial;
