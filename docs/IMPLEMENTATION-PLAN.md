@@ -19,8 +19,8 @@ Implement the Intent Engine as specified in SPEC-INTENT-ENGINE.md, transforming 
 **Intent Engine** (in `crates/oryn-core/src/intent/`):
 - `definition.rs` (250 lines) - All core types ✅
 - `registry.rs` (128 lines) - Tier-based registry ✅
-- `executor.rs` (252 lines) - 6-stage pipeline (partial) ⚠️
-- `verifier.rs` (46 lines) - Condition checking (stubs) ⚠️
+- `executor.rs` (418 lines) - 6-stage pipeline with loop/try ✅
+- `verifier.rs` (158 lines) - Condition checking with context ✅
 - `mapper.rs` (56 lines) - Pattern-to-intent mapping ✅
 - `loader.rs` (49 lines) - YAML loading ✅
 - `builtin/` (8 intents) - All definitions created ✅
@@ -33,10 +33,10 @@ Implement the Intent Engine as specified in SPEC-INTENT-ENGINE.md, transforming 
 |-------|-------------|--------|------------|
 | Phase 1 | Intent Infrastructure | ✅ Complete | 100% |
 | Phase 2 | Built-in Intents | ✅ Complete | 95% |
-| Phase 3 | Execution Pipeline | ⚠️ Partial | 60% |
-| Phase 4 | Pattern-Intent Mapping | ⚠️ Partial | 80% |
+| Phase 3 | Execution Pipeline | ✅ Complete | 95% |
+| Phase 4 | Pattern-Intent Mapping | ✅ Complete | 100% |
 | Phase 5 | YAML Loading | ✅ Complete | 100% |
-| Tests | Unit & Integration | ⚠️ Minimal | 10% |
+| Tests | Unit & Integration | ⚠️ Partial | 50% |
 
 ### Detailed Status
 
@@ -59,26 +59,27 @@ Implement the Intent Engine as specified in SPEC-INTENT-ENGINE.md, transforming 
 | `scroll_to.rs` | 34 | ✅ |
 | `logout.rs` | 104 | ✅ |
 
-#### Phase 3: Execution Pipeline ⚠️
+#### Phase 3: Execution Pipeline ✅
 | Component | Status | Notes |
 |-----------|--------|-------|
 | PARSE/BIND | ✅ | `bind_parameters()` implemented |
 | RESOLVE | ✅ | Registry lookup works |
-| PLAN | ⚠️ | Basic scan only |
-| EXECUTE - Action | ✅ | Click/Type work |
+| PLAN | ✅ | Scans page, stores `last_scan` for resolution |
+| EXECUTE - Action | ✅ | Click/Type/Wait/FillForm work |
 | EXECUTE - Branch | ✅ | Condition branching works |
-| EXECUTE - Loop | ❌ | TODO stub |
-| EXECUTE - Try | ❌ | TODO stub |
-| VERIFY | ⚠️ | Only All/Any conditions work |
+| EXECUTE - Loop | ✅ | Iterates over arrays with variable binding |
+| EXECUTE - Try | ✅ | Executes with catch block on error |
+| VERIFY | ✅ | All conditions use `VerifierContext` |
 | RESPOND | ✅ | Returns IntentResult |
 
-**Verifier gaps:** `PatternExists`, `Visible`, `Hidden`, `UrlContains`, `UrlMatches`, `TextContains`, `Count`, `Expression` all return placeholder values - need runtime state access.
+**Verifier status:** All conditions implemented with `VerifierContext` providing runtime state. Only `Expression` returns placeholder (not needed for current intents).
 
-#### Phase 4: Pattern-Intent Mapping ⚠️
+#### Phase 4: Pattern-Intent Mapping ✅
 | Component | Status |
 |-----------|--------|
 | `mapper.rs` | ✅ Maps 5 pattern types |
-| `formatter.rs` integration | ❌ Missing `# available intents` section |
+| `formatter.rs` integration | ✅ `format_response_with_intent()` shows available intents |
+| REPL integration | ✅ Intent registry loaded, intents shown in observe output |
 
 #### Phase 5: YAML Loading ✅
 | Component | Status |
@@ -92,16 +93,21 @@ Implement the Intent Engine as specified in SPEC-INTENT-ENGINE.md, transforming 
 |------|-------|
 | `registry.rs` | 1 (priority) |
 | `definition.rs` | 0 |
-| `executor.rs` | 0 |
-| `verifier.rs` | 0 |
+| `executor.rs` | 2 (loop, try/catch) |
+| `verifier.rs` | 4 (pattern, url, visible, logic operators) |
+| `formatter.rs` | 2 (basic, with intent) |
 
 ### Remaining Work
 
-1. **Verifier implementation** - Add runtime state (ScanResult, URL) to evaluate conditions
-2. **Loop/Try steps** - Implement iteration and error recovery in executor
-3. **Formatter integration** - Add `# available intents` to observe output
-4. **fill_form.rs** - Expand field matching logic
-5. **Tests** - Add unit tests for executor, verifier, definition serde
+1. ~~**Verifier implementation**~~ ✅ Done - `VerifierContext` provides runtime state
+2. ~~**Loop/Try steps**~~ ✅ Done - Full iteration and error recovery
+3. ~~**Formatter integration**~~ ✅ Done - Available intents shown in output
+4. **fill_form.rs** - Expand field matching logic (current: basic name/id/selector)
+5. **Tests** - Add more coverage:
+   - Definition serde round-trip tests
+   - More executor edge cases (nested loops, multiple try blocks)
+   - Integration tests with mock backend for full intent flows
+6. **Expression condition** - Implement if needed for custom intents
 
 ---
 
@@ -308,8 +314,9 @@ cargo test -p oryn-e --features headless
 | File | Change | Status |
 |------|--------|--------|
 | `lib.rs` | Add `pub mod intent;` | ✅ Done |
-| `formatter.rs` | Add intent response formatting, available intents section | ❌ Pending |
-| `Cargo.toml` | Add `serde_yaml`, `glob` dependencies | ✅ Done |
+| `formatter.rs` | Add intent response formatting, available intents section | ✅ Done |
+| `repl.rs` | Integrate intent registry for pattern-based suggestions | ✅ Done |
+| `Cargo.toml` | Add `serde_yaml`, `glob`, `tokio` (dev) dependencies | ✅ Done |
 
 ## Files Created
 
@@ -318,8 +325,8 @@ cargo test -p oryn-e --features headless
 | `intent/mod.rs` | Module structure | 7 | ✅ |
 | `intent/definition.rs` | Core types | 250 | ✅ |
 | `intent/registry.rs` | Intent registry | 128 | ✅ |
-| `intent/executor.rs` | 6-stage pipeline | 252 | ⚠️ Partial |
-| `intent/verifier.rs` | Condition checking | 46 | ⚠️ Stubs |
+| `intent/executor.rs` | 6-stage pipeline | 418 | ✅ |
+| `intent/verifier.rs` | Condition checking | 158 | ✅ |
 | `intent/mapper.rs` | Pattern-intent mapping | 56 | ✅ |
 | `intent/loader.rs` | YAML loading | 49 | ✅ |
 | `intent/builtin/mod.rs` | Built-in exports | 22 | ✅ |
@@ -331,5 +338,8 @@ cargo test -p oryn-e --features headless
 | `intent/builtin/submit_form.rs` | Form submission | 65 | ✅ |
 | `intent/builtin/scroll_to.rs` | Scroll to element | 34 | ✅ |
 | `intent/builtin/logout.rs` | Logout | 104 | ✅ |
+| `tests/executor_test.rs` | Executor tests | 234 | ✅ |
+| `tests/verifier_test.rs` | Verifier tests | 167 | ✅ |
+| `tests/formatter_test.rs` | Formatter tests | 79 | ✅ |
 
-**Total:** 1,444 lines across 16 files
+**Total:** ~2,200 lines across 19 files
