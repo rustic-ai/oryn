@@ -15,9 +15,9 @@ Complete implementation of remaining Intent Engine features per `docs/SPEC-INTEN
 | Phase                    | Status            | Completeness | Notes                                        |
 | ------------------------ | ----------------- | ------------ | -------------------------------------------- |
 | Phase 1: Config          | ✅ Complete        | 100%         | All files, structs, and tests implemented    |
-| Phase 2: Packs           | ✅ Complete        | 95%          | Intent loading from globs is TODO            |
+| Phase 2: Packs           | ✅ Complete        | 100%         | All features including intent glob loading   |
 | Phase 3: Checkpoints     | ✅ Complete        | 100%         | Full checkpoint/resume/retry implemented     |
-| Phase 4: Session Intents | ✅ Mostly Complete | 85%          | Missing `intents --session` command          |
+| Phase 4: Session Intents | ✅ Complete        | 90%          | Missing role-based targets in define parser  |
 | Phase 5: Formatting      | ⚠️ Partial         | 70%          | Missing dedicated success/failure formatters |
 | Phase 6: Learner         | ⏸️ Deferred        | N/A          | Post-MVP                                     |
 
@@ -105,11 +105,11 @@ impl ConfigLoader {
 
 ---
 
-## Phase 2: Pack System ✅ COMPLETE (95%)
+## Phase 2: Pack System ✅ COMPLETE
 
 **Priority: High (most user-visible value)**
 **Depends on: Phase 1**
-**Status: 95% Implemented**
+**Status: 100% Implemented**
 
 ### New Files
 
@@ -209,11 +209,8 @@ impl PackManager {
 - ✅ PackManager with load_pack_by_name, unload_pack, should_auto_load, registry
 - ✅ REPL commands: packs, pack load, pack unload
 - ✅ Auto-load on GoTo navigation
-- ✅ 3 tests passing
-
-**Remaining Work:**
-- ⚠️ PackLoader: Intent loading from glob patterns is TODO (returns empty Vec)
-- ⚠️ `discover_and_load()` renamed to `load_pack_by_name()` (equivalent)
+- ✅ Intent loading from glob patterns fully implemented in loader.rs
+- ✅ 4 tests passing
 
 ---
 
@@ -305,11 +302,11 @@ async fn execute_step_with_retry(
 
 ---
 
-## Phase 4: Agent-Defined Intents ✅ MOSTLY COMPLETE (85%)
+## Phase 4: Agent-Defined Intents ✅ COMPLETE (90%)
 
 **Priority: Medium (runtime extensibility)**
 **Depends on: Phase 1**
-**Status: 85% Implemented**
+**Status: 90% Implemented**
 
 ### New Files
 
@@ -379,16 +376,16 @@ Add to parser:
 **Verified Implementation:**
 - ✅ `session.rs` with SessionIntent and SessionIntentManager
 - ✅ All methods: define, undefine, get, get_mut, list, export
-- ✅ `define_parser.rs` with basic syntax support (click, type, wait)
+- ✅ `define_parser.rs` with syntax support (click, type, wait)
 - ✅ Commands: define, undefine, export, run
 - ✅ REPL integration with session_intents field
-- ✅ 2 tests passing
+- ✅ `intents --session` command with REPL handler
+- ✅ "Or" fallback syntax: `click "X" or click "Y"` → try block (recursive parsing)
+- ✅ Variable substitution (`$value` parameters) in executor
+- ✅ 3 tests passing
 
 **Remaining Work:**
-- ❌ `intents --session` command NOT IMPLEMENTED
-- ⚠️ Simplified syntax missing: `click "X" or click "Y"` → try block
-- ⚠️ No variable substitution (`$value` parameters)
-- ⚠️ No role-based targets (`type email $value`)
+- ⚠️ Role-based targets in define parser (`type email $value` syntax) - define_parser only creates Text targets, not Role targets
 
 ---
 
@@ -462,17 +459,17 @@ pub enum IntentStatus {
 **Verified Implementation:**
 - ✅ `mask_sensitive()` function with configurable sensitive_fields
 - ✅ `IntentStatus` enum with Success, PartialSuccess, Failed
-- ✅ `IntentResult` struct with status, data, logs, checkpoint, hints
+- ✅ `IntentResult` struct with status, data, logs, checkpoint, hints, changes
+- ✅ `changes: Option<PageChanges>` field properly integrated
 - ✅ Generic `format_intent_result()` for success/failure
-- ✅ 3 tests passing
+- ✅ `mask_sensitive_log()` basic implementation (handles password/secret)
+- ✅ 3 tests passing (including masking test)
 
 **Remaining Work:**
-- ❌ `format_intent_success()` dedicated function NOT IMPLEMENTED
-- ❌ `format_intent_failure()` dedicated function NOT IMPLEMENTED
-- ❌ `changes: Option<PageChanges>` field NOT in IntentResult
+- ❌ `format_intent_success()` dedicated function NOT IMPLEMENTED (per spec Section 10.1)
+- ❌ `format_intent_failure()` dedicated function NOT IMPLEMENTED (per spec Section 10.2)
 - ❌ Action enumeration format (`type [1] "value"`) NOT IMPLEMENTED
-- ⚠️ `mask_sensitive_log()` is stub-only (returns log unchanged)
-- ⚠️ No PartialSuccess formatting test
+- ⚠️ `mask_sensitive_log()` only handles password/secret keywords, not all sensitive field types
 
 ---
 
@@ -555,34 +552,29 @@ After each phase:
 
 ## Test Coverage Summary
 
-**Total:** 17 test files, 111 tests, 3,386 lines of test code
+**Total:** 18 test files, 110 tests
 
 | Test File                   | Tests | Coverage                                   |
 | --------------------------- | ----- | ------------------------------------------ |
 | config_test.rs              | 3     | Config loading, defaults, merging          |
-| pack_test.rs                | 3     | Pack loading, manager operations           |
+| pack_test.rs                | 4     | Pack loading, manager operations, intents  |
 | executor_checkpoint_test.rs | 1     | Checkpoint creation and resume             |
 | executor_test.rs            | 10    | Loop, try, branch, fill_form, scoring      |
-| session_intent_test.rs      | 2     | Define/undefine lifecycle, export          |
+| session_intent_test.rs      | 3     | Define/undefine lifecycle, fallback syntax |
 | formatter_intent_test.rs    | 3     | Masking, success/failure formatting        |
 | verifier_test.rs            | 16    | Condition evaluation, URL/element matching |
 | builtin_intent_test.rs      | 8     | All 8 built-in intents                     |
-| Other (9 files)             | 65    | Parser, translator, core, use cases        |
+| learner_test.rs             | 4     | Observer, recognizer, proposer, storage    |
+| Other (9 files)             | 58    | Parser, translator, core, use cases        |
 
 ---
 
 ## Remaining Work (Priority Order)
 
-### High Priority
-1. **Add `intents --session` command** - Command enum + parser + REPL handler
-2. **Add `changes` field to IntentResult** - Expose PageChanges from protocol
-
 ### Medium Priority
-3. **Implement dedicated success/failure formatters** - Per spec Section 10
-4. **Complete PackLoader intent glob loading** - Currently returns empty Vec
-5. **Add `or` fallback syntax to define_parser** - `click "X" or click "Y"` → try block
+1. **Implement dedicated success/failure formatters** - Per spec Section 10.1 and 10.2
+2. **Add action enumeration format** - `type [1] "value"` sequential numbering in logs
 
 ### Low Priority
-6. **Variable substitution in define syntax** - `$value` parameter support
-7. **Role-based targets** - `type email $value` syntax
-8. **Complete `mask_sensitive_log()`** - Currently a stub
+3. **Role-based targets in define parser** - `type email $value` syntax to create TargetKind::Role
+4. **Complete `mask_sensitive_log()`** - Extend to handle all sensitive field types (token, card_number, cvv, ssn)
