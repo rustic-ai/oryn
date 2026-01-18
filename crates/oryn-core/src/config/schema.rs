@@ -93,6 +93,8 @@ pub struct LearningConfig {
     pub min_observations: usize,
     #[serde(default = "default_min_confidence")]
     pub min_confidence: f64,
+    #[serde(default = "default_min_pattern_length")]
+    pub min_pattern_length: usize,
     #[serde(default)]
     pub auto_accept: bool,
 }
@@ -103,6 +105,7 @@ impl Default for LearningConfig {
             enabled: default_learning_enabled(),
             min_observations: default_min_observations(),
             min_confidence: default_min_confidence(),
+            min_pattern_length: default_min_pattern_length(),
             auto_accept: false,
         }
     }
@@ -118,6 +121,10 @@ fn default_min_observations() -> usize {
 
 fn default_min_confidence() -> f64 {
     0.75
+}
+
+fn default_min_pattern_length() -> usize {
+    2
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

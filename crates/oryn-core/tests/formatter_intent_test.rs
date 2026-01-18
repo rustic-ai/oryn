@@ -27,7 +27,7 @@ fn test_format_intent_result_success() {
     assert!(output.contains("📄 Title: Dashboard"));
     assert!(output.contains("➕ Added 1 elements"));
     assert!(output.contains("Logs:"));
-    assert!(output.contains("Step 1: Clicked button"));
+    assert!(output.contains("1. Step 1: Clicked button"));
 }
 
 #[test]

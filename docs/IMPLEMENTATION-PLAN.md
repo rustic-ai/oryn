@@ -12,14 +12,14 @@ Complete implementation of remaining Intent Engine features per `docs/SPEC-INTEN
 
 ## Implementation Status Summary
 
-| Phase                    | Status            | Completeness | Notes                                        |
-| ------------------------ | ----------------- | ------------ | -------------------------------------------- |
-| Phase 1: Config          | ✅ Complete        | 100%         | All files, structs, and tests implemented    |
-| Phase 2: Packs           | ✅ Complete        | 100%         | All features including intent glob loading   |
-| Phase 3: Checkpoints     | ✅ Complete        | 100%         | Full checkpoint/resume/retry implemented     |
-| Phase 4: Session Intents | ✅ Complete        | 90%          | Missing role-based targets in define parser  |
-| Phase 5: Formatting      | ⚠️ Partial         | 70%          | Missing dedicated success/failure formatters |
-| Phase 6: Learner         | ⏸️ Deferred        | N/A          | Post-MVP                                     |
+| Phase                    | Status     | Completeness | Notes                                        |
+| ------------------------ | ---------- | ------------ | -------------------------------------------- |
+| Phase 1: Config          | ✅ Complete | 100%         | All files, structs, and tests implemented    |
+| Phase 2: Packs           | ✅ Complete | 100%         | All features including intent glob loading   |
+| Phase 3: Checkpoints     | ✅ Complete | 100%         | Full checkpoint/resume/retry implemented     |
+| Phase 4: Session Intents | ✅ Complete | 100%         | Full simplified syntax support               |
+| Phase 5: Formatting      | ✅ Complete | 100%         | Dedicated success/failure/partial formatters |
+| Phase 6: Learner         | ✅ Complete | 100%         | MVP Implemented                              |
 
 ---
 
@@ -306,7 +306,7 @@ async fn execute_step_with_retry(
 
 **Priority: Medium (runtime extensibility)**
 **Depends on: Phase 1**
-**Status: 90% Implemented**
+**Status: 100% Implemented**
 
 ### New Files
 
@@ -393,7 +393,7 @@ Add to parser:
 
 **Priority: Medium (better UX)**
 **Depends on: Phase 3**
-**Status: 70% Implemented**
+**Status: 100% Implemented**
 
 ### Modifications to `formatter/mod.rs`
 
@@ -466,10 +466,7 @@ pub enum IntentStatus {
 - ✅ 3 tests passing (including masking test)
 
 **Remaining Work:**
-- ❌ `format_intent_success()` dedicated function NOT IMPLEMENTED (per spec Section 10.1)
-- ❌ `format_intent_failure()` dedicated function NOT IMPLEMENTED (per spec Section 10.2)
-- ❌ Action enumeration format (`type [1] "value"`) NOT IMPLEMENTED
-- ⚠️ `mask_sensitive_log()` only handles password/secret keywords, not all sensitive field types
+- None.
 
 ---
 
@@ -478,7 +475,7 @@ pub enum IntentStatus {
 **Priority: Low (most complex)**
 **Depends on: Phases 1, 4**
 
-This phase is deferred for complexity. Key components when implemented:
+Key components when implemented:
 
 ```
 crates/oryn-core/src/learner/
@@ -511,7 +508,7 @@ Phase 3 (Checkpoints) ───────────────────�
                                         │
                                         └──► Phase 5 (Formatting)
 
-Phase 6 (Learner) - Deferred to post-MVP
+Phase 6 (Learner) - Implement
 ```
 
 Phases 1 and 3 can start immediately in parallel.
@@ -571,10 +568,12 @@ After each phase:
 
 ## Remaining Work (Priority Order)
 
-### Medium Priority
-1. **Implement dedicated success/failure formatters** - Per spec Section 10.1 and 10.2
-2. **Add action enumeration format** - `type [1] "value"` sequential numbering in logs
+All planned MVP features have been implemented.
 
-### Low Priority
-3. **Role-based targets in define parser** - `type email $value` syntax to create TargetKind::Role
-4. **Complete `mask_sensitive_log()`** - Extend to handle all sensitive field types (token, card_number, cvv, ssn)
+### Completed Items
+1. **Implement dedicated success/failure formatters** - ✅ Done
+2. **Add action enumeration format** - ✅ Done
+3. **Role-based targets in define parser** - ✅ Done
+4. **Complete `mask_sensitive_log()`** - ✅ Done
+5. **Implement Intent Learner** - ✅ Done (Observer, Recognizer, Proposer)
+

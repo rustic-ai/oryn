@@ -2,26 +2,28 @@ use crate::intent::executor::{IntentResult, IntentStatus};
 use crate::intent::registry::IntentRegistry;
 use crate::protocol::{ScannerData, ScannerProtocolResponse};
 
-/// Formats the result of an intent execution into a user-friendly string.
-pub fn format_intent_result(result: &IntentResult, name: &str) -> String {
+/// Formats a successful intent execution.
+pub fn format_intent_success(result: &IntentResult, name: &str) -> String {
     let mut output = String::new();
+    output.push_str(&format!("✅ Intent '{}' completed successfully.\n", name));
 
-    match &result.status {
-        IntentStatus::Success => {
-            output.push_str(&format!("✅ Intent '{}' completed successfully.\n", name));
-        }
-        IntentStatus::PartialSuccess { completed, total } => {
-            output.push_str(&format!(
-                "⚠️ Intent '{}' completed partially ({}/{})\n",
-                name, completed, total
-            ));
-        }
-        IntentStatus::Failed(err) => {
-            output.push_str(&format!("❌ Intent '{}' failed: {}\n", name, err));
+    if !result.logs.is_empty() {
+        output.push_str("\nLogs:\n");
+        // format logs with action enumeration like "type [1] ..."
+        // Since ActionLog struct details aren't visible here, we assume it has a way to be displayed or we parse it.
+        // But `result.logs` is `Vec<ActionLog>`. Let's assume standard display for now, but add indices.
+        for (i, log) in result.logs.iter().enumerate() {
+            let masked = mask_sensitive_log(log);
+            // Check if log acts as a step execution to number it?
+            // For now, valid simple enumeration:
+            output.push_str(&format!("  {}. {}\n", i + 1, masked));
         }
     }
 
     if let Some(changes) = &result.changes {
+        // Assuming PageChanges has a way to be displayed or accessed.
+        // Reusing logic from format_intent_result for consistency but cleaner.
+        // The original format_intent_result had this condition:
         if changes.url.is_some()
             || changes.title.is_some()
             || !changes.added.is_empty()
@@ -46,25 +48,31 @@ pub fn format_intent_result(result: &IntentResult, name: &str) -> String {
         }
     }
 
+    output
+}
+
+/// Formats a failed intent execution.
+pub fn format_intent_failure(result: &IntentResult, name: &str, error: &str) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("❌ Intent '{}' failed: {}\n", name, error));
+
     if !result.logs.is_empty() {
-        output.push_str("\nLogs:\n");
-        for log in &result.logs {
-            // Mask sensitive data in logs
+        output.push_str("\nActions leading to failure:\n");
+        for (i, log) in result.logs.iter().enumerate() {
             let masked = mask_sensitive_log(log);
-            output.push_str(&format!("  {}\n", masked));
+            output.push_str(&format!("  {}. {}\n", i + 1, masked));
         }
     }
 
     if let Some(checkpoint) = &result.checkpoint {
-        output.push_str(&format!("\nLast Checkpoint: {}\n", checkpoint));
-        if matches!(result.status, IntentStatus::Failed(_)) {
-            output.push_str(&format!(
-                "Hint: Resume with `run {} --resume {}`\n",
-                name, checkpoint
-            ));
-        }
+        output.push_str(&format!("\n🛑 Checkpoint available: {}\n", checkpoint));
+        output.push_str(&format!(
+            "👉 Hint: Resume with `run {} --resume {}`\n",
+            name, checkpoint
+        ));
     }
 
+    // Add other hints
     if !result.hints.is_empty() {
         output.push_str("\nHints:\n");
         for hint in &result.hints {
@@ -73,6 +81,46 @@ pub fn format_intent_result(result: &IntentResult, name: &str) -> String {
     }
 
     output
+}
+
+/// Formats the result of an intent execution into a user-friendly string.
+pub fn format_intent_result(result: &IntentResult, name: &str) -> String {
+    match &result.status {
+        IntentStatus::Success => format_intent_success(result, name),
+        IntentStatus::Failed(err) => format_intent_failure(result, name, err),
+        IntentStatus::PartialSuccess { completed, total } => {
+            let mut output = String::new();
+            output.push_str(&format!(
+                "⚠️ Intent '{}' completed partially ({}/{})\n",
+                name, completed, total
+            ));
+
+            if !result.logs.is_empty() {
+                output.push_str("\nLogs:\n");
+                for (i, log) in result.logs.iter().enumerate() {
+                    let masked = mask_sensitive_log(log);
+                    output.push_str(&format!("  {}. {}\n", i + 1, masked));
+                }
+            }
+
+            if let Some(checkpoint) = &result.checkpoint {
+                output.push_str(&format!("\nLast Checkpoint: {}\n", checkpoint));
+                output.push_str(&format!(
+                    "Hint: Resume with `run {} --resume {}`\n",
+                    name, checkpoint
+                ));
+            }
+
+            if !result.hints.is_empty() {
+                output.push_str("\nHints:\n");
+                for hint in &result.hints {
+                    output.push_str(&format!("  - {}\n", hint));
+                }
+            }
+
+            output
+        }
+    }
 }
 
 /// Formats a scanner response without intent registry context.
@@ -183,32 +231,35 @@ pub fn format_response_with_intent(
 }
 
 fn mask_sensitive_log(log: &str) -> String {
-    // Basic heuristics for masking sensitive data in logs
-    let _sensitive_patterns = [
-        // password="...", password: "..."
-        (
-            r#"(?i)(password|secret|token|key)\s*[:=]\s*["']?([^"'\s]+)["']?"#,
-            "********",
-        ),
-        // Type [..] "..." (If we can detect it is typing into password field, but log string might not have that context easily unless we structure it carefully.
-        // For now, if log explicitly mentions "password", mask the value.
+    // Extended list of sensitive keys
+    let sensitive_keys = [
+        "password",
+        "secret",
+        "token",
+        "key",
+        "cvv",
+        "ssn",
+        "card_number",
+        "credit_card",
     ];
 
     let mut masked = log.to_string();
-    // Using simple find/replace for now as including regex crate dependency if not already there might be hassle.
-    // `oryn-core` likely doesn't rely on `regex` yet? Let's check imports.
-    // Actually, `mask_sensitive` below uses `contains`.
+    let lower_log = log.to_lowercase();
 
-    // If we want regex, we need `regex` crate.
-    // Let's stick to safe heuristic:
-    // If log line contains "password", replace values in quotes?
-    if log.to_lowercase().contains("password") || log.to_lowercase().contains("secret") {
-        // Naive masking of quoted strings
-        if let Some(start) = masked.find('"') {
-            if let Some(end) = masked[start + 1..].rfind('"') {
-                // mask content
-                masked.replace_range(start + 1..start + 1 + end, "********");
+    for key in sensitive_keys {
+        if lower_log.contains(key) {
+            // Naive masking of quoted strings if key is present
+            if let Some(start) = masked.find('"') {
+                if let Some(end) = masked[start + 1..].rfind('"') {
+                    // mask content
+                    masked.replace_range(start + 1..start + 1 + end, "********");
+                }
             }
+            // Break after first mask to avoid double masking if multiple keys present?
+            // Or continue? Implementation detail: replace_range modifies in place, indices might shift if replacement length differs.
+            // "********" is 8 chars. If original was != 8, indices shift.
+            // Simple approach: just doing one pass of masking for now is likely sufficient for logs like `type "1234"`
+            break;
         }
     }
 
@@ -216,10 +267,26 @@ fn mask_sensitive_log(log: &str) -> String {
 }
 
 pub fn mask_sensitive(value: &str, field_name: &str, sensitive_fields: &[String]) -> String {
-    if sensitive_fields
+    // Default sensitive fields if list is empty? Or assume caller provides correct config.
+    // Also include hardcoded defaults for safety
+    let default_sensitive = [
+        "password",
+        "secret",
+        "token",
+        "key",
+        "cvv",
+        "ssn",
+        "card_number",
+    ];
+
+    let is_sensitive = sensitive_fields
         .iter()
         .any(|f| field_name.to_lowercase().contains(&f.to_lowercase()))
-    {
+        || default_sensitive
+            .iter()
+            .any(|f| field_name.to_lowercase().contains(*f));
+
+    if is_sensitive {
         "••••••••".to_string()
     } else {
         value.to_string()

@@ -131,30 +131,65 @@ fn parse_single_step(cmd: &str) -> Result<Step, ParseError> {
             }))
         }
         "type" => {
-            // type "Target" "Value"
-            // This naive splitting fails for quoted strings with spaces.
-            // Ideally use a tokenizer.
-            // Hack: Parse first quoted, then second quoted.
+            // type "Target" "Value" OR type role "Value"
+            // Split by whitespace first to check for "type role ..."
+            // But we need to handle quotes properly.
 
-            let (target, rest) = parse_quoted_arg_with_rest(cmd)
-                .ok_or(ParseError::Syntax("Missing target for type".into()))?;
-            let value = parse_quoted_arg(&rest)
-                .ok_or(ParseError::Syntax("Missing value for type".into()))?;
+            // Heuristic: If first arg is NOT quoted, it might be a role (like 'email', 'phone')
+            // If it is quoted, it matches text.
 
-            let mut options = HashMap::new();
-            options.insert("text".to_string(), serde_json::Value::String(value));
+            // Re-parse logic:
+            // 1. Check if first arg starts with quote.
+            let rest_cmd = cmd.trim_start_matches("type").trim();
+            if rest_cmd.starts_with('"') {
+                // Old behavior: type "Target" "Value"
+                let (target, rest) = parse_quoted_arg_with_rest(cmd)
+                    .ok_or(ParseError::Syntax("Missing target for type".into()))?;
+                let value = parse_quoted_arg(&rest)
+                    .ok_or(ParseError::Syntax("Missing value for type".into()))?;
 
-            Ok(Step::Action(ActionStep {
-                action: ActionType::Type,
-                target: Some(TargetSpec {
-                    kind: TargetKind::Text {
-                        text: target,
-                        match_type: MatchType::Contains,
-                    },
-                    fallback: None,
-                }),
-                options,
-            }))
+                let mut options = HashMap::new();
+                options.insert("text".to_string(), serde_json::Value::String(value));
+
+                Ok(Step::Action(ActionStep {
+                    action: ActionType::Type,
+                    target: Some(TargetSpec {
+                        kind: TargetKind::Text {
+                            text: target,
+                            match_type: MatchType::Contains,
+                        },
+                        fallback: None,
+                    }),
+                    options,
+                }))
+            } else {
+                // Potential role syntax: type email "value"
+                // Split by space to get role
+                let parts: Vec<&str> = rest_cmd.splitn(2, ' ').collect();
+                if parts.len() < 2 {
+                    return Err(ParseError::Syntax(
+                        "Invalid type syntax: expected role and value".into(),
+                    ));
+                }
+                let role = parts[0];
+                let value_part = parts[1];
+                let value = parse_quoted_arg(value_part)
+                    .ok_or(ParseError::Syntax("Missing value for type".into()))?;
+
+                let mut options = HashMap::new();
+                options.insert("text".to_string(), serde_json::Value::String(value));
+
+                Ok(Step::Action(ActionStep {
+                    action: ActionType::Type,
+                    target: Some(TargetSpec {
+                        kind: TargetKind::Role {
+                            role: role.to_string(),
+                        },
+                        fallback: None,
+                    }),
+                    options,
+                }))
+            }
         }
         "wait" => {
             // wait visible "Target"

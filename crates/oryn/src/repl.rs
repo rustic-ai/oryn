@@ -21,10 +21,10 @@ struct ReplState {
     pack_manager: PackManager,
     session_intents: oryn_core::intent::session::SessionIntentManager,
     config: OrynConfig,
-    observer: oryn_core::learner::Observer,
+    observer: oryn_core::learner::observer::Observer,
     recognizer: oryn_core::learner::recognizer::Recognizer,
     proposer: oryn_core::learner::proposer::Proposer,
-    storage: oryn_core::learner::storage::LearnerStorage,
+    storage: oryn_core::learner::storage::ObservationStorage,
     pending_proposals: Vec<oryn_core::intent::definition::IntentDefinition>,
 }
 
@@ -44,18 +44,12 @@ impl ReplState {
 
         let pack_paths = config.packs.pack_paths.clone();
         let pack_manager = PackManager::new(registry, pack_paths);
-        let observer = oryn_core::learner::Observer::new(config.security.clone());
-        let recognizer = oryn_core::learner::recognizer::Recognizer::new(
-            config.learning.min_observations,
-            config.learning.min_confidence,
-        );
-        let proposer = oryn_core::learner::proposer::Proposer::new();
 
-        let storage_path = dirs::home_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join(".oryn")
-            .join("learned");
-        let storage = oryn_core::learner::storage::LearnerStorage::new(storage_path);
+        let storage = oryn_core::learner::storage::ObservationStorage::new();
+        let observer =
+            oryn_core::learner::observer::Observer::new(config.learning.clone(), storage.clone());
+        let recognizer = oryn_core::learner::recognizer::Recognizer::new(config.learning.clone());
+        let proposer = oryn_core::learner::proposer::Proposer::new();
 
         Self {
             resolver_context: None,
@@ -501,7 +495,8 @@ async fn execute_command(
                         return Ok(());
                     }
 
-                    if let Some(history) = state.observer.get_history(&domain) {
+                    let history = state.observer.get_history(&domain);
+                    if !history.is_empty() {
                         println!(
                             "History for {}: {} actions recorded.",
                             domain,
@@ -509,25 +504,27 @@ async fn execute_command(
                         );
 
                         // 2. Find patterns
-                        let patterns = state.recognizer.find_patterns(history);
+                        let patterns = state.recognizer.find_patterns(&history);
                         println!("Found {} potential intent pattern(s).", patterns.len());
 
                         // 3. Propose intents
                         state.pending_proposals.clear();
                         for (i, p) in patterns.iter().enumerate() {
-                            let intent = state.proposer.propose(p);
-                            println!(
-                                "[{}] {} ({} steps, conf: {:.2}, obs: {})",
-                                i,
-                                intent.name,
-                                intent.steps.len(),
-                                p.confidence,
-                                p.observation_count
-                            );
-                            for step in &intent.steps {
-                                println!("  - {:?}", step);
+                            if let Some(intent) = state.proposer.propose(p) {
+                                println!(
+                                    "[{}] {} ({} steps, occurrences: {})",
+                                    i,
+                                    intent.name,
+                                    intent.steps.len(),
+                                    p.occurrence_count
+                                );
+                                for step in &intent.steps {
+                                    println!("  - {:?}", step);
+                                }
+                                state.pending_proposals.push(intent);
+                            } else {
+                                println!("[{}] (Failed to propose intent from pattern)", i);
                             }
-                            state.pending_proposals.push(intent);
                         }
                     } else {
                         println!("No history for domain: {}", domain);
@@ -560,8 +557,12 @@ async fn execute_command(
                             .cloned()
                             .unwrap_or("unknown".to_string());
 
-                        match state.storage.save_intent(&domain, &intent).await {
-                            Ok(_) => println!("Saved intent '{}' for domain '{}'", name, domain),
+                        // Save as session intent
+                        match state.session_intents.define(intent) {
+                            Ok(_) => println!(
+                                "Saved intent '{}' for domain '{}' (Session)",
+                                name, domain
+                            ),
                             Err(e) => println!("Error saving intent: {}", e),
                         }
                     }
@@ -579,7 +580,10 @@ async fn execute_command(
             // Extract domain from URL
             if let Ok(url) = url::Url::parse(ctx.url()) {
                 if let Some(domain) = url.host_str() {
-                    state.observer.observe(cmd.clone(), domain.to_string());
+                    // Convert command to string for MVP
+                    state
+                        .observer
+                        .record(domain, url.as_str(), &format!("{:?}", cmd));
                 }
             }
         }
