@@ -72,7 +72,16 @@ impl<'a> VerifierContext<'a> {
 
 pub struct Verifier;
 
+impl Default for Verifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Verifier {
+    pub fn new() -> Self {
+        Self
+    }
     #[async_recursion]
     #[allow(clippy::only_used_in_recursion)]
     pub async fn verify(

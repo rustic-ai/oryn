@@ -4,6 +4,7 @@ use serde_json::json;
 pub fn definition() -> IntentDefinition {
     IntentDefinition {
         name: "search".to_string(),
+        description: None,
         version: "1.0.0".to_string(),
         tier: IntentTier::BuiltIn,
         triggers: IntentTriggers {

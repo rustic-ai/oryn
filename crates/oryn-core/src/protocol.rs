@@ -299,6 +299,17 @@ pub struct ElementChange {
     pub new_value: Option<String>,
 }
 
+/// Changes summary for an entire page/session.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PageChanges {
+    pub url: Option<String>,
+    pub title: Option<String>,
+    #[serde(default)]
+    pub removed: Vec<String>, // Selectors/Descriptions
+    #[serde(default)]
+    pub added: Vec<String>,
+}
+
 /// Type of change detected.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -213,7 +213,7 @@ async fn test_verify_url_matches_regex() {
     assert!(!verifier.verify(&cond_fail, &ctx).await.unwrap());
 
     // Test invalid regex fallback (contains)
-    let cond_fallback = Condition::UrlMatches("example.com".to_string());
+    let _cond_fallback = Condition::UrlMatches("example.com".to_string());
     // Force invalid regex syntax that is valid string
     // "log[in" is invalid regex because unclosed bracket.
     // But it might be in the string?
@@ -353,7 +353,7 @@ async fn test_verify_count() {
     let el1 = make_element(1, None, None); // div
     let el2 = make_element(2, None, None); // div
     let el3 = make_element(3, None, None); // div
-    let mut scan = make_scan_result(vec![el1, el2, el3], None);
+    let scan = make_scan_result(vec![el1, el2, el3], None);
     // Element selector is format!("#el-{}", id), element_type is "div"
     // Condition::Count checks selector match OR type match
 

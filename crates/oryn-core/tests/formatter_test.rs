@@ -1,4 +1,4 @@
-use oryn_core::formatter::{format_response, format_response_with_intent};
+use oryn_core::formatter::format_response_with_intent;
 use oryn_core::intent::definition::{IntentDefinition, IntentTier};
 use oryn_core::intent::registry::IntentRegistry;
 use oryn_core::protocol::{
@@ -51,6 +51,7 @@ fn mock_intent(name: &str) -> IntentDefinition {
         success: None,
         failure: None,
         options: Default::default(),
+        description: None,
     };
     // Map login pattern to this intent
     intent.triggers.patterns.push("login_form".to_string());
@@ -60,7 +61,7 @@ fn mock_intent(name: &str) -> IntentDefinition {
 #[test]
 fn test_format_response_basic() {
     let resp = mock_scan_result_with_login();
-    let output = format_response(&resp);
+    let output = format_response_with_intent(&resp, None);
     assert!(output.contains("Patterns:"));
     assert!(output.contains("- Login Form"));
     assert!(!output.contains("Available Intents:"));

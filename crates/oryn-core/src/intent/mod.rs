@@ -1,7 +1,9 @@
 pub mod builtin;
+pub mod define_parser;
 pub mod definition;
 pub mod executor;
 pub mod loader;
 pub mod mapper;
 pub mod registry;
+pub mod session;
 pub mod verifier;

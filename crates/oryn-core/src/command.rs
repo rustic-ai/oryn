@@ -1,7 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Represents a target element in the UI.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Target {
     /// A numbered element ID (e.g., from an observation).
     Id(usize),
@@ -39,7 +40,7 @@ pub enum Target {
 }
 
 /// Supported wait conditions for the `wait` command.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum WaitCondition {
     Load,
     Idle,
@@ -51,7 +52,7 @@ pub enum WaitCondition {
 }
 
 /// Sub-commands for data extraction.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ExtractSource {
     Links,
     Images,
@@ -61,7 +62,7 @@ pub enum ExtractSource {
 }
 
 /// Sub-commands for cookie management.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CookieAction {
     List,
     Get(String),
@@ -70,7 +71,7 @@ pub enum CookieAction {
 }
 
 /// Storage type for localStorage/sessionStorage operations.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum StorageType {
     Local,
     Session,
@@ -79,7 +80,7 @@ pub enum StorageType {
 }
 
 /// Sub-commands for storage management.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StorageAction {
     Get {
         storage_type: StorageType,
@@ -99,7 +100,7 @@ pub enum StorageAction {
 }
 
 /// Sub-commands for tab management.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TabAction {
     List, // Corresponds to `tabs` command or `tab list`? Spec implies `tabs` is separate command, but we can unify.
     New(String),
@@ -107,8 +108,14 @@ pub enum TabAction {
     Close(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum IntentFilter {
+    All,
+    Session,
+}
+
 /// The core intent command enum.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Command {
     // Navigation
     GoTo(String),
@@ -161,9 +168,32 @@ pub enum Command {
 
     // Browser Features
     Pdf(String), // Output path
+
+    // Packs
+    Packs,
+    PackLoad(String),
+    PackUnload(String),
+
+    // Intents
+    Intents(IntentFilter),
+    Define(String),         // Simplified syntax body
+    Undefine(String),       // Name
+    Export(String, String), // Name, Path
+    RunIntent(String, std::collections::HashMap<String, String>), // Name, Params
+
+    // Learning
+    Learn(LearnAction),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LearnAction {
+    Status,
+    Refine(String),
+    Save(String),
+    Ignore(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ScrollDirection {
     Up,
     Down,

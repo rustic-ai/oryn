@@ -1,8 +1,11 @@
 pub mod backend;
 pub mod command;
+pub mod config;
 pub mod error_mapping;
 pub mod formatter;
 pub mod intent;
+pub mod learner;
+pub mod pack;
 pub mod parser;
 pub mod protocol;
 pub mod resolver;

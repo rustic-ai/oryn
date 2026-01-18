@@ -46,6 +46,24 @@ impl IntentRegistry {
         true
     }
 
+    /// Unregister an intent by name.
+    /// Returns true if the intent was removed.
+    pub fn unregister(&mut self, name: &str) -> bool {
+        if let Some(def) = self.intents.remove(name) {
+            // Remove from patterns index
+            for pattern in &def.triggers.patterns {
+                if let Some(list) = self.patterns_to_intents.get_mut(pattern)
+                    && let Some(pos) = list.iter().position(|x| x == name)
+                {
+                    list.remove(pos);
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+
     /// Retrieve an intent definition by name.
     pub fn get(&self, name: &str) -> Option<&IntentDefinition> {
         self.intents.get(name)
@@ -95,6 +113,7 @@ mod tests {
     fn mock_intent(name: &str, tier: IntentTier) -> IntentDefinition {
         IntentDefinition {
             name: name.to_string(),
+            description: None,
             version: "1.0".to_string(),
             tier,
             triggers: Default::default(),

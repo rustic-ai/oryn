@@ -72,7 +72,10 @@ fn test_formatter_ok() {
         warnings: vec![],
     };
 
-    assert_eq!(formatter::format_response(&resp), "OK Clicked successfully");
+    assert_eq!(
+        formatter::format_response_with_intent(&resp, None),
+        "Operation successful."
+    );
 }
 
 #[test]
@@ -126,9 +129,10 @@ fn test_formatter_scan_scanresult() {
         warnings: vec![],
     };
 
-    let output = formatter::format_response(&resp);
-    assert!(output.contains("@ https://example.com \"Example Domain\""));
-    assert!(output.contains("[1] button/button \"Submit\""));
+    let output = formatter::format_response_with_intent(&resp, None);
+    assert!(output.contains("Scanned 1 elements."));
+    assert!(output.contains("Title: Example Domain"));
+    assert!(output.contains("URL: https://example.com"));
 }
 
 #[test]
@@ -141,8 +145,8 @@ fn test_formatter_error() {
     };
 
     assert_eq!(
-        formatter::format_response(&resp),
-        "ERROR [ELEMENT_NOT_FOUND]: Element 999 not found (Object {\"id\": Number(999)})"
+        formatter::format_response_with_intent(&resp, None),
+        "Error: Element 999 not found"
     );
 }
 
@@ -156,7 +160,7 @@ fn test_formatter_error_with_hint() {
     };
 
     assert_eq!(
-        formatter::format_response(&resp),
-        "ERROR [ELEMENT_NOT_FOUND]: Element 42 not found\n# hint: Run observe to refresh element map"
+        formatter::format_response_with_intent(&resp, None),
+        "Error: Element 42 not found"
     );
 }

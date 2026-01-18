@@ -3,6 +3,7 @@ use crate::intent::definition::*;
 pub fn definition() -> IntentDefinition {
     IntentDefinition {
         name: "scroll_to".to_string(),
+        description: None,
         version: "1.0.0".to_string(),
         tier: IntentTier::BuiltIn,
         triggers: IntentTriggers {

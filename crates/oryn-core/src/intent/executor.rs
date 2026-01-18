@@ -4,7 +4,8 @@ use crate::intent::definition::{ActionStep, ActionType, Condition, Step, TargetK
 use crate::intent::registry::IntentRegistry;
 use crate::intent::verifier::{Verifier, VerifierContext};
 use crate::protocol::{
-    ScanRequest, ScanResult, ScannerData, ScannerProtocolResponse, ScannerRequest,
+    ChangeType, PageChanges, ScanRequest, ScanResult, ScannerData, ScannerProtocolResponse,
+    ScannerRequest,
 };
 use crate::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
 use crate::translator;
@@ -35,23 +36,42 @@ pub enum ExecutorError {
     IntentFailed(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntentResult {
-    pub success: bool,
+    pub status: IntentStatus,
     pub data: Option<Value>,
     pub logs: Vec<String>,
+    pub checkpoint: Option<String>,
+    pub hints: Vec<String>,
+    pub changes: Option<PageChanges>,
 }
 
-pub struct IntentExecutor<'a, B: Backend> {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum IntentStatus {
+    Success,
+    PartialSuccess { completed: usize, total: usize },
+    Failed(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointState {
+    pub name: String,
+    pub variables: HashMap<String, Value>,
+    pub step_index: usize,
+}
+
+pub struct IntentExecutor<'a, B: Backend + ?Sized> {
     backend: &'a mut B,
     registry: &'a IntentRegistry,
     verifier: &'a Verifier,
     variables: HashMap<String, Value>,
     logs: Vec<String>,
     last_scan: Option<ScanResult>,
+    initial_scan: Option<ScanResult>,
+    checkpoints: Vec<CheckpointState>,
+    last_checkpoint: Option<String>,
 }
 
-impl<'a, B: Backend> IntentExecutor<'a, B> {
+impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
     pub fn new(backend: &'a mut B, registry: &'a IntentRegistry, verifier: &'a Verifier) -> Self {
         Self {
             backend,
@@ -60,6 +80,9 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
             variables: HashMap::new(),
             logs: Vec::new(),
             last_scan: None,
+            initial_scan: None,
+            checkpoints: Vec::new(),
+            last_checkpoint: None,
         }
     }
 
@@ -85,10 +108,12 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
             self.backend.launch().await?;
         }
         self.perform_scan().await?;
+        self.initial_scan = self.last_scan.clone();
 
         // 4. EXECUTE
         for step in &intent.steps {
-            self.execute_step(step).await?;
+            self.execute_step_with_retry(step, &intent.options.retry)
+                .await?;
         }
 
         // 5. VERIFY
@@ -107,14 +132,153 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
                     ));
                 }
             }
+        } else {
+            // If no verification needed, maybe refresh scan for final state diff?
+            self.perform_scan().await?;
         }
 
         // 6. RESPOND
         Ok(IntentResult {
-            success: true,
+            status: IntentStatus::Success,
             data: None, // TODO: Implement extraction
             logs: self.logs.clone(),
+            checkpoint: self.last_checkpoint.clone(),
+            hints: vec![],
+            changes: self.calculate_changes(),
         })
+    }
+
+    pub async fn execute_with_resume(
+        &mut self,
+        intent_name: &str,
+        params: HashMap<String, Value>,
+        resume_from: Option<&str>,
+    ) -> Result<IntentResult, ExecutorError> {
+        self.logs.push(format!(
+            "Executing intent (resume={:?}): {}",
+            resume_from, intent_name
+        ));
+
+        // 1. RESOLVE
+        let intent = self
+            .registry
+            .get(intent_name)
+            .ok_or_else(|| ExecutorError::IntentNotFound(intent_name.to_string()))?
+            .clone();
+
+        // 2. PARSE & BIND PARAMETERS
+        self.bind_parameters(&intent.parameters, &params)?;
+
+        // 3. PLAN (Scan initial state)
+        if !self.backend.is_ready().await {
+            self.backend.launch().await?;
+        }
+        self.perform_scan().await?;
+        self.initial_scan = self.last_scan.clone();
+
+        // 4. EXECUTE (with resume logic)
+        let start_index = if let Some(checkpoint_name) = resume_from {
+            // ... (keep logic) ...
+            let mut idx = 0;
+            let mut found = false;
+            for (i, step) in intent.steps.iter().enumerate() {
+                if let Step::Checkpoint(wrapper) = step
+                    && wrapper.checkpoint == checkpoint_name
+                {
+                    idx = i + 1; // Start AFTER the checkpoint
+                    found = true;
+                    break;
+                }
+            }
+
+            if !found {
+                return Err(ExecutorError::StepFailed(format!(
+                    "Checkpoint '{}' not found in intent",
+                    checkpoint_name
+                )));
+            }
+            self.logs.push(format!("Resuming from step index {}", idx));
+            idx
+        } else {
+            0
+        };
+
+        // Execute steps starting from start_index
+        for (_, step) in intent.steps.iter().enumerate().skip(start_index) {
+            // Apply retry logic if configured
+            // For now, use intent-level retry config for all steps
+            // Or ideally, step-level retry. Definition needs update for Step-level retry?
+            // The plan mentioned "Enhanced Retry Logic" using IntentOptions.
+
+            self.execute_step_with_retry(step, &intent.options.retry)
+                .await?;
+        }
+
+        // 6. RESPOND (Verify omitted for brevity in resume flow? Or strictly verify?)
+        // Let's verify success condition
+        if let Some(success_cond) = &intent.success {
+            self.perform_scan().await?;
+            if let Some(scan) = &self.last_scan {
+                let ctx = VerifierContext::with_variables(scan, &self.variables);
+                let passed = self
+                    .verifier
+                    .verify(&Condition::All(success_cond.conditions.clone()), &ctx)
+                    .await?;
+                if !passed {
+                    return Err(ExecutorError::IntentFailed(
+                        "Success conditions not met".into(),
+                    ));
+                }
+            }
+        } else {
+            self.perform_scan().await?;
+        }
+
+        Ok(IntentResult {
+            status: IntentStatus::Success,
+            data: None,
+            logs: self.logs.clone(),
+            checkpoint: self.last_checkpoint.clone(),
+            hints: vec![],
+            changes: self.calculate_changes(),
+        })
+    }
+
+    async fn execute_step_with_retry(
+        &mut self,
+        step: &Step,
+        config: &crate::intent::definition::RetryConfig,
+    ) -> Result<(), ExecutorError> {
+        let mut attempts = 0;
+        let max_attempts = config.max_attempts.max(1);
+
+        loop {
+            attempts += 1;
+            match self.execute_step(step).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    if attempts >= max_attempts {
+                        return Err(e);
+                    }
+                    // Simple check: is it retryable? Most executor errors are transient (selector not found, etc)
+                    // unless it's strictly logic error.
+                    // For now, retry everything except IntentNotFound/Param errors?
+                    // Let's assume most step failures are retryable.
+
+                    let delay = (config.delay_ms as f64
+                        * config.backoff_multiplier.powi((attempts - 1) as i32))
+                        as u64;
+                    self.logs.push(format!(
+                        "Step failed (attempt {}/{}). Retrying in {}ms. Error: {}",
+                        attempts, max_attempts, delay, e
+                    ));
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+
+                    // Refresh DOM before retry
+                    let _ = self.perform_scan().await;
+                }
+            }
+        }
     }
 
     async fn perform_scan(&mut self) -> Result<(), ExecutorError> {
@@ -201,7 +365,20 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
                 }
                 Ok(())
             }
-            Step::Checkpoint(_) => Ok(()),
+            Step::Checkpoint(wrapper) => {
+                self.last_checkpoint = Some(wrapper.checkpoint.clone());
+                // In a real system, we might persist state to disk here.
+                // For now, we just track it in memory.
+                self.checkpoints.push(CheckpointState {
+                    name: wrapper.checkpoint.clone(),
+                    variables: self.variables.clone(),
+                    step_index: 0, // We don't have index here easily without passing it.
+                                   // But for "resume_from" logic above, we rely on name matching.
+                });
+                self.logs
+                    .push(format!("Checkpoint reached: {}", wrapper.checkpoint));
+                Ok(())
+            }
         }
     }
 
@@ -422,6 +599,68 @@ impl<'a, B: Backend> IntentExecutor<'a, B> {
                 (k.clone(), value)
             })
             .collect()
+    }
+
+    fn calculate_changes(&self) -> Option<PageChanges> {
+        let Some(initial) = &self.initial_scan else {
+            return None;
+        };
+        let Some(final_scan) = &self.last_scan else {
+            return None;
+        };
+
+        let mut changes = PageChanges::default();
+
+        // URL Change
+        if initial.page.url != final_scan.page.url {
+            changes.url = Some(final_scan.page.url.clone());
+        }
+
+        // Title Change
+        if initial.page.title != final_scan.page.title {
+            changes.title = Some(final_scan.page.title.clone());
+        }
+
+        // Removed Elements (Simplistic diff by ID or selector? IDs might change on reload)
+        // Better: Semantically removed/added?
+        // Protocol might provide `changes` in `ScanResult` if `monitor_changes` was on.
+        // But here we want a high-level summary.
+
+        // Let's rely on `final_scan.changes` if available (if monitor_changes was enabled).
+        // If not, maybe just return what we have.
+        // For MVP, just URL/Title is good first step.
+        // We can create a naive diff of elements count?
+
+        if let Some(diffs) = &final_scan.changes {
+            for diff in diffs {
+                match diff.change_type {
+                    ChangeType::Appeared => {
+                        // Find element to get selector/desc
+                        if let Some(el) = final_scan.elements.iter().find(|e| e.id == diff.id) {
+                            changes.added.push(el.selector.clone());
+                        }
+                    }
+                    ChangeType::Disappeared => {
+                        // We can't find it in final scan.
+                        // Maybe find in initial?
+                        if let Some(el) = initial.elements.iter().find(|e| e.id == diff.id) {
+                            changes.removed.push(el.selector.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if changes.url.is_none()
+            && changes.title.is_none()
+            && changes.added.is_empty()
+            && changes.removed.is_empty()
+        {
+            None
+        } else {
+            Some(changes)
+        }
     }
 }
 

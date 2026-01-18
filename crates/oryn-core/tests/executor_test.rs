@@ -187,6 +187,7 @@ async fn test_executor_loop() {
         success: None,
         failure: None,
         options: Default::default(),
+        description: None,
     };
 
     let mut reg = registry;
@@ -249,6 +250,7 @@ async fn test_executor_try() {
         success: None,
         failure: None,
         options: Default::default(),
+        description: None,
     };
 
     let mut reg = registry;
@@ -308,6 +310,7 @@ async fn test_executor_fill_form() {
         success: None,
         failure: None,
         options: Default::default(),
+        description: None,
     };
 
     let mut reg = registry;
@@ -379,6 +382,7 @@ async fn test_executor_branch_then() {
         success: None,
         failure: None,
         options: Default::default(),
+        description: None,
     };
 
     let mut reg = registry;
@@ -439,6 +443,7 @@ async fn test_executor_branch_else() {
         success: None,
         failure: None,
         options: Default::default(),
+        description: None,
     };
 
     let mut reg = registry;
@@ -522,6 +527,7 @@ async fn test_executor_nested_loop() {
         success: None,
         failure: None,
         options: Default::default(),
+        description: None,
     };
 
     let mut reg = registry;
@@ -585,6 +591,7 @@ async fn test_executor_loop_max_limit() {
         success: None,
         failure: None,
         options: Default::default(),
+        description: None,
     };
 
     let mut reg = registry;
@@ -771,6 +778,7 @@ async fn test_fill_form_placeholder_match() {
         success: None,
         failure: None,
         options: Default::default(),
+        description: None,
     };
 
     let mut reg = registry;
@@ -824,6 +832,7 @@ async fn test_fill_form_semantic_email() {
         success: None,
         failure: None,
         options: Default::default(),
+        description: None,
     };
 
     let mut reg = registry;
@@ -872,6 +881,7 @@ async fn test_fill_form_scoring_prefers_exact() {
         success: None,
         failure: None,
         options: Default::default(),
+        description: None,
     };
 
     let mut reg = registry;

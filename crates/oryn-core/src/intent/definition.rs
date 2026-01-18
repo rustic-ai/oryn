@@ -15,6 +15,8 @@ pub enum IntentTier {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntentDefinition {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub version: String,
     pub tier: IntentTier,
     #[serde(default)]
@@ -128,7 +130,7 @@ pub struct CheckpointStepWrapper {
     pub checkpoint: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionType {
     Click,
@@ -251,8 +253,22 @@ fn default_timeout() -> u64 {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RetryConfig {
-    #[serde(default)]
-    pub attempts: usize,
-    #[serde(default)]
-    pub backoff: u64,
+    #[serde(default = "default_max_attempts")]
+    pub max_attempts: usize,
+    #[serde(default = "default_delay_ms")]
+    pub delay_ms: u64,
+    #[serde(default = "default_backoff_multiplier")]
+    pub backoff_multiplier: f64,
+}
+
+fn default_max_attempts() -> usize {
+    3
+}
+
+fn default_delay_ms() -> u64 {
+    1000
+}
+
+fn default_backoff_multiplier() -> f64 {
+    2.0
 }

@@ -49,6 +49,7 @@ pub enum ResolutionStrategy {
 #[derive(Debug, Clone)]
 pub struct ResolverContext {
     elements: Vec<Element>,
+    url: String,
 }
 
 impl ResolverContext {
@@ -56,12 +57,16 @@ impl ResolverContext {
     pub fn new(scan_result: &ScanResult) -> Self {
         Self {
             elements: scan_result.elements.clone(),
+            url: scan_result.page.url.clone(),
         }
     }
 
     /// Create an empty context (for testing or when no scan has been performed).
     pub fn empty() -> Self {
-        Self { elements: vec![] }
+        Self {
+            elements: vec![],
+            url: String::new(),
+        }
     }
 
     /// Check if the context has any elements.
@@ -82,6 +87,11 @@ impl ResolverContext {
     /// Get all elements.
     pub fn elements(&self) -> &[Element] {
         &self.elements
+    }
+
+    /// Get the URL context.
+    pub fn url(&self) -> &str {
+        &self.url
     }
 }
 

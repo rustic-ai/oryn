@@ -39,6 +39,7 @@ fn test_intent_definition_serde() {
         }),
         failure: None,
         options: Default::default(),
+        description: None,
     };
 
     // Test JSON Serialization

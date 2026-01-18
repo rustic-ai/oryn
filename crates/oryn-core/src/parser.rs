@@ -1,9 +1,8 @@
 use crate::command::{
-    Command, CookieAction, ExtractSource, ScrollDirection, StorageAction, StorageType, TabAction,
-    Target, WaitCondition,
+    Command, CookieAction, ExtractSource, IntentFilter, LearnAction, ScrollDirection,
+    StorageAction, StorageType, TabAction, Target, WaitCondition,
 };
 use std::collections::HashMap;
-use std::iter::Peekable;
 use std::str::Chars;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -15,15 +14,24 @@ pub enum Token {
     Char(char), // Single characters like ( )
 }
 
+#[derive(Clone)]
 pub struct Tokenizer<'a> {
-    chars: Peekable<Chars<'a>>,
+    chars: Chars<'a>,
 }
 
 impl<'a> Tokenizer<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
-            chars: input.chars().peekable(),
+            chars: input.chars(),
         }
+    }
+
+    pub fn rest(&self) -> &'a str {
+        self.chars.as_str()
+    }
+
+    fn peek_char(&self) -> Option<char> {
+        self.chars.clone().next()
     }
 
     fn consume_while<F>(&mut self, predicate: F) -> String
@@ -31,7 +39,7 @@ impl<'a> Tokenizer<'a> {
         F: Fn(char) -> bool,
     {
         let mut result = String::new();
-        while let Some(&c) = self.chars.peek() {
+        while let Some(c) = self.peek_char() {
             if predicate(c) {
                 result.push(c);
                 self.chars.next();
@@ -68,7 +76,7 @@ impl<'a> Iterator for Tokenizer<'a> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(&c) = self.chars.peek() {
+        while let Some(c) = self.peek_char() {
             if c.is_whitespace() {
                 self.chars.next();
             } else {
@@ -76,7 +84,7 @@ impl<'a> Iterator for Tokenizer<'a> {
             }
         }
 
-        let c = *self.chars.peek()?;
+        let c = self.peek_char()?;
 
         if c == '(' || c == ')' {
             self.chars.next();
@@ -90,7 +98,7 @@ impl<'a> Iterator for Tokenizer<'a> {
 
         if c == '-' {
             self.chars.next();
-            if self.chars.peek() == Some(&'-') {
+            if self.peek_char() == Some('-') {
                 self.chars.next();
             }
             let flag_name = self.consume_while(|c| !c.is_whitespace() && c != '(' && c != ')');
@@ -112,26 +120,26 @@ impl<'a> Iterator for Tokenizer<'a> {
 }
 
 pub struct Parser<'a> {
-    tokenizer: Peekable<Tokenizer<'a>>,
+    tokenizer: Tokenizer<'a>,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
-            tokenizer: Tokenizer::new(input).peekable(),
+            tokenizer: Tokenizer::new(input),
         }
     }
 
     pub fn parse(&mut self) -> Result<Vec<Command>, String> {
         let mut commands = Vec::new();
-        while self.tokenizer.peek().is_some() {
+        while self.peek_token().is_some() {
             commands.push(self.parse_command()?);
         }
         Ok(commands)
     }
 
-    fn peek_token(&mut self) -> Option<&Token> {
-        self.tokenizer.peek()
+    fn peek_token(&self) -> Option<Token> {
+        self.tokenizer.clone().next()
     }
 
     fn consume_token(&mut self) -> Option<Token> {
@@ -182,6 +190,13 @@ impl<'a> Parser<'a> {
                     "accept" => self.parse_accept(),
                     "scroll" => self.parse_scroll(),
                     "pdf" => self.parse_pdf(),
+                    "packs" | "pack" => self.parse_pack(),
+                    "intents" | "intent" => self.parse_intents(),
+                    "define" => self.parse_define_cmd(),
+                    "undefine" => self.parse_undefine(),
+                    "export" => self.parse_export(),
+                    "run" => self.parse_run_intent(),
+                    "learn" => self.parse_learn(),
                     _ => Err(format!("Unknown command: {}", cmd)),
                 }
             }
@@ -740,6 +755,123 @@ impl<'a> Parser<'a> {
         // optional: options?
         let path = self.parse_string_arg()?;
         Ok(Command::Pdf(path))
+    }
+
+    fn parse_pack(&mut self) -> Result<Command, String> {
+        let peek = self.peek_token();
+
+        if let Some(Token::Word(w)) = peek {
+            let lower = w.to_lowercase();
+            match lower.as_str() {
+                "load" => {
+                    self.consume_token();
+                    let name = self.parse_string_arg()?;
+                    Ok(Command::PackLoad(name))
+                }
+                "unload" => {
+                    self.consume_token();
+                    let name = self.parse_string_arg()?;
+                    Ok(Command::PackUnload(name))
+                }
+                "list" => {
+                    self.consume_token();
+                    Ok(Command::Packs)
+                }
+                _ => Ok(Command::Packs),
+            }
+        } else {
+            Ok(Command::Packs)
+        }
+    }
+
+    fn parse_define_cmd(&mut self) -> Result<Command, String> {
+        let body = self.remaining_input().to_string();
+        // Consume the rest of the stream
+        while self.consume_token().is_some() {}
+        Ok(Command::Define(body))
+    }
+
+    fn parse_undefine(&mut self) -> Result<Command, String> {
+        let name = self.parse_string_arg()?;
+        Ok(Command::Undefine(name))
+    }
+
+    fn parse_export(&mut self) -> Result<Command, String> {
+        // export <name> <path>
+        let name = self.parse_string_arg()?;
+        let path = self.parse_string_arg()?;
+        Ok(Command::Export(name, path))
+    }
+
+    fn parse_learn(&mut self) -> Result<Command, String> {
+        // learn status
+        // learn refine <name>
+        // learn save <name>
+        // learn ignore <name>
+
+        // Default to status if no arg?
+        let action_word = match self.consume_token() {
+            Some(Token::Word(w)) => w.to_lowercase(),
+            _ => return Ok(Command::Learn(LearnAction::Status)),
+        };
+
+        match action_word.as_str() {
+            "status" => Ok(Command::Learn(LearnAction::Status)),
+            "refine" => {
+                let name = self.parse_string_arg()?;
+                Ok(Command::Learn(LearnAction::Refine(name)))
+            }
+            "save" => {
+                let name = self.parse_string_arg()?;
+                Ok(Command::Learn(LearnAction::Save(name)))
+            }
+            "ignore" => {
+                let name = self.parse_string_arg()?;
+                Ok(Command::Learn(LearnAction::Ignore(name)))
+            }
+            _ => Err(format!("Unknown learn action: {}", action_word)),
+        }
+    }
+
+    fn parse_intents(&mut self) -> Result<Command, String> {
+        // intents [--session]
+        let mut filter = IntentFilter::All;
+        if let Some(Token::Flag(flag)) = self.peek_token() {
+            if flag == "session" {
+                self.consume_token();
+                filter = IntentFilter::Session;
+            }
+        }
+        Ok(Command::Intents(filter))
+    }
+
+    fn parse_run_intent(&mut self) -> Result<Command, String> {
+        // syntax: run <name> [key=value] ...
+        let name = self.parse_string_arg()?;
+        let mut params = HashMap::new();
+
+        while let Some(_token) = self.peek_token() {
+            // Expect pairs "key=value" or just loop strings?
+            // Since tokenizing splits by space, "key=value" is one word if no spaces.
+            // But if value has spaces? "key='value with spaces'".
+            // Tokenizer handles quotes.
+            // Logic: consume next token. Check if it contains '='.
+            match self.consume_token() {
+                Some(Token::Word(s)) | Some(Token::String(s)) => {
+                    if let Some((k, v)) = s.split_once('=') {
+                        params.insert(k.to_string(), v.to_string());
+                    } else {
+                        // Just a flag or arg?
+                    }
+                }
+                _ => break,
+            }
+        }
+        Ok(Command::RunIntent(name, params))
+    }
+
+    fn remaining_input(&self) -> &str {
+        self.tokenizer.rest()
     }
 
     fn parse_string_arg(&mut self) -> Result<String, String> {
