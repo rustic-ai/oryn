@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Confirmation - Multi-Page Flow Test</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .progress-indicator {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2rem;
+            padding: 1rem 0;
+            border-bottom: 2px solid var(--border);
+        }
+        .progress-step {
+            flex: 1;
+            text-align: center;
+        }
+        .progress-step.completed {
+            color: #22c55e;
+        }
+        .success-banner {
+            background: #f0fdf4;
+            border: 2px solid #22c55e;
+            border-radius: var(--radius);
+            padding: 2rem;
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .success-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        .order-id {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--primary);
+            margin: 1rem 0;
+        }
+        .confirmation-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+        .detail-section {
+            padding: 1.5rem;
+            background: #f8fafc;
+            border-radius: var(--radius);
+        }
+        .detail-section h3 {
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .order-items {
+            margin-top: 1rem;
+        }
+        .order-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 1.25rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 2px solid var(--border);
+        }
+        .action-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        .action-buttons button {
+            flex: 1;
+        }
+        .email-notice {
+            text-align: center;
+            color: var(--text-muted);
+            margin-top: 2rem;
+            padding: 1rem;
+            background: #f1f5f9;
+            border-radius: var(--radius);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Test Index</a></nav>
+        <h1>Order Confirmation</h1>
+
+        <div class="progress-indicator">
+            <div class="progress-step completed">1. Cart</div>
+            <div class="progress-step completed">2. Shipping</div>
+            <div class="progress-step completed">3. Payment</div>
+            <div class="progress-step completed">4. Confirmation</div>
+        </div>
+
+        <div class="success-banner">
+            <div class="success-icon">&#10004;</div>
+            <h2>Thank you for your order!</h2>
+            <div class="order-id" id="order-id">ORD-XXXXXXXX</div>
+            <p>Your order has been placed successfully.</p>
+        </div>
+
+        <div class="confirmation-details">
+            <div class="detail-section">
+                <h3>Shipping Address</h3>
+                <div id="shipping-details">
+                    <p id="shipping-name">John Doe</p>
+                    <p id="shipping-address">123 Main Street</p>
+                    <p id="shipping-city-state">San Francisco, CA 94102</p>
+                    <p id="shipping-method">Standard Shipping (5-7 business days)</p>
+                </div>
+            </div>
+
+            <div class="detail-section">
+                <h3>Payment Method</h3>
+                <div id="payment-details">
+                    <p id="payment-method">Credit Card</p>
+                    <p id="payment-card">**** **** **** 3456</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="detail-section" style="margin-top: 1.5rem;">
+            <h3>Order Summary</h3>
+            <div class="order-items" id="order-items">
+                <!-- Populated by JS -->
+            </div>
+            <div class="total-row">
+                <span>Total Charged:</span>
+                <span id="order-total">$356.37</span>
+            </div>
+        </div>
+
+        <div class="email-notice">
+            <p>A confirmation email has been sent to <strong id="customer-email">customer@example.com</strong></p>
+        </div>
+
+        <div class="action-buttons">
+            <button onclick="window.print()" style="background: #64748b;">
+                Print Receipt
+            </button>
+            <button onclick="window.location.href='/intent-tests/flow-cart.html'">
+                Start New Order
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Load all checkout data
+        const cartData = JSON.parse(sessionStorage.getItem('checkoutCart') || '{}');
+        const shippingData = JSON.parse(sessionStorage.getItem('checkoutShipping') || '{}');
+        const paymentData = JSON.parse(sessionStorage.getItem('checkoutPayment') || '{}');
+        const orderId = sessionStorage.getItem('checkoutOrderId') || 'ORD-' + Date.now().toString(36).toUpperCase();
+        const orderTotal = sessionStorage.getItem('checkoutTotal') || '356.37';
+
+        // Display order ID
+        document.getElementById('order-id').textContent = orderId;
+
+        // Display shipping details
+        if (shippingData.firstName) {
+            document.getElementById('shipping-name').textContent =
+                `${shippingData.firstName} ${shippingData.lastName}`;
+            document.getElementById('shipping-address').textContent =
+                shippingData.addressLine1 + (shippingData.addressLine2 ? ', ' + shippingData.addressLine2 : '');
+            document.getElementById('shipping-city-state').textContent =
+                `${shippingData.city}, ${shippingData.state} ${shippingData.zip}`;
+
+            const shippingMethods = {
+                'standard': 'Standard Shipping (5-7 business days)',
+                'express': 'Express Shipping (2-3 business days)',
+                'overnight': 'Overnight Shipping (Next business day)'
+            };
+            document.getElementById('shipping-method').textContent =
+                shippingMethods[shippingData.shippingMethod] || 'Standard Shipping';
+
+            document.getElementById('customer-email').textContent = shippingData.email;
+        }
+
+        // Display payment details
+        if (paymentData.method) {
+            document.getElementById('payment-method').textContent =
+                paymentData.method === 'card' ? 'Credit Card' : 'PayPal';
+            document.getElementById('payment-card').textContent =
+                paymentData.method === 'card' ? `**** **** **** ${paymentData.cardLast4}` : 'PayPal Account';
+        }
+
+        // Display order items
+        const itemsContainer = document.getElementById('order-items');
+        if (cartData.items && cartData.items.length > 0) {
+            cartData.items.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'order-item';
+                div.innerHTML = `
+                    <span>${item.name} x ${item.quantity}</span>
+                    <span>$${(item.price * item.quantity).toFixed(2)}</span>
+                `;
+                itemsContainer.appendChild(div);
+            });
+        } else {
+            // Default items for demo
+            itemsContainer.innerHTML = `
+                <div class="order-item"><span>Wireless Mouse x 1</span><span>$29.99</span></div>
+                <div class="order-item"><span>Mechanical Keyboard x 2</span><span>$299.98</span></div>
+            `;
+        }
+
+        // Display total
+        document.getElementById('order-total').textContent = '$' + orderTotal;
+
+        // Clear session storage after displaying
+        // Keep data for testing purposes - uncomment to clear after confirmation
+        // sessionStorage.removeItem('checkoutCart');
+        // sessionStorage.removeItem('checkoutShipping');
+        // sessionStorage.removeItem('checkoutPayment');
+        // sessionStorage.removeItem('checkoutOrderId');
+        // sessionStorage.removeItem('checkoutTotal');
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,220 @@
+# Target Resolution & Fallback Tests
+# Tests the target resolution features from SPEC-INTENT-ENGINE.md Section 5.2
+
+# =============================================================================
+# Test 1: Role-Based Targeting
+# =============================================================================
+goto "http://localhost:3000/intent-tests/roles-targeting.html"
+observe
+
+# Target by role="textbox"
+type css(input[role="textbox"]) "role-targeted@email.com"
+
+# Target by role="checkbox"
+click css(input[role="checkbox"])
+
+# Target by role="button"
+click css(button[role="button"][aria-label="Sign in to your account"])
+
+# =============================================================================
+# Test 2: ARIA Label Targeting
+# =============================================================================
+
+# Target by aria-label
+type css(input[aria-label="Search"]) "aria search test"
+click css(button[aria-label="Submit search"])
+
+# =============================================================================
+# Test 3: Custom Checkbox (role-based)
+# =============================================================================
+
+# Click custom checkbox elements (div with role="checkbox")
+click "Email notifications"
+click "Push notifications"
+observe
+
+# =============================================================================
+# Test 4: Tab Interface (role="tab")
+# =============================================================================
+
+# Click tabs by role
+click "Security"
+wait visible css(#panel-security)
+observe
+
+click "Notifications"
+wait visible css(#panel-notifications)
+observe
+
+click "Profile"
+wait visible css(#panel-profile)
+
+# =============================================================================
+# Test 5: Menu Interaction (role="menuitem")
+# =============================================================================
+
+# Open menu via menuitem
+click "File"
+wait visible css(#file-menu)
+observe
+
+# Click menu item
+click "Save"
+
+# =============================================================================
+# Test 6: Tree View Navigation (role="treeitem")
+# =============================================================================
+
+# Click tree items
+click "Documents"
+observe
+
+click "report.pdf"
+observe
+
+click "Pictures"
+wait visible css(#view-menu ~ [role="group"])
+
+# =============================================================================
+# Test 7: Fallback Target Chain
+# =============================================================================
+goto "http://localhost:3000/intent-tests/error-recovery.html"
+observe
+
+# The fallback buttons test:
+# Primary (hidden) -> Secondary (disabled) -> Tertiary (active)
+# Engine should automatically fall back to tertiary target
+click "Tertiary (Active)"
+wait visible css(#fallback-result)
+observe
+
+# Toggle primary to test different fallback scenarios
+click "Toggle Primary"
+observe
+
+# =============================================================================
+# Test 8: Text-Based Targeting with Partial Match
+# =============================================================================
+
+# Test various text matching strategies
+goto "http://localhost:3000/intent-tests/search-page.html"
+observe
+
+# Click filter chips by text
+click "Products"
+click "Articles"
+click "Documentation"
+click "All"
+
+# =============================================================================
+# Test 9: Error Recovery - Flaky Element
+# =============================================================================
+goto "http://localhost:3000/intent-tests/error-recovery.html"
+observe
+
+# Click the flaky button (should work when available)
+click "Click Me (Intermittent)"
+wait visible css(#flaky-result)
+
+# Simulate flaky state and retry
+click "Simulate Flaky State"
+# Wait for element to become available again (3 seconds)
+wait visible css(#flaky-button:not(.disabled))
+click "Click Me (Intermittent)"
+
+# =============================================================================
+# Test 10: Slow Loading Element Wait
+# =============================================================================
+
+click "Load Content"
+# Wait for loading to complete
+wait hidden css(.loading-overlay.visible)
+wait visible css(#slow-action-btn)
+click "Perform Action"
+
+# =============================================================================
+# Test 11: Popup Interference & Recovery
+# =============================================================================
+
+click "Perform Action (Blocked by Popup)"
+# Popup appears, must dismiss first
+wait visible css(#blocking-popup)
+click "Continue"
+wait visible css(#blocked-result)
+observe
+
+# =============================================================================
+# Test 12: Delayed Element Visibility
+# =============================================================================
+
+click "Show Button"
+# Wait for button to become visible (2 second delay)
+wait visible css(#delayed-action.show)
+click "Delayed Action Button"
+wait visible css(#delayed-result)
+
+# =============================================================================
+# Test 13: Click Interception - Force Click
+# =============================================================================
+
+# This button is covered by an overlay
+# Intent engine should detect interception and use force click
+click "Remove Interceptor"
+click "Intercepted Button"
+wait visible css(#intercepted-result)
+
+# =============================================================================
+# Test 14: Form Validation & Error Recovery
+# =============================================================================
+
+# Test validation error handling
+type "Email (required, must be valid)" "invalid-email"
+type "Password (min 8 chars, 1 uppercase, 1 number)" "weak"
+click "Create Account"
+
+# Should show validation errors
+wait visible css(.error-message.visible)
+observe
+
+# Fix errors and retry
+clear "Email (required, must be valid)"
+type "Email (required, must be valid)" "valid@email.com"
+clear "Password (min 8 chars, 1 uppercase, 1 number)"
+type "Password (min 8 chars, 1 uppercase, 1 number)" "StrongPass1"
+type "Confirm Password (must match)" "StrongPass1"
+
+click "Create Account"
+
+# =============================================================================
+# Test 15: Stale Element Reference
+# =============================================================================
+
+# Increment counter
+click "Increment"
+observe
+
+# Replace element (makes previous reference stale)
+click "Replace Element"
+observe
+
+# Engine should re-query and find new element
+click "Increment"
+observe
+
+# =============================================================================
+# Test 16: Landmark Navigation
+# =============================================================================
+goto "http://localhost:3000/intent-tests/roles-targeting.html"
+observe
+
+# Test landmark role detection
+# These are visual demonstrations but intent engine should detect:
+# - role="banner"
+# - role="navigation"
+# - role="main"
+# - role="complementary"
+# - role="contentinfo"
+
+# Scroll to landmarks section
+scroll down
+observe

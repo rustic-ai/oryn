@@ -1,0 +1,183 @@
+# Multi-Page Flow Tests
+# Tests the multi-page flow functionality described in SPEC-INTENT-ENGINE.md Section 12.2
+
+# =============================================================================
+# Test 1: Complete Checkout Flow (Cart → Shipping → Payment → Confirmation)
+# =============================================================================
+
+# Page 1: Cart Review
+goto "http://localhost:3000/intent-tests/flow-cart.html"
+observe
+
+# Verify we're on the cart page
+# URL pattern: .*/flow-cart.*
+
+# Interact with cart items
+click "+" near "Wireless Mouse"
+observe
+
+# Apply a coupon code
+type "coupon-code" "SAVE10"
+click "Apply"
+wait visible css(#coupon-message)
+observe
+
+# Proceed to next page
+click "Continue to Shipping"
+
+# =============================================================================
+# Page 2: Shipping Address
+# =============================================================================
+# Wait for navigation
+wait visible css(#shipping-form)
+observe
+
+# URL pattern: .*/flow-shipping.*
+
+# Fill shipping form - fill_form intent
+type "First Name" "John"
+type "Last Name" "Doe"
+type "Email Address" "john.doe@example.com"
+type "Phone Number" "(555) 123-4567"
+type "Address Line 1" "123 Main Street"
+type "Address Line 2" "Apt 4B"
+type "City" "San Francisco"
+select "State" "California"
+type "ZIP Code" "94102"
+
+# Select shipping method
+click "Express Shipping"
+
+# Save address checkbox
+check "Save this address"
+
+# Proceed to payment
+click "Continue to Payment"
+
+# =============================================================================
+# Page 3: Payment Information
+# =============================================================================
+# Wait for navigation
+wait visible css(#payment-form)
+observe
+
+# URL pattern: .*/flow-payment.*
+
+# Verify order summary is displayed
+# The flow should preserve data from previous pages
+
+# Fill payment form
+type "Name on Card" "John Doe"
+type "Card Number" "4111111111111111"
+type "Expiry Date" "12/25"
+type "CVV" "123"
+
+# Place order
+click "Place Order"
+
+# =============================================================================
+# Page 4: Order Confirmation
+# =============================================================================
+# Wait for confirmation page
+wait visible css(.success-banner)
+observe
+
+# URL pattern: .*/flow-confirmation.*
+
+# Verify order details are displayed
+# Extract order ID from page
+# The confirmation should show:
+# - Order ID
+# - Shipping address
+# - Payment method (masked)
+# - Order items
+# - Total
+
+# Verify all checkout data persisted through flow
+observe
+
+# =============================================================================
+# Test 2: Flow with Back Navigation
+# =============================================================================
+
+# Start new flow
+goto "http://localhost:3000/intent-tests/flow-cart.html"
+observe
+
+click "Continue to Shipping"
+wait visible css(#shipping-form)
+
+# Go back to cart
+click "Back to Cart"
+wait visible css(#cart-items)
+observe
+
+# Verify cart state is preserved
+observe
+
+# =============================================================================
+# Test 3: Shipping Form Validation (Error Recovery)
+# =============================================================================
+
+goto "http://localhost:3000/intent-tests/flow-shipping.html"
+observe
+
+# Try to submit without required fields
+click "Continue to Payment"
+
+# Form should show validation errors
+wait visible css(.error-message)
+observe
+
+# Fill required fields only
+type "First Name" "Jane"
+type "Last Name" "Smith"
+type "Email Address" "jane@test.com"
+type "Address Line 1" "456 Oak Ave"
+type "City" "New York"
+select "State" "New York"
+type "ZIP Code" "10001"
+
+# Now submit should succeed
+click "Continue to Payment"
+wait visible css(#payment-form)
+
+# =============================================================================
+# Test 4: Payment Form Validation
+# =============================================================================
+
+# Try to submit without card details
+click "Place Order"
+
+# Should show validation errors
+wait visible css(.error-message)
+observe
+
+# Fill valid payment info
+type "Name on Card" "Jane Smith"
+type "Card Number" "5555555555554444"
+type "Expiry Date" "06/26"
+type "CVV" "456"
+
+click "Place Order"
+wait visible css(.success-banner)
+observe
+
+# =============================================================================
+# Test 5: PayPal Payment Method Switch
+# =============================================================================
+
+goto "http://localhost:3000/intent-tests/flow-payment.html"
+observe
+
+# Switch to PayPal
+click "PayPal"
+observe
+
+# Card fields should be hidden, PayPal message shown
+wait visible css(#paypal-details)
+observe
+
+# Switch back to Credit Card
+click "Credit Card"
+wait visible css(#card-details)

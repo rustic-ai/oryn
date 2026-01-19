@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search - Intent Engine Test</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .search-container {
+            max-width: 600px;
+            margin: 0 auto 2rem;
+        }
+        .search-form {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .search-form input {
+            flex: 1;
+            margin: 0;
+            padding: 1rem;
+            font-size: 1.1rem;
+        }
+        .search-form button {
+            padding: 1rem 1.5rem;
+            font-size: 1.1rem;
+        }
+        .search-suggestions {
+            background: white;
+            border: 1px solid var(--border);
+            border-top: none;
+            border-radius: 0 0 var(--radius) var(--radius);
+            display: none;
+            position: absolute;
+            left: 0;
+            right: 0;
+            z-index: 100;
+        }
+        .search-suggestions.visible {
+            display: block;
+        }
+        .search-suggestion {
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+        }
+        .search-suggestion:hover {
+            background: #f1f5f9;
+        }
+        .search-suggestion:last-child {
+            border-bottom: none;
+        }
+        .search-input-wrapper {
+            position: relative;
+            flex: 1;
+        }
+        .search-input-wrapper input {
+            width: 100%;
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .results-count {
+            color: var(--text-muted);
+        }
+        .sort-select {
+            width: auto;
+            margin: 0;
+        }
+
+        .search-result {
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 1rem;
+        }
+        .search-result:hover {
+            border-color: var(--primary);
+        }
+        .result-title {
+            font-size: 1.25rem;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+        }
+        .result-title:hover {
+            text-decoration: underline;
+        }
+        .result-url {
+            color: #22c55e;
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+        }
+        .result-snippet {
+            color: var(--text-muted);
+        }
+        .result-snippet mark {
+            background: #fef08a;
+            padding: 0 2px;
+        }
+        .result-meta {
+            margin-top: 0.75rem;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+        .no-results h2 {
+            color: var(--text);
+        }
+
+        .filters {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .filter-chip {
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .filter-chip.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            display: none;
+        }
+        .loading.visible {
+            display: block;
+        }
+        .spinner {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 2rem;
+        }
+        .pagination button {
+            width: 40px;
+            height: 40px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .pagination button.active {
+            background: var(--primary);
+        }
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Test Index</a></nav>
+        <h1>Search</h1>
+
+        <div class="search-container">
+            <form class="search-form" id="search-form" role="search">
+                <div class="search-input-wrapper">
+                    <input type="search" id="search-input" name="q"
+                           placeholder="Search for products, articles..."
+                           autocomplete="off"
+                           role="searchbox"
+                           aria-label="Search">
+                    <div class="search-suggestions" id="suggestions" role="listbox">
+                        <!-- Suggestions populated by JS -->
+                    </div>
+                </div>
+                <button type="submit" aria-label="Search">Search</button>
+            </form>
+        </div>
+
+        <div class="filters" role="group" aria-label="Filter results">
+            <span class="filter-chip active" data-filter="all">All</span>
+            <span class="filter-chip" data-filter="products">Products</span>
+            <span class="filter-chip" data-filter="articles">Articles</span>
+            <span class="filter-chip" data-filter="docs">Documentation</span>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Searching...</p>
+        </div>
+
+        <div id="results-container">
+            <div class="results-header" id="results-header" style="display: none;">
+                <span class="results-count" id="results-count">0 results</span>
+                <select class="sort-select" id="sort-select" aria-label="Sort results">
+                    <option value="relevance">Sort by: Relevance</option>
+                    <option value="date">Sort by: Date</option>
+                    <option value="title">Sort by: Title</option>
+                </select>
+            </div>
+
+            <div id="results">
+                <!-- Initial state -->
+                <div class="no-results" id="initial-state">
+                    <h2>Start searching</h2>
+                    <p>Enter a search term above to find products, articles, and documentation.</p>
+                </div>
+            </div>
+
+            <div class="pagination" id="pagination" style="display: none;">
+                <button disabled>&larr;</button>
+                <button class="active">1</button>
+                <button>2</button>
+                <button>3</button>
+                <button>&rarr;</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Sample data
+        const searchData = [
+            { type: 'products', title: 'Wireless Mouse', url: '/products/wireless-mouse', snippet: 'High-precision wireless mouse with ergonomic design. Features 2.4GHz connectivity and long battery life.', date: '2024-01-15' },
+            { type: 'products', title: 'Mechanical Keyboard', url: '/products/mechanical-keyboard', snippet: 'Premium mechanical keyboard with Cherry MX switches. RGB backlight and programmable keys.', date: '2024-01-10' },
+            { type: 'products', title: 'USB-C Hub', url: '/products/usb-c-hub', snippet: 'Multi-port USB-C hub with HDMI, USB-A, and SD card reader. Perfect for laptops.', date: '2024-01-12' },
+            { type: 'articles', title: 'How to Choose the Right Mouse', url: '/blog/choose-mouse', snippet: 'A comprehensive guide to selecting the perfect mouse for your needs. Covers wireless vs wired, DPI, and ergonomics.', date: '2024-01-08' },
+            { type: 'articles', title: 'Keyboard Maintenance Tips', url: '/blog/keyboard-maintenance', snippet: 'Keep your keyboard clean and working perfectly with these maintenance tips and tricks.', date: '2024-01-05' },
+            { type: 'docs', title: 'Mouse Setup Guide', url: '/docs/mouse-setup', snippet: 'Step-by-step instructions for setting up your new wireless mouse on Windows, Mac, and Linux.', date: '2024-01-14' },
+            { type: 'docs', title: 'Keyboard Customization', url: '/docs/keyboard-custom', snippet: 'Learn how to customize your mechanical keyboard: key remapping, macros, and lighting effects.', date: '2024-01-13' },
+            { type: 'products', title: 'Monitor Stand', url: '/products/monitor-stand', snippet: 'Adjustable monitor stand with cable management. Supports monitors up to 32 inches.', date: '2024-01-09' },
+            { type: 'articles', title: 'Ergonomic Workspace Setup', url: '/blog/ergonomic-workspace', snippet: 'Create a healthier workspace with proper monitor height, keyboard placement, and chair positioning.', date: '2024-01-06' },
+            { type: 'docs', title: 'Troubleshooting Connection Issues', url: '/docs/troubleshooting', snippet: 'Common solutions for wireless device connectivity problems and driver issues.', date: '2024-01-11' }
+        ];
+
+        const suggestions = [
+            'wireless mouse',
+            'mechanical keyboard',
+            'USB hub',
+            'monitor stand',
+            'ergonomic setup',
+            'keyboard shortcuts'
+        ];
+
+        let currentFilter = 'all';
+        let currentQuery = '';
+
+        // Search input handling
+        const searchInput = document.getElementById('search-input');
+        const suggestionsEl = document.getElementById('suggestions');
+
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            if (query.length > 0) {
+                const matches = suggestions.filter(s => s.toLowerCase().includes(query));
+                if (matches.length > 0) {
+                    suggestionsEl.innerHTML = matches.map(s =>
+                        `<div class="search-suggestion" role="option">${highlightMatch(s, query)}</div>`
+                    ).join('');
+                    suggestionsEl.classList.add('visible');
+                } else {
+                    suggestionsEl.classList.remove('visible');
+                }
+            } else {
+                suggestionsEl.classList.remove('visible');
+            }
+        });
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                suggestionsEl.classList.remove('visible');
+            }
+        });
+
+        suggestionsEl.addEventListener('click', (e) => {
+            if (e.target.classList.contains('search-suggestion')) {
+                searchInput.value = e.target.textContent;
+                suggestionsEl.classList.remove('visible');
+                performSearch(e.target.textContent);
+            }
+        });
+
+        // Hide suggestions on outside click
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.search-input-wrapper')) {
+                suggestionsEl.classList.remove('visible');
+            }
+        });
+
+        // Form submission
+        document.getElementById('search-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            performSearch(searchInput.value);
+        });
+
+        // Filter handling
+        document.querySelectorAll('.filter-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+                currentFilter = chip.dataset.filter;
+                if (currentQuery) {
+                    performSearch(currentQuery);
+                }
+            });
+        });
+
+        // Sort handling
+        document.getElementById('sort-select').addEventListener('change', () => {
+            if (currentQuery) {
+                performSearch(currentQuery);
+            }
+        });
+
+        function highlightMatch(text, query) {
+            const regex = new RegExp(`(${query})`, 'gi');
+            return text.replace(regex, '<mark>$1</mark>');
+        }
+
+        function performSearch(query) {
+            currentQuery = query.toLowerCase();
+
+            // Show loading
+            document.getElementById('loading').classList.add('visible');
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('initial-state')?.remove();
+
+            // Simulate network delay
+            setTimeout(() => {
+                document.getElementById('loading').classList.remove('visible');
+
+                // Filter results
+                let results = searchData.filter(item => {
+                    const matchesQuery = item.title.toLowerCase().includes(currentQuery) ||
+                                        item.snippet.toLowerCase().includes(currentQuery);
+                    const matchesFilter = currentFilter === 'all' || item.type === currentFilter;
+                    return matchesQuery && matchesFilter;
+                });
+
+                // Sort results
+                const sortBy = document.getElementById('sort-select').value;
+                if (sortBy === 'date') {
+                    results.sort((a, b) => new Date(b.date) - new Date(a.date));
+                } else if (sortBy === 'title') {
+                    results.sort((a, b) => a.title.localeCompare(b.title));
+                }
+
+                displayResults(results);
+            }, 500);
+        }
+
+        function displayResults(results) {
+            const container = document.getElementById('results');
+            const header = document.getElementById('results-header');
+            const pagination = document.getElementById('pagination');
+            const countEl = document.getElementById('results-count');
+
+            if (results.length === 0) {
+                header.style.display = 'none';
+                pagination.style.display = 'none';
+                container.innerHTML = `
+                    <div class="no-results">
+                        <h2>No results found</h2>
+                        <p>Try different keywords or remove filters.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            header.style.display = 'flex';
+            pagination.style.display = results.length > 5 ? 'flex' : 'none';
+            countEl.textContent = `${results.length} result${results.length !== 1 ? 's' : ''} for "${currentQuery}"`;
+
+            container.innerHTML = results.map(item => `
+                <div class="search-result" data-type="${item.type}">
+                    <div class="result-title" onclick="alert('Navigating to: ${item.url}')">${highlightMatch(item.title, currentQuery)}</div>
+                    <div class="result-url">${item.url}</div>
+                    <div class="result-snippet">${highlightMatch(item.snippet, currentQuery)}</div>
+                    <div class="result-meta">
+                        <span>${item.type}</span> &bull;
+                        <span>${new Date(item.date).toLocaleDateString()}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+    </script>
+</body>
+
+</html>

@@ -31,6 +31,7 @@ app.use('/modals', express.static(path.join(__dirname, 'scenarios/modals')));
 app.use('/dynamic', express.static(path.join(__dirname, 'scenarios/dynamic')));
 app.use('/nav', express.static(path.join(__dirname, 'scenarios/navigation')));
 app.use('/edge', express.static(path.join(__dirname, 'scenarios/edge-cases')));
+app.use('/intent-tests', express.static(path.join(__dirname, 'scenarios/intent-tests')));
 
 // Main index
 app.get('/', (req, res) => {

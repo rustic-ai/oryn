@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cart Review - Multi-Page Flow Test</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .cart-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .cart-item-info {
+            flex: 1;
+        }
+        .cart-item-price {
+            font-weight: bold;
+            margin-left: 1rem;
+        }
+        .quantity-control {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .quantity-control button {
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            font-size: 1.2rem;
+        }
+        .cart-summary {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background: #f1f5f9;
+            border-radius: var(--radius);
+        }
+        .progress-indicator {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2rem;
+            padding: 1rem 0;
+            border-bottom: 2px solid var(--border);
+        }
+        .progress-step {
+            flex: 1;
+            text-align: center;
+            position: relative;
+        }
+        .progress-step.active {
+            color: var(--primary);
+            font-weight: bold;
+        }
+        .progress-step.completed {
+            color: #22c55e;
+        }
+        .coupon-section {
+            margin-top: 1rem;
+            padding: 1rem;
+            border: 1px dashed var(--border);
+            border-radius: var(--radius);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Test Index</a></nav>
+        <h1>Shopping Cart</h1>
+
+        <div class="progress-indicator">
+            <div class="progress-step active">1. Cart</div>
+            <div class="progress-step">2. Shipping</div>
+            <div class="progress-step">3. Payment</div>
+            <div class="progress-step">4. Confirmation</div>
+        </div>
+
+        <div id="cart-items">
+            <div class="cart-item" data-product-id="1">
+                <div class="cart-item-info">
+                    <strong>Wireless Mouse</strong>
+                    <p style="color: var(--text-muted); margin: 0.25rem 0;">SKU: WM-001</p>
+                </div>
+                <div class="quantity-control">
+                    <button onclick="updateQuantity(1, -1)" aria-label="Decrease quantity">-</button>
+                    <span id="qty-1">1</span>
+                    <button onclick="updateQuantity(1, 1)" aria-label="Increase quantity">+</button>
+                </div>
+                <div class="cart-item-price">$29.99</div>
+            </div>
+
+            <div class="cart-item" data-product-id="2">
+                <div class="cart-item-info">
+                    <strong>Mechanical Keyboard</strong>
+                    <p style="color: var(--text-muted); margin: 0.25rem 0;">SKU: MK-002</p>
+                </div>
+                <div class="quantity-control">
+                    <button onclick="updateQuantity(2, -1)" aria-label="Decrease quantity">-</button>
+                    <span id="qty-2">2</span>
+                    <button onclick="updateQuantity(2, 1)" aria-label="Increase quantity">+</button>
+                </div>
+                <div class="cart-item-price">$149.99</div>
+            </div>
+        </div>
+
+        <div class="coupon-section">
+            <label for="coupon-code">Have a coupon code?</label>
+            <div style="display: flex; gap: 0.5rem;">
+                <input type="text" id="coupon-code" placeholder="Enter code" style="margin: 0; flex: 1;">
+                <button onclick="applyCoupon()">Apply</button>
+            </div>
+            <div id="coupon-message" style="margin-top: 0.5rem; display: none;"></div>
+        </div>
+
+        <div class="cart-summary">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span>Subtotal:</span>
+                <span id="subtotal">$329.97</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span>Discount:</span>
+                <span id="discount">$0.00</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 1.25rem; font-weight: bold; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+                <span>Total:</span>
+                <span id="total">$329.97</span>
+            </div>
+        </div>
+
+        <button onclick="proceedToShipping()" style="width: 100%; margin-top: 1.5rem; font-size: 1.1rem; padding: 1rem;">
+            Continue to Shipping
+        </button>
+    </div>
+
+    <script>
+        let cartData = {
+            items: [
+                { id: 1, name: 'Wireless Mouse', price: 29.99, quantity: 1 },
+                { id: 2, name: 'Mechanical Keyboard', price: 149.99, quantity: 2 }
+            ],
+            coupon: null,
+            discount: 0
+        };
+
+        function updateQuantity(productId, delta) {
+            const item = cartData.items.find(i => i.id === productId);
+            if (item) {
+                item.quantity = Math.max(1, item.quantity + delta);
+                document.getElementById(`qty-${productId}`).textContent = item.quantity;
+                recalculateTotal();
+            }
+        }
+
+        function applyCoupon() {
+            const code = document.getElementById('coupon-code').value.toUpperCase();
+            const messageEl = document.getElementById('coupon-message');
+            messageEl.style.display = 'block';
+
+            if (code === 'SAVE10') {
+                cartData.coupon = code;
+                cartData.discount = 0.10;
+                messageEl.textContent = 'Coupon applied! 10% discount.';
+                messageEl.style.color = '#22c55e';
+            } else if (code === 'SAVE20') {
+                cartData.coupon = code;
+                cartData.discount = 0.20;
+                messageEl.textContent = 'Coupon applied! 20% discount.';
+                messageEl.style.color = '#22c55e';
+            } else {
+                messageEl.textContent = 'Invalid coupon code.';
+                messageEl.style.color = '#ef4444';
+            }
+            recalculateTotal();
+        }
+
+        function recalculateTotal() {
+            const subtotal = cartData.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const discountAmount = subtotal * cartData.discount;
+            const total = subtotal - discountAmount;
+
+            document.getElementById('subtotal').textContent = '$' + subtotal.toFixed(2);
+            document.getElementById('discount').textContent = '-$' + discountAmount.toFixed(2);
+            document.getElementById('total').textContent = '$' + total.toFixed(2);
+
+            // Store for next page
+            sessionStorage.setItem('checkoutCart', JSON.stringify({
+                ...cartData,
+                subtotal,
+                discountAmount,
+                total
+            }));
+        }
+
+        function proceedToShipping() {
+            recalculateTotal();
+            window.location.href = '/intent-tests/flow-shipping.html';
+        }
+
+        // Initialize
+        recalculateTotal();
+    </script>
+</body>
+
+</html>

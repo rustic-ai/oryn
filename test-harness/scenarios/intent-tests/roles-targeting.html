@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roles & Accessibility Targeting - Intent Engine Test</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .test-section {
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+        }
+        .test-section h2 {
+            margin-top: 0;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .test-description {
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        .form-row {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .form-row > * {
+            flex: 1;
+            min-width: 200px;
+        }
+        .button-group {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+        }
+        .custom-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+        }
+        .custom-checkbox:hover {
+            background: #f1f5f9;
+        }
+        .custom-checkbox[aria-checked="true"] {
+            background: #eff6ff;
+            border-color: var(--primary);
+        }
+        .tab-list {
+            display: flex;
+            gap: 0.25rem;
+            border-bottom: 2px solid var(--border);
+            margin-bottom: 1rem;
+        }
+        .tab-button {
+            padding: 0.75rem 1.5rem;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .tab-button[aria-selected="true"] {
+            border-bottom-color: var(--primary);
+            color: var(--primary);
+        }
+        .tab-panel {
+            display: none;
+            padding: 1rem;
+            border: 1px solid var(--border);
+            border-radius: 0 0 var(--radius) var(--radius);
+        }
+        .tab-panel[aria-hidden="false"] {
+            display: block;
+        }
+        .menu-bar {
+            display: flex;
+            gap: 0.25rem;
+            background: #f1f5f9;
+            padding: 0.5rem;
+            border-radius: var(--radius);
+        }
+        .menu-item {
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .menu-item:hover, .menu-item[aria-expanded="true"] {
+            background: white;
+        }
+        .dropdown-menu {
+            position: absolute;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 0.5rem 0;
+            display: none;
+            min-width: 150px;
+        }
+        .dropdown-menu.visible {
+            display: block;
+        }
+        .dropdown-item {
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+        }
+        .dropdown-item:hover {
+            background: #f1f5f9;
+        }
+        .alert-box {
+            padding: 1rem;
+            border-radius: var(--radius);
+            margin-bottom: 0.5rem;
+        }
+        .alert-box[role="alert"] {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+        }
+        .alert-box[role="status"] {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #166534;
+        }
+        .progress-container {
+            margin: 1rem 0;
+        }
+        .custom-progress {
+            height: 20px;
+            background: #e2e8f0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .custom-progress-bar {
+            height: 100%;
+            background: var(--primary);
+            transition: width 0.3s;
+        }
+        .slider-container {
+            padding: 1rem 0;
+        }
+        .custom-slider {
+            width: 100%;
+            cursor: pointer;
+        }
+        .tree-view {
+            padding-left: 1.5rem;
+        }
+        .tree-item {
+            padding: 0.25rem 0.5rem;
+            cursor: pointer;
+        }
+        .tree-item:hover {
+            background: #f1f5f9;
+        }
+        .tree-item[aria-expanded="true"]::before {
+            content: "▼ ";
+        }
+        .tree-item[aria-expanded="false"]::before {
+            content: "▶ ";
+        }
+        .tree-item[aria-selected="true"] {
+            background: #eff6ff;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Test Index</a></nav>
+        <h1>Roles & Accessibility Targeting</h1>
+        <p>Test page for ARIA roles, landmarks, and accessibility-based element targeting.</p>
+
+        <!-- Login Form with Roles -->
+        <div class="test-section">
+            <h2>1. Login Form with Semantic Roles</h2>
+            <p class="test-description">Tests targeting elements by role: textbox, password (input type), button, checkbox</p>
+
+            <form id="role-login-form" role="form" aria-label="Login form">
+                <div class="form-row">
+                    <div>
+                        <label for="role-email">Email</label>
+                        <input type="email" id="role-email" name="email"
+                               role="textbox" aria-required="true"
+                               placeholder="user@example.com">
+                    </div>
+                    <div>
+                        <label for="role-password">Password</label>
+                        <input type="password" id="role-password" name="password"
+                               aria-required="true"
+                               placeholder="Enter password">
+                    </div>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0;">
+                    <input type="checkbox" id="role-remember" role="checkbox" aria-checked="false">
+                    <label for="role-remember">Remember me</label>
+                </div>
+
+                <div class="button-group">
+                    <button type="submit" role="button" aria-label="Sign in to your account">Sign In</button>
+                    <button type="button" role="button" style="background: #64748b;">Cancel</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Search with Roles -->
+        <div class="test-section">
+            <h2>2. Search with ARIA Roles</h2>
+            <p class="test-description">Tests targeting searchbox role and combobox patterns</p>
+
+            <div role="search" aria-label="Site search">
+                <label for="aria-search" class="sr-only">Search</label>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="search" id="aria-search"
+                           role="searchbox"
+                           aria-autocomplete="list"
+                           aria-controls="search-results-list"
+                           placeholder="Search...">
+                    <button type="button" aria-label="Submit search">
+                        Search
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Custom Checkbox Group -->
+        <div class="test-section">
+            <h2>3. Custom Checkbox Group</h2>
+            <p class="test-description">Tests ARIA checkbox role on non-input elements</p>
+
+            <div role="group" aria-labelledby="options-label">
+                <p id="options-label"><strong>Select your preferences:</strong></p>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <div class="custom-checkbox" role="checkbox" aria-checked="false" tabindex="0"
+                         onclick="toggleCustomCheckbox(this)">
+                        <span aria-hidden="true">☐</span> Email notifications
+                    </div>
+                    <div class="custom-checkbox" role="checkbox" aria-checked="true" tabindex="0"
+                         onclick="toggleCustomCheckbox(this)">
+                        <span aria-hidden="true">☑</span> SMS notifications
+                    </div>
+                    <div class="custom-checkbox" role="checkbox" aria-checked="false" tabindex="0"
+                         onclick="toggleCustomCheckbox(this)">
+                        <span aria-hidden="true">☐</span> Push notifications
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs with ARIA -->
+        <div class="test-section">
+            <h2>4. Tab Interface</h2>
+            <p class="test-description">Tests tab, tablist, and tabpanel roles</p>
+
+            <div role="tablist" aria-label="Account settings" class="tab-list">
+                <button role="tab" aria-selected="true" aria-controls="panel-profile"
+                        class="tab-button" id="tab-profile" onclick="selectTab('profile')">
+                    Profile
+                </button>
+                <button role="tab" aria-selected="false" aria-controls="panel-security"
+                        class="tab-button" id="tab-security" onclick="selectTab('security')">
+                    Security
+                </button>
+                <button role="tab" aria-selected="false" aria-controls="panel-notifications"
+                        class="tab-button" id="tab-notifications" onclick="selectTab('notifications')">
+                    Notifications
+                </button>
+            </div>
+
+            <div role="tabpanel" id="panel-profile" aria-labelledby="tab-profile" aria-hidden="false" class="tab-panel">
+                <h3>Profile Settings</h3>
+                <p>Manage your public profile information.</p>
+            </div>
+            <div role="tabpanel" id="panel-security" aria-labelledby="tab-security" aria-hidden="true" class="tab-panel">
+                <h3>Security Settings</h3>
+                <p>Manage your password and two-factor authentication.</p>
+            </div>
+            <div role="tabpanel" id="panel-notifications" aria-labelledby="tab-notifications" aria-hidden="true" class="tab-panel">
+                <h3>Notification Settings</h3>
+                <p>Configure how you receive notifications.</p>
+            </div>
+        </div>
+
+        <!-- Menu with ARIA -->
+        <div class="test-section">
+            <h2>5. Menu & Menubar</h2>
+            <p class="test-description">Tests menu, menubar, and menuitem roles</p>
+
+            <div role="menubar" aria-label="Main menu" class="menu-bar">
+                <div role="menuitem" aria-haspopup="true" aria-expanded="false"
+                     class="menu-item" onclick="toggleMenu(this, 'file-menu')">
+                    File
+                </div>
+                <div role="menuitem" aria-haspopup="true" aria-expanded="false"
+                     class="menu-item" onclick="toggleMenu(this, 'edit-menu')">
+                    Edit
+                </div>
+                <div role="menuitem" aria-haspopup="true" aria-expanded="false"
+                     class="menu-item" onclick="toggleMenu(this, 'view-menu')">
+                    View
+                </div>
+            </div>
+
+            <div role="menu" id="file-menu" class="dropdown-menu" aria-label="File menu">
+                <div role="menuitem" class="dropdown-item">New</div>
+                <div role="menuitem" class="dropdown-item">Open</div>
+                <div role="menuitem" class="dropdown-item">Save</div>
+                <div role="separator" style="border-top: 1px solid var(--border); margin: 0.25rem 0;"></div>
+                <div role="menuitem" class="dropdown-item">Exit</div>
+            </div>
+            <div role="menu" id="edit-menu" class="dropdown-menu" aria-label="Edit menu">
+                <div role="menuitem" class="dropdown-item">Cut</div>
+                <div role="menuitem" class="dropdown-item">Copy</div>
+                <div role="menuitem" class="dropdown-item">Paste</div>
+            </div>
+            <div role="menu" id="view-menu" class="dropdown-menu" aria-label="View menu">
+                <div role="menuitem" class="dropdown-item">Zoom In</div>
+                <div role="menuitem" class="dropdown-item">Zoom Out</div>
+                <div role="menuitem" class="dropdown-item">Full Screen</div>
+            </div>
+        </div>
+
+        <!-- Alerts and Status -->
+        <div class="test-section">
+            <h2>6. Alerts & Status Messages</h2>
+            <p class="test-description">Tests alert, status, and log roles</p>
+
+            <div role="alert" class="alert-box" aria-live="assertive">
+                <strong>Error:</strong> Please correct the errors in the form.
+            </div>
+
+            <div role="status" class="alert-box" aria-live="polite">
+                <strong>Success:</strong> Your changes have been saved.
+            </div>
+
+            <div class="button-group">
+                <button onclick="showAlert('error')">Show Error Alert</button>
+                <button onclick="showAlert('success')" style="background: #22c55e;">Show Success</button>
+            </div>
+        </div>
+
+        <!-- Progress & Slider -->
+        <div class="test-section">
+            <h2>7. Progress & Slider</h2>
+            <p class="test-description">Tests progressbar and slider roles</p>
+
+            <div class="progress-container">
+                <label id="progress-label">Download progress:</label>
+                <div class="custom-progress" role="progressbar"
+                     aria-labelledby="progress-label"
+                     aria-valuenow="65" aria-valuemin="0" aria-valuemax="100">
+                    <div class="custom-progress-bar" style="width: 65%;"></div>
+                </div>
+                <span>65%</span>
+            </div>
+
+            <div class="slider-container">
+                <label for="volume-slider">Volume:</label>
+                <input type="range" id="volume-slider" role="slider"
+                       aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
+                       class="custom-slider" value="50">
+            </div>
+        </div>
+
+        <!-- Tree View -->
+        <div class="test-section">
+            <h2>8. Tree View</h2>
+            <p class="test-description">Tests tree, treeitem, and group roles</p>
+
+            <div role="tree" aria-label="File browser">
+                <div role="treeitem" aria-expanded="true" aria-selected="false" class="tree-item"
+                     onclick="toggleTreeItem(this)">
+                    Documents
+                    <div role="group" class="tree-view">
+                        <div role="treeitem" aria-selected="false" class="tree-item"
+                             onclick="selectTreeItem(this, event)">
+                            report.pdf
+                        </div>
+                        <div role="treeitem" aria-selected="false" class="tree-item"
+                             onclick="selectTreeItem(this, event)">
+                            notes.txt
+                        </div>
+                    </div>
+                </div>
+                <div role="treeitem" aria-expanded="false" aria-selected="false" class="tree-item"
+                     onclick="toggleTreeItem(this)">
+                    Pictures
+                    <div role="group" class="tree-view" style="display: none;">
+                        <div role="treeitem" aria-selected="false" class="tree-item"
+                             onclick="selectTreeItem(this, event)">
+                            vacation.jpg
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Landmarks -->
+        <div class="test-section">
+            <h2>9. ARIA Landmarks</h2>
+            <p class="test-description">Tests landmark roles: banner, main, navigation, complementary, contentinfo</p>
+
+            <div style="border: 2px dashed var(--border); padding: 1rem; margin-top: 1rem;">
+                <div role="banner" style="background: #f1f5f9; padding: 0.5rem; margin-bottom: 0.5rem;">
+                    [role="banner"] - Site header
+                </div>
+                <div role="navigation" aria-label="Main navigation" style="background: #e0f2fe; padding: 0.5rem; margin-bottom: 0.5rem;">
+                    [role="navigation"] - Main nav
+                </div>
+                <div role="main" style="background: #fef3c7; padding: 0.5rem; margin-bottom: 0.5rem;">
+                    [role="main"] - Main content
+                </div>
+                <div role="complementary" style="background: #f0fdf4; padding: 0.5rem; margin-bottom: 0.5rem;">
+                    [role="complementary"] - Sidebar
+                </div>
+                <div role="contentinfo" style="background: #fce7f3; padding: 0.5rem;">
+                    [role="contentinfo"] - Footer
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Custom checkbox toggle
+        function toggleCustomCheckbox(el) {
+            const isChecked = el.getAttribute('aria-checked') === 'true';
+            el.setAttribute('aria-checked', !isChecked);
+            el.querySelector('span').textContent = isChecked ? '☐' : '☑';
+            el.classList.toggle('checked', !isChecked);
+        }
+
+        // Tab selection
+        function selectTab(tabId) {
+            document.querySelectorAll('[role="tab"]').forEach(tab => {
+                tab.setAttribute('aria-selected', 'false');
+            });
+            document.querySelectorAll('[role="tabpanel"]').forEach(panel => {
+                panel.setAttribute('aria-hidden', 'true');
+            });
+
+            document.getElementById(`tab-${tabId}`).setAttribute('aria-selected', 'true');
+            document.getElementById(`panel-${tabId}`).setAttribute('aria-hidden', 'false');
+        }
+
+        // Menu toggle
+        function toggleMenu(trigger, menuId) {
+            const menu = document.getElementById(menuId);
+            const isExpanded = trigger.getAttribute('aria-expanded') === 'true';
+
+            // Close all menus
+            document.querySelectorAll('[role="menu"]').forEach(m => m.classList.remove('visible'));
+            document.querySelectorAll('[aria-haspopup="true"]').forEach(t => t.setAttribute('aria-expanded', 'false'));
+
+            if (!isExpanded) {
+                trigger.setAttribute('aria-expanded', 'true');
+                menu.classList.add('visible');
+                menu.style.left = trigger.offsetLeft + 'px';
+                menu.style.top = (trigger.offsetTop + trigger.offsetHeight + 8) + 'px';
+            }
+        }
+
+        // Close menus on outside click
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('[role="menubar"]')) {
+                document.querySelectorAll('[role="menu"]').forEach(m => m.classList.remove('visible'));
+                document.querySelectorAll('[aria-haspopup="true"]').forEach(t => t.setAttribute('aria-expanded', 'false'));
+            }
+        });
+
+        // Alert display
+        function showAlert(type) {
+            const alertsContainer = document.querySelector('.test-section:nth-child(7)');
+            const existingAlerts = alertsContainer.querySelectorAll('.dynamic-alert');
+            existingAlerts.forEach(a => a.remove());
+
+            const alert = document.createElement('div');
+            alert.className = 'alert-box dynamic-alert';
+            alert.setAttribute('role', type === 'error' ? 'alert' : 'status');
+            alert.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
+
+            if (type === 'error') {
+                alert.innerHTML = '<strong>Error:</strong> Something went wrong. Please try again.';
+            } else {
+                alert.innerHTML = '<strong>Success:</strong> Operation completed successfully!';
+            }
+
+            alertsContainer.insertBefore(alert, alertsContainer.querySelector('.button-group'));
+        }
+
+        // Tree view
+        function toggleTreeItem(el) {
+            const isExpanded = el.getAttribute('aria-expanded') === 'true';
+            el.setAttribute('aria-expanded', !isExpanded);
+            const group = el.querySelector('[role="group"]');
+            if (group) {
+                group.style.display = isExpanded ? 'none' : 'block';
+            }
+        }
+
+        function selectTreeItem(el, event) {
+            event.stopPropagation();
+            document.querySelectorAll('[role="treeitem"]').forEach(item => {
+                item.setAttribute('aria-selected', 'false');
+            });
+            el.setAttribute('aria-selected', 'true');
+        }
+
+        // Form submission
+        document.getElementById('role-login-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            alert('Login form submitted!');
+        });
+    </script>
+</body>
+
+</html>
