@@ -6,7 +6,7 @@
 
 ## What is Oryn?
 
-Oryn is a browser automation system designed specifically for AI agents. Instead of forcing agents to understand screenshots, parse HTML, or construct complex function calls, Oryn provides a semantic intent language that speaks naturally to how agents think about web interaction.
+Oryn (Open Runtime for Intentful Navigation) is a browser automation system designed specifically for AI agents. Instead of forcing agents to understand screenshots, parse HTML, or construct complex function calls, Oryn provides a semantic intent language that speaks naturally to how agents think about web interaction.
 
 Traditional agent-browser interfaces fail because they expose the wrong abstraction. Oryn fixes this by providing:
 
