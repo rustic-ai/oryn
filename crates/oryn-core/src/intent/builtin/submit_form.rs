@@ -31,6 +31,7 @@ pub fn definition() -> IntentDefinition {
         steps: vec![
             Step::Action(ActionStep {
                 action: ActionType::Click,
+                on_error: None,
                 target: Some(TargetSpec {
                     kind: TargetKind::Pattern {
                         pattern: "$pattern.submit".to_string(),
@@ -51,6 +52,7 @@ pub fn definition() -> IntentDefinition {
             }),
             Step::Action(ActionStep {
                 action: ActionType::Wait,
+                on_error: None,
                 target: None,
                 options: [
                     ("condition".to_string(), json!({ "url_matches": ".*" })),

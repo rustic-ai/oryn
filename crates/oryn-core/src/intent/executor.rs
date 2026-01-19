@@ -278,6 +278,7 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
         })
     }
 
+    #[async_recursion]
     async fn execute_step_with_retry(
         &mut self,
         step: &Step,
@@ -292,6 +293,26 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     if attempts >= max_attempts {
+                        // Check for per-step error handlers
+                        if let Step::Action(crate::intent::definition::ActionStep {
+                            on_error: Some(error_steps),
+                            ..
+                        }) = step
+                        {
+                            self.logs.push(format!(
+                                "Step failed after {} attempts. Executing on_error handler. Error: {}",
+                                attempts, e
+                            ));
+
+                            for handler_step in error_steps {
+                                self.execute_step_with_retry(handler_step, config).await?;
+                            }
+
+                            self.logs.push(
+                                "on_error handler completed successfully. Recovered.".to_string(),
+                            );
+                            return Ok(());
+                        }
                         return Err(e);
                     }
                     // Simple check: is it retryable? Most executor errors are transient (selector not found, etc)
@@ -782,8 +803,7 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
     }
 
     async fn resolve_target_spec(&mut self, spec: &TargetSpec) -> Result<Target, ExecutorError> {
-        // Refresh scan if needed?
-        // For now, always refresh to point to latest DOM state
+        // Refresh scan if needed
         self.perform_scan().await?;
 
         // Use last_scan
@@ -793,23 +813,51 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
             ResolverContext::empty()
         };
 
-        self.convert_target_spec(spec, &ctx)
+        let target_tree = Self::build_target(spec);
+
+        match resolve_target(&target_tree, &ctx, ResolutionStrategy::Best) {
+            Ok(t) => Ok(t),
+            Err(e) => {
+                if let Some(fallback) = &spec.fallback {
+                    self.logs
+                        .push(format!("Resolution failed ({}), trying fallback...", e));
+                    // Recursive call for fallback
+                    Box::pin(self.resolve_target_spec(fallback)).await
+                } else {
+                    Err(ExecutorError::Resolution(e))
+                }
+            }
+        }
     }
 
-    fn convert_target_spec(
-        &self,
-        spec: &TargetSpec,
-        ctx: &ResolverContext,
-    ) -> Result<Target, ExecutorError> {
-        let target = match &spec.kind {
+    fn build_target(spec: &TargetSpec) -> Target {
+        match &spec.kind {
             TargetKind::Pattern { pattern } => Target::Text(pattern.clone()),
             TargetKind::Role { role } => Target::Role(role.clone()),
             TargetKind::Text { text, .. } => Target::Text(text.clone()),
             TargetKind::Selector { selector } => Target::Selector(selector.clone()),
             TargetKind::Id { id } => Target::Id(*id as usize),
-        };
-
-        Ok(resolve_target(&target, ctx, ResolutionStrategy::Best)?)
+            TargetKind::Near { near, anchor } => Target::Near {
+                target: Box::new(Self::build_target(near)),
+                anchor: Box::new(Self::build_target(anchor)),
+            },
+            TargetKind::Inside { inside, container } => Target::Inside {
+                target: Box::new(Self::build_target(inside)),
+                container: Box::new(Self::build_target(container)),
+            },
+            TargetKind::After { after, anchor } => Target::After {
+                target: Box::new(Self::build_target(after)),
+                anchor: Box::new(Self::build_target(anchor)),
+            },
+            TargetKind::Before { before, anchor } => Target::Before {
+                target: Box::new(Self::build_target(before)),
+                anchor: Box::new(Self::build_target(anchor)),
+            },
+            TargetKind::Contains { contains, content } => Target::Contains {
+                target: Box::new(Self::build_target(contains)),
+                content: Box::new(Self::build_target(content)),
+            },
+        }
     }
 
     async fn evaluate_condition(&mut self, cond: &Condition) -> Result<bool, ExecutorError> {

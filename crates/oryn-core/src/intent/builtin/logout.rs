@@ -30,6 +30,7 @@ pub fn definition() -> IntentDefinition {
                         // Try clicking logout directly
                         Step::Action(ActionStep {
                             action: ActionType::Click,
+                            on_error: None,
                             target: Some(TargetSpec {
                                 kind: TargetKind::Pattern {
                                     pattern: "logout_button".to_string(),
@@ -55,6 +56,7 @@ pub fn definition() -> IntentDefinition {
                         // Try opening user menu first
                         Step::Action(ActionStep {
                             action: ActionType::Click,
+                            on_error: None,
                             target: Some(TargetSpec {
                                 kind: TargetKind::Pattern {
                                     pattern: "user_menu".to_string(),
@@ -70,6 +72,7 @@ pub fn definition() -> IntentDefinition {
                         }),
                         Step::Action(ActionStep {
                             action: ActionType::Click,
+                            on_error: None,
                             target: Some(TargetSpec {
                                 kind: TargetKind::Text {
                                     text: "Sign out".to_string(),
@@ -90,6 +93,7 @@ pub fn definition() -> IntentDefinition {
             }),
             Step::Action(ActionStep {
                 action: ActionType::Wait,
+                on_error: None,
                 target: None,
                 options: [
                     ("condition".to_string(), json!({ "url_matches": ".*" })),

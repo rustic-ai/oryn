@@ -30,6 +30,7 @@ pub fn definition() -> IntentDefinition {
         ],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::FillForm,
+            on_error: None,
             target: Some(TargetSpec {
                 kind: TargetKind::Pattern {
                     pattern: "$pattern".to_string(),

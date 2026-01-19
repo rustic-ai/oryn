@@ -86,16 +86,16 @@ Intents are organized into three tiers based on their origin, stability, and per
 
 **Built-in Intent List**
 
-| Intent | Description |
-|--------|-------------|
-| `login` | Authenticate with username/password |
-| `logout` | End authenticated session |
-| `search` | Submit search query |
-| `accept_cookies` | Dismiss cookie consent banner |
-| `dismiss_popups` | Close modal dialogs and overlays |
-| `scroll_to` | Scroll element into view |
-| `fill_form` | Fill multiple form fields |
-| `submit_form` | Submit the current form |
+| Intent           | Description                         |
+| ---------------- | ----------------------------------- |
+| `login`          | Authenticate with username/password |
+| `logout`         | End authenticated session           |
+| `search`         | Submit search query                 |
+| `accept_cookies` | Dismiss cookie consent banner       |
+| `dismiss_popups` | Close modal dialogs and overlays    |
+| `scroll_to`      | Scroll element into view            |
+| `fill_form`      | Fill multiple form fields           |
+| `submit_form`    | Submit the current form             |
 
 **Rationale**
 
@@ -116,12 +116,12 @@ These intents represent the most common, cross-site operations that agents perfo
 
 **Sources**
 
-| Source | Path | Description |
-|--------|------|-------------|
-| Core | `intents/core/*.yaml` | Common intents shipped with Lemmascope |
-| Site Packs | `intents/packs/{domain}/*.yaml` | Site-specific intents |
-| User | `~/.lemmascope/intents/*.yaml` | User-defined intents |
-| Session | Runtime registration | Temporary intents |
+| Source     | Path                            | Description                            |
+| ---------- | ------------------------------- | -------------------------------------- |
+| Core       | `intents/core/*.yaml`           | Common intents shipped with Lemmascope |
+| Site Packs | `intents/packs/{domain}/*.yaml` | Site-specific intents                  |
+| User       | `~/.lemmascope/intents/*.yaml`  | User-defined intents                   |
+| Session    | Runtime registration            | Temporary intents                      |
 
 **Loading Priority**
 
@@ -267,6 +267,27 @@ Each step in the `steps` array defines an atomic action or control flow operatio
   script: <javascript code>
   args: [<arguments>]
 ```
+
+**Per-Step Error Handling (YAML only)**
+
+Action steps can define fallback steps that execute if the action fails after retry exhaustion:
+
+```yaml
+- action: click
+  target: { text: "Submit" }
+  on_error:
+    - action: click
+      target: { role: submit }
+    - action: click
+      target: { selector: "button[type=submit]" }
+```
+
+The `on_error` steps execute sequentially if the primary action fails. This is useful for:
+- Alternative selectors when primary target is unreliable
+- Recovery actions (e.g., closing popups before retrying)
+- Graceful degradation paths
+
+> **Note**: `on_error` is only available in YAML intent definitions, not in the DSL `define` command syntax. For simple session intents, the global retry mechanism handles most transient failures.
 
 **Control Flow Steps**
 
@@ -444,17 +465,17 @@ login <username> <password> [--no-submit] [--wait <duration>]
 
 **Parameters**
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| username | string | yes | Username or email address |
-| password | string | yes | Password |
+| Parameter | Type   | Required | Description               |
+| --------- | ------ | -------- | ------------------------- |
+| username  | string | yes      | Username or email address |
+| password  | string | yes      | Password                  |
 
 **Options**
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--no-submit` | false | Fill fields but don't click submit |
-| `--wait` | 10s | Time to wait for navigation after submit |
+| Option        | Default | Description                              |
+| ------------- | ------- | ---------------------------------------- |
+| `--no-submit` | false   | Fill fields but don't click submit       |
+| `--wait`      | 10s     | Time to wait for navigation after submit |
 
 **Execution Steps**
 
@@ -532,16 +553,16 @@ search <query> [--submit] [--wait <duration>]
 
 **Parameters**
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| query | string | yes | Search terms |
+| Parameter | Type   | Required | Description  |
+| --------- | ------ | -------- | ------------ |
+| query     | string | yes      | Search terms |
 
 **Options**
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--submit` | auto | How to submit: `enter`, `click`, or `auto` |
-| `--wait` | 5s | Time to wait for results |
+| Option     | Default | Description                                |
+| ---------- | ------- | ------------------------------------------ |
+| `--submit` | auto    | How to submit: `enter`, `click`, or `auto` |
+| `--wait`   | 5s      | Time to wait for results                   |
 
 **Execution Steps**
 
@@ -578,10 +599,10 @@ accept_cookies [--reject] [--wait <duration>]
 
 **Options**
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--reject` | false | Click reject instead of accept |
-| `--wait` | 2s | Time to wait for banner to appear |
+| Option     | Default | Description                       |
+| ---------- | ------- | --------------------------------- |
+| `--reject` | false   | Click reject instead of accept    |
+| `--wait`   | 2s      | Time to wait for banner to appear |
 
 **Execution Steps**
 
@@ -624,10 +645,10 @@ dismiss_popups [--all] [--type <type>]
 
 **Options**
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--all` | true | Dismiss all detected popups |
-| `--type` | any | Filter: `modal`, `overlay`, `toast`, `banner` |
+| Option   | Default | Description                                   |
+| -------- | ------- | --------------------------------------------- |
+| `--all`  | true    | Dismiss all detected popups                   |
+| `--type` | any     | Filter: `modal`, `overlay`, `toast`, `banner` |
 
 **Execution Steps**
 
@@ -668,16 +689,16 @@ fill_form <data> [--pattern <pattern>] [--partial]
 
 **Parameters**
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| data | object | yes | Field name/value pairs |
+| Parameter | Type   | Required | Description            |
+| --------- | ------ | -------- | ---------------------- |
+| data      | object | yes      | Field name/value pairs |
 
 **Options**
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--pattern` | auto | Form pattern to target |
-| `--partial` | false | Allow filling only some fields |
+| Option      | Default | Description                    |
+| ----------- | ------- | ------------------------------ |
+| `--pattern` | auto    | Form pattern to target         |
+| `--partial` | false   | Allow filling only some fields |
 
 **Execution Steps**
 
@@ -720,10 +741,10 @@ submit_form [--pattern <pattern>] [--wait <duration>]
 
 **Options**
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--pattern` | auto | Form pattern to target |
-| `--wait` | 10s | Time to wait for response |
+| Option      | Default | Description               |
+| ----------- | ------- | ------------------------- |
+| `--pattern` | auto    | Form pattern to target    |
+| `--wait`    | 10s     | Time to wait for response |
 
 **Execution Steps**
 
@@ -844,14 +865,14 @@ function resolve_target(target, elements, patterns):
 
 **Step-Level Errors**
 
-| Error | Default Behavior | Configurable |
-|-------|------------------|--------------|
-| Target not found | Fail intent | Retry after re-scan |
-| Element not visible | Scroll into view, retry | Skip or fail |
-| Element disabled | Wait for enabled | Timeout or fail |
-| Click intercepted | Use force click | Fail |
-| Type failed | Clear and retry | Fail |
-| Timeout | Fail | Extend or skip |
+| Error               | Default Behavior        | Configurable        |
+| ------------------- | ----------------------- | ------------------- |
+| Target not found    | Fail intent             | Retry after re-scan |
+| Element not visible | Scroll into view, retry | Skip or fail        |
+| Element disabled    | Wait for enabled        | Timeout or fail     |
+| Click intercepted   | Use force click         | Fail                |
+| Type failed         | Clear and retry         | Fail                |
+| Timeout             | Fail                    | Extend or skip      |
 
 **Intent-Level Error Handling**
 
@@ -1042,6 +1063,7 @@ Agent-defined intents support a simplified step syntax:
 # Multiple target fallbacks
 click "Add to Wishlist" or click "♡" or click "Save"
   → try: [{click "Add to Wishlist"}, {click "♡"}, {click "Save"}]
+
 
 # Implicit wait
 wait visible toast
@@ -1377,11 +1399,11 @@ pub enum IntentStatus {
 
 ### 9.2 Status Types
 
-| Status | Description |
-|--------|-------------|
-| `Success` | All steps completed and success conditions verified |
+| Status           | Description                                                          |
+| ---------------- | -------------------------------------------------------------------- |
+| `Success`        | All steps completed and success conditions verified                  |
 | `PartialSuccess` | Some steps completed before failure; checkpoint available for resume |
-| `Failed` | Intent could not complete; error details provided |
+| `Failed`         | Intent could not complete; error details provided                    |
 
 ### 9.3 Page Changes
 
@@ -1593,16 +1615,16 @@ compose:
 
 ## Appendix A: Built-in Intent Quick Reference
 
-| Intent | Syntax | Description |
-|--------|--------|-------------|
-| `login` | `login <user> <pass>` | Authenticate |
-| `logout` | `logout` | End session |
-| `search` | `search <query>` | Submit search |
-| `accept_cookies` | `accept_cookies` | Dismiss cookie banner |
-| `dismiss_popups` | `dismiss_popups` | Close modals |
-| `fill_form` | `fill_form <data>` | Fill form fields |
-| `submit_form` | `submit_form` | Submit current form |
-| `scroll_to` | `scroll_to <target>` | Scroll element into view |
+| Intent           | Syntax                | Description              |
+| ---------------- | --------------------- | ------------------------ |
+| `login`          | `login <user> <pass>` | Authenticate             |
+| `logout`         | `logout`              | End session              |
+| `search`         | `search <query>`      | Submit search            |
+| `accept_cookies` | `accept_cookies`      | Dismiss cookie banner    |
+| `dismiss_popups` | `dismiss_popups`      | Close modals             |
+| `fill_form`      | `fill_form <data>`    | Fill form fields         |
+| `submit_form`    | `submit_form`         | Submit current form      |
+| `scroll_to`      | `scroll_to <target>`  | Scroll element into view |
 
 ---
 
@@ -1660,20 +1682,20 @@ properties:
 
 ## Appendix C: Error Codes
 
-| Code | Description |
-|------|-------------|
-| `INTENT_NOT_FOUND` | Intent name not recognized |
-| `INTENT_UNAVAILABLE` | Intent triggers not satisfied |
-| `PARAMETER_MISSING` | Required parameter not provided |
-| `PARAMETER_INVALID` | Parameter type mismatch |
-| `TARGET_NOT_FOUND` | Could not resolve target to element |
-| `TARGET_AMBIGUOUS` | Multiple elements match target |
-| `STEP_FAILED` | Individual step execution failed |
-| `TIMEOUT` | Intent or step exceeded timeout |
-| `VERIFICATION_FAILED` | Success conditions not met |
-| `CHECKPOINT_INVALID` | Cannot resume from specified checkpoint |
-| `PACK_LOAD_FAILED` | Could not load intent pack |
-| `DEFINITION_INVALID` | Intent definition schema violation |
+| Code                  | Description                             |
+| --------------------- | --------------------------------------- |
+| `INTENT_NOT_FOUND`    | Intent name not recognized              |
+| `INTENT_UNAVAILABLE`  | Intent triggers not satisfied           |
+| `PARAMETER_MISSING`   | Required parameter not provided         |
+| `PARAMETER_INVALID`   | Parameter type mismatch                 |
+| `TARGET_NOT_FOUND`    | Could not resolve target to element     |
+| `TARGET_AMBIGUOUS`    | Multiple elements match target          |
+| `STEP_FAILED`         | Individual step execution failed        |
+| `TIMEOUT`             | Intent or step exceeded timeout         |
+| `VERIFICATION_FAILED` | Success conditions not met              |
+| `CHECKPOINT_INVALID`  | Cannot resume from specified checkpoint |
+| `PACK_LOAD_FAILED`    | Could not load intent pack              |
+| `DEFINITION_INVALID`  | Intent definition schema violation      |
 
 ---
 

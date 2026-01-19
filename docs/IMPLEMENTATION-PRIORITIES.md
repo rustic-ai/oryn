@@ -18,6 +18,8 @@ The intent engine is **feature complete** for Phase 1 and Phase 2:
 - ✅ 6-stage execution pipeline (resolve → parse → plan → execute → verify → respond)
 - ✅ All 8 built-in intents (login, logout, search, accept_cookies, dismiss_popups, fill_form, submit_form, scroll_to)
 - ✅ Target resolution with fallback chains (pattern → role → text → selector)
+- ✅ Relational targets (Near, Inside, After, Before, Contains) in resolver
+- ✅ Per-step on_error handlers (YAML only)
 - ✅ Retry logic with exponential backoff
 - ✅ Checkpointing and resume support
 - ✅ Session intent manager and define parser
@@ -329,6 +331,8 @@ Use this to prioritize based on your deployment model:
 | Available Intents | `protocol.rs:220-240`, `executor.rs:332-405`, `formatter/mod.rs:180-220` | ✅ Complete |
 | PartialSuccess | `executor.rs:48-53`, `executor.rs:114-142` | ✅ Complete |
 | Pack Auto-Load | `pack/manager.rs:124`, `repl.rs:199-216` | ✅ Complete |
+| Relational Targets | `resolver.rs:280-563` | ✅ Complete |
+| Per-step on_error | `executor.rs:296-315` (YAML only) | ✅ Complete |
 
 ---
 

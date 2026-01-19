@@ -20,6 +20,7 @@ pub fn definition() -> IntentDefinition {
         }],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::Scroll,
+            on_error: None,
             target: Some(TargetSpec {
                 kind: TargetKind::Selector {
                     selector: "$target".to_string(),

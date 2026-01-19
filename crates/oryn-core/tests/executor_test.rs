@@ -177,6 +177,7 @@ async fn test_executor_loop() {
                 max: 5,
                 steps: vec![Step::Action(ActionStep {
                     action: ActionType::Type,
+                    on_error: None,
                     target: Some(TargetSpec {
                         kind: TargetKind::Id { id: 1 },
                         fallback: None,
@@ -230,6 +231,7 @@ async fn test_executor_try() {
             try_: oryn_core::intent::definition::TryDef {
                 steps: vec![Step::Action(ActionStep {
                     action: ActionType::Type,
+                    on_error: None,
                     target: Some(TargetSpec {
                         kind: TargetKind::Id { id: 1 },
                         fallback: None,
@@ -240,6 +242,7 @@ async fn test_executor_try() {
                 })],
                 catch: vec![Step::Action(ActionStep {
                     action: ActionType::Type,
+                    on_error: None,
                     target: Some(TargetSpec {
                         kind: TargetKind::Id { id: 1 },
                         fallback: None,
@@ -299,6 +302,7 @@ async fn test_executor_fill_form() {
         parameters: vec![],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::FillForm,
+            on_error: None,
             target: None,
             options: HashMap::from([(
                 "data".to_string(),
@@ -364,6 +368,7 @@ async fn test_executor_branch_then() {
                 }),
                 then_steps: vec![Step::Action(ActionStep {
                     action: ActionType::Type,
+                    on_error: None,
                     target: Some(TargetSpec {
                         kind: TargetKind::Id { id: 1 },
                         fallback: None,
@@ -372,6 +377,7 @@ async fn test_executor_branch_then() {
                 })],
                 else_steps: vec![Step::Action(ActionStep {
                     action: ActionType::Type,
+                    on_error: None,
                     target: Some(TargetSpec {
                         kind: TargetKind::Id { id: 1 },
                         fallback: None,
@@ -425,6 +431,7 @@ async fn test_executor_branch_else() {
                 }),
                 then_steps: vec![Step::Action(ActionStep {
                     action: ActionType::Type,
+                    on_error: None,
                     target: Some(TargetSpec {
                         kind: TargetKind::Id { id: 1 },
                         fallback: None,
@@ -433,6 +440,7 @@ async fn test_executor_branch_else() {
                 })],
                 else_steps: vec![Step::Action(ActionStep {
                     action: ActionType::Type,
+                    on_error: None,
                     target: Some(TargetSpec {
                         kind: TargetKind::Id { id: 1 },
                         fallback: None,
@@ -506,6 +514,7 @@ async fn test_executor_nested_loop() {
                         steps: vec![
                             Step::Action(ActionStep {
                                 action: ActionType::Type,
+                                on_error: None,
                                 target: Some(TargetSpec {
                                     kind: TargetKind::Id { id: 1 },
                                     fallback: None,
@@ -514,6 +523,7 @@ async fn test_executor_nested_loop() {
                             }),
                             Step::Action(ActionStep {
                                 action: ActionType::Type,
+                                on_error: None,
                                 target: Some(TargetSpec {
                                     kind: TargetKind::Id { id: 1 },
                                     fallback: None,
@@ -581,6 +591,7 @@ async fn test_executor_loop_max_limit() {
                 max: 3, // Limit to 3
                 steps: vec![Step::Action(ActionStep {
                     action: ActionType::Type,
+                    on_error: None,
                     target: Some(TargetSpec {
                         kind: TargetKind::Id { id: 1 },
                         fallback: None,
@@ -769,6 +780,7 @@ async fn test_fill_form_placeholder_match() {
         parameters: vec![],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::FillForm,
+            on_error: None,
             target: None,
             options: HashMap::from([(
                 "data".to_string(),
@@ -823,6 +835,7 @@ async fn test_fill_form_semantic_email() {
         parameters: vec![],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::FillForm,
+            on_error: None,
             target: None,
             options: HashMap::from([(
                 "data".to_string(),
@@ -872,6 +885,7 @@ async fn test_fill_form_scoring_prefers_exact() {
         parameters: vec![],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::FillForm,
+            on_error: None,
             target: None,
             options: HashMap::from([(
                 "data".to_string(),
@@ -927,6 +941,7 @@ async fn test_fill_form_empty_data() {
         parameters: vec![],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::FillForm,
+            on_error: None,
             target: None,
             options: HashMap::from([("data".to_string(), json!({}))]),
         })],
@@ -968,6 +983,7 @@ async fn test_fill_form_no_matching_fields() {
         parameters: vec![],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::FillForm,
+            on_error: None,
             target: None,
             options: HashMap::from([(
                 "data".to_string(),
@@ -1007,6 +1023,7 @@ async fn test_fill_form_multiple_fields() {
         parameters: vec![],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::FillForm,
+            on_error: None,
             target: None,
             options: HashMap::from([(
                 "data".to_string(),
@@ -1072,6 +1089,7 @@ async fn test_executor_loop_empty_array() {
                 max: 10,
                 steps: vec![Step::Action(ActionStep {
                     action: ActionType::Type,
+                    on_error: None,
                     target: Some(TargetSpec {
                         kind: TargetKind::Id { id: 1 },
                         fallback: None,
@@ -1129,6 +1147,7 @@ async fn test_executor_loop_single_item() {
                 max: 10,
                 steps: vec![Step::Action(ActionStep {
                     action: ActionType::Type,
+                    on_error: None,
                     target: Some(TargetSpec {
                         kind: TargetKind::Id { id: 1 },
                         fallback: None,
@@ -1199,6 +1218,7 @@ async fn test_executor_missing_required_param() {
         }],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::Wait,
+            on_error: None,
             target: None,
             options: HashMap::new(),
         })],
@@ -1353,6 +1373,7 @@ async fn test_retry_succeeds_after_failures() {
         parameters: vec![],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::Type,
+            on_error: None,
             target: Some(TargetSpec {
                 kind: TargetKind::Id { id: 1 },
                 fallback: None,
@@ -1405,6 +1426,7 @@ async fn test_retry_exhausted() {
         parameters: vec![],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::Type,
+            on_error: None,
             target: Some(TargetSpec {
                 kind: TargetKind::Id { id: 1 },
                 fallback: None,
@@ -1450,6 +1472,7 @@ async fn test_no_retry_when_disabled() {
         parameters: vec![],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::Type,
+            on_error: None,
             target: Some(TargetSpec {
                 kind: TargetKind::Id { id: 1 },
                 fallback: None,
@@ -1477,4 +1500,61 @@ async fn test_no_retry_when_disabled() {
 
     // Should fail immediately without retries
     assert!(result.is_err());
+}
+#[tokio::test]
+async fn test_executor_on_error() {
+    let mut backend = MockBackend::default();
+    let registry = IntentRegistry::new();
+    let verifier = Verifier;
+
+    let intent = IntentDefinition {
+        name: "test_on_error".to_string(),
+        version: "1.0".to_string(),
+        tier: IntentTier::Loaded,
+        triggers: Default::default(),
+        parameters: vec![],
+        steps: vec![Step::Action(ActionStep {
+            action: ActionType::Type,
+            target: Some(TargetSpec {
+                kind: TargetKind::Id { id: 1 },
+                fallback: None,
+            }),
+            on_error: Some(vec![Step::Action(ActionStep {
+                action: ActionType::Type,
+                on_error: None,
+                target: Some(TargetSpec {
+                    kind: TargetKind::Id { id: 1 },
+                    fallback: None,
+                }),
+                options: HashMap::from([("text".to_string(), json!("RECOVERED"))]),
+            })]),
+            options: HashMap::from([("text".to_string(), json!("FAIL"))]),
+        })],
+        success: None,
+        failure: None,
+        options: Default::default(),
+        description: None,
+    };
+
+    let mut reg = registry;
+    reg.register(intent);
+
+    let mut executor = IntentExecutor::new(&mut backend, &reg, &verifier);
+    let result = executor.execute("test_on_error", HashMap::new()).await;
+
+    if let Err(e) = &result {
+        panic!("Executor failed despite on_error: {:?}", e);
+    }
+    assert!(result.is_ok());
+
+    let reqs = &backend.executed_requests;
+    let type_reqs: Vec<_> = reqs
+        .iter()
+        .filter_map(|r| match r {
+            ScannerRequest::Type(t) => Some(t.text.clone()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(type_reqs, vec!["FAIL", "RECOVERED"]);
 }

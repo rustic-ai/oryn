@@ -119,7 +119,8 @@ async fn test_executor_partial_success() {
         parameters: vec![],
         steps: vec![
             Step::Action(ActionStep {
-                action: ActionType::Wait, // Should succeed (dummy backend scans ok)
+                action: ActionType::Wait,
+                on_error: None, // Should succeed (dummy backend scans ok)
                 target: None,
                 options: {
                     let mut m = HashMap::new();
@@ -129,6 +130,7 @@ async fn test_executor_partial_success() {
             }),
             Step::Action(ActionStep {
                 action: ActionType::Wait,
+                on_error: None,
                 target: None,
                 options: {
                     let mut m = HashMap::new();

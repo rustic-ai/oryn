@@ -86,10 +86,6 @@ fn parse_step_shorthand(cmd: &str) -> Result<Step, ParseError> {
     // Check for " or " sequence for fallbacks
     // Use recursive implementation.
     // "A or B or C" -> Try { steps: [A], catch: [Try { steps: [B], catch: [C] }] }
-
-    // Naive split by " or ". Note: strings might contain " or ", but simplified syntax usually quotes args.
-    // We assume " or " outside quotes is the separator.
-    // For now, simpler split.
     let parts: Vec<&str> = cmd.split(" or ").collect();
     if parts.len() > 1 {
         let first = parse_single_step(parts[0].trim())?;
@@ -128,6 +124,7 @@ fn parse_single_step(cmd: &str) -> Result<Step, ParseError> {
                     fallback: None,
                 }),
                 options: HashMap::new(),
+                on_error: None,
             }))
         }
         "type" => {
@@ -161,6 +158,7 @@ fn parse_single_step(cmd: &str) -> Result<Step, ParseError> {
                         fallback: None,
                     }),
                     options,
+                    on_error: None,
                 }))
             } else {
                 // Potential role syntax: type email "value"
@@ -188,6 +186,7 @@ fn parse_single_step(cmd: &str) -> Result<Step, ParseError> {
                         fallback: None,
                     }),
                     options,
+                    on_error: None,
                 }))
             }
         }
@@ -216,6 +215,7 @@ fn parse_single_step(cmd: &str) -> Result<Step, ParseError> {
                     fallback: None,
                 }),
                 options,
+                on_error: None,
             }))
         }
         _ => Err(ParseError::Syntax(format!("Unknown action: {}", parts[0]))),

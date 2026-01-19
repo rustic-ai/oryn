@@ -89,6 +89,7 @@ async fn test_checkpoint_and_resume() {
         steps: vec![
             Step::Action(ActionStep {
                 action: ActionType::Wait,
+                on_error: None,
                 target: None,
                 options: {
                     let mut m = HashMap::new();
@@ -101,6 +102,7 @@ async fn test_checkpoint_and_resume() {
             }),
             Step::Action(ActionStep {
                 action: ActionType::Wait,
+                on_error: None,
                 target: None,
                 options: {
                     let mut m = HashMap::new();
@@ -172,6 +174,7 @@ async fn test_resume_from_nonexistent_checkpoint() {
         parameters: vec![],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::Wait,
+            on_error: None,
             target: None,
             options: {
                 let mut m = HashMap::new();
@@ -216,6 +219,7 @@ async fn test_multiple_checkpoints() {
         steps: vec![
             Step::Action(ActionStep {
                 action: ActionType::Wait,
+                on_error: None,
                 target: None,
                 options: wait_opts(),
             }),
@@ -224,6 +228,7 @@ async fn test_multiple_checkpoints() {
             }),
             Step::Action(ActionStep {
                 action: ActionType::Wait,
+                on_error: None,
                 target: None,
                 options: wait_opts(),
             }),
@@ -232,6 +237,7 @@ async fn test_multiple_checkpoints() {
             }),
             Step::Action(ActionStep {
                 action: ActionType::Wait,
+                on_error: None,
                 target: None,
                 options: wait_opts(),
             }),
@@ -293,6 +299,7 @@ async fn test_checkpoint_at_end() {
         steps: vec![
             Step::Action(ActionStep {
                 action: ActionType::Wait,
+                on_error: None,
                 target: None,
                 options: wait_opts(),
             }),
@@ -355,11 +362,13 @@ async fn test_no_checkpoints_intent() {
         steps: vec![
             Step::Action(ActionStep {
                 action: ActionType::Wait,
+                on_error: None,
                 target: None,
                 options: wait_opts(),
             }),
             Step::Action(ActionStep {
                 action: ActionType::Wait,
+                on_error: None,
                 target: None,
                 options: wait_opts(),
             }),

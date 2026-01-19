@@ -112,6 +112,7 @@ async fn test_branch_logic() {
             condition: true_cond,
             then_steps: vec![Step::Action(ActionStep {
                 action: ActionType::Execute,
+                on_error: None,
                 target: None,
                 options: {
                     let mut m = HashMap::new();
@@ -121,6 +122,7 @@ async fn test_branch_logic() {
             })],
             else_steps: vec![Step::Action(ActionStep {
                 action: ActionType::Execute,
+                on_error: None,
                 target: None,
                 options: {
                     let mut m = HashMap::new();
@@ -161,6 +163,7 @@ async fn test_loop_logic() {
             max: 10,
             steps: vec![Step::Action(ActionStep {
                 action: ActionType::Execute,
+                on_error: None,
                 target: None,
                 options: {
                     let mut m = HashMap::new();
@@ -193,6 +196,7 @@ async fn test_intent_composition() {
     // Inner Intent
     let inner_steps = vec![Step::Action(ActionStep {
         action: ActionType::Execute,
+        on_error: None,
         target: None,
         options: {
             let mut m = HashMap::new();
@@ -205,6 +209,7 @@ async fn test_intent_composition() {
     // Outer Intent calls Inner
     let outer_steps = vec![Step::Action(ActionStep {
         action: ActionType::Intent,
+        on_error: None,
         target: None,
         options: {
             let mut m = HashMap::new();

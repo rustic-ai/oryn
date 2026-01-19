@@ -25,6 +25,7 @@ fn test_intent_definition_serde() {
         }],
         steps: vec![Step::Action(ActionStep {
             action: ActionType::Type,
+            on_error: None,
             target: Some(TargetSpec {
                 kind: TargetKind::Selector {
                     selector: "#user".to_string(),

@@ -45,18 +45,22 @@ impl<'a> VerifierContext<'a> {
         target_spec: &crate::intent::definition::TargetSpec,
     ) -> Result<Option<Target>, VerificationError> {
         let ctx = ResolverContext::new(self.scan_result);
-        let target = self.convert_target_spec(target_spec, &ctx)?;
+        let target = Self::convert_target_spec(target_spec)?;
 
         match resolve_target(&target, &ctx, ResolutionStrategy::Best) {
             Ok(t) => Ok(Some(t)),
-            Err(_) => Ok(None),
+            Err(_) => {
+                if let Some(fallback) = &target_spec.fallback {
+                    self.resolve_target_exists(fallback)
+                } else {
+                    Ok(None)
+                }
+            }
         }
     }
 
     fn convert_target_spec(
-        &self,
         spec: &crate::intent::definition::TargetSpec,
-        _ctx: &ResolverContext,
     ) -> Result<Target, VerificationError> {
         Ok(match &spec.kind {
             TargetKind::Pattern { pattern } => Target::Text(pattern.clone()),
@@ -66,6 +70,26 @@ impl<'a> VerifierContext<'a> {
             TargetKind::Text { text, .. } => Target::Text(text.clone()),
             TargetKind::Selector { selector } => Target::Selector(selector.clone()),
             TargetKind::Id { id } => Target::Id(*id as usize),
+            TargetKind::Near { near, anchor } => Target::Near {
+                target: Box::new(Self::convert_target_spec(near)?),
+                anchor: Box::new(Self::convert_target_spec(anchor)?),
+            },
+            TargetKind::Inside { inside, container } => Target::Inside {
+                target: Box::new(Self::convert_target_spec(inside)?),
+                container: Box::new(Self::convert_target_spec(container)?),
+            },
+            TargetKind::After { after, anchor } => Target::After {
+                target: Box::new(Self::convert_target_spec(after)?),
+                anchor: Box::new(Self::convert_target_spec(anchor)?),
+            },
+            TargetKind::Before { before, anchor } => Target::Before {
+                target: Box::new(Self::convert_target_spec(before)?),
+                anchor: Box::new(Self::convert_target_spec(anchor)?),
+            },
+            TargetKind::Contains { contains, content } => Target::Contains {
+                target: Box::new(Self::convert_target_spec(contains)?),
+                content: Box::new(Self::convert_target_spec(content)?),
+            },
         })
     }
 }

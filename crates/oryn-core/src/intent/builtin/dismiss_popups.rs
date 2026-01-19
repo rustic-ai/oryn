@@ -37,6 +37,7 @@ pub fn definition() -> IntentDefinition {
                         steps: vec![
                             Step::Action(ActionStep {
                                 action: ActionType::Click,
+                                on_error: None,
                                 target: Some(TargetSpec {
                                     kind: TargetKind::Selector {
                                         selector: "$popup.close_button".to_string(),
@@ -64,6 +65,7 @@ pub fn definition() -> IntentDefinition {
                             }),
                             Step::Action(ActionStep {
                                 action: ActionType::Wait,
+                                on_error: None,
                                 target: None,
                                 options: [(
                                     "condition".to_string(),

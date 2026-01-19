@@ -13,19 +13,19 @@ This document identifies gaps between the **SPEC-INTENT-ENGINE.md** specificatio
 
 ## Summary
 
-| Category | Spec Sections | Implementation Status |
-|----------|---------------|----------------------|
-| Intent Tiers | §2 | ✅ Implemented |
-| Intent Definition Format | §3 | ✅ Implemented (YAML + code) |
-| Built-in Intent Specifications | §4 | ✅ All 8 intents implemented |
-| Intent Execution Model | §5 | ✅ Full 6-stage pipeline |
-| Pattern-Intent Mapping | §6 | ✅ Implemented |
-| Agent-Defined Intents | §7 | ✅ Implemented |
-| Site-Specific Packs | §8 | ✅ Implemented |
-| Response Format | §9 | ✅ Implemented (including PartialSuccess) |
-| Configuration | §10 | ✅ Implemented |
-| Security | §11 | ✅ Implemented |
-| Future Features | §12 | ❌ Not Implemented (by design) |
+| Category                       | Spec Sections | Implementation Status                    |
+| ------------------------------ | ------------- | ---------------------------------------- |
+| Intent Tiers                   | §2            | ✅ Implemented                            |
+| Intent Definition Format       | §3            | ✅ Implemented (YAML + code)              |
+| Built-in Intent Specifications | §4            | ✅ All 8 intents implemented              |
+| Intent Execution Model         | §5            | ✅ Full 6-stage pipeline                  |
+| Pattern-Intent Mapping         | §6            | ✅ Implemented                            |
+| Agent-Defined Intents          | §7            | ✅ Implemented                            |
+| Site-Specific Packs            | §8            | ✅ Implemented                            |
+| Response Format                | §9            | ✅ Implemented (including PartialSuccess) |
+| Configuration                  | §10           | ✅ Implemented                            |
+| Security                       | §11           | ✅ Implemented                            |
+| Future Features                | §12           | ❌ Not Implemented (by design)            |
 
 ---
 
@@ -35,13 +35,13 @@ This document identifies gaps between the **SPEC-INTENT-ENGINE.md** specificatio
 
 **Implementation**: `crates/oryn-core/src/intent/registry.rs`
 
-| Spec Requirement | Implementation |
-|------------------|----------------|
-| Tier 1: Built-in intents | ✅ `IntentTier::BuiltIn` - 8 intents in `intent/builtin/` |
-| Tier 2: Loaded intents | ✅ `IntentTier::Loaded` - priority over built-in |
-| Tier 3: Discovered intents | ✅ `IntentTier::Discovered` - lowest priority |
-| Priority ordering | ✅ Loaded > BuiltIn > Discovered |
-| Pattern-to-intent mapping | ✅ Secondary index in registry |
+| Spec Requirement           | Implementation                                           |
+| -------------------------- | -------------------------------------------------------- |
+| Tier 1: Built-in intents   | ✅ `IntentTier::BuiltIn` - 8 intents in `intent/builtin/` |
+| Tier 2: Loaded intents     | ✅ `IntentTier::Loaded` - priority over built-in          |
+| Tier 3: Discovered intents | ✅ `IntentTier::Discovered` - lowest priority             |
+| Priority ordering          | ✅ Loaded > BuiltIn > Discovered                          |
+| Pattern-to-intent mapping  | ✅ Secondary index in registry                            |
 
 ---
 
@@ -49,16 +49,16 @@ This document identifies gaps between the **SPEC-INTENT-ENGINE.md** specificatio
 
 **Implementation**: `crates/oryn-core/src/intent/definition.rs`
 
-| Spec Requirement | Implementation |
-|------------------|----------------|
-| Intent metadata (name, version, description) | ✅ `IntentDefinition` struct |
-| Triggers (patterns, keywords, urls) | ✅ `IntentTriggers` struct |
-| Parameters with types and defaults | ✅ `ParameterDef` with `ParamType` enum |
-| Step definitions | ✅ `Step` enum with Action/Branch/Loop/Try/Checkpoint |
-| Success/failure conditions | ✅ `SuccessCondition`, `FailureCondition` |
-| Intent options (timeout, retry) | ✅ `IntentOptions` with `RetryConfig` |
-| YAML file loading | ✅ `IntentLoader` in `intent/loader.rs` |
-| Schema validation | ✅ `Validatable` trait in `intent/schema.rs` |
+| Spec Requirement                             | Implementation                                       |
+| -------------------------------------------- | ---------------------------------------------------- |
+| Intent metadata (name, version, description) | ✅ `IntentDefinition` struct                          |
+| Triggers (patterns, keywords, urls)          | ✅ `IntentTriggers` struct                            |
+| Parameters with types and defaults           | ✅ `ParameterDef` with `ParamType` enum               |
+| Step definitions                             | ✅ `Step` enum with Action/Branch/Loop/Try/Checkpoint |
+| Success/failure conditions                   | ✅ `SuccessCondition`, `FailureCondition`             |
+| Intent options (timeout, retry)              | ✅ `IntentOptions` with `RetryConfig`                 |
+| YAML file loading                            | ✅ `IntentLoader` in `intent/loader.rs`               |
+| Schema validation                            | ✅ `Validatable` trait in `intent/schema.rs`          |
 
 **YAML Loading**: Intents can be loaded from YAML files:
 ```yaml
@@ -81,16 +81,16 @@ steps:
 
 **Implementation**: `crates/oryn-core/src/intent/builtin/`
 
-| Intent | File | Spec Compliance |
-|--------|------|-----------------|
-| `login` | `login.rs` | ✅ Username/password, fallback chain, verification |
-| `logout` | `logout.rs` | ✅ User menu detection, try/catch fallback |
-| `search` | `search.rs` | ✅ Query input, enter key submission |
-| `accept_cookies` | `accept_cookies.rs` | ✅ Banner detection, accept/reject branch |
-| `dismiss_popups` | `dismiss_popups.rs` | ✅ Loop with max iterations, try/catch |
-| `fill_form` | `fill_form.rs` | ✅ Object data parameter, form field matching |
-| `submit_form` | `submit_form.rs` | ✅ Pattern-based submit, wait for navigation |
-| `scroll_to` | `scroll_to.rs` | ✅ Target-based scrolling |
+| Intent           | File                | Spec Compliance                                   |
+| ---------------- | ------------------- | ------------------------------------------------- |
+| `login`          | `login.rs`          | ✅ Username/password, fallback chain, verification |
+| `logout`         | `logout.rs`         | ✅ User menu detection, try/catch fallback         |
+| `search`         | `search.rs`         | ✅ Query input, enter key submission               |
+| `accept_cookies` | `accept_cookies.rs` | ✅ Banner detection, accept/reject branch          |
+| `dismiss_popups` | `dismiss_popups.rs` | ✅ Loop with max iterations, try/catch             |
+| `fill_form`      | `fill_form.rs`      | ✅ Object data parameter, form field matching      |
+| `submit_form`    | `submit_form.rs`    | ✅ Pattern-based submit, wait for navigation       |
+| `scroll_to`      | `scroll_to.rs`      | ✅ Target-based scrolling                          |
 
 ---
 
@@ -98,14 +98,14 @@ steps:
 
 **Implementation**: `crates/oryn-core/src/intent/executor.rs`
 
-| Pipeline Stage | Implementation |
-|----------------|----------------|
-| 1. PARSE | ✅ Parameter extraction and validation |
-| 2. RESOLVE | ✅ Registry lookup, trigger evaluation |
-| 3. PLAN | ✅ Initial scan, target resolution |
-| 4. EXECUTE | ✅ Step execution with retry, variable binding |
-| 5. VERIFY | ✅ Success/failure condition evaluation |
-| 6. RESPOND | ✅ `IntentResult` with status, data, logs, changes |
+| Pipeline Stage | Implementation                                    |
+| -------------- | ------------------------------------------------- |
+| 1. PARSE       | ✅ Parameter extraction and validation             |
+| 2. RESOLVE     | ✅ Registry lookup, trigger evaluation             |
+| 3. PLAN        | ✅ Initial scan, target resolution                 |
+| 4. EXECUTE     | ✅ Step execution with retry, variable binding     |
+| 5. VERIFY      | ✅ Success/failure condition evaluation            |
+| 6. RESPOND     | ✅ `IntentResult` with status, data, logs, changes |
 
 **Target Resolution** (`resolver.rs`):
 - ✅ Pattern reference resolution
@@ -113,12 +113,12 @@ steps:
 - ✅ Text matching (exact/contains)
 - ✅ Selector matching
 - ✅ Fallback chain traversal
-- ⚠️ Relational targets (Near, Inside, After, Before) - structs exist, partial implementation
+- ✅ Relational targets (Near, Inside, After, Before) - fully implemented in definitions and logic
 
 **Error Handling**:
 - ✅ Exponential backoff retry (configurable attempts, delay, multiplier)
 - ✅ Error mapping with recovery hints
-- ⚠️ No per-step `on_error` handlers from definition
+- ✅ Per-step `on_error` handlers (`executor.rs:296-315`) - YAML only, executes fallback steps after retry exhaustion
 
 **Checkpointing**:
 - ✅ Checkpoint step type
@@ -226,19 +226,19 @@ intent-packs/
 
 **Current State**:
 
-| Spec Feature | Status | Notes |
-|--------------|--------|-------|
-| Pack metadata loading | ✅ | `pack.yaml` parsed |
-| Pack trust levels | ✅ | Full, Verified, Sandboxed, Untrusted |
-| Intent YAML loading | ✅ | `IntentLoader::load_from_dir()` |
-| Schema validation | ✅ | `Validatable` trait |
-| `packs` list command | ✅ | `Command::Packs` |
-| `pack load <name>` | ✅ | `Command::PackLoad(String)` |
-| `pack unload <name>` | ✅ | `Command::PackUnload(String)` |
-| Auto-load by URL | ✅ | Wired in `repl.rs:199-216` |
-| `pack install --source` | ❌ | No community repo support (future) |
-| `pack update` | ❌ | No update mechanism (future) |
-| Custom actions (JS) | ❌ | Not supported (future) |
+| Spec Feature            | Status | Notes                                |
+| ----------------------- | ------ | ------------------------------------ |
+| Pack metadata loading   | ✅      | `pack.yaml` parsed                   |
+| Pack trust levels       | ✅      | Full, Verified, Sandboxed, Untrusted |
+| Intent YAML loading     | ✅      | `IntentLoader::load_from_dir()`      |
+| Schema validation       | ✅      | `Validatable` trait                  |
+| `packs` list command    | ✅      | `Command::Packs`                     |
+| `pack load <name>`      | ✅      | `Command::PackLoad(String)`          |
+| `pack unload <name>`    | ✅      | `Command::PackUnload(String)`        |
+| Auto-load by URL        | ✅      | Wired in `repl.rs:199-216`           |
+| `pack install --source` | ❌      | No community repo support (future)   |
+| `pack update`           | ❌      | No update mechanism (future)         |
+| Custom actions (JS)     | ❌      | Not supported (future)               |
 
 **Auto-Load Implementation** (`repl.rs:199-216`):
 ```rust
@@ -314,12 +314,12 @@ Configuration is handled via struct defaults and per-intent command options. No 
 
 These are explicitly marked as future directions in the spec:
 
-| Feature | Description | Status |
-|---------|-------------|--------|
-| Goal-Level Commands | Natural language goals planned automatically | ❌ |
-| Multi-Page Flows | Intents spanning multiple navigations | ❌ |
-| Collaborative Learning | Share intents across users | ❌ |
-| Intent Composition | Build complex intents from simpler ones | ❌ |
+| Feature                | Description                                  | Status |
+| ---------------------- | -------------------------------------------- | ------ |
+| Goal-Level Commands    | Natural language goals planned automatically | ❌      |
+| Multi-Page Flows       | Intents spanning multiple navigations        | ❌      |
+| Collaborative Learning | Share intents across users                   | ❌      |
+| Intent Composition     | Build complex intents from simpler ones      | ❌      |
 
 **Goal-Level Commands** (§12.1):
 ```
@@ -405,40 +405,40 @@ compose:
 
 ## File Reference
 
-| Component | Files | Status |
-|-----------|-------|--------|
-| Registry | `intent/registry.rs` | ✅ Complete |
-| Definition | `intent/definition.rs` | ✅ Complete |
-| Executor | `intent/executor.rs` | ✅ Complete |
-| Verifier | `intent/verifier.rs` | ✅ Complete |
-| Resolver | `resolver.rs` | ✅ Complete |
-| Built-in Intents | `intent/builtin/*.rs` | ✅ Complete |
-| Session Manager | `intent/session.rs` | ✅ Complete |
-| Define Parser | `intent/define_parser.rs` | ✅ Complete |
-| Intent Loader | `intent/loader.rs` | ✅ Complete |
-| Schema Validation | `intent/schema.rs` | ✅ Complete |
-| Pack Manager | `pack/manager.rs`, `repl.rs` | ✅ Complete |
-| Pack Loader | `pack/loader.rs` | ✅ Complete |
-| Config Schema | `config/schema.rs` | ✅ Complete |
-| Formatter | `formatter/mod.rs` | ✅ Complete |
-| Command Parser | `command.rs` | ✅ Complete |
-| Protocol | `protocol.rs` | ✅ Complete |
+| Component         | Files                        | Status     |
+| ----------------- | ---------------------------- | ---------- |
+| Registry          | `intent/registry.rs`         | ✅ Complete |
+| Definition        | `intent/definition.rs`       | ✅ Complete |
+| Executor          | `intent/executor.rs`         | ✅ Complete |
+| Verifier          | `intent/verifier.rs`         | ✅ Complete |
+| Resolver          | `resolver.rs`                | ✅ Complete |
+| Built-in Intents  | `intent/builtin/*.rs`        | ✅ Complete |
+| Session Manager   | `intent/session.rs`          | ✅ Complete |
+| Define Parser     | `intent/define_parser.rs`    | ✅ Complete |
+| Intent Loader     | `intent/loader.rs`           | ✅ Complete |
+| Schema Validation | `intent/schema.rs`           | ✅ Complete |
+| Pack Manager      | `pack/manager.rs`, `repl.rs` | ✅ Complete |
+| Pack Loader       | `pack/loader.rs`             | ✅ Complete |
+| Config Schema     | `config/schema.rs`           | ✅ Complete |
+| Formatter         | `formatter/mod.rs`           | ✅ Complete |
+| Command Parser    | `command.rs`                 | ✅ Complete |
+| Protocol          | `protocol.rs`                | ✅ Complete |
 
 ---
 
 ## Appendix: Spec Section Cross-Reference
 
-| Spec § | Title | Implementation |
-|--------|-------|----------------|
-| 1 | Overview | ✅ Architecture implemented |
-| 2 | Intent Tiers | ✅ `IntentTier` enum, registry priority |
-| 3 | Definition Format | ✅ Rust structs + YAML loading |
-| 4 | Built-in Intents | ✅ All 8 intents |
-| 5 | Execution Model | ✅ 6-stage pipeline |
-| 6 | Pattern-Intent Mapping | ✅ `IntentAvailability` in output |
-| 7 | Agent-Defined Intents | ✅ `define`, `undefine`, `export` commands |
-| 8 | Site-Specific Packs | ✅ Complete (including auto-load) |
-| 9 | Response Format | ✅ Including PartialSuccess status |
-| 10 | Configuration | ✅ Complete |
-| 11 | Security | ✅ Pack trust levels |
-| 12 | Future Directions | ❌ Not implemented (by design) |
+| Spec § | Title                  | Implementation                            |
+| ------ | ---------------------- | ----------------------------------------- |
+| 1      | Overview               | ✅ Architecture implemented                |
+| 2      | Intent Tiers           | ✅ `IntentTier` enum, registry priority    |
+| 3      | Definition Format      | ✅ Rust structs + YAML loading             |
+| 4      | Built-in Intents       | ✅ All 8 intents                           |
+| 5      | Execution Model        | ✅ 6-stage pipeline                        |
+| 6      | Pattern-Intent Mapping | ✅ `IntentAvailability` in output          |
+| 7      | Agent-Defined Intents  | ✅ `define`, `undefine`, `export` commands |
+| 8      | Site-Specific Packs    | ✅ Complete (including auto-load)          |
+| 9      | Response Format        | ✅ Including PartialSuccess status         |
+| 10     | Configuration          | ✅ Complete                                |
+| 11     | Security               | ✅ Pack trust levels                       |
+| 12     | Future Directions      | ❌ Not implemented (by design)             |

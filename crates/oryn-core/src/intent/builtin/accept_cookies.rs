@@ -27,7 +27,7 @@ pub fn definition() -> IntentDefinition {
                     condition: Condition::Expression("$reject".to_string()),
                     then_steps: vec![
                         Step::Action(ActionStep {
-                            action: ActionType::Click,
+                            action: ActionType::Click, on_error: None,
                             target: Some(TargetSpec {
                                 kind: TargetKind::Pattern { pattern: "cookie_banner.reject".to_string() },
                                 fallback: Some(Box::new(TargetSpec {
@@ -40,7 +40,7 @@ pub fn definition() -> IntentDefinition {
                     ],
                     else_steps: vec![
                         Step::Action(ActionStep {
-                            action: ActionType::Click,
+                            action: ActionType::Click, on_error: None,
                             target: Some(TargetSpec {
                                 kind: TargetKind::Pattern { pattern: "cookie_banner.accept".to_string() },
                                 fallback: Some(Box::new(TargetSpec {
@@ -61,7 +61,7 @@ pub fn definition() -> IntentDefinition {
                 }
             }),
             Step::Action(ActionStep {
-                action: ActionType::Wait,
+                action: ActionType::Wait, on_error: None,
                 target: None,
                 options: [
                     ("condition".to_string(), json!({ "hidden": { "pattern": "cookie_banner" } })),

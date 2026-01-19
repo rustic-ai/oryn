@@ -43,6 +43,7 @@ pub fn definition() -> IntentDefinition {
         steps: vec![
             Step::Action(ActionStep {
                 action: ActionType::Type,
+                on_error: None,
                 target: Some(TargetSpec {
                     kind: TargetKind::Pattern {
                         pattern: "login_form.username".to_string(),
@@ -63,6 +64,7 @@ pub fn definition() -> IntentDefinition {
             }),
             Step::Action(ActionStep {
                 action: ActionType::Type,
+                on_error: None,
                 target: Some(TargetSpec {
                     kind: TargetKind::Pattern {
                         pattern: "login_form.password".to_string(),
@@ -83,6 +85,7 @@ pub fn definition() -> IntentDefinition {
             }),
             Step::Action(ActionStep {
                 action: ActionType::Click,
+                on_error: None,
                 target: Some(TargetSpec {
                     kind: TargetKind::Pattern {
                         pattern: "login_form.submit".to_string(),
@@ -103,6 +106,7 @@ pub fn definition() -> IntentDefinition {
             }),
             Step::Action(ActionStep {
                 action: ActionType::Wait,
+                on_error: None,
                 target: None,
                 options: [
                     ("condition".to_string(), json!({ "url_matches": ".*" })), // Simple wait for now, logic handled in engine

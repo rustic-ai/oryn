@@ -80,6 +80,8 @@ pub struct ActionStep {
     pub action: ActionType,
     #[serde(default)]
     pub target: Option<TargetSpec>,
+    #[serde(default)]
+    pub on_error: Option<Vec<Step>>,
     #[serde(flatten)]
     pub options: HashMap<String, Value>,
 }
@@ -173,6 +175,26 @@ pub enum TargetKind {
     },
     Id {
         id: u64,
+    },
+    Near {
+        near: Box<TargetSpec>,
+        anchor: Box<TargetSpec>,
+    },
+    Inside {
+        inside: Box<TargetSpec>,
+        container: Box<TargetSpec>,
+    },
+    After {
+        after: Box<TargetSpec>,
+        anchor: Box<TargetSpec>,
+    },
+    Before {
+        before: Box<TargetSpec>,
+        anchor: Box<TargetSpec>,
+    },
+    Contains {
+        contains: Box<TargetSpec>,
+        content: Box<TargetSpec>,
     },
 }
 
