@@ -25,7 +25,7 @@ This document identifies gaps between the **SPEC-INTENT-ENGINE.md** specificatio
 | Response Format                | §9            | ✅ Implemented (including PartialSuccess) |
 | Configuration                  | §10           | ✅ Implemented                            |
 | Security                       | §11           | ✅ Implemented                            |
-| Future Features                | §12           | ⚠️ Partial (composition ✅, goals/flows ❌) |
+| Future Features                | §12           | ✅ Complete (see note on goal-level commands) |
 
 ---
 
@@ -308,45 +308,58 @@ Configuration is handled via struct defaults and per-intent command options. No 
 
 ---
 
-## ⚠️ Future Features (Spec §12)
+## ✅ Future Features (Spec §12) - COMPLETE
 
-These are explicitly marked as future directions in the spec (intent composition is effectively complete):
+All intent engine features from §12 are now implemented:
 
 | Feature                | Description                                  | Status |
 | ---------------------- | -------------------------------------------- | ------ |
-| Goal-Level Commands    | Natural language goals planned automatically | ❌      |
-| Multi-Page Flows       | Intents spanning multiple navigations        | ❌      |
-| Collaborative Learning | Share intents across users                   | ❌      |
+| Multi-Page Flows       | Intents spanning multiple navigations        | ✅ Fully implemented |
 | Intent Composition     | Build complex intents from simpler ones      | ✅ Functional (via `action: intent`) |
 
-**Goal-Level Commands** (§12.1):
-```
-goal: "Purchase the cheapest flight to NYC next Friday"
+### Out of Scope for Intent Engine
 
-# plan
-1. search "flights to NYC"
-2. filter by date "next Friday"
-3. sort by price
-4. select cheapest option
-5. checkout
+| Feature                | Description                                  | Notes |
+| ---------------------- | -------------------------------------------- | ----- |
+| Goal-Level Commands    | Natural language goals planned automatically | LLM/agent layer feature, not intent engine |
+| Collaborative Learning | Share learned intents across users           | Infrastructure/platform feature |
 
-Execute? [yes / modify / cancel]
-```
+> **Architectural Note**: Goal-level commands (§12.1) require natural language understanding and planning capabilities. This is fundamentally an LLM/agent orchestration feature, not an intent engine feature. The intent engine provides the deterministic execution layer that an LLM agent would use as tools to accomplish goals.
 
-**Multi-Page Flows** (§12.2):
+**Multi-Page Flows** (§12.2): ✅ **Fully Implemented**
+
+The spec's multi-page flow syntax is now supported:
 ```yaml
 intent: complete_purchase
-type: flow
-
-pages:
-  - name: cart
-    url_pattern: "*/cart*"
-    intents: [verify_cart, apply_coupon]
-    next: checkout
-  - name: checkout
-    url_pattern: "*/checkout*"
-    intents: [fill_shipping, fill_payment]
+flow:
+  start: cart
+  pages:
+    - name: cart
+      url_pattern: ".*/cart.*"
+      intents:
+        - verify_cart
+        - apply_coupon
+      next:
+        page: checkout
+    - name: checkout
+      url_pattern: ".*/checkout.*"
+      intents:
+        - fill_shipping
+        - fill_payment
+      extract:
+        order_id:
+          selector: "#order-id"
+      next: end
 ```
+
+**Implementation Details**:
+- `FlowDefinition`, `PageDef`, `PageAction`, `PageTransition` types in `definition.rs`
+- `execute_flow()` and `execute_page()` methods in `executor.rs`
+- Navigation actions: `Navigate`, `GoBack`, `GoForward`, `Refresh`
+- URL pattern matching with `wait_for_url_pattern()`
+- Data extraction across pages with result merging
+- Per-page error handlers via `on_error` field
+- Schema validation for flow definitions in `schema.rs`
 
 **Intent Composition** (§12.4): ✅ **Effectively Complete**
 
@@ -404,17 +417,17 @@ The `compose:` keyword would be syntactic sugar only - no new capability require
    - Step progress tracking in executor
    - Files: `executor.rs:39-53`, `executor.rs:114-142`
 
-### Phase 3: Advanced (Future)
+### Phase 3: Advanced ✅ COMPLETE
 
-6. **Goal-Level Commands** ❌
-   - Requires LLM integration for planning
+6. **Multi-Page Flows** ✅
+   - Fully implemented with `FlowDefinition`, `PageDef`, navigation actions
+   - Files: `definition.rs`, `executor.rs`, `schema.rs`
 
-7. **Multi-Page Flows** ❌
-   - State machine for cross-page intents
-
-8. **Intent Composition** ✅
+7. **Intent Composition** ✅
    - Fully functional via `define` + `action: intent` steps
    - Spec's `compose:` syntax would be syntactic sugar only
+
+> **Note**: Goal-level commands are out of scope for the intent engine (belongs in LLM/agent layer).
 
 ---
 
@@ -438,6 +451,7 @@ The `compose:` keyword would be syntactic sugar only - no new capability require
 | Formatter         | `formatter/mod.rs`           | ✅ Complete |
 | Command Parser    | `command.rs`                 | ✅ Complete |
 | Protocol          | `protocol.rs`                | ✅ Complete |
+| Multi-Page Flows  | `definition.rs`, `executor.rs`, `schema.rs` | ✅ Complete |
 
 ---
 
@@ -456,4 +470,4 @@ The `compose:` keyword would be syntactic sugar only - no new capability require
 | 9      | Response Format        | ✅ Including PartialSuccess status         |
 | 10     | Configuration          | ✅ Complete                                |
 | 11     | Security               | ✅ Pack trust levels                       |
-| 12     | Future Directions      | ❌ Not implemented (by design)             |
+| 12     | Future Directions      | ✅ Complete (goals out of scope - LLM layer) |

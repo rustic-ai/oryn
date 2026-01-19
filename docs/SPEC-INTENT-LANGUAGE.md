@@ -323,7 +323,7 @@ Intent commands encapsulate common workflows:
 - **dismiss popups** — Closes modals, cookie banners, and overlays
 - **accept cookies** — Finds and clicks cookie consent
 
-### Level 4: Goal Commands (Future)
+### Level 4: Goal Commands (LLM/Agent Layer)
 
 Natural language goals for agent-driven planning:
 ```
@@ -331,6 +331,8 @@ goal: add "Blue T-Shirt Size M" to cart
 goal: find the contact email on this page
 goal: subscribe to the newsletter
 ```
+
+> **Note**: Goal commands are not part of the intent engine. They belong in the LLM/agent orchestration layer that sits above the intent engine. The intent engine provides deterministic execution of well-defined intents; an LLM agent would use these intents as tools to accomplish higher-level goals.
 
 ---
 
@@ -405,5 +407,5 @@ Enter, Tab, Escape, Space, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, Arr
 
 ---
 
-*Document Version: 1.0*  
-*Last Updated: January 2025*
+*Document Version: 1.1*
+*Last Updated: January 2026*

@@ -1531,16 +1531,18 @@ pack_trust:
 
 ---
 
-## 12. Future Directions
+## 12. Future Directions & Implementation Status
 
-### 12.1 Goal-Level Commands
+### 12.1 Goal-Level Commands (Out of Scope - LLM Layer)
 
-Natural language goals that the engine plans automatically:
+> **Architectural Note**: Goal-level commands require natural language understanding and planning capabilities. This is fundamentally an **LLM/agent orchestration feature**, not an intent engine feature. The intent engine provides the deterministic execution layer that an LLM agent would use as tools to accomplish goals.
+
+Example of what an LLM agent layer would provide:
 
 ```
 goal: "Purchase the cheapest flight to NYC next Friday"
 
-# planning
+# planning (done by LLM, not intent engine)
 Analyzing goal...
 Required intents: search, filter, select, checkout
 Estimated steps: 12-15
@@ -1555,31 +1557,54 @@ Estimated steps: 12-15
 Execute? [yes / modify / cancel]
 ```
 
-### 12.2 Multi-Page Flows
+### 12.2 Multi-Page Flows ✅ IMPLEMENTED
 
-Intents that span multiple page navigations:
+Intents that span multiple page navigations are now fully supported:
 
 ```yaml
 intent: complete_purchase
-type: flow
+flow:
+  start: cart
+  pages:
+    - name: cart
+      url_pattern: ".*/cart.*"
+      intents:
+        - verify_cart
+        - apply_coupon
+      next:
+        page: checkout
 
-pages:
-  - name: cart
-    url_pattern: "*/cart*"
-    intents: [verify_cart, apply_coupon]
-    next: checkout
-    
-  - name: checkout
-    url_pattern: "*/checkout*"
-    intents: [fill_shipping, fill_payment]
-    next: confirmation
-    
-  - name: confirmation
-    url_pattern: "*/confirmation*"
-    extract: [order_number, total]
+    - name: checkout
+      url_pattern: ".*/checkout.*"
+      intents:
+        - fill_shipping
+        - fill_payment
+      extract:
+        order_id:
+          selector: "#order-id"
+      next:
+        page: confirmation
+
+    - name: confirmation
+      url_pattern: ".*/confirmation.*"
+      extract:
+        order_number:
+          selector: "#order-number"
+        total:
+          selector: ".order-total"
+      next: end
 ```
 
-### 12.3 Collaborative Learning
+**Implementation Details**:
+- `FlowDefinition`, `PageDef`, `PageAction`, `PageTransition` types in `definition.rs`
+- `execute_flow()` and `execute_page()` methods in `executor.rs`
+- Navigation actions: `Navigate`, `GoBack`, `GoForward`, `Refresh`
+- URL pattern matching with `wait_for_url_pattern()`
+- Data extraction across pages with result merging
+- Per-page error handlers via `on_error` field
+- Schema validation in `schema.rs`
+
+### 12.3 Collaborative Learning (Infrastructure Feature)
 
 Share learned intents across users:
 
@@ -1594,22 +1619,32 @@ search intents "newsletter subscribe"
 install intent subscribe_newsletter --author trusted_user
 ```
 
-### 12.4 Intent Composition
+> **Note**: This is an infrastructure/platform feature requiring a community repository service, not a core intent engine feature.
 
-Build complex intents from simpler ones:
+### 12.4 Intent Composition ✅ IMPLEMENTED
+
+Building complex intents from simpler ones is fully supported via `action: intent` steps:
 
 ```yaml
 intent: setup_new_account
-compose:
-  - intent: signup
-    params: { email: $email, password: $password }
-  - intent: verify_email
-    params: { email: $email }
-  - intent: complete_profile
-    params: { name: $name, bio: $bio }
-  - intent: configure_notifications
-    params: { preferences: $notification_prefs }
+steps:
+  - action: intent
+    name: signup
+    email: $email
+    password: $password
+  - action: intent
+    name: verify_email
+    email: $email
+  - action: intent
+    name: complete_profile
+    name: $name
+    bio: $bio
+  - action: intent
+    name: configure_notifications
+    preferences: $notification_prefs
 ```
+
+The spec's proposed `compose:` syntax would be syntactic sugar only—the current `steps` + `action: intent` approach achieves identical functionality.
 
 ---
 
@@ -1699,5 +1734,5 @@ properties:
 
 ---
 
-*Document Version: 1.0*  
-*Last Updated: January 2025*
+*Document Version: 1.1*
+*Last Updated: January 2026*

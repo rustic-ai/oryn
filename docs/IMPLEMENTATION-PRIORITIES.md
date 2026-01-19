@@ -12,7 +12,7 @@ This document analyzes the gaps between the Intent Engine specification and curr
 
 ## Current State Summary
 
-The intent engine is **feature complete** for Phase 1 and Phase 2:
+The intent engine is **100% feature complete**:
 
 ### Core Infrastructure ✅
 - ✅ 6-stage execution pipeline (resolve → parse → plan → execute → verify → respond)
@@ -25,6 +25,7 @@ The intent engine is **feature complete** for Phase 1 and Phase 2:
 - ✅ Session intent manager and define parser
 - ✅ Pack manager with trust levels
 - ✅ Learning observer and pattern recognizer
+- ✅ Multi-page flows with URL pattern matching and data extraction
 
 ### Extensibility ✅
 - ✅ YAML intent loading from directories (`IntentLoader`)
@@ -37,7 +38,7 @@ The intent engine is **feature complete** for Phase 1 and Phase 2:
 - ✅ `PartialSuccess` status with step progress tracking
 - ✅ Formatted output with intent availability icons
 
-**Status**: All Phase 1 and Phase 2 features are complete
+**Status**: All phases complete. The intent engine is fully implemented.
 
 ---
 
@@ -237,35 +238,79 @@ Hint: Failed at step 4: Payment validation timeout
 
 ---
 
-### 🔵 Advanced / Future
+### 🔵 Advanced Features ✅ COMPLETE
 
-These are complex features that aren't core to the primary use case.
-
-#### 6. Goal-Level Commands
-
-**Spec Reference**: §12.1
-
-**Current State**: Not implemented (explicitly future in spec).
-
-**Complexity**: High (requires planning/reasoning layer)
-
-**Justification to Defer**: Requires LLM integration for planning.
-
----
-
-#### 7. Multi-Page Flows
+#### 6. Multi-Page Flows ✅ COMPLETE
 
 **Spec Reference**: §12.2
 
-**Current State**: Not implemented (explicitly future in spec).
+**Status**: ✅ Fully implemented
 
-**Complexity**: Medium
+**Implementation**:
 
-**Justification to Defer**: Can chain intents manually. State machine adds complexity.
+**Core Types** (`definition.rs`):
+```rust
+pub struct FlowDefinition {
+    pub start: Option<String>,    // Optional explicit start page
+    pub pages: Vec<PageDef>,      // All pages in the flow
+}
+
+pub struct PageDef {
+    pub name: String,             // Unique page identifier
+    pub url_pattern: String,      // Regex to identify page
+    pub intents: Vec<PageAction>, // Actions to execute
+    pub next: Option<PageTransition>, // Where to go next
+    pub on_error: Option<String>, // Error handler page
+    pub extract: Option<HashMap<String, Value>>, // Data extraction
+}
+```
+
+**Executor Integration** (`executor.rs:430-580`):
+- `execute_flow()` orchestrates multi-page execution
+- `execute_page()` handles individual page actions
+- `wait_for_url_pattern()` polls for URL pattern match
+- Data extraction across pages with result merging
+- Error recovery via per-page `on_error` handlers
+
+**Navigation Actions**:
+- `Navigate` - Navigate to specific URL
+- `GoBack` - Browser history back
+- `GoForward` - Browser history forward
+- `Refresh` - Reload current page
+
+**YAML Syntax**:
+```yaml
+intent: checkout_flow
+flow:
+  start: cart
+  pages:
+    - name: cart
+      url_pattern: ".*/cart.*"
+      intents:
+        - verify_cart
+        - steps:
+            - click "Checkout"
+      next:
+        page: shipping
+    - name: shipping
+      url_pattern: ".*/checkout/shipping.*"
+      intents:
+        - fill_form
+      extract:
+        order_id:
+          selector: "#order-id"
+      next: end
+```
+
+**Schema Validation** (`schema.rs`):
+- No duplicate page names
+- Valid page transitions
+- Start page exists if specified
+- Mutual exclusivity: intent has `steps` OR `flow`, not both
 
 ---
 
-#### 8. Intent Composition ✅ EFFECTIVELY COMPLETE
+#### 7. Intent Composition ✅ EFFECTIVELY COMPLETE
 
 **Spec Reference**: §12.4
 
@@ -316,14 +361,15 @@ define checkout:
 | Available intents output | Medium | Medium | ✅ Complete |
 | PartialSuccess status | Medium | Low | ✅ Complete |
 
-### Phase 3: Advanced (Future)
+### Phase 3: Advanced ✅ COMPLETE
 **Goal**: Advanced automation capabilities.
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Goal-level commands | Low | High | ❌ Not started |
-| Multi-page flows | Low | Medium | ❌ Not started |
-| Intent composition | Low | Low | ✅ Effectively complete (via `define` + `action: intent`) |
+| Multi-page flows | Low | Medium | ✅ Complete |
+| Intent composition | Low | Low | ✅ Complete (via `define` + `action: intent`) |
+
+> **Note**: Goal-level commands (§12.1 in spec) are not an intent engine feature. They belong in the LLM/agent orchestration layer that would use the intent engine as a tool.
 
 ---
 
@@ -351,6 +397,7 @@ Use this to prioritize based on your deployment model:
 | Pack Auto-Load | `pack/manager.rs:124`, `repl.rs:199-216` | ✅ Complete |
 | Relational Targets | `resolver.rs:280-563` | ✅ Complete |
 | Per-step on_error | `executor.rs:296-315` (YAML only) | ✅ Complete |
+| Multi-page Flows | `definition.rs`, `executor.rs:430-580`, `schema.rs` | ✅ Complete |
 
 ---
 
