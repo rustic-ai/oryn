@@ -1,13 +1,13 @@
 #!/bin/bash
 # scripts/run-unified-suite.sh
-# Runs the Lemma Test Harness suite across all backends: Embedded, Headless, Remote.
+# Runs the Oryn Test Harness suite across all backends: Embedded, Headless, Remote.
 
 set -e
 
 # Configuration
 PORT=9001
 DEBUG_PORT=9002
-LCOPE_BIN="./target/debug/oryn"
+ORYN_BIN="./target/debug/oryn"
 ENV_EXT_DIR="extension"
 
 # Directories
@@ -62,7 +62,7 @@ run_simple_backend() {
     
     log_info "=== Running Suite: $BACKEND_NAME ==="
     
-    for script in test-harness/scripts/*.lemma; do
+    for script in test-harness/scripts/*.oil; do
         script_name=$(basename "$script")
         log_info "TESTING [$BACKEND_NAME]: $script_name"
         
@@ -70,7 +70,7 @@ run_simple_backend() {
         LOG_FILE="${BACKEND_NAME}_${script_name}.log"
         
         # Run oryn with timeout
-        if timeout 30s $LCOPE_BIN --file "$script" $CMD_ARG > "$LOG_FILE" 2>&1; then
+        if timeout 30s $ORYN_BIN --file "$script" $CMD_ARG > "$LOG_FILE" 2>&1; then
             log_pass "[$BACKEND_NAME] $script_name passed"
             echo "| $BACKEND_NAME | $script_name | ✅ PASS | |" >> "$RESULTS_FILE"
         else
@@ -101,7 +101,7 @@ run_remote_backend() {
     cp -r "$ENV_EXT_DIR/"* "$EXT_PATCH_DIR/"
     sed -i "s|ws://127.0.0.1:9001|ws://127.0.0.1:$PORT|g" "$EXT_PATCH_DIR/background.js"
 
-    for script in test-harness/scripts/*.lemma; do
+    for script in test-harness/scripts/*.oil; do
         script_name=$(basename "$script")
         log_info "TESTING [$BACKEND_NAME]: $script_name"
         
@@ -115,8 +115,8 @@ run_remote_backend() {
         mkdir -p "$USER_DATA_DIR"
 
         # Start Server
-        $LCOPE_BIN --file "$script" remote --port $PORT > "remote_server_${script_name}.log" 2>&1 &
-        LSCOPE_PID=$!
+        $ORYN_BIN --file "$script" remote --port $PORT > "remote_server_${script_name}.log" 2>&1 &
+        ORYN_PID=$!
         
         # Wait for Port
         SERVER_UP=false
@@ -130,7 +130,7 @@ run_remote_backend() {
         
         if [ "$SERVER_UP" = "false" ]; then
              log_fail "Remote Server failed to start for $script_name"
-             kill "$LSCOPE_PID" 2>/dev/null || true
+             kill "$ORYN_PID" 2>/dev/null || true
              echo "| $BACKEND_NAME | $script_name | ❌ FAIL | Server init timeout |" >> "$RESULTS_FILE"
              continue
         fi
@@ -154,7 +154,7 @@ run_remote_backend() {
         CHROME_PID=$!
 
         # Wait for completion (with timeout)
-        if timeout 30s wait "$LSCOPE_PID"; then
+        if timeout 30s wait "$ORYN_PID"; then
              EXIT_CODE=$?
         else
              EXIT_CODE=124
@@ -166,7 +166,7 @@ run_remote_backend() {
         elif [ $EXIT_CODE -eq 124 ]; then
             log_fail "[$BACKEND_NAME] $script_name TIMEOUT"
             echo "| $BACKEND_NAME | $script_name | ⏱️ TIMEOUT | > 30s |" >> "$RESULTS_FILE"
-            kill "$LSCOPE_PID" 2>/dev/null || true
+            kill "$ORYN_PID" 2>/dev/null || true
         else
             log_fail "[$BACKEND_NAME] $script_name failed"
             echo "| $BACKEND_NAME | $script_name | ❌ FAIL | Exit Code $EXIT_CODE |" >> "$RESULTS_FILE"

@@ -17,11 +17,11 @@ A Node.js/Express application serving multiple test scenarios for comprehensive 
 
 ## Testing with Scripts
 
-A collection of pre-defined Lemma scripts is available in the `scripts/` directory.
+A collection of pre-defined Oryn scripts is available in the `scripts/` directory.
 
 ```bash
 # Example: Run the e-commerce test
-./target/debug/oryn-h --file scripts/03_ecommerce.lemma
+./target/debug/oryn-h --file scripts/03_ecommerce.oil
 ```
 
 ## Scenario Categories

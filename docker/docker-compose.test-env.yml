@@ -55,7 +55,7 @@ services:
       - oryn-e2e-net
     command: >
       sh -c "
-        for script in /scripts/*.lemma; do
+        for script in /scripts/*.oil; do
           echo '=== Running:' \$script '===';
           /usr/local/bin/oryn-h --file \$script || exit 1;
         done;
@@ -90,7 +90,7 @@ services:
       - oryn-e2e-net
     command: >
       sh -c "
-        for script in /scripts/*.lemma; do
+        for script in /scripts/*.oil; do
           echo '=== Running:' \$script '===';
           /usr/local/bin/oryn-e --file \$script || exit 1;
         done;
@@ -127,7 +127,7 @@ services:
         weston --backend=headless --shell=desktop &
         sleep 3;
         export WAYLAND_DISPLAY=wayland-0;
-        for script in /scripts/*.lemma; do
+        for script in /scripts/*.oil; do
           echo '=== Running:' \$script '===';
           /usr/local/bin/oryn-e --file \$script || exit 1;
         done;

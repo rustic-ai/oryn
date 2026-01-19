@@ -1,4 +1,4 @@
-# Lemmascope Intent Engine Specification
+# Oryn Intent Engine Specification
 
 ## Version 1.0
 
@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-The Intent Engine is the intelligence layer of Lemmascope that transforms high-level agent commands into executable atomic operations. It bridges the gap between what agents want to accomplish and the primitive operations the scanner understands.
+The Intent Engine is the intelligence layer of Oryn that transforms high-level agent commands into executable atomic operations. It bridges the gap between what agents want to accomplish and the primitive operations the scanner understands.
 
 ### 1.1 Core Principle
 
@@ -116,12 +116,12 @@ These intents represent the most common, cross-site operations that agents perfo
 
 **Sources**
 
-| Source     | Path                            | Description                            |
-| ---------- | ------------------------------- | -------------------------------------- |
-| Core       | `intents/core/*.yaml`           | Common intents shipped with Lemmascope |
-| Site Packs | `intents/packs/{domain}/*.yaml` | Site-specific intents                  |
-| User       | `~/.lemmascope/intents/*.yaml`  | User-defined intents                   |
-| Session    | Runtime registration            | Temporary intents                      |
+| Source     | Path                            | Description                      |
+| ---------- | ------------------------------- | -------------------------------- |
+| Core       | `intents/core/*.yaml`           | Common intents shipped with Oryn |
+| Site Packs | `intents/packs/{domain}/*.yaml` | Site-specific intents            |
+| User       | `~/.oryn/intents/*.yaml`        | User-defined intents             |
+| Session    | Runtime registration            | Temporary intents                |
 
 **Loading Priority**
 
@@ -1121,12 +1121,12 @@ intents --clear-session
 
 ```
 # Export to file
-export add_to_wishlist --out ~/.lemmascope/intents/add_to_wishlist.yaml
+export add_to_wishlist --out ~/.oryn/intents/add_to_wishlist.yaml
 
 ok export add_to_wishlist
 
 # written
-~/.lemmascope/intents/add_to_wishlist.yaml
+~/.oryn/intents/add_to_wishlist.yaml
 
 # The intent will now load automatically on startup.
 ```
@@ -1172,7 +1172,7 @@ intent-packs/
 pack: github.com
 version: 1.2.0
 description: "Intent pack for GitHub"
-author: lemmascope-community
+author: oryn-community
 license: MIT
 
 domains:
@@ -1181,7 +1181,7 @@ domains:
   - gist.github.com
 
 requires:
-  lemmascope: ">=1.0.0"
+  oryn: ">=1.0.0"
 
 patterns:
   - patterns.yaml
@@ -1420,7 +1420,7 @@ The `changes` field captures the diff between page state before and after intent
 ### 10.1 Engine Configuration
 
 ```yaml
-# ~/.lemmascope/config.yaml
+# ~/.oryn/config.yaml
 
 intent_engine:
   # Intent resolution
@@ -1460,8 +1460,8 @@ intent_engine:
     auto_load: true
     pack_paths:
       - ./intent-packs
-      - ~/.lemmascope/packs
-    community_repo: https://packs.lemmascope.dev
+      - ~/.oryn/packs
+    community_repo: https://packs.oryn.dev
 ```
 
 ### 10.2 Per-Intent Options
@@ -1519,7 +1519,7 @@ Loaded intents are validated for:
 # Trust levels for packs
 pack_trust:
   builtin: full          # Can do anything
-  official: verified     # Signed by Lemmascope
+  official: verified     # Signed by Oryn
   community: sandboxed   # Limited capabilities
   local: configurable    # User decides
 ```
@@ -1667,7 +1667,7 @@ The spec's proposed `compose:` syntax would be syntactic sugar only—the curren
 
 ```yaml
 # JSON Schema for intent definitions
-$schema: "https://lemmascope.dev/schemas/intent-v1.json"
+$schema: "https://oryn.dev/schemas/intent-v1.json"
 
 type: object
 required: [intent, version, steps]

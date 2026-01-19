@@ -1,6 +1,6 @@
 #!/bin/bash
 # scripts/run-e2e-tests.sh
-# Comprehensive E2E test runner that executes all lemma scripts against all backend variants
+# Comprehensive E2E test runner that executes all oil scripts against all backend variants
 #
 # Backend variants tested:
 #   - oryn-h       : Chromium headless (Docker)
@@ -191,7 +191,7 @@ test_oryn_h() {
     echo "=== E2E Test Results for oryn-h ===" > "$results_file"
     echo "Started: $(date)" >> "$results_file"
 
-    for script in $(ls -1 "$scripts_dir"/*.lemma 2>/dev/null | sort); do
+    for script in $(ls -1 "$scripts_dir"/*.oil 2>/dev/null | sort); do
         local script_name=$(basename "$script")
         log_variant "oryn-h" "Running: $script_name"
 
@@ -238,7 +238,7 @@ test_oryn_e_debian() {
     echo "=== E2E Test Results for oryn-e-debian ===" > "$results_file"
     echo "Started: $(date)" >> "$results_file"
 
-    for script in $(ls -1 "$scripts_dir"/*.lemma 2>/dev/null | sort); do
+    for script in $(ls -1 "$scripts_dir"/*.oil 2>/dev/null | sort); do
         local script_name=$(basename "$script")
         log_variant "oryn-e-debian" "Running: $script_name"
 
@@ -288,7 +288,7 @@ test_oryn_e_weston() {
     echo "=== E2E Test Results for oryn-e-weston ===" > "$results_file"
     echo "Started: $(date)" >> "$results_file"
 
-    for script in $(ls -1 "$scripts_dir"/*.lemma 2>/dev/null | sort); do
+    for script in $(ls -1 "$scripts_dir"/*.oil 2>/dev/null | sort); do
         local script_name=$(basename "$script")
         log_variant "oryn-e-weston" "Running: $script_name"
 
@@ -368,7 +368,7 @@ test_oryn_r() {
     log_info "Ensuring zenika/alpine-chrome image is available..."
     docker pull zenika/alpine-chrome:with-node --quiet || true
 
-    for script in $(ls -1 "$scripts_dir"/*.lemma 2>/dev/null | sort); do
+    for script in $(ls -1 "$scripts_dir"/*.oil 2>/dev/null | sort); do
         local script_name=$(basename "$script")
         log_variant "oryn-r" "Running: $script_name"
 

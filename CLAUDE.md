@@ -34,22 +34,22 @@ Run the comprehensive E2E test suite that tests against all backend variants:
 
 ### Backend Variants
 
-| Variant | Description | Requirements |
-|---------|-------------|--------------|
-| `oryn-h` | Chromium headless | Docker |
-| `oryn-e-debian` | WPE WebKit on Debian | Docker |
-| `oryn-e-weston` | WPE + Weston compositor | Docker (privileged) |
-| `oryn-r` | Remote mode with browser extension | Docker + extension |
+| Variant         | Description                        | Requirements        |
+| --------------- | ---------------------------------- | ------------------- |
+| `oryn-h`        | Chromium headless                  | Docker              |
+| `oryn-e-debian` | WPE WebKit on Debian               | Docker              |
+| `oryn-e-weston` | WPE + Weston compositor            | Docker (privileged) |
+| `oryn-r`        | Remote mode with browser extension | Docker + extension  |
 
 ### Test Scripts
 
-E2E tests use `.lemma` scripts located in `test-harness/scripts/`:
-- `01_static.lemma` - Static page tests
-- `02_forms.lemma` - Form interaction tests
-- `03_ecommerce.lemma` - E-commerce flow tests
-- `04_interactivity.lemma` - Interactive element tests
-- `05_dynamic.lemma` - Dynamic content tests
-- `06_edge_cases.lemma` - Edge case handling tests
+E2E tests use `.oil` scripts located in `test-harness/scripts/`:
+- `01_static.oil` - Static page tests
+- `02_forms.oil` - Form interaction tests
+- `03_ecommerce.oil` - E-commerce flow tests
+- `04_interactivity.oil` - Interactive element tests
+- `05_dynamic.oil` - Dynamic content tests
+- `06_edge_cases.oil` - Edge case handling tests
 
 Results are saved to `e2e-results/`.
 

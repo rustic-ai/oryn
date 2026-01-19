@@ -1,6 +1,6 @@
 #!/bin/bash
 # run-docker-e2e.sh: Run Oryn Docker images against the test harness
-# This script builds the images and executes the .lemma test suite.
+# This script builds the images and executes the .oil test suite.
 
 set -e
 
@@ -88,7 +88,7 @@ for IMAGE in "${IMAGES[@]}"; do
     script_failed=0
     image_results=""
     
-    for SCRIPT_FILE in "$SCRIPTS_DIR"/*.lemma; do
+    for SCRIPT_FILE in "$SCRIPTS_DIR"/*.oil; do
         SCRIPT_NAME=$(basename "$SCRIPT_FILE")
         log_info "Running $SCRIPT_NAME against $IMAGE..."
         

@@ -17,7 +17,7 @@ struct TestState {
 
 #[tokio::test]
 #[serial]
-async fn test_all_lemma_scripts_remote() {
+async fn test_all_oil_scripts_remote() {
     tracing_subscriber::fmt()
         .with_test_writer()
         .with_max_level(tracing::Level::INFO)
@@ -100,11 +100,11 @@ async fn test_all_lemma_scripts_remote() {
         .collect();
     entries.sort_by_key(|e| e.file_name());
 
-    // Run just the first script for now (01_static.lemma)
-    // The second script (02_forms.lemma) uses alert() which blocks JS execution
+    // Run just the first script for now (01_static.oil)
+    // The second script (02_forms.oil) uses alert() which blocks JS execution
     for entry in entries.into_iter().take(1) {
         let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("lemma") {
+        if path.extension().and_then(|s| s.to_str()) != Some("oil") {
             continue;
         }
 

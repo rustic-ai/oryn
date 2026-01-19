@@ -10,7 +10,7 @@ function connect() {
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
         return;
     }
-    remoteLog("LEMMASCOPE: Attempting connection to " + WEBSOCKET_URL);
+    remoteLog("ORYN: Attempting connection to " + WEBSOCKET_URL);
     socket = new WebSocket(WEBSOCKET_URL);
 
     socket.onopen = () => {

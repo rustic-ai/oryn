@@ -1,12 +1,12 @@
 #!/bin/bash
 # scripts/run-remote-suite.sh
-# Run all Lemma scripts using the Remote Backend and Chrome Extension (Headed Local)
+# Run all Oryn scripts using the Remote Backend and Chrome Extension (Headed Local)
 set -e
 
 # Configuration
 PORT=9001
 DEBUG_PORT=9002
-LCOPE_BIN="${LCOPE_BIN:-./target/debug/oryn}"
+ORYN_BIN="${ORYN_BIN:-./target/debug/oryn}"
 ENV_EXT_DIR="extension"
 
 # Use /tmp to avoid Snap/Sandbox permission issues
@@ -67,7 +67,7 @@ echo "| Script | Status |" >> "$RESULTS_FILE"
 echo "|--------|--------|" >> "$RESULTS_FILE"
 
 # 3. Loop
-for script in test-harness/scripts/*.lemma; do
+for script in test-harness/scripts/*.oil; do
     script_name=$(basename "$script")
     log_info "TESTING: $script_name"
     
@@ -81,8 +81,8 @@ for script in test-harness/scripts/*.lemma; do
 
     # 1. Start oryn Server (Background)
     log_info "Starting oryn Backend..."
-    RUST_LOG=info $LCOPE_BIN --file "$script" remote --port $PORT > "oryn_$script_name.log" 2>&1 &
-    LSCOPE_PID=$!
+    RUST_LOG=info $ORYN_BIN --file "$script" remote --port $PORT > "oryn_$script_name.log" 2>&1 &
+    ORYN_PID=$!
     
     # 2. Wait for Port 9001
     log_info "Waiting for oryn to listen on $PORT..."
@@ -147,7 +147,7 @@ for script in test-harness/scripts/*.lemma; do
 
     # 4. Wait for oryn to finish
     log_info "Waiting for test completion..."
-    wait "$LSCOPE_PID"
+    wait "$ORYN_PID"
     EXIT_CODE=$?
     
     if [ $EXIT_CODE -eq 0 ]; then
