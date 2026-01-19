@@ -90,6 +90,7 @@ fn create_intent(name: &str, steps: Vec<Step>) -> IntentDefinition {
         triggers: IntentTriggers::default(),
         parameters: vec![],
         steps,
+        flow: None,
         success: None,
         failure: None,
         options: Default::default(),

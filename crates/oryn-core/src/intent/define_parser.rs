@@ -73,6 +73,7 @@ pub fn parse_define(input: &str) -> Result<IntentDefinition, ParseError> {
         },
         parameters: vec![], // TODO: Support params
         steps,
+        flow: None,
         success: None,
         failure: None,
         options: IntentOptions {

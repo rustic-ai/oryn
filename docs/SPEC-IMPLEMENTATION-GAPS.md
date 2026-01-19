@@ -25,7 +25,7 @@ This document identifies gaps between the **SPEC-INTENT-ENGINE.md** specificatio
 | Response Format                | §9            | ✅ Implemented (including PartialSuccess) |
 | Configuration                  | §10           | ✅ Implemented                            |
 | Security                       | §11           | ✅ Implemented                            |
-| Future Features                | §12           | ❌ Not Implemented (by design)            |
+| Future Features                | §12           | ⚠️ Partial (composition ✅, goals/flows ❌) |
 
 ---
 
@@ -135,7 +135,7 @@ steps:
 
 **Implementation**:
 
-**Protocol Types** (`protocol.rs:220-240`):
+**Protocol Types** (`protocol.rs:224-240`):
 ```rust
 pub struct IntentAvailability {
     pub name: String,
@@ -152,13 +152,13 @@ pub enum AvailabilityStatus {
 }
 ```
 
-**Executor Integration** (`executor.rs:332-405`):
+**Executor Integration** (`executor.rs:353-426`):
 - `calculate_available_intents()` evaluates each registered intent
 - Checks URL patterns against current page URL
 - Verifies required patterns are detected on the page
 - Returns availability status with reasons
 
-**Formatter Output** (`formatter/mod.rs:180-220`):
+**Formatter Output** (`formatter/mod.rs:180-247`):
 ```
 Available Intents:
 - 🟢 login (username, password)
@@ -266,7 +266,7 @@ Command::GoTo(url) => {
 
 **Spec Requirement**: Structured result with status, data, logs, and changes.
 
-**Implementation** (`executor.rs:39-53`):
+**Implementation** (`executor.rs:39-46, 48-53`):
 ```rust
 pub struct IntentResult {
     pub status: IntentStatus,
@@ -308,18 +308,16 @@ Configuration is handled via struct defaults and per-intent command options. No 
 
 ---
 
-## ❌ Not Implemented Components
+## ⚠️ Future Features (Spec §12)
 
-### 10. Future Features (Spec §12)
-
-These are explicitly marked as future directions in the spec:
+These are explicitly marked as future directions in the spec (intent composition is effectively complete):
 
 | Feature                | Description                                  | Status |
 | ---------------------- | -------------------------------------------- | ------ |
 | Goal-Level Commands    | Natural language goals planned automatically | ❌      |
 | Multi-Page Flows       | Intents spanning multiple navigations        | ❌      |
 | Collaborative Learning | Share intents across users                   | ❌      |
-| Intent Composition     | Build complex intents from simpler ones      | ❌      |
+| Intent Composition     | Build complex intents from simpler ones      | ✅ Functional (via `action: intent`) |
 
 **Goal-Level Commands** (§12.1):
 ```
@@ -350,7 +348,9 @@ pages:
     intents: [fill_shipping, fill_payment]
 ```
 
-**Intent Composition** (§12.4):
+**Intent Composition** (§12.4): ✅ **Effectively Complete**
+
+The spec proposes a dedicated `compose:` syntax:
 ```yaml
 intent: setup_new_account
 compose:
@@ -358,8 +358,23 @@ compose:
     params: { email: $email, password: $password }
   - intent: verify_email
   - intent: complete_profile
-  - intent: configure_notifications
 ```
+
+However, this is already achievable with current `define` + `action: intent`:
+```yaml
+intent: setup_new_account
+steps:
+  - action: intent
+    name: signup
+    email: $email
+    password: $password
+  - action: intent
+    name: verify_email
+  - action: intent
+    name: complete_profile
+```
+
+The `compose:` keyword would be syntactic sugar only - no new capability required.
 
 ---
 
@@ -379,7 +394,7 @@ compose:
 
 3. **Pattern-Intent Mapping Output** ✅
    - `IntentAvailability` in protocol and formatter
-   - Files: `protocol.rs:220-240`, `formatter/mod.rs:180-220`
+   - Files: `protocol.rs:224-240`, `formatter/mod.rs:180-247`
 
 4. **Agent-Defined Intent Commands** ✅
    - `define`, `undefine`, `export` commands wired
@@ -387,7 +402,7 @@ compose:
 
 5. **PartialSuccess Status** ✅
    - Step progress tracking in executor
-   - Files: `executor.rs:48-53`, `executor.rs:114-142`
+   - Files: `executor.rs:39-53`, `executor.rs:114-142`
 
 ### Phase 3: Advanced (Future)
 
@@ -397,9 +412,9 @@ compose:
 7. **Multi-Page Flows** ❌
    - State machine for cross-page intents
 
-8. **Intent Composition** ❌
-   - Compose complex intents from simpler ones
-   - Note: Partial support via `intent` action step
+8. **Intent Composition** ✅
+   - Fully functional via `define` + `action: intent` steps
+   - Spec's `compose:` syntax would be syntactic sugar only
 
 ---
 

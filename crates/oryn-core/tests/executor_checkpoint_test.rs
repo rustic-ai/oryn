@@ -111,6 +111,7 @@ async fn test_checkpoint_and_resume() {
                 },
             }),
         ],
+        flow: None,
         success: None,
         failure: None,
         options: IntentOptions {
@@ -182,6 +183,7 @@ async fn test_resume_from_nonexistent_checkpoint() {
                 m
             },
         })],
+        flow: None,
         success: None,
         failure: None,
         options: IntentOptions::default(),
@@ -242,6 +244,7 @@ async fn test_multiple_checkpoints() {
                 options: wait_opts(),
             }),
         ],
+        flow: None,
         success: None,
         failure: None,
         options: IntentOptions {
@@ -307,6 +310,7 @@ async fn test_checkpoint_at_end() {
                 checkpoint: "final".to_string(),
             }),
         ],
+        flow: None,
         success: None,
         failure: None,
         options: IntentOptions {
@@ -373,6 +377,7 @@ async fn test_no_checkpoints_intent() {
                 options: wait_opts(),
             }),
         ],
+        flow: None,
         success: None,
         failure: None,
         options: IntentOptions::default(),

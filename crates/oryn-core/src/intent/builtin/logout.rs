@@ -102,6 +102,7 @@ pub fn definition() -> IntentDefinition {
                 .into(),
             }),
         ],
+        flow: None,
         success: None,
         failure: None,
         options: IntentOptions::default(),

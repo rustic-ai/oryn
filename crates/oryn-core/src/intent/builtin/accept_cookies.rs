@@ -69,6 +69,7 @@ pub fn definition() -> IntentDefinition {
                 ].into(),
             }),
         ],
+        flow: None,
         success: Some(SuccessCondition {
             conditions: vec![
                  Condition::Hidden(TargetSpec { kind: TargetKind::Pattern { pattern: "cookie_banner".to_string() }, fallback: None }),

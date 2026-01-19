@@ -49,6 +49,7 @@ fn mock_intent(name: &str) -> IntentDefinition {
         triggers: Default::default(),
         parameters: vec![],
         steps: vec![],
+        flow: None,
         success: None,
         failure: None,
         options: Default::default(),

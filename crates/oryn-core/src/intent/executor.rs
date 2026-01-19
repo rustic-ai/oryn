@@ -1,6 +1,9 @@
 use crate::backend::{Backend, BackendError};
 use crate::command::{Command, Target};
-use crate::intent::definition::{ActionStep, ActionType, Condition, Step, TargetKind, TargetSpec};
+use crate::intent::definition::{
+    ActionStep, ActionType, Condition, FlowDefinition, IntentDefinition, PageAction, PageDef, Step,
+    TargetKind, TargetSpec,
+};
 use crate::intent::registry::IntentRegistry;
 use crate::intent::verifier::{Verifier, VerifierContext};
 use crate::protocol::{
@@ -10,6 +13,7 @@ use crate::protocol::{
 use crate::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
 use crate::translator;
 use async_recursion::async_recursion;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -34,6 +38,12 @@ pub enum ExecutorError {
     StepFailed(String),
     #[error("Intent failed: {0}")]
     IntentFailed(String),
+    #[error("Flow page not found: {0}")]
+    FlowPageNotFound(String),
+    #[error("Flow URL pattern timeout: expected pattern '{0}' but current URL is '{1}'")]
+    FlowUrlPatternTimeout(String, String),
+    #[error("Invalid URL pattern regex: {0}")]
+    InvalidUrlPattern(String),
 }
 
 pub struct IntentResult {
@@ -110,7 +120,11 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
         self.perform_scan().await?;
         self.initial_scan = self.last_scan.clone();
 
-        // 4. EXECUTE
+        // 4. EXECUTE - check for flow vs steps
+        if let Some(flow) = &intent.flow {
+            return self.execute_flow(&intent, flow.clone()).await;
+        }
+
         let mut steps_completed = 0;
         let total_steps = intent.steps.len();
 
@@ -797,7 +811,29 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
                         "name for intent action".into(),
                     ));
                 }
-            } // All variants covered
+            }
+            ActionType::Navigate => {
+                let url = step
+                    .options
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .map(|s| self.resolve_variable(Some(&Value::String(s.to_string()))))
+                    .ok_or_else(|| ExecutorError::MissingParameter("url for navigate".into()))?;
+                self.logs.push(format!("Navigating to: {}", url));
+                self.backend.navigate(&url).await?;
+            }
+            ActionType::GoBack => {
+                self.logs.push("Navigating back".to_string());
+                self.backend.go_back().await?;
+            }
+            ActionType::GoForward => {
+                self.logs.push("Navigating forward".to_string());
+                self.backend.go_forward().await?;
+            }
+            ActionType::Refresh => {
+                self.logs.push("Refreshing page".to_string());
+                self.backend.refresh().await?;
+            }
         }
         Ok(())
     }
@@ -972,6 +1008,245 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
             Some(changes)
         }
     }
+
+    // ==========================================================================
+    // Multi-Page Flow Execution
+    // ==========================================================================
+
+    /// Execute a multi-page flow definition.
+    #[async_recursion]
+    async fn execute_flow(
+        &mut self,
+        intent: &IntentDefinition,
+        flow: FlowDefinition,
+    ) -> Result<IntentResult, ExecutorError> {
+        self.logs
+            .push("Starting multi-page flow execution".to_string());
+
+        // Determine start page (use explicit start or first page)
+        let start_page_name = flow
+            .start
+            .clone()
+            .or_else(|| flow.pages.first().map(|p| p.name.clone()))
+            .unwrap_or_default();
+
+        let mut current_page_name = Some(start_page_name);
+        let mut extracted_data: HashMap<String, Value> = HashMap::new();
+        let mut pages_completed = 0;
+        let total_pages = flow.pages.len();
+
+        // Page execution loop
+        while let Some(page_name) = current_page_name.take() {
+            let page = flow
+                .pages
+                .iter()
+                .find(|p| p.name == page_name)
+                .ok_or_else(|| ExecutorError::FlowPageNotFound(page_name.clone()))?
+                .clone();
+
+            self.logs
+                .push(format!("Flow: executing page '{}'", page.name));
+
+            match self.execute_page(&page, intent).await {
+                Ok(page_data) => {
+                    pages_completed += 1;
+
+                    // Merge extracted data from page
+                    if let Some(obj) = page_data.as_ref().and_then(|d| d.as_object()) {
+                        extracted_data.extend(obj.iter().map(|(k, v)| (k.clone(), v.clone())));
+                    }
+
+                    // Determine next page from transition
+                    current_page_name = page
+                        .next
+                        .as_ref()
+                        .and_then(|t| t.target_page())
+                        .map(String::from);
+                    if current_page_name.is_none() {
+                        self.logs.push("Flow: completed successfully".to_string());
+                    }
+                }
+                Err(e) => {
+                    // Check for page-level error handler
+                    if let Some(error_page) = &page.on_error {
+                        self.logs.push(format!(
+                            "Flow: page '{}' failed, transitioning to error handler '{}'",
+                            page.name, error_page
+                        ));
+                        current_page_name = Some(error_page.clone());
+                    } else if pages_completed > 0 {
+                        return Ok(IntentResult {
+                            status: IntentStatus::PartialSuccess {
+                                completed: pages_completed,
+                                total: total_pages,
+                            },
+                            data: Some(json!(extracted_data)),
+                            logs: self.logs.clone(),
+                            checkpoint: self.last_checkpoint.clone(),
+                            hints: vec![format!("Flow failed at page '{}': {}", page.name, e)],
+                            changes: self.calculate_changes(),
+                        });
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        // Verify success conditions if specified
+        if let Some(success_cond) = &intent.success {
+            self.perform_scan().await?;
+            if let Some(scan) = &self.last_scan {
+                let ctx = VerifierContext::with_variables(scan, &self.variables);
+                let passed = self
+                    .verifier
+                    .verify(&Condition::All(success_cond.conditions.clone()), &ctx)
+                    .await?;
+                if !passed {
+                    return Ok(IntentResult {
+                        status: IntentStatus::PartialSuccess {
+                            completed: pages_completed,
+                            total: total_pages,
+                        },
+                        data: Some(json!(extracted_data)),
+                        logs: self.logs.clone(),
+                        checkpoint: self.last_checkpoint.clone(),
+                        hints: vec!["Flow pages completed but verification failed".to_string()],
+                        changes: self.calculate_changes(),
+                    });
+                }
+            }
+        }
+
+        Ok(IntentResult {
+            status: IntentStatus::Success,
+            data: (!extracted_data.is_empty()).then(|| json!(extracted_data)),
+            logs: self.logs.clone(),
+            checkpoint: self.last_checkpoint.clone(),
+            hints: vec![],
+            changes: self.calculate_changes(),
+        })
+    }
+
+    /// Execute a single page within a flow.
+    #[async_recursion]
+    async fn execute_page(
+        &mut self,
+        page: &PageDef,
+        intent: &IntentDefinition,
+    ) -> Result<Option<Value>, ExecutorError> {
+        self.wait_for_url_pattern(&page.url_pattern, intent.options.timeout)
+            .await?;
+
+        for action in &page.intents {
+            match action {
+                PageAction::IntentRef(intent_name) => {
+                    self.logs.push(format!(
+                        "Page '{}': executing intent '{}'",
+                        page.name, intent_name
+                    ));
+
+                    let sub_result = {
+                        let mut sub_executor =
+                            IntentExecutor::new(self.backend, self.registry, self.verifier);
+                        sub_executor.variables = self.variables.clone();
+                        sub_executor
+                            .execute(intent_name, self.variables.clone())
+                            .await
+                    };
+
+                    let res = sub_result?;
+                    self.logs.extend(res.logs);
+
+                    match res.status {
+                        IntentStatus::Success => {}
+                        IntentStatus::Failed(e) => {
+                            return Err(ExecutorError::IntentFailed(format!(
+                                "Sub-intent '{intent_name}' failed: {e}"
+                            )));
+                        }
+                        IntentStatus::PartialSuccess { .. } => {
+                            return Err(ExecutorError::IntentFailed(format!(
+                                "Sub-intent '{intent_name}' only partially succeeded"
+                            )));
+                        }
+                    }
+                }
+                PageAction::Inline { steps } => {
+                    self.logs
+                        .push(format!("Page '{}': executing inline steps", page.name));
+                    for step in steps {
+                        self.execute_step_with_retry(step, &intent.options.retry)
+                            .await?;
+                    }
+                }
+            }
+        }
+
+        // Extract data if specified
+        let Some(extract_rules) = &page.extract else {
+            return Ok(None);
+        };
+
+        self.perform_scan().await?;
+
+        let Some(scan) = &self.last_scan else {
+            return Ok(None);
+        };
+
+        let extracted_data: HashMap<String, Value> = extract_rules
+            .iter()
+            .filter_map(|(key, rule)| {
+                let selector = rule.get("selector")?.as_str()?;
+                let element = scan.elements.iter().find(|e| e.selector == selector)?;
+                let text = element.text.clone().unwrap_or_default();
+                Some((key.clone(), json!(text)))
+            })
+            .collect();
+
+        Ok((!extracted_data.is_empty()).then(|| json!(extracted_data)))
+    }
+
+    /// Wait for the current URL to match a pattern.
+    async fn wait_for_url_pattern(
+        &mut self,
+        pattern: &str,
+        timeout_ms: u64,
+    ) -> Result<(), ExecutorError> {
+        let regex = Regex::new(pattern)
+            .map_err(|e| ExecutorError::InvalidUrlPattern(format!("{pattern}: {e}")))?;
+
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_millis(timeout_ms);
+        let poll_interval = std::time::Duration::from_millis(500);
+
+        loop {
+            self.perform_scan().await?;
+
+            if let Some(scan) = &self.last_scan
+                && regex.is_match(&scan.page.url)
+            {
+                self.logs.push(format!(
+                    "URL matched pattern '{pattern}': {}",
+                    scan.page.url
+                ));
+                return Ok(());
+            }
+
+            if start.elapsed() >= timeout {
+                let current_url = self
+                    .last_scan
+                    .as_ref()
+                    .map_or("unknown".to_string(), |s| s.page.url.clone());
+                return Err(ExecutorError::FlowUrlPatternTimeout(
+                    pattern.to_string(),
+                    current_url,
+                ));
+            }
+
+            tokio::time::sleep(poll_interval).await;
+        }
+    }
 }
 
 /// Normalizes text for comparison by lowercasing and removing extra whitespace.
@@ -1112,22 +1387,12 @@ fn find_best_form_field<'a>(
     elements: &'a [crate::protocol::Element],
     key: &str,
 ) -> Option<&'a crate::protocol::Element> {
-    let mut best_match: Option<(&crate::protocol::Element, u32)> = None;
-
-    for element in elements {
-        let score = score_form_field(element, key);
-        if score > 0 {
-            match &best_match {
-                Some((_, best_score)) if score > *best_score => {
-                    best_match = Some((element, score));
-                }
-                None => {
-                    best_match = Some((element, score));
-                }
-                _ => {}
-            }
-        }
-    }
-
-    best_match.map(|(el, _)| el)
+    elements
+        .iter()
+        .filter_map(|el| {
+            let score = score_form_field(el, key);
+            (score > 0).then_some((el, score))
+        })
+        .max_by_key(|(_, score)| *score)
+        .map(|(el, _)| el)
 }

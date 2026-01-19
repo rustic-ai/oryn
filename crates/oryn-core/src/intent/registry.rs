@@ -119,6 +119,7 @@ mod tests {
             triggers: Default::default(),
             parameters: vec![],
             steps: vec![],
+            flow: None,
             success: None,
             failure: None,
             options: Default::default(),

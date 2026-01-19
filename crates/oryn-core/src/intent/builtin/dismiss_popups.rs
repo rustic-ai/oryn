@@ -80,6 +80,7 @@ pub fn definition() -> IntentDefinition {
                 max: 5,
             },
         })],
+        flow: None,
         success: None,
         failure: None,
         options: IntentOptions::default(),

@@ -115,6 +115,7 @@ pub fn definition() -> IntentDefinition {
                 .into(),
             }),
         ],
+        flow: None,
         success: Some(SuccessCondition {
             conditions: vec![Condition::Hidden(TargetSpec {
                 kind: TargetKind::Pattern {

@@ -34,6 +34,7 @@ fn test_intent_definition_serde() {
             }),
             options: HashMap::from([("text".to_string(), json!("$username"))]),
         })],
+        flow: None,
         success: Some(oryn_core::intent::definition::SuccessCondition {
             conditions: vec![Condition::UrlContains(vec!["/dashboard".to_string()])],
             extract: None,

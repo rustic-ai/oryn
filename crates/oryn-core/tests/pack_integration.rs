@@ -15,6 +15,7 @@ fn test_validation_logic() {
         triggers: IntentTriggers::default(),
         parameters: vec![],
         steps: vec![], // Also invalid
+        flow: None,
         success: None,
         failure: None,
         options: Default::default(),
@@ -33,13 +34,14 @@ fn test_validation_logic() {
         triggers: IntentTriggers::default(),
         parameters: vec![],
         steps: vec![],
+        flow: None,
         success: None,
         failure: None,
         options: Default::default(),
     };
     assert!(matches!(
         invalid_steps.validate(),
-        Err(ValidationError::NoSteps)
+        Err(ValidationError::NoStepsOrFlow)
     ));
 
     // 3. Valid Intent
@@ -55,6 +57,7 @@ fn test_validation_logic() {
                 checkpoint: "start".into(),
             },
         )],
+        flow: None,
         success: None,
         failure: None,
         options: Default::default(),

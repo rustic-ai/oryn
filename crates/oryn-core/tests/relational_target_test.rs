@@ -179,6 +179,7 @@ async fn test_relational_after() {
 
             options: HashMap::from([("text".to_string(), json!("myuser"))]),
         })],
+        flow: None,
         success: None,
         failure: None,
         options: Default::default(),
@@ -239,6 +240,7 @@ async fn test_relational_inside() {
 
             options: HashMap::from([("text".to_string(), json!("inside"))]),
         })],
+        flow: None,
         success: None,
         failure: None,
         options: Default::default(),

@@ -153,7 +153,7 @@ export checkout ./my-intents/checkout.yaml
 
 **Implementation**:
 
-**Protocol Types** (`protocol.rs:220-240`):
+**Protocol Types** (`protocol.rs:224-240`):
 ```rust
 pub struct IntentAvailability {
     pub name: String,
@@ -170,12 +170,12 @@ pub enum AvailabilityStatus {
 }
 ```
 
-**Executor Integration** (`executor.rs:332-405`):
+**Executor Integration** (`executor.rs:353-426`):
 - `calculate_available_intents()` evaluates each intent against current page
 - Checks URL patterns and required patterns from intent triggers
 - Returns availability list with status and reasons
 
-**Formatter Output** (`formatter/mod.rs:180-220`):
+**Formatter Output** (`formatter/mod.rs:180-247`):
 ```
 @ example.com/login "Sign In"
 
@@ -203,7 +203,7 @@ Status icons: 🟢 Ready, 🟠 NavigateRequired, 🔴 MissingPattern, ⚫ Unavai
 
 **Status**: ✅ Fully implemented
 
-**Implementation** (`executor.rs:48-53`):
+**Implementation** (`executor.rs:39-53`):
 ```rust
 pub enum IntentStatus {
     Success,
@@ -265,17 +265,35 @@ These are complex features that aren't core to the primary use case.
 
 ---
 
-#### 8. Intent Composition
+#### 8. Intent Composition ✅ EFFECTIVELY COMPLETE
 
 **Spec Reference**: §12.4
 
-**Current State**: Partially supported via `intent` step type.
+**Current State**: Fully functional via `define` + `action: intent` steps.
 
-**What's Missing**: Dedicated `compose:` syntax in definitions.
+**What Works**:
+- Multi-step intent definitions with `define` command
+- Calling intents from within intents using `action: intent`
+- Parameter passing with variable resolution (`$var_name`)
+- Combined with `branch`, `loop`, `try` for complex flows
+- Export to YAML for reuse
 
-**Complexity**: Low
+**Example**:
+```yaml
+define checkout:
+  steps:
+    - action: intent
+      name: fill_form
+      data: $shipping
+    - click "Continue"
+    - action: intent
+      name: fill_form
+      data: $payment
+    - action: intent
+      name: submit_form
+```
 
-**Justification to Defer**: Current `intent` action step achieves same result.
+**Spec's `compose:` Syntax**: The spec proposes a dedicated `compose:` keyword, but this is purely syntactic sugar. The current `steps` + `action: intent` approach achieves identical functionality.
 
 ---
 
@@ -305,7 +323,7 @@ These are complex features that aren't core to the primary use case.
 |------|----------|--------|--------|
 | Goal-level commands | Low | High | ❌ Not started |
 | Multi-page flows | Low | Medium | ❌ Not started |
-| Intent composition | Low | Low | ❌ Not started |
+| Intent composition | Low | Low | ✅ Effectively complete (via `define` + `action: intent`) |
 
 ---
 
@@ -328,8 +346,8 @@ Use this to prioritize based on your deployment model:
 |-----------|-------|--------|
 | YAML Intent Loader | `intent/loader.rs`, `intent/schema.rs` | ✅ Complete |
 | Define Commands | `command.rs:179-181`, `parser.rs:195-197` | ✅ Complete |
-| Available Intents | `protocol.rs:220-240`, `executor.rs:332-405`, `formatter/mod.rs:180-220` | ✅ Complete |
-| PartialSuccess | `executor.rs:48-53`, `executor.rs:114-142` | ✅ Complete |
+| Available Intents | `protocol.rs:224-240`, `executor.rs:353-426`, `formatter/mod.rs:180-247` | ✅ Complete |
+| PartialSuccess | `executor.rs:39-53`, `executor.rs:114-142` | ✅ Complete |
 | Pack Auto-Load | `pack/manager.rs:124`, `repl.rs:199-216` | ✅ Complete |
 | Relational Targets | `resolver.rs:280-563` | ✅ Complete |
 | Per-step on_error | `executor.rs:296-315` (YAML only) | ✅ Complete |

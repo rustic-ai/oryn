@@ -29,6 +29,7 @@ pub fn definition() -> IntentDefinition {
             }),
             options: Default::default(),
         })],
+        flow: None,
         success: None,
         failure: None,
         options: IntentOptions::default(),

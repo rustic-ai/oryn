@@ -142,6 +142,7 @@ async fn test_executor_partial_success() {
                 },
             }),
         ],
+        flow: None,
         success: None,
         failure: None,
         options: Default::default(),

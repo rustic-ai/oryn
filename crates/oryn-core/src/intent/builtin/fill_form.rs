@@ -44,6 +44,7 @@ pub fn definition() -> IntentDefinition {
             }),
             options: [("data".to_string(), json!("$data"))].into(),
         })],
+        flow: None,
         success: None,
         failure: None,
         options: IntentOptions::default(),
