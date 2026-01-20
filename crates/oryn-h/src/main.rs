@@ -86,7 +86,10 @@ async fn execute_line(
                 if let Command::GoTo(url) = &cmd {
                     match backend.navigate(url).await {
                         Ok(res) => println!("Navigated to {}", res.url),
-                        Err(e) => println!("Error: {}", e),
+                        Err(e) => {
+                            println!("Navigation Error: {}", e);
+                            return Err(format!("Navigation Error: {}", e).into());
+                        }
                     }
                     continue;
                 }
@@ -99,11 +102,13 @@ async fn execute_line(
                                 .await
                         {
                             println!("Error generating PDF: {}", e);
+                            return Err(format!("PDF Error: {}", e).into());
                         } else {
                             println!("PDF generated successfully.");
                         }
                     } else {
                         println!("Error: Backend not ready");
+                        return Err("Backend not ready".into());
                     }
                     continue;
                 }
@@ -114,13 +119,22 @@ async fn execute_line(
                             let out = format_response(&resp);
                             println!("{}", out);
                         }
-                        Err(e) => println!("Backend Error: {}", e),
+                        Err(e) => {
+                            println!("Backend Error: {}", e);
+                            return Err(format!("Backend Error: {}", e).into());
+                        }
                     },
-                    Err(e) => println!("Translation Error: {}", e),
+                    Err(e) => {
+                        println!("Translation Error: {}", e);
+                        return Err(format!("Translation Error: {}", e).into());
+                    }
                 }
             }
+            Ok(())
         }
-        Err(e) => println!("Parse Error: {}", e),
+        Err(e) => {
+            println!("Parse Error: {}", e);
+            Err(format!("Parse Error: {}", e).into())
+        }
     }
-    Ok(())
 }

@@ -9,6 +9,7 @@ pub enum ScannerRequest {
     Click(ClickRequest),
     Type(TypeRequest),
     Scroll(ScrollRequest),
+    #[serde(rename = "wait_for")]
     Wait(WaitRequest),
     Check(CheckRequest),
     Select(SelectRequest),

@@ -183,10 +183,13 @@ async fn execute_line(
             for cmd in commands {
                 execute_command(backend, state, cmd).await?;
             }
+            Ok(())
         }
-        Err(e) => println!("Parse Error: {}", e),
+        Err(e) => {
+            println!("Parse Error: {}", e);
+            Err(anyhow::anyhow!("Parse Error: {}", e))
+        }
     }
-    Ok(())
 }
 
 async fn execute_command(
@@ -210,31 +213,51 @@ async fn execute_command(
             }
 
             match backend.navigate(url).await {
-                Ok(res) => println!("Navigated to {}", res.url),
-                Err(e) => println!("Navigation Error: {}", e),
+                Ok(res) => {
+                    println!("Navigated to {}", res.url);
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!("Navigation Error: {}", e);
+                    return Err(anyhow::anyhow!("Navigation Error: {}", e));
+                }
             }
-            return Ok(());
         }
         Command::Back => {
             match backend.go_back().await {
-                Ok(res) => println!("Back to {}", res.url),
-                Err(e) => println!("Navigation Error: {}", e),
+                Ok(res) => {
+                    println!("Back to {}", res.url);
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!("Navigation Error: {}", e);
+                    return Err(anyhow::anyhow!("Navigation Error: {}", e));
+                }
             }
-            return Ok(());
         }
         Command::Forward => {
             match backend.go_forward().await {
-                Ok(res) => println!("Forward to {}", res.url),
-                Err(e) => println!("Navigation Error: {}", e),
+                Ok(res) => {
+                    println!("Forward to {}", res.url);
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!("Navigation Error: {}", e);
+                    return Err(anyhow::anyhow!("Navigation Error: {}", e));
+                }
             }
-            return Ok(());
         }
         Command::Refresh(_) => {
             match backend.refresh().await {
-                Ok(res) => println!("Refreshed {}", res.url),
-                Err(e) => println!("Refresh Error: {}", e),
+                Ok(res) => {
+                    println!("Refreshed {}", res.url);
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!("Refresh Error: {}", e);
+                    return Err(anyhow::anyhow!("Refresh Error: {}", e));
+                }
             }
-            return Ok(());
         }
         Command::Screenshot(_) => {
             match backend.screenshot().await {
@@ -590,13 +613,15 @@ async fn execute_command(
             Some(ctx) => match resolve_command(&cmd, ctx) {
                 Ok(resolved) => resolved,
                 Err(e) => {
-                    println!("Resolution Error: {} (hint: run 'observe' first)", e);
-                    return Ok(());
+                    let msg = format!("Resolution Error: {} (hint: run 'observe' first)", e);
+                    println!("{}", msg);
+                    return Err(anyhow::anyhow!("{}", msg));
                 }
             },
             None => {
-                println!("No scan context. Run 'observe' first to enable semantic targeting.");
-                return Ok(());
+                let msg = "No scan context. Run 'observe' first to enable semantic targeting.";
+                println!("{}", msg);
+                return Err(anyhow::anyhow!("{}", msg));
             }
         }
     } else {
@@ -611,12 +636,18 @@ async fn execute_command(
                 state.update_from_response(&resp);
                 let out = format_response_with_intent(&resp, Some(state.pack_manager.registry()));
                 println!("{}", out);
+                Ok(())
             }
-            Err(e) => println!("Backend Error: {}", e),
+            Err(e) => {
+                println!("Backend Error: {}", e);
+                Err(anyhow::anyhow!("Backend Error: {}", e))
+            }
         },
-        Err(e) => println!("Translation Error: {}", e),
+        Err(e) => {
+            println!("Translation Error: {}", e);
+            Err(anyhow::anyhow!("Translation Error: {}", e))
+        }
     }
-    Ok(())
 }
 
 pub async fn run_repl(mut backend: Box<dyn Backend>) -> anyhow::Result<()> {

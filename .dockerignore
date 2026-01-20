@@ -1,5 +1,6 @@
 # Build artifacts
 target/
+!target/release/oryn
 *.rs.bk
 
 # IDE
@@ -19,9 +20,11 @@ target/
 docs/
 *.md
 !crates/
+!oryn-python/README.md
 
-# Docker
+# Docker (allow python-e2e)
 docker/
+!docker/python-e2e/
 
 # Test artifacts
 *.log
