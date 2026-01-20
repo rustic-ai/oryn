@@ -1,0 +1,35 @@
+[project]
+name = "intentgym"
+version = "0.1.0"
+description = "Benchmark harness for evaluating AI web agents using Oryn"
+authors = [
+    { name = "Rohit Rai", email = "milliondreams@users.noreply.github.com" },
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "openai (>=2.15.0,<3.0.0)",
+    "anthropic (>=0.76.0,<0.77.0)",
+    "click (>=8.3.1,<9.0.0)",
+    "rich (>=14.2.0,<15.0.0)",
+    "pyyaml (>=6.0.3,<7.0.0)",
+    "numpy (>=2.4.1,<3.0.0)",
+]
+
+[tool.poetry]
+packages = [{ include = "intentgym", from = "src" }]
+
+[tool.poetry.scripts]
+intentgym = "intentgym.cli:cli"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+black = "^26.1.0"
+isort = "^7.0.0"
+mypy = "^1.19.1"
+pylint = "^4.0.4"
+types-pyyaml = "^6.0.12.20250915"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

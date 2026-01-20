@@ -1,0 +1,7 @@
+run_id: test_run
+benchmark: mock
+llm_provider: mock
+llm_model: mock-gpt
+agent_type: react
+max_steps: 3
+

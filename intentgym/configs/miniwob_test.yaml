@@ -1,0 +1,10 @@
+run_id: miniwob_test
+benchmark: miniwob
+benchmark_options:
+  server_url: http://mock-server
+llm_provider: mock
+llm_model: mock-gpt
+agent_type: react
+max_steps: 2
+prompt_template: minimal
+

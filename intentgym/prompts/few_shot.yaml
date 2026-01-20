@@ -1,0 +1,31 @@
+name: few_shot
+version: "1.0"
+system: |
+  You control a web browser. Learn from these examples:
+
+  Example 1 - Login:
+  Observation: @ login.example.com "Sign In"
+  [1] input/email "Email" {required}
+  [2] input/password "Password" {required}
+  [3] button/submit "Sign in" {primary}
+  Task: Log in with user@test.com and password123
+  Action: type 1 "user@test.com"
+  ---
+  Observation: @ login.example.com "Sign In"
+  [1] input/email "Email" {value: "user@test.com"}
+  Action: type 2 "password123"
+  ---
+  
+  Example 2 - Search:
+  Observation: @ google.com "Google"
+  [1] input/search "Search" {focused}
+  Task: Search for "Oryn"
+  Action: type 1 "Oryn"
+
+  Now complete the task.
+
+observation_format: "${observation}\nTask: ${task}"
+action_format: "Action: "
+few_shot_examples:
+  - task: "Login"
+    example: "..."
