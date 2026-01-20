@@ -58,8 +58,7 @@ async fn test_headless_lifecycle_and_scan() {
     // Verify response
     if let oryn_core::protocol::ScannerProtocolResponse::Ok { data, .. } = resp {
         match *data {
-            oryn_core::protocol::ScannerData::Scan(result)
-            | oryn_core::protocol::ScannerData::ScanValidation(result) => {
+            oryn_core::protocol::ScannerData::Scan(result) => {
                 assert_eq!(result.page.title, "Test Page");
                 // Find Button
                 let btn = result

@@ -45,13 +45,13 @@ async fn test_full_flow_search() {
 
             // 5. Find an element to click (e.g., h1)
             let mut target_id = None;
-            if let oryn_core::protocol::ScannerProtocolResponse::Ok { data, .. } = scan_res {
-                if let oryn_core::protocol::ScannerData::ScanValidation(scan_data) = data.as_ref() {
-                    // Just pick the first element or strictly find h1
-                    if let Some(el) = scan_data.elements.first() {
-                        println!("Found element to click: {:?}", el);
-                        target_id = Some(el.id);
-                    }
+            if let oryn_core::protocol::ScannerProtocolResponse::Ok { data, .. } = scan_res
+                && let oryn_core::protocol::ScannerData::Scan(scan_data) = data.as_ref()
+            {
+                // Just pick the first element or strictly find h1
+                if let Some(el) = scan_data.elements.first() {
+                    println!("Found element to click: {:?}", el);
+                    target_id = Some(el.id);
                 }
             }
 
@@ -134,13 +134,13 @@ async fn test_interaction_type() {
     let scan_res = backend.execute_scanner(scan_req).await.unwrap();
 
     let mut input_id = None;
-    if let oryn_core::protocol::ScannerProtocolResponse::Ok { data, .. } = scan_res {
-        if let oryn_core::protocol::ScannerData::ScanValidation(scan_data) = data.as_ref() {
-            for el in &scan_data.elements {
-                if el.attributes.get("id").map(|s| s.as_str()) == Some("inp") {
-                    input_id = Some(el.id);
-                    break;
-                }
+    if let oryn_core::protocol::ScannerProtocolResponse::Ok { data, .. } = scan_res
+        && let oryn_core::protocol::ScannerData::Scan(scan_data) = data.as_ref()
+    {
+        for el in &scan_data.elements {
+            if el.attributes.get("id").map(|s| s.as_str()) == Some("inp") {
+                input_id = Some(el.id);
+                break;
             }
         }
     }

@@ -202,7 +202,6 @@ pub enum ScannerProtocolResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ScannerData {
-    ScanValidation(ScanResponse),
     Scan(ScanResult),
     Action(ActionResult),
     Value(serde_json::Value),
@@ -343,9 +342,6 @@ pub enum ChangeType {
     PositionChanged,
 }
 
-// Keeping it separate for now in case we need to differentiate "response from scan command"
-// vs "structure containing page/elements" used elsewhere.
-pub type ScanResponse = ScanResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageInfo {

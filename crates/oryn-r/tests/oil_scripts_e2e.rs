@@ -211,13 +211,7 @@ async fn execute_test_command(
     let resp = timeout(Duration::from_secs(30), backend.execute_scanner(req)).await??;
 
     if let oryn_core::protocol::ScannerProtocolResponse::Ok { data, .. } = &resp {
-        // Handle both Scan and ScanValidation variants (both contain ScanResult)
-        let scan_result = match data.as_ref() {
-            oryn_core::protocol::ScannerData::Scan(result) => Some(result),
-            oryn_core::protocol::ScannerData::ScanValidation(result) => Some(result),
-            _ => None,
-        };
-        if let Some(result) = scan_result {
+        if let oryn_core::protocol::ScannerData::Scan(result) = data.as_ref() {
             state.resolver_context = Some(ResolverContext::new(result));
         }
     } else if let oryn_core::protocol::ScannerProtocolResponse::Error { message, .. } = resp {

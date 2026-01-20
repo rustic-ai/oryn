@@ -317,12 +317,31 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
             target: target.clone(),
         })),
 
-        // Navigation commands are handled by Backend trait methods
-        // Command::GoTo(_) => handled by backend.navigate()
-        // Command::Back => needs backend.go_back()
-        // Command::Forward => needs backend.go_forward()
-        // Command::Refresh(_) => needs backend.refresh()
-        // Command::Screenshot(_) => handled by backend.screenshot()
+        Command::ScrollUntil(target, direction, options) => {
+            // ScrollUntil scrolls in a direction until the target becomes visible
+            // Extract target ID for the scroll request
+            let id = match target {
+                Target::Id(id) => Some(*id as u32),
+                _ => None,
+            };
+
+            let scroll_dir = match direction {
+                crate::command::ScrollDirection::Up => ScrollDirection::Up,
+                crate::command::ScrollDirection::Down => ScrollDirection::Down,
+                crate::command::ScrollDirection::Left => ScrollDirection::Left,
+                crate::command::ScrollDirection::Right => ScrollDirection::Right,
+            };
+
+            Ok(ScannerRequest::Scroll(ScrollRequest {
+                id,
+                direction: scroll_dir,
+                amount: options.get("amount").cloned().or(Some("page".to_string())),
+            }))
+        }
+
+        // Commands handled directly by executor (backend trait methods):
+        // GoTo, Back, Forward, Refresh, Screenshot, Pdf, Press, Cookies, Tabs,
+        // Intents, Define, Undefine, Export, RunIntent, Packs, PackLoad, PackUnload, Learn
         _ => Err(TranslationError::Unsupported(format!("{:?}", command))),
     }
 }

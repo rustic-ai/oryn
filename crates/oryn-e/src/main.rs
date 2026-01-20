@@ -1,9 +1,6 @@
 use clap::Parser as ClapParser;
 use oryn_core::backend::Backend;
-use oryn_core::command::Command;
-use oryn_core::formatter::format_response;
-use oryn_core::parser::Parser;
-use oryn_core::translator::translate;
+use oryn_core::executor::CommandExecutor;
 use oryn_e::backend::EmbeddedBackend;
 use std::io::{self, Write};
 use tracing::{error, info};
@@ -50,10 +47,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let mut executor = CommandExecutor::new();
+
     if let Some(file_path) = args.file {
-        run_file(&mut backend, &file_path).await?;
+        run_file(&mut backend, &mut executor, &file_path).await?;
     } else {
-        run_repl(&mut backend).await?;
+        run_repl(&mut backend, &mut executor).await?;
     }
 
     backend.close().await?;
@@ -62,6 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn run_file(
     backend: &mut EmbeddedBackend,
+    executor: &mut CommandExecutor,
     path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let content = std::fs::read_to_string(path)?;
@@ -70,14 +70,17 @@ async fn run_file(
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        execute_line(backend, trimmed).await?;
+        execute_line(backend, executor, trimmed).await?;
     }
     Ok(())
 }
 
-async fn run_repl(backend: &mut EmbeddedBackend) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_repl(
+    backend: &mut EmbeddedBackend,
+    executor: &mut CommandExecutor,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!(
-        "Backend ready. Enter commands (e.g., 'goto google.com', 'scan').Type 'exit' to quit."
+        "Backend ready. Enter commands (e.g., 'goto google.com', 'scan'). Type 'exit' to quit."
     );
     let stdin = io::stdin();
     let mut stdout = io::stdout();
@@ -97,40 +100,24 @@ async fn run_repl(backend: &mut EmbeddedBackend) -> Result<(), Box<dyn std::erro
         if trimmed == "exit" || trimmed == "quit" {
             break;
         }
-        execute_line(backend, trimmed).await?;
+        execute_line(backend, executor, trimmed).await?;
     }
     Ok(())
 }
 
 async fn execute_line(
     backend: &mut EmbeddedBackend,
+    executor: &mut CommandExecutor,
     line: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut parser = Parser::new(line);
-    match parser.parse() {
-        Ok(commands) => {
-            for cmd in commands {
-                if let Command::GoTo(url) = &cmd {
-                    match backend.navigate(url).await {
-                        Ok(res) => println!("Navigated to {}", res.url),
-                        Err(e) => error!("Navigation failed: {}", e),
-                    }
-                    continue;
-                }
-
-                match translate(&cmd) {
-                    Ok(req) => match backend.execute_scanner(req).await {
-                        Ok(resp) => {
-                            let out = format_response(&resp);
-                            println!("{}", out);
-                        }
-                        Err(e) => error!("Backend Error: {}", e),
-                    },
-                    Err(e) => error!("Translation Error: {}", e),
-                }
-            }
+    match executor.execute_line(backend, line).await {
+        Ok(result) => {
+            println!("{}", result.output);
+            Ok(())
         }
-        Err(e) => error!("Parse Error: {}", e),
+        Err(e) => {
+            error!("Error: {}", e);
+            Err(format!("{}", e).into())
+        }
     }
-    Ok(())
 }

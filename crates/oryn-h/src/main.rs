@@ -1,10 +1,9 @@
 use clap::Parser as ClapParser;
 use oryn_core::backend::Backend;
 use oryn_core::command::Command;
-use oryn_core::formatter::format_response;
+use oryn_core::executor::CommandExecutor;
 use oryn_core::parser::Parser;
-use oryn_core::translator::translate;
-use oryn_h::backend::HeadlessBackend; // Use from lib
+use oryn_h::backend::HeadlessBackend;
 use std::io::{self, Write};
 
 #[derive(ClapParser, Debug)]
@@ -24,11 +23,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut backend = HeadlessBackend::new();
     backend.launch().await?;
+    let mut executor = CommandExecutor::new();
 
     if let Some(file_path) = args.file {
-        run_file(&mut backend, &file_path).await?;
+        run_file(&mut backend, &mut executor, &file_path).await?;
     } else {
-        run_repl(&mut backend).await?;
+        run_repl(&mut backend, &mut executor).await?;
     }
 
     backend.close().await?;
@@ -37,6 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn run_file(
     backend: &mut HeadlessBackend,
+    executor: &mut CommandExecutor,
     path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let content = std::fs::read_to_string(path)?;
@@ -45,12 +46,15 @@ async fn run_file(
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        execute_line(backend, trimmed).await?;
+        execute_line(backend, executor, trimmed).await?;
     }
     Ok(())
 }
 
-async fn run_repl(backend: &mut HeadlessBackend) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_repl(
+    backend: &mut HeadlessBackend,
+    executor: &mut CommandExecutor,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("Backend launched. Enter commands (e.g., 'goto google.com', 'scan').");
     let stdin = io::stdin();
     let mut stdout = io::stdout();
@@ -70,71 +74,50 @@ async fn run_repl(backend: &mut HeadlessBackend) -> Result<(), Box<dyn std::erro
         if trimmed == "exit" || trimmed == "quit" {
             break;
         }
-        execute_line(backend, trimmed).await?;
+        execute_line(backend, executor, trimmed).await?;
     }
     Ok(())
 }
 
 async fn execute_line(
     backend: &mut HeadlessBackend,
+    executor: &mut CommandExecutor,
     line: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Check for PDF command which requires special handling for headless backend
     let mut parser = Parser::new(line);
-    match parser.parse() {
-        Ok(commands) => {
-            for cmd in commands {
-                if let Command::GoTo(url) = &cmd {
-                    match backend.navigate(url).await {
-                        Ok(res) => println!("Navigated to {}", res.url),
-                        Err(e) => {
-                            println!("Navigation Error: {}", e);
-                            return Err(format!("Navigation Error: {}", e).into());
-                        }
-                    }
-                    continue;
-                }
-
-                if let Command::Pdf(path) = &cmd {
-                    if let Some(client) = backend.get_client() {
-                        println!("Generating PDF to {}...", path);
-                        if let Err(e) =
-                            oryn_h::features::generate_pdf(&client.page, std::path::Path::new(path))
-                                .await
-                        {
-                            println!("Error generating PDF: {}", e);
-                            return Err(format!("PDF Error: {}", e).into());
-                        } else {
-                            println!("PDF generated successfully.");
-                        }
+    if let Ok(commands) = parser.parse() {
+        for cmd in &commands {
+            if let Command::Pdf(path) = cmd {
+                if let Some(client) = backend.get_client() {
+                    println!("Generating PDF to {}...", path);
+                    if let Err(e) =
+                        oryn_h::features::generate_pdf(&client.page, std::path::Path::new(path))
+                            .await
+                    {
+                        println!("Error generating PDF: {}", e);
+                        return Err(format!("PDF Error: {}", e).into());
                     } else {
-                        println!("Error: Backend not ready");
-                        return Err("Backend not ready".into());
+                        println!("PDF generated successfully.");
                     }
-                    continue;
+                } else {
+                    println!("Error: Backend not ready");
+                    return Err("Backend not ready".into());
                 }
-
-                match translate(&cmd) {
-                    Ok(req) => match backend.execute_scanner(req).await {
-                        Ok(resp) => {
-                            let out = format_response(&resp);
-                            println!("{}", out);
-                        }
-                        Err(e) => {
-                            println!("Backend Error: {}", e);
-                            return Err(format!("Backend Error: {}", e).into());
-                        }
-                    },
-                    Err(e) => {
-                        println!("Translation Error: {}", e);
-                        return Err(format!("Translation Error: {}", e).into());
-                    }
-                }
+                return Ok(());
             }
+        }
+    }
+
+    // Use the shared executor for all other commands
+    match executor.execute_line(backend, line).await {
+        Ok(result) => {
+            println!("{}", result.output);
             Ok(())
         }
         Err(e) => {
-            println!("Parse Error: {}", e);
-            Err(format!("Parse Error: {}", e).into())
+            println!("Error: {}", e);
+            Err(format!("{}", e).into())
         }
     }
 }
