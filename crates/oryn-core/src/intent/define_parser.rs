@@ -34,11 +34,32 @@ pub fn parse_define(input: &str) -> Result<IntentDefinition, ParseError> {
         ));
     }
 
-    let name = header
+    let header_content = header
         .trim_start_matches("define ")
         .trim_end_matches(':')
-        .trim()
-        .to_string();
+        .trim();
+
+    let (name, params_vec) = if let Some(idx) = header_content.find('(') {
+        let name_part = header_content[..idx].trim().to_string();
+        let params_part = header_content[idx + 1..].trim_end_matches(')').trim();
+
+        let params: Vec<crate::intent::definition::ParameterDef> = params_part
+            .split(',')
+            .map(|p| p.trim())
+            .filter(|p| !p.is_empty())
+            .map(|p| crate::intent::definition::ParameterDef {
+                name: p.to_string(),
+                param_type: crate::intent::definition::ParamType::String,
+                required: true,
+                default: None,
+                description: String::new(),
+            })
+            .collect();
+
+        (name_part, params)
+    } else {
+        (header_content.to_string(), vec![])
+    };
 
     let mut steps = Vec::new();
     let mut description = String::new();
@@ -71,7 +92,7 @@ pub fn parse_define(input: &str) -> Result<IntentDefinition, ParseError> {
             keywords: vec![], // Parse keywords later?
             ..Default::default()
         },
-        parameters: vec![], // TODO: Support params
+        parameters: params_vec,
         steps,
         flow: None,
         success: None,

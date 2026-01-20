@@ -153,12 +153,12 @@ All binaries implement the same interface. Agents can switch modes without chang
 - WebSocket connection to server
 
 ## License
-
-[License details to be determined]
+[MIT](https://choosealicense.com/licenses/mit/)
 
 ## Contributing
+Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
-[Contributing guidelines to be determined]
+Please make sure to update tests as appropriate.
 
 ---
 

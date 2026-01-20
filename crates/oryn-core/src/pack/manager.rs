@@ -96,15 +96,20 @@ impl PackManager {
     }
 
     pub async fn load_pack_from_dir(&mut self, path: &std::path::Path) -> Result<(), PackError> {
-        let loaded = PackLoader::load_pack(path).await?;
+        let mut loaded = PackLoader::load_pack(path).await?;
 
         // Register intents
+        let mut registered_names = Vec::new();
         for intent in loaded.intents {
             // Register as Loaded tier to override built-ins if needed
             let mut intent = intent;
             intent.tier = crate::intent::definition::IntentTier::Loaded;
+            registered_names.push(intent.name.clone());
             self.registry.register(intent);
         }
+
+        // Update metadata with actual loaded intents
+        loaded.metadata.intents = registered_names;
 
         self.loaded_packs
             .insert(loaded.metadata.pack.clone(), loaded.metadata);
@@ -112,9 +117,11 @@ impl PackManager {
     }
 
     pub fn unload_pack(&mut self, name: &str) -> Result<(), PackError> {
-        if self.loaded_packs.remove(name).is_some() {
-            // TODO: Remove intents associated with this pack from registry
-            // This requires registry to track source of intents
+        if let Some(metadata) = self.loaded_packs.remove(name) {
+            // Remove intents associated with this pack
+            for intent_name in &metadata.intents {
+                self.registry.unregister(intent_name);
+            }
             Ok(())
         } else {
             Err(PackError::NotFound(name.to_string()))

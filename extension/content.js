@@ -43,8 +43,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 function remoteLog(msg) {
     console.log("[CONTENT] " + msg);
-    // Use relative URL to avoid CORS (since we are on localhost:3000)
-    fetch("/log?msg=" + encodeURIComponent("[CONTENT] " + msg)).catch(() => { });
+    chrome.runtime.sendMessage({ type: "log", message: "[CONTENT] " + msg });
 }
 
 remoteLog("Oryn Content Script Initialized on " + window.location.href);

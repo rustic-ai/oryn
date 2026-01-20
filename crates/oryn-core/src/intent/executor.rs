@@ -188,7 +188,8 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
         // 6. RESPOND
         Ok(IntentResult {
             status: IntentStatus::Success,
-            data: None, // TODO: Implement extraction
+            data: self
+                .extract_result_data(intent.success.as_ref().and_then(|s| s.extract.as_ref())),
             logs: self.logs.clone(),
             checkpoint: self.last_checkpoint.clone(),
             hints: vec![],
@@ -284,7 +285,8 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
 
         Ok(IntentResult {
             status: IntentStatus::Success,
-            data: None,
+            data: self
+                .extract_result_data(intent.success.as_ref().and_then(|s| s.extract.as_ref())),
             logs: self.logs.clone(),
             checkpoint: self.last_checkpoint.clone(),
             hints: vec![],
@@ -347,6 +349,36 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
                     let _ = self.perform_scan().await;
                 }
             }
+        }
+    }
+
+    fn extract_result_data(&self, rule: Option<&Value>) -> Option<Value> {
+        let rule = rule?;
+        Some(self.resolve_extraction_value(rule))
+    }
+
+    fn resolve_extraction_value(&self, val: &Value) -> Value {
+        match val {
+            Value::String(s) => {
+                if let Some(v) = self.resolve_variable_value(s) {
+                    v
+                } else {
+                    val.clone()
+                }
+            }
+            Value::Object(map) => {
+                let mut new_map = serde_json::Map::new();
+                for (k, v) in map {
+                    new_map.insert(k.clone(), self.resolve_extraction_value(v));
+                }
+                Value::Object(new_map)
+            }
+            Value::Array(arr) => Value::Array(
+                arr.iter()
+                    .map(|v| self.resolve_extraction_value(v))
+                    .collect(),
+            ),
+            _ => val.clone(),
         }
     }
 
