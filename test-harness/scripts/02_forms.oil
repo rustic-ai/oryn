@@ -16,6 +16,7 @@ select "Primary Role" "developer"
 click "Create Account"
 
 goto "http://localhost:3000/forms/survey.html"
+observe
 check "JavaScript"
 check "Rust"
 click "Mid-level (2-5 years)"

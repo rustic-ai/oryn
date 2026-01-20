@@ -27,6 +27,12 @@ pub enum ScannerRequest {
     Navigate(NavigateRequest),
     /// Go back in browser history (handled by background script)
     Back(BackRequest),
+    /// Get text content from page or element
+    #[serde(rename = "get_text")]
+    GetText(GetTextRequest),
+    /// Get HTML content from page or element
+    #[serde(rename = "get_html")]
+    GetHtml(GetHtmlRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,7 +114,10 @@ pub enum ScrollDirection {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WaitRequest {
     pub condition: String, // "visible", "hidden", "url", "title"
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
     pub timeout_ms: Option<u64>,
 }
 
@@ -177,6 +186,20 @@ pub struct DismissRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcceptRequest {
     pub target: String, // "cookies"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GetTextRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GetHtmlRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
+    #[serde(default)]
+    pub outer: bool, // true = outerHTML, false = innerHTML
 }
 
 /// Responses received from the scanner.
@@ -341,7 +364,6 @@ pub enum ChangeType {
     StateChanged,
     PositionChanged,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageInfo {

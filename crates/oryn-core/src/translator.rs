@@ -1,9 +1,9 @@
 use crate::command::{Command, Target};
 use crate::protocol::{
     AcceptRequest, CheckRequest, ClearRequest, ClickRequest, DismissRequest, ExecuteRequest,
-    ExtractRequest, FocusRequest, HoverRequest, LoginRequest, MouseButton, ScanRequest,
-    ScannerRequest, ScrollDirection, ScrollRequest, SearchRequest, SelectRequest, TypeRequest,
-    WaitRequest,
+    ExtractRequest, FocusRequest, GetHtmlRequest, GetTextRequest, HoverRequest, LoginRequest,
+    MouseButton, ScanRequest, ScannerRequest, ScrollDirection, ScrollRequest, SearchRequest,
+    SelectRequest, TypeRequest, WaitRequest,
 };
 use thiserror::Error;
 
@@ -28,15 +28,30 @@ fn extract_id(target: &Target, command_name: &str) -> Result<u32, TranslationErr
     }
 }
 
-/// Extracts a target string (ID or selector) for wait conditions.
-fn extract_wait_target(target: &Target, condition_name: &str) -> Result<String, TranslationError> {
+/// Result of extracting a wait target.
+struct WaitTargetInfo {
+    selector: Option<String>,
+    text: Option<String>,
+}
+
+/// Extracts target info (selector or text) for wait conditions.
+fn extract_wait_target(target: &Target) -> Result<WaitTargetInfo, TranslationError> {
     match target {
-        Target::Id(id) => Ok(id.to_string()),
-        Target::Selector(s) => Ok(s.clone()),
-        _ => Err(TranslationError::InvalidTarget(format!(
-            "Wait {} requires ID or Selector",
-            condition_name
-        ))),
+        Target::Id(id) => Ok(WaitTargetInfo {
+            selector: Some(id.to_string()),
+            text: None,
+        }),
+        Target::Selector(s) => Ok(WaitTargetInfo {
+            selector: Some(s.clone()),
+            text: None,
+        }),
+        Target::Text(t) => Ok(WaitTargetInfo {
+            selector: None,
+            text: Some(t.clone()),
+        }),
+        _ => Err(TranslationError::InvalidTarget(
+            "Wait requires ID, Selector, or Text target".to_string(),
+        )),
     }
 }
 
@@ -131,14 +146,20 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
         Command::Wait(condition, options) => {
             use crate::command::WaitCondition;
 
-            let (cond_str, target) = match condition {
-                WaitCondition::Visible(t) => ("visible", Some(extract_wait_target(t, "visible")?)),
-                WaitCondition::Hidden(t) => ("hidden", Some(extract_wait_target(t, "hidden")?)),
-                WaitCondition::Exists(s) => ("exists", Some(s.clone())),
-                WaitCondition::Gone(s) => ("gone", Some(s.clone())),
-                WaitCondition::Url(_) => ("navigation", None),
-                WaitCondition::Load => ("load", None),
-                WaitCondition::Idle => ("idle", None),
+            let (cond_str, selector, text) = match condition {
+                WaitCondition::Visible(t) => {
+                    let info = extract_wait_target(t)?;
+                    ("visible", info.selector, info.text)
+                }
+                WaitCondition::Hidden(t) => {
+                    let info = extract_wait_target(t)?;
+                    ("hidden", info.selector, info.text)
+                }
+                WaitCondition::Exists(s) => ("exists", Some(s.clone()), None),
+                WaitCondition::Gone(s) => ("gone", Some(s.clone()), None),
+                WaitCondition::Url(_) => ("navigation", None, None),
+                WaitCondition::Load => ("load", None, None),
+                WaitCondition::Idle => ("idle", None, None),
             };
 
             let timeout_ms = options
@@ -148,7 +169,8 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
 
             Ok(ScannerRequest::Wait(WaitRequest {
                 condition: cond_str.to_string(),
-                target,
+                target: selector,
+                text,
                 timeout_ms,
             }))
         }
@@ -257,33 +279,14 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
             args: vec![],
         })),
 
-        Command::Text(options) => {
-            let script = match options.get("selector") {
-                Some(sel) => format!(
-                    "var el = document.querySelector('{}'); return el ? el.innerText : null;",
-                    js_escape(sel)
-                ),
-                None => "return document.body.innerText;".into(),
-            };
-            Ok(ScannerRequest::Execute(ExecuteRequest {
-                script,
-                args: vec![],
-            }))
-        }
+        Command::Text(options) => Ok(ScannerRequest::GetText(GetTextRequest {
+            selector: options.get("selector").cloned(),
+        })),
 
-        Command::Html(options) => {
-            let script = match options.get("selector") {
-                Some(sel) => format!(
-                    "var el = document.querySelector('{}'); return el ? el.outerHTML : null;",
-                    js_escape(sel)
-                ),
-                None => "return document.documentElement.outerHTML;".into(),
-            };
-            Ok(ScannerRequest::Execute(ExecuteRequest {
-                script,
-                args: vec![],
-            }))
-        }
+        Command::Html(options) => Ok(ScannerRequest::GetHtml(GetHtmlRequest {
+            selector: options.get("selector").cloned(),
+            outer: true, // Default to outerHTML for consistency with previous behavior
+        })),
 
         Command::Extract(source) => {
             use crate::command::ExtractSource;

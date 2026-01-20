@@ -478,6 +478,11 @@ impl<'a> Parser<'a> {
                     let selector = self.consume_parenthesized_content()?;
                     ExtractSource::Css(selector)
                 }
+                // "extract text" is an alias for the "text" command
+                "text" => {
+                    let options = self.parse_options();
+                    return Ok(Command::Text(options));
+                }
                 _ => return Err(format!("Unknown extraction source: {}", w)),
             },
             _ => return Err("Invalid extract source".to_string()),

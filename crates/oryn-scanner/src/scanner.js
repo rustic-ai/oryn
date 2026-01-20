@@ -1095,11 +1095,14 @@
             // Note: unselectedValues tracking removed - not needed for current implementation
 
             // Normalize inputs to arrays
+            // Support both 'text' and 'label' parameter names for option text matching
+            // Check for both undefined AND null since JSON null is a valid value
             let values =
-                params.value !== undefined ? (Array.isArray(params.value) ? params.value : [params.value]) : null;
-            let texts = params.text !== undefined ? (Array.isArray(params.text) ? params.text : [params.text]) : null;
+                params.value != null ? (Array.isArray(params.value) ? params.value : [params.value]) : null;
+            const textOrLabel = params.text != null ? params.text : params.label;
+            let texts = textOrLabel != null ? (Array.isArray(textOrLabel) ? textOrLabel : [textOrLabel]) : null;
             let indexes =
-                params.index !== undefined ? (Array.isArray(params.index) ? params.index : [params.index]) : null;
+                params.index != null ? (Array.isArray(params.index) ? params.index : [params.index]) : null;
 
             if (
                 !el.multiple &&
@@ -1131,7 +1134,9 @@
                 });
             } else if (texts) {
                 options.forEach((o) => {
-                    if (texts.some((t) => o.text.includes(t))) {
+                    // Case-insensitive text matching with trim
+                    const optionTextLower = o.text.trim().toLowerCase();
+                    if (texts.some((t) => optionTextLower.includes(t.trim().toLowerCase()))) {
                         o.selected = true;
                         selectedValues.push(o.value);
                         foundAny = true;
@@ -1315,9 +1320,31 @@
             const start = performance.now();
             const initialUrl = window.location.href;
 
+            // Support both 'selector' and 'target' parameter names
+            const selector = params.selector || params.target;
+            const textToFind = params.text;
+
+            // Find element by text content (searches visible text in the document)
+            const findByText = (text) => {
+                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+                const normalizedSearch = text.toLowerCase().trim();
+                let node;
+                while ((node = walker.nextNode())) {
+                    if (node.textContent.toLowerCase().includes(normalizedSearch)) {
+                        // Return the parent element that contains this text
+                        const parent = node.parentElement;
+                        if (parent && Utils.isVisible(parent)) {
+                            return parent;
+                        }
+                    }
+                }
+                return null;
+            };
+
             const getElement = () => {
                 if (params.id) return STATE.elementMap.get(params.id);
-                if (params.selector) return document.querySelector(params.selector);
+                if (selector) return document.querySelector(selector);
+                if (textToFind) return findByText(textToFind);
                 return null;
             };
 
@@ -1326,7 +1353,8 @@
 
                 switch (condition) {
                     case 'exists': {
-                        if (params.selector) return !!document.querySelector(params.selector);
+                        if (selector) return !!document.querySelector(selector);
+                        if (textToFind) return !!findByText(textToFind);
                         if (params.id)
                             return STATE.elementMap.has(params.id) && STATE.elementMap.get(params.id).isConnected;
                         return false;
@@ -1341,7 +1369,8 @@
                         return !el || !Utils.isVisible(el);
                     }
                     case 'gone': {
-                        if (params.selector) return !document.querySelector(params.selector);
+                        if (selector) return !document.querySelector(selector);
+                        if (textToFind) return !findByText(textToFind);
                         if (params.id) {
                             const el = STATE.elementMap.get(params.id);
                             return !el || !el.isConnected;
@@ -1452,22 +1481,63 @@
         },
 
         dismiss: (params) => {
-            const target = params.target || 'popups';
+            const target = (params.target || 'popups').toLowerCase();
             const scanRes = Scanner.scan({ max_elements: 500 });
             let clicked = false;
 
-            if (target === 'popups' || target === 'modals') {
+            // Handle modals/popups (both singular and plural forms)
+            if (target === 'popups' || target === 'popup' || target === 'modals' || target === 'modal') {
+                // First try pattern detection
                 if (scanRes.patterns?.modal?.close) {
                     Executor.click({ id: scanRes.patterns.modal.close });
                     clicked = true;
                 }
-            } else if (target === 'cookie_banners' || target === 'cookies') {
+                // Fallback: find visible modal overlays and click their close button
+                if (!clicked) {
+                    const modalSelectors = '.modal-overlay, .modal, [role="dialog"], [role="alertdialog"], .modal-content';
+                    const modals = document.querySelectorAll(modalSelectors);
+                    for (const modal of modals) {
+                        // Check if visible (display not none, and has dimensions)
+                        const style = window.getComputedStyle(modal);
+                        if (style.display !== 'none' && modal.offsetWidth > 0) {
+                            // Look for close button
+                            const closeBtn = modal.querySelector('button, [role="button"], .close, [aria-label*="close" i], [aria-label*="Close" i]');
+                            if (closeBtn) {
+                                closeBtn.click();
+                                clicked = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            // Handle cookie banners
+            else if (target === 'cookie_banners' || target === 'cookies' || target === 'banner' || target === 'banners') {
                 if (scanRes.patterns?.cookie_banner?.reject) {
                     Executor.click({ id: scanRes.patterns.cookie_banner.reject });
                     clicked = true;
                 } else if (scanRes.patterns?.cookie_banner?.accept) {
                     Executor.click({ id: scanRes.patterns.cookie_banner.accept });
                     clicked = true;
+                }
+            }
+            // Handle arbitrary string targets - try to find visible overlays with matching text
+            else {
+                const modalSelectors = '.modal-overlay, .modal, [role="dialog"], [role="alertdialog"], .modal-content';
+                const modals = document.querySelectorAll(modalSelectors);
+                for (const modal of modals) {
+                    const style = window.getComputedStyle(modal);
+                    if (style.display !== 'none' && modal.offsetWidth > 0) {
+                        // Check if this modal contains the target text
+                        if (modal.textContent.toLowerCase().includes(target)) {
+                            const closeBtn = modal.querySelector('button, [role="button"], .close, [aria-label*="close" i]');
+                            if (closeBtn) {
+                                closeBtn.click();
+                                clicked = true;
+                                break;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1490,9 +1560,16 @@
 
     const Extractor = {
         get_text: (params) => {
-            const el = document.querySelector(params.selector);
+            const el = params.selector ? document.querySelector(params.selector) : document.body;
             if (!el) throw { msg: 'Element not found', code: 'ELEMENT_NOT_FOUND' };
-            return Protocol.success({ text: el.innerText || el.textContent });
+            return Protocol.success({ text: el.innerText || el.textContent || '' });
+        },
+
+        get_html: (params) => {
+            const el = params.selector ? document.querySelector(params.selector) : document.documentElement;
+            if (!el) throw { msg: 'Element not found', code: 'ELEMENT_NOT_FOUND' };
+            const html = params.outer !== false ? el.outerHTML : el.innerHTML;
+            return Protocol.success({ html: html || '' });
         },
 
         get_value: (params) => {
@@ -1910,6 +1987,7 @@
                     'submit',
                     'wait_for',
                     'get_text',
+                    'get_html',
                     'get_value',
                     'exists',
                     'execute',
@@ -1986,6 +2064,9 @@
                 // Extraction
                 case 'get_text':
                     result = Extractor.get_text(message);
+                    break;
+                case 'get_html':
+                    result = Extractor.get_html(message);
                     break;
                 case 'get_value':
                     result = Extractor.get_value(message);

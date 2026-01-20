@@ -5,6 +5,7 @@ observe
 scroll down
 
 goto "http://localhost:3000/dynamic/live-search.html"
+observe
 type "Search components..." "Modal"
 wait visible "Modal"
 clear "Search components..."

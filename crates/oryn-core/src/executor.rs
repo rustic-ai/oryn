@@ -12,7 +12,7 @@ use crate::formatter::format_response;
 use crate::parser::Parser;
 use crate::protocol::{Cookie, ScannerData, ScannerProtocolResponse};
 use crate::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
-use crate::translator::{translate, TranslationError};
+use crate::translator::{TranslationError, translate};
 
 /// Truncate a string value for display, adding ellipsis if needed.
 fn truncate_value(s: &str, max_len: usize) -> String {
@@ -168,7 +168,11 @@ impl CommandExecutor {
                 let data = backend.pdf().await?;
                 let output_path = if path.is_empty() { "page.pdf" } else { path };
                 std::fs::write(output_path, &data)?;
-                Ok(format!("PDF saved to {} ({} bytes)", output_path, data.len()))
+                Ok(format!(
+                    "PDF saved to {} ({} bytes)",
+                    output_path,
+                    data.len()
+                ))
             }
 
             // ============================================================
@@ -341,25 +345,19 @@ impl CommandExecutor {
             // ============================================================
             // Pack Management Commands
             // ============================================================
-            Command::Packs => {
-                Err(ExecutorError::NotImplemented(
-                    "packs - requires pack system integration".to_string(),
-                ))
-            }
+            Command::Packs => Err(ExecutorError::NotImplemented(
+                "packs - requires pack system integration".to_string(),
+            )),
 
-            Command::PackLoad(name) => {
-                Err(ExecutorError::NotImplemented(format!(
-                    "pack load {} - requires pack system integration",
-                    name
-                )))
-            }
+            Command::PackLoad(name) => Err(ExecutorError::NotImplemented(format!(
+                "pack load {} - requires pack system integration",
+                name
+            ))),
 
-            Command::PackUnload(name) => {
-                Err(ExecutorError::NotImplemented(format!(
-                    "pack unload {} - requires pack system integration",
-                    name
-                )))
-            }
+            Command::PackUnload(name) => Err(ExecutorError::NotImplemented(format!(
+                "pack unload {} - requires pack system integration",
+                name
+            ))),
 
             // ============================================================
             // Learning Commands

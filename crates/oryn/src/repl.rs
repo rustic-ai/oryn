@@ -223,42 +223,36 @@ async fn execute_command(
                 }
             }
         }
-        Command::Back => {
-            match backend.go_back().await {
-                Ok(res) => {
-                    println!("Back to {}", res.url);
-                    return Ok(());
-                }
-                Err(e) => {
-                    println!("Navigation Error: {}", e);
-                    return Err(anyhow::anyhow!("Navigation Error: {}", e));
-                }
+        Command::Back => match backend.go_back().await {
+            Ok(res) => {
+                println!("Back to {}", res.url);
+                return Ok(());
             }
-        }
-        Command::Forward => {
-            match backend.go_forward().await {
-                Ok(res) => {
-                    println!("Forward to {}", res.url);
-                    return Ok(());
-                }
-                Err(e) => {
-                    println!("Navigation Error: {}", e);
-                    return Err(anyhow::anyhow!("Navigation Error: {}", e));
-                }
+            Err(e) => {
+                println!("Navigation Error: {}", e);
+                return Err(anyhow::anyhow!("Navigation Error: {}", e));
             }
-        }
-        Command::Refresh(_) => {
-            match backend.refresh().await {
-                Ok(res) => {
-                    println!("Refreshed {}", res.url);
-                    return Ok(());
-                }
-                Err(e) => {
-                    println!("Refresh Error: {}", e);
-                    return Err(anyhow::anyhow!("Refresh Error: {}", e));
-                }
+        },
+        Command::Forward => match backend.go_forward().await {
+            Ok(res) => {
+                println!("Forward to {}", res.url);
+                return Ok(());
             }
-        }
+            Err(e) => {
+                println!("Navigation Error: {}", e);
+                return Err(anyhow::anyhow!("Navigation Error: {}", e));
+            }
+        },
+        Command::Refresh(_) => match backend.refresh().await {
+            Ok(res) => {
+                println!("Refreshed {}", res.url);
+                return Ok(());
+            }
+            Err(e) => {
+                println!("Refresh Error: {}", e);
+                return Err(anyhow::anyhow!("Refresh Error: {}", e));
+            }
+        },
         Command::Screenshot(_) => {
             match backend.screenshot().await {
                 Ok(bytes) => {

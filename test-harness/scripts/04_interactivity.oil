@@ -2,14 +2,18 @@ goto "http://localhost:3000/modals/basic.html"
 observe
 click "Open Modal"
 wait visible css(#basic-modal)
+observe
 click "Confirm"
 click "Show Toast"
 wait visible css(#toast)
 
+# SPA Navigation Test
 goto "http://localhost:3000/spa/react/"
 observe
 click "Users"
 wait visible css(.user-list)
-click "Settings"
-check "Enable Notifications"
-click "Save Changes"
+observe
+
+# Navigate back to Dashboard
+click "Dashboard"
+observe

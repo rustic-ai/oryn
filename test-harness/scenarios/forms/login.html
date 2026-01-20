@@ -32,12 +32,29 @@
             <a href="#">Forgot password?</a>
         </p>
     </div>
+
+    <!-- Success Modal -->
+    <div id="success-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h2>Login Successful</h2>
+            <p id="modal-message">Welcome back!</p>
+            <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+                <button onclick="closeModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         document.getElementById('login-form').onsubmit = (e) => {
             e.preventDefault();
             const email = document.getElementById('email').value;
-            alert('Login attempted for: ' + email);
+            document.getElementById('modal-message').textContent = 'Login attempted for: ' + email;
+            document.getElementById('success-modal').style.display = 'flex';
         };
+
+        function closeModal() {
+            document.getElementById('success-modal').style.display = 'none';
+        }
     </script>
 </body>
 

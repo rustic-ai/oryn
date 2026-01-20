@@ -89,6 +89,16 @@ Explicit CSS or XPath for edge cases. Example: `click css(".btn-primary")` uses 
 
 Strings can use single or double quotes interchangeably. Single words without spaces may omit quotes entirely. Standard escape sequences are supported for including quotes within strings.
 
+### 2.4 Comments
+
+Lines beginning with `#` are treated as comments and ignored by the parser. Comments can also appear after commands on the same line.
+
+```
+# This is a comment
+goto example.com  # Navigate to example
+observe           # Check page state
+```
+
 ---
 
 ## 3. Command Reference
@@ -190,6 +200,7 @@ Timeout configurable via `--timeout` option.
 - `tables` — Table data as structured output
 - `css(<selector>)` — Custom element extraction
 - `meta` — Page metadata
+- `text` — Alias for the `text` command (supports `--selector`)
 
 ### 3.6 Session Commands
 
@@ -320,7 +331,7 @@ scroll until "Load more"
 Intent commands encapsulate common workflows:
 - **login** — Finds credentials fields, types values, submits form, waits for navigation
 - **search** — Finds search input, types query, submits
-- **dismiss popups** — Closes modals, cookie banners, and overlays
+- **dismiss `<target>`** — Closes overlays matching the target. Accepts: `popups`, `modals`, `modal`, `banner`, or any descriptive string. Examples: `dismiss popups`, `dismiss "modal"`, `dismiss modals`
 - **accept cookies** — Finds and clicks cookie consent
 
 ### Level 4: Goal Commands (LLM/Agent Layer)

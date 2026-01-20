@@ -12,8 +12,8 @@ use oryn_core::protocol::{
     ScannerRequest, ScrollInfo, TabInfo, ViewportInfo,
 };
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// A mock backend that tracks which methods were called.
 #[derive(Debug, Default)]
@@ -303,9 +303,7 @@ async fn test_press_with_modifiers() {
     let mut backend = TrackingMockBackend::default();
     let mut executor = CommandExecutor::new();
 
-    let result = executor
-        .execute_line(&mut backend, "press a --ctrl")
-        .await;
+    let result = executor.execute_line(&mut backend, "press a --ctrl").await;
 
     assert!(result.is_ok());
     assert!(backend.press_key_called.load(Ordering::SeqCst));

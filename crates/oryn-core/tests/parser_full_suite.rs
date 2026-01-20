@@ -60,6 +60,18 @@ fn test_parser_extract_expanded() {
         parse_one("extract css(.item)"),
         Command::Extract(ExtractSource::Css(".item".into()))
     );
+    // "extract text" is an alias for the "text" command
+    assert_eq!(
+        parse_one("extract text"),
+        Command::Text(std::collections::HashMap::new())
+    );
+    // "extract text --selector" passes options to text command
+    let mut expected_opts = std::collections::HashMap::new();
+    expected_opts.insert("selector".to_string(), "article".to_string());
+    assert_eq!(
+        parse_one("extract text --selector \"article\""),
+        Command::Text(expected_opts)
+    );
 }
 
 #[test]

@@ -51,14 +51,16 @@ observe
 # 1. Find search input (role=searchbox or type=search)
 # 2. Type query
 # 3. Submit via Enter or button click
-type "Search" "wireless mouse"
-click "Search"
+# Note: The search input has aria-label="Search" but so does the button
+# Use the input placeholder text for targeting
+type "products, articles" "wireless mouse"
+submit
 
-# Wait for results
+# Wait for results (500ms delay in search)
 wait visible css(.search-result)
 observe
 
-# Test filtering
+# Test filtering - click Products filter chip
 click "Products"
 observe
 
@@ -85,9 +87,10 @@ observe
 # Test modal dismissal
 click "Open Modal"
 wait visible css(#basic-modal)
+observe
 
 # dismiss_popups should find close/dismiss button
-click "Close"
+click "Cancel"
 wait hidden css(#basic-modal)
 
 # Test toast notification
