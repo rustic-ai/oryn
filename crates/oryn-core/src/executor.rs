@@ -10,7 +10,7 @@ use crate::backend::Backend;
 use crate::command::{Command, CookieAction, TabAction, Target};
 use crate::formatter::format_response;
 use crate::parser::Parser;
-use crate::protocol::{Cookie, ScannerData, ScannerProtocolResponse};
+use crate::protocol::{Cookie, ScannerData, ScannerProtocolResponse, ScannerRequest};
 use crate::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
 use crate::translator::{TranslationError, translate};
 
@@ -392,8 +392,11 @@ impl CommandExecutor {
                     cmd
                 };
 
+                // Resolve CSS selectors to IDs for commands that require numeric IDs
+                let final_cmd = Self::resolve_selectors_to_ids(backend, resolved_cmd).await?;
+
                 // Translate to scanner request
-                let req = translate(&resolved_cmd)?;
+                let req = translate(&final_cmd)?;
 
                 // Execute via backend
                 let resp = backend.execute_scanner(req).await?;
@@ -404,6 +407,142 @@ impl CommandExecutor {
                 // Format output
                 Ok(format_response(&resp))
             }
+        }
+    }
+
+    /// Resolve CSS selectors to element IDs by executing JavaScript in the browser.
+    async fn resolve_selectors_to_ids<B: Backend + ?Sized>(
+        backend: &mut B,
+        cmd: Command,
+    ) -> Result<Command, ExecutorError> {
+        match cmd {
+            Command::Click(Target::Selector(selector), opts) => {
+                let id = Self::resolve_selector(backend, &selector).await?;
+                Ok(Command::Click(Target::Id(id), opts))
+            }
+            Command::Type(Target::Selector(selector), text, opts) => {
+                let id = Self::resolve_selector(backend, &selector).await?;
+                Ok(Command::Type(Target::Id(id), text, opts))
+            }
+            Command::Clear(Target::Selector(selector)) => {
+                let id = Self::resolve_selector(backend, &selector).await?;
+                Ok(Command::Clear(Target::Id(id)))
+            }
+            Command::Check(Target::Selector(selector)) => {
+                let id = Self::resolve_selector(backend, &selector).await?;
+                Ok(Command::Check(Target::Id(id)))
+            }
+            Command::Uncheck(Target::Selector(selector)) => {
+                let id = Self::resolve_selector(backend, &selector).await?;
+                Ok(Command::Uncheck(Target::Id(id)))
+            }
+            Command::Focus(Target::Selector(selector)) => {
+                let id = Self::resolve_selector(backend, &selector).await?;
+                Ok(Command::Focus(Target::Id(id)))
+            }
+            Command::Hover(Target::Selector(selector)) => {
+                let id = Self::resolve_selector(backend, &selector).await?;
+                Ok(Command::Hover(Target::Id(id)))
+            }
+            Command::Select(Target::Selector(selector), value) => {
+                let id = Self::resolve_selector(backend, &selector).await?;
+                Ok(Command::Select(Target::Id(id), value))
+            }
+            Command::Submit(Target::Selector(selector)) => {
+                let id = Self::resolve_selector(backend, &selector).await?;
+                Ok(Command::Submit(Target::Id(id)))
+            }
+            // Commands that don't need selector-to-ID resolution pass through
+            _ => Ok(cmd),
+        }
+    }
+
+    /// Resolve a CSS selector to an element ID by executing JavaScript.
+    ///
+    /// This function tries multiple selector strategies in order:
+    /// 1. The original selector as-is (for CSS selectors like `input[type="text"]`)
+    /// 2. As an ID selector (`#selector`)
+    /// 3. As a name attribute (`[name="selector"]`)
+    /// 4. As a placeholder contains (`[placeholder*="selector"]`)
+    /// 5. As an aria-label contains (`[aria-label*="selector"]`)
+    async fn resolve_selector<B: Backend + ?Sized>(
+        backend: &mut B,
+        selector: &str,
+    ) -> Result<usize, ExecutorError> {
+        // Escape the selector for use in JavaScript
+        let escaped_selector = selector.replace('\\', "\\\\").replace('\'', "\\'");
+
+        // Note: The scanner uses new Function() to execute scripts, which creates
+        // a function wrapper. We need 'return' at the top level.
+        //
+        // We try multiple selector strategies to handle text targets like "coupon-code"
+        // that might be an ID, name attribute, placeholder text, or aria-label.
+        let script = format!(
+            r#"
+            var selectors = [
+                '{}',                       // Original selector as-is
+                '#{}',                      // As ID selector
+                '[name="{}"]',              // As name attribute
+                '[placeholder*="{}"]',      // Placeholder contains
+                '[aria-label*="{}"]'        // aria-label contains
+            ];
+
+            var el = null;
+            for (var i = 0; i < selectors.length; i++) {{
+                try {{
+                    el = document.querySelector(selectors[i]);
+                    if (el) break;
+                }} catch (e) {{
+                    // Invalid selector syntax, try next
+                }}
+            }}
+
+            if (!el) return {{ found: false }};
+
+            // Check if element already has an ID in our state
+            var id = Oryn.State.inverseMap.get(el);
+            if (id !== undefined) return {{ found: true, id: id }};
+
+            // Assign new ID
+            id = Oryn.State.nextId++;
+            Oryn.State.inverseMap.set(el, id);
+            Oryn.State.elementMap.set(id, el);
+            return {{ found: true, id: id }};
+            "#,
+            escaped_selector,
+            escaped_selector,
+            escaped_selector,
+            escaped_selector,
+            escaped_selector
+        );
+
+        let req = ScannerRequest::Execute(crate::protocol::ExecuteRequest {
+            script,
+            args: vec![],
+        });
+
+        let resp = backend.execute_scanner(req).await?;
+
+        // Parse the response to get the ID
+        match resp {
+            ScannerProtocolResponse::Ok { data, .. } => {
+                // Execute results come back as Value variant with { result: <actual_value> }
+                if let ScannerData::Value(result) = data.as_ref()
+                    && let Some(inner) = result.get("result")
+                    && let Some(obj) = inner.as_object()
+                    && obj.get("found").and_then(|v| v.as_bool()) == Some(true)
+                    && let Some(id) = obj.get("id").and_then(|v| v.as_u64())
+                {
+                    return Ok(id as usize);
+                }
+                Err(ExecutorError::Resolution(format!(
+                    "Element not found for selector: {}",
+                    selector
+                )))
+            }
+            ScannerProtocolResponse::Error { message, .. } => Err(ExecutorError::Resolution(
+                format!("Failed to resolve selector '{}': {}", selector, message),
+            )),
         }
     }
 
@@ -443,31 +582,36 @@ impl CommandExecutor {
         }
     }
 
-    /// Resolve targets in a command.
+    /// Resolve targets in a command using appropriate strategy based on command type.
     fn resolve_command(cmd: &Command, ctx: &ResolverContext) -> Result<Command, ExecutorError> {
         match cmd {
+            // Click command: prefer clickable elements (buttons, links)
             Command::Click(target, opts) => {
-                let resolved = resolve_target(target, ctx, ResolutionStrategy::First)
+                let resolved = resolve_target(target, ctx, ResolutionStrategy::PreferClickable)
                     .map_err(|e| ExecutorError::Resolution(e.to_string()))?;
                 Ok(Command::Click(resolved, opts.clone()))
             }
+            // Type command: prefer input elements (input, textarea, select)
             Command::Type(target, text, opts) => {
-                let resolved = resolve_target(target, ctx, ResolutionStrategy::First)
+                let resolved = resolve_target(target, ctx, ResolutionStrategy::PreferInput)
                     .map_err(|e| ExecutorError::Resolution(e.to_string()))?;
                 Ok(Command::Type(resolved, text.clone(), opts.clone()))
             }
+            // Clear command: prefer input elements
             Command::Clear(target) => {
-                let resolved = resolve_target(target, ctx, ResolutionStrategy::First)
+                let resolved = resolve_target(target, ctx, ResolutionStrategy::PreferInput)
                     .map_err(|e| ExecutorError::Resolution(e.to_string()))?;
                 Ok(Command::Clear(resolved))
             }
+            // Check command: prefer checkable elements (checkbox, radio)
             Command::Check(target) => {
-                let resolved = resolve_target(target, ctx, ResolutionStrategy::First)
+                let resolved = resolve_target(target, ctx, ResolutionStrategy::PreferCheckable)
                     .map_err(|e| ExecutorError::Resolution(e.to_string()))?;
                 Ok(Command::Check(resolved))
             }
+            // Uncheck command: prefer checkable elements
             Command::Uncheck(target) => {
-                let resolved = resolve_target(target, ctx, ResolutionStrategy::First)
+                let resolved = resolve_target(target, ctx, ResolutionStrategy::PreferCheckable)
                     .map_err(|e| ExecutorError::Resolution(e.to_string()))?;
                 Ok(Command::Uncheck(resolved))
             }
@@ -476,18 +620,21 @@ impl CommandExecutor {
                     .map_err(|e| ExecutorError::Resolution(e.to_string()))?;
                 Ok(Command::Hover(resolved))
             }
+            // Focus command: prefer input elements
             Command::Focus(target) => {
-                let resolved = resolve_target(target, ctx, ResolutionStrategy::First)
+                let resolved = resolve_target(target, ctx, ResolutionStrategy::PreferInput)
                     .map_err(|e| ExecutorError::Resolution(e.to_string()))?;
                 Ok(Command::Focus(resolved))
             }
+            // Select command: prefer select elements
             Command::Select(target, value) => {
-                let resolved = resolve_target(target, ctx, ResolutionStrategy::First)
+                let resolved = resolve_target(target, ctx, ResolutionStrategy::PreferInput)
                     .map_err(|e| ExecutorError::Resolution(e.to_string()))?;
                 Ok(Command::Select(resolved, value.clone()))
             }
+            // Submit command: prefer clickable (button) elements
             Command::Submit(target) => {
-                let resolved = resolve_target(target, ctx, ResolutionStrategy::First)
+                let resolved = resolve_target(target, ctx, ResolutionStrategy::PreferClickable)
                     .map_err(|e| ExecutorError::Resolution(e.to_string()))?;
                 Ok(Command::Submit(resolved))
             }

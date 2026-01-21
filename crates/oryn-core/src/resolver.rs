@@ -41,6 +41,12 @@ pub enum ResolutionStrategy {
     Unique,
     /// Return the best match by scoring.
     Best,
+    /// Prefer input-like elements (for type command).
+    PreferInput,
+    /// Prefer clickable elements (for click command).
+    PreferClickable,
+    /// Prefer checkable elements (for check/uncheck commands).
+    PreferCheckable,
 }
 
 /// Context for resolving semantic targets.
@@ -166,6 +172,24 @@ fn resolve_by_text(
             }
         }
 
+        // HTML id attribute match (for targets like "coupon-code")
+        if let Some(id_attr) = elem.attributes.get("id") {
+            if normalize_text(id_attr) == normalized {
+                score = score.max(88);
+            } else if normalize_text(id_attr).contains(&normalized) {
+                score = score.max(44);
+            }
+        }
+
+        // HTML name attribute match (for form inputs)
+        if let Some(name_attr) = elem.attributes.get("name") {
+            if normalize_text(name_attr) == normalized {
+                score = score.max(86);
+            } else if normalize_text(name_attr).contains(&normalized) {
+                score = score.max(43);
+            }
+        }
+
         // Placeholder match
         if let Some(ref placeholder) = elem.placeholder {
             if normalize_text(placeholder) == normalized {
@@ -203,7 +227,7 @@ fn resolve_by_text(
         }
     }
 
-    select_match(&matches, text, strategy)
+    select_match(&matches, text, strategy, Some(ctx))
 }
 
 /// Resolve a role-based target.
@@ -273,7 +297,7 @@ fn resolve_by_role(
         }
     }
 
-    select_match(&matches, role, strategy)
+    select_match(&matches, role, strategy, Some(ctx))
 }
 
 /// Resolve `target near anchor`.
@@ -338,6 +362,7 @@ fn resolve_near(
         &scored,
         &format!("{:?} near {:?}", target, anchor),
         strategy,
+        Some(ctx),
     )
 }
 
@@ -391,6 +416,7 @@ fn resolve_inside(
         &inside,
         &format!("{:?} inside {:?}", target, container),
         strategy,
+        Some(ctx),
     )
 }
 
@@ -450,6 +476,7 @@ fn resolve_after(
         &after,
         &format!("{:?} after {:?}", target, anchor),
         strategy,
+        Some(ctx),
     )
 }
 
@@ -507,6 +534,7 @@ fn resolve_before(
         &before,
         &format!("{:?} before {:?}", target, anchor),
         strategy,
+        Some(ctx),
     )
 }
 
@@ -559,6 +587,7 @@ fn resolve_contains(
         &containing,
         &format!("{:?} contains {:?}", target, content),
         strategy,
+        Some(ctx),
     )
 }
 
@@ -605,6 +634,14 @@ fn get_matching_candidates(
                             .as_ref()
                             .map(|p| normalize_text(p).contains(&normalized))
                             .unwrap_or(false)
+                        || e.attributes
+                            .get("id")
+                            .map(|id| normalize_text(id).contains(&normalized))
+                            .unwrap_or(false)
+                        || e.attributes
+                            .get("name")
+                            .map(|n| normalize_text(n).contains(&normalized))
+                            .unwrap_or(false)
                 })
                 .map(|e| e.id)
                 .collect())
@@ -641,24 +678,96 @@ fn get_matching_candidates(
     }
 }
 
+/// Apply command-specific preferences to match scores.
+fn apply_command_preferences(
+    matches: &mut [(u32, i32)],
+    ctx: &ResolverContext,
+    strategy: ResolutionStrategy,
+) {
+    for (id, score) in matches.iter_mut() {
+        if let Some(elem) = ctx.get_element(*id) {
+            let bonus = match strategy {
+                ResolutionStrategy::PreferInput => {
+                    // For type command: prefer input/textarea/select elements
+                    match elem.element_type.as_str() {
+                        "input" | "textarea" | "select" => 50,
+                        "button" | "a" => -30,
+                        _ => 0,
+                    }
+                }
+                ResolutionStrategy::PreferClickable => {
+                    // For click command: prefer buttons/links over inputs
+                    match elem.element_type.as_str() {
+                        "button" => 50,
+                        "a" => 45,
+                        "input" => {
+                            // Submit/button inputs are clickable
+                            if let Some(input_type) = elem.attributes.get("type") {
+                                match input_type.as_str() {
+                                    "submit" | "button" | "reset" => 40,
+                                    _ => -30,
+                                }
+                            } else {
+                                -30
+                            }
+                        }
+                        "textarea" => -30,
+                        _ => 0,
+                    }
+                }
+                ResolutionStrategy::PreferCheckable => {
+                    // For check/uncheck: prefer checkboxes and radios
+                    if let Some(input_type) = elem.attributes.get("type") {
+                        match input_type.as_str() {
+                            "checkbox" | "radio" => 50,
+                            _ => -20,
+                        }
+                    } else if elem
+                        .attributes
+                        .get("role")
+                        .map(|r| r == "checkbox")
+                        .unwrap_or(false)
+                    {
+                        50
+                    } else {
+                        0
+                    }
+                }
+                _ => 0,
+            };
+            *score += bonus;
+        }
+    }
+}
+
 /// Select the best match based on strategy.
 fn select_match(
     matches: &[(u32, i32)],
     target_desc: &str,
     strategy: ResolutionStrategy,
+    ctx: Option<&ResolverContext>,
 ) -> Result<Target, ResolverError> {
     if matches.is_empty() {
         return Err(ResolverError::NoMatch(target_desc.to_string()));
     }
 
-    // Sort by score descending
+    // Apply command preferences if context is available and strategy requires it
     let mut sorted = matches.to_vec();
+    if let Some(context) = ctx {
+        match strategy {
+            ResolutionStrategy::PreferInput
+            | ResolutionStrategy::PreferClickable
+            | ResolutionStrategy::PreferCheckable => {
+                apply_command_preferences(&mut sorted, context, strategy);
+            }
+            _ => {}
+        }
+    }
+
+    // Sort by score descending
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
     match strategy {
-        ResolutionStrategy::First | ResolutionStrategy::Best => {
-            Ok(Target::Id(sorted[0].0 as usize))
-        }
         ResolutionStrategy::Unique => {
             if sorted.len() > 1 && sorted[0].1 == sorted[1].1 {
                 // Top scores are tied - ambiguous
@@ -676,6 +785,8 @@ fn select_match(
                 Ok(Target::Id(sorted[0].0 as usize))
             }
         }
+        // First, Best, and Prefer* strategies all return the highest scoring element
+        _ => Ok(Target::Id(sorted[0].0 as usize)),
     }
 }
 

@@ -267,6 +267,13 @@
             if (role === 'checkbox') return 'checkbox';
             if (role === 'link') return 'link';
 
+            // Text anchor elements (for "near" resolution reference points)
+            if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)) return 'heading';
+            if (['label', 'strong', 'b', 'em'].includes(tag)) return 'text';
+            if (['span', 'p'].includes(tag)) return 'text';
+            if (['li'].includes(tag)) return 'listitem';
+            if (['td', 'th'].includes(tag)) return 'cell';
+
             return 'generic';
         },
 
@@ -387,6 +394,114 @@
         }
     };
 
+    // --- Shadow DOM Utils ---
+
+    const ShadowUtils = {
+        /**
+         * Collect elements from a root, including those inside open shadow roots.
+         * @param {Element|ShadowRoot} root - The root to start from
+         * @param {function} filter - Function to test if element should be included
+         * @param {Array} results - Array to collect results into
+         * @param {number} maxElements - Maximum elements to collect
+         * @returns {Array} - The results array
+         */
+        collectElements: (root, filter, results = [], maxElements = 200) => {
+            if (results.length >= maxElements) return results;
+
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+                acceptNode: (node) => {
+                    if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'OBJECT'].includes(node.tagName)) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    // ACCEPT all elements so we can check shadow roots
+                    // (we'll filter for results separately)
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            });
+
+            // Helper to process each element:
+            // 1. Add to results only if filter passes AND under limit
+            // 2. ALWAYS recurse into shadow roots (even if element didn't pass filter)
+            const processElement = (el) => {
+                // Only add to results if passes filter and under limit
+                if (filter(el) && results.length < maxElements) {
+                    results.push(el);
+                }
+                // ALWAYS check for shadow root, even if element didn't pass filter
+                // This ensures shadow hosts like <div id="shadow-host"> are explored
+                if (el.shadowRoot) {
+                    ShadowUtils.collectElements(el.shadowRoot, filter, results, maxElements);
+                }
+            };
+
+            let node = walker.currentNode;
+            // Process root if it's an element (not document/shadowRoot)
+            if (node.nodeType === Node.ELEMENT_NODE && node.tagName) {
+                processElement(node);
+            }
+
+            // Continue walking - don't stop early just because results.length >= maxElements
+            // We need to visit ALL elements to find shadow roots
+            while (walker.nextNode()) {
+                if (results.length >= maxElements) {
+                    // We have enough results, but still check this element for shadow roots
+                    const el = walker.currentNode;
+                    if (el.shadowRoot) {
+                        ShadowUtils.collectElements(el.shadowRoot, filter, results, maxElements);
+                    }
+                } else {
+                    processElement(walker.currentNode);
+                }
+            }
+
+            return results;
+        },
+
+        /**
+         * Search for text in both regular DOM and shadow DOM.
+         * @param {string} searchQuery - Text to search for
+         * @param {Element|ShadowRoot} root - Root to start from
+         * @returns {Array} - Array of DOMRect objects
+         */
+        getTextRectsWithShadow: (searchQuery, root = document.body) => {
+            const results = [];
+            if (!searchQuery) return results;
+            const query = searchQuery.toLowerCase();
+
+            const searchInRoot = (searchRoot) => {
+                const walker = document.createTreeWalker(searchRoot, NodeFilter.SHOW_TEXT, {
+                    acceptNode: (node) => {
+                        if (!Utils.isVisible(node.parentElement)) return NodeFilter.FILTER_REJECT;
+                        if (node.textContent.toLowerCase().includes(query)) return NodeFilter.FILTER_ACCEPT;
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                });
+
+                while (walker.nextNode()) {
+                    const node = walker.currentNode;
+                    const range = document.createRange();
+                    range.selectNodeContents(node);
+                    const rects = range.getClientRects();
+                    for (const rect of rects) {
+                        results.push(rect);
+                    }
+                }
+
+                // Also search in shadow roots
+                const elementWalker = document.createTreeWalker(searchRoot, NodeFilter.SHOW_ELEMENT, null);
+                while (elementWalker.nextNode()) {
+                    const el = elementWalker.currentNode;
+                    if (el.shadowRoot) {
+                        searchInRoot(el.shadowRoot);
+                    }
+                }
+            };
+
+            searchInRoot(root);
+            return results;
+        }
+    };
+
     // --- Modules ---
 
     const Scanner = {
@@ -409,33 +524,33 @@
             // But usually we want persistent IDs.
             // We will prune STATE.elementMap at the end.
 
-            // 2. Discover main document elements
-            const treeWalker = document.createTreeWalker(contextNode, NodeFilter.SHOW_ELEMENT, {
-                acceptNode: function (node) {
-                    if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'OBJECT'].includes(node.tagName)) {
-                        return NodeFilter.FILTER_REJECT;
-                    }
-                    // Collect iframes for separate processing
-                    if (node.tagName === 'IFRAME') {
-                        iframes.push(node);
-                        return NodeFilter.FILTER_REJECT;
-                    }
-                    // Check if interactive-ish
-                    const isInteractive = Scanner.isReferenceable(node);
-                    return isInteractive ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+            // 2. Discover main document elements (including Shadow DOM)
+            // Filter function for referenceable elements
+            const elementFilter = (node) => {
+                // Collect iframes for separate processing
+                if (node.tagName === 'IFRAME') {
+                    iframes.push(node);
+                    return false;
                 }
-            });
+                // Check if interactive-ish
+                return Scanner.isReferenceable(node);
+            };
 
-            // Pre-calculate text rects if near is requested
+            // Use ShadowUtils to collect elements including those in shadow DOM
+            const candidateElements = ShadowUtils.collectElements(contextNode, elementFilter, [], maxElements * 2);
+
+            // Pre-calculate text rects if near is requested (with shadow DOM support)
             let nearRects = null;
             if (params.near) {
-                nearRects = Utils.getTextRects(params.near);
+                nearRects = ShadowUtils.getTextRectsWithShadow(params.near, contextNode);
                 // If near text not found, maybe return warning or empty?
                 // Spec implies filtering, so if nothing found, nothing returned usually.
             }
 
-            while (treeWalker.nextNode() && elements.length < maxElements) {
-                const el = treeWalker.currentNode;
+            // Process candidate elements
+            for (const el of candidateElements) {
+                if (elements.length >= maxElements) break;
+
                 if (!includeHidden && !Utils.isVisible(el)) continue;
                 if (params.viewport_only && !Utils.isInViewport(el)) continue;
 
@@ -685,7 +800,7 @@
 
         isReferenceable: (el) => {
             const tag = el.tagName.toLowerCase();
-            // Always accept form controls
+            // Always accept form controls and interactive elements
             if (['input', 'select', 'textarea', 'button', 'a', 'img', 'table'].includes(tag)) return true;
             if (el.getAttribute('role')) return true;
             if (el.hasAttribute('onclick') || el.isContentEditable) return true;
@@ -693,6 +808,17 @@
             // Check for computed cursor pointer
             const style = window.getComputedStyle(el);
             if (style.cursor === 'pointer') return true;
+
+            // Text anchor elements for "near" resolution
+            // These elements serve as reference points for relational queries
+            if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'label', 'strong', 'b', 'em', 'span', 'p', 'li', 'td', 'th'].includes(tag)) {
+                const text = el.textContent?.trim();
+                // Only include if has meaningful text and is not a large container
+                // (check childElementCount to avoid large container spans/divs)
+                if (text && text.length > 0 && text.length < 100 && el.childElementCount < 3) {
+                    return true;
+                }
+            }
 
             return false;
         },

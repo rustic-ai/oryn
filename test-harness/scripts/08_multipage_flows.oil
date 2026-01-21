@@ -106,6 +106,7 @@ observe
 
 click "Continue to Shipping"
 wait visible css(#shipping-form)
+observe
 
 # Go back to cart
 click "Back to Cart"

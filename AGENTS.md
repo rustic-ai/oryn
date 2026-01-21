@@ -1,25 +1,38 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Oryn is a Rust workspace. `crates/` contains binaries and shared libs: `oryn-core`, `oryn-scanner` (also ships JS scanner tests), `oryn-e`, `oryn-h`, `oryn-r`, and `oryn`. `extension/` holds the browser extension for remote mode. `test-harness/` hosts the local web app used by E2E tests, with `.oil` scripts in `test-harness/scripts/`. Supporting folders include `docs/` for specs, `scripts/` for automation, `docker/` for images, `website/` for marketing/docs content, and `e2e-results/` for test output.
+Oryn is a Rust workspace with supporting JS/Python tooling.
+- `crates/` core Rust binaries and libs: `oryn` (unified CLI), `oryn-core`, `oryn-h`, `oryn-e`, `oryn-r`, `oryn-scanner` (JS scanner + tests).
+- `extension/` browser extension for remote mode.
+- `test-harness/` Node/Express server and scenarios; `.oil` scripts live in `test-harness/scripts/`.
+- `oryn-python/` Python client library; `intentgym/` benchmark harness.
+- `docs/` specs and guides; `website/` MkDocs site.
 
 ## Build, Test, and Development Commands
-- `cargo build --workspace` builds all Rust crates.
-- `./scripts/run-tests.sh` runs `cargo fmt`, `cargo clippy`, starts the test harness, and executes workspace tests.
-- `./scripts/run-e2e-tests.sh [--quick|variant...]` runs Docker-based E2E suites; results land in `e2e-results/`.
-- `cd test-harness && npm run dev` starts the harness server for local testing.
-- `cd crates/oryn-scanner && npm run check` runs ESLint, Prettier, and Jest for the scanner.
+- `cargo build --release -p oryn`: build unified CLI into `target/release/oryn`.
+- `./scripts/run-tests.sh`: format (rustfmt), clippy, start harness, run Rust tests.
+- `./scripts/run-e2e-tests.sh [--quick]`: Docker E2E across backend variants.
+- `cd test-harness && npm start`: run harness at `http://localhost:3000`.
+- `cd crates/oryn-scanner && npm run check`: lint/format/test JS scanner.
+- `cd oryn-python && pytest tests/test_*.py -v`: Python unit tests; `pytest tests/e2e/ -v -m oil` for Python E2E.
 
 ## Coding Style & Naming Conventions
-- Rust formatting and linting are enforced via `cargo fmt` and `cargo clippy`.
-- Use Rust idioms: `snake_case` for functions/vars, `UpperCamelCase` for types, and `SCREAMING_SNAKE_CASE` for constants.
-- JS scanner code lives in `crates/oryn-scanner/src/`; tests use `*.test.js` under `crates/oryn-scanner/tests/` and are formatted by Prettier.
+- Rust: `cargo fmt` enforced; clippy clean; snake_case modules; tests in `crates/*/tests/*_test.rs`.
+- JS: ESLint + Prettier in `crates/oryn-scanner`; keep 2-space indentation (Prettier).
+- Python: 4-space indentation; `oryn-python` uses ruff; `intentgym` uses black/isort/mypy/pylint.
+- `.oil` scripts use numeric prefixes (`01_static.oil`) in `test-harness/scripts/`.
 
 ## Testing Guidelines
-- Rust tests: `cargo test --workspace` (the harness may need to run on port 3000).
-- E2E tests exercise `oryn-h`, `oryn-e-*`, and `oryn-r` via `.oil` scripts; Docker is required.
-- JS scanner tests: `npm test` in `crates/oryn-scanner`.
+- Rust E2E tests rely on the harness on port 3000; weston tests run only in CI/E2E (`ORYN_E2E=1`).
+- JS tests use Jest in `crates/oryn-scanner/tests/`.
+- Python tests use pytest; E2E requires an `oryn` binary on `PATH` or `ORYN_BINARY`.
+- E2E artifacts land in `e2e-results/`.
 
 ## Commit & Pull Request Guidelines
-- Commit messages follow Conventional Commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:` (e.g., `feat: add multi-page flow support`).
-- PRs should include a brief summary, relevant issue links, test commands/results, and screenshots or recordings for UI changes in `extension/` or `website/`.
+- Use conventional commit prefixes (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`) with a short, imperative summary.
+- PRs should explain what/why, link related issues, and list tests run or why they were skipped.
+- Include screenshots/GIFs for UI changes (extension, website, harness scenarios).
+
+## Configuration & Debugging
+- Enable logs with `RUST_LOG=info|debug oryn headless`.
+- Remote mode expects the browser extension to be connected to `oryn remote --port 9001`.
