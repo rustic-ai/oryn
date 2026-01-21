@@ -319,9 +319,13 @@ pub async fn launch_cog(port: u16, force_headless: bool) -> Result<CogProcess, S
 /// WPEWebDriver will use our MiniBrowser wrapper (which invokes COG)
 /// We use empty capabilities to let WPEWebDriver use its defaults
 pub fn wpe_capabilities() -> serde_json::Map<String, serde_json::Value> {
-    // Empty capabilities - WPEWebDriver will default to MiniBrowser
-    // Our PATH modification ensures it finds our wrapper script
-    serde_json::Map::new()
+    let mut caps = serde_json::Map::new();
+    // Auto-accept alerts/prompts/confirms
+    caps.insert(
+        "unhandledPromptBehavior".to_string(),
+        serde_json::Value::String("accept".to_string()),
+    );
+    caps
 }
 
 #[cfg(test)]
@@ -336,8 +340,10 @@ mod tests {
     #[test]
     fn test_wpe_capabilities() {
         let caps = wpe_capabilities();
-        // Empty capabilities - WPEWebDriver defaults to MiniBrowser
-        assert!(caps.is_empty());
+        assert_eq!(
+            caps.get("unhandledPromptBehavior"),
+            Some(&serde_json::Value::String("accept".to_string()))
+        );
     }
 
     #[test]

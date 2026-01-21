@@ -75,6 +75,24 @@ impl CdpClient {
             }
         });
 
+        // Handle JavaScript Dialogs (Alert, Confirm, Prompt) - Auto-accept
+        let mut dialog_events = page
+            .event_listener::<chromiumoxide::cdp::browser_protocol::page::EventJavascriptDialogOpening>()
+            .await
+            .map_err(|e| format!("Failed to subscribe to dialog events: {}", e))?;
+
+        let page_clone = page.clone();
+        tokio::spawn(async move {
+            while let Some(event) = dialog_events.next().await {
+                tracing::info!("Handling JavaScript Dialog: {} ({:?})", event.message, event.r#type);
+                // Auto-accept (true) and use default prompt text (None)
+                let cmd = chromiumoxide::cdp::browser_protocol::page::HandleJavaScriptDialogParams::new(true);
+                if let Err(e) = page_clone.execute(cmd).await {
+                    tracing::error!("Failed to handle/accept dialog: {}", e);
+                }
+            }
+        });
+
         // Enable Network Logging via features module
         if let Err(e) = crate::features::enable_network_logging(&page).await {
             tracing::warn!("Failed to enable network logging: {}", e);

@@ -28,9 +28,11 @@
                 "http://localhost/*"
             ],
             "js": [
+                "suppress_alerts.js",
                 "scanner.js",
                 "content.js"
-            ]
+            ],
+            "run_at": "document_start"
         }
     ]
 }
