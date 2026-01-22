@@ -37,6 +37,8 @@ pub enum Target {
         target: Box<Target>,
         content: Box<Target>,
     },
+    /// Placeholder indicating target should be inferred.
+    Infer,
 }
 
 /// Supported wait conditions for the `wait` command.
@@ -162,8 +164,8 @@ pub enum Command {
     // Level 3 Composite Commands
     Login(String, String, HashMap<String, String>), // User, Pass, Options
     Search(String, HashMap<String, String>),        // Query, Options
-    Dismiss(String, HashMap<String, String>),       // "popups", etc.
-    Accept(String, HashMap<String, String>),        // "cookies", etc.
+    Dismiss(Target, HashMap<String, String>),       // Target, Options
+    Accept(Target, HashMap<String, String>),        // Target, Options
     ScrollUntil(Target, ScrollDirection, HashMap<String, String>), // Target, Direction
 
     // Browser Features

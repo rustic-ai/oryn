@@ -89,7 +89,7 @@ fn test_formatter_available_intents() {
         },
     ]);
 
-    let data = ScannerData::Scan(scan);
+    let data = ScannerData::Scan(Box::new(scan));
     let resp = ScannerProtocolResponse::Ok {
         data: Box::new(data),
         warnings: vec![],

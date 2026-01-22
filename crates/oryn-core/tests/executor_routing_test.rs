@@ -11,9 +11,8 @@ use oryn_core::protocol::{
     ActionResult, Cookie, PageInfo, ScanResult, ScanStats, ScannerData, ScannerProtocolResponse,
     ScannerRequest, ScrollInfo, TabInfo, ViewportInfo,
 };
-use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// A mock backend that tracks which methods were called.
 #[derive(Debug, Default)]
@@ -561,14 +560,14 @@ async fn test_observe_updates_resolver_context() {
     let mut executor = CommandExecutor::new();
 
     // Before observe, context should be None
-    assert!(executor.get_context().is_none());
+    assert!(executor.get_last_scan().is_none());
 
     // Execute observe
     let result = executor.execute_line(&mut backend, "observe").await;
     assert!(result.is_ok());
 
     // After observe, context should be set
-    assert!(executor.get_context().is_some());
+    assert!(executor.get_last_scan().is_some());
 }
 
 #[tokio::test]

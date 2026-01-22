@@ -201,6 +201,7 @@ test_oryn_h() {
         if docker run --rm \
             --network host \
             --shm-size=2gb \
+            -e "RUST_LOG=info" \
             -v "$scripts_dir:/scripts:ro" \
             oryn-h:latest \
             /usr/local/bin/oryn-h --file "/scripts/$script_name" >> "$results_file" 2>&1; then

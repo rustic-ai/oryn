@@ -213,7 +213,7 @@ fn test_translate_search() {
 
 #[test]
 fn test_translate_accept() {
-    let cmd = Command::Accept("cookies".into(), HashMap::new());
+    let cmd = Command::Accept(Target::Text("cookies".into()), HashMap::new());
     let ScannerRequest::Accept(a) = translate(&cmd).unwrap() else {
         panic!("Expected Accept request");
     };

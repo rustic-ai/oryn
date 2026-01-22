@@ -9,5 +9,6 @@ pub mod learner;
 pub mod pack;
 pub mod parser;
 pub mod protocol;
+pub mod resolution;
 pub mod resolver;
 pub mod translator;

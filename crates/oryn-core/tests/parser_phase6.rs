@@ -11,7 +11,7 @@ fn parse_one(input: &str) -> Command {
 fn test_submit_command() {
     let cmd = parse_one("submit #login-form");
     if let Command::Submit(target) = cmd {
-        assert_eq!(target, Target::Text("#login-form".into())); // Parsed as text/selector logic handles it
+        assert_eq!(target, Target::Selector("#login-form".into()));
     } else {
         panic!("Parsed wrong command variant");
     }
@@ -42,16 +42,16 @@ fn test_search_command() {
 fn test_dismiss_accept() {
     let cmd = parse_one("dismiss popups");
     if let Command::Dismiss(target, _) = cmd {
-        assert_eq!(target, "popups");
+        assert_eq!(target, Target::Text("popups".to_string()));
     } else {
-        panic!("Parsed wrong command variant");
+        panic!("Expected Dismiss command");
     }
 
     let cmd = parse_one("accept cookies");
     if let Command::Accept(target, _) = cmd {
-        assert_eq!(target, "cookies");
+        assert_eq!(target, Target::Text("cookies".to_string()));
     } else {
-        panic!("Parsed wrong command variant");
+        panic!("Expected Accept command");
     }
 }
 

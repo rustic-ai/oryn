@@ -335,6 +335,8 @@ impl<'a> Parser<'a> {
                     } else {
                         Ok(Target::Text(w))
                     }
+                } else if w.starts_with('#') || w.starts_with('.') {
+                    Ok(Target::Selector(w))
                 } else if self.is_role(&w) {
                     Ok(Target::Role(w))
                 } else {
@@ -348,7 +350,7 @@ impl<'a> Parser<'a> {
     fn is_role(&self, w: &str) -> bool {
         let roles = [
             "email", "password", "search", "submit", "username", "phone", "url", "link", "button",
-            "input", "checkbox", "radio",
+            "input", "checkbox", "radio", "modal", "dialog", "status", "alert",
         ];
         roles.contains(&w.to_lowercase().as_str())
     }
@@ -593,9 +595,93 @@ impl<'a> Parser<'a> {
         Ok(Command::Tabs(TabAction::List))
     }
 
+    fn is_command_keyword(&self, w: &str) -> bool {
+        matches!(
+            w.to_lowercase().as_str(),
+            "goto"
+                | "go"
+                | "navigate"
+                | "visit"
+                | "back"
+                | "forward"
+                | "refresh"
+                | "reload"
+                | "url"
+                | "observe"
+                | "scan"
+                | "see"
+                | "html"
+                | "text"
+                | "title"
+                | "screenshot"
+                | "snap"
+                | "click"
+                | "type"
+                | "send"
+                | "fill"
+                | "clear"
+                | "press"
+                | "key"
+                | "select"
+                | "choose"
+                | "check"
+                | "mark"
+                | "uncheck"
+                | "unmark"
+                | "hover"
+                | "focus"
+                | "wait"
+                | "sleep"
+                | "extract"
+                | "cookies"
+                | "cookie"
+                | "storage"
+                | "tabs"
+                | "tab"
+                | "submit"
+                | "login"
+                | "search"
+                | "dismiss"
+                | "accept"
+                | "scroll"
+                | "pdf"
+                | "packs"
+                | "pack"
+                | "intents"
+                | "intent"
+                | "define"
+                | "undefine"
+                | "export"
+                | "run"
+                | "learn"
+        )
+    }
+
     fn parse_submit(&mut self) -> Result<Command, String> {
-        let target = self.parse_target()?;
-        Ok(Command::Submit(target))
+        // submit [target]
+        // If next token is a command keyword or EOF, infer target
+        if let Some(Token::Word(w)) = self.peek_token() {
+            if self.is_command_keyword(&w) {
+                return Ok(Command::Submit(Target::Infer));
+            }
+        } else if self.peek_token().is_none() {
+            return Ok(Command::Submit(Target::Infer));
+        }
+
+        // Otherwise try to parse target
+        match self.parse_target() {
+            Ok(target) => Ok(Command::Submit(target)),
+            Err(_) => {
+                // If parsing target failed, maybe it wasn't a target but something else?
+                // But parse_target consumes tokens. If it fails, we are in trouble anyway.
+                // Assuming parse_target fails only if it can't find a target token.
+                // But parse_target consumes the token to check it.
+                // Actually parse_base_target consumes.
+                // If we are here, we decided to try parsing target.
+                // If it fails, return error.
+                Err("Expected target for submit".to_string())
+            }
+        }
     }
 
     fn parse_login(&mut self) -> Result<Command, String> {
@@ -614,23 +700,39 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_dismiss(&mut self) -> Result<Command, String> {
-        // syntax: dismiss popups | modals
-        let target = match self.consume_token() {
-            Some(Token::Word(w)) => w,
-            Some(Token::String(s)) => s,
-            _ => return Err("Expected what to dismiss".into()),
+        // syntax: dismiss [target]
+        let target = if let Some(Token::Word(w)) = self.peek_token() {
+            if self.is_command_keyword(&w) {
+                Target::Infer
+            } else {
+                self.parse_target()?
+            }
+        } else if self.peek_token().is_none() {
+            Target::Infer
+        } else {
+            self.parse_target()?
         };
+
         let options = self.parse_options();
         Ok(Command::Dismiss(target, options))
     }
 
     fn parse_accept(&mut self) -> Result<Command, String> {
-        // syntax: accept cookies
-        let target = match self.consume_token() {
-            Some(Token::Word(w)) => w,
-            Some(Token::String(s)) => s,
-            _ => return Err("Expected what to accept".into()),
+        // syntax: accept [target]
+        let target = if let Some(Token::Word(w)) = self.peek_token() {
+            if w.to_lowercase() == "cookies" {
+                self.parse_target()?
+            } else if self.is_command_keyword(&w) {
+                Target::Infer
+            } else {
+                self.parse_target()?
+            }
+        } else if self.peek_token().is_none() {
+            Target::Infer
+        } else {
+            self.parse_target()?
         };
+
         let options = self.parse_options();
         Ok(Command::Accept(target, options))
     }

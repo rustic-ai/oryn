@@ -9,12 +9,18 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum TranslationError {
+    #[error("Unknown command: {0}")]
+    UnknownCommand(String),
+    #[error("Missing argument: {0}")]
+    MissingArgument(String),
+    #[error("Invalid argument: {0}")]
+    InvalidArgument(String),
+    #[error("Invalid target: {0}")]
+    InvalidTarget(String),
+    #[error("Unsupported target type for command: {0}")]
+    UnsupportedTarget(String),
     #[error("Unsupported command: {0}")]
     Unsupported(String),
-    #[error("Invalid target for command: {0}")]
-    InvalidTarget(String),
-    #[error("Missing required parameter: {0}")]
-    MissingParameter(String),
 }
 
 /// Extracts the numeric ID from a Target, returning an error if the target is not an ID.
@@ -312,13 +318,41 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
             query: query.clone(),
         })),
 
-        Command::Dismiss(target, _opts) => Ok(ScannerRequest::Dismiss(DismissRequest {
-            target: target.clone(),
-        })),
+        Command::Dismiss(target, _opts) => {
+            let target_str = match target {
+                Target::Text(s) | Target::Role(s) => s.clone(),
 
-        Command::Accept(target, _opts) => Ok(ScannerRequest::Accept(AcceptRequest {
-            target: target.clone(),
-        })),
+                Target::Infer => "popups".to_string(), // Default if not resolved
+
+                _ => {
+                    return Err(TranslationError::UnsupportedTarget(format!(
+                        "Dismiss requires text target, got {:?}",
+                        target
+                    )));
+                }
+            };
+
+            Ok(ScannerRequest::Dismiss(DismissRequest {
+                target: target_str,
+            }))
+        }
+
+        Command::Accept(target, _opts) => {
+            let target_str = match target {
+                Target::Text(s) | Target::Role(s) => s.clone(),
+
+                Target::Infer => "cookies".to_string(), // Default if not resolved
+
+                _ => {
+                    return Err(TranslationError::UnsupportedTarget(format!(
+                        "Accept requires text target, got {:?}",
+                        target
+                    )));
+                }
+            };
+
+            Ok(ScannerRequest::Accept(AcceptRequest { target: target_str }))
+        }
 
         Command::ScrollUntil(target, direction, options) => {
             // ScrollUntil scrolls in a direction until the target becomes visible

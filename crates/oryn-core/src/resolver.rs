@@ -139,6 +139,11 @@ pub fn resolve_target(
         Target::After { target, anchor } => resolve_after(target, anchor, ctx, strategy),
         Target::Before { target, anchor } => resolve_before(target, anchor, ctx, strategy),
         Target::Contains { target, content } => resolve_contains(target, content, ctx, strategy),
+
+        // Inference should be handled by ResolutionEngine, not here
+        Target::Infer => Err(ResolverError::NoMatch(
+            "Target inference not supported in legacy resolver".into(),
+        )),
     }
 }
 
@@ -675,6 +680,8 @@ fn get_matching_candidates(
         | Target::After { target, .. }
         | Target::Before { target, .. }
         | Target::Contains { target, .. } => get_matching_candidates(target, ctx),
+
+        Target::Infer => Ok(vec![]),
     }
 }
 
