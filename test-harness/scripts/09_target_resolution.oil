@@ -20,8 +20,8 @@ click css(button[role="button"][aria-label="Sign in to your account"])
 # Test 2: ARIA Label Targeting
 # =============================================================================
 
-# Target by aria-label
-type css(input[aria-label="Search"]) "aria search test"
+# Target by role="searchbox" (the input has role="searchbox", not aria-label="Search")
+type css(input[role="searchbox"]) "aria search test"
 click css(button[aria-label="Submit search"])
 
 # =============================================================================
@@ -53,12 +53,12 @@ wait visible css(#panel-profile)
 # Test 5: Menu Interaction (role="menuitem")
 # =============================================================================
 
-# Open menu via menuitem
-click "File"
+# Open menu via menuitem (use CSS selector for the File menu item)
+click css([role="menuitem"][onclick*="file-menu"])
 wait visible css(#file-menu)
 observe
 
-# Click menu item
+# Click menu item (use text since it's unique in the menu context)
 click "Save"
 
 # =============================================================================
@@ -72,8 +72,10 @@ observe
 click "report.pdf"
 observe
 
+# Click Pictures to expand it (the group inside should become visible)
 click "Pictures"
-wait visible css(#view-menu ~ [role="group"])
+# Wait for vacation.jpg to become visible (inside the Pictures group)
+wait visible "vacation.jpg"
 
 # =============================================================================
 # Test 7: Fallback Target Chain
