@@ -1,5 +1,6 @@
 use chromiumoxide::Page;
 use std::error::Error;
+use std::future::Future;
 use std::time::Duration;
 
 const SCANNER_JS: &str = include_str!("../../oryn-scanner/src/scanner.js");
@@ -14,38 +15,54 @@ const MAX_CONTEXT_RETRIES: u32 = 10;
 /// Delay between retries when context is not found (page navigating).
 const CONTEXT_RETRY_DELAY: Duration = Duration::from_millis(100);
 
-pub async fn inject_scanner(page: &Page) -> Result<(), Box<dyn Error + Send + Sync>> {
-    // Retry loop to handle context errors during page navigation.
-    // When the page navigates, the old JavaScript context is destroyed and a new one
-    // is created. We may need to wait for the new context to be ready.
+/// Check if an error indicates the page context is unavailable (e.g., during navigation).
+fn is_context_error(err: &str) -> bool {
+    err.contains("Cannot find context")
+        || err.contains("Execution context was destroyed")
+        || err.contains("-32000")
+}
+
+/// Retry an async operation that may fail due to context errors during page navigation.
+/// Returns immediately on success or non-context errors; retries only on context errors.
+async fn retry_on_context_error<T, E, F, Fut>(
+    operation_name: &str,
+    mut operation: F,
+) -> Result<T, Box<dyn Error + Send + Sync>>
+where
+    E: std::fmt::Display,
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
     let mut last_error = None;
+
     for attempt in 0..MAX_CONTEXT_RETRIES {
-        match try_inject_scanner(page).await {
-            Ok(()) => return Ok(()),
+        match operation().await {
+            Ok(value) => return Ok(value),
             Err(e) => {
                 let err_str = e.to_string();
-                // Check if this is a context error (page is navigating)
-                if err_str.contains("Cannot find context")
-                    || err_str.contains("Execution context was destroyed")
-                    || err_str.contains("-32000")
-                {
+                if is_context_error(&err_str) {
                     tracing::debug!(
-                        "Context not ready (attempt {}/{}), retrying...",
+                        "{} context error (attempt {}/{}), retrying...",
+                        operation_name,
                         attempt + 1,
                         MAX_CONTEXT_RETRIES
                     );
-                    last_error = Some(e);
+                    last_error = Some(err_str);
                     tokio::time::sleep(CONTEXT_RETRY_DELAY).await;
                     continue;
                 }
-                // Not a context error, fail immediately
-                return Err(e);
+                return Err(err_str.into());
             }
         }
     }
 
-    // All retries exhausted
-    Err(last_error.unwrap_or_else(|| "Failed to inject scanner after retries".into()))
+    Err(last_error
+        .unwrap_or_else(|| format!("{} failed after retries", operation_name))
+        .into())
+}
+
+pub async fn inject_scanner(page: &Page) -> Result<(), Box<dyn Error + Send + Sync>> {
+    retry_on_context_error("Scanner injection", || try_inject_scanner(page)).await
 }
 
 /// Internal function that attempts scanner injection once.
@@ -73,73 +90,68 @@ pub async fn execute_command(
     _action: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
-    // Retry loop to handle context errors during page navigation.
-    // When a click triggers navigation, the old context is destroyed and we need
-    // to wait for the new page context to be ready before executing commands.
     let params_json = serde_json::to_string(&params)?;
+    let expression = format!("window.Oryn.process({})", params_json);
+
+    tracing::info!("Evaluating script: {}", expression);
+
     let mut last_error = None;
 
     for attempt in 0..MAX_CONTEXT_RETRIES {
-        // Inject scanner (this has its own retry logic for context errors)
         inject_scanner(page).await?;
 
-        let expression = format!("window.Oryn.process({})", params_json);
-        if attempt == 0 {
-            tracing::info!("Evaluating script: {}", expression);
-        } else {
-            tracing::debug!(
-                "Retrying command (attempt {}/{}): {}",
-                attempt + 1,
-                MAX_CONTEXT_RETRIES,
-                expression
-            );
-        }
-
-        // Use timeout to prevent indefinite blocking when dialogs (alert/confirm/prompt) appear.
-        // In headless mode, these dialogs block the JS thread with no way to dismiss them.
-        let eval_future = page.evaluate(expression.as_str());
-        let eval_result = tokio::time::timeout(EVAL_TIMEOUT, eval_future).await;
-
-        match eval_result {
-            Err(_) => {
-                // Timeout - this is not a context error, fail immediately
+        match evaluate_with_timeout(page, &expression).await {
+            Ok(value) => return Ok(value),
+            Err(EvalError::Timeout) => {
                 return Err(
                     "Command timed out - possibly blocked by a dialog (alert/confirm/prompt)"
-                        .to_string()
                         .into(),
                 );
             }
-            Ok(Err(e)) => {
-                let err_str = e.to_string();
-                // Check if this is a context error (page is navigating)
-                if err_str.contains("Cannot find context")
-                    || err_str.contains("Execution context was destroyed")
-                    || err_str.contains("-32000")
-                {
-                    tracing::debug!(
-                        "Context error during command (attempt {}/{}), retrying...",
-                        attempt + 1,
-                        MAX_CONTEXT_RETRIES
-                    );
-                    last_error = Some(format!("Evaluation failed: {}", e));
-                    tokio::time::sleep(CONTEXT_RETRY_DELAY).await;
-                    continue;
-                }
-                // Not a context error, fail immediately
-                return Err(format!("Evaluation failed: {}", e).into());
+            Err(EvalError::Context(err_str)) => {
+                tracing::debug!(
+                    "Context error during command (attempt {}/{}), retrying...",
+                    attempt + 1,
+                    MAX_CONTEXT_RETRIES
+                );
+                last_error = Some(err_str);
+                tokio::time::sleep(CONTEXT_RETRY_DELAY).await;
             }
-            Ok(Ok(remote_object)) => {
-                // Successfully evaluated, now get the value
-                let result = remote_object
-                    .into_value::<serde_json::Value>()
-                    .map_err(|e| format!("Failed to get result: {}", e))?;
-                return Ok(result);
+            Err(EvalError::Other(err_str)) => {
+                return Err(format!("Evaluation failed: {}", err_str).into());
             }
         }
     }
 
-    // All retries exhausted
     Err(last_error
         .unwrap_or_else(|| "Failed to execute command after retries".to_string())
         .into())
+}
+
+enum EvalError {
+    Timeout,
+    Context(String),
+    Other(String),
+}
+
+async fn evaluate_with_timeout(
+    page: &Page,
+    expression: &str,
+) -> Result<serde_json::Value, EvalError> {
+    let eval_result = tokio::time::timeout(EVAL_TIMEOUT, page.evaluate(expression)).await;
+
+    match eval_result {
+        Err(_) => Err(EvalError::Timeout),
+        Ok(Err(e)) => {
+            let err_str = e.to_string();
+            if is_context_error(&err_str) {
+                Err(EvalError::Context(err_str))
+            } else {
+                Err(EvalError::Other(err_str))
+            }
+        }
+        Ok(Ok(remote_object)) => remote_object
+            .into_value::<serde_json::Value>()
+            .map_err(|e| EvalError::Other(format!("Failed to get result: {}", e))),
+    }
 }
