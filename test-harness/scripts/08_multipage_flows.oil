@@ -42,7 +42,7 @@ type "Phone Number" "(555) 123-4567"
 type "Address Line 1" "123 Main Street"
 type "Address Line 2" "Apt 4B"
 type "City" "San Francisco"
-select "State" "California"
+select css(#state) "California"
 type "ZIP Code" "94102"
 
 # Select shipping method
@@ -136,7 +136,7 @@ type "Last Name" "Smith"
 type "Email Address" "jane@test.com"
 type "Address Line 1" "456 Oak Ave"
 type "City" "New York"
-select "State" "New York"
+select css(#state) "New York"
 type "ZIP Code" "10001"
 
 # Now submit should succeed
