@@ -391,7 +391,7 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
         {
             // Calculate available intents
             result.available_intents = Some(self.calculate_available_intents(&result));
-            self.last_scan = Some(result);
+            self.last_scan = Some(*result);
         }
         Ok(())
     }

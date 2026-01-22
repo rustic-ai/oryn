@@ -84,9 +84,16 @@ impl CdpClient {
         let page_clone = page.clone();
         tokio::spawn(async move {
             while let Some(event) = dialog_events.next().await {
-                tracing::info!("Handling JavaScript Dialog: {} ({:?})", event.message, event.r#type);
+                tracing::info!(
+                    "Handling JavaScript Dialog: {} ({:?})",
+                    event.message,
+                    event.r#type
+                );
                 // Auto-accept (true) and use default prompt text (None)
-                let cmd = chromiumoxide::cdp::browser_protocol::page::HandleJavaScriptDialogParams::new(true);
+                let cmd =
+                    chromiumoxide::cdp::browser_protocol::page::HandleJavaScriptDialogParams::new(
+                        true,
+                    );
                 if let Err(e) = page_clone.execute(cmd).await {
                     tracing::error!("Failed to handle/accept dialog: {}", e);
                 }

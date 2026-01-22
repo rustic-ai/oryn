@@ -225,7 +225,7 @@ pub enum ScannerProtocolResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ScannerData {
-    Scan(ScanResult),
+    Scan(Box<ScanResult>),
     Action(ActionResult),
     Value(serde_json::Value),
 }

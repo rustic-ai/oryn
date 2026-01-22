@@ -42,7 +42,7 @@ impl Backend for MockBackend {
         match &command {
             ScannerRequest::Scan(_) => {
                 Ok(ScannerProtocolResponse::Ok {
-                    data: Box::new(ScannerData::Scan(ScanResult {
+                    data: Box::new(ScannerData::Scan(Box::new(ScanResult {
                         page: PageInfo {
                             url: "test".into(),
                             title: "Relational Test".into(),
@@ -122,7 +122,7 @@ impl Backend for MockBackend {
                         patterns: None,
                         changes: None,
                         available_intents: None,
-                    })),
+                    }))),
                     warnings: vec![],
                 })
             }

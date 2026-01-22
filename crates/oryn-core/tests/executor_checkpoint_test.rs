@@ -52,7 +52,7 @@ impl Backend for MockBackend {
     ) -> Result<ScannerProtocolResponse, BackendError> {
         self.requests.push(command);
         Ok(ScannerProtocolResponse::Ok {
-            data: Box::new(ScannerData::Scan(ScanResult {
+            data: Box::new(ScannerData::Scan(Box::new(ScanResult {
                 page: PageInfo {
                     url: "http://mock".into(),
                     title: "Mock".into(),
@@ -67,7 +67,7 @@ impl Backend for MockBackend {
                 },
                 changes: None,
                 available_intents: None,
-            })),
+            }))),
             warnings: vec![],
         })
     }

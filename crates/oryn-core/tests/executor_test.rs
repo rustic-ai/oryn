@@ -45,7 +45,7 @@ impl Backend for MockBackend {
             ScannerRequest::Scan(_) => {
                 // Return empty scan result
                 Ok(ScannerProtocolResponse::Ok {
-                    data: Box::new(ScannerData::Scan(ScanResult {
+                    data: Box::new(ScannerData::Scan(Box::new(ScanResult {
                         page: PageInfo {
                             url: "test".into(),
                             title: "test".into(),
@@ -127,7 +127,7 @@ impl Backend for MockBackend {
                         patterns: None,
                         changes: None,
                         available_intents: None,
-                    })),
+                    }))),
                     warnings: vec![],
                 })
             }
@@ -668,7 +668,7 @@ impl Backend for PlaceholderMockBackend {
         match &command {
             ScannerRequest::Scan(_) => {
                 Ok(ScannerProtocolResponse::Ok {
-                    data: Box::new(ScannerData::Scan(ScanResult {
+                    data: Box::new(ScannerData::Scan(Box::new(ScanResult {
                         page: PageInfo {
                             url: "test".into(),
                             title: "test".into(),
@@ -753,7 +753,7 @@ impl Backend for PlaceholderMockBackend {
                         patterns: None,
                         changes: None,
                         available_intents: None,
-                    })),
+                    }))),
                     warnings: vec![],
                 })
             }
@@ -1302,7 +1302,7 @@ impl Backend for FailingMockBackend {
 
         match &command {
             ScannerRequest::Scan(_) => Ok(ScannerProtocolResponse::Ok {
-                data: Box::new(ScannerData::Scan(ScanResult {
+                data: Box::new(ScannerData::Scan(Box::new(ScanResult {
                     page: PageInfo {
                         url: "test".into(),
                         title: "test".into(),
@@ -1336,7 +1336,7 @@ impl Backend for FailingMockBackend {
                     patterns: None,
                     changes: None,
                     available_intents: None,
-                })),
+                }))),
                 warnings: vec![],
             }),
             ScannerRequest::Type(_) => {

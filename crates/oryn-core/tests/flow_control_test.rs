@@ -37,7 +37,7 @@ impl Backend for MockBackend {
         // Logging entire req might be verbose/hard to match.
         // Let's just return success.
         Ok(ScannerProtocolResponse::Ok {
-            data: Box::new(ScannerData::Scan(self.scan_result.clone())),
+            data: Box::new(ScannerData::Scan(Box::new(self.scan_result.clone()))),
             warnings: vec![],
         })
     }

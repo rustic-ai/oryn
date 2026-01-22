@@ -126,7 +126,7 @@ fn test_formatter_scan_scanresult() {
     };
 
     let resp = ScannerProtocolResponse::Ok {
-        data: Box::new(ScannerData::Scan(scan_res)),
+        data: Box::new(ScannerData::Scan(Box::new(scan_res))),
         warnings: vec![],
     };
 

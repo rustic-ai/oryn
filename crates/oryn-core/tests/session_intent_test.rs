@@ -76,10 +76,10 @@ fn test_parse_define_fallback() {
         // "A" is in try block
         assert_eq!(wrapper.try_.steps.len(), 1);
         if let Step::Action(act) = &wrapper.try_.steps[0] {
-            if let Some(target) = &act.target {
-                if let TargetKind::Text { text, .. } = &target.kind {
-                    assert_eq!(text, "A");
-                }
+            if let Some(target) = &act.target
+                && let TargetKind::Text { text, .. } = &target.kind
+            {
+                assert_eq!(text, "A");
             }
         } else {
             panic!("Expected Action for A");
@@ -88,10 +88,10 @@ fn test_parse_define_fallback() {
         // "B" is in catch block
         assert_eq!(wrapper.try_.catch.len(), 1);
         if let Step::Action(act) = &wrapper.try_.catch[0] {
-            if let Some(target) = &act.target {
-                if let TargetKind::Text { text, .. } = &target.kind {
-                    assert_eq!(text, "B");
-                }
+            if let Some(target) = &act.target
+                && let TargetKind::Text { text, .. } = &target.kind
+            {
+                assert_eq!(text, "B");
             }
         } else {
             panic!("Expected Action for B");

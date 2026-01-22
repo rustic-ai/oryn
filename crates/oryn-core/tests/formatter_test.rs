@@ -36,7 +36,7 @@ fn mock_scan_result_with_login() -> ScannerProtocolResponse {
     };
 
     ScannerProtocolResponse::Ok {
-        data: Box::new(ScannerData::Scan(scan)),
+        data: Box::new(ScannerData::Scan(Box::new(scan))),
         warnings: vec![],
     }
 }

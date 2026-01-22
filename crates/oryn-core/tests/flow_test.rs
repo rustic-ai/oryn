@@ -116,7 +116,7 @@ impl Backend for FlowMockBackend {
             ScannerRequest::Scan(_) => {
                 let url = self.current_url.lock().unwrap().clone();
                 Ok(ScannerProtocolResponse::Ok {
-                    data: Box::new(ScannerData::Scan(ScanResult {
+                    data: Box::new(ScannerData::Scan(Box::new(ScanResult {
                         page: PageInfo {
                             url,
                             title: "Test Page".to_string(),
@@ -172,7 +172,7 @@ impl Backend for FlowMockBackend {
                         patterns: None,
                         changes: None,
                         available_intents: None,
-                    })),
+                    }))),
                     warnings: vec![],
                 })
             }

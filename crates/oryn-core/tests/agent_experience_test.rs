@@ -32,7 +32,7 @@ impl Backend for MockBackend {
         _req: oryn_core::protocol::ScannerRequest,
     ) -> Result<ScannerProtocolResponse, BackendError> {
         Ok(ScannerProtocolResponse::Ok {
-            data: Box::new(ScannerData::Scan(self.scan_result.clone())),
+            data: Box::new(ScannerData::Scan(Box::new(self.scan_result.clone()))),
             warnings: vec![],
         })
     }

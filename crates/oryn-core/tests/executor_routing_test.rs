@@ -138,7 +138,7 @@ impl Backend for TrackingMockBackend {
 
         match &command {
             ScannerRequest::Scan(_) => Ok(ScannerProtocolResponse::Ok {
-                data: Box::new(ScannerData::Scan(ScanResult {
+                data: Box::new(ScannerData::Scan(Box::new(ScanResult {
                     page: PageInfo {
                         url: "test".into(),
                         title: "test".into(),
@@ -153,7 +153,7 @@ impl Backend for TrackingMockBackend {
                     patterns: None,
                     changes: None,
                     available_intents: None,
-                })),
+                }))),
                 warnings: vec![],
             }),
             _ => Ok(ScannerProtocolResponse::Ok {
