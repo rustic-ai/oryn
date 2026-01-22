@@ -73,32 +73,73 @@ pub async fn execute_command(
     _action: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
-    inject_scanner(page).await?;
-
-    // Construct JS call: window.Oryn.process(action, params)
-    // We need to pass params safely. serialized JSON string is easiest.
+    // Retry loop to handle context errors during page navigation.
+    // When a click triggers navigation, the old context is destroyed and we need
+    // to wait for the new page context to be ready before executing commands.
     let params_json = serde_json::to_string(&params)?;
+    let mut last_error = None;
 
-    // Evaluate returns a RemoteObject. We want the value.
-    // NOTE: chromiumoxide evaluate returns generic types.
-    // We can evaluate an expression that returns a JSON string, then parse it?
-    // Or let serialization handle it.
+    for attempt in 0..MAX_CONTEXT_RETRIES {
+        // Inject scanner (this has its own retry logic for context errors)
+        inject_scanner(page).await?;
 
-    // We pass params_json as the single argument, which contains "action" field.
-    let expression = format!("window.Oryn.process({})", params_json);
-    tracing::info!("Evaluating script: {}", expression);
+        let expression = format!("window.Oryn.process({})", params_json);
+        if attempt == 0 {
+            tracing::info!("Evaluating script: {}", expression);
+        } else {
+            tracing::debug!(
+                "Retrying command (attempt {}/{}): {}",
+                attempt + 1,
+                MAX_CONTEXT_RETRIES,
+                expression
+            );
+        }
 
-    // Use timeout to prevent indefinite blocking when dialogs (alert/confirm/prompt) appear.
-    // In headless mode, these dialogs block the JS thread with no way to dismiss them.
-    let eval_future = page.evaluate(expression);
-    let result = tokio::time::timeout(EVAL_TIMEOUT, eval_future)
-        .await
-        .map_err(|_| {
-            "Command timed out - possibly blocked by a dialog (alert/confirm/prompt)".to_string()
-        })?
-        .map_err(|e| format!("Evaluation failed: {}", e))?
-        .into_value::<serde_json::Value>()
-        .map_err(|e| format!("Failed to get result: {}", e))?;
+        // Use timeout to prevent indefinite blocking when dialogs (alert/confirm/prompt) appear.
+        // In headless mode, these dialogs block the JS thread with no way to dismiss them.
+        let eval_future = page.evaluate(expression.as_str());
+        let eval_result = tokio::time::timeout(EVAL_TIMEOUT, eval_future).await;
 
-    Ok(result)
+        match eval_result {
+            Err(_) => {
+                // Timeout - this is not a context error, fail immediately
+                return Err(
+                    "Command timed out - possibly blocked by a dialog (alert/confirm/prompt)"
+                        .to_string()
+                        .into(),
+                );
+            }
+            Ok(Err(e)) => {
+                let err_str = e.to_string();
+                // Check if this is a context error (page is navigating)
+                if err_str.contains("Cannot find context")
+                    || err_str.contains("Execution context was destroyed")
+                    || err_str.contains("-32000")
+                {
+                    tracing::debug!(
+                        "Context error during command (attempt {}/{}), retrying...",
+                        attempt + 1,
+                        MAX_CONTEXT_RETRIES
+                    );
+                    last_error = Some(format!("Evaluation failed: {}", e));
+                    tokio::time::sleep(CONTEXT_RETRY_DELAY).await;
+                    continue;
+                }
+                // Not a context error, fail immediately
+                return Err(format!("Evaluation failed: {}", e).into());
+            }
+            Ok(Ok(remote_object)) => {
+                // Successfully evaluated, now get the value
+                let result = remote_object
+                    .into_value::<serde_json::Value>()
+                    .map_err(|e| format!("Failed to get result: {}", e))?;
+                return Ok(result);
+            }
+        }
+    }
+
+    // All retries exhausted
+    Err(last_error
+        .unwrap_or_else(|| "Failed to execute command after retries".to_string())
+        .into())
 }
