@@ -1,3 +1,6 @@
+use crate::resolution::association::{
+    AssociationResult, find_associated_control, is_actionable_label,
+};
 use crate::resolution::command_meta::CommandMeta;
 use crate::resolution::context::ResolutionContext;
 use crate::resolution::inference::get_inference_rules;
@@ -143,7 +146,7 @@ impl ResolutionEngine {
             // Already resolved
             Target::Id(id) => {
                 let id32 = *id as u32;
-                if Self::validate_requirement(id32, requirement, ctx) {
+                if validate_requirement(id32, requirement, ctx) {
                     Ok(id32)
                 } else {
                     Err(ResolutionError {
@@ -175,52 +178,93 @@ impl ResolutionEngine {
             // Semantic targets - use existing resolver
             Target::Text(s) | Target::Role(s) => {
                 let strategy = requirement.to_strategy();
-                match resolver::resolve_target(target, &ctx.to_resolver_context(), strategy) {
-                    Ok(Target::Id(id)) => Ok(id as u32),
-                    _ => {
-                        // Fallback: If semantic resolution failed, try matching against selectors
-                        // This handles cases like `click "modal"` or `#id` passed as text
-                        // We do a loose match on selector
-                        if let Some(id) = ctx
-                            .elements()
-                            .find(|e| e.selector == *s || e.selector.contains(s))
-                            .map(|e| e.id)
-                        {
-                            Ok(id)
-                        } else {
-                            // Secondary fallback: Try to find element by text content directly in ctx
-                            if let Some(id) = ctx
-                                .elements()
-                                .find(|e| {
-                                    e.text
-                                        .as_ref()
-                                        .map(|t| t == s || t.contains(s))
-                                        .unwrap_or(false)
-                                        || e.label
-                                            .as_ref()
-                                            .map(|l| l == s || l.contains(s))
-                                            .unwrap_or(false)
-                                        || e.placeholder
-                                            .as_ref()
-                                            .map(|p| p == s || p.contains(s))
-                                            .unwrap_or(false)
-                                })
+                let resolved_id =
+                    match resolver::resolve_target(target, &ctx.to_resolver_context(), strategy) {
+                        Ok(Target::Id(id)) => Some(id as u32),
+                        _ => {
+                            // Fallback: If semantic resolution failed, try matching against selectors
+                            // This handles cases like `click "modal"` or `#id` passed as text
+                            // We do a loose match on selector
+                            ctx.elements()
+                                .find(|e| e.selector == *s || e.selector.contains(s))
                                 .map(|e| e.id)
-                            {
-                                Ok(id)
-                            } else {
+                                .or_else(|| {
+                                    // Secondary fallback: Try to find element by text content directly in ctx
+                                    ctx.elements()
+                                        .find(|e| {
+                                            e.text
+                                                .as_ref()
+                                                .map(|t| t == s || t.contains(s))
+                                                .unwrap_or(false)
+                                                || e.label
+                                                    .as_ref()
+                                                    .map(|l| l == s || l.contains(s))
+                                                    .unwrap_or(false)
+                                                || e.placeholder
+                                                    .as_ref()
+                                                    .map(|p| p == s || p.contains(s))
+                                                    .unwrap_or(false)
+                                        })
+                                        .map(|e| e.id)
+                                })
+                        }
+                    };
+
+                match resolved_id {
+                    Some(id) => {
+                        // Check if the resolved element satisfies the requirement
+                        if validate_requirement(id, requirement, ctx) {
+                            return Ok(id);
+                        }
+
+                        // Element doesn't satisfy requirement - try finding associated control
+                        match find_associated_control(id, requirement, ctx) {
+                            AssociationResult::Found(control_id) => Ok(control_id),
+                            AssociationResult::NoAssociation => {
+                                // Special case: labels can trigger actions on their associated controls
+                                // (browser handles focus/toggle when clicking a label)
+                                if matches!(
+                                    requirement,
+                                    TargetRequirement::Clickable | TargetRequirement::Checkable
+                                ) && is_actionable_label(id, ctx)
+                                {
+                                    return Ok(id);
+                                }
+
+                                // Fallback: Return the element anyway for Clickable/Checkable
+                                // Many UI patterns rely on event bubbling (clicking text inside a button/label)
+                                // This preserves backward compatibility with the old resolver behavior
+                                if matches!(
+                                    requirement,
+                                    TargetRequirement::Clickable | TargetRequirement::Checkable
+                                ) {
+                                    return Ok(id);
+                                }
+
                                 Err(ResolutionError {
                                     target: format!("{:?}", target),
-                                    reason: format!("No element matches target: {}", s),
+                                    reason: format!(
+                                        "Element '{}' (id={}) doesn't satisfy {:?} and has no associated control",
+                                        s, id, requirement
+                                    ),
                                     attempted: vec![
                                         "semantic_resolution".into(),
-                                        "selector_fallback".into(),
-                                        "text_fallback".into(),
+                                        "requirement_validation".into(),
+                                        "label_association".into(),
                                     ],
                                 })
                             }
                         }
                     }
+                    None => Err(ResolutionError {
+                        target: format!("{:?}", target),
+                        reason: format!("No element matches target: {}", s),
+                        attempted: vec![
+                            "semantic_resolution".into(),
+                            "selector_fallback".into(),
+                            "text_fallback".into(),
+                        ],
+                    }),
                 }
             }
 
@@ -362,67 +406,6 @@ impl ResolutionEngine {
         }
     }
 
-    fn validate_requirement(
-        id: u32,
-        requirement: &TargetRequirement,
-        ctx: &ResolutionContext,
-    ) -> bool {
-        let Some(elem) = ctx.get_element(id) else {
-            return false;
-        };
-
-        let attr_is = |key: &str, value: &str| elem.attributes.get(key).is_some_and(|v| v == value);
-
-        let attr_matches = |key: &str, values: &[&str]| {
-            elem.attributes
-                .get(key)
-                .is_some_and(|v| values.contains(&v.as_str()))
-        };
-
-        let is_type = |t: &str| elem.element_type == t;
-
-        match requirement {
-            TargetRequirement::Any => true,
-
-            TargetRequirement::Typeable => {
-                matches!(elem.element_type.as_str(), "input" | "textarea" | "select")
-                    || attr_is("contenteditable", "true")
-            }
-
-            TargetRequirement::Clickable => {
-                matches!(elem.element_type.as_str(), "button" | "a")
-                    || attr_is("role", "button")
-                    || (is_type("input") && attr_matches("type", &["submit", "button", "reset"]))
-            }
-
-            TargetRequirement::Checkable => {
-                attr_matches("type", &["checkbox", "radio"])
-                    || attr_matches("role", &["checkbox", "radio", "switch"])
-            }
-
-            TargetRequirement::Submittable => {
-                is_type("form")
-                    || (is_type("button") && !attr_matches("type", &["button", "reset"]))
-                    || (is_type("input") && attr_is("type", "submit"))
-            }
-
-            TargetRequirement::Container(ct) => match ct {
-                ContainerType::Form => is_type("form"),
-                ContainerType::Modal | ContainerType::Dialog => {
-                    is_type("dialog") || attr_matches("role", &["dialog", "alertdialog"])
-                }
-                ContainerType::Any => true,
-            },
-
-            TargetRequirement::Selectable => is_type("select") || attr_is("role", "listbox"),
-
-            TargetRequirement::Dismissable | TargetRequirement::Acceptable => {
-                matches!(elem.element_type.as_str(), "button" | "a" | "input")
-                    || attr_matches("role", &["button", "link"])
-            }
-        }
-    }
-
     fn parse_selector_response(
         resp: &ScannerProtocolResponse,
         selector: &str,
@@ -448,6 +431,70 @@ impl ResolutionEngine {
                 reason: message.clone(),
                 attempted: vec!["browser_query".into()],
             }),
+        }
+    }
+}
+
+/// Validate that an element satisfies a requirement.
+///
+/// This is pub(crate) so it can be used by the association module.
+pub(crate) fn validate_requirement(
+    id: u32,
+    requirement: &TargetRequirement,
+    ctx: &ResolutionContext,
+) -> bool {
+    let Some(elem) = ctx.get_element(id) else {
+        return false;
+    };
+
+    let attr_is = |key: &str, value: &str| elem.attributes.get(key).is_some_and(|v| v == value);
+
+    let attr_matches = |key: &str, values: &[&str]| {
+        elem.attributes
+            .get(key)
+            .is_some_and(|v| values.contains(&v.as_str()))
+    };
+
+    let is_type = |t: &str| elem.element_type == t;
+
+    match requirement {
+        TargetRequirement::Any => true,
+
+        TargetRequirement::Typeable => {
+            matches!(elem.element_type.as_str(), "input" | "textarea" | "select")
+                || attr_is("contenteditable", "true")
+        }
+
+        TargetRequirement::Clickable => {
+            matches!(elem.element_type.as_str(), "button" | "a")
+                || attr_is("role", "button")
+                || (is_type("input") && attr_matches("type", &["submit", "button", "reset"]))
+        }
+
+        TargetRequirement::Checkable => {
+            attr_matches("type", &["checkbox", "radio"])
+                || attr_matches("role", &["checkbox", "radio", "switch"])
+        }
+
+        TargetRequirement::Submittable => {
+            is_type("form")
+                || (is_type("button") && !attr_matches("type", &["button", "reset"]))
+                || (is_type("input") && attr_is("type", "submit"))
+        }
+
+        TargetRequirement::Container(ct) => match ct {
+            ContainerType::Form => is_type("form"),
+            ContainerType::Modal | ContainerType::Dialog => {
+                is_type("dialog") || attr_matches("role", &["dialog", "alertdialog"])
+            }
+            ContainerType::Any => true,
+        },
+
+        TargetRequirement::Selectable => is_type("select") || attr_is("role", "listbox"),
+
+        TargetRequirement::Dismissable | TargetRequirement::Acceptable => {
+            matches!(elem.element_type.as_str(), "button" | "a" | "input")
+                || attr_matches("role", &["button", "link"])
         }
     }
 }

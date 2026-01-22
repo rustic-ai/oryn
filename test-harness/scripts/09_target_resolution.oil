@@ -2,27 +2,28 @@
 # Tests the target resolution features from SPEC-INTENT-ENGINE.md Section 5.2
 
 # =============================================================================
-# Test 1: Role-Based Targeting
+# Test 1: Role-Based Targeting with Label Association
 # =============================================================================
 goto "http://localhost:3000/intent-tests/roles-targeting.html"
 observe
 
-# Target by role="textbox"
-type css(input[role="textbox"]) "role-targeted@email.com"
+# Target by label text - association resolves <label for="role-email">Email</label> -> <input id="role-email">
+type "Email" "role-targeted@email.com"
 
-# Target by role="checkbox"
-click css(input[role="checkbox"])
+# Target checkbox by associated label - <input id="role-remember"><label for="role-remember">Remember me</label>
+check "Remember me"
 
-# Target by role="button"
-click css(button[role="button"][aria-label="Sign in to your account"])
+# Target by button text
+click "Sign In"
 
 # =============================================================================
 # Test 2: ARIA Label Targeting
 # =============================================================================
 
-# Target by role="searchbox" (the input has role="searchbox", not aria-label="Search")
-type css(input[role="searchbox"]) "aria search test"
-click css(button[aria-label="Submit search"])
+# Target search input by placeholder text
+type "Search..." "aria search test"
+# Target search button by text
+click "Search"
 
 # =============================================================================
 # Test 3: Custom Checkbox (role-based)
@@ -219,4 +220,28 @@ observe
 
 # Scroll to landmarks section
 scroll down
+observe
+
+# =============================================================================
+# Test 17: Label Association Resolution
+# =============================================================================
+# Tests the label-to-control association feature where commands like
+# type "Email" resolve to the associated input via <label for="id">
+
+goto "http://localhost:3000/forms/registration.html"
+observe
+
+# Test for-attribute association: <label for="first-name">First Name</label> -> <input id="first-name">
+type "First Name" "John"
+type "Last Name" "Doe"
+type "Email Address" "john@example.com"
+
+# Test select association: <label for="role">Primary Role</label> -> <select id="role">
+select "Primary Role" "designer"
+
+# Test textarea association: <label for="bio">Bio</label> -> <textarea id="bio">
+type "Bio" "Software engineer with 10 years experience"
+
+# Verify submit works
+click "Create Account"
 observe
