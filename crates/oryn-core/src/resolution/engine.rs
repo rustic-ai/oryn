@@ -318,7 +318,8 @@ impl ResolutionEngine {
                 }}
                 if (!el) return {{ found: false }};
                 var id = Oryn.State.inverseMap.get(el);
-                if (id !== undefined) return {{ found: true, id: id }};
+                // Verify id still exists in elementMap (may have been cleared by scan)
+                if (id !== undefined && Oryn.State.elementMap.has(id)) return {{ found: true, id: id }};
                 id = Oryn.State.nextId++;
                 Oryn.State.inverseMap.set(el, id);
                 Oryn.State.elementMap.set(id, el);
@@ -328,14 +329,15 @@ impl ResolutionEngine {
             )
         } else {
             format!(
-                r###" 
+                r###"
                 var el = null;
                 try {{
                     el = document.querySelector("{}");
                 }} catch (e) {{}}
                 if (!el) return {{ found: false }};
                 var id = Oryn.State.inverseMap.get(el);
-                if (id !== undefined) return {{ found: true, id: id }};
+                // Verify id still exists in elementMap (may have been cleared by scan)
+                if (id !== undefined && Oryn.State.elementMap.has(id)) return {{ found: true, id: id }};
                 id = Oryn.State.nextId++;
                 Oryn.State.inverseMap.set(el, id);
                 Oryn.State.elementMap.set(id, el);

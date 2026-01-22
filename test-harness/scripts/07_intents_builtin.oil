@@ -18,8 +18,9 @@ observe
 
 # Reset and test reject flow
 click "Reset Consent"
-observe
-click "Reject All"
+wait visible css(.cookie-banner)
+# Use CSS selector for Reject All button in the cookie banner (not the modal)
+click css(.cookie-banner .reject-all)
 wait hidden css(.cookie-banner)
 
 # =============================================================================
@@ -75,7 +76,7 @@ observe
 type "First Name" "Jane"
 type "Last Name" "Smith"
 type "Email Address" "jane.smith@example.com"
-select "Primary Role" "designer"
+select css(#role) "designer"
 click "Create Account"
 
 # =============================================================================
@@ -110,7 +111,7 @@ check "Python"
 check "Rust"
 
 # Test radio button selection
-click "Senior (5-10 years)"
+click "Senior (5+ years)"
 
 # Submit form
 click "Submit Survey"
