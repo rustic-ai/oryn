@@ -1,5 +1,20 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
+
+/// Custom deserializer for HashMap<String, String> that filters out null values.
+/// This is needed because the scanner returns attributes with null values for missing attributes.
+fn deserialize_nullable_string_map<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let map: HashMap<String, Option<String>> = HashMap::deserialize(deserializer)?;
+    Ok(map
+        .into_iter()
+        .filter_map(|(k, v)| v.map(|val| (k, val)))
+        .collect())
+}
 
 /// Requests sent to the scanner.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -406,7 +421,7 @@ pub struct Element {
 
     pub rect: Rect,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_nullable_string_map")]
     pub attributes: HashMap<String, String>,
     #[serde(default)]
     pub state: ElementState,

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Oryn Logs</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 0;
+            margin: 0;
+            background-color: #f8f9fa;
+        }
+
+        .header {
+            padding: 10px;
+            background: #fff;
+            border-bottom: 1px solid #ddd;
+            position: sticky;
+            top: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h2 {
+            margin: 0;
+            font-size: 14px;
+            color: #333;
+        }
+
+        button {
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        button:hover {
+            background: #f0f0f0;
+        }
+
+        #log-container {
+            padding: 10px;
+            font-size: 12px;
+            line-height: 1.4;
+            overflow-y: auto;
+            height: calc(100vh - 50px);
+        }
+
+        .log-entry {
+            margin-bottom: 4px;
+            padding: 4px;
+            border-radius: 2px;
+            word-break: break-all;
+        }
+
+        .log-entry:hover {
+            background: #eee;
+        }
+
+        .log-time {
+            color: #888;
+            margin-right: 5px;
+            font-size: 10px;
+        }
+
+        .log-msg {
+            color: #333;
+        }
+
+        .log-error {
+            color: #d32f2f;
+            background: #ffebee;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <label style="font-size: 11px; display: flex; align-items: center; gap: 4px;">
+            <input type="checkbox" id="show-all"> Show All
+        </label>
+        <div id="status-text" style="font-size: 11px; color: #666; flex: 1; text-align: right; margin-right: 8px;">
+            Initializing...
+        </div>
+        <button id="btn-clear">Clear</button>
+    </div>
+    <div id="log-container"></div>
+    <script src="sidepanel.js"></script>
+</body>
+
+</html>
