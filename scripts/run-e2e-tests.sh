@@ -360,7 +360,11 @@ test_oryn_r() {
     rm -rf "$ext_patch_dir"
     mkdir -p "$ext_patch_dir"
     cp -r "$ext_dir/"* "$ext_patch_dir/"
+    # We still patch background.js as a fallback, but config.json is the primary way now
     sed -i "s|ws://127.0.0.1:9001|ws://127.0.0.1:$REMOTE_PORT|g" "$ext_patch_dir/background.js"
+
+    # Create config.json for auto-connect per EXTENSION_TESTING.md
+    echo "{\"autoConnect\": true, \"websocketUrl\": \"ws://127.0.0.1:$REMOTE_PORT\"}" > "$ext_patch_dir/config.json"
 
     # Make extension accessible to Docker
     chmod -R 755 "$ext_patch_dir"

@@ -2219,9 +2219,14 @@
             }
 
             // Ensure timing is present on success
-            if (result && result.ok && !result.timing) {
+            if (result && result.status === 'ok' && !result.timing) {
                 result.timing = { duration_ms: performance.now() - t0 };
             }
+            
+            if (!result) {
+                return Protocol.error('Internal Error: Result is null/undefined', 'INTERNAL_ERROR');
+            }
+
             return result;
         } catch (e) {
             console.error('Scanner error:', e);

@@ -13,11 +13,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
-    // Load saved global settings (for default URL)
-    const storage = await chrome.storage.local.get(['websocketUrl']);
+    // Load saved global settings (for default URL and AutoConnect)
+    const storage = await chrome.storage.local.get(['websocketUrl', 'autoConnect']);
     if (storage.websocketUrl) {
         urlInput.value = storage.websocketUrl;
     }
+    const autoConnectCheckbox = document.getElementById('auto-connect');
+    if (storage.autoConnect) {
+        autoConnectCheckbox.checked = true;
+    }
+
+    autoConnectCheckbox.addEventListener('change', () => {
+        chrome.storage.local.set({ autoConnect: autoConnectCheckbox.checked });
+    });
 
     // Subscribe to status changes from background
     chrome.runtime.onMessage.addListener((message) => {

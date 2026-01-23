@@ -2,12 +2,41 @@
 const connections = new Map(); // TabID -> { socket: WebSocket, url: string, status: string }
 let defaultUrl = "ws://127.0.0.1:9001";
 
-// Load saved default URL
-chrome.storage.local.get(['websocketUrl'], (result) => {
+// Load saved default URL and Auto-Connect setting
+chrome.storage.local.get(['websocketUrl', 'autoConnect'], (result) => {
     if (result.websocketUrl) {
         defaultUrl = result.websocketUrl;
     }
+    // Note: autoConnect might be set by config loading below
 });
+
+// --- Config Loading ---
+
+async function loadConfig() {
+    try {
+        const response = await fetch('config.json');
+        if (response.ok) {
+            const config = await response.json();
+
+            // Update storage if config file is present
+            if (config.websocketUrl) {
+                defaultUrl = config.websocketUrl;
+                chrome.storage.local.set({ websocketUrl: defaultUrl });
+            }
+
+            if (config.autoConnect !== undefined) {
+                chrome.storage.local.set({ autoConnect: config.autoConnect });
+                remoteLog(`[System] Config loaded: autoConnect=${config.autoConnect}`);
+            }
+        }
+    } catch (e) {
+        // Expected in production (file missing)
+        remoteLog("[System] No config.json found, skipping.");
+    }
+}
+
+// Ensure config is loaded before other init or alongside
+loadConfig();
 
 // --- State Helpers ---
 
@@ -296,6 +325,19 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (tab.active) {
         const conn = getConnection(tabId);
         updateBadge(conn.status);
+    }
+
+    // Auto-Connect Logic
+    if (changeInfo.status === 'complete') {
+        chrome.storage.local.get(['autoConnect'], (result) => {
+            if (result.autoConnect) {
+                const conn = getConnection(tabId);
+                if (conn.status === 'disconnected') {
+                    remoteLog(`[AutoConnect] Triggered for Tab ${tabId}`, tabId);
+                    connect(tabId, defaultUrl);
+                }
+            }
+        });
     }
 });
 

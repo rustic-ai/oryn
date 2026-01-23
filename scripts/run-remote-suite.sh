@@ -58,6 +58,8 @@ rm -rf "$EXT_PATCH_DIR"
 mkdir -p "$EXT_PATCH_DIR"
 cp -r "$ENV_EXT_DIR/"* "$EXT_PATCH_DIR/"
 sed -i "s|ws://127.0.0.1:9001|ws://127.0.0.1:$PORT|g" "$EXT_PATCH_DIR/background.js"
+# Enable auto-connect for headless testing
+echo "{\"autoConnect\": true, \"websocketUrl\": \"ws://127.0.0.1:$PORT\"}" > "$EXT_PATCH_DIR/config.json"
 
 # 2. Results Init
 RESULTS_FILE="remote-test-results.md"

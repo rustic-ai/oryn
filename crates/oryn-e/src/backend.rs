@@ -2,8 +2,8 @@ use crate::cog::{self, CogProcess};
 use crate::webdriver::WebDriverClient;
 use async_trait::async_trait;
 use oryn_core::backend::{Backend, BackendError, NavigationResult};
-use oryn_core::protocol::{ScannerProtocolResponse, ScannerRequest};
-use tracing::info;
+use oryn_core::protocol::{ActionResult, ScannerData, ScannerProtocolResponse, ScannerRequest};
+use tracing::{info, warn};
 
 pub struct EmbeddedBackend {
     client: Option<WebDriverClient>,
@@ -143,50 +143,99 @@ impl Backend for EmbeddedBackend {
     ) -> Result<ScannerProtocolResponse, BackendError> {
         let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
 
-        // 1. Inject Scanner JS if needed
-        // We check if Oryn is defined.
-        let check_script = "return typeof window.Oryn !== 'undefined';";
-        let is_injected = client
-            .client
-            .execute(check_script, vec![])
-            .await
-            .map_err(|e| BackendError::Other(format!("Failed to check scanner injection: {}", e)))?
-            .as_bool()
-            .unwrap_or(false);
+        let mut last_error = None;
+        for attempt in 1..=3 {
+            if attempt > 1 {
+                warn!("Retrying scanner execution (attempt {})...", attempt);
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
 
-        if !is_injected {
-            info!("Injecting scanner...");
-            let script = oryn_scanner::SCANNER_JS;
-            client
-                .client
-                .execute(script, vec![])
-                .await
-                .map_err(|e| BackendError::Other(format!("Failed to inject scanner: {}", e)))?;
+            // 1. Inject Scanner JS if needed
+            let check_script = "return typeof window.Oryn !== 'undefined';";
+            let is_injected = match client.client.execute(check_script, vec![]).await {
+                Ok(val) => val.as_bool().unwrap_or(false),
+                Err(_) => false, // Assume not injected or context lost
+            };
+
+            if !is_injected {
+                info!("Injecting scanner...");
+                let script = oryn_scanner::SCANNER_JS;
+                if let Err(e) = client.client.execute(script, vec![]).await {
+                    last_error = Some(BackendError::Other(format!(
+                        "Failed to inject scanner: {}",
+                        e
+                    )));
+                    continue;
+                }
+            }
+
+            // 2. Prepare arguments
+            let args_json = serde_json::to_value(&command)?;
+
+            // 3. Execute
+            let exec_script = r#"
+                const args = arguments[0];
+                return window.Oryn.process(args);
+            "#;
+
+            match client.client.execute(exec_script, vec![args_json]).await {
+                Ok(result_value) => {
+                    // Handle Null result (common in WPE during navigation or context destruction)
+                    if result_value.is_null() {
+                        match command {
+                            ScannerRequest::Click(_)
+                            | ScannerRequest::Submit(_)
+                            | ScannerRequest::Type(_) => {
+                                info!(
+                                    "Scanner returned Null, synthesizing success for action: {:?}",
+                                    command
+                                );
+                                return Ok(ScannerProtocolResponse::Ok {
+                                    data: Box::new(ScannerData::Action(ActionResult {
+                                        success: true,
+                                        message: Some(
+                                            "Synthesized success (suspected navigation)".into(),
+                                        ),
+                                        navigation: Some(true),
+                                    })),
+                                    warnings: vec![
+                                        "Scanner returned Null, assuming navigation occurred"
+                                            .into(),
+                                    ],
+                                });
+                            }
+                            _ => {
+                                last_error =
+                                    Some(BackendError::Scanner("Scanner returned Null".into()));
+                                continue;
+                            }
+                        }
+                    }
+
+                    // 4. Deserialize result
+                    match serde_json::from_value::<ScannerProtocolResponse>(result_value) {
+                        Ok(response) => return Ok(response),
+                        Err(e) => {
+                            last_error =
+                                Some(BackendError::Scanner(format!("Serialization error: {}", e)));
+                            continue;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let err_msg = e.to_string();
+                    if err_msg.contains("undefined is not an object")
+                        || err_msg.contains("Oryn is not defined")
+                    {
+                        last_error = Some(BackendError::Scanner(err_msg));
+                        continue;
+                    }
+                    return Err(BackendError::Scanner(err_msg));
+                }
+            }
         }
 
-        // 2. Prepare arguments
-        // `Oryn.process(message)` takes a single object.
-        // `ScannerRequest` serializes to that object (e.g. {action: "scan", ...}).
-        let args_json = serde_json::to_value(&command)?;
-
-        // 3. Execute
-        // fantoccini execute expects script and args.
-        // We call window.Oryn.process(args) and return result.
-        // Note: return await ...;
-        let exec_script = r#"
-            const args = arguments[0];
-            return window.Oryn.process(args);
-        "#;
-
-        let result_value = client
-            .client
-            .execute(exec_script, vec![args_json])
-            .await
-            .map_err(|e| BackendError::Scanner(e.to_string()))?;
-
-        // 4. Deserialize result
-        let response: ScannerProtocolResponse = serde_json::from_value(result_value)?;
-        Ok(response)
+        Err(last_error.unwrap_or(BackendError::Scanner("Failed after maximum retries".into())))
     }
 
     async fn screenshot(&mut self) -> Result<Vec<u8>, BackendError> {

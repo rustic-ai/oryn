@@ -124,7 +124,7 @@ fn make_scan(elements: Vec<Element>) -> ScanResult {
 /// Test: `<label for="email">Email</label><input id="email">` -> type "Email" should resolve to input
 #[tokio::test]
 async fn test_for_attribute_association() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     // Create label with for="email"
     let mut label = make_element(1, "label", Some("Email"));
@@ -176,7 +176,7 @@ async fn test_for_attribute_association() {
 /// Test: `<label>Email <input></label>` -> type "Email" should resolve to nested input
 #[tokio::test]
 async fn test_nested_control_association() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     // Create label containing an input
     let mut label = make_element(1, "label", Some("Email"));
@@ -221,7 +221,7 @@ async fn test_nested_control_association() {
 /// Test: `<span>State</span><select>` -> select "State" should resolve to select element
 #[tokio::test]
 async fn test_adjacent_control_association() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     // Create span (label-like) next to select
     let mut span = make_element(1, "span", Some("State"));
@@ -260,7 +260,7 @@ async fn test_adjacent_control_association() {
 /// Test: `<label for="remember">Remember me</label><input type="checkbox" id="remember">`
 #[tokio::test]
 async fn test_checkbox_association() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     // Create label with for="remember"
     let mut label = make_element(1, "label", Some("Remember me"));
@@ -307,7 +307,7 @@ async fn test_checkbox_association() {
 /// Test: click "Email" on label should be allowed (browser handles focus/toggle)
 #[tokio::test]
 async fn test_label_click_allowed() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     // Create label with for="email"
     let mut label = make_element(1, "label", Some("Email"));
@@ -357,7 +357,7 @@ async fn test_label_click_allowed() {
 /// Test: orphan label (no associated control) should give helpful error for type command
 #[tokio::test]
 async fn test_no_association_error() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     // Create orphan label with no associated input
     let mut label = make_element(1, "label", Some("Orphan Label"));
@@ -390,7 +390,7 @@ async fn test_no_association_error() {
 /// Test: requirement validation only triggers for Typeable/Selectable/Checkable
 #[tokio::test]
 async fn test_direct_input_resolution() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     // Create input directly with label
     let mut input = make_element(1, "input", None);
@@ -427,7 +427,7 @@ async fn test_direct_input_resolution() {
 /// Test: Adjacent control with vertical proximity
 #[tokio::test]
 async fn test_adjacent_control_below_label() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     // Create label above input
     let mut label = make_element(1, "label", Some("Description"));

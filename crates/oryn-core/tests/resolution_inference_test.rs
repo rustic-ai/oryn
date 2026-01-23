@@ -113,7 +113,7 @@ fn make_element(id: u32, type_: &str, text: Option<&str>, role: Option<&str>) ->
 
 #[tokio::test]
 async fn test_inference_single_form() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     let form = make_element(1, "form", None, None);
     let mut submit_btn = make_element(2, "button", Some("Submit"), None);
@@ -165,7 +165,7 @@ async fn test_inference_single_form() {
 
 #[tokio::test]
 async fn test_inference_login_pattern() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     let email = make_element(1, "input", None, None);
     let password = make_element(2, "input", None, None);
@@ -211,7 +211,7 @@ async fn test_inference_login_pattern() {
 
 #[tokio::test]
 async fn test_inference_any_submit() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     // Just a submit button, no form container (maybe body is form-like or just loose)
     let mut submit_btn = make_element(5, "button", Some("Save"), None);
@@ -248,7 +248,7 @@ async fn test_inference_any_submit() {
 
 #[tokio::test]
 async fn test_inference_fail_no_candidate() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     // No buttons, no forms
     let div = make_element(1, "div", Some("Hello"), None);
@@ -281,7 +281,7 @@ async fn test_inference_fail_no_candidate() {
 
 #[tokio::test]
 async fn test_inference_dismiss_modal() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     let modal = make_element(1, "dialog", None, None);
     let mut close_btn = make_element(2, "button", Some("Close"), None);
@@ -300,7 +300,6 @@ async fn test_inference_dismiss_modal() {
         width: 400.0,
         height: 300.0,
     };
-    let mut close_btn = close_btn;
     close_btn.rect = Rect {
         x: 350.0,
         y: 10.0,
@@ -339,7 +338,7 @@ async fn test_inference_dismiss_modal() {
 
 #[tokio::test]
 async fn test_inference_accept_cookies() {
-    let mut backend = MockBackend::default();
+    let mut backend = MockBackend;
 
     // Cookie banner pattern
     let banner = make_element(1, "div", None, None);
