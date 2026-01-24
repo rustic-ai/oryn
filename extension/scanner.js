@@ -289,7 +289,7 @@
         },
 
         isPrimaryButton: (el) => {
-            const className = (el.className || '').toLowerCase();
+            const className = (el.getAttribute('class') || '').toLowerCase();
             const text = (el.textContent || '').toLowerCase().trim();
 
             // Check for primary button indicators
@@ -775,7 +775,7 @@
                     'aria-disabled': el.getAttribute('aria-disabled') || undefined,
                     'aria-describedby': el.getAttribute('aria-describedby') || undefined,
                     title: el.getAttribute('title') || undefined,
-                    class: el.className || undefined,
+                    class: (typeof el.className === 'string' ? el.className : el.getAttribute('class')) || undefined,
                     tabindex: el.getAttribute('tabindex') || undefined,
                     ...dataAttrs
                 },
@@ -1755,6 +1755,7 @@
         detectModal: () => {
             // Look for visible modal dialogs
             const modalSelectors = [
+                'dialog[open]',
                 '[role="dialog"]',
                 '[aria-modal="true"]',
                 '.modal:not(.hidden)',
@@ -1762,7 +1763,9 @@
                 '.modal.open',
                 '[class*="modal"][class*="open"]',
                 '[class*="modal"][class*="show"]',
-                '[class*="dialog"][class*="open"]'
+                '[class*="dialog"][class*="open"]',
+                '[class*="popup"]',
+                '[class*="overlay"]'
             ];
 
             for (const selector of modalSelectors) {

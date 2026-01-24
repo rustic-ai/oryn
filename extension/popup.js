@@ -19,13 +19,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         urlInput.value = storage.websocketUrl;
     }
     const autoConnectCheckbox = document.getElementById('auto-connect');
-    if (storage.autoConnect) {
-        autoConnectCheckbox.checked = true;
-    }
+    if (autoConnectCheckbox) {
+        if (storage.autoConnect) {
+            autoConnectCheckbox.checked = true;
+        }
 
-    autoConnectCheckbox.addEventListener('change', () => {
-        chrome.storage.local.set({ autoConnect: autoConnectCheckbox.checked });
-    });
+        autoConnectCheckbox.addEventListener('change', () => {
+            chrome.storage.local.set({ autoConnect: autoConnectCheckbox.checked });
+        });
+    }
 
     // Subscribe to status changes from background
     chrome.runtime.onMessage.addListener((message) => {
@@ -63,6 +65,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             tabId: currentTabId
         });
     });
+
+    const logsBtn = document.getElementById('btn-logs');
+    if (logsBtn) {
+        logsBtn.addEventListener('click', () => {
+            // chrome.sidePanel.open requires a user gesture, which this click provides.
+            // We need the windowId to open the side panel in the correct window.
+            chrome.sidePanel.open({ windowId: tab.windowId });
+            window.close(); // Close the popup so the side panel can be seen clearly
+        });
+    }
 
     function updateUI(status) {
         statusBadge.className = 'status-badge';

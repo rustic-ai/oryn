@@ -40,11 +40,11 @@ pub fn definition() -> IntentDefinition {
                                 on_error: None,
                                 target: Some(TargetSpec {
                                     kind: TargetKind::Selector {
-                                        selector: "$popup.close_button".to_string(),
-                                    }, // Pseudo-selector logic
+                                        selector: "$popup.close".to_string(),
+                                    },
                                     fallback: Some(Box::new(TargetSpec {
-                                        kind: TargetKind::Role {
-                                            role: "close".to_string(),
+                                        kind: TargetKind::Selector {
+                                            selector: "button[aria-label*='lose']".to_string(),
                                         },
                                         fallback: Some(Box::new(TargetSpec {
                                             kind: TargetKind::Text {
@@ -56,7 +56,19 @@ pub fn definition() -> IntentDefinition {
                                                     text: "Close".to_string(),
                                                     match_type: MatchType::Contains,
                                                 },
-                                                fallback: None,
+                                                fallback: Some(Box::new(TargetSpec {
+                                                    kind: TargetKind::Text {
+                                                         text: "Dismiss".to_string(),
+                                                         match_type: MatchType::Contains,
+                                                    },
+                                                    fallback: Some(Box::new(TargetSpec {
+                                                        kind: TargetKind::Text {
+                                                            text: "No thanks".to_string(),
+                                                            match_type: MatchType::Contains,
+                                                        },
+                                                        fallback: None,
+                                                    })),
+                                                })),
                                             })),
                                         })),
                                     })),

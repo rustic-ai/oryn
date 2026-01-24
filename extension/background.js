@@ -128,6 +128,15 @@ function connect(tabId, url) {
     // Update state with new socket
     updateConnectionState(tabId, { socket: socket });
 
+    // Keep-Alive Loop
+    const keepAliveParams = { intervalId: null };
+
+    keepAliveParams.intervalId = setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'ping', status: 'ok' }));
+        }
+    }, 20000); // 20 seconds
+
     socket.onopen = () => {
         remoteLog(`Connected`, tabId);
         const isLocal = url.includes("127.0.0.1") || url.includes("localhost");
@@ -137,7 +146,7 @@ function connect(tabId, url) {
     };
 
     socket.onmessage = (event) => {
-        // remoteLog(`Received: ${event.data}`, tabId);
+        remoteLog(`Received: ${event.data}`, tabId);
         try {
             const command = JSON.parse(event.data);
 
@@ -160,6 +169,7 @@ function connect(tabId, url) {
     };
 
     socket.onclose = () => {
+        if (keepAliveParams.intervalId) clearInterval(keepAliveParams.intervalId);
         remoteLog(`Disconnected`, tabId);
         updateConnectionState(tabId, {
             status: 'disconnected',
@@ -168,6 +178,7 @@ function connect(tabId, url) {
     };
 
     socket.onerror = (e) => {
+        if (keepAliveParams.intervalId) clearInterval(keepAliveParams.intervalId);
         remoteLog(`Error: ${e.message}`, tabId);
     };
 }
@@ -183,6 +194,9 @@ function disconnect(tabId) {
 // --- Command Handlers ---
 
 function handleNavigate(tabId, url) {
+    if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url;
+    }
     remoteLog(`Navigating to ${url}`, tabId);
     chrome.tabs.update(tabId, { url: url }, (tab) => {
         if (chrome.runtime.lastError) {
