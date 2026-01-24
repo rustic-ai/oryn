@@ -1,5 +1,5 @@
-use oryn_core::backend::Backend;
-use oryn_core::protocol::{ScanRequest, ScannerRequest};
+use oryn_engine::backend::Backend;
+use oryn_engine::protocol::{ScanRequest, ScannerRequest};
 use oryn_h::backend::HeadlessBackend;
 use serial_test::serial;
 use std::path::Path;
@@ -56,9 +56,9 @@ async fn test_headless_lifecycle_and_scan() {
         .expect("Scan failed");
 
     // Verify response
-    if let oryn_core::protocol::ScannerProtocolResponse::Ok { data, .. } = resp {
+    if let oryn_engine::protocol::ScannerProtocolResponse::Ok { data, .. } = resp {
         match *data {
-            oryn_core::protocol::ScannerData::Scan(result) => {
+            oryn_engine::protocol::ScannerData::Scan(result) => {
                 assert_eq!(result.page.title, "Test Page");
                 // Find Button
                 let btn = result

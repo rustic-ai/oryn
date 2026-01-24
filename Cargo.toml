@@ -1,7 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/oryn-core",
+    "crates/oryn-common",
+    "crates/oryn-engine",
     "crates/oryn-scanner",
     "crates/oryn-e",
     "crates/oryn-h",

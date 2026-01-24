@@ -1,8 +1,9 @@
-use oryn_core::backend::Backend;
-use oryn_core::command::Command;
-use oryn_core::parser::Parser;
-use oryn_core::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
-use oryn_core::translator::translate;
+use oryn_engine::backend::Backend;
+use oryn_engine::command::Command;
+
+use oryn_engine::parser::Parser;
+use oryn_engine::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
+use oryn_engine::translator::translate;
 use oryn_r::backend::RemoteBackend;
 use serial_test::serial;
 use std::fs;
@@ -177,10 +178,10 @@ async fn execute_test_command(
     }
 
     // Helper to resolve targets
-    let resolve = |target: &oryn_core::command::Target,
+    let resolve = |target: &oryn_engine::command::Target,
                    cmd_name: &str|
-     -> anyhow::Result<oryn_core::command::Target> {
-        if matches!(target, oryn_core::command::Target::Id(_)) {
+     -> anyhow::Result<oryn_engine::command::Target> {
+        if matches!(target, oryn_engine::command::Target::Id(_)) {
             return Ok(target.clone());
         }
         let ctx = state
@@ -210,11 +211,11 @@ async fn execute_test_command(
     let req = translate(&resolved_cmd).map_err(|e| anyhow::anyhow!(e))?;
     let resp = timeout(Duration::from_secs(30), backend.execute_scanner(req)).await??;
 
-    if let oryn_core::protocol::ScannerProtocolResponse::Ok { data, .. } = &resp {
-        if let oryn_core::protocol::ScannerData::Scan(result) = data.as_ref() {
+    if let oryn_engine::protocol::ScannerProtocolResponse::Ok { data, .. } = &resp {
+        if let oryn_engine::protocol::ScannerData::Scan(result) = data.as_ref() {
             state.resolver_context = Some(ResolverContext::new(result));
         }
-    } else if let oryn_core::protocol::ScannerProtocolResponse::Error { message, .. } = resp {
+    } else if let oryn_engine::protocol::ScannerProtocolResponse::Error { message, .. } = resp {
         anyhow::bail!("Scanner Error: {}", message);
     }
 

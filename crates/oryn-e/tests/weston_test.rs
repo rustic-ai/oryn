@@ -6,9 +6,9 @@
 //!
 //! In Docker (oryn-e:weston image), these tests run automatically.
 
-use oryn_core::backend::Backend;
-use oryn_core::protocol::ScannerRequest;
 use oryn_e::backend::EmbeddedBackend;
+use oryn_engine::backend::Backend;
+use oryn_engine::protocol::ScannerRequest;
 use serial_test::serial;
 use std::os::unix::fs::FileTypeExt;
 use std::process::{Child, Command, Stdio};
@@ -179,7 +179,7 @@ async fn test_weston_scanner() {
         .expect("Navigation failed");
 
     // Test Scanner Execution
-    let scan_req = ScannerRequest::Scan(oryn_core::protocol::ScanRequest {
+    let scan_req = ScannerRequest::Scan(oryn_engine::protocol::ScanRequest {
         max_elements: Some(10),
         include_hidden: false,
         monitor_changes: false,
@@ -196,10 +196,10 @@ async fn test_weston_scanner() {
     );
 
     match scan_res.unwrap() {
-        oryn_core::protocol::ScannerProtocolResponse::Ok { data, .. } => {
+        oryn_engine::protocol::ScannerProtocolResponse::Ok { data, .. } => {
             println!("Scanner response received: {:?}", data);
         }
-        oryn_core::protocol::ScannerProtocolResponse::Error { code, message, .. } => {
+        oryn_engine::protocol::ScannerProtocolResponse::Error { code, message, .. } => {
             panic!("Scanner returned error: {} - {}", code, message);
         }
     }

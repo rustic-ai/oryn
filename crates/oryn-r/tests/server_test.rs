@@ -1,5 +1,5 @@
 use futures::{SinkExt, StreamExt};
-use oryn_core::protocol::{ScannerProtocolResponse, ScannerRequest};
+use oryn_engine::protocol::{ScannerProtocolResponse, ScannerRequest};
 use oryn_r::server::RemoteServer;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -28,7 +28,7 @@ async fn test_server_connection_and_messaging() {
     let mut client_ws = connect_simulated_client(port).await;
 
     // 3. Send command from Server -> Client
-    let test_cmd = ScannerRequest::Scan(oryn_core::protocol::ScanRequest {
+    let test_cmd = ScannerRequest::Scan(oryn_engine::protocol::ScanRequest {
         max_elements: None,
         monitor_changes: false,
         include_hidden: false,
@@ -61,7 +61,7 @@ async fn test_server_connection_and_messaging() {
 
     // 5. Send response from Client -> Server
     let test_resp = ScannerProtocolResponse::Ok {
-        data: Box::new(oryn_core::protocol::ScannerData::Value(
+        data: Box::new(oryn_engine::protocol::ScannerData::Value(
             serde_json::json!({ "foo": "bar" }),
         )),
         warnings: vec![],

@@ -1,5 +1,5 @@
 use futures::{SinkExt, StreamExt};
-use oryn_core::protocol::{ScannerProtocolResponse, ScannerRequest};
+use oryn_engine::protocol::{ScannerProtocolResponse, ScannerRequest};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};

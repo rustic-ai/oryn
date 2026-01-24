@@ -1,7 +1,7 @@
 use clap::Parser as ClapParser;
-use oryn_core::backend::Backend;
-use oryn_core::executor::CommandExecutor;
 use oryn_e::backend::EmbeddedBackend;
+use oryn_engine::backend::Backend;
+use oryn_engine::executor::CommandExecutor;
 use std::io::{self, Write};
 use tracing::{error, info};
 

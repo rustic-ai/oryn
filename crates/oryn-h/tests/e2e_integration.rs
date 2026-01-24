@@ -1,6 +1,6 @@
-use oryn_core::backend::Backend;
-use oryn_core::parser::Parser;
-use oryn_core::translator::translate;
+use oryn_engine::backend::Backend;
+use oryn_engine::parser::Parser;
+use oryn_engine::translator::translate;
 use oryn_h::backend::HeadlessBackend;
 use serial_test::serial;
 
@@ -29,13 +29,13 @@ async fn test_full_flow_search() {
             // 3. Execute Navigation (Special case in translator usually, but Backend handles it)
             // The translator returns ScannerRequest, but Navigation is distinct in Backend trait
             // Let's manually handle navigation for this test since we know it's a GoTo
-            if let oryn_core::command::Command::GoTo(url) = &commands[0] {
+            if let oryn_engine::command::Command::GoTo(url) = &commands[0] {
                 let res = backend.navigate(url).await.expect("Navigation failed");
                 assert!(res.url.contains("example.com"));
             }
 
             // 4. Interact: Scan first to find IDs
-            let scan_cmd = oryn_core::command::Command::Observe(std::collections::HashMap::new());
+            let scan_cmd = oryn_engine::command::Command::Observe(std::collections::HashMap::new());
             let scan_req = translate(&scan_cmd).expect("Failed to translate scan");
 
             let scan_res = backend
@@ -45,8 +45,8 @@ async fn test_full_flow_search() {
 
             // 5. Find an element to click (e.g., h1)
             let mut target_id = None;
-            if let oryn_core::protocol::ScannerProtocolResponse::Ok { data, .. } = scan_res
-                && let oryn_core::protocol::ScannerData::Scan(scan_data) = data.as_ref()
+            if let oryn_engine::protocol::ScannerProtocolResponse::Ok { data, .. } = scan_res
+                && let oryn_engine::protocol::ScannerData::Scan(scan_data) = data.as_ref()
             {
                 // Just pick the first element or strictly find h1
                 if let Some(el) = scan_data.elements.first() {
@@ -56,8 +56,8 @@ async fn test_full_flow_search() {
             }
 
             if let Some(id) = target_id {
-                let click_cmd = oryn_core::command::Command::Click(
-                    oryn_core::command::Target::Id(id as usize),
+                let click_cmd = oryn_engine::command::Command::Click(
+                    oryn_engine::command::Target::Id(id as usize),
                     std::collections::HashMap::new(),
                 );
                 let click_req = translate(&click_cmd).expect("Failed to translate click");
@@ -88,8 +88,8 @@ async fn test_error_handling() {
 
     // Test 1: Click non-existent ID
     // ID 999999 likely doesn't exist
-    let click_cmd = oryn_core::command::Command::Click(
-        oryn_core::command::Target::Id(999999),
+    let click_cmd = oryn_engine::command::Command::Click(
+        oryn_engine::command::Target::Id(999999),
         std::collections::HashMap::new(),
     );
     let click_req = translate(&click_cmd).expect("Translation failed");
@@ -102,7 +102,7 @@ async fn test_error_handling() {
 
     let res = backend.execute_scanner(click_req).await;
     match res {
-        Ok(oryn_core::protocol::ScannerProtocolResponse::Error { code, .. }) => {
+        Ok(oryn_engine::protocol::ScannerProtocolResponse::Error { code, .. }) => {
             println!("Got expected error: {}", code);
             assert!(code == "ELEMENT_NOT_FOUND" || code == "EXECUTION_ERROR");
         }
@@ -127,15 +127,15 @@ async fn test_interaction_type() {
         .expect("Nav failed");
 
     // Scan to find ID
-    let scan_req = translate(&oryn_core::command::Command::Observe(
+    let scan_req = translate(&oryn_engine::command::Command::Observe(
         std::collections::HashMap::new(),
     ))
     .unwrap();
     let scan_res = backend.execute_scanner(scan_req).await.unwrap();
 
     let mut input_id = None;
-    if let oryn_core::protocol::ScannerProtocolResponse::Ok { data, .. } = scan_res
-        && let oryn_core::protocol::ScannerData::Scan(scan_data) = data.as_ref()
+    if let oryn_engine::protocol::ScannerProtocolResponse::Ok { data, .. } = scan_res
+        && let oryn_engine::protocol::ScannerData::Scan(scan_data) = data.as_ref()
     {
         for el in &scan_data.elements {
             if el.attributes.get("id").map(|s| s.as_str()) == Some("inp") {
@@ -146,15 +146,15 @@ async fn test_interaction_type() {
     }
 
     if let Some(id) = input_id {
-        let type_cmd = oryn_core::command::Command::Type(
-            oryn_core::command::Target::Id(id as usize),
+        let type_cmd = oryn_engine::command::Command::Type(
+            oryn_engine::command::Target::Id(id as usize),
             "Execute Order 66".to_string(),
             std::collections::HashMap::new(),
         );
         let type_req = translate(&type_cmd).unwrap();
         let type_res = backend.execute_scanner(type_req).await.unwrap();
         match type_res {
-            oryn_core::protocol::ScannerProtocolResponse::Ok { .. } => println!("Type success"),
+            oryn_engine::protocol::ScannerProtocolResponse::Ok { .. } => println!("Type success"),
             _ => panic!("Type failed: {:?}", type_res),
         }
     } else {

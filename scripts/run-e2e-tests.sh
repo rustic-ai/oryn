@@ -5,6 +5,7 @@
 # Backend variants tested:
 #   - oryn-h       : Chromium headless (Docker)
 #   - oryn-e-debian: WPE WebKit on Debian (Docker)
+#   - oryn-e-alpine: WPE WebKit on Alpine (Docker)
 #   - oryn-e-weston: WPE with Weston compositor (Docker)
 #   - oryn-r       : Remote mode - Chromium (Docker) with browser extension
 #
@@ -166,6 +167,9 @@ build_docker_image() {
         oryn-e-debian)
             docker build -t oryn-e:debian -f docker/Dockerfile.oryn-e.debian . --quiet
             ;;
+        oryn-e-alpine)
+            docker build -t oryn-e:latest -f docker/Dockerfile.oryn-e . --quiet
+            ;;
         oryn-e-weston)
             docker build -t oryn-e:weston -f docker/Dockerfile.oryn-e.weston . --quiet
             ;;
@@ -266,6 +270,54 @@ test_oryn_e_debian() {
     done
 
     VARIANT_RESULTS["oryn-e-debian"]="$passed passed, $failed failed"
+    ((TOTAL_PASSED += passed))
+    ((TOTAL_FAILED += failed))
+
+    [ $failed -eq 0 ]
+}
+
+# ============================================================================
+# Test oryn-e-alpine (WPE WebKit in Docker - Alpine)
+# ============================================================================
+test_oryn_e_alpine() {
+    log_step "Testing oryn-e-alpine (WPE WebKit Alpine)..."
+
+    build_docker_image "oryn-e-alpine"
+
+    local scripts_dir="$PROJECT_ROOT/test-harness/scripts"
+    local passed=0
+    local failed=0
+    local results_file="$RESULTS_DIR/oryn-e-alpine.log"
+
+    mkdir -p "$RESULTS_DIR"
+    echo "=== E2E Test Results for oryn-e-alpine ===" > "$results_file"
+    echo "Started: $(date)" >> "$results_file"
+
+    for script in $(ls -1 "$scripts_dir"/*.oil 2>/dev/null | sort); do
+        local script_name=$(basename "$script")
+        log_variant "oryn-e-alpine" "Running: $script_name"
+
+        echo "--- Script: $script_name ---" >> "$results_file"
+
+        # Weston needs privileged mode for bubblewrap sandbox
+        if docker run --rm \
+            --network host \
+            --privileged \
+            --shm-size=1gb \
+            -v "$scripts_dir:/scripts:ro" \
+            oryn-e:latest \
+            /usr/local/bin/oryn-e --file "/scripts/$script_name" >> "$results_file" 2>&1; then
+            log_pass "  $script_name"
+            ((passed++))
+            echo "Result: PASS" >> "$results_file"
+        else
+            log_fail "  $script_name"
+            ((failed++))
+            echo "Result: FAIL" >> "$results_file"
+        fi
+    done
+
+    VARIANT_RESULTS["oryn-e-alpine"]="$passed passed, $failed failed"
     ((TOTAL_PASSED += passed))
     ((TOTAL_FAILED += failed))
 
@@ -514,6 +566,7 @@ main() {
                 echo "Variants:"
                 echo "  oryn-h          Chromium headless (Docker)"
                 echo "  oryn-e-debian   WPE WebKit on Debian (Docker)"
+                echo "  oryn-e-alpine   WPE WebKit on Alpine (Docker)"
                 echo "  oryn-e-weston   WPE with Weston compositor (Docker)"
                 echo "  oryn-r          Remote mode - Chromium (Docker) with extension"
                 echo ""
@@ -526,7 +579,7 @@ main() {
                 echo "  $0 oryn-h oryn-r      # Run specific variants"
                 exit 0
                 ;;
-            oryn-h|oryn-e-debian|oryn-e-weston|oryn-r)
+            oryn-h|oryn-e-debian|oryn-e-alpine|oryn-e-weston|oryn-r)
                 variants+=("$arg")
                 ;;
             *)
@@ -540,7 +593,7 @@ main() {
         if [ "$quick_mode" = true ]; then
             variants=("oryn-h")
         else
-            variants=("oryn-h" "oryn-e-debian" "oryn-e-weston" "oryn-r")
+            variants=("oryn-h" "oryn-e-debian" "oryn-e-alpine" "oryn-e-weston" "oryn-r")
         fi
     fi
 
@@ -567,6 +620,9 @@ main() {
                 ;;
             oryn-e-debian)
                 test_oryn_e_debian || exit_code=1
+                ;;
+            oryn-e-alpine)
+                test_oryn_e_alpine || exit_code=1
                 ;;
             oryn-e-weston)
                 test_oryn_e_weston || exit_code=1

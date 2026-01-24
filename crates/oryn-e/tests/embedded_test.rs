@@ -3,9 +3,9 @@
 //! These tests launch real COG browser instances via WPEWebDriver.
 //! Tests run sequentially via `#[serial]` to avoid resource contention.
 
-use oryn_core::backend::Backend;
-use oryn_core::protocol::ScannerRequest;
 use oryn_e::backend::EmbeddedBackend;
+use oryn_engine::backend::Backend;
+use oryn_engine::protocol::ScannerRequest;
 use serial_test::serial;
 
 fn init_tracing() {
@@ -54,7 +54,7 @@ async fn test_embedded_features() {
     assert!(nav_res.is_ok(), "Navigation failed: {:?}", nav_res.err());
 
     // Test Scanner Execution
-    let scan_req = ScannerRequest::Scan(oryn_core::protocol::ScanRequest {
+    let scan_req = ScannerRequest::Scan(oryn_engine::protocol::ScanRequest {
         max_elements: Some(10),
         include_hidden: false,
         monitor_changes: false,
@@ -71,10 +71,10 @@ async fn test_embedded_features() {
     );
 
     match scan_res.unwrap() {
-        oryn_core::protocol::ScannerProtocolResponse::Ok { data, .. } => {
+        oryn_engine::protocol::ScannerProtocolResponse::Ok { data, .. } => {
             println!("Scanner response received: {:?}", data);
         }
-        oryn_core::protocol::ScannerProtocolResponse::Error { code, message, .. } => {
+        oryn_engine::protocol::ScannerProtocolResponse::Error { code, message, .. } => {
             panic!("Scanner returned error: {} - {}", code, message);
         }
     }

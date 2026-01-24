@@ -1,8 +1,8 @@
 use crate::cog::{self, CogProcess};
 use crate::webdriver::WebDriverClient;
 use async_trait::async_trait;
-use oryn_core::backend::{Backend, BackendError, NavigationResult};
-use oryn_core::protocol::{ActionResult, ScannerData, ScannerProtocolResponse, ScannerRequest};
+use oryn_engine::backend::{Backend, BackendError, NavigationResult};
+use oryn_engine::protocol::{ActionResult, ScannerData, ScannerProtocolResponse, ScannerRequest};
 use tracing::{info, warn};
 
 pub struct EmbeddedBackend {
@@ -248,7 +248,7 @@ impl Backend for EmbeddedBackend {
         Ok(bytes)
     }
 
-    async fn get_cookies(&mut self) -> Result<Vec<oryn_core::protocol::Cookie>, BackendError> {
+    async fn get_cookies(&mut self) -> Result<Vec<oryn_engine::protocol::Cookie>, BackendError> {
         let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
         let cookies = client
             .client
@@ -258,7 +258,7 @@ impl Backend for EmbeddedBackend {
 
         Ok(cookies
             .into_iter()
-            .map(|c| oryn_core::protocol::Cookie {
+            .map(|c| oryn_engine::protocol::Cookie {
                 name: c.name().to_string(),
                 value: c.value().to_string(),
                 domain: c.domain().map(|s| s.to_string()),
@@ -270,7 +270,7 @@ impl Backend for EmbeddedBackend {
             .collect())
     }
 
-    async fn get_tabs(&mut self) -> Result<Vec<oryn_core::protocol::TabInfo>, BackendError> {
+    async fn get_tabs(&mut self) -> Result<Vec<oryn_engine::protocol::TabInfo>, BackendError> {
         let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
         let handles = client
             .client
@@ -280,7 +280,7 @@ impl Backend for EmbeddedBackend {
 
         let mut tabs = Vec::new();
         for handle in handles {
-            tabs.push(oryn_core::protocol::TabInfo {
+            tabs.push(oryn_engine::protocol::TabInfo {
                 id: format!("{:?}", handle),
                 url: "unknown".to_string(),
                 title: "unknown".to_string(),

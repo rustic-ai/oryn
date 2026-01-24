@@ -1,8 +1,8 @@
 use crate::cdp::CdpClient;
 use crate::inject::execute_command;
 use async_trait::async_trait;
-use oryn_core::backend::{Backend, BackendError, NavigationResult};
-use oryn_core::protocol::{ScannerProtocolResponse, ScannerRequest};
+use oryn_engine::backend::{Backend, BackendError, NavigationResult};
+use oryn_engine::protocol::{ScannerProtocolResponse, ScannerRequest};
 use tracing::info;
 
 pub struct HeadlessBackend {
@@ -143,7 +143,7 @@ impl Backend for HeadlessBackend {
         Ok(bytes)
     }
 
-    async fn get_cookies(&mut self) -> Result<Vec<oryn_core::protocol::Cookie>, BackendError> {
+    async fn get_cookies(&mut self) -> Result<Vec<oryn_engine::protocol::Cookie>, BackendError> {
         let client = self.client.as_ref().ok_or(BackendError::NotReady)?;
         let cookies = client
             .page
@@ -153,7 +153,7 @@ impl Backend for HeadlessBackend {
 
         Ok(cookies
             .into_iter()
-            .map(|c| oryn_core::protocol::Cookie {
+            .map(|c| oryn_engine::protocol::Cookie {
                 name: c.name,
                 value: c.value,
                 domain: Some(c.domain),
@@ -165,7 +165,7 @@ impl Backend for HeadlessBackend {
             .collect())
     }
 
-    async fn get_tabs(&mut self) -> Result<Vec<oryn_core::protocol::TabInfo>, BackendError> {
+    async fn get_tabs(&mut self) -> Result<Vec<oryn_engine::protocol::TabInfo>, BackendError> {
         let client = self.client.as_ref().ok_or(BackendError::NotReady)?;
         let pages = client
             .browser
@@ -181,7 +181,7 @@ impl Backend for HeadlessBackend {
                 .await
                 .unwrap_or_default()
                 .unwrap_or_default();
-            tabs.push(oryn_core::protocol::TabInfo {
+            tabs.push(oryn_engine::protocol::TabInfo {
                 id: "unknown".to_string(),
                 url,
                 title,

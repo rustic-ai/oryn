@@ -1,17 +1,17 @@
-use oryn_core::backend::Backend;
-use oryn_core::command::{Command, IntentFilter, ScrollDirection, Target};
-use oryn_core::config::loader::ConfigLoader;
-use oryn_core::config::schema::OrynConfig;
-use oryn_core::formatter::{format_intent_result, format_response_with_intent};
-use oryn_core::intent::builtin;
-use oryn_core::intent::registry::IntentRegistry;
-use oryn_core::pack::manager::PackManager;
-use oryn_core::parser::Parser;
-use oryn_core::protocol::{
+use oryn_engine::backend::Backend;
+use oryn_engine::command::{Command, IntentFilter, ScrollDirection, Target};
+use oryn_engine::config::loader::ConfigLoader;
+use oryn_engine::config::schema::OrynConfig;
+use oryn_engine::formatter::{format_intent_result, format_response_with_intent};
+use oryn_engine::intent::builtin;
+use oryn_engine::intent::registry::IntentRegistry;
+use oryn_engine::pack::manager::PackManager;
+use oryn_engine::parser::Parser;
+use oryn_engine::protocol::{
     ScanRequest, ScannerData, ScannerProtocolResponse, ScannerRequest, ScrollRequest,
 };
-use oryn_core::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
-use oryn_core::translator::translate;
+use oryn_engine::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
+use oryn_engine::translator::translate;
 use serde_json::Value;
 use std::io::{self, Write};
 
@@ -19,12 +19,12 @@ use std::io::{self, Write};
 struct ReplState {
     resolver_context: Option<ResolverContext>,
     pack_manager: PackManager,
-    session_intents: oryn_core::intent::session::SessionIntentManager,
+    session_intents: oryn_engine::intent::session::SessionIntentManager,
     config: OrynConfig,
-    observer: oryn_core::learner::observer::Observer,
-    recognizer: oryn_core::learner::recognizer::Recognizer,
-    proposer: oryn_core::learner::proposer::Proposer,
-    pending_proposals: Vec<oryn_core::intent::definition::IntentDefinition>,
+    observer: oryn_engine::learner::observer::Observer,
+    recognizer: oryn_engine::learner::recognizer::Recognizer,
+    proposer: oryn_engine::learner::proposer::Proposer,
+    pending_proposals: Vec<oryn_engine::intent::definition::IntentDefinition>,
 }
 
 impl ReplState {
@@ -44,16 +44,16 @@ impl ReplState {
         let pack_paths = config.packs.pack_paths.clone();
         let pack_manager = PackManager::new(registry, pack_paths).await;
 
-        let storage = oryn_core::learner::storage::ObservationStorage::new();
+        let storage = oryn_engine::learner::storage::ObservationStorage::new();
         let observer =
-            oryn_core::learner::observer::Observer::new(config.learning.clone(), storage);
-        let recognizer = oryn_core::learner::recognizer::Recognizer::new(config.learning.clone());
-        let proposer = oryn_core::learner::proposer::Proposer::new();
+            oryn_engine::learner::observer::Observer::new(config.learning.clone(), storage);
+        let recognizer = oryn_engine::learner::recognizer::Recognizer::new(config.learning.clone());
+        let proposer = oryn_engine::learner::proposer::Proposer::new();
 
         Self {
             resolver_context: None,
             pack_manager,
-            session_intents: oryn_core::intent::session::SessionIntentManager::new(),
+            session_intents: oryn_engine::intent::session::SessionIntentManager::new(),
             config,
             observer,
             recognizer,
@@ -324,7 +324,7 @@ async fn execute_command(
         }
         Command::Define(body) => {
             // Parse definition
-            match oryn_core::intent::define_parser::parse_define(body) {
+            match oryn_engine::intent::define_parser::parse_define(body) {
                 Ok(def) => {
                     let name = def.name.clone();
                     // Add to session manager
@@ -370,12 +370,12 @@ async fn execute_command(
                 .map(|(k, v)| (k.clone(), Value::String(v.to_string())))
                 .collect();
 
-            let verifier = oryn_core::intent::verifier::Verifier::new();
+            let verifier = oryn_engine::intent::verifier::Verifier::new();
 
             // dereference Box<dyn Backend> to mutable reference to trait object
             let backend_ref = backend.as_mut();
 
-            let mut executor = oryn_core::intent::executor::IntentExecutor::new(
+            let mut executor = oryn_engine::intent::executor::IntentExecutor::new(
                 backend_ref,
                 state.pack_manager.registry(),
                 &verifier,
@@ -433,10 +433,10 @@ async fn execute_command(
                 .unwrap_or(10);
 
             let scroll_dir = match direction {
-                ScrollDirection::Up => oryn_core::protocol::ScrollDirection::Up,
-                ScrollDirection::Down => oryn_core::protocol::ScrollDirection::Down,
-                ScrollDirection::Left => oryn_core::protocol::ScrollDirection::Left,
-                ScrollDirection::Right => oryn_core::protocol::ScrollDirection::Right,
+                ScrollDirection::Up => oryn_engine::protocol::ScrollDirection::Up,
+                ScrollDirection::Down => oryn_engine::protocol::ScrollDirection::Down,
+                ScrollDirection::Left => oryn_engine::protocol::ScrollDirection::Left,
+                ScrollDirection::Right => oryn_engine::protocol::ScrollDirection::Right,
             };
 
             for iteration in 1..=max_iterations {
@@ -491,7 +491,7 @@ async fn execute_command(
                 println!("Learning is disabled. Enable it in config. (learning.enabled = true)");
                 return Ok(());
             }
-            use oryn_core::command::LearnAction;
+            use oryn_engine::command::LearnAction;
             match action {
                 LearnAction::Status => {
                     // 1. Get history for current domain

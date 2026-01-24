@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-oryn-core = { path = "../oryn-core" }
+oryn-engine = { path = "../oryn-engine" }
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = "0.24"
 serde = { version = "1", features = ["derive"] }

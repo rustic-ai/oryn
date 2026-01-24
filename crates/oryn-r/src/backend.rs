@@ -1,7 +1,7 @@
 use crate::server::{RemoteServer, ServerHandle};
 use async_trait::async_trait;
-use oryn_core::backend::{Backend, BackendError, NavigationResult};
-use oryn_core::protocol::{ScannerProtocolResponse, ScannerRequest};
+use oryn_engine::backend::{Backend, BackendError, NavigationResult};
+use oryn_engine::protocol::{ScannerProtocolResponse, ScannerRequest};
 use tracing::info;
 
 pub struct RemoteBackend {
@@ -42,7 +42,7 @@ impl Backend for RemoteBackend {
     }
 
     async fn navigate(&mut self, url: &str) -> Result<NavigationResult, BackendError> {
-        use oryn_core::protocol::NavigateRequest;
+        use oryn_engine::protocol::NavigateRequest;
         let req = ScannerRequest::Navigate(NavigateRequest {
             url: url.to_string(),
         });
@@ -85,7 +85,7 @@ impl Backend for RemoteBackend {
     async fn screenshot(&mut self) -> Result<Vec<u8>, BackendError> {
         // Send screenshot request to extension
         // The extension should respond with base64-encoded PNG
-        use oryn_core::protocol::ExecuteRequest;
+        use oryn_engine::protocol::ExecuteRequest;
 
         let script = r#"
             return new Promise((resolve, reject) => {
@@ -115,7 +115,7 @@ impl Backend for RemoteBackend {
         // Extract base64 data from response
         match resp {
             ScannerProtocolResponse::Ok { data, .. } => {
-                if let oryn_core::protocol::ScannerData::Value(value) = *data
+                if let oryn_engine::protocol::ScannerData::Value(value) = *data
                     && let Some(base64_str) = value.as_str()
                 {
                     use base64::Engine;
@@ -136,7 +136,7 @@ impl Backend for RemoteBackend {
     }
 
     async fn go_back(&mut self) -> Result<NavigationResult, BackendError> {
-        use oryn_core::protocol::BackRequest;
+        use oryn_engine::protocol::BackRequest;
 
         let req = ScannerRequest::Back(BackRequest {});
 
@@ -150,7 +150,7 @@ impl Backend for RemoteBackend {
     }
 
     async fn go_forward(&mut self) -> Result<NavigationResult, BackendError> {
-        use oryn_core::protocol::ExecuteRequest;
+        use oryn_engine::protocol::ExecuteRequest;
 
         let script =
             "history.forward(); return { url: window.location.href, title: document.title };";
@@ -171,7 +171,7 @@ impl Backend for RemoteBackend {
     }
 
     async fn refresh(&mut self) -> Result<NavigationResult, BackendError> {
-        use oryn_core::protocol::ExecuteRequest;
+        use oryn_engine::protocol::ExecuteRequest;
 
         let script = "location.reload(); return true;";
         let req = ScannerRequest::Execute(ExecuteRequest {
@@ -191,7 +191,7 @@ impl Backend for RemoteBackend {
     }
 
     async fn press_key(&mut self, key: &str, _modifiers: &[String]) -> Result<(), BackendError> {
-        use oryn_core::protocol::ExecuteRequest;
+        use oryn_engine::protocol::ExecuteRequest;
 
         let script = format!(
             r#"

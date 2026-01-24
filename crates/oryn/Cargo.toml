@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-oryn-core = { path = "../oryn-core" }
+oryn-engine = { path = "../oryn-engine" }
 oryn-h = { path = "../oryn-h" }
 oryn-e = { path = "../oryn-e" }
 oryn-r = { path = "../oryn-r" }
