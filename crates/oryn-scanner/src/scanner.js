@@ -161,6 +161,23 @@
             return '/' + path.join('/');
         },
 
+        getClassName: (el) => {
+            try {
+                if (typeof el.className === 'string') {
+                    return el.className.toLowerCase();
+                }
+                if (el.className && el.className.baseVal !== undefined) {
+                    return el.className.baseVal.toLowerCase();
+                }
+                if (el.className && typeof el.className.toString === 'function') {
+                    return el.className.toString().toLowerCase();
+                }
+            } catch (_e) {
+                // Ignore errors from edge cases
+            }
+            return '';
+        },
+
         detectRole: (el) => {
             const tag = el.tagName.toLowerCase();
             const type = el.getAttribute('type')?.toLowerCase();
@@ -302,7 +319,7 @@
         },
 
         isPrimaryButton: (el) => {
-            const className = (el.className || '').toLowerCase();
+            const className = Utils.getClassName(el);
             const text = (el.textContent || '').toLowerCase().trim();
 
             // Check for primary button indicators
@@ -1727,31 +1744,92 @@
             const target = (params.target || 'popups').toLowerCase();
             const scanRes = Scanner.scan({ max_elements: 500 });
 
-            const MODAL_SELECTORS = '.modal-overlay, .modal, [role="dialog"], [role="alertdialog"], .modal-content';
-            const CLOSE_BUTTON_TEXTS = ['close', 'cancel', 'dismiss', 'ok', 'x'];
+            const CLOSE_BUTTON_TEXTS = [
+                'close', 'cancel', 'dismiss', 'ok', 'x', '×',
+                'continue', 'confirm', 'got it', 'no thanks'
+            ];
+
+            // Helper: Find visible overlays/modals based on visual and semantic characteristics
+            const findVisibleOverlays = () => {
+                const candidates = [];
+                const allElements = ShadowUtils.querySelectorAllWithShadow(document.body, '*');
+                const viewportArea = window.innerWidth * window.innerHeight;
+
+                for (const el of allElements) {
+                    if (!Utils.isVisible(el)) continue;
+
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    const zIndex = parseInt(style.zIndex) || 0;
+
+                    let score = 0;
+
+                    // 1. Positioning (weight: 2) - fixed/absolute positioning is common for overlays
+                    if (style.position === 'fixed' || style.position === 'absolute') score += 2;
+
+                    // 2. Z-index (weight: 2) - high z-index indicates overlay
+                    if (zIndex > 100) score += 2;
+
+                    // 3. Coverage area (weight: 2) - modals typically cover significant viewport area
+                    if ((rect.width * rect.height) / viewportArea > 0.3) score += 2;
+
+                    // 4. Semantic indicators (weight: 3 each - highest priority)
+                    const role = el.getAttribute('role');
+                    if (role === 'dialog' || role === 'alertdialog') score += 3;
+                    if (el.getAttribute('aria-modal') === 'true') score += 3;
+
+                    // 5. Class/ID patterns (weight: 1 - hints only)
+                    const classAndId = Utils.getClassName(el) + ' ' + (el.id || '').toLowerCase();
+                    if (/modal|popup|dialog|overlay|lightbox|drawer/.test(classAndId)) score += 1;
+
+                    // Threshold: score >= 4 likely indicates a modal/overlay
+                    if (score >= 4) {
+                        candidates.push({ element: el, score, zIndex });
+                    }
+                }
+
+                // Sort by z-index (highest first), then by score
+                candidates.sort((a, b) => b.zIndex - a.zIndex || b.score - a.score);
+
+                return candidates.map(c => c.element);
+            };
 
             // Find close button within a modal element
             const findCloseButton = (modal) => {
-                // Try class/aria-label selectors first
-                const closeBtn = ShadowUtils.querySelectorWithShadow(modal, '.close, [aria-label*="close" i], [aria-label*="Close" i]');
-                if (closeBtn) return closeBtn;
+                // 1. Try semantic selectors first (class names and ARIA labels)
+                const semanticClose = ShadowUtils.querySelectorWithShadow(modal,
+                    '.close, [aria-label*="close" i], [aria-label*="dismiss" i]'
+                );
+                if (semanticClose) return semanticClose;
 
-                // Fallback: find buttons with close/cancel/dismiss text
+                // 2. Search buttons by text content or icon characteristics
                 const buttons = ShadowUtils.querySelectorAllWithShadow(modal, 'button, [role="button"]');
-                return buttons.find((btn) => CLOSE_BUTTON_TEXTS.includes(btn.textContent.toLowerCase().trim())) || null;
-            };
+                const modalRect = modal.getBoundingClientRect();
 
-            // Check if modal is visible
-            const isModalVisible = (modal) => {
-                const style = window.getComputedStyle(modal);
-                return style.display !== 'none' && modal.offsetWidth > 0;
+                for (const btn of buttons) {
+                    const text = btn.textContent.toLowerCase().trim();
+
+                    // Match by close button text
+                    if (CLOSE_BUTTON_TEXTS.includes(text)) return btn;
+
+                    // Match by icon (SVG or close symbol)
+                    const hasSvg = btn.querySelector('svg') !== null;
+                    const hasCloseIcon = /×|✕|✖/.test(btn.textContent);
+
+                    if (hasSvg || hasCloseIcon) {
+                        const btnRect = btn.getBoundingClientRect();
+                        const isTopRight = btnRect.right > modalRect.right - 100 &&
+                                           btnRect.top < modalRect.top + 100;
+                        if (isTopRight || hasSvg) return btn;
+                    }
+                }
+
+                return null;
             };
 
             // Try to dismiss a modal, optionally filtering by text content
             const tryDismissModal = (textFilter = null) => {
-                const modals = ShadowUtils.querySelectorAllWithShadow(document.body, MODAL_SELECTORS);
-                for (const modal of modals) {
-                    if (!isModalVisible(modal)) continue;
+                for (const modal of findVisibleOverlays()) {
                     if (textFilter && !modal.textContent.toLowerCase().includes(textFilter)) continue;
 
                     const closeBtn = findCloseButton(modal);
@@ -1763,30 +1841,29 @@
                 return false;
             };
 
+            const MODAL_TARGETS = new Set(['popups', 'popup', 'modals', 'modal']);
+            const COOKIE_TARGETS = new Set(['cookie_banners', 'cookies', 'banner', 'banners']);
+
             let clicked = false;
 
-            // Handle modals/popups (both singular and plural forms)
-            if (['popups', 'popup', 'modals', 'modal'].includes(target)) {
-                // First try pattern detection
-                if (scanRes.patterns?.modal?.close) {
+            if (MODAL_TARGETS.has(target)) {
+                // Use characteristics-based detection, with pattern detection fallback
+                clicked = tryDismissModal();
+                if (!clicked && scanRes.patterns?.modal?.close) {
                     Executor.click({ id: scanRes.patterns.modal.close });
                     clicked = true;
-                } else {
-                    clicked = tryDismissModal();
                 }
-            }
-            // Handle cookie banners
-            else if (['cookie_banners', 'cookies', 'banner', 'banners'].includes(target)) {
-                if (scanRes.patterns?.cookie_banner?.reject) {
-                    Executor.click({ id: scanRes.patterns.cookie_banner.reject });
+            } else if (COOKIE_TARGETS.has(target)) {
+                const banner = scanRes.patterns?.cookie_banner;
+                if (banner?.reject) {
+                    Executor.click({ id: banner.reject });
                     clicked = true;
-                } else if (scanRes.patterns?.cookie_banner?.accept) {
-                    Executor.click({ id: scanRes.patterns.cookie_banner.accept });
+                } else if (banner?.accept) {
+                    Executor.click({ id: banner.accept });
                     clicked = true;
                 }
-            }
-            // Handle arbitrary string targets - try to find visible overlays with matching text
-            else {
+            } else {
+                // Handle arbitrary string targets - find overlays with matching text
                 clicked = tryDismissModal(target);
             }
 

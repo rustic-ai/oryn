@@ -1,4 +1,1 @@
-{
-    "autoConnect": false,
-    "websocketUrl": "ws://127.0.0.1:9001"
-}
+{"autoConnect": true, "websocketUrl": "ws://127.0.0.1:9001"}

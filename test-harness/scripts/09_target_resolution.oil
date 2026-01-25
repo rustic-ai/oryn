@@ -134,12 +134,15 @@ click "Load Content"
 wait hidden css(.loading-overlay.visible)
 wait visible css(#slow-action-btn)
 click "Perform Action"
+wait visible css(#blocking-popup)
+click "Continue"
+observe
 
 # =============================================================================
 # Test 11: Popup Interference & Recovery
 # =============================================================================
 
-click "Perform Action (Blocked by Popup)" --force
+click "Perform Action (Blocked by Popup)"
 # Popup appears, must dismiss first
 wait visible css(#blocking-popup)
 dismiss "popup"
@@ -163,6 +166,7 @@ wait visible css(#delayed-result)
 # This button is covered by an overlay
 # Intent engine should detect interception and use force click
 click "Remove Interceptor"
+wait hidden css(#interceptor)  # Wait for the overlay to be removed
 click "Intercepted Button"
 wait visible css(#intercepted-result)
 
