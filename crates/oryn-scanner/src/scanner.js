@@ -90,36 +90,36 @@
         },
 
         generateSelector: (el) => {
-            // Priority 1: ID
-            if (el.id && /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(el.id)) {
-                // Only use ID if it looks valid/stable (not random junk)
-                // And simple uniqueness check
-                if (document.querySelectorAll(`#${CSS.escape(el.id)}`).length === 1) {
-                    return `#${CSS.escape(el.id)}`;
-                }
+            const rootNode = el.getRootNode();
+            const isUnique = (selector) => rootNode.querySelectorAll(selector).length === 1;
+            const isValidId = (id) => /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(id);
+
+            // Priority 1: ID (if valid and unique)
+            if (el.id && isValidId(el.id)) {
+                const selector = `#${CSS.escape(el.id)}`;
+                if (isUnique(selector)) return selector;
             }
 
             // Priority 2: data-testid
             const testId = el.getAttribute('data-testid');
             if (testId) {
                 const selector = `[data-testid="${CSS.escape(testId)}"]`;
-                if (document.querySelectorAll(selector).length === 1) return selector;
+                if (isUnique(selector)) return selector;
             }
 
-            // Priority 3: Aria Label (if unique and exists)
+            // Priority 3: Aria Label (if unique)
             const ariaLabel = el.getAttribute('aria-label');
             if (ariaLabel) {
                 const selector = `${el.tagName.toLowerCase()}[aria-label="${CSS.escape(ariaLabel)}"]`;
-                if (document.querySelectorAll(selector).length === 1) return selector;
+                if (isUnique(selector)) return selector;
             }
 
             // Priority 4: Unique Class Combination
             if (el.className && typeof el.className === 'string') {
                 const classes = el.className.split(/\s+/).filter((c) => c.trim().length > 0);
                 if (classes.length > 0) {
-                    // Start with tag + all classes
                     const selector = `${el.tagName.toLowerCase()}.${classes.map((c) => CSS.escape(c)).join('.')}`;
-                    if (document.querySelectorAll(selector).length === 1) return selector;
+                    if (isUnique(selector)) return selector;
                 }
             }
 
@@ -128,18 +128,19 @@
             let current = el;
             while (current && current.nodeType === Node.ELEMENT_NODE) {
                 const tag = current.tagName.toLowerCase();
-                if (current.id && /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(current.id)) {
+                if (current.id && isValidId(current.id)) {
                     path.unshift(`#${CSS.escape(current.id)}`);
                     break;
-                } else {
-                    let sibling = current,
-                        nth = 1;
-                    while ((sibling = sibling.previousElementSibling)) {
-                        if (sibling.tagName.toLowerCase() === tag) nth++;
-                    }
-                    path.unshift(`${tag}:nth-of-type(${nth})`);
-                    current = current.parentNode;
                 }
+                let sibling = current;
+                let nth = 1;
+                while ((sibling = sibling.previousElementSibling)) {
+                    if (sibling.tagName.toLowerCase() === tag) nth++;
+                }
+                path.unshift(`${tag}:nth-of-type(${nth})`);
+                current = current.parentNode;
+                // Stop at shadow root boundary
+                if (current === rootNode) break;
             }
             return path.join(' > ');
         },
@@ -278,20 +279,25 @@
         },
 
         getLabelText: (el) => {
-            // Try to find associated label
+            const rootNode = el.getRootNode();
+
+            // Try to find associated label via for attribute
             if (el.id) {
-                const label = document.querySelector(`label[for="${el.id}"]`);
+                const label = rootNode.querySelector(`label[for="${el.id}"]`);
                 if (label) return label.textContent || '';
             }
+
             // Check for parent label
             const parentLabel = el.closest('label');
             if (parentLabel) return parentLabel.textContent || '';
+
             // Check aria-labelledby
             const labelledBy = el.getAttribute('aria-labelledby');
             if (labelledBy) {
-                const labelEl = document.getElementById(labelledBy);
+                const labelEl = rootNode.getElementById?.(labelledBy);
                 if (labelEl) return labelEl.textContent || '';
             }
+
             return '';
         },
 
@@ -337,17 +343,22 @@
         },
 
         isInteractable: (el) => {
-            // Check if element is covered by another element at its center point
             const rect = el.getBoundingClientRect();
             const centerX = rect.left + rect.width / 2;
             const centerY = rect.top + rect.height / 2;
 
-            // Use element's own document for elementFromPoint (supports iframe elements)
-            const doc = el.ownerDocument;
-            const topElement = doc.elementFromPoint(centerX, centerY);
+            // Recursively find deepest element at point, penetrating shadow boundaries
+            const getDeepestElementAt = (x, y, root = document) => {
+                const element = root.elementFromPoint(x, y);
+                if (!element) return null;
+                if (!element.shadowRoot) return element;
+                return getDeepestElementAt(x, y, element.shadowRoot) || element;
+            };
 
-            // Element is interactable if it's the top element or contains the top element
+            const topElement = getDeepestElementAt(centerX, centerY, el.ownerDocument);
             if (!topElement) return false;
+
+            // Interactable if element is at top, contains top, or is contained by top
             return el === topElement || el.contains(topElement) || topElement.contains(el);
         },
 
@@ -499,6 +510,90 @@
 
             searchInRoot(root);
             return results;
+        },
+
+        /**
+         * Find the first element matching a selector, including inside open shadow roots.
+         * @param {Element|ShadowRoot|Document} root - The root to start from
+         * @param {string} selector - CSS selector to match
+         * @returns {Element|null} - First matching element or null
+         */
+        querySelectorWithShadow: (root, selector) => {
+            // Try to find in the current root first
+            const directMatch = root.querySelector(selector);
+            if (directMatch) return directMatch;
+
+            // Search in shadow roots
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+            while (walker.nextNode()) {
+                const el = walker.currentNode;
+                if (el.shadowRoot) {
+                    const shadowMatch = ShadowUtils.querySelectorWithShadow(el.shadowRoot, selector);
+                    if (shadowMatch) return shadowMatch;
+                }
+            }
+
+            return null;
+        },
+
+        /**
+         * Find all elements matching a selector, including inside open shadow roots.
+         * @param {Element|ShadowRoot|Document} root - The root to start from
+         * @param {string} selector - CSS selector to match
+         * @returns {Array<Element>} - Array of matching elements
+         */
+        querySelectorAllWithShadow: (root, selector) => {
+            const results = [];
+
+            // Get all matches from current root
+            const directMatches = root.querySelectorAll(selector);
+            results.push(...directMatches);
+
+            // Search in shadow roots recursively
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+            while (walker.nextNode()) {
+                const el = walker.currentNode;
+                if (el.shadowRoot) {
+                    const shadowMatches = ShadowUtils.querySelectorAllWithShadow(el.shadowRoot, selector);
+                    results.push(...shadowMatches);
+                }
+            }
+
+            return results;
+        },
+
+        /**
+         * Find a text node containing the search text, including inside open shadow roots.
+         * @param {Element|ShadowRoot} root - The root to start from
+         * @param {string} searchText - Text to search for (case-insensitive)
+         * @returns {Element|null} - Parent element containing the text, or null
+         */
+        findTextNodeWithShadow: (root, searchText) => {
+            const normalizedSearch = searchText.toLowerCase().trim();
+
+            // Search text nodes in current root
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+            while (walker.nextNode()) {
+                const node = walker.currentNode;
+                if (node.textContent.toLowerCase().includes(normalizedSearch)) {
+                    const parent = node.parentElement;
+                    if (parent && Utils.isVisible(parent)) {
+                        return parent;
+                    }
+                }
+            }
+
+            // Search in shadow roots recursively
+            const elementWalker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+            while (elementWalker.nextNode()) {
+                const el = elementWalker.currentNode;
+                if (el.shadowRoot) {
+                    const shadowMatch = ShadowUtils.findTextNodeWithShadow(el.shadowRoot, searchText);
+                    if (shadowMatch) return shadowMatch;
+                }
+            }
+
+            return null;
         }
     };
 
@@ -510,7 +605,7 @@
             const maxElements = params.max_elements || 200;
             const includeHidden = params.include_hidden || false;
             const includeIframes = params.include_iframes !== false; // Default true
-            const contextNode = params.within ? document.querySelector(params.within) : document.body;
+            const contextNode = params.within ? ShadowUtils.querySelectorWithShadow(document.body, params.within) : document.body;
 
             if (!contextNode) return Protocol.error('Container not found', 'SELECTOR_INVALID');
             const monitorChanges = params.monitor_changes === true;
@@ -744,27 +839,24 @@
                 result.accessible = true;
                 result.origin = 'same-origin';
 
-                // Scan iframe content
-                const iframeWalker = iframeDoc.createTreeWalker(
-                    iframeDoc.body || iframeDoc.documentElement,
-                    NodeFilter.SHOW_ELEMENT,
-                    {
-                        acceptNode: function (node) {
-                            if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'IFRAME', 'OBJECT'].includes(node.tagName)) {
-                                return NodeFilter.FILTER_REJECT;
-                            }
-                            const isInteractive = Scanner.isReferenceable(node);
-                            return isInteractive ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
-                        }
+                // Scan iframe content using shadow-aware collection
+                const elementFilter = (el) => {
+                    // Reject non-interactive script/style elements
+                    if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'IFRAME', 'OBJECT'].includes(el.tagName)) {
+                        return false;
                     }
-                );
-
-                while (iframeWalker.nextNode() && result.elements.length < maxElements) {
-                    const el = iframeWalker.currentNode;
-
+                    // Check if element is referenceable
+                    if (!Scanner.isReferenceable(el)) return false;
                     // Visibility check within iframe
-                    if (!includeHidden && !Utils.isVisible(el)) continue;
+                    if (!includeHidden && !Utils.isVisible(el)) return false;
+                    return true;
+                };
 
+                const iframeRoot = iframeDoc.body || iframeDoc.documentElement;
+                const collectedElements = ShadowUtils.collectElements(iframeRoot, elementFilter, [], maxElements);
+
+                // Process collected elements
+                for (const el of collectedElements) {
                     // Assign or get persistent ID
                     let id = STATE.inverseMap.get(el);
                     if (!id) {
@@ -922,7 +1014,7 @@
         getElementFromParams: (params) => {
             if (params.id != null) return Executor.getElement(params.id);
             if (params.selector) {
-                const el = document.querySelector(params.selector);
+                const el = ShadowUtils.querySelectorWithShadow(document.body, params.selector);
                 if (!el) throw { msg: 'Element not found', code: 'ELEMENT_NOT_FOUND' };
                 return el;
             }
@@ -1326,7 +1418,7 @@
                 target = Executor.getElement(params.element);
                 isWindow = false;
             } else if (params.container) {
-                target = document.querySelector(params.container);
+                target = ShadowUtils.querySelectorWithShadow(document.body, params.container);
                 if (!target) throw { msg: 'Container not found', code: 'ELEMENT_NOT_FOUND' };
                 isWindow = false;
             }
@@ -1463,26 +1555,14 @@
             const expression = params.expression;
             const countTarget = params.count;
 
-            // Find element by text content (searches visible text in the document)
+            // Find element by text content (searches visible text in the document, including shadow DOM)
             const findByText = (text) => {
-                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-                const normalizedSearch = text.toLowerCase().trim();
-                let node;
-                while ((node = walker.nextNode())) {
-                    if (node.textContent.toLowerCase().includes(normalizedSearch)) {
-                        // Return the parent element that contains this text
-                        const parent = node.parentElement;
-                        if (parent && Utils.isVisible(parent)) {
-                            return parent;
-                        }
-                    }
-                }
-                return null;
+                return ShadowUtils.findTextNodeWithShadow(document.body, text);
             };
 
             const getElement = () => {
                 if (params.id) return STATE.elementMap.get(params.id);
-                if (selector) return document.querySelector(selector);
+                if (selector) return ShadowUtils.querySelectorWithShadow(document.body, selector);
                 if (textToFind) return findByText(textToFind);
                 return null;
             };
@@ -1492,7 +1572,7 @@
 
                 switch (condition) {
                     case 'exists': {
-                        if (selector) return !!document.querySelector(selector);
+                        if (selector) return !!ShadowUtils.querySelectorWithShadow(document.body, selector);
                         if (textToFind) return !!findByText(textToFind);
                         if (params.id)
                             return STATE.elementMap.has(params.id) && STATE.elementMap.get(params.id).isConnected;
@@ -1508,7 +1588,7 @@
                         return !el || !Utils.isVisible(el);
                     }
                     case 'gone': {
-                        if (selector) return !document.querySelector(selector);
+                        if (selector) return !ShadowUtils.querySelectorWithShadow(document.body, selector);
                         if (textToFind) return !findByText(textToFind);
                         if (params.id) {
                             const el = STATE.elementMap.get(params.id);
@@ -1550,7 +1630,7 @@
                         if (Number.isNaN(count)) {
                             throw { msg: 'Invalid count for wait', code: 'INVALID_PARAMS' };
                         }
-                        return document.querySelectorAll(selector).length >= count;
+                        return ShadowUtils.querySelectorAllWithShadow(document.body, selector).length >= count;
                     }
                     default:
                         return false;
@@ -1653,18 +1733,12 @@
             // Find close button within a modal element
             const findCloseButton = (modal) => {
                 // Try class/aria-label selectors first
-                let closeBtn = modal.querySelector('.close, [aria-label*="close" i], [aria-label*="Close" i]');
+                const closeBtn = ShadowUtils.querySelectorWithShadow(modal, '.close, [aria-label*="close" i], [aria-label*="Close" i]');
                 if (closeBtn) return closeBtn;
 
                 // Fallback: find buttons with close/cancel/dismiss text
-                const buttons = modal.querySelectorAll('button, [role="button"]');
-                for (const btn of buttons) {
-                    const text = btn.textContent.toLowerCase().trim();
-                    if (CLOSE_BUTTON_TEXTS.includes(text)) {
-                        return btn;
-                    }
-                }
-                return null;
+                const buttons = ShadowUtils.querySelectorAllWithShadow(modal, 'button, [role="button"]');
+                return buttons.find((btn) => CLOSE_BUTTON_TEXTS.includes(btn.textContent.toLowerCase().trim())) || null;
             };
 
             // Check if modal is visible
@@ -1675,7 +1749,7 @@
 
             // Try to dismiss a modal, optionally filtering by text content
             const tryDismissModal = (textFilter = null) => {
-                const modals = document.querySelectorAll(MODAL_SELECTORS);
+                const modals = ShadowUtils.querySelectorAllWithShadow(document.body, MODAL_SELECTORS);
                 for (const modal of modals) {
                     if (!isModalVisible(modal)) continue;
                     if (textFilter && !modal.textContent.toLowerCase().includes(textFilter)) continue;
@@ -1735,13 +1809,13 @@
 
     const Extractor = {
         get_text: (params) => {
-            const el = params.selector ? document.querySelector(params.selector) : document.body;
+            const el = params.selector ? ShadowUtils.querySelectorWithShadow(document.body, params.selector) : document.body;
             if (!el) throw { msg: 'Element not found', code: 'ELEMENT_NOT_FOUND' };
             return Protocol.success({ text: el.innerText || el.textContent || '' });
         },
 
         get_html: (params) => {
-            const el = params.selector ? document.querySelector(params.selector) : document.documentElement;
+            const el = params.selector ? ShadowUtils.querySelectorWithShadow(document.body, params.selector) : document.documentElement;
             if (!el) throw { msg: 'Element not found', code: 'ELEMENT_NOT_FOUND' };
             const html = params.outer !== false ? el.outerHTML : el.innerHTML;
             return Protocol.success({ html: html || '' });
@@ -1770,7 +1844,7 @@
         },
 
         exists: (params) => {
-            const el = document.querySelector(params.selector);
+            const el = ShadowUtils.querySelectorWithShadow(document.body, params.selector);
             return Protocol.success({ exists: !!el });
         },
 
@@ -1788,27 +1862,27 @@
 
         extract: (params) => {
             const source = params.source || 'links';
-            const container = params.selector ? document.querySelector(params.selector) : document.body;
+            const container = params.selector ? ShadowUtils.querySelectorWithShadow(document.body, params.selector) : document.body;
             if (!container) throw { msg: 'Container not found', code: 'ELEMENT_NOT_FOUND' };
 
             let results = [];
             switch (source) {
                 case 'links':
-                    results = Array.from(container.querySelectorAll('a[href]')).map((a) => ({
+                    results = ShadowUtils.querySelectorAllWithShadow(container, 'a[href]').map((a) => ({
                         text: a.innerText.trim(),
                         url: a.href,
                         id: STATE.inverseMap.get(a)
                     }));
                     break;
                 case 'images':
-                    results = Array.from(container.querySelectorAll('img')).map((img) => ({
+                    results = ShadowUtils.querySelectorAllWithShadow(container, 'img').map((img) => ({
                         alt: img.alt,
                         src: img.src,
                         id: STATE.inverseMap.get(img)
                     }));
                     break;
                 case 'tables':
-                    results = Array.from(container.querySelectorAll('table')).map((table) => {
+                    results = ShadowUtils.querySelectorAllWithShadow(container, 'table').map((table) => {
                         const rows = Array.from(table.rows).map((row) =>
                             Array.from(row.cells).map((cell) => cell.innerText.trim())
                         );
@@ -1823,7 +1897,7 @@
                     break;
                 case 'css':
                     if (!params.selector) throw { msg: 'Selector required for CSS extraction', code: 'INVALID_PARAMS' };
-                    results = Array.from(document.querySelectorAll(params.selector)).map((el) => ({
+                    results = ShadowUtils.querySelectorAllWithShadow(document.documentElement, params.selector).map((el) => ({
                         text: el.innerText,
                         html: el.outerHTML,
                         id: STATE.inverseMap.get(el)
@@ -2047,7 +2121,7 @@
 
             for (const selector of modalSelectors) {
                 try {
-                    const modal = document.querySelector(selector);
+                    const modal = ShadowUtils.querySelectorWithShadow(document.body, selector);
                     if (modal && Utils.isVisible(modal)) {
                         const result = {
                             container: Utils.generateSelector(modal)
@@ -2065,7 +2139,7 @@
 
                         for (const closeSelector of closeSelectors) {
                             try {
-                                const closeBtn = modal.querySelector(closeSelector);
+                                const closeBtn = ShadowUtils.querySelectorWithShadow(modal, closeSelector);
                                 if (closeBtn) {
                                     const closeId = STATE.inverseMap.get(closeBtn);
                                     if (closeId) result.close = closeId;
@@ -2079,7 +2153,7 @@
                         // Find title
                         const titleSelectors = ['.modal-title', '[class*="title"]', 'h1', 'h2', 'h3'];
                         for (const titleSelector of titleSelectors) {
-                            const title = modal.querySelector(titleSelector);
+                            const title = ShadowUtils.querySelectorWithShadow(modal, titleSelector);
                             if (title && title.textContent.trim()) {
                                 result.title = title.textContent.trim().substring(0, 100);
                                 break;
@@ -2110,7 +2184,7 @@
 
             for (const selector of bannerSelectors) {
                 try {
-                    const banners = document.querySelectorAll(selector);
+                    const banners = ShadowUtils.querySelectorAllWithShadow(document.body, selector);
                     for (const banner of banners) {
                         if (!Utils.isVisible(banner)) continue;
 
@@ -2121,7 +2195,7 @@
                         let acceptBtn = null;
                         let rejectBtn = null;
 
-                        const buttons = banner.querySelectorAll('button, a[role="button"], [class*="btn"]');
+                        const buttons = ShadowUtils.querySelectorAllWithShadow(banner, 'button, a[role="button"], [class*="btn"]');
                         for (const btn of buttons) {
                             const btnText = (btn.textContent || '').toLowerCase().trim();
 
@@ -2294,4 +2368,5 @@
     global.Oryn.process = process;
     global.Oryn.Scanner = Scanner; // Export for debugging
     global.Oryn.State = STATE;
+    global.Oryn.ShadowUtils = ShadowUtils; // Export for CSS selector resolution
 })(window);

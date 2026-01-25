@@ -392,7 +392,7 @@ impl ResolutionEngine {
                 var el = null;
                 for (var i = 0; i < selectors.length; i++) {{
                     try {{
-                        el = document.querySelector(selectors[i]);
+                        el = Oryn.ShadowUtils.querySelectorWithShadow(document.body, selectors[i]);
                         if (el) break;
                     }} catch (e) {{}}
                 }}
@@ -412,7 +412,7 @@ impl ResolutionEngine {
                 r###"
                 var el = null;
                 try {{
-                    el = document.querySelector("{}");
+                    el = Oryn.ShadowUtils.querySelectorWithShadow(document.body, "{}");
                 }} catch (e) {{}}
                 if (!el) return {{ found: false }};
                 var id = Oryn.State.inverseMap.get(el);

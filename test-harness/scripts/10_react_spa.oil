@@ -1,0 +1,40 @@
+# React SPA with Shadow DOM - TaskFlow App Test
+# Tests comprehensive shadow DOM support in a React application
+
+goto "http://localhost:3000/spa/react-tasks.html"
+observe  # Should discover 40+ elements including shadow DOM components
+
+# Test: Add a new task using shadow DOM form (CSS selector targeting)
+type css(#task-title) "Implement shadow DOM tests"
+click css(.add-btn)
+
+# Verify task was added
+observe
+
+# Test: Filter buttons using CSS selectors (in shadow DOM filter-controls component)
+click css(#active-btn)
+observe
+
+click css(#completed-btn)
+observe
+
+click css(#all-btn)
+observe
+
+# Test: Search functionality with CSS selector
+type css(#search-input) "shadow"
+observe
+
+# Clear search
+type css(#search-input) ""
+observe
+
+# Test: Delete a task (button in task-item shadow DOM)
+click "Delete"
+observe
+
+# Test: Extract text content including shadow DOM
+extract text
+
+# Test: Sign out button in header shadow DOM using CSS selector
+click css(#logout-btn)

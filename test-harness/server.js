@@ -26,6 +26,7 @@ app.use('/shared', express.static(path.join(__dirname, 'public/shared')));
 app.use('/static', express.static(path.join(__dirname, 'scenarios/static')));
 app.use('/forms', express.static(path.join(__dirname, 'scenarios/forms')));
 app.use('/shop', require('./scenarios/ecommerce/api'));
+app.use('/spa', express.static(path.join(__dirname, 'scenarios/spa')));
 app.use('/spa/react', express.static(path.join(__dirname, 'scenarios/spa-react')));
 app.use('/modals', express.static(path.join(__dirname, 'scenarios/modals')));
 app.use('/dynamic', express.static(path.join(__dirname, 'scenarios/dynamic')));

@@ -1,0 +1,26 @@
+# Angular-style SPA with Shadow DOM - ShopHub Test
+# Tests comprehensive shadow DOM support in an Angular-style application
+
+goto "http://localhost:3000/spa/angular-shop.html"
+observe  # Should discover many product cards in shadow DOM
+
+# Test: Search functionality using CSS selector (in shadow DOM search-bar)
+type css(#search) "wireless"
+observe  # Should show filtered products
+
+# Clear search using CSS selector
+type css(#search) ""
+observe
+
+# Test: Sort buttons using CSS selectors (in shadow DOM search-bar component)
+click css(#sort-price)
+observe
+
+click css(#sort-rating)
+observe
+
+click css(#sort-name)
+observe
+
+# Test: Extract links (footer links are in shadow DOM)
+extract links
