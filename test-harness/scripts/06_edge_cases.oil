@@ -5,7 +5,7 @@ observe
 
 goto "http://localhost:3000/edge/shadow-dom.html"
 observe
-click "Open Action"
+click "Open Action" --force
 
 goto "http://localhost:3000/edge/accessibility.html"
 observe

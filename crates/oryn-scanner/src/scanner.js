@@ -1663,8 +1663,21 @@
                         // Check if visible (display not none, and has dimensions)
                         const style = window.getComputedStyle(modal);
                         if (style.display !== 'none' && modal.offsetWidth > 0) {
-                            // Look for close button
-                            const closeBtn = modal.querySelector('button, [role="button"], .close, [aria-label*="close" i], [aria-label*="Close" i]');
+                            // Look for close button (various selectors)
+                            let closeBtn = modal.querySelector('.close, [aria-label*="close" i], [aria-label*="Close" i]');
+
+                            // If not found by class/aria-label, try finding buttons with close/cancel/dismiss text
+                            if (!closeBtn) {
+                                const buttons = modal.querySelectorAll('button, [role="button"]');
+                                for (const btn of buttons) {
+                                    const text = btn.textContent.toLowerCase().trim();
+                                    if (text === 'close' || text === 'cancel' || text === 'dismiss' || text === 'ok' || text === 'x') {
+                                        closeBtn = btn;
+                                        break;
+                                    }
+                                }
+                            }
+
                             if (closeBtn) {
                                 closeBtn.click();
                                 clicked = true;
@@ -1693,7 +1706,20 @@
                     if (style.display !== 'none' && modal.offsetWidth > 0) {
                         // Check if this modal contains the target text
                         if (modal.textContent.toLowerCase().includes(target)) {
-                            const closeBtn = modal.querySelector('button, [role="button"], .close, [aria-label*="close" i]');
+                            let closeBtn = modal.querySelector('.close, [aria-label*="close" i]');
+
+                            // If not found by class/aria-label, try finding buttons with close/cancel/dismiss text
+                            if (!closeBtn) {
+                                const buttons = modal.querySelectorAll('button, [role="button"]');
+                                for (const btn of buttons) {
+                                    const text = btn.textContent.toLowerCase().trim();
+                                    if (text === 'close' || text === 'cancel' || text === 'dismiss' || text === 'ok' || text === 'x') {
+                                        closeBtn = btn;
+                                        break;
+                                    }
+                                }
+                            }
+
                             if (closeBtn) {
                                 closeBtn.click();
                                 clicked = true;
@@ -1816,6 +1842,13 @@
                         html: el.outerHTML,
                         id: STATE.inverseMap.get(el)
                     }));
+                    break;
+                case 'text':
+                    // Extract text content from the container or selected element
+                    results = {
+                        text: container.innerText || container.textContent || '',
+                        selector: params.selector || 'body'
+                    };
                     break;
                 default:
                     throw { msg: `Unknown extraction source: ${source}`, code: 'INVALID_PARAMS' };

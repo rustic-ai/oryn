@@ -126,16 +126,17 @@ impl ResolutionEngine {
             }
 
             ast::Command::Dismiss(cmd) => {
-                // Try to resolve the target string as a text target
+                // If target is a keyword, pass directly to scanner action
+                if Self::is_dismiss_fallback_keyword(&cmd.target) {
+                    return Ok(ast::Command::Dismiss(cmd));
+                }
+
+                // Otherwise, try to resolve as a text target (e.g., specific element text)
                 let text_target = Target::Text(cmd.target.clone());
                 match Self::resolve_target(&text_target, &meta.requirement, true, ctx, backend)
                     .await
                 {
                     Ok(id) => Ok(make_click_cmd(id)),
-                    Err(_) if Self::is_dismiss_fallback_keyword(&cmd.target) => {
-                        // Keep as Dismiss for backend to handle
-                        Ok(ast::Command::Dismiss(cmd))
-                    }
                     Err(e) => Err(e),
                 }
             }
@@ -159,7 +160,10 @@ impl ResolutionEngine {
     }
 
     fn is_dismiss_fallback_keyword(target: &str) -> bool {
-        matches!(target.to_lowercase().as_str(), "popups" | "modals")
+        matches!(
+            target.to_lowercase().as_str(),
+            "modal" | "modals" | "popup" | "popups" | "banner" | "banners" | "cookies"
+        )
     }
 
     /// Resolve a single target to an element ID.

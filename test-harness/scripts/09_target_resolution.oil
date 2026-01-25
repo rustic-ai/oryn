@@ -139,10 +139,10 @@ click "Perform Action"
 # Test 11: Popup Interference & Recovery
 # =============================================================================
 
-click "Perform Action (Blocked by Popup)"
+click "Perform Action (Blocked by Popup)" --force
 # Popup appears, must dismiss first
 wait visible css(#blocking-popup)
-click "Continue"
+dismiss "popup"
 wait visible css(#blocked-result)
 observe
 
