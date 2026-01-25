@@ -53,7 +53,7 @@ pub async fn run_file(mut backend: Box<dyn Backend>, path: &str) -> anyhow::Resu
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        
+
         match executor.execute_line(&mut *backend, trimmed).await {
             Ok(res) => {
                 println!("{}", res.output);

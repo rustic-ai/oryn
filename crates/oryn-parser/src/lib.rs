@@ -1,50 +1,37 @@
 pub mod ast;
 pub mod normalizer;
 pub mod parser;
-pub mod resolver;
 pub mod translator;
 
 pub use ast::*;
 pub use normalizer::normalize;
+pub use oryn_common::resolver;
 pub use parser::{parse, OilParser, Rule};
 
-use crate::resolver::{ResolverContext, resolve_target, ResolverError, ResolutionStrategy};
 use crate::translator::{translate, TranslationError};
 use oryn_common::protocol::Action;
+use oryn_common::resolver::{resolve_target, ResolutionStrategy, ResolverContext, ResolverError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ProcessError {
     #[error("Parse error: {0}")]
     Parse(#[from] parser::ParseError),
-    // Normalization is infallible currently (returns String)
     #[error("Resolution error: {0}")]
     Resolution(#[from] ResolverError),
     #[error("Translation error: {0}")]
     Translate(#[from] TranslationError),
 }
 
-/// Helper to configure resolution strategy based on command type (optional).
-fn get_strategy_for_cmd(_cmd: &Command) -> ResolutionStrategy {
-    // defaults to First
-    ResolutionStrategy::First
-}
-
+/// Process OIL input through the full pipeline: normalize, parse, resolve, and translate.
 pub fn process(input: &str, ctx: &ResolverContext) -> Result<Vec<Action>, ProcessError> {
-    // 1. Normalize (String level)
     let normalized = normalize(input);
-    
-    // 2. Parse
     let script = parse(&normalized)?;
-    
+
     let mut actions = Vec::new();
     for line in script.lines {
         if let Some(mut cmd) = line.command {
-            // 3. Resolve
-            let strategy = get_strategy_for_cmd(&cmd);
-            resolve_command_targets(&mut cmd, ctx, strategy)?;
-            
-            // 4. Translate
+            resolve_command_targets(&mut cmd, ctx)?;
             let action = translate(&cmd)?;
             actions.push(action);
         }
@@ -52,39 +39,65 @@ pub fn process(input: &str, ctx: &ResolverContext) -> Result<Vec<Action>, Proces
     Ok(actions)
 }
 
-fn resolve_command_targets(cmd: &mut Command, ctx: &ResolverContext, strategy: ResolutionStrategy) -> Result<(), ResolverError> {
+fn resolve_with_strategy(
+    target: &Target,
+    ctx: &ResolverContext,
+    strategy: ResolutionStrategy,
+) -> Result<Target, ResolverError> {
+    let resolver_target = target.to_resolver_target();
+    let resolved = resolve_target(&resolver_target, ctx, strategy)?;
+    Ok(Target::from_resolver_target(&resolved))
+}
+
+fn resolve(target: &Target, ctx: &ResolverContext) -> Result<Target, ResolverError> {
+    resolve_with_strategy(target, ctx, ResolutionStrategy::First)
+}
+
+fn resolve_optional(
+    target: &mut Option<Target>,
+    ctx: &ResolverContext,
+) -> Result<(), ResolverError> {
+    if let Some(t) = target {
+        *t = resolve(t, ctx)?;
+    }
+    Ok(())
+}
+
+fn resolve_command_targets(cmd: &mut Command, ctx: &ResolverContext) -> Result<(), ResolverError> {
+    use ResolutionStrategy::*;
+
     match cmd {
-        Command::Text(c) => if let Some(t) = &mut c.target { *t = resolve_target(t, ctx, strategy)?; },
-        Command::Screenshot(c) => if let Some(t) = &mut c.target { *t = resolve_target(t, ctx, strategy)?; },
-        Command::Box(c) => c.target = resolve_target(&c.target, ctx, strategy)?,
-        
-        Command::Click(c) => c.target = resolve_target(&c.target, ctx, ResolutionStrategy::PreferClickable)?, // Special strategy?
-        Command::Type(c) => c.target = resolve_target(&c.target, ctx, ResolutionStrategy::PreferInput)?,
-        Command::Clear(c) => c.target = resolve_target(&c.target, ctx, strategy)?,
-        Command::Select(c) => c.target = resolve_target(&c.target, ctx, strategy)?,
-        Command::Check(c) => c.target = resolve_target(&c.target, ctx, ResolutionStrategy::PreferCheckable)?,
-        Command::Uncheck(c) => c.target = resolve_target(&c.target, ctx, ResolutionStrategy::PreferCheckable)?,
-        Command::Hover(c) => c.target = resolve_target(&c.target, ctx, strategy)?,
-        Command::Focus(c) => c.target = resolve_target(&c.target, ctx, strategy)?,
-        Command::Scroll(c) => if let Some(t) = &mut c.target { *t = resolve_target(t, ctx, strategy)?; },
-        Command::Submit(c) => if let Some(t) = &mut c.target { *t = resolve_target(t, ctx, strategy)?; },
-        
-        Command::Wait(c) => match &mut c.condition {
-            WaitCondition::Visible(t) => *t = resolve_target(t, ctx, strategy)?,
-            WaitCondition::Hidden(t) => *t = resolve_target(t, ctx, strategy)?,
-            _ => {}
-        },
-        
-        Command::ScrollUntil(c) => c.target = resolve_target(&c.target, ctx, strategy)?,
-        
-        // FrameSwitchCmd - FrameTarget
-        Command::Frame(c) => {
-            if let crate::ast::FrameTarget::Target(t) = &mut c.target {
-                *t = resolve_target(t, ctx, strategy)?;
+        Command::Text(c) => resolve_optional(&mut c.target, ctx)?,
+        Command::Screenshot(c) => resolve_optional(&mut c.target, ctx)?,
+        Command::Box(c) => c.target = resolve(&c.target, ctx)?,
+        Command::Click(c) => c.target = resolve_with_strategy(&c.target, ctx, PreferClickable)?,
+        Command::Type(c) => c.target = resolve_with_strategy(&c.target, ctx, PreferInput)?,
+        Command::Clear(c) => c.target = resolve(&c.target, ctx)?,
+        Command::Select(c) => c.target = resolve(&c.target, ctx)?,
+        Command::Check(c) => c.target = resolve_with_strategy(&c.target, ctx, PreferCheckable)?,
+        Command::Uncheck(c) => c.target = resolve_with_strategy(&c.target, ctx, PreferCheckable)?,
+        Command::Hover(c) => c.target = resolve(&c.target, ctx)?,
+        Command::Focus(c) => c.target = resolve(&c.target, ctx)?,
+        Command::Scroll(c) => resolve_optional(&mut c.target, ctx)?,
+        Command::Submit(c) => resolve_optional(&mut c.target, ctx)?,
+        Command::ScrollUntil(c) => c.target = resolve(&c.target, ctx)?,
+
+        Command::Wait(c) => {
+            if let WaitCondition::Visible(t) | WaitCondition::Hidden(t) = &mut c.condition {
+                let needs_resolution = t.relation.is_some()
+                    || matches!(t.atomic, TargetAtomic::Id(_) | TargetAtomic::Role(_));
+                if needs_resolution {
+                    *t = resolve(t, ctx)?;
+                }
             }
-        },
-        
-        // Commands without targets or string targets that don't need resolution
+        }
+
+        Command::Frame(c) => {
+            if let FrameTarget::Target(t) = &mut c.target {
+                *t = resolve(t, ctx)?;
+            }
+        }
+
         _ => {}
     }
     Ok(())

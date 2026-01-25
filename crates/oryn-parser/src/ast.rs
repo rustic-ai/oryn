@@ -361,7 +361,10 @@ pub struct HeadersCmd {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum HeadersAction {
-    Set { domain: Option<String>, json: String }, // Argument might be (domain, string) or just string
+    Set {
+        domain: Option<String>,
+        json: String,
+    }, // Argument might be (domain, string) or just string
     Clear(Option<String>),
     Show(String), // The `domain_name` case
 }
@@ -608,4 +611,104 @@ pub enum TargetAtomic {
     Text(String),
     Selector { kind: String, value: String }, // css or xpath
     Role(String),
+}
+
+// --- Conversion to/from oryn_common::resolver::Target ---
+
+impl Target {
+    /// Convert ast::Target to oryn_common::resolver::Target for resolution.
+    pub fn to_resolver_target(&self) -> oryn_common::resolver::Target {
+        use oryn_common::resolver::Target as ResolverTarget;
+
+        let base = match &self.atomic {
+            TargetAtomic::Id(id) => ResolverTarget::Id(*id),
+            TargetAtomic::Text(text) => ResolverTarget::Text(text.clone()),
+            TargetAtomic::Role(role) => ResolverTarget::Role(role.clone()),
+            TargetAtomic::Selector { value, .. } => ResolverTarget::Selector(value.clone()),
+        };
+
+        let Some(relation) = &self.relation else {
+            return base;
+        };
+
+        let base_box = Box::new(base);
+        let related_box = Box::new(relation.target.to_resolver_target());
+
+        match relation.kind {
+            RelationKind::Near => ResolverTarget::Near {
+                target: base_box,
+                anchor: related_box,
+            },
+            RelationKind::Inside => ResolverTarget::Inside {
+                target: base_box,
+                container: related_box,
+            },
+            RelationKind::After => ResolverTarget::After {
+                target: base_box,
+                anchor: related_box,
+            },
+            RelationKind::Before => ResolverTarget::Before {
+                target: base_box,
+                anchor: related_box,
+            },
+            RelationKind::Contains => ResolverTarget::Contains {
+                target: base_box,
+                content: related_box,
+            },
+        }
+    }
+
+    /// Convert oryn_common::resolver::Target back to ast::Target after resolution.
+    pub fn from_resolver_target(resolver_target: &oryn_common::resolver::Target) -> Self {
+        use oryn_common::resolver::Target as ResolverTarget;
+
+        fn simple(atomic: TargetAtomic) -> Target {
+            Target {
+                atomic,
+                relation: None,
+            }
+        }
+
+        fn with_relation(
+            base: &ResolverTarget,
+            related: &ResolverTarget,
+            kind: RelationKind,
+        ) -> Target {
+            let base_target = Target::from_resolver_target(base);
+            let related_target = Target::from_resolver_target(related);
+            Target {
+                atomic: base_target.atomic,
+                relation: Some(Box::new(TargetRelation {
+                    kind,
+                    target: related_target,
+                })),
+            }
+        }
+
+        match resolver_target {
+            ResolverTarget::Id(id) => simple(TargetAtomic::Id(*id)),
+            ResolverTarget::Text(text) => simple(TargetAtomic::Text(text.clone())),
+            ResolverTarget::Role(role) => simple(TargetAtomic::Role(role.clone())),
+            ResolverTarget::Selector(sel) => simple(TargetAtomic::Selector {
+                kind: "css".to_string(),
+                value: sel.clone(),
+            }),
+            ResolverTarget::Infer => simple(TargetAtomic::Text(String::new())),
+            ResolverTarget::Near { target, anchor } => {
+                with_relation(target, anchor, RelationKind::Near)
+            }
+            ResolverTarget::Inside { target, container } => {
+                with_relation(target, container, RelationKind::Inside)
+            }
+            ResolverTarget::After { target, anchor } => {
+                with_relation(target, anchor, RelationKind::After)
+            }
+            ResolverTarget::Before { target, anchor } => {
+                with_relation(target, anchor, RelationKind::Before)
+            }
+            ResolverTarget::Contains { target, content } => {
+                with_relation(target, content, RelationKind::Contains)
+            }
+        }
+    }
 }

@@ -163,13 +163,14 @@ Recognized UI patterns with element ID references:
 
 ### 3.2 click
 
-Click an element by ID.
+Click an element by ID or selector.
 
 **Request Parameters**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `id` | number | required | Element ID to click |
+| `id` | number | null | Element ID to click (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
 | `button` | string | "left" | Mouse button (left, right, middle) |
 | `click_count` | number | 1 | Number of clicks (2 for double-click) |
 | `modifiers` | array | [] | Modifier keys (Control, Shift, Alt) |
@@ -186,13 +187,14 @@ Click an element by ID.
 
 ### 3.3 type
 
-Type text into an element.
+Type text into an element by ID or selector.
 
 **Request Parameters**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `id` | number | required | Element ID |
+| `id` | number | null | Element ID (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
 | `text` | string | required | Text to type |
 | `clear` | boolean | true | Clear existing content first |
 | `delay` | number | 0 | Milliseconds between keystrokes |
@@ -205,36 +207,39 @@ Type text into an element.
 
 ### 3.4 clear
 
-Clear an input element's value.
+Clear an input element's value by ID or selector.
 
 **Request Parameters**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `id` | number | required | Element ID |
+| `id` | number | null | Element ID (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
 
 ### 3.5 check / uncheck
 
-Set checkbox or radio button state.
+Set checkbox or radio button state by ID or selector.
 
 **Request Parameters**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `id` | number | required | Element ID |
+| `id` | number | null | Element ID (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
 
 **Response Data**
 - Final checked state
 
 ### 3.6 select
 
-Select an option in a dropdown.
+Select an option in a dropdown by ID or selector.
 
 **Request Parameters**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `id` | number | required | Element ID |
+| `id` | number | null | Element ID (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
 | `value` | string | null | Value attribute to select |
 | `text` | string | null | Visible text to select |
 | `index` | number | null | Zero-based index to select |
@@ -266,33 +271,36 @@ Scroll the viewport or container.
 
 ### 3.8 focus
 
-Set keyboard focus to an element.
+Set keyboard focus to an element by ID or selector.
 
 **Request Parameters**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `id` | number | required | Element ID |
+| `id` | number | null | Element ID (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
 
 ### 3.9 hover
 
-Move mouse over an element.
+Move mouse over an element by ID or selector.
 
 **Request Parameters**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `id` | number | required | Element ID |
+| `id` | number | null | Element ID (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
 
 ### 3.10 submit
 
-Submit a form.
+Submit a form by ID or selector.
 
 **Request Parameters**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `id` | number | null | Form or element within form |
+| `selector` | string | null | CSS selector alternative to `id` |
 
 If no ID provided, submits the form containing the currently focused element.
 
@@ -378,6 +386,7 @@ Wait for a condition to be true.
 | `condition` | string | required | Condition type |
 | `selector` | string | null | CSS selector (for element conditions) |
 | `id` | number | null | Element ID (alternative to selector) |
+| `text` | string | null | Visible text match (alternative to selector) |
 | `expression` | string | null | JavaScript expression (for `custom` condition) |
 | `count` | number | null | Target element count (for `count` condition) |
 | `timeout` | number | 30000 | Maximum wait time in milliseconds |

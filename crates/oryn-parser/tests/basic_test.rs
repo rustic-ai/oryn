@@ -1,4 +1,4 @@
-use oryn_parser::{parse, normalize};
+use oryn_parser::{normalize, parse};
 
 #[test]
 fn test_parser_basic() {
@@ -8,12 +8,12 @@ fn test_parser_basic() {
     click "Button" near "Menu"
     wait visible "Footer"
     "#;
-    
+
     let normalized = normalize(input);
     println!("Normalized:\n{}", normalized);
-    
+
     let script = parse(&normalized).expect("Failed to parse");
     println!("Parsed: {:?}", script);
-    
+
     assert_eq!(script.lines.len(), 4); // Comment, goto, click, wait
 }

@@ -1,5 +1,5 @@
 use futures::{SinkExt, StreamExt};
-use oryn_engine::protocol::{ScannerProtocolResponse, ScannerAction, Action};
+use oryn_engine::protocol::{Action, ScannerAction, ScannerProtocolResponse};
 use oryn_r::server::RemoteServer;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -36,7 +36,7 @@ async fn test_server_connection_and_messaging() {
         near: None,
         viewport_only: false,
     });
-    
+
     // Wrap in Action
     let action = Action::Scanner(test_cmd);
 

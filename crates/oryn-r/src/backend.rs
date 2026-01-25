@@ -2,8 +2,8 @@ use crate::server::{RemoteServer, ServerHandle};
 use async_trait::async_trait;
 use oryn_engine::backend::{Backend, BackendError, NavigationResult};
 use oryn_engine::protocol::{
-    ScannerProtocolResponse, ScannerAction, Action, BrowserAction, 
-    NavigateRequest, BackRequest, ExecuteRequest
+    Action, BackRequest, BrowserAction, ExecuteRequest, NavigateRequest, ScannerAction,
+    ScannerProtocolResponse,
 };
 use tracing::info;
 
@@ -100,11 +100,14 @@ impl Backend for RemoteBackend {
         // If extension supports BrowserAction::Screenshot, prefer that.
         // Assuming YES since we unified Action.
         use oryn_engine::protocol::ScreenshotRequest;
-        
+
         let action = Action::Browser(BrowserAction::Screenshot(ScreenshotRequest {
-            output: None, format: Some("png".into()), selector: None, fullpage: false 
+            output: None,
+            format: Some("png".into()),
+            selector: None,
+            fullpage: false,
         }));
-        
+
         // Wait, did legacy implementation use ExecuteRequest because `ScreenshotRequest` wasn't supported by extension?
         // Legacy used `chrome.runtime.sendMessage({ action: 'screenshot' })`.
         // If I send `Action::Browser(Screenshot)`, it serializes to `{ action: "screenshot", ... }`.
@@ -114,7 +117,7 @@ impl Backend for RemoteBackend {
         // `ScreenshotRequest` has optional fields. Default serialization includes them as null or omitted?
         // `skip_serializing_if = "Option::is_none"` in protocol.rs.
         // So `{ action: "screenshot", format: "png", fullpage: false }`.
-        
+
         let resp = self.send_action(action).await?;
 
         // Extract base64 data from response
@@ -157,10 +160,12 @@ impl Backend for RemoteBackend {
         use oryn_engine::protocol::ForwardRequest;
         let action = Action::Browser(BrowserAction::Forward(ForwardRequest::default()));
         self.send_action(action).await?;
-        
+
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         Ok(NavigationResult {
-            url: String::new(), title: String::new(), status: 200,
+            url: String::new(),
+            title: String::new(),
+            status: 200,
         })
     }
 
@@ -168,10 +173,12 @@ impl Backend for RemoteBackend {
         use oryn_engine::protocol::RefreshRequest;
         let action = Action::Browser(BrowserAction::Refresh(RefreshRequest::default()));
         self.send_action(action).await?;
-        
+
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         Ok(NavigationResult {
-            url: String::new(), title: String::new(), status: 200,
+            url: String::new(),
+            title: String::new(),
+            status: 200,
         })
     }
 

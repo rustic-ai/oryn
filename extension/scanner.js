@@ -791,9 +791,18 @@
             if (!el.isConnected) throw { msg: `Element ${id} is stale`, code: 'ELEMENT_STALE' };
             return el;
         },
+        getElementFromParams: (params) => {
+            if (params.id != null) return Executor.getElement(params.id);
+            if (params.selector) {
+                const el = document.querySelector(params.selector);
+                if (!el) throw { msg: 'Element not found', code: 'ELEMENT_NOT_FOUND' };
+                return el;
+            }
+            throw { msg: 'Missing target', code: 'INVALID_PARAMS' };
+        },
 
         click: (params) => {
-            const el = Executor.getElement(params.id);
+            const el = Executor.getElementFromParams(params);
 
             // Check visibility unless force is set
             if (!params.force && !Utils.isVisible(el)) {
@@ -931,7 +940,7 @@
         },
 
         type: async (params) => {
-            const el = Executor.getElement(params.id);
+            const el = Executor.getElementFromParams(params);
 
             // Check if element is disabled
             if (el.disabled) {
@@ -1028,7 +1037,7 @@
         },
 
         clear: (params) => {
-            const el = Executor.getElement(params.id);
+            const el = Executor.getElementFromParams(params);
             el.value = '';
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1040,7 +1049,7 @@
         },
 
         check: (params, targetState) => {
-            const el = Executor.getElement(params.id);
+            const el = Executor.getElementFromParams(params);
             const previousState = el.checked;
 
             if (el.checked !== targetState) {
@@ -1062,7 +1071,7 @@
         },
 
         select: (params) => {
-            const el = Executor.getElement(params.id);
+            const el = Executor.getElementFromParams(params);
             if (el.tagName.toLowerCase() !== 'select')
                 throw { msg: 'Not a select element', code: 'INVALID_ELEMENT_TYPE' };
 
@@ -1207,7 +1216,7 @@
         },
 
         focus: (params) => {
-            const el = Executor.getElement(params.id);
+            const el = Executor.getElementFromParams(params);
             el.focus();
             return Protocol.success({
                 action: 'focused',
@@ -1217,7 +1226,7 @@
         },
 
         hover: (params) => {
-            const el = Executor.getElement(params.id);
+            const el = Executor.getElementFromParams(params);
 
             // Check visibility
             if (!Utils.isVisible(el)) {
@@ -1260,8 +1269,8 @@
 
         submit: (params) => {
             let el;
-            if (params.id) {
-                const target = Executor.getElement(params.id);
+            if (params.id != null || params.selector) {
+                const target = Executor.getElementFromParams(params);
                 if (target.tagName === 'FORM') el = target;
                 else el = target.form;
             } else {
@@ -1289,14 +1298,37 @@
         },
 
         wait_for: async (params) => {
-            const timeout = params.timeout || 30000;
+            const timeout = params.timeout ?? params.timeout_ms ?? 30000;
             const pollInterval = params.poll_interval || 100;
             const start = performance.now();
             const initialUrl = window.location.href;
 
+            // Support both 'selector' and 'target' parameter names
+            const selector = params.selector || params.target;
+            const textToFind = params.text;
+            const expression = params.expression;
+            const countTarget = params.count;
+
+            // Find element by text content (searches visible text in the document)
+            const findByText = (text) => {
+                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+                const normalizedSearch = text.toLowerCase().trim();
+                let node;
+                while ((node = walker.nextNode())) {
+                    if (node.textContent.toLowerCase().includes(normalizedSearch)) {
+                        const parent = node.parentElement;
+                        if (parent && Utils.isVisible(parent)) {
+                            return parent;
+                        }
+                    }
+                }
+                return null;
+            };
+
             const getElement = () => {
                 if (params.id) return STATE.elementMap.get(params.id);
-                if (params.selector) return document.querySelector(params.selector);
+                if (selector) return document.querySelector(selector);
+                if (textToFind) return findByText(textToFind);
                 return null;
             };
 
@@ -1305,7 +1337,8 @@
 
                 switch (condition) {
                     case 'exists': {
-                        if (params.selector) return !!document.querySelector(params.selector);
+                        if (selector) return !!document.querySelector(selector);
+                        if (textToFind) return !!findByText(textToFind);
                         if (params.id)
                             return STATE.elementMap.has(params.id) && STATE.elementMap.get(params.id).isConnected;
                         return false;
@@ -1320,7 +1353,8 @@
                         return !el || !Utils.isVisible(el);
                     }
                     case 'gone': {
-                        if (params.selector) return !document.querySelector(params.selector);
+                        if (selector) return !document.querySelector(selector);
+                        if (textToFind) return !findByText(textToFind);
                         if (params.id) {
                             const el = STATE.elementMap.get(params.id);
                             return !el || !el.isConnected;
@@ -1338,6 +1372,30 @@
                     case 'navigation': {
                         // Check if URL has changed from initial
                         return window.location.href !== initialUrl;
+                    }
+                    case 'load': {
+                        return document.readyState === 'complete';
+                    }
+                    case 'idle': {
+                        return document.readyState === 'complete';
+                    }
+                    case 'custom': {
+                        if (!expression) {
+                            throw { msg: 'Missing expression for custom wait', code: 'INVALID_PARAMS' };
+                        }
+                        // eslint-disable-next-line no-new-func
+                        return !!Function(`return (${expression})`)();
+                    }
+                    case 'count': {
+                        if (!selector || countTarget == null) return false;
+                        const count =
+                            typeof countTarget === 'number'
+                                ? countTarget
+                                : parseInt(countTarget, 10);
+                        if (Number.isNaN(count)) {
+                            throw { msg: 'Invalid count for wait', code: 'INVALID_PARAMS' };
+                        }
+                        return document.querySelectorAll(selector).length >= count;
                     }
                     default:
                         return false;
@@ -1475,7 +1533,7 @@
         },
 
         get_value: (params) => {
-            const el = Executor.getElement(params.id);
+            const el = Executor.getElementFromParams(params);
 
             // Handle different element types
             const tag = el.tagName.toLowerCase();

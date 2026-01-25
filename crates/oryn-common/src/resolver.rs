@@ -7,9 +7,49 @@
 //! `Target::Role("email")`, but the scanner only accepts numeric IDs. The resolver
 //! uses the latest scan result to map semantic targets to concrete element IDs.
 
-use crate::command::Target;
 use crate::protocol::{Element, ScanResult};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+/// Represents a target element in the UI.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Target {
+    /// A numbered element ID (e.g., from an observation).
+    Id(usize),
+    /// A semantic text match (e.g., "Sign in").
+    Text(String),
+    /// A semantic role (e.g., email, submit).
+    Role(String),
+    /// A raw CSS or XPath selector.
+    Selector(String),
+    /// Relational: Target is near another target.
+    Near {
+        target: Box<Target>,
+        anchor: Box<Target>,
+    },
+    /// Relational: Target is inside another target.
+    Inside {
+        target: Box<Target>,
+        container: Box<Target>,
+    },
+    /// Relational: Target is after another target.
+    After {
+        target: Box<Target>,
+        anchor: Box<Target>,
+    },
+    /// Relational: Target is before another target.
+    Before {
+        target: Box<Target>,
+        anchor: Box<Target>,
+    },
+    /// Relational: Target contains another target.
+    Contains {
+        target: Box<Target>,
+        content: Box<Target>,
+    },
+    /// Placeholder indicating target should be inferred.
+    Infer,
+}
 
 /// Errors that can occur during target resolution.
 #[derive(Error, Debug, Clone)]

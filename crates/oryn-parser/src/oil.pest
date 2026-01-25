@@ -468,7 +468,7 @@ relation = { "near" | "inside" | "after" | "before" | "contains" }
 target_atomic = _{ target_selector | target_role | target_id | target_text }
 target_id = @{ ASCII_DIGIT+ }
 
-target_selector = _{
+target_selector = {
     ("css" ~ WSP* ~ "(" ~ WSP* ~ string_value ~ WSP* ~ ")") |
     ("xpath" ~ WSP* ~ "(" ~ WSP* ~ string_value ~ WSP* ~ ")")
 }

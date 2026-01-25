@@ -116,7 +116,10 @@ pub struct ScanRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClickRequest {
-    pub id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "target")]
+    pub selector: Option<String>,
     #[serde(default)]
     pub button: MouseButton,
     #[serde(default)]
@@ -138,7 +141,10 @@ pub enum MouseButton {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeRequest {
-    pub id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
     pub text: String,
     #[serde(default)]
     pub clear: bool,
@@ -170,21 +176,38 @@ pub enum ScrollDirection {
 pub struct WaitRequest {
     pub condition: String, // "visible", "hidden", "url", "title"
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub target: Option<String>,
+    pub id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    pub timeout_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expression: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<u64>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "timeout",
+        alias = "timeout_ms"
+    )]
+    pub timeout: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckRequest {
-    pub id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
     pub state: bool, // true = check, false = uncheck
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelectRequest {
-    pub id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
     pub value: Option<String>,
     pub index: Option<usize>,
     pub label: Option<String>,
@@ -192,22 +215,34 @@ pub struct SelectRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubmitRequest {
-    pub id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HoverRequest {
-    pub id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FocusRequest {
-    pub id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClearRequest {
-    pub id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -563,7 +598,7 @@ pub struct TabRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrameRequest {
-    pub action: String, // "switch"
+    pub action: String,         // "switch"
     pub target: Option<String>, // "main", "parent", "iframe_selector"
 }
 
@@ -589,7 +624,7 @@ pub struct CookieRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageRequest {
-    pub action: String, // "get", "set", "delete", "clear", "list"
+    pub action: String,       // "get", "set", "delete", "clear", "list"
     pub storage_type: String, // "local", "session"
     pub key: Option<String>,
     pub value: Option<String>,

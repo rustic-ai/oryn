@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 pub use oryn_common::error::backend_error::BackendError;
-use oryn_common::protocol::{ScannerProtocolResponse, ScannerAction};
+use oryn_common::protocol::{ScannerAction, ScannerProtocolResponse};
 
 #[derive(Debug, Clone)]
 pub struct NavigationResult {

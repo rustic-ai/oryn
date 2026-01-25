@@ -2,7 +2,7 @@ use crate::cog::{self, CogProcess};
 use crate::webdriver::WebDriverClient;
 use async_trait::async_trait;
 use oryn_engine::backend::{Backend, BackendError, NavigationResult};
-use oryn_engine::protocol::{ActionResult, ScannerData, ScannerProtocolResponse, ScannerAction};
+use oryn_engine::protocol::{ActionResult, ScannerAction, ScannerData, ScannerProtocolResponse};
 use tracing::{info, warn};
 
 pub struct EmbeddedBackend {

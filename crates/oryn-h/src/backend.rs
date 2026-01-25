@@ -2,7 +2,7 @@ use crate::cdp::CdpClient;
 use crate::inject::execute_command;
 use async_trait::async_trait;
 use oryn_engine::backend::{Backend, BackendError, NavigationResult};
-use oryn_engine::protocol::{ScannerProtocolResponse, ScannerAction};
+use oryn_engine::protocol::{ScannerAction, ScannerProtocolResponse};
 use tracing::info;
 
 pub struct HeadlessBackend {

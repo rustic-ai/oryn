@@ -8,11 +8,11 @@
 use crate::backend::Backend;
 use crate::formatter::format_response;
 use oryn_common::protocol::{
-    Action, ScannerAction, BrowserAction, SessionAction, MetaAction,
-    ScanResult, ScannerProtocolResponse, ScannerData, ScanRequest,
-    Cookie,
+    Action, BrowserAction, Cookie, ScanRequest, ScanResult, ScannerAction, ScannerData,
+    ScannerProtocolResponse, SessionAction,
 };
-use oryn_parser::{process, resolver::{ResolverContext, ResolverError}, ProcessError};
+use oryn_common::resolver::{ResolverContext, ResolverError};
+use oryn_parser::{ProcessError, process};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExecutorError {
@@ -74,13 +74,13 @@ impl CommandExecutor {
 
         let actions = match actions_result {
             Ok(a) => a,
-            Err(ProcessError::Resolution(ResolverError::NoMatch(_))) 
+            Err(ProcessError::Resolution(ResolverError::NoMatch(_)))
             | Err(ProcessError::Resolution(ResolverError::StaleContext)) => {
                 // Retry with fresh scan
                 let req = ScannerAction::Scan(ScanRequest::default());
                 let resp = backend.execute_scanner(req).await?;
                 self.update_from_response(&resp);
-                
+
                 let ctx = self.get_resolver_context();
                 process(line, &ctx).map_err(ExecutorError::Process)?
             }
@@ -120,7 +120,10 @@ impl CommandExecutor {
             Action::Session(sa) => self.execute_session_action(backend, sa).await,
 
             // Meta Actions -> Not supported yet
-            Action::Meta(ma) => Err(ExecutorError::NotImplemented(format!("Meta action: {:?}", ma))),
+            Action::Meta(ma) => Err(ExecutorError::NotImplemented(format!(
+                "Meta action: {:?}",
+                ma
+            ))),
         }
     }
 
@@ -131,7 +134,10 @@ impl CommandExecutor {
     ) -> Result<String, ExecutorError> {
         match action {
             BrowserAction::Navigate(req) => {
-                let res = backend.navigate(&req.url).await.map_err(|e| ExecutorError::Navigation(e.to_string()))?;
+                let res = backend
+                    .navigate(&req.url)
+                    .await
+                    .map_err(|e| ExecutorError::Navigation(e.to_string()))?;
                 Ok(format!("Navigated to {}", res.url))
             }
             BrowserAction::Back(_) => {
@@ -147,10 +153,14 @@ impl CommandExecutor {
                 Ok(format!("Refreshed: {}", res.url))
             }
             BrowserAction::Screenshot(req) => {
-                 let data = backend.screenshot().await?;
-                 let output_path = req.output.unwrap_or_else(|| "screenshot.png".to_string());
-                 std::fs::write(&output_path, &data)?;
-                 Ok(format!("Screenshot saved to {} ({} bytes)", output_path, data.len()))
+                let data = backend.screenshot().await?;
+                let output_path = req.output.unwrap_or_else(|| "screenshot.png".to_string());
+                std::fs::write(&output_path, &data)?;
+                Ok(format!(
+                    "Screenshot saved to {} ({} bytes)",
+                    output_path,
+                    data.len()
+                ))
             }
             BrowserAction::Pdf(req) => {
                 let data = backend.pdf().await?;
@@ -159,24 +169,33 @@ impl CommandExecutor {
             }
             BrowserAction::Press(req) => {
                 backend.press_key(&req.key, &req.modifiers).await?;
-                let mod_str = if req.modifiers.is_empty() { "".to_string() } else { format!("+{:?}", req.modifiers) };
+                let mod_str = if req.modifiers.is_empty() {
+                    "".to_string()
+                } else {
+                    format!("+{:?}", req.modifiers)
+                };
                 Ok(format!("Pressed {}{}", req.key, mod_str))
             }
-            BrowserAction::Tab(req) => {
-                match req.action.as_str() {
-                    "list" => {
-                        let tabs = backend.get_tabs().await?;
-                        if tabs.is_empty() { Ok("No tabs".into()) }
-                        else {
-                            let titles: Vec<String> = tabs.iter().map(|t| t.title.clone()).collect();
-                            Ok(format!("Tabs: {}", titles.join(", ")))
-                        }
+            BrowserAction::Tab(req) => match req.action.as_str() {
+                "list" => {
+                    let tabs = backend.get_tabs().await?;
+                    if tabs.is_empty() {
+                        Ok("No tabs".into())
+                    } else {
+                        let titles: Vec<String> = tabs.iter().map(|t| t.title.clone()).collect();
+                        Ok(format!("Tabs: {}", titles.join(", ")))
                     }
-                    _ => Err(ExecutorError::NotImplemented(format!("Tab action: {}", req.action))),
                 }
-            }
+                _ => Err(ExecutorError::NotImplemented(format!(
+                    "Tab action: {}",
+                    req.action
+                ))),
+            },
             // Frame, Dialog -> NotSupported
-            _ => Err(ExecutorError::NotImplemented(format!("Browser action: {:?}", action))),
+            _ => Err(ExecutorError::NotImplemented(format!(
+                "Browser action: {:?}",
+                action
+            ))),
         }
     }
 
@@ -190,9 +209,11 @@ impl CommandExecutor {
                 match req.action.as_str() {
                     "list" => {
                         let cookies = backend.get_cookies().await?;
-                        if cookies.is_empty() { Ok("No cookies".into()) }
-                        else {
-                            let names: Vec<String> = cookies.iter().map(|c| c.name.clone()).collect();
+                        if cookies.is_empty() {
+                            Ok("No cookies".into())
+                        } else {
+                            let names: Vec<String> =
+                                cookies.iter().map(|c| c.name.clone()).collect();
                             Ok(format!("Cookies: {}", names.join(", ")))
                         }
                     }
@@ -215,7 +236,9 @@ impl CommandExecutor {
                             value: req.value.unwrap_or_default(),
                             domain: req.domain,
                             path: Some("/".into()),
-                            expires: None, http_only: None, secure: None
+                            expires: None,
+                            http_only: None,
+                            secure: None,
                         };
                         backend.set_cookie(c).await?;
                         Ok("Cookie set".into())
@@ -229,28 +252,38 @@ impl CommandExecutor {
                             domain: req.domain,
                             path: Some("/".into()),
                             expires: Some(0.0), // Expired
-                            http_only: None, secure: None
+                            http_only: None,
+                            secure: None,
                         };
                         backend.set_cookie(c).await?;
                         Ok(format!("Cookie {} deleted", name))
                     }
                     // Implement other cases as needed or return error
-                    _ => Err(ExecutorError::NotImplemented(format!("Cookie action: {}", req.action))),
+                    _ => Err(ExecutorError::NotImplemented(format!(
+                        "Cookie action: {}",
+                        req.action
+                    ))),
                 }
             }
-             _ => Err(ExecutorError::NotImplemented(format!("Session action: {:?}", action))),
+            _ => Err(ExecutorError::NotImplemented(format!(
+                "Session action: {:?}",
+                action
+            ))),
         }
     }
 
     fn update_from_response(&mut self, resp: &ScannerProtocolResponse) {
         if let ScannerProtocolResponse::Ok { data, .. } = resp
-            && let ScannerData::Scan(result) = data.as_ref() 
+            && let ScannerData::Scan(result) = data.as_ref()
         {
             self.last_scan = Some(*result.clone());
         }
     }
 
     fn get_resolver_context(&self) -> ResolverContext {
-        self.last_scan.as_ref().map(ResolverContext::new).unwrap_or_else(ResolverContext::empty)
+        self.last_scan
+            .as_ref()
+            .map(ResolverContext::new)
+            .unwrap_or_else(ResolverContext::empty)
     }
 }

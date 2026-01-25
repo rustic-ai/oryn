@@ -1,7 +1,8 @@
 use oryn_engine::formatter;
 use oryn_engine::protocol::{
-    ActionResult, ClickRequest, Element, ElementState, MouseButton, PageInfo, Rect, ScanResult, ScanStats, ScannerData, ScannerProtocolResponse, ScannerAction, ScrollInfo,
-    ViewportInfo, ScanRequest,
+    ActionResult, ClickRequest, Element, ElementState, MouseButton, PageInfo, Rect, ScanRequest,
+    ScanResult, ScanStats, ScannerAction, ScannerData, ScannerProtocolResponse, ScrollInfo,
+    ViewportInfo,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -10,7 +11,8 @@ use std::collections::HashMap;
 fn test_protocol_serialization() {
     // Test ClickRequest serialization
     let req = ScannerAction::Click(ClickRequest {
-        id: 42,
+        id: Some(42),
+        selector: None,
         button: MouseButton::Left,
         double: false,
         modifiers: vec!["Alt".into()],
@@ -34,7 +36,7 @@ fn test_protocol_serialization() {
     // serde untagged flattening happens if the variant struct fields are compatible?
     // Wait, `tag="action"` means it adds `action` field.
     // The fields of `ClickRequest` are included in the object.
-    
+
     let expected = r#"{"action":"click","id":42,"button":"left","double":false,"modifiers":["Alt"],"force":false}"#;
     assert_eq!(json_str, expected);
 
