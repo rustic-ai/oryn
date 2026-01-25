@@ -35,6 +35,9 @@ pub enum ExecutorError {
     #[error("Backend error: {0}")]
     Backend(#[from] oryn_common::error::backend_error::BackendError),
 
+    #[error("Scanner error: {0}")]
+    Scanner(String),
+
     #[error("Navigation error: {0}")]
     Navigation(String),
 
@@ -95,6 +98,12 @@ impl CommandExecutor {
                         // If resolution fails, try with fresh scan
                         let req = ScannerAction::Scan(ScanRequest::default());
                         let resp = backend.execute_scanner(req).await?;
+
+                        // Check if scanner returned an error
+                        if let ScannerProtocolResponse::Error { code, message, .. } = &resp {
+                            return Err(ExecutorError::Scanner(format!("{}: {}", code, message)));
+                        }
+
                         self.update_from_response(&resp);
 
                         // Retry resolution
@@ -143,6 +152,12 @@ impl CommandExecutor {
             // Scanner Actions -> execute_scanner
             Action::Scanner(sa) => {
                 let resp = backend.execute_scanner(sa).await?;
+
+                // Check if scanner returned an error
+                if let ScannerProtocolResponse::Error { code, message, .. } = &resp {
+                    return Err(ExecutorError::Scanner(format!("{}: {}", code, message)));
+                }
+
                 self.update_from_response(&resp);
                 Ok(format_response(&resp))
             }
