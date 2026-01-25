@@ -49,16 +49,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
 
-        match executor.execute_line(&mut backend, trimmed).await {
-            Ok(result) => {
-                println!("{}", result.output);
-            }
-            Err(e) => {
-                println!("Error: {}", e);
-            }
+        if let Err(e) = execute_line(&mut backend, &mut executor, trimmed).await {
+            println!("Error: {}", e);
+            return Err(e);
         }
     }
 
     backend.close().await?;
     Ok(())
+}
+
+async fn execute_line(
+    backend: &mut RemoteBackend,
+    executor: &mut CommandExecutor,
+    line: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match executor.execute_line(backend, line).await {
+        Ok(result) => {
+            println!("{}", result.output);
+            Ok(())
+        }
+        Err(e) => {
+            println!("Error: {}", e);
+            Err(format!("{}", e).into())
+        }
+    }
 }
