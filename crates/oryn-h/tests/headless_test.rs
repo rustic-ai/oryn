@@ -1,5 +1,5 @@
 use oryn_engine::backend::Backend;
-use oryn_engine::protocol::{ScanRequest, ScannerRequest};
+use oryn_engine::protocol::{ScanRequest, ScannerAction};
 use oryn_h::backend::HeadlessBackend;
 use serial_test::serial;
 use std::path::Path;
@@ -41,7 +41,7 @@ async fn test_headless_lifecycle_and_scan() {
 
     // 3. Execute Scanner
     // This triggers injection
-    let scan_req = ScannerRequest::Scan(ScanRequest {
+    let scan_req = ScannerAction::Scan(ScanRequest {
         max_elements: None,
         monitor_changes: false,
         include_hidden: false,

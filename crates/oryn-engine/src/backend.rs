@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 pub use oryn_common::error::backend_error::BackendError;
-use oryn_common::protocol::{ScannerProtocolResponse, ScannerRequest};
+use oryn_common::protocol::{ScannerProtocolResponse, ScannerAction};
 
 #[derive(Debug, Clone)]
 pub struct NavigationResult {
@@ -30,7 +30,7 @@ pub trait Backend: Send + Sync {
     /// Execute a raw scanner command.
     async fn execute_scanner(
         &mut self,
-        command: ScannerRequest,
+        command: ScannerAction,
     ) -> Result<ScannerProtocolResponse, BackendError>;
 
     /// Execute a script in the browser context.

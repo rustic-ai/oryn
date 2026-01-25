@@ -1,5 +1,5 @@
 use futures::{SinkExt, StreamExt};
-use oryn_engine::protocol::{ScannerProtocolResponse, ScannerRequest};
+use oryn_engine::protocol::{ScannerProtocolResponse, ScannerAction, Action};
 use oryn_r::server::RemoteServer;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -28,7 +28,7 @@ async fn test_server_connection_and_messaging() {
     let mut client_ws = connect_simulated_client(port).await;
 
     // 3. Send command from Server -> Client
-    let test_cmd = ScannerRequest::Scan(oryn_engine::protocol::ScanRequest {
+    let test_cmd = ScannerAction::Scan(oryn_engine::protocol::ScanRequest {
         max_elements: None,
         monitor_changes: false,
         include_hidden: false,
@@ -36,21 +36,24 @@ async fn test_server_connection_and_messaging() {
         near: None,
         viewport_only: false,
     });
+    
+    // Wrap in Action
+    let action = Action::Scanner(test_cmd);
 
     // Send via server handle
     handle
         .command_tx
-        .send(test_cmd.clone())
+        .send(action.clone())
         .expect("Failed to send command");
 
     // 4. Verify Client receives it
     if let Some(msg) = client_ws.next().await {
         let msg = msg.expect("WS error");
         let text = msg.to_string();
-        let received: ScannerRequest = serde_json::from_str(&text).expect("Failed to deserialize");
+        let received: Action = serde_json::from_str(&text).expect("Failed to deserialize");
 
-        // Check variant matches (can't easily compare full struct without Eq, but variants are distinct)
-        if let ScannerRequest::Scan(_) = received {
+        // Check variant matches
+        if let Action::Scanner(ScannerAction::Scan(_)) = received {
             // OK
         } else {
             panic!("Wrong command received: {:?}", received);

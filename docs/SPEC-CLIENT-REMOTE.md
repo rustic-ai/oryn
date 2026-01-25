@@ -1,6 +1,6 @@
 # Oryn Client Libraries and Remote Extension Specification
 
-## Version 1.0
+## Version 1.1
 
 ---
 
@@ -26,6 +26,10 @@ In Remote mode, the browser extension connects as a WebSocket client to an endpo
 
 The Intent Language parser, semantic resolver, and response formatter run as WASM inside the browser extension. This keeps any server-side component trivial (pure message forwarding) and enables fully client-side operation.
 
+**Named Sessions**
+
+Multiple isolated browser sessions can run simultaneously, each with independent state, cookies, and element maps.
+
 ### 1.2 Document Scope
 
 This specification covers:
@@ -35,6 +39,8 @@ This specification covers:
 - Remote extension architecture
 - Wire protocols between components
 - Binary distribution strategy
+- Session management
+- Output format modes (text and JSON)
 
 This specification does not cover:
 
@@ -56,16 +62,17 @@ This specification does not cover:
 │  │ Agent Code (Python/TypeScript/Any Language)                         │   │
 │  │                                                                      │   │
 │  │  ┌───────────────────────────────────────────────────────────────┐  │   │
-│  │  │ Oryn Client Library                                      │  │   │
-│  │  │ • Spawn subprocess                                             │  │   │
-│  │  │ • Write commands to stdin                                      │  │   │
-│  │  │ • Read responses from stdout                                   │  │   │
+│  │  │ Oryn Client Library                                           │  │   │
+│  │  │ • Spawn subprocess                                            │  │   │
+│  │  │ • Write commands to stdin                                     │  │   │
+│  │  │ • Read responses from stdout                                  │  │   │
+│  │  │ • Manage named sessions                                       │  │   │
 │  │  └───────────────────────────────────────────────────────────────┘  │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                              │ stdin/stdout                                 │
 │                              ↓                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ oryn-e or oryn-h (subprocess)                                   │   │
+│  │ oryn-e or oryn-h (subprocess)                                       │   │
 │  │                                                                      │   │
 │  │ • Intent Language Parser                                            │   │
 │  │ • Semantic Resolver                                                 │   │
@@ -107,7 +114,7 @@ This specification does not cover:
 │ User's Browser                       │                                      │
 │                                      ↓                                      │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ Oryn Extension                                                │   │
+│  │ Oryn Extension                                                       │   │
 │  │                                                                      │   │
 │  │  ┌───────────────────────────────────────────────────────────────┐  │   │
 │  │  │ Service Worker                                                 │  │   │
@@ -136,9 +143,132 @@ This specification does not cover:
 
 ---
 
-## 3. Client Library Specification
+## 3. Session Management
 
-### 3.1 Responsibilities
+### 3.1 Named Sessions
+
+Oryn supports running multiple isolated browser sessions simultaneously. Each session has:
+- Independent browser process (or context)
+- Separate element ID maps
+- Isolated cookies and storage
+- Independent navigation history
+
+### 3.2 Session Activation
+
+**Command-line flag:**
+```bash
+oryn --session <name> <mode>
+oryn --session agent1 headless
+oryn --session agent2 headless
+```
+
+**Environment variable:**
+```bash
+ORYN_SESSION=agent1 oryn headless
+```
+
+**Default session:**
+When no session name is specified, the session is named `default`.
+
+### 3.3 Session Architecture (Embedded/Headless)
+
+Each named session is an independent OS process:
+
+```
+┌─────────────────────────────────────────────────┐
+│ Parent Orchestrator (optional)                   │
+│                                                  │
+│  Session Registry: ~/.oryn/sessions/             │
+│  ├── default.pid                                 │
+│  ├── agent1.pid                                  │
+│  └── agent2.pid                                  │
+└─────────────────────────────────────────────────┘
+         │              │              │
+         ↓              ↓              ↓
+    ┌─────────┐   ┌─────────┐   ┌─────────┐
+    │ default │   │ agent1  │   │ agent2  │
+    │ process │   │ process │   │ process │
+    │         │   │         │   │         │
+    │ Browser │   │ Browser │   │ Browser │
+    └─────────┘   └─────────┘   └─────────┘
+```
+
+### 3.4 Session Commands
+
+**List sessions:**
+```
+sessions
+```
+
+Response:
+```
+ok sessions
+
+# active sessions
+- default (current)
+- agent1
+- agent2
+```
+
+**Show current session:**
+```
+session
+```
+
+Response:
+```
+ok session
+
+# session
+name: agent1
+mode: headless
+started: 2026-01-24T10:30:00Z
+pages: 3
+url: https://example.com
+```
+
+**Create new session:**
+```
+session new agent3
+session new agent3 --mode headless
+```
+
+**Close session:**
+```
+session close agent3
+```
+
+### 3.5 Cross-Session Commands (Advanced)
+
+From a controller process, commands can target specific sessions:
+
+```
+# Target specific session
+@agent1 goto example.com
+@agent2 observe
+
+# Or via explicit command
+session agent1 goto example.com
+```
+
+### 3.6 Session Isolation
+
+Sessions are fully isolated:
+
+| Resource | Isolation |
+|----------|-----------|
+| Cookies | Separate cookie jar per session |
+| localStorage | Separate per session |
+| sessionStorage | Separate per session |
+| Element IDs | Independent maps |
+| Navigation history | Independent |
+| Network state | Independent |
+
+---
+
+## 4. Client Library Specification
+
+### 4.1 Responsibilities
 
 Client libraries are responsible for:
 
@@ -149,6 +279,7 @@ Client libraries are responsible for:
 | Command transmission | Send Intent Language strings |
 | Response reception | Receive Intent Language strings |
 | Binary discovery | Locate engine binary in PATH |
+| Session management | Track and manage named sessions |
 
 Client libraries are explicitly NOT responsible for:
 
@@ -160,17 +291,17 @@ Client libraries are explicitly NOT responsible for:
 | State management | Agent's job |
 | Logging | Client's choice of framework |
 
-### 3.2 Public Interface
+### 4.2 Public Interface
 
 Client libraries expose a minimal interface:
 
 **Constructor**
 
-Accepts mode selection (embedded, headless, remote) and mode-specific configuration (port for remote mode).
+Accepts mode selection (embedded, headless, remote), mode-specific configuration (port for remote mode), and optional session name.
 
-**connect()**
+**connect(session_name?)**
 
-Establishes connection to engine. For embedded/headless, spawns subprocess. For remote, starts WebSocket server and waits for extension connection.
+Establishes connection to engine. For embedded/headless, spawns subprocess. For remote, starts WebSocket server and waits for extension connection. Optional session name for named sessions.
 
 **send(command: string) → string**
 
@@ -191,14 +322,21 @@ Typed methods that delegate to send() for improved developer experience:
 
 These are syntactic sugar. Agents can use send() directly with raw Intent Language.
 
-### 3.3 Subprocess Transport
+**Session Methods**
+
+- list_sessions() → send("sessions")
+- get_session() → send("session")
+- new_session(name, mode?) → send("session new {name}")
+- close_session(name) → send("session close {name}")
+
+### 4.3 Subprocess Transport
 
 For Embedded and Headless modes, the client spawns the engine binary as a subprocess.
 
 **Process Lifecycle**
 
 1. Client locates binary (oryn-e or oryn-h) in PATH
-2. Client spawns process with stdin/stdout pipes
+2. Client spawns process with stdin/stdout pipes, including --session flag if specified
 3. Client reads ready signal from stdout
 4. Client enters command-response loop
 5. On close, client sends "quit" command and terminates process
@@ -232,7 +370,7 @@ Clients search for binaries in this order:
    - ~/.cargo/bin/
 4. If not found, raise descriptive error with installation instructions
 
-### 3.4 WebSocket Server Transport
+### 4.4 WebSocket Server Transport
 
 For Remote mode, the client runs a WebSocket server that the extension connects to.
 
@@ -260,7 +398,7 @@ Responses include the same ID:
 
 The ID is a monotonically increasing integer. This allows the client to correlate responses with requests, supporting potential future concurrent command execution.
 
-### 3.5 Supported Languages
+### 4.5 Supported Languages
 
 Official client libraries are provided for:
 
@@ -276,9 +414,9 @@ The protocol is simple enough that clients in other languages can be implemented
 
 ---
 
-## 4. Remote Extension Specification
+## 5. Remote Extension Specification
 
-### 4.1 Architecture
+### 5.1 Architecture
 
 The remote extension consists of three components:
 
@@ -305,7 +443,7 @@ The remote extension consists of three components:
 - Returns structured observations
 - Identical to scanner in other modes
 
-### 4.2 Extension Configuration
+### 5.2 Extension Configuration
 
 Users configure the extension with:
 
@@ -317,7 +455,7 @@ Users configure the extension with:
 
 Configuration is accessible via extension popup and synced via chrome.storage.
 
-### 4.3 Connection Behavior
+### 5.3 Connection Behavior
 
 **Initial Connection**
 
@@ -340,7 +478,7 @@ Configuration is accessible via extension popup and synced via chrome.storage.
 2. Extension closes WebSocket gracefully
 3. Extension clears connection state
 
-### 4.4 Command Processing Flow
+### 5.4 Command Processing Flow
 
 1. Client sends command: "42:click 3"
 2. Extension receives message, extracts ID (42) and command ("click 3")
@@ -353,7 +491,7 @@ Configuration is accessible via extension popup and synced via chrome.storage.
 9. WASM engine formats as Intent Language response
 10. Extension sends response: "42:ok click 3\n\n# changes\n..."
 
-### 4.5 Tab Management
+### 5.5 Tab Management
 
 The extension manages multiple tabs:
 
@@ -378,7 +516,7 @@ The extension handles tab-related commands directly (without Scanner.js):
 
 Navigation commands (goto, back, forward, refresh) use chrome.tabs API directly rather than Scanner.js, as they affect the page at the browser level.
 
-### 4.6 Browser API Commands
+### 5.6 Browser API Commands
 
 Certain commands are handled by the service worker using browser APIs:
 
@@ -396,7 +534,7 @@ Certain commands are handled by the service worker using browser APIs:
 
 All other commands (observe, click, type, etc.) are routed to Scanner.js in the content script.
 
-### 4.6.1 Cross-Mode Behavior Consistency
+### 5.6.1 Cross-Mode Behavior Consistency
 
 Oryn promises consistent behavior across modes, but some commands have inherent platform differences:
 
@@ -426,7 +564,7 @@ Network interception is available in headless mode (via CDP) but not in embedded
 
 Agents should query capabilities via registration or handle `not supported` errors gracefully.
 
-### 4.7 Security Considerations
+### 5.7 Security Considerations
 
 The extension grants significant capabilities to connected servers: DOM observation, screenshot capture, form filling, and navigation control. The security model must reflect this trust level.
 
@@ -501,7 +639,7 @@ Commands targeting restricted pages return an error.
 
 The extension never stores or transmits user credentials. Authentication to websites happens through the user's existing browser sessions. The extension does not have access to cookies or stored passwords—only to the rendered DOM.
 
-### 4.8 Service Worker Lifecycle (MV3)
+### 5.8 Service Worker Lifecycle (MV3)
 
 Chrome Manifest V3 extensions use service workers that can be suspended aggressively by the browser. The extension must handle this gracefully.
 
@@ -576,9 +714,9 @@ Despite these measures, clients should be resilient to reconnection events.
 
 ---
 
-## 5. Wire Protocol
+## 6. Wire Protocol
 
-### 5.1 Client ↔ Engine (Subprocess)
+### 6.1 Client ↔ Engine (Subprocess)
 
 **Direction: Client → Engine**
 
@@ -652,7 +790,7 @@ Available elements: 1-6. Run 'observe' to refresh.
 ---
 ```
 
-### 5.2 Client ↔ Extension (WebSocket)
+### 6.2 Client ↔ Extension (WebSocket)
 
 **Direction: Client → Extension**
 
@@ -695,7 +833,7 @@ Examples:
 ~ url: /search → /results
 ```
 
-### 5.3 Extension Registration
+### 6.3 Extension Registration
 
 On connection, the extension sends a registration message. Request ID 0 is reserved for extension-initiated messages.
 
@@ -746,7 +884,7 @@ Or reject incompatible protocol version:
 0:error unsupported protocol version 1, require 2+
 ```
 
-### 5.4 Protocol Versioning
+### 6.4 Protocol Versioning
 
 **Protocol Version**
 
@@ -755,6 +893,7 @@ The protocol version is a single integer that increments when breaking changes o
 | Version | Description |
 |---------|-------------|
 | 1 | Initial release |
+| 2 | Added session management |
 
 Breaking changes that increment protocol version:
 - Changing registration format
@@ -782,12 +921,12 @@ Clients SHOULD reject connections from extensions with lower protocol versions t
 Future protocol versions may include a capabilities field in registration:
 
 ```
-0:register protocol=2 ... capabilities=screenshots,tabs,network
+0:register protocol=2 ... capabilities=screenshots,tabs,network,sessions
 ```
 
 This allows clients to detect optional features without version checks.
 
-### 5.5 Error Responses
+### 6.5 Error Responses
 
 Errors follow Intent Language format:
 
@@ -808,12 +947,14 @@ Extension-specific errors:
 | error: scanner not ready | Content script not yet injected |
 | error: pairing required | Endpoint requires pairing code |
 | error: pairing failed | Pairing code invalid or expired |
+| error: session not found | Named session doesn't exist |
+| error: not supported in this mode | Feature unavailable in current mode |
 
 ---
 
-## 6. Distribution
+## 7. Distribution
 
-### 6.1 Client Libraries
+### 7.1 Client Libraries
 
 | Language | Registry | Package Name |
 |----------|----------|--------------|
@@ -822,7 +963,7 @@ Extension-specific errors:
 
 Client libraries are pure Python/TypeScript with no native dependencies. They require the engine binary to be installed separately for embedded/headless modes.
 
-### 6.2 Engine Binaries
+### 7.2 Engine Binaries
 
 | Channel | Command |
 |---------|---------|
@@ -833,7 +974,7 @@ Client libraries are pure Python/TypeScript with no native dependencies. They re
 
 Binary package provides: oryn-e, oryn-h
 
-### 6.3 Browser Extension
+### 7.3 Browser Extension
 
 | Browser | Distribution |
 |---------|--------------|
@@ -843,22 +984,22 @@ Binary package provides: oryn-e, oryn-h
 
 Extension includes WASM engine and Scanner.js bundled.
 
-### 6.4 Version Compatibility
+### 7.4 Version Compatibility
 
 | Component | Versioning | Compatibility |
 |-----------|------------|---------------|
 | Client Library | semver | Compatible with same major version of engine |
 | Engine Binary | semver | Protocol version in ready message |
 | Extension | semver | Protocol version in registration |
-| Protocol | integer | Breaking changes increment; see §5.4 |
+| Protocol | integer | Breaking changes increment; see §7.4 |
 
-Clients and extensions negotiate protocol version during connection. See section 5.4 for detailed compatibility rules.
+Clients and extensions negotiate protocol version during connection. See section 7.4 for detailed compatibility rules.
 
 ---
 
-## 7. Implementation Notes
+## 8. Implementation Notes
 
-### 7.1 Why Subprocess Over FFI
+### 8.1 Why Subprocess Over FFI
 
 The decision to use subprocess rather than language bindings (FFI) is deliberate:
 
@@ -886,7 +1027,7 @@ FFI: Engine crash kills entire agent process.
 Subprocess: Update binary or client independently.
 FFI: Tight coupling, must update together.
 
-### 7.2 Why Extension Connects Out
+### 8.2 Why Extension Connects Out
 
 The extension acts as WebSocket client (connecting to the user's server) rather than WebSocket server (accepting connections) because:
 
@@ -906,7 +1047,7 @@ Extension connects to known endpoint. No need to discover where extension is lis
 
 User explicitly configures where their extension connects. No implicit network exposure.
 
-### 7.3 Why WASM Engine in Extension
+### 8.3 Why WASM Engine in Extension
 
 The Intent Language engine runs as WASM in the extension rather than server-side because:
 
@@ -928,13 +1069,13 @@ Client sends Intent Language, receives Intent Language. No need for intermediate
 
 ---
 
-## 8. Future Considerations
+## 9. Future Considerations
 
-### 8.1 Connection Pooling
+### 9.1 Connection Pooling
 
 For high-throughput scenarios, clients may want multiple concurrent connections. The protocol's request ID mechanism supports this—multiple commands can be in flight, responses correlated by ID.
 
-### 8.2 Streaming Observations
+### 9.2 Streaming Observations
 
 For real-time DOM monitoring, a streaming mode could be added:
 
@@ -944,11 +1085,11 @@ observe --stream
 
 The extension would send incremental updates as the DOM changes, rather than requiring repeated observe commands.
 
-### 8.3 Multi-Extension Support
+### 9.3 Multi-Extension Support
 
 A single client server could accept connections from multiple extension instances (different browsers, different machines). The registration message includes enough information to distinguish instances.
 
-### 8.4 Binary Bundling
+### 9.4 Binary Bundling
 
 For simplified deployment, optional packages could bundle the engine binary:
 
@@ -959,9 +1100,9 @@ These would be separate packages to keep the core client library pure and lightw
 
 ---
 
-## 9. Summary
+## 10. Summary
 
-### 9.1 Client Library
+### 10.1 Client Library
 
 - Thin transport layer, not abstraction layer
 - Subprocess for embedded/headless modes
@@ -969,8 +1110,9 @@ These would be separate packages to keep the core client library pure and lightw
 - Single core method: send(command) → response
 - Optional typed convenience methods
 - Handles delimiter escaping for `---` in content
+- Session management via --session flag or commands
 
-### 9.2 Remote Extension
+### 10.2 Remote Extension
 
 - Extension connects as WebSocket client to user's endpoint
 - WASM engine (parser, resolver, formatter) runs in extension
@@ -980,7 +1122,7 @@ These would be separate packages to keep the core client library pure and lightw
 - Pairing authentication for new endpoints
 - Handles MV3 service worker lifecycle (suspension, restart)
 
-### 9.3 Key Design Decisions
+### 10.3 Key Design Decisions
 
 - Subprocess over FFI: simplicity, isolation, negligible latency cost
 - Extension as client: technical necessity, better security model
@@ -988,8 +1130,9 @@ These would be separate packages to keep the core client library pure and lightw
 - Thin client libraries: Intent Language is the abstraction
 - Protocol versioning: explicit version negotiation, capability detection
 - Security: endpoint allowlist, pairing codes, wss for non-localhost
+- Named sessions: full isolation for parallel agent workflows
 
 ---
 
 *Document Version: 1.1*
-*Last Updated: January 2025*
+*Last Updated: January 2026*

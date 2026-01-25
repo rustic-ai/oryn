@@ -9,7 +9,7 @@ use oryn_common::intent::registry::IntentRegistry;
 use oryn_common::intent::verifier::{Verifier, VerifierContext};
 use oryn_common::protocol::{
     ChangeType, PageChanges, ScanRequest, ScanResult, ScannerData, ScannerProtocolResponse,
-    ScannerRequest,
+    ScannerAction,
 };
 use oryn_common::resolver::{ResolutionStrategy, ResolverContext, resolve_target};
 use oryn_common::translator;
@@ -383,7 +383,7 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
     }
 
     pub async fn perform_scan(&mut self) -> Result<(), ExecutorError> {
-        let scan_req = ScannerRequest::Scan(ScanRequest::default());
+        let scan_req = ScannerAction::Scan(ScanRequest::default());
         let resp = self.backend.execute_scanner(scan_req).await?;
 
         if let ScannerProtocolResponse::Ok { data, .. } = resp

@@ -100,7 +100,7 @@ This same scanner code runs in all environments—embedded devices, headless ser
 
 ### Intent Language
 
-The Oryn Intent Language (LIL) is designed for agent ergonomics:
+The Oryn Intent Language (OIL) is designed for agent ergonomics:
 
 **Token Efficient**: Minimal verbosity means more context for reasoning
 
@@ -114,11 +114,11 @@ The Oryn Intent Language (LIL) is designed for agent ergonomics:
 
 Oryn adapts to your environment:
 
-| Mode | Binary | Best For |
-|------|--------|----------|
-| Embedded | oryn-e | IoT, edge, containers |
-| Headless | oryn-h | Cloud, CI/CD, scraping |
-| Remote | oryn-r | Assistance, auth sessions |
+| Mode     | Binary | Best For                  |
+| -------- | ------ | ------------------------- |
+| Embedded | oryn-e | IoT, edge, containers     |
+| Headless | oryn-h | Cloud, CI/CD, scraping    |
+| Remote   | oryn-r | Assistance, auth sessions |
 
 Same protocol. Same behavior. Different deployment targets.
 
@@ -238,19 +238,19 @@ The same JSON protocol flows between scanner and backend regardless of transport
 
 ### Resource Requirements
 
-| Mode | RAM | Notes |
-|------|-----|-------|
-| oryn-e | ~50MB | WPE WebKit, minimal footprint |
-| oryn-h | ~300MB+ | Full Chromium, maximum compatibility |
-| oryn-r | Zero server | Runs in user's browser |
+| Mode   | RAM         | Notes                                |
+| ------ | ----------- | ------------------------------------ |
+| oryn-e | ~50MB       | WPE WebKit, minimal footprint        |
+| oryn-h | ~300MB+     | Full Chromium, maximum compatibility |
+| oryn-r | Zero server | Runs in user's browser               |
 
 ### Compatibility
 
-| Mode | Browser Engine | Web Compatibility |
-|------|----------------|-------------------|
-| oryn-e | WPE WebKit | ~95% |
-| oryn-h | Chromium | ~99% |
-| oryn-r | User's Browser | ~99% |
+| Mode   | Browser Engine | Web Compatibility |
+| ------ | -------------- | ----------------- |
+| oryn-e | WPE WebKit     | ~95%              |
+| oryn-h | Chromium       | ~99%              |
+| oryn-r | User's Browser | ~99%              |
 
 ---
 

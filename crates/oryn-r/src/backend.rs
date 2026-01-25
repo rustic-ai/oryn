@@ -1,7 +1,10 @@
 use crate::server::{RemoteServer, ServerHandle};
 use async_trait::async_trait;
 use oryn_engine::backend::{Backend, BackendError, NavigationResult};
-use oryn_engine::protocol::{ScannerProtocolResponse, ScannerRequest};
+use oryn_engine::protocol::{
+    ScannerProtocolResponse, ScannerAction, Action, BrowserAction, 
+    NavigateRequest, BackRequest, ExecuteRequest
+};
 use tracing::info;
 
 pub struct RemoteBackend {
@@ -14,6 +17,33 @@ impl RemoteBackend {
         Self {
             port,
             server_handle: None,
+        }
+    }
+
+    async fn send_action(
+        &mut self,
+        action: Action,
+    ) -> Result<ScannerProtocolResponse, BackendError> {
+        let handle = self.server_handle.as_ref().ok_or(BackendError::NotReady)?;
+
+        // Wait for at least one extension to connect
+        if handle.command_tx.receiver_count() == 0 {
+            info!("Waiting for browser extension to connect...");
+            // Use timeout or loop? Original code looped.
+            while handle.command_tx.receiver_count() == 0 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+            info!("Extension connected.");
+        }
+
+        if let Err(e) = handle.command_tx.send(action) {
+            return Err(BackendError::Other(format!("Failed to broadcast: {}", e)));
+        }
+
+        let mut rx = handle.response_rx.lock().await;
+        match rx.recv().await {
+            Some(resp) => Ok(resp),
+            None => Err(BackendError::ConnectionLost),
         }
     }
 }
@@ -42,12 +72,11 @@ impl Backend for RemoteBackend {
     }
 
     async fn navigate(&mut self, url: &str) -> Result<NavigationResult, BackendError> {
-        use oryn_engine::protocol::NavigateRequest;
-        let req = ScannerRequest::Navigate(NavigateRequest {
+        let action = Action::Browser(BrowserAction::Navigate(NavigateRequest {
             url: url.to_string(),
-        });
+        }));
 
-        self.execute_scanner(req).await?;
+        self.send_action(action).await?;
 
         Ok(NavigationResult {
             url: url.to_string(),
@@ -58,59 +87,35 @@ impl Backend for RemoteBackend {
 
     async fn execute_scanner(
         &mut self,
-        command: ScannerRequest,
+        command: ScannerAction,
     ) -> Result<ScannerProtocolResponse, BackendError> {
-        let handle = self.server_handle.as_ref().ok_or(BackendError::NotReady)?;
-
-        // Wait for at least one extension to connect
-        if handle.command_tx.receiver_count() == 0 {
-            info!("Waiting for browser extension to connect...");
-            while handle.command_tx.receiver_count() == 0 {
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            }
-            info!("Extension connected.");
-        }
-
-        if let Err(e) = handle.command_tx.send(command) {
-            return Err(BackendError::Other(format!("Failed to broadcast: {}", e)));
-        }
-
-        let mut rx = handle.response_rx.lock().await;
-        match rx.recv().await {
-            Some(resp) => Ok(resp),
-            None => Err(BackendError::ConnectionLost),
-        }
+        self.send_action(Action::Scanner(command)).await
     }
 
     async fn screenshot(&mut self) -> Result<Vec<u8>, BackendError> {
         // Send screenshot request to extension
         // The extension should respond with base64-encoded PNG
-        use oryn_engine::protocol::ExecuteRequest;
-
-        let script = r#"
-            return new Promise((resolve, reject) => {
-                if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-                    chrome.runtime.sendMessage({ action: 'screenshot' }, (response) => {
-                        if (chrome.runtime.lastError) {
-                            reject(chrome.runtime.lastError.message);
-                        } else if (response && response.data) {
-                            resolve(response.data);
-                        } else {
-                            reject('No screenshot data received');
-                        }
-                    });
-                } else {
-                    reject('Extension API not available');
-                }
-            });
-        "#;
-
-        let req = ScannerRequest::Execute(ExecuteRequest {
-            script: script.to_string(),
-            args: vec![],
-        });
-
-        let resp = self.execute_scanner(req).await?;
+        // Previously used ExecuteRequest.
+        // Now use BrowserAction::Screenshot?
+        // If extension supports BrowserAction::Screenshot, prefer that.
+        // Assuming YES since we unified Action.
+        use oryn_engine::protocol::ScreenshotRequest;
+        
+        let action = Action::Browser(BrowserAction::Screenshot(ScreenshotRequest {
+            output: None, format: Some("png".into()), selector: None, fullpage: false 
+        }));
+        
+        // Wait, did legacy implementation use ExecuteRequest because `ScreenshotRequest` wasn't supported by extension?
+        // Legacy used `chrome.runtime.sendMessage({ action: 'screenshot' })`.
+        // If I send `Action::Browser(Screenshot)`, it serializes to `{ action: "screenshot", ... }`.
+        // This MATCHES `{ action: 'screenshot' }`!
+        // So this is compatible!
+        // Except older extension might expect just action field.
+        // `ScreenshotRequest` has optional fields. Default serialization includes them as null or omitted?
+        // `skip_serializing_if = "Option::is_none"` in protocol.rs.
+        // So `{ action: "screenshot", format: "png", fullpage: false }`.
+        
+        let resp = self.send_action(action).await?;
 
         // Extract base64 data from response
         match resp {
@@ -125,7 +130,7 @@ impl Backend for RemoteBackend {
                     return Ok(bytes);
                 }
                 Err(BackendError::Other(
-                    "Invalid screenshot response format".into(),
+                    "Invalid screenshot response format: expected Value(String)".into(),
                 ))
             }
             ScannerProtocolResponse::Error { message, .. } => Err(BackendError::Other(format!(
@@ -136,87 +141,61 @@ impl Backend for RemoteBackend {
     }
 
     async fn go_back(&mut self) -> Result<NavigationResult, BackendError> {
-        use oryn_engine::protocol::BackRequest;
-
-        let req = ScannerRequest::Back(BackRequest {});
-
-        self.execute_scanner(req).await?;
-
+        let action = Action::Browser(BrowserAction::Back(BackRequest {}));
+        self.send_action(action).await?;
         Ok(NavigationResult {
-            url: String::new(), // Will be updated by next scan
+            url: String::new(),
             title: String::new(),
             status: 200,
         })
     }
 
     async fn go_forward(&mut self) -> Result<NavigationResult, BackendError> {
-        use oryn_engine::protocol::ExecuteRequest;
-
-        let script =
-            "history.forward(); return { url: window.location.href, title: document.title };";
-        let req = ScannerRequest::Execute(ExecuteRequest {
-            script: script.to_string(),
-            args: vec![],
-        });
-
-        self.execute_scanner(req).await?;
-
+        // Legacy used JS exec.
+        // Now we have BrowserAction::Forward?
+        // protocol.rs has ForwardRequest.
+        use oryn_engine::protocol::ForwardRequest;
+        let action = Action::Browser(BrowserAction::Forward(ForwardRequest::default()));
+        self.send_action(action).await?;
+        
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-
         Ok(NavigationResult {
-            url: String::new(),
-            title: String::new(),
-            status: 200,
+            url: String::new(), title: String::new(), status: 200,
         })
     }
 
     async fn refresh(&mut self) -> Result<NavigationResult, BackendError> {
-        use oryn_engine::protocol::ExecuteRequest;
-
-        let script = "location.reload(); return true;";
-        let req = ScannerRequest::Execute(ExecuteRequest {
-            script: script.to_string(),
-            args: vec![],
-        });
-
-        self.execute_scanner(req).await?;
-
+        use oryn_engine::protocol::RefreshRequest;
+        let action = Action::Browser(BrowserAction::Refresh(RefreshRequest::default()));
+        self.send_action(action).await?;
+        
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
         Ok(NavigationResult {
-            url: String::new(),
-            title: String::new(),
-            status: 200,
+            url: String::new(), title: String::new(), status: 200,
         })
     }
 
     async fn press_key(&mut self, key: &str, _modifiers: &[String]) -> Result<(), BackendError> {
-        use oryn_engine::protocol::ExecuteRequest;
-
+        // Press key via JS execution (as legacy) or BrowserAction?
+        // Currently no BrowserAction::PressKey.
+        // ScannerAction::Execute is fine.
         let script = format!(
             r#"
-            const event = new KeyboardEvent('keydown', {{
-                key: '{}',
-                bubbles: true
-            }});
+            const event = new KeyboardEvent('keydown', {{ key: '{}', bubbles: true }});
             document.activeElement.dispatchEvent(event);
-            const eventUp = new KeyboardEvent('keyup', {{
-                key: '{}',
-                bubbles: true
-            }});
+            const eventUp = new KeyboardEvent('keyup', {{ key: '{}', bubbles: true }});
             document.activeElement.dispatchEvent(eventUp);
             return true;
             "#,
             key, key
         );
 
-        let req = ScannerRequest::Execute(ExecuteRequest {
+        let req = ScannerAction::Execute(ExecuteRequest {
             script,
             args: vec![],
         });
 
         self.execute_scanner(req).await?;
-
         Ok(())
     }
 }

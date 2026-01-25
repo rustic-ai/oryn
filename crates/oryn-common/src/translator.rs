@@ -2,7 +2,7 @@ use crate::command::{Command, Target};
 use crate::protocol::{
     AcceptRequest, CheckRequest, ClearRequest, ClickRequest, DismissRequest, ExecuteRequest,
     ExtractRequest, FocusRequest, GetHtmlRequest, GetTextRequest, HoverRequest, LoginRequest,
-    MouseButton, ScanRequest, ScannerRequest, ScrollDirection, ScrollRequest, SearchRequest,
+    MouseButton, ScanRequest, ScannerAction, ScrollDirection, ScrollRequest, SearchRequest,
     SelectRequest, TypeRequest, WaitRequest,
 };
 use thiserror::Error;
@@ -66,8 +66,8 @@ fn js_escape(s: &str) -> String {
     s.replace('\'', "\\'")
 }
 
-/// Translates a high-level Intent Command into a low-level ScannerRequest.
-pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> {
+/// Translates a high-level Intent Command into a low-level ScannerAction.
+pub fn translate(command: &Command) -> Result<ScannerAction, TranslationError> {
     match command {
         Command::Observe(options) => {
             let max_elements = options.get("max").and_then(|v| v.parse::<usize>().ok());
@@ -76,7 +76,7 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
             let view_all = options.contains_key("full");
             let include_hidden = options.contains_key("hidden");
 
-            Ok(ScannerRequest::Scan(ScanRequest {
+            Ok(ScannerAction::Scan(ScanRequest {
                 max_elements,
                 monitor_changes: false,
                 include_hidden,
@@ -96,7 +96,7 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                 MouseButton::Left
             };
 
-            Ok(ScannerRequest::Click(ClickRequest {
+            Ok(ScannerAction::Click(ClickRequest {
                 id,
                 button,
                 double: options.contains_key("double"),
@@ -107,7 +107,7 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
 
         Command::Type(target, text, options) => {
             let id = extract_id(target, "Type")?;
-            Ok(ScannerRequest::Type(TypeRequest {
+            Ok(ScannerAction::Type(TypeRequest {
                 id,
                 text: text.clone(),
                 clear: !options.contains_key("append"),
@@ -118,7 +118,7 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
 
         Command::Submit(target) => {
             let id = extract_id(target, "Submit")?;
-            Ok(ScannerRequest::Submit(crate::protocol::SubmitRequest {
+            Ok(ScannerAction::Submit(crate::protocol::SubmitRequest {
                 id,
             }))
         }
@@ -142,7 +142,7 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                 })
                 .unwrap_or(ScrollDirection::Down);
 
-            Ok(ScannerRequest::Scroll(ScrollRequest {
+            Ok(ScannerAction::Scroll(ScrollRequest {
                 id,
                 direction,
                 amount: options.get("amount").cloned().or(Some("page".to_string())),
@@ -173,7 +173,7 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                 .and_then(|t| t.parse::<u64>().ok())
                 .or(Some(30000));
 
-            Ok(ScannerRequest::Wait(WaitRequest {
+            Ok(ScannerAction::Wait(WaitRequest {
                 condition: cond_str.to_string(),
                 target: selector,
                 text,
@@ -227,7 +227,7 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                 },
             };
 
-            Ok(ScannerRequest::Execute(ExecuteRequest {
+            Ok(ScannerAction::Execute(ExecuteRequest {
                 script,
                 args: vec![],
             }))
@@ -235,27 +235,27 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
 
         Command::Check(target) => {
             let id = extract_id(target, "Check")?;
-            Ok(ScannerRequest::Check(CheckRequest { id, state: true }))
+            Ok(ScannerAction::Check(CheckRequest { id, state: true }))
         }
 
         Command::Uncheck(target) => {
             let id = extract_id(target, "Uncheck")?;
-            Ok(ScannerRequest::Check(CheckRequest { id, state: false }))
+            Ok(ScannerAction::Check(CheckRequest { id, state: false }))
         }
 
         Command::Clear(target) => {
             let id = extract_id(target, "Clear")?;
-            Ok(ScannerRequest::Clear(ClearRequest { id }))
+            Ok(ScannerAction::Clear(ClearRequest { id }))
         }
 
         Command::Focus(target) => {
             let id = extract_id(target, "Focus")?;
-            Ok(ScannerRequest::Focus(FocusRequest { id }))
+            Ok(ScannerAction::Focus(FocusRequest { id }))
         }
 
         Command::Hover(target) => {
             let id = extract_id(target, "Hover")?;
-            Ok(ScannerRequest::Hover(HoverRequest { id }))
+            Ok(ScannerAction::Hover(HoverRequest { id }))
         }
 
         Command::Select(target, value) => {
@@ -266,7 +266,7 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                 Err(_) => (None, Some(value.clone())),
             };
 
-            Ok(ScannerRequest::Select(SelectRequest {
+            Ok(ScannerAction::Select(SelectRequest {
                 id,
                 value: None,
                 index,
@@ -275,21 +275,21 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
         }
 
         // Group C: Content extraction via Execute
-        Command::Url => Ok(ScannerRequest::Execute(ExecuteRequest {
+        Command::Url => Ok(ScannerAction::Execute(ExecuteRequest {
             script: "return window.location.href;".to_string(),
             args: vec![],
         })),
 
-        Command::Title => Ok(ScannerRequest::Execute(ExecuteRequest {
+        Command::Title => Ok(ScannerAction::Execute(ExecuteRequest {
             script: "return document.title;".to_string(),
             args: vec![],
         })),
 
-        Command::Text(options) => Ok(ScannerRequest::GetText(GetTextRequest {
+        Command::Text(options) => Ok(ScannerAction::GetText(GetTextRequest {
             selector: options.get("selector").cloned(),
         })),
 
-        Command::Html(options) => Ok(ScannerRequest::GetHtml(GetHtmlRequest {
+        Command::Html(options) => Ok(ScannerAction::GetHtml(GetHtmlRequest {
             selector: options.get("selector").cloned(),
             outer: true, // Default to outerHTML for consistency with previous behavior
         })),
@@ -303,18 +303,18 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                 ExtractSource::Meta => ("meta", None),
                 ExtractSource::Css(s) => ("css", Some(s.clone())),
             };
-            Ok(ScannerRequest::Extract(ExtractRequest {
+            Ok(ScannerAction::Extract(ExtractRequest {
                 source: source_str.into(),
                 selector,
             }))
         }
 
-        Command::Login(user, pass, _opts) => Ok(ScannerRequest::Login(LoginRequest {
+        Command::Login(user, pass, _opts) => Ok(ScannerAction::Login(LoginRequest {
             username: user.clone(),
             password: pass.clone(),
         })),
 
-        Command::Search(query, _opts) => Ok(ScannerRequest::Search(SearchRequest {
+        Command::Search(query, _opts) => Ok(ScannerAction::Search(SearchRequest {
             query: query.clone(),
         })),
 
@@ -332,7 +332,7 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                 }
             };
 
-            Ok(ScannerRequest::Dismiss(DismissRequest {
+            Ok(ScannerAction::Dismiss(DismissRequest {
                 target: target_str,
             }))
         }
@@ -351,7 +351,7 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                 }
             };
 
-            Ok(ScannerRequest::Accept(AcceptRequest { target: target_str }))
+            Ok(ScannerAction::Accept(AcceptRequest { target: target_str }))
         }
 
         Command::ScrollUntil(target, direction, options) => {
@@ -369,7 +369,7 @@ pub fn translate(command: &Command) -> Result<ScannerRequest, TranslationError> 
                 crate::command::ScrollDirection::Right => ScrollDirection::Right,
             };
 
-            Ok(ScannerRequest::Scroll(ScrollRequest {
+            Ok(ScannerAction::Scroll(ScrollRequest {
                 id,
                 direction: scroll_dir,
                 amount: options.get("amount").cloned().or(Some("page".to_string())),

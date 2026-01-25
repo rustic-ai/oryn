@@ -2,7 +2,7 @@ use crate::cog::{self, CogProcess};
 use crate::webdriver::WebDriverClient;
 use async_trait::async_trait;
 use oryn_engine::backend::{Backend, BackendError, NavigationResult};
-use oryn_engine::protocol::{ActionResult, ScannerData, ScannerProtocolResponse, ScannerRequest};
+use oryn_engine::protocol::{ActionResult, ScannerData, ScannerProtocolResponse, ScannerAction};
 use tracing::{info, warn};
 
 pub struct EmbeddedBackend {
@@ -139,7 +139,7 @@ impl Backend for EmbeddedBackend {
 
     async fn execute_scanner(
         &mut self,
-        command: ScannerRequest,
+        command: ScannerAction,
     ) -> Result<ScannerProtocolResponse, BackendError> {
         let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
 
@@ -183,9 +183,9 @@ impl Backend for EmbeddedBackend {
                     // Handle Null result (common in WPE during navigation or context destruction)
                     if result_value.is_null() {
                         match command {
-                            ScannerRequest::Click(_)
-                            | ScannerRequest::Submit(_)
-                            | ScannerRequest::Type(_) => {
+                            ScannerAction::Click(_)
+                            | ScannerAction::Submit(_)
+                            | ScannerAction::Type(_) => {
                                 info!(
                                     "Scanner returned Null, synthesizing success for action: {:?}",
                                     command

@@ -1,6 +1,6 @@
 # Oryn: Unified Tri-Modal Architecture
 
-## Version 1.0
+## Version 1.1
 
 ---
 
@@ -17,6 +17,18 @@ The system comprises three specialized binaries unified by a single Universal Sc
 | **oryn-r** | Remote | User assistance, real browser sessions |
 
 All three binaries share the same protocol, the same intent language, and the same scanner implementation—ensuring consistent behavior regardless of deployment environment.
+
+### 1.1 Key Capabilities (v1.1)
+
+| Capability | Description |
+|------------|-------------|
+| **Named Sessions** | Multiple isolated browser instances with independent state |
+| **State Persistence** | Save and restore authentication state across sessions |
+| **HTTP Headers** | Configure custom headers for API authentication |
+| **Network Interception** | Mock responses, block requests (oryn-h) |
+| **Console Access** | Capture browser console and error output |
+| **Device Emulation** | Viewport sizing and device presets |
+| **Frame Navigation** | Switch between iframes and frames |
 
 ---
 
@@ -70,7 +82,7 @@ Identical semantics across embedded, headless, and remote modes—not per-enviro
 AI agents communicate with Oryn using the Intent Language. They receive observations, make decisions, and issue commands. Agents never interact with raw browser APIs or HTML.
 
 **Protocol Layer**
-The Intent Parser interprets agent commands with forgiveness for variations. The Semantic Resolver translates targets (text matches, roles) to concrete elements. The Change Tracker monitors DOM modifications.
+The Intent Parser interprets agent commands with forgiveness for variations. The Semantic Resolver translates targets (text matches, roles) to concrete elements. The Change Tracker monitors DOM modifications. The Response Formatter outputs human-readable text optimized for LLM consumption.
 
 **Backend Trait**
 A unified interface that all three binaries implement. Commands are dispatched identically regardless of underlying browser engine.
@@ -94,6 +106,29 @@ This design principle is critical:
 
 If HTML were parsed differently per backend, behavior would diverge. The Universal Scanner eliminates this risk.
 
+### 3.3 Session Management
+
+Oryn supports multiple isolated browser sessions running simultaneously:
+
+```
+┌─────────────────────────────────────────┐
+│         Session Manager                  │
+│                                          │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  │
+│  │ default │  │ agent1  │  │ agent2  │  │
+│  │         │  │         │  │         │  │
+│  │ Browser │  │ Browser │  │ Browser │  │
+│  │ Context │  │ Context │  │ Context │  │
+│  └─────────┘  └─────────┘  └─────────┘  │
+└─────────────────────────────────────────┘
+```
+
+Each session has:
+- Independent browser process or context
+- Separate element ID maps
+- Isolated cookies and storage
+- Independent navigation history
+
 ---
 
 ## 4. The Three Modes
@@ -108,6 +143,8 @@ If HTML were parsed differently per backend, behavior would diverge. The Univers
 | **RAM Usage** | **~50MB** ⭐ | ~300MB+ | **Zero** (client-side) |
 | **Compatibility** | ~95% (WebKit) | **~99%** ⭐ | **~99%** ⭐ |
 | **Anti-Bot Bypass** | Weak | Medium | **Strong** ⭐ |
+| **Network Interception** | Limited | **Full** ⭐ | Partial |
+| **Device Emulation** | Basic | **Full** ⭐ | Via extension |
 
 ### 4.2 oryn-e: Embedded Mode
 
@@ -149,6 +186,8 @@ If HTML were parsed differently per backend, behavior would diverge. The Univers
 - Network interception capabilities
 - PDF generation and printing
 - DevTools debugging integration
+- Device and viewport emulation
+- Trace recording for debugging
 
 ### 4.4 oryn-r: Remote Mode
 
@@ -194,6 +233,16 @@ All three binaries implement identical capabilities:
 
 **Capture**
 - Screenshot current state
+- PDF generation (oryn-h)
+
+**Session Management**
+- Create named session
+- List sessions
+- Close session
+
+**State Persistence**
+- Save auth state to file
+- Load auth state from file
 
 ### 5.2 Scanner Command Flow
 
@@ -205,7 +254,22 @@ All three binaries implement identical capabilities:
 6. Backend receives and deserializes response
 7. Protocol layer formats response for agent
 
-The JSON format is identical regardless of transport. Only the communication mechanism differs.
+The internal JSON format is identical regardless of transport. Only the communication mechanism differs.
+
+### 5.3 Mode-Specific Features
+
+Some features are only available in specific modes:
+
+| Feature | oryn-e | oryn-h | oryn-r |
+|---------|--------|--------|--------|
+| Network Interception | ❌ | ✅ | ⚠️ |
+| Trace Recording | ❌ | ✅ | ❌ |
+| Video Recording | ⚠️ | ✅ | ❌ |
+| Device Emulation | ⚠️ | ✅ | ⚠️ |
+| Console Capture | ⚠️ | ✅ | ✅ |
+| Multi-Tab | ⚠️ | ✅ | ✅ |
+
+Commands that aren't supported in a mode return: `error: not supported in this mode`
 
 ---
 
@@ -226,6 +290,7 @@ Each mode has inherent limitations from its underlying technology:
 - WebKit may render some pages differently than Chromium
 - Some cutting-edge web features may lag Chromium support
 - WebDriver protocol has performance overhead versus CDP
+- Limited network interception capabilities
 
 **oryn-h Limitations**
 - Headless Chrome has detectable fingerprint
@@ -237,6 +302,7 @@ Each mode has inherent limitations from its underlying technology:
 - User's browser must remain open
 - Network dependent (WebSocket connection)
 - Cannot operate unattended without user presence
+- Some features limited by extension sandbox
 
 ---
 
@@ -282,11 +348,25 @@ Each mode has inherent limitations from its underlying technology:
 
 **Why**: Self-contained deployment without Chrome dependency. Low resource requirements for embedded hardware. WebKit provides adequate compatibility for specific target sites.
 
+### 7.6 Scenario: Multi-Agent Orchestration
+
+**Use Case**: Multiple agents working on different tasks simultaneously
+
+**Recommended**: oryn-h (Headless) with Named Sessions
+
+**Why**: Named sessions provide full isolation. Each agent gets independent browser context. Session management enables parallel workflows.
+
+```bash
+oryn --session buyer headless &
+oryn --session seller headless &
+oryn --session monitor headless &
+```
+
 ---
 
 ## 8. Development Priorities
 
-### 8.1 Phase 1: Core + Remote Mode
+### 8.1 Phase 1: Core + Remote Mode ✅
 
 **Rationale**: Remote mode provides immediate visual feedback during development. The browser extension runs in a standard browser where issues are easily debugged. This phase establishes the scanner and protocol foundations.
 
@@ -298,7 +378,7 @@ Each mode has inherent limitations from its underlying technology:
 - Intent Language parser
 - Semantic resolution layer
 
-### 8.2 Phase 2: Headless Mode
+### 8.2 Phase 2: Headless Mode ✅
 
 **Rationale**: Same scanner, different transport. CDP integration via chromiumoxide builds on Phase 1 foundations with a production-ready backend.
 
@@ -307,7 +387,7 @@ Each mode has inherent limitations from its underlying technology:
 - Chrome-specific features (network interception, etc.)
 - Headless testing infrastructure
 
-### 8.3 Phase 3: Embedded Mode
+### 8.3 Phase 3: Embedded Mode ✅
 
 **Rationale**: Most environment setup required. WebDriver integration via fantoccini completes the tri-modal architecture.
 
@@ -317,13 +397,26 @@ Each mode has inherent limitations from its underlying technology:
 - Alpine container configuration
 - Low-memory environment testing
 
-### 8.4 Phase 4: Polish
+### 8.4 Phase 4: Enhanced Capabilities (v1.1)
 
 **Deliverables**:
-- Mode auto-detection
-- Unified CLI experience
-- Comprehensive documentation
-- Cross-backend test suite
+- Named Sessions
+- State Persistence
+- HTTP Headers
+- Network Interception (oryn-h)
+- Console/Error Access
+- Device Emulation
+- Frame Navigation
+- Dialog Handling
+
+### 8.5 Phase 5: Polish (v1.2+)
+
+**Deliverables**:
+- Trace Recording
+- Video Recording
+- Element Highlighting
+- Streaming Observations
+- Multi-extension Support
 
 ---
 
@@ -338,6 +431,7 @@ Each mode has inherent limitations from its underlying technology:
 | **oryn-r** | WebSocket → Browser Extension |
 | **Intent Language** | Agent-facing protocol |
 | **Scanner Protocol** | Internal JSON protocol |
+| **Session Manager** | Multi-session orchestration |
 
 **The Key Insight**
 
@@ -347,5 +441,29 @@ Agents get a clean, semantic interface to the web—not pixels, not HTML, not ri
 
 ---
 
-*Document Version: 1.0*  
-*Last Updated: January 2025*
+## Appendix A: Feature Matrix
+
+| Feature | oryn-e | oryn-h | oryn-r |
+|---------|--------|--------|--------|
+| Core Commands | ✅ | ✅ | ✅ |
+| Pattern Detection | ✅ | ✅ | ✅ |
+| Intent Engine | ✅ | ✅ | ✅ |
+| Named Sessions | ✅ | ✅ | ✅ |
+| State Persistence | ✅ | ✅ | ✅ |
+| HTTP Headers | ✅ | ✅ | ⚠️ |
+| Network Interception | ❌ | ✅ | ⚠️ |
+| Console Access | ⚠️ | ✅ | ✅ |
+| Device Emulation | ⚠️ | ✅ | ⚠️ |
+| Frame Navigation | ✅ | ✅ | ✅ |
+| Dialog Handling | ✅ | ✅ | ✅ |
+| PDF Generation | ⚠️ | ✅ | ❌ |
+| Trace Recording | ❌ | ✅ | ❌ |
+| Video Recording | ⚠️ | ✅ | ❌ |
+| Element Highlighting | ✅ | ✅ | ✅ |
+
+Legend: ✅ Full support | ⚠️ Partial/Limited | ❌ Not available
+
+---
+
+*Document Version: 1.1*  
+*Last Updated: January 2026*

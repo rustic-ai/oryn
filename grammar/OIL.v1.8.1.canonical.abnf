@@ -1,0 +1,406 @@
+; =============================================================================
+; OIL (Oryn Intent Language) - Canonical ABNF Grammar
+; =============================================================================
+;
+; Version: 1.8.1
+; Date: January 2026
+;
+; SCOPE
+; =====
+; This grammar parses CANONICAL OIL TEXT produced by Phase 1 normalization.
+; - Canonical verbs are lowercase.
+; - Options use canonical `--kebab-case` forms only.
+; - String literals use double quotes only.
+;
+; COMMENT RULE (context-sensitive `#`)
+; ================================
+; - Full-line comments are allowed: optional leading whitespace then `# ...`
+; - Trailing comments are allowed ONLY after at least one whitespace character:
+;     <command> <WSP+> #comment
+; - `#` is allowed inside quoted strings, URLs, and file paths.
+;
+; JSON PAYLOADS
+; =============
+; Commands that accept JSON MUST pass it as a quoted string in canonical text.
+; This grammar treats JSON payloads as `string-value`.
+;
+; =============================================================================
+
+oil-input = *( line EOL ) [ line ] [ EOL ]
+
+line = *WSP ( comment / ( command [ 1*WSP comment ] ) / "" ) *WSP
+
+comment = "#" *NOT-EOL
+
+; ----- Newlines -----
+EOL = LF / CRLF
+LF = %x0A
+CRLF = %x0D %x0A
+
+; ----- Whitespace -----
+WSP = SP / HTAB
+SP = %x20
+HTAB = %x09
+
+NOT-EOL = %x20-7E / %x80-10FFFF  ; any non-newline unicode char
+; (Implementations should treat comment as "until EOL".)
+
+; =============================================================================
+; COMMANDS
+; =============================================================================
+
+command = navigation-cmd
+        / observation-cmd
+        / action-cmd
+        / wait-cmd
+        / extraction-cmd
+        / session-cmd
+        / tab-cmd
+        / intent-cmd
+        / pack-cmd
+        / network-cmd
+        / console-cmd
+        / frame-cmd
+        / dialog-cmd
+        / viewport-cmd
+        / recording-cmd
+        / utility-cmd
+
+; =============================================================================
+; NAVIGATION
+; =============================================================================
+
+navigation-cmd = goto-cmd / back-cmd / forward-cmd / refresh-cmd / url-cmd
+
+goto-cmd = "goto" 1*WSP url-value *( 1*WSP goto-opt )
+goto-opt = headers-opt / timeout-opt
+headers-opt = "--headers" 1*WSP string-value
+
+back-cmd = "back"
+forward-cmd = "forward"
+
+refresh-cmd = "refresh" *( 1*WSP "--hard" )
+
+url-cmd = "url"
+
+; =============================================================================
+; OBSERVATION
+; =============================================================================
+
+observation-cmd = observe-cmd / html-cmd / text-cmd / title-cmd / screenshot-cmd / box-cmd
+
+observe-cmd = "observe" *( 1*WSP observe-opt )
+observe-opt = "--full" / "--minimal" / "--viewport" / "--hidden" / "--positions" / near-opt / timeout-opt
+near-opt = "--near" 1*WSP string-value
+
+html-cmd = "html" *( 1*WSP selector-opt )
+
+text-cmd = "text" [ 1*WSP selector-opt ] [ 1*WSP target ]
+
+title-cmd = "title"
+
+screenshot-cmd = "screenshot" *( 1*WSP ( screenshot-opt / target ) )
+screenshot-opt = output-opt / format-opt / "--fullpage"
+output-opt = "--output" 1*WSP file-path
+format-opt = "--format" 1*WSP image-format
+image-format = "png" / "jpeg" / "webp"
+
+box-cmd = "box" 1*WSP target
+
+; =============================================================================
+; ACTIONS
+; =============================================================================
+
+action-cmd = click-cmd / type-cmd / clear-cmd / press-cmd / keydown-cmd / keyup-cmd / keys-cmd
+           / select-cmd / check-cmd / uncheck-cmd / hover-cmd / focus-cmd / scroll-cmd / submit-cmd
+
+click-cmd = "click" 1*WSP target *( 1*WSP click-opt )
+click-opt = "--double" / "--right" / "--middle" / "--force" / "--ctrl" / "--shift" / "--alt" / timeout-opt
+
+type-cmd = "type" 1*WSP target 1*WSP string-value *( 1*WSP type-opt )
+type-opt = "--append" / "--enter" / ("--delay" 1*WSP number) / "--clear" / timeout-opt
+
+clear-cmd = "clear" 1*WSP target
+
+press-cmd = "press" 1*WSP key-combo
+keydown-cmd = "keydown" 1*WSP key-name
+keyup-cmd = "keyup" 1*WSP ( "all" / key-name )
+keys-cmd = "keys"
+
+select-cmd = "select" 1*WSP target 1*WSP ( string-value / number )
+check-cmd = "check" 1*WSP target
+uncheck-cmd = "uncheck" 1*WSP target
+hover-cmd = "hover" 1*WSP target
+focus-cmd = "focus" 1*WSP target
+
+scroll-cmd = "scroll" *( 1*WSP ( scroll-direction / scroll-opt / target ) )
+scroll-direction = "up" / "down" / "left" / "right"
+scroll-opt = ("--amount" 1*WSP number) / "--page" / timeout-opt
+
+submit-cmd = "submit" [ 1*WSP target ]
+
+; =============================================================================
+; WAIT
+; =============================================================================
+
+wait-cmd = "wait" 1*WSP wait-condition *( 1*WSP timeout-opt )
+wait-condition = "load"
+              / "idle"
+              / "navigation"
+              / "ready"
+              / ("visible" 1*WSP target)
+              / ("hidden" 1*WSP target)
+              / ("exists" 1*WSP string-value)
+              / ("gone" 1*WSP string-value)
+              / ("url" 1*WSP string-value)
+              / ("until" 1*WSP string-value)
+              / ("items" 1*WSP string-value 1*WSP number)
+
+; =============================================================================
+; EXTRACT
+; =============================================================================
+
+extraction-cmd = "extract" 1*WSP extract-what *( 1*WSP extract-opt )
+extract-what = "links" / "images" / "tables" / "meta" / "text" / extract-css
+extract-css = "css" *WSP "(" *WSP string-value *WSP ")"
+extract-opt = selector-opt / ("--format" 1*WSP output-format)
+output-format = "json" / "csv" / "text"
+
+selector-opt = "--selector" 1*WSP string-value
+
+; =============================================================================
+; SESSION (cookies/storage/sessions/session/state/headers)
+; =============================================================================
+
+session-cmd = cookies-cmd / storage-cmd / sessions-cmd / session-mgmt-cmd / state-cmd / headers-cmd
+
+cookies-cmd = "cookies" 1*WSP cookies-action
+cookies-action = "list"
+              / ("get" 1*WSP name-value)
+              / ("set" 1*WSP name-value 1*WSP string-value)
+              / ("delete" 1*WSP name-value)
+              / "clear"
+
+storage-cmd = "storage" 1*WSP storage-action *( 1*WSP storage-type )
+storage-action = "list"
+              / ("get" 1*WSP name-value)
+              / ("set" 1*WSP name-value 1*WSP string-value)
+              / ("delete" 1*WSP name-value)
+              / "clear"
+storage-type = "--local" / "--session"
+
+sessions-cmd = "sessions"
+
+session-mgmt-cmd = "session" [ 1*WSP session-action ]
+session-action = ("new" 1*WSP identifier *( 1*WSP ("--mode" 1*WSP mode-name) ))
+              / ("close" 1*WSP identifier)
+              / identifier
+mode-name = "embedded" / "headless" / "remote"
+
+state-cmd = "state" 1*WSP ( state-save / state-load )
+state-save = "save" 1*WSP file-path *( 1*WSP state-save-opt )
+state-save-opt = "--cookies-only" / ("--domain" 1*WSP domain-name) / "--include-session"
+state-load = "load" 1*WSP file-path *( 1*WSP state-load-opt )
+state-load-opt = "--merge" / "--cookies-only"
+
+headers-cmd = "headers" [ 1*WSP headers-action ]
+headers-action = ("set" 1*WSP headers-set-args) / ("clear" [ 1*WSP domain-name ]) / domain-name
+headers-set-args = ( domain-name 1*WSP string-value ) / string-value
+
+domain-name = identifier / string-value
+
+name-value = identifier / string-value
+
+; =============================================================================
+; TABS
+; =============================================================================
+
+tab-cmd = tabs-cmd / tab-action-cmd
+tabs-cmd = "tabs"
+tab-action-cmd = "tab" 1*WSP ( tab-new / tab-switch / tab-close )
+tab-new = "new" 1*WSP url-value
+tab-switch = "switch" 1*WSP number
+tab-close = "close" [ 1*WSP number ]
+
+; =============================================================================
+; INTENTS (Level 3)
+; =============================================================================
+
+intent-cmd = login-cmd / search-cmd / dismiss-cmd / accept-cookies-cmd / scroll-until-cmd
+
+login-cmd = "login" 1*WSP string-value 1*WSP string-value *( 1*WSP login-opt )
+login-opt = "--no-submit" / ("--wait" 1*WSP duration) / timeout-opt
+
+search-cmd = "search" 1*WSP string-value *( 1*WSP search-opt )
+search-opt = ( "--submit" 1*WSP submit-method ) / ("--wait" 1*WSP duration) / timeout-opt
+submit-method = "enter" / "click" / "auto"
+
+dismiss-cmd = "dismiss" 1*WSP ( "popups" / "modals" / "modal" / "banner" / identifier / string-value )
+
+accept-cookies-cmd = "accept_cookies"
+
+scroll-until-cmd = "scroll" 1*WSP "until" 1*WSP target *( 1*WSP scroll-opt )
+
+; =============================================================================
+; PACK / INTENT MANAGEMENT
+; =============================================================================
+
+pack-cmd = packs-cmd / pack-action-cmd / intents-cmd / define-cmd / undefine-cmd / export-cmd / run-cmd
+packs-cmd = "packs"
+pack-action-cmd = "pack" 1*WSP ( "load" / "unload" ) 1*WSP identifier
+
+intents-cmd = "intents" *( 1*WSP "--session" )
+
+define-cmd = "define" 1*WSP identifier ":"    ; body is mode-specific (outside ABNF scope)
+undefine-cmd = "undefine" 1*WSP identifier
+
+export-cmd = "export" 1*WSP identifier *( 1*WSP ("--out" 1*WSP file-path) )
+
+run-cmd = "run" 1*WSP identifier *( 1*WSP run-param )
+run-param = ( "--" identifier 1*WSP param-value ) / param-value
+param-value = string-value / number / identifier
+
+; =============================================================================
+; NETWORK
+; =============================================================================
+
+network-cmd = intercept-cmd / requests-cmd
+
+intercept-cmd = "intercept" 1*WSP ( intercept-clear / intercept-rule )
+intercept-clear = "clear" [ 1*WSP string-value ]
+intercept-rule = string-value *( 1*WSP intercept-opt )
+intercept-opt = "--block"
+             / ("--respond" 1*WSP string-value)
+             / ("--respond-file" 1*WSP file-path)
+             / ("--status" 1*WSP number)
+
+requests-cmd = "requests" *( 1*WSP requests-opt )
+requests-opt = ("--filter" 1*WSP string-value)
+            / ("--method" 1*WSP http-method)
+            / ("--last" 1*WSP number)
+http-method = "GET" / "POST" / "PUT" / "DELETE" / "PATCH" / "HEAD" / "OPTIONS"
+
+; =============================================================================
+; CONSOLE / ERRORS
+; =============================================================================
+
+console-cmd = console-view / console-clear / errors-cmd
+console-view = "console" *( 1*WSP console-opt )
+console-clear = "console" 1*WSP "clear"
+console-opt = ("--level" 1*WSP log-level)
+           / ("--filter" 1*WSP string-value)
+           / ("--last" 1*WSP number)
+log-level = "log" / "warn" / "error" / "info"
+
+errors-cmd = errors-view / errors-clear
+errors-view = "errors" *( 1*WSP errors-opt )
+errors-clear = "errors" 1*WSP "clear"
+errors-opt = "--last" 1*WSP number
+
+; =============================================================================
+; FRAMES
+; =============================================================================
+
+frame-cmd = frames-cmd / frame-switch-cmd
+frames-cmd = "frames"
+frame-switch-cmd = "frame" 1*WSP ( "main" / "parent" / target )
+
+; =============================================================================
+; DIALOG
+; =============================================================================
+
+dialog-cmd = "dialog" 1*WSP ( dialog-accept / dialog-dismiss / dialog-auto )
+dialog-accept = "accept" [ 1*WSP string-value ]
+dialog-dismiss = "dismiss"
+dialog-auto = "auto" 1*WSP ( "accept" / "dismiss" / "off" )
+
+; =============================================================================
+; VIEWPORT / DEVICE / MEDIA
+; =============================================================================
+
+viewport-cmd = viewport-size-cmd / device-cmd / devices-cmd / media-cmd
+viewport-size-cmd = "viewport" 1*WSP number 1*WSP number
+
+device-cmd = "device" 1*WSP ( "reset" / string-value )
+devices-cmd = "devices"
+
+media-cmd = "media" 1*WSP ( "reset" / ( media-feature 1*WSP media-value ) )
+media-feature = "color-scheme" / "reduced-motion"
+media-value = "dark" / "light" / "reduce" / "no-preference" / string-value
+
+; =============================================================================
+; RECORDING
+; =============================================================================
+
+recording-cmd = trace-cmd / record-cmd / highlight-cmd
+
+trace-cmd = "trace" 1*WSP ( ("start" [ 1*WSP file-path ]) / ("stop" [ 1*WSP file-path ]) )
+
+record-cmd = "record" 1*WSP ( ("start" 1*WSP file-path *( 1*WSP ("--quality" 1*WSP quality-level) )) / "stop" )
+quality-level = "low" / "medium" / "high"
+
+highlight-cmd = "highlight" 1*WSP ( "clear" / ( target *( 1*WSP highlight-opt ) ) )
+highlight-opt = ("--duration" 1*WSP duration) / ("--color" 1*WSP ( identifier / string-value ))
+
+; =============================================================================
+; UTILITY
+; =============================================================================
+
+utility-cmd = pdf-cmd / learn-cmd / exit-cmd / help-cmd
+
+pdf-cmd = "pdf" 1*WSP file-path *( 1*WSP pdf-opt )
+pdf-opt = ("--format" 1*WSP paper-format)
+        / "--landscape"
+        / ("--margin" 1*WSP ( number / string-value ))
+paper-format = "A4" / "Letter" / "Legal" / "Tabloid"
+
+learn-cmd = "learn" 1*WSP ( "status"
+                         / ("save" 1*WSP identifier)
+                         / ("discard" [ 1*WSP identifier ])
+                         / "show" )
+
+exit-cmd = "exit"
+help-cmd = "help" [ 1*WSP identifier ]
+
+; =============================================================================
+; TARGETS
+; =============================================================================
+
+target = target-atomic *( 1*WSP relation 1*WSP target-atomic )
+relation = "near" / "inside" / "after" / "before" / "contains"
+
+target-atomic = target-selector / target-role / target-id / target-text
+target-id = 1*DIGIT
+
+target-selector = ( "css" *WSP "(" *WSP string-value *WSP ")" )
+               / ( "xpath" *WSP "(" *WSP string-value *WSP ")" )
+
+target-role = "email" / "password" / "search" / "submit" / "username" / "phone" / "url"
+target-text = string-value
+
+; =============================================================================
+; PRIMITIVES
+; =============================================================================
+
+timeout-opt = "--timeout" 1*WSP duration
+
+url-value = string-value / url-bare
+url-bare = 1*url-char
+url-char = ALPHA / DIGIT / "-" / "_" / "." / "/" / ":" / "?" / "=" / "&" / "%" / "@" / "~" / "+" / "#"
+
+file-path = string-value / path-bare
+path-bare = 1*path-char
+path-char = ALPHA / DIGIT / "-" / "_" / "." / "/" / "~" / ":" / "\" / "#"
+
+string-value = DQUOTE *string-char DQUOTE
+DQUOTE = %x22
+string-char = %x20-21 / %x23-5B / %x5D-7E / escaped-char
+escaped-char = "\" ( DQUOTE / "\" / "n" / "r" / "t" )
+
+identifier = ( ALPHA / "_" ) *( ALPHA / DIGIT / "_" / "-" )
+
+number = [ "-" ] 1*DIGIT [ "." 1*DIGIT ]
+duration = 1*DIGIT ( "ms" / "s" / "m" )
+
+ALPHA = %x41-5A / %x61-7A
+DIGIT = %x30-39

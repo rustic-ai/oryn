@@ -16,10 +16,20 @@ where
         .collect())
 }
 
-/// Requests sent to the scanner.
+/// Unified Action enum wrapping all action types.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Action {
+    Scanner(ScannerAction),
+    Browser(BrowserAction),
+    Session(SessionAction),
+    Meta(MetaAction),
+}
+
+/// Actions executed by the content script (Scanner).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
-pub enum ScannerRequest {
+pub enum ScannerAction {
     Scan(ScanRequest),
     Click(ClickRequest),
     Type(TypeRequest),
@@ -38,16 +48,46 @@ pub enum ScannerRequest {
     Search(SearchRequest),
     Dismiss(DismissRequest),
     Accept(AcceptRequest),
-    /// Navigate to a URL (handled by background script, not content script)
-    Navigate(NavigateRequest),
-    /// Go back in browser history (handled by background script)
-    Back(BackRequest),
-    /// Get text content from page or element
     #[serde(rename = "get_text")]
     GetText(GetTextRequest),
-    /// Get HTML content from page or element
     #[serde(rename = "get_html")]
     GetHtml(GetHtmlRequest),
+}
+
+/// Actions executed by the browser automation driver (Puppeteer/Selenium equivalent).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum BrowserAction {
+    Navigate(NavigateRequest),
+    Back(BackRequest),
+    Forward(ForwardRequest),
+    Refresh(RefreshRequest),
+    Screenshot(ScreenshotRequest),
+    Pdf(PdfRequest),
+    Tab(TabRequest),
+    Frame(FrameRequest),
+    Dialog(DialogRequest),
+    Press(PressRequest),
+}
+
+/// Actions managed by the session manager (Cookies, Storage, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum SessionAction {
+    Cookie(CookieRequest),
+    Storage(StorageRequest),
+    Headers(HeadersRequest),
+    Proxy(ProxyRequest),
+}
+
+/// Meta-actions for the Oryn runtime (Packs, Intents, Learning).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum MetaAction {
+    Pack(PackRequest),
+    Intent(IntentRequest),
+    Learn(LearnRequest),
+    Config(ConfigRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -486,4 +526,110 @@ pub struct TabInfo {
     pub url: String,
     pub title: String,
     pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ForwardRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RefreshRequest {
+    pub hard: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreenshotRequest {
+    pub output: Option<String>,
+    pub format: Option<String>, // "png", "jpeg"
+    pub selector: Option<String>,
+    pub fullpage: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PdfRequest {
+    pub path: String,
+    pub format: Option<String>, // "A4", "Letter"
+    pub landscape: bool,
+    pub margin: Option<String>,
+    pub scale: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TabRequest {
+    pub action: String, // "new", "switch", "close", "list"
+    pub url: Option<String>,
+    pub tab_id: Option<String>, // String or u32? Using String for flexibility
+    pub index: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrameRequest {
+    pub action: String, // "switch"
+    pub target: Option<String>, // "main", "parent", "iframe_selector"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DialogRequest {
+    pub action: String, // "accept", "dismiss", "auto_accept", "auto_dismiss"
+    pub prompt_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PressRequest {
+    pub key: String, // Main key
+    pub modifiers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CookieRequest {
+    pub action: String, // "get", "set", "delete", "clear", "list"
+    pub name: Option<String>,
+    pub value: Option<String>,
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageRequest {
+    pub action: String, // "get", "set", "delete", "clear", "list"
+    pub storage_type: String, // "local", "session"
+    pub key: Option<String>,
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeadersRequest {
+    pub action: String, // "set", "clear", "view"
+    pub headers: Option<std::collections::HashMap<String, String>>,
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyRequest {
+    pub action: String, // "set", "clear"
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackRequest {
+    pub action: String, // "load", "unload", "list"
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntentRequest {
+    pub action: String, // "define", "undefine", "run", "list", "export"
+    pub name: Option<String>,
+    pub params: Option<std::collections::HashMap<String, String>>,
+    pub output: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LearnRequest {
+    pub action: String, // "status", "save", "discard", "show"
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigRequest {
+    pub key: String,
+    pub value: String,
 }

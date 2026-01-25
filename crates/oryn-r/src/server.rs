@@ -1,5 +1,5 @@
 use futures::{SinkExt, StreamExt};
-use oryn_engine::protocol::{ScannerProtocolResponse, ScannerRequest};
+use oryn_engine::protocol::{ScannerProtocolResponse, Action};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -12,7 +12,7 @@ use tracing::{error, info};
 pub struct RemoteServer {
     port: u16,
     // Channel to send commands to the active connection loop
-    command_tx: broadcast::Sender<ScannerRequest>,
+    command_tx: broadcast::Sender<Action>,
     // Receiver for responses (held by the Backend, but we might need to store it to clone/init?)
     // Actually, we'll expose a method to get a receiver or return responses.
     // Simpler: Shared state for the latest response? Or a response channel that the Backend subscribes to?
@@ -22,7 +22,7 @@ pub struct RemoteServer {
 }
 
 pub struct ServerHandle {
-    pub command_tx: broadcast::Sender<ScannerRequest>,
+    pub command_tx: broadcast::Sender<Action>,
     pub response_rx: Arc<Mutex<mpsc::Receiver<ScannerProtocolResponse>>>,
 }
 
@@ -68,7 +68,7 @@ impl RemoteServer {
 
 async fn accept_connection(
     stream: TcpStream,
-    mut cmd_rx: broadcast::Receiver<ScannerRequest>,
+    mut cmd_rx: broadcast::Receiver<Action>,
     resp_tx: mpsc::Sender<ScannerProtocolResponse>,
 ) {
     let ws_stream = match accept_async(stream).await {

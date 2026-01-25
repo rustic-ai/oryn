@@ -1,0 +1,506 @@
+// =============================================================================
+// OIL (Oryn Intent Language) - Canonical PEG Grammar (pest)
+// =============================================================================
+//
+// Version: 1.8.1
+// Date: January 2026
+//
+// ALIGNED WITH
+// - OIL.v1.8.1.canonical.fixed.abnf
+// - SPEC-OIL-COMPLIANCE.v1.8.1.polished.md (canonical model)
+//
+// SCOPE
+// =====
+// This grammar parses CANONICAL OIL text produced by Phase 1 normalization.
+// - Canonical verbs are lowercase.
+// - Options are canonical `--kebab-case` only.
+// - Strings are double-quoted only.
+// - JSON payloads (e.g., --headers, --respond) are represented as quoted OIL strings.
+//
+// COMMENTS (context-sensitive `#`)
+// ================================
+// - Full-line comment: optional leading whitespace then `#...`
+// - Trailing comment: allowed only as `WSP+ '#' ...` after a command.
+// - `#` is allowed inside quoted strings, url_bare, and path_bare.
+//
+// =============================================================================
+
+// =============================================================================
+// 1) TOP LEVEL
+// =============================================================================
+
+oil_input = { SOI ~ (line ~ (NEWLINE ~ line)*)? ~ NEWLINE? ~ EOI }
+
+line = { WSP* ~ ( (command ~ (WSP+ ~ comment)?) | comment )? ~ WSP* }
+
+// Capture the entire comment payload (including spaces) up to NEWLINE.
+comment = @{ "#" ~ (!NEWLINE ~ ANY)* }
+
+NEWLINE = _{ "\r\n" | "\n" }
+WSP = _{ " " | "\t" }
+
+// =============================================================================
+// 2) COMMAND DISPATCH
+// =============================================================================
+
+command = _{
+    navigation_cmd |
+    observation_cmd |
+    action_cmd |
+    wait_cmd |
+    extraction_cmd |
+    session_cmd |
+    tab_cmd |
+    intent_cmd |
+    pack_cmd |
+    network_cmd |
+    console_or_errors_cmd |
+    frame_cmd |
+    dialog_cmd |
+    viewport_cmd |
+    recording_cmd |
+    utility_cmd
+}
+
+// =============================================================================
+// 3) NAVIGATION
+// =============================================================================
+
+navigation_cmd = _{ goto_cmd | back_cmd | forward_cmd | refresh_cmd | url_cmd }
+
+goto_cmd = { "goto" ~ WSP+ ~ url_value ~ (WSP+ ~ goto_opt)* }
+goto_opt = _{ headers_opt | timeout_opt }
+headers_opt = { "--headers" ~ WSP+ ~ string_value }
+
+back_cmd = { "back" }
+forward_cmd = { "forward" }
+refresh_cmd = { "refresh" ~ (WSP+ ~ "--hard")* }
+url_cmd = { "url" }
+
+// =============================================================================
+// 4) OBSERVATION
+// =============================================================================
+
+observation_cmd = _{ observe_cmd | html_cmd | text_cmd | title_cmd | screenshot_cmd | box_cmd }
+
+observe_cmd = { "observe" ~ (WSP+ ~ observe_opt)* }
+observe_opt = _{
+    "--full" |
+    "--minimal" |
+    "--viewport" |
+    "--hidden" |
+    "--positions" |
+    near_opt |
+    timeout_opt
+}
+near_opt = { "--near" ~ WSP+ ~ string_value }
+
+html_cmd = { "html" ~ (WSP+ ~ selector_opt)* }
+
+// canonical: allow selector then optional target (vectors may vary); keep permissive.
+text_cmd = { "text" ~ (WSP+ ~ (selector_opt | target))* }
+
+title_cmd = { "title" }
+
+screenshot_cmd = { "screenshot" ~ (WSP+ ~ (screenshot_opt | target))* }
+screenshot_opt = _{
+    output_opt |
+    format_opt |
+    "--fullpage"
+}
+output_opt = { "--output" ~ WSP+ ~ file_path }
+format_opt = { "--format" ~ WSP+ ~ image_format }
+image_format = { "png" | "jpeg" | "webp" }
+
+box_cmd = { "box" ~ WSP+ ~ target }
+
+// =============================================================================
+// 5) ACTIONS
+// =============================================================================
+
+action_cmd = _{
+    click_cmd |
+    type_cmd |
+    clear_cmd |
+    press_cmd |
+    keydown_cmd |
+    keyup_cmd |
+    keys_cmd |
+    select_cmd |
+    check_cmd |
+    uncheck_cmd |
+    hover_cmd |
+    focus_cmd |
+    scroll_until_cmd |
+    scroll_cmd |
+    submit_cmd
+}
+
+click_cmd = { "click" ~ WSP+ ~ target ~ (WSP+ ~ click_opt)* }
+click_opt = _{
+    "--double" |
+    "--right" |
+    "--middle" |
+    "--force" |
+    "--ctrl" |
+    "--shift" |
+    "--alt" |
+    timeout_opt
+}
+
+type_cmd = { "type" ~ WSP+ ~ target ~ WSP+ ~ string_value ~ (WSP+ ~ type_opt)* }
+type_opt = _{
+    "--append" |
+    "--enter" |
+    ("--delay" ~ WSP+ ~ number) |
+    "--clear" |
+    timeout_opt
+}
+
+clear_cmd = { "clear" ~ WSP+ ~ target }
+
+press_cmd = { "press" ~ WSP+ ~ key_combo }
+keydown_cmd = { "keydown" ~ WSP+ ~ key_name }
+keyup_cmd = { "keyup" ~ WSP+ ~ ("all" | key_name) }
+keys_cmd = { "keys" }
+
+key_combo = @{ key_name ~ ("+" ~ key_name)* }
+key_name = { modifier_key | function_key | nav_key | edit_key | char_key }
+modifier_key = { "control" | "shift" | "alt" | "meta" }
+function_key = { "f10" | "f11" | "f12" | "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" }
+nav_key = { "arrowup" | "arrowdown" | "arrowleft" | "arrowright" | "home" | "end" | "pageup" | "pagedown" }
+edit_key = { "enter" | "tab" | "escape" | "space" | "backspace" | "delete" }
+char_key = { ASCII_ALPHA | ASCII_DIGIT }
+
+select_cmd = { "select" ~ WSP+ ~ target ~ WSP+ ~ (string_value | number) }
+check_cmd = { "check" ~ WSP+ ~ target }
+uncheck_cmd = { "uncheck" ~ WSP+ ~ target }
+hover_cmd = { "hover" ~ WSP+ ~ target }
+focus_cmd = { "focus" ~ WSP+ ~ target }
+
+scroll_cmd = { "scroll" ~ (WSP+ ~ scroll_arg)* }
+scroll_arg = _{ scroll_direction | scroll_opt | target }
+scroll_direction = { "up" | "down" | "left" | "right" }
+scroll_opt = _{ ("--amount" ~ WSP+ ~ number) | "--page" | timeout_opt }
+
+submit_cmd = { "submit" ~ (WSP+ ~ target)? }
+
+// =============================================================================
+// 6) WAIT
+// =============================================================================
+
+wait_cmd = { "wait" ~ WSP+ ~ wait_condition ~ (WSP+ ~ timeout_opt)* }
+wait_condition = _{
+    "load" |
+    "idle" |
+    "navigation" |
+    "ready" |
+    ("visible" ~ WSP+ ~ target) |
+    ("hidden" ~ WSP+ ~ target) |
+    ("exists" ~ WSP+ ~ string_value) |
+    ("gone" ~ WSP+ ~ string_value) |
+    ("url" ~ WSP+ ~ string_value) |
+    ("until" ~ WSP+ ~ string_value) |
+    ("items" ~ WSP+ ~ string_value ~ WSP+ ~ number)
+}
+
+// =============================================================================
+// 7) EXTRACT
+// =============================================================================
+
+extraction_cmd = { "extract" ~ WSP+ ~ extract_what ~ (WSP+ ~ extract_opt)* }
+extract_what = _{ "links" | "images" | "tables" | "meta" | "text" | extract_css }
+extract_css = { "css" ~ WSP* ~ "(" ~ WSP* ~ string_value ~ WSP* ~ ")" }
+
+extract_opt = _{ selector_opt | ("--format" ~ WSP+ ~ output_format) }
+output_format = { "json" | "csv" | "text" }
+
+selector_opt = { "--selector" ~ WSP+ ~ string_value }
+
+// =============================================================================
+// 8) SESSION
+// =============================================================================
+
+session_cmd = _{
+    cookies_cmd |
+    storage_cmd |
+    sessions_cmd |
+    session_mgmt_cmd |
+    state_cmd |
+    headers_cmd
+}
+
+cookies_cmd = { "cookies" ~ WSP+ ~ cookies_action }
+cookies_action = _{
+    cookies_list |
+    cookies_get |
+    cookies_set |
+    cookies_delete |
+    cookies_clear
+}
+cookies_list = { "list" }
+cookies_get = { "get" ~ WSP+ ~ name_value }
+cookies_set = { "set" ~ WSP+ ~ name_value ~ WSP+ ~ string_value }
+cookies_delete = { "delete" ~ WSP+ ~ name_value }
+cookies_clear = { "clear" }
+
+storage_cmd = { "storage" ~ WSP+ ~ storage_action ~ (WSP+ ~ storage_type)* }
+storage_action = _{
+    "list" |
+    ("get" ~ WSP+ ~ name_value) |
+    ("set" ~ WSP+ ~ name_value ~ WSP+ ~ string_value) |
+    ("delete" ~ WSP+ ~ name_value) |
+    "clear"
+}
+storage_type = { "--local" | "--session" }
+
+sessions_cmd = { "sessions" }
+
+session_mgmt_cmd = { "session" ~ (WSP+ ~ session_action)? }
+session_action = _{
+    session_new |
+    session_close |
+    identifier
+}
+session_new = { "new" ~ WSP+ ~ identifier ~ (WSP+ ~ ("--mode" ~ WSP+ ~ mode_name))* }
+mode_name = { "embedded" | "headless" | "remote" }
+session_close = { "close" ~ WSP+ ~ identifier }
+
+state_cmd = { "state" ~ WSP+ ~ (state_save | state_load) }
+state_save = { "save" ~ WSP+ ~ file_path ~ (WSP+ ~ state_save_opt)* }
+state_save_opt = _{ "--cookies-only" | ("--domain" ~ WSP+ ~ domain_name) | "--include-session" }
+state_load = { "load" ~ WSP+ ~ file_path ~ (WSP+ ~ state_load_opt)* }
+state_load_opt = _{ "--merge" | "--cookies-only" }
+
+headers_cmd = { "headers" ~ (WSP+ ~ headers_action)? }
+headers_action = _{
+    ("set" ~ WSP+ ~ headers_set_args) |
+    ("clear" ~ (WSP+ ~ domain_name)?) |
+    domain_name
+}
+headers_set_args = { (domain_name ~ WSP+ ~ string_value) | string_value }
+
+domain_name = { identifier | string_value }
+name_value = { identifier | string_value }
+
+// =============================================================================
+// 9) TABS
+// =============================================================================
+
+tab_cmd = _{ tabs_cmd | tab_action_cmd }
+tabs_cmd = { "tabs" }
+tab_action_cmd = { "tab" ~ WSP+ ~ tab_action }
+tab_action = _{ tab_new | tab_switch | tab_close }
+tab_new = { "new" ~ WSP+ ~ url_value }
+tab_switch = { "switch" ~ WSP+ ~ number }
+tab_close = { "close" ~ (WSP+ ~ number)? }
+
+// =============================================================================
+// 10) INTENTS
+// =============================================================================
+
+intent_cmd = _{ login_cmd | search_cmd | dismiss_cmd | accept_cookies_cmd | scroll_until_cmd }
+
+login_cmd = { "login" ~ WSP+ ~ string_value ~ WSP+ ~ string_value ~ (WSP+ ~ login_opt)* }
+login_opt = _{ "--no-submit" | ("--wait" ~ WSP+ ~ duration) | timeout_opt }
+
+search_cmd = { "search" ~ WSP+ ~ string_value ~ (WSP+ ~ search_opt)* }
+search_opt = _{ ("--submit" ~ WSP+ ~ submit_method) | ("--wait" ~ WSP+ ~ duration) | timeout_opt }
+submit_method = { "enter" | "click" | "auto" }
+
+dismiss_cmd = { "dismiss" ~ WSP+ ~ ( "popups" | "modals" | "modal" | "banner" | identifier | string_value ) }
+
+accept_cookies_cmd = { "accept_cookies" }
+
+scroll_until_cmd = { "scroll" ~ WSP+ ~ "until" ~ WSP+ ~ target ~ (WSP+ ~ scroll_opt)* }
+
+// =============================================================================
+// 11) PACK / INTENT MANAGEMENT
+// =============================================================================
+
+pack_cmd = _{ packs_cmd | pack_action_cmd | intents_cmd | define_cmd | undefine_cmd | export_cmd | run_cmd }
+
+packs_cmd = { "packs" }
+pack_action_cmd = { "pack" ~ WSP+ ~ ("load" | "unload") ~ WSP+ ~ identifier }
+
+intents_cmd = { "intents" ~ (WSP+ ~ "--session")* }
+
+define_cmd = { "define" ~ WSP+ ~ identifier ~ ":" }
+undefine_cmd = { "undefine" ~ WSP+ ~ identifier }
+export_cmd = { "export" ~ WSP+ ~ identifier ~ (WSP+ ~ export_opt)* }
+export_opt = { "--out" ~ WSP+ ~ file_path }
+
+run_cmd = { "run" ~ WSP+ ~ identifier ~ (WSP+ ~ run_param)* }
+run_param = _{ named_param | param_value }
+named_param = { "--" ~ identifier ~ WSP+ ~ param_value }
+param_value = { string_value | number | identifier }
+
+// =============================================================================
+// 12) NETWORK
+// =============================================================================
+
+network_cmd = _{ intercept_cmd | requests_cmd }
+
+intercept_cmd = { "intercept" ~ WSP+ ~ (intercept_clear | intercept_rule) }
+intercept_clear = { "clear" ~ (WSP+ ~ string_value)? }
+intercept_rule = { string_value ~ (WSP+ ~ intercept_opt)* }
+intercept_opt = _{
+    "--block" |
+    ("--respond" ~ WSP+ ~ string_value) |
+    ("--respond-file" ~ WSP+ ~ file_path) |
+    ("--status" ~ WSP+ ~ number)
+}
+
+requests_cmd = { "requests" ~ (WSP+ ~ requests_opt)* }
+requests_opt = _{
+    ("--filter" ~ WSP+ ~ string_value) |
+    ("--method" ~ WSP+ ~ http_method) |
+    ("--last" ~ WSP+ ~ number)
+}
+http_method = { "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS" }
+
+// =============================================================================
+// 13) CONSOLE + ERRORS (fixed reachability)
+// =============================================================================
+
+console_or_errors_cmd = _{ console_cmd | errors_cmd }
+
+console_cmd = { console_clear | console_view }
+console_clear = { "console" ~ WSP+ ~ "clear" }
+console_view = { "console" ~ (WSP+ ~ console_opt)* }
+console_opt = _{
+    ("--level" ~ WSP+ ~ log_level) |
+    ("--filter" ~ WSP+ ~ string_value) |
+    ("--last" ~ WSP+ ~ number)
+}
+log_level = { "log" | "warn" | "error" | "info" }
+
+errors_cmd = { errors_clear | errors_view }
+errors_clear = { "errors" ~ WSP+ ~ "clear" }
+errors_view = { "errors" ~ (WSP+ ~ errors_opt)* }
+errors_opt = { "--last" ~ WSP+ ~ number }
+
+// =============================================================================
+// 14) FRAMES
+// =============================================================================
+
+frame_cmd = _{ frames_cmd | frame_switch_cmd }
+frames_cmd = { "frames" }
+frame_switch_cmd = { "frame" ~ WSP+ ~ ("main" | "parent" | target) }
+
+// =============================================================================
+// 15) DIALOG
+// =============================================================================
+
+dialog_cmd = { "dialog" ~ WSP+ ~ dialog_action }
+dialog_action = _{
+    ("accept" ~ (WSP+ ~ string_value)?) |
+    "dismiss" |
+    ("auto" ~ WSP+ ~ dialog_auto_mode)
+}
+dialog_auto_mode = { "accept" | "dismiss" | "off" }
+
+// =============================================================================
+// 16) VIEWPORT / DEVICE / MEDIA
+// =============================================================================
+
+viewport_cmd = _{ viewport_size_cmd | device_cmd | devices_cmd | media_cmd }
+
+viewport_size_cmd = { "viewport" ~ WSP+ ~ number ~ WSP+ ~ number }
+
+device_cmd = { "device" ~ WSP+ ~ ("reset" | string_value) }
+devices_cmd = { "devices" }
+
+media_cmd = { "media" ~ WSP+ ~ ("reset" | (media_feature ~ WSP+ ~ media_value)) }
+media_feature = { "color-scheme" | "reduced-motion" }
+media_value = { "dark" | "light" | "reduce" | "no-preference" | string_value }
+
+// =============================================================================
+// 17) RECORDING
+// =============================================================================
+
+recording_cmd = _{ trace_cmd | record_cmd | highlight_cmd }
+
+trace_cmd = { "trace" ~ WSP+ ~ ( ("start" ~ (WSP+ ~ file_path)?) | ("stop" ~ (WSP+ ~ file_path)?) ) }
+
+record_cmd = { "record" ~ WSP+ ~ ( ("start" ~ WSP+ ~ file_path ~ (WSP+ ~ record_opt)*) | "stop" ) }
+record_opt = { "--quality" ~ WSP+ ~ quality_level }
+quality_level = { "low" | "medium" | "high" }
+
+highlight_cmd = { "highlight" ~ WSP+ ~ ( "clear" | (target ~ (WSP+ ~ highlight_opt)*) ) }
+highlight_opt = _{
+    ("--duration" ~ WSP+ ~ duration) |
+    ("--color" ~ WSP+ ~ (identifier | string_value))
+}
+
+// =============================================================================
+// 18) UTILITY
+// =============================================================================
+
+utility_cmd = _{ pdf_cmd | learn_cmd | exit_cmd | help_cmd }
+
+pdf_cmd = { "pdf" ~ WSP+ ~ file_path ~ (WSP+ ~ pdf_opt)* }
+pdf_opt = _{
+    ("--format" ~ WSP+ ~ paper_format) |
+    "--landscape" |
+    ("--margin" ~ WSP+ ~ (number | string_value))
+}
+paper_format = { "A4" | "Letter" | "Legal" | "Tabloid" }
+
+learn_cmd = { "learn" ~ WSP+ ~ learn_action }
+learn_action = _{
+    "status" |
+    ("save" ~ WSP+ ~ identifier) |
+    ("discard" ~ (WSP+ ~ identifier)?) |
+    "show"
+}
+
+exit_cmd = { "exit" }
+help_cmd = { "help" ~ (WSP+ ~ identifier)? }
+
+// =============================================================================
+// 19) TARGETS
+// =============================================================================
+
+target = { target_atomic ~ (WSP+ ~ relation ~ WSP+ ~ target_atomic)* }
+relation = { "near" | "inside" | "after" | "before" | "contains" }
+
+target_atomic = _{ target_selector | target_role | target_id | target_text }
+target_id = @{ ASCII_DIGIT+ }
+
+target_selector = _{
+    ("css" ~ WSP* ~ "(" ~ WSP* ~ string_value ~ WSP* ~ ")") |
+    ("xpath" ~ WSP* ~ "(" ~ WSP* ~ string_value ~ WSP* ~ ")")
+}
+
+target_role = { "email" | "password" | "search" | "submit" | "username" | "phone" | "url" }
+target_text = { string_value }
+
+// =============================================================================
+// 20) PRIMITIVES
+// =============================================================================
+
+timeout_opt = { "--timeout" ~ WSP+ ~ duration }
+
+string_value = ${ "\"" ~ string_inner ~ "\"" }
+string_inner = @{ string_char* }
+string_char = {
+    '\x20'..'\x21' |
+    '\x23'..'\x5B' |
+    '\x5D'..'\x7E' |
+    escaped_char
+}
+escaped_char = { "\\" ~ ("\"" | "\\" | "n" | "r" | "t") }
+
+url_value = { string_value | url_bare }
+url_bare = @{ url_char+ }
+url_char = { ASCII_ALPHA | ASCII_DIGIT | "-" | "_" | "." | "/" | ":" | "?" | "=" | "&" | "%" | "@" | "~" | "+" | "#" }
+
+file_path = { string_value | path_bare }
+path_bare = @{ path_char+ }
+path_char = { ASCII_ALPHA | ASCII_DIGIT | "-" | "_" | "." | "/" | "~" | ":" | "\\" | "#" }
+
+identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHA | ASCII_DIGIT | "_" | "-")* }
+
+number = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+duration = @{ ASCII_DIGIT+ ~ ("ms" | "s" | "m") }

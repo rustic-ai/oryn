@@ -2,7 +2,7 @@ use crate::cdp::CdpClient;
 use crate::inject::execute_command;
 use async_trait::async_trait;
 use oryn_engine::backend::{Backend, BackendError, NavigationResult};
-use oryn_engine::protocol::{ScannerProtocolResponse, ScannerRequest};
+use oryn_engine::protocol::{ScannerProtocolResponse, ScannerAction};
 use tracing::info;
 
 pub struct HeadlessBackend {
@@ -78,13 +78,13 @@ impl Backend for HeadlessBackend {
 
     async fn execute_scanner(
         &mut self,
-        command: ScannerRequest,
+        command: ScannerAction,
     ) -> Result<ScannerProtocolResponse, BackendError> {
         let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
 
         // Serialize command to get action + params
         // But our `execute_command` takes (action, params).
-        // `ScannerRequest` tag="action".
+        // `ScannerAction` tag="action".
         // We can serialize `command` to Value, then extract action.
 
         let value = serde_json::to_value(&command)?;
@@ -98,14 +98,14 @@ impl Backend for HeadlessBackend {
             .ok_or_else(|| BackendError::Scanner("Missing action field".into()))?;
 
         // Passing the whole object as params acts as args?
-        // ScannerRequest deserialization expects `ScanRequest` fields inside.
-        // `ScannerRequest` is { action: "scan", ...fields }.
+        // ScannerAction deserialization expects `ScanRequest` fields inside.
+        // `ScannerAction` is { action: "scan", ...fields }.
         // `Oryn.process(action, params)` expects `params` to be the object including data fields.
         // Yes, passing the whole `value` is fine, scanner ignores extra `action` field or uses it.
-        // Wait, `ScannerRequest` struct has `action` as tag.
+        // Wait, `ScannerAction` struct has `action` as tag.
         // If we access `Scan(ScanRequest)`, `ScanRequest` doesn't have `action`.
         // But `serde(tag="action")` flattens it?
-        // Serialize `ScannerRequest::Scan(...)` -> `{ "action": "scan", "max_elements": ... }`
+        // Serialize `ScannerAction::Scan(...)` -> `{ "action": "scan", "max_elements": ... }`
         // So `value` is exactly what we want to pass as `params`.
 
         // Special case: `Execute` command.

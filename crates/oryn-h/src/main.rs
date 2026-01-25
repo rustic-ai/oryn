@@ -1,8 +1,6 @@
 use clap::Parser as ClapParser;
 use oryn_engine::backend::Backend;
-use oryn_engine::command::Command;
 use oryn_engine::executor::CommandExecutor;
-use oryn_engine::parser::Parser;
 use oryn_h::backend::HeadlessBackend;
 use std::io::{self, Write};
 
@@ -84,32 +82,6 @@ async fn execute_line(
     executor: &mut CommandExecutor,
     line: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Check for PDF command which requires special handling for headless backend
-    let mut parser = Parser::new(line);
-    if let Ok(commands) = parser.parse() {
-        for cmd in &commands {
-            if let Command::Pdf(path) = cmd {
-                if let Some(client) = backend.get_client() {
-                    println!("Generating PDF to {}...", path);
-                    if let Err(e) =
-                        oryn_h::features::generate_pdf(&client.page, std::path::Path::new(path))
-                            .await
-                    {
-                        println!("Error generating PDF: {}", e);
-                        return Err(format!("PDF Error: {}", e).into());
-                    } else {
-                        println!("PDF generated successfully.");
-                    }
-                } else {
-                    println!("Error: Backend not ready");
-                    return Err("Backend not ready".into());
-                }
-                return Ok(());
-            }
-        }
-    }
-
-    // Use the shared executor for all other commands
     match executor.execute_line(backend, line).await {
         Ok(result) => {
             println!("{}", result.output);

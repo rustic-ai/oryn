@@ -1,6 +1,6 @@
 # Oryn Scanner Protocol Specification
 
-## Version 1.0
+## Version 1.1
 
 ---
 
@@ -101,6 +101,8 @@ All responses share a common structure:
 | `INVALID_REQUEST` | Missing or malformed command | Check request format |
 | `INVALID_ELEMENT_TYPE` | Element type doesn't match command | Use correct element |
 | `OPTION_NOT_FOUND` | Select option not found | Check value/text/index |
+| `FRAME_NOT_FOUND` | Frame selector doesn't match any frame | Check frame selector |
+| `DIALOG_NOT_PRESENT` | No dialog to handle | Wait for dialog or check state |
 | `INTERNAL_ERROR` | Unexpected internal error | Report bug |
 
 ---
@@ -120,6 +122,7 @@ Scan the page and return all interactive elements.
 | `near` | string | null | Filter by proximity to text |
 | `within` | string | null | Limit to container selector |
 | `viewport_only` | boolean | false | Only visible in viewport |
+| `include_positions` | boolean | false | Include bounding box coordinates |
 
 **Response Data**
 
@@ -140,7 +143,7 @@ Each element includes:
 - Accessible text (truncated to reasonable length)
 - Unique CSS selector
 - XPath expression
-- Bounding rectangle coordinates
+- Bounding rectangle coordinates (when `include_positions` is true)
 - Relevant attributes
 - Current state (visible, enabled, focused, value, checked)
 - Modifier flags (required, disabled, primary, etc.)
@@ -319,7 +322,39 @@ Get text content of an element.
 **Response Data**
 - Text content
 
-### 3.13 exists
+### 3.13 get_html
+
+Get HTML content of an element or page.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `selector` | string | null | CSS selector (null for entire page) |
+| `outer` | boolean | true | Include outer element HTML |
+
+**Response Data**
+- HTML content
+
+### 3.14 get_bounds
+
+Get bounding box of an element.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | required | Element ID |
+
+**Response Data**
+- `x`: Left position
+- `y`: Top position  
+- `width`: Element width
+- `height`: Element height
+- `visible`: Whether element is visible
+- `in_viewport`: Whether element is in current viewport (inside, partial, outside)
+
+### 3.15 exists
 
 Check if an element exists in the DOM.
 
@@ -332,7 +367,7 @@ Check if an element exists in the DOM.
 **Response Data**
 - Boolean existence flag
 
-### 3.14 wait_for
+### 3.16 wait_for
 
 Wait for a condition to be true.
 
@@ -343,6 +378,8 @@ Wait for a condition to be true.
 | `condition` | string | required | Condition type |
 | `selector` | string | null | CSS selector (for element conditions) |
 | `id` | number | null | Element ID (alternative to selector) |
+| `expression` | string | null | JavaScript expression (for `custom` condition) |
+| `count` | number | null | Target element count (for `count` condition) |
 | `timeout` | number | 30000 | Maximum wait time in milliseconds |
 
 Condition types:
@@ -353,13 +390,16 @@ Condition types:
 - `enabled` — Element becomes enabled
 - `disabled` — Element becomes disabled
 - `navigation` — URL changes (for detecting page navigation)
+- `custom` — Custom JavaScript expression evaluates to truthy
+- `count` — Element count matches or exceeds target
 
 **Response Data**
 - Whether condition was met
 - Time waited
 - For `navigation` condition: previous and current URL
+- For `custom` condition: final expression result
 
-### 3.15 execute
+### 3.17 execute
 
 Execute arbitrary JavaScript.
 
@@ -373,7 +413,126 @@ Execute arbitrary JavaScript.
 **Response Data**
 - Script return value
 
-### 3.16 version
+### 3.18 highlight
+
+Highlight an element visually.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | required | Element ID to highlight |
+| `color` | string | "red" | Highlight color |
+| `duration` | number | 3000 | Duration in milliseconds (0 for permanent) |
+
+**Response Data**
+- Success confirmation
+
+### 3.19 highlight_clear
+
+Remove all highlights.
+
+**Request Parameters**
+None.
+
+### 3.20 get_frames
+
+List all frames in the page.
+
+**Request Parameters**
+None.
+
+**Response Data**
+- Array of frame information:
+  - `id`: Frame identifier
+  - `name`: Frame name attribute
+  - `src`: Frame source URL
+  - `selector`: CSS selector to frame element
+  - `nested_level`: Depth of nesting (0 for top-level frames)
+
+### 3.21 switch_frame
+
+Switch scanner context to a frame.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `selector` | string | null | CSS selector for iframe |
+| `id` | number | null | Element ID of iframe |
+| `name` | string | null | Frame name |
+| `main` | boolean | false | Switch to main frame |
+| `parent` | boolean | false | Switch to parent frame |
+
+Only one of selector, id, name, main, or parent should be provided.
+
+**Response Data**
+- Current frame information after switch
+
+### 3.22 extract
+
+Extract structured data from the page.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `type` | string | required | Extraction type |
+| `selector` | string | null | CSS selector (for `css` type) |
+
+Extraction types:
+- `links` — All hyperlinks with href and text
+- `images` — All images with src and alt
+- `tables` — Table data as arrays
+- `meta` — Page metadata (title, description, keywords, etc.)
+- `css` — Elements matching custom selector
+
+**Response Data**
+- Extracted data in appropriate format for type
+
+### 3.23 get_console
+
+Get console messages (requires backend integration).
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `level` | string | null | Filter by level (log, warn, error, info) |
+| `filter` | string | null | Filter by content |
+| `limit` | number | 50 | Maximum messages to return |
+| `clear` | boolean | false | Clear buffer after retrieval |
+
+**Response Data**
+- Array of console messages:
+  - `level`: Message level
+  - `text`: Message content
+  - `timestamp`: When message was logged
+  - `source`: Source file and line (if available)
+
+**Note**: This command requires cooperation from the backend to capture console output. The scanner sets up listeners, but the backend must store and manage the message buffer.
+
+### 3.24 get_errors
+
+Get JavaScript errors (requires backend integration).
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | number | 20 | Maximum errors to return |
+| `clear` | boolean | false | Clear buffer after retrieval |
+
+**Response Data**
+- Array of error objects:
+  - `message`: Error message
+  - `source`: Source file
+  - `line`: Line number
+  - `column`: Column number
+  - `stack`: Stack trace (if available)
+  - `timestamp`: When error occurred
+
+### 3.25 version
 
 Get scanner protocol version.
 
@@ -529,11 +688,43 @@ Browser security prevents accessing cross-origin iframe content. For cross-origi
 - Navigation to the iframe URL directly may be required
 - Backend-level iframe handling (WebDriver/CDP frame switching) is an alternative
 
+### 7.3 Frame Context Switching
+
+The `switch_frame` and `get_frames` commands enable explicit frame context management:
+
+1. Use `get_frames` to discover available frames
+2. Use `switch_frame` to change scanner context
+3. Subsequent commands operate within the selected frame
+4. Use `switch_frame` with `main: true` to return to main document
+
 ---
 
-## 8. Versioning
+## 8. Backend-Specific Features
 
-### 8.1 Protocol Version
+Some scanner commands require backend cooperation for full functionality:
+
+### 8.1 Console/Error Capture
+
+The scanner can set up event listeners for console messages and errors, but:
+- **oryn-h**: Backend uses CDP's `Runtime.consoleAPICalled` and `Runtime.exceptionThrown`
+- **oryn-e**: Limited support via WebDriver logs
+- **oryn-r**: Extension can intercept via content script
+
+### 8.2 Highlighting
+
+Visual highlighting is purely scanner-side (CSS injection) and works across all backends.
+
+### 8.3 Frame Switching
+
+- **oryn-h**: CDP's `Page.frameTree` and context isolation
+- **oryn-e**: WebDriver's `switchTo().frame()`
+- **oryn-r**: Extension content script injection per frame
+
+---
+
+## 9. Versioning
+
+### 9.1 Protocol Version
 
 The protocol uses semantic versioning:
 - Major version: Breaking changes to existing commands
@@ -542,11 +733,25 @@ The protocol uses semantic versioning:
 
 Backends should check protocol version on connection and handle version mismatches gracefully.
 
-### 8.2 Feature Detection
+### 9.2 Feature Detection
 
 The `version` command returns a list of supported features, allowing backends to adapt to scanner capabilities and handle partial implementations.
 
+### 9.3 Feature List (v1.1)
+
+| Feature | Description | Since |
+|---------|-------------|-------|
+| `core` | Basic scan, click, type, select | 1.0 |
+| `patterns` | UI pattern detection | 1.0 |
+| `wait` | Wait conditions | 1.0 |
+| `extract` | Data extraction | 1.0 |
+| `bounds` | Element bounding boxes | 1.1 |
+| `frames` | Frame navigation | 1.1 |
+| `highlight` | Visual highlighting | 1.1 |
+| `console` | Console capture | 1.1 |
+| `custom_wait` | Custom JS wait conditions | 1.1 |
+
 ---
 
-*Document Version: 1.0*  
-*Last Updated: January 2025*
+*Document Version: 1.1*  
+*Last Updated: January 2026*

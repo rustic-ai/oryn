@@ -8,7 +8,7 @@
 
 use oryn_e::backend::EmbeddedBackend;
 use oryn_engine::backend::Backend;
-use oryn_engine::protocol::ScannerRequest;
+use oryn_engine::protocol::ScannerAction;
 use serial_test::serial;
 use std::os::unix::fs::FileTypeExt;
 use std::process::{Child, Command, Stdio};
@@ -179,7 +179,7 @@ async fn test_weston_scanner() {
         .expect("Navigation failed");
 
     // Test Scanner Execution
-    let scan_req = ScannerRequest::Scan(oryn_engine::protocol::ScanRequest {
+    let scan_req = ScannerAction::Scan(oryn_engine::protocol::ScanRequest {
         max_elements: Some(10),
         include_hidden: false,
         monitor_changes: false,

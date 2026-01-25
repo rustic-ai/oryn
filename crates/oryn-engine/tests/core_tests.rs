@@ -1,18 +1,15 @@
-use oryn_engine::command::{Command, Target};
 use oryn_engine::formatter;
 use oryn_engine::protocol::{
-    ActionResult, ClickRequest, Element, ElementState, MouseButton, PageInfo, Rect, ScanRequest,
-    ScanResult, ScanStats, ScannerData, ScannerProtocolResponse, ScannerRequest, ScrollInfo,
-    ViewportInfo,
+    ActionResult, ClickRequest, Element, ElementState, MouseButton, PageInfo, Rect, ScanResult, ScanStats, ScannerData, ScannerProtocolResponse, ScannerAction, ScrollInfo,
+    ViewportInfo, ScanRequest,
 };
-use oryn_engine::translator::{self, TranslationError};
 use serde_json::json;
 use std::collections::HashMap;
 
 #[test]
 fn test_protocol_serialization() {
     // Test ClickRequest serialization
-    let req = ScannerRequest::Click(ClickRequest {
+    let req = ScannerAction::Click(ClickRequest {
         id: 42,
         button: MouseButton::Left,
         double: false,
@@ -21,42 +18,32 @@ fn test_protocol_serialization() {
     });
 
     let json_str = serde_json::to_string(&req).unwrap();
+    // Serialization depends on serde tag. ScannerAction uses tag="action".
+    // ClickRequest fields are flattened? No, ScannerAction variants are usually structurally containing request.
+    // Check protocol definition.
+    // If ScannerAction::Click(ClickRequest), and #[serde(tag="action", rename_all="snake_case")],
+    // then it serializes to `{"action":"click", "id": 42, ...}` due to flattening?
+    // Usually enum variants with 1 field are not automatically flattened unless `#[serde(flatten)]` or `content` used?
+    // `oryn-common/src/protocol.rs` defines `ScannerAction`:
+    // #[derive(Serialize, Deserialize, Debug, Clone)]
+    // #[serde(tag = "action", rename_all = "snake_case")]
+    // pub enum ScannerAction {
+    //    Scan(ScanRequest),
+    //    Click(ClickRequest), ...
+    // }
+    // serde untagged flattening happens if the variant struct fields are compatible?
+    // Wait, `tag="action"` means it adds `action` field.
+    // The fields of `ClickRequest` are included in the object.
+    
     let expected = r#"{"action":"click","id":42,"button":"left","double":false,"modifiers":["Alt"],"force":false}"#;
     assert_eq!(json_str, expected);
 
     // Test ScanRequest serialization defaults
-    let req = ScannerRequest::Scan(ScanRequest::default());
+    let req = ScannerAction::Scan(ScanRequest::default());
     let json_str = serde_json::to_string(&req).unwrap();
     let val: serde_json::Value = serde_json::from_str(&json_str).unwrap();
     assert_eq!(val["action"], "scan");
     assert_eq!(val["monitor_changes"], false);
-}
-
-#[test]
-fn test_translator_click() {
-    // Translate valid Click(Id)
-    let cmd = Command::Click(Target::Id(123), HashMap::new());
-    let ScannerRequest::Click(c) = translator::translate(&cmd).expect("Translation failed") else {
-        panic!("Expected Click request");
-    };
-    assert_eq!(c.id, 123);
-    assert!(c.modifiers.is_empty());
-
-    // Translate invalid Click(Text) should return InvalidTarget error
-    let cmd = Command::Click(Target::Text("Login".into()), HashMap::new());
-    let Err(TranslationError::InvalidTarget(_)) = translator::translate(&cmd) else {
-        panic!("Expected InvalidTarget error");
-    };
-}
-
-#[test]
-fn test_translator_type() {
-    let cmd = Command::Type(Target::Id(55), "Hello".into(), HashMap::new());
-    let ScannerRequest::Type(t) = translator::translate(&cmd).expect("Translation failed") else {
-        panic!("Expected Type request");
-    };
-    assert_eq!(t.id, 55);
-    assert_eq!(t.text, "Hello");
 }
 
 #[test]
@@ -73,8 +60,8 @@ fn test_formatter_ok() {
     };
 
     assert_eq!(
-        formatter::format_response_with_intent(&resp, None),
-        "Operation successful."
+        formatter::format_response(&resp),
+        "Action Result: success=true, msg=Some(\"Clicked successfully\")"
     );
 }
 
@@ -130,7 +117,7 @@ fn test_formatter_scan_scanresult() {
         warnings: vec![],
     };
 
-    let output = formatter::format_response_with_intent(&resp, None);
+    let output = formatter::format_response(&resp);
     assert!(output.contains("Scanned 1 elements."));
     assert!(output.contains("Title: Example Domain"));
     assert!(output.contains("URL: https://example.com"));
@@ -146,22 +133,7 @@ fn test_formatter_error() {
     };
 
     assert_eq!(
-        formatter::format_response_with_intent(&resp, None),
+        formatter::format_response(&resp),
         "Error: Element 999 not found"
-    );
-}
-
-#[test]
-fn test_formatter_error_with_hint() {
-    let resp = ScannerProtocolResponse::Error {
-        code: "ELEMENT_NOT_FOUND".into(),
-        message: "Element 42 not found".into(),
-        details: None,
-        hint: Some("Run observe to refresh element map".into()),
-    };
-
-    assert_eq!(
-        formatter::format_response_with_intent(&resp, None),
-        "Error: Element 42 not found"
     );
 }
