@@ -1646,49 +1646,63 @@
         dismiss: (params) => {
             const target = (params.target || 'popups').toLowerCase();
             const scanRes = Scanner.scan({ max_elements: 500 });
+
+            const MODAL_SELECTORS = '.modal-overlay, .modal, [role="dialog"], [role="alertdialog"], .modal-content';
+            const CLOSE_BUTTON_TEXTS = ['close', 'cancel', 'dismiss', 'ok', 'x'];
+
+            // Find close button within a modal element
+            const findCloseButton = (modal) => {
+                // Try class/aria-label selectors first
+                let closeBtn = modal.querySelector('.close, [aria-label*="close" i], [aria-label*="Close" i]');
+                if (closeBtn) return closeBtn;
+
+                // Fallback: find buttons with close/cancel/dismiss text
+                const buttons = modal.querySelectorAll('button, [role="button"]');
+                for (const btn of buttons) {
+                    const text = btn.textContent.toLowerCase().trim();
+                    if (CLOSE_BUTTON_TEXTS.includes(text)) {
+                        return btn;
+                    }
+                }
+                return null;
+            };
+
+            // Check if modal is visible
+            const isModalVisible = (modal) => {
+                const style = window.getComputedStyle(modal);
+                return style.display !== 'none' && modal.offsetWidth > 0;
+            };
+
+            // Try to dismiss a modal, optionally filtering by text content
+            const tryDismissModal = (textFilter = null) => {
+                const modals = document.querySelectorAll(MODAL_SELECTORS);
+                for (const modal of modals) {
+                    if (!isModalVisible(modal)) continue;
+                    if (textFilter && !modal.textContent.toLowerCase().includes(textFilter)) continue;
+
+                    const closeBtn = findCloseButton(modal);
+                    if (closeBtn) {
+                        closeBtn.click();
+                        return true;
+                    }
+                }
+                return false;
+            };
+
             let clicked = false;
 
             // Handle modals/popups (both singular and plural forms)
-            if (target === 'popups' || target === 'popup' || target === 'modals' || target === 'modal') {
+            if (['popups', 'popup', 'modals', 'modal'].includes(target)) {
                 // First try pattern detection
                 if (scanRes.patterns?.modal?.close) {
                     Executor.click({ id: scanRes.patterns.modal.close });
                     clicked = true;
-                }
-                // Fallback: find visible modal overlays and click their close button
-                if (!clicked) {
-                    const modalSelectors = '.modal-overlay, .modal, [role="dialog"], [role="alertdialog"], .modal-content';
-                    const modals = document.querySelectorAll(modalSelectors);
-                    for (const modal of modals) {
-                        // Check if visible (display not none, and has dimensions)
-                        const style = window.getComputedStyle(modal);
-                        if (style.display !== 'none' && modal.offsetWidth > 0) {
-                            // Look for close button (various selectors)
-                            let closeBtn = modal.querySelector('.close, [aria-label*="close" i], [aria-label*="Close" i]');
-
-                            // If not found by class/aria-label, try finding buttons with close/cancel/dismiss text
-                            if (!closeBtn) {
-                                const buttons = modal.querySelectorAll('button, [role="button"]');
-                                for (const btn of buttons) {
-                                    const text = btn.textContent.toLowerCase().trim();
-                                    if (text === 'close' || text === 'cancel' || text === 'dismiss' || text === 'ok' || text === 'x') {
-                                        closeBtn = btn;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (closeBtn) {
-                                closeBtn.click();
-                                clicked = true;
-                                break;
-                            }
-                        }
-                    }
+                } else {
+                    clicked = tryDismissModal();
                 }
             }
             // Handle cookie banners
-            else if (target === 'cookie_banners' || target === 'cookies' || target === 'banner' || target === 'banners') {
+            else if (['cookie_banners', 'cookies', 'banner', 'banners'].includes(target)) {
                 if (scanRes.patterns?.cookie_banner?.reject) {
                     Executor.click({ id: scanRes.patterns.cookie_banner.reject });
                     clicked = true;
@@ -1699,35 +1713,7 @@
             }
             // Handle arbitrary string targets - try to find visible overlays with matching text
             else {
-                const modalSelectors = '.modal-overlay, .modal, [role="dialog"], [role="alertdialog"], .modal-content';
-                const modals = document.querySelectorAll(modalSelectors);
-                for (const modal of modals) {
-                    const style = window.getComputedStyle(modal);
-                    if (style.display !== 'none' && modal.offsetWidth > 0) {
-                        // Check if this modal contains the target text
-                        if (modal.textContent.toLowerCase().includes(target)) {
-                            let closeBtn = modal.querySelector('.close, [aria-label*="close" i]');
-
-                            // If not found by class/aria-label, try finding buttons with close/cancel/dismiss text
-                            if (!closeBtn) {
-                                const buttons = modal.querySelectorAll('button, [role="button"]');
-                                for (const btn of buttons) {
-                                    const text = btn.textContent.toLowerCase().trim();
-                                    if (text === 'close' || text === 'cancel' || text === 'dismiss' || text === 'ok' || text === 'x') {
-                                        closeBtn = btn;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (closeBtn) {
-                                closeBtn.click();
-                                clicked = true;
-                                break;
-                            }
-                        }
-                    }
-                }
+                clicked = tryDismissModal(target);
             }
 
             if (!clicked) throw { msg: `Could not find anything to dismiss for: ${target}`, code: 'NOT_FOUND' };

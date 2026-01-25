@@ -191,14 +191,6 @@ fn calculate_proximity(label_rect: &Rect, elem_rect: &Rect) -> f32 {
     dy * 2.0 + dx
 }
 
-/// Check if an element is a label that can be clicked to interact with its control.
-///
-/// For `click "Email"` where "Email" is a label, clicking the label is valid because
-/// the browser will handle focusing/toggling the associated control.
-pub fn is_clickable_label(elem_id: u32, ctx: &ResolutionContext) -> bool {
-    is_actionable_label(elem_id, ctx)
-}
-
 /// Check if an element is a label that can trigger an action on its associated control.
 ///
 /// This handles cases where clicking/checking a label element will trigger the browser's

@@ -1,5 +1,17 @@
 use oryn_common::protocol::{ScannerData, ScannerProtocolResponse};
 
+/// Default sensitive field names that should be masked in output.
+const DEFAULT_SENSITIVE_FIELDS: &[&str] = &[
+    "password",
+    "secret",
+    "token",
+    "key",
+    "cvv",
+    "ssn",
+    "card_number",
+    "credit_card",
+];
+
 pub fn format_response(resp: &ScannerProtocolResponse) -> String {
     match resp {
         ScannerProtocolResponse::Ok { data, .. } => match data.as_ref() {
@@ -52,22 +64,10 @@ pub fn format_response(resp: &ScannerProtocolResponse) -> String {
 }
 
 pub fn mask_sensitive_log(log: &str) -> String {
-    // Extended list of sensitive keys
-    let sensitive_keys = [
-        "password",
-        "secret",
-        "token",
-        "key",
-        "cvv",
-        "ssn",
-        "card_number",
-        "credit_card",
-    ];
-
     let mut masked = log.to_string();
     let lower_log = log.to_lowercase();
 
-    for key in sensitive_keys {
+    for key in DEFAULT_SENSITIVE_FIELDS {
         if lower_log.contains(key) {
             if let Some(start) = masked.find('"')
                 && let Some(end) = masked[start + 1..].rfind('"')
@@ -81,22 +81,14 @@ pub fn mask_sensitive_log(log: &str) -> String {
 }
 
 pub fn mask_sensitive(value: &str, field_name: &str, sensitive_fields: &[String]) -> String {
-    let default_sensitive = [
-        "password",
-        "secret",
-        "token",
-        "key",
-        "cvv",
-        "ssn",
-        "card_number",
-    ];
+    let lower_field = field_name.to_lowercase();
 
     let is_sensitive = sensitive_fields
         .iter()
-        .any(|f| field_name.to_lowercase().contains(&f.to_lowercase()))
-        || default_sensitive
+        .any(|f| lower_field.contains(&f.to_lowercase()))
+        || DEFAULT_SENSITIVE_FIELDS
             .iter()
-            .any(|f| field_name.to_lowercase().contains(*f));
+            .any(|f| lower_field.contains(*f));
 
     if is_sensitive {
         "••••••••".to_string()
