@@ -144,42 +144,29 @@ impl Backend for RemoteBackend {
     }
 
     async fn go_back(&mut self) -> Result<NavigationResult, BackendError> {
-        let action = Action::Browser(BrowserAction::Back(BackRequest {}));
-        self.send_action(action).await?;
-        Ok(NavigationResult {
-            url: String::new(),
-            title: String::new(),
-            status: 200,
-        })
+        self.send_action(Action::Browser(BrowserAction::Back(BackRequest {})))
+            .await?;
+        Ok(NavigationResult::default())
     }
 
     async fn go_forward(&mut self) -> Result<NavigationResult, BackendError> {
-        // Legacy used JS exec.
-        // Now we have BrowserAction::Forward?
-        // protocol.rs has ForwardRequest.
         use oryn_engine::protocol::ForwardRequest;
-        let action = Action::Browser(BrowserAction::Forward(ForwardRequest::default()));
-        self.send_action(action).await?;
-
+        self.send_action(Action::Browser(BrowserAction::Forward(
+            ForwardRequest::default(),
+        )))
+        .await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-        Ok(NavigationResult {
-            url: String::new(),
-            title: String::new(),
-            status: 200,
-        })
+        Ok(NavigationResult::default())
     }
 
     async fn refresh(&mut self) -> Result<NavigationResult, BackendError> {
         use oryn_engine::protocol::RefreshRequest;
-        let action = Action::Browser(BrowserAction::Refresh(RefreshRequest::default()));
-        self.send_action(action).await?;
-
+        self.send_action(Action::Browser(BrowserAction::Refresh(
+            RefreshRequest::default(),
+        )))
+        .await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        Ok(NavigationResult {
-            url: String::new(),
-            title: String::new(),
-            status: 200,
-        })
+        Ok(NavigationResult::default())
     }
 
     async fn press_key(&mut self, key: &str, _modifiers: &[String]) -> Result<(), BackendError> {

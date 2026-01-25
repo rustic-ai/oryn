@@ -1,18 +1,6 @@
-// use crate::intent::executor::{IntentResult, IntentStatus};
-// use oryn_common::intent::registry::IntentRegistry;
 use oryn_common::protocol::{ScannerData, ScannerProtocolResponse};
 
-// Intent formatting disabled during refactor
-/*
-pub fn format_intent_success(result: &IntentResult, name: &str) -> String { ... }
-pub fn format_intent_failure(result: &IntentResult, name: &str, error: &str) -> String { ... }
-pub fn format_intent_result(result: &IntentResult, name: &str) -> String { ... }
-*/
-
-/// Formats a scanner response without intent registry context.
 pub fn format_response(resp: &ScannerProtocolResponse) -> String {
-    // format_response_with_intent(resp, None)
-    // Inline simple format since intent registry is disabled
     match resp {
         ScannerProtocolResponse::Ok { data, .. } => match data.as_ref() {
             ScannerData::Scan(scan) => {
@@ -22,25 +10,18 @@ pub fn format_response(resp: &ScannerProtocolResponse) -> String {
                     scan.page.title,
                     scan.page.url
                 );
-                // Add patterns/intents info if available in scan result directly?
-                // scan.patterns is available.
+
                 if let Some(patterns) = &scan.patterns {
-                    let mut detected = Vec::new();
-                    if patterns.login.is_some() {
-                        detected.push("Login Form");
-                    }
-                    if patterns.search.is_some() {
-                        detected.push("Search Box");
-                    }
-                    if patterns.pagination.is_some() {
-                        detected.push("Pagination");
-                    }
-                    if patterns.modal.is_some() {
-                        detected.push("Modal");
-                    }
-                    if patterns.cookie_banner.is_some() {
-                        detected.push("Cookie Banner");
-                    }
+                    let detected: Vec<&str> = [
+                        patterns.login.as_ref().map(|_| "Login Form"),
+                        patterns.search.as_ref().map(|_| "Search Box"),
+                        patterns.pagination.as_ref().map(|_| "Pagination"),
+                        patterns.modal.as_ref().map(|_| "Modal"),
+                        patterns.cookie_banner.as_ref().map(|_| "Cookie Banner"),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect();
 
                     if !detected.is_empty() {
                         output.push_str("\n\nPatterns:");
@@ -64,15 +45,11 @@ pub fn format_response(resp: &ScannerProtocolResponse) -> String {
             ScannerData::Value(v) => format!("Value: {}", v),
             ScannerData::Action(a) => {
                 format!("Action Result: success={}, msg={:?}", a.success, a.message)
-            } // _ => "Operation successful".into(),
+            }
         },
         ScannerProtocolResponse::Error { message, .. } => format!("Error: {}", message),
     }
 }
-
-/*
-pub fn format_response_with_intent(...) -> String { ... }
-*/
 
 pub fn mask_sensitive_log(log: &str) -> String {
     // Extended list of sensitive keys

@@ -2,11 +2,12 @@ use async_trait::async_trait;
 pub use oryn_common::error::backend_error::BackendError;
 use oryn_common::protocol::{ScannerAction, ScannerProtocolResponse};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct NavigationResult {
     pub url: String,
     pub title: String,
-    pub status: u16, // generic status code (e.g. 200)
+    #[allow(dead_code)]
+    pub status: u16,
 }
 
 // Error definitions moved to oryn_common::error::backend_error

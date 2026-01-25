@@ -24,19 +24,19 @@ pub fn parse(input: &str) -> Result<Script, ParseError> {
     let mut pairs = OilParser::parse(Rule::oil_input, input)?;
     let mut script = Script { lines: Vec::new() };
 
-    // oil_input = { SOI ~ (line ~ (NEWLINE ~ line)*)? ~ NEWLINE? ~ EOI }
-    // We iterate over the Lines
     if let Some(pair) = pairs.next() {
-        if pair.as_rule() == Rule::oil_input {
-            for inner in pair.into_inner() {
-                if inner.as_rule() == Rule::line {
-                    script.lines.push(parse_line(inner)?);
+        match pair.as_rule() {
+            Rule::oil_input => {
+                for inner in pair.into_inner() {
+                    if inner.as_rule() == Rule::line {
+                        script.lines.push(parse_line(inner)?);
+                    }
                 }
             }
-        } else if pair.as_rule() == Rule::line {
-            // Sometimes top level might be line directly depending on how pair iterator works,
-            // but with SOI/EOI wrapper usually we get the wrapper first.
-            script.lines.push(parse_line(pair)?);
+            Rule::line => {
+                script.lines.push(parse_line(pair)?);
+            }
+            _ => {}
         }
     }
 
@@ -50,24 +50,15 @@ fn parse_line(pair: Pair<Rule>) -> Result<Line, ParseError> {
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::command => {
-                // Command is a shim command = _{ ... } which means it won't show up in pairs if atomic?
-                // But in pest _{ ... } rules are silent usually, meaning we get the inner rule directly.
-                // Wait, if it is atomic/silent we might get the specific command rule directly.
-                // `command` rule is silent in pest: `command = _{ ... }`
-                // So we will see `goto_cmd`, `click_cmd` etc. directly here.
                 command = Some(parse_command(inner)?);
             }
             Rule::comment => {
                 comment = Some(inner.as_str().trim_start_matches('#').to_string());
             }
             _ => {
-                // Because `command` is silent, the inner pair IS the specific command rule.
-                // So we need to handle it if we didn't match explicit "command" rule (which we won't)
+                // Silent `command` rule passes through the specific command rule directly
                 if let Ok(cmd) = parse_command(inner.clone()) {
                     command = Some(cmd);
-                } else {
-                    // Might be comment or whitespace?
-                    // WSP is silent.
                 }
             }
         }
@@ -188,13 +179,12 @@ fn parse_goto(pair: Pair<Rule>) -> Result<GotoCmd, ParseError> {
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
-            Rule::url_value => url = inner.as_str().trim_matches('"').to_string(), // naive strip
+            Rule::url_value => url = inner.as_str().trim_matches('"').to_string(),
             Rule::headers_opt => {
-                for opt in inner.into_inner() {
-                    if opt.as_rule() == Rule::string_value {
-                        headers = Some(parse_string(opt));
-                    }
-                }
+                headers = inner
+                    .into_inner()
+                    .find(|opt| opt.as_rule() == Rule::string_value)
+                    .map(parse_string);
             }
             Rule::timeout_opt => timeout = Some(parse_timeout(inner)?),
             _ => {}
@@ -222,23 +212,21 @@ fn parse_observe(pair: Pair<Rule>) -> Result<ObserveCmd, ParseError> {
         near: None,
         timeout: None,
     };
+
     for inner in pair.into_inner() {
-        match inner.as_str() {
-            "--full" => cmd.full = true,
-            "--minimal" => cmd.minimal = true,
-            "--viewport" => cmd.viewport = true,
-            "--hidden" => cmd.hidden = true,
-            "--positions" => cmd.positions = true,
-            _ => {
-                match inner.as_rule() {
-                    Rule::near_opt => {
-                        // near_opt = { "--near" ~ WSP+ ~ string_value }
-                        cmd.near = Some(parse_string(inner.into_inner().next().unwrap()));
-                    }
-                    Rule::timeout_opt => cmd.timeout = Some(parse_timeout(inner)?),
-                    _ => {}
-                }
+        match inner.as_rule() {
+            Rule::near_opt => {
+                cmd.near = Some(parse_string(inner.into_inner().next().unwrap()));
             }
+            Rule::timeout_opt => cmd.timeout = Some(parse_timeout(inner)?),
+            _ => match inner.as_str() {
+                "--full" => cmd.full = true,
+                "--minimal" => cmd.minimal = true,
+                "--viewport" => cmd.viewport = true,
+                "--hidden" => cmd.hidden = true,
+                "--positions" => cmd.positions = true,
+                _ => {}
+            },
         }
     }
     Ok(cmd)
@@ -356,29 +344,12 @@ fn parse_type(pair: Pair<Rule>) -> Result<TypeCmd, ParseError> {
             Rule::target => target = Some(parse_target(inner)?),
             Rule::string_value => text = parse_string(inner),
             Rule::timeout_opt => timeout = Some(parse_timeout(inner)?),
+            Rule::number => delay = Some(parse_number(inner)?),
             _ => match inner.as_str() {
                 "--append" => append = true,
                 "--enter" => enter = true,
                 "--clear" => clear = true,
-                _ => {
-                    // Check for --delay which is compound
-                    if inner.as_str().starts_with("--delay") {
-                        // In pest, we might get individual tokens if it's atomic/not silent
-                        // But here type_opt is silent: type_opt = _{ ... }
-                        // The inner rule would be literal "--delay" and then a number.
-                        // Wait, pest output for `("--delay" ~ WSP+ ~ number)` depends.
-                        // Actually in `type_opt`: `("--delay" ~ WSP+ ~ number)`
-                        // This produces NO rule name for the group unless it's named.
-                        // But `number` will be produced as a rule.
-                        // So we look for Rule::number inside loop.
-                        // BUT, how do we distinguish delay number from other numbers?
-                        // `type_cmd` structure: target ~ string ~ (opt)*
-                        // So any number appearing here must be delay.
-                    }
-                    if inner.as_rule() == Rule::number {
-                        delay = Some(parse_number(inner)?);
-                    }
-                }
+                _ => {}
             },
         }
     }
@@ -399,15 +370,17 @@ fn parse_clear(pair: Pair<Rule>) -> Result<ClearCmd, ParseError> {
 }
 
 fn parse_press(pair: Pair<Rule>) -> Result<PressCmd, ParseError> {
-    let mut keys = Vec::new();
-    // key_combo is atomic, so we get no inner pairs.
-    // parse raw string: "ctrl+a" -> ["ctrl", "a"]
-    if let Some(combo) = pair.into_inner().next() {
-        let text = combo.as_str();
-        for key in text.split('+') {
-            keys.push(key.trim().to_string());
-        }
-    }
+    let keys = pair
+        .into_inner()
+        .next()
+        .map(|combo| {
+            combo
+                .as_str()
+                .split('+')
+                .map(|k| k.trim().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
     Ok(PressCmd { keys })
 }
 
@@ -417,13 +390,11 @@ fn parse_keydown(pair: Pair<Rule>) -> Result<KeydownCmd, ParseError> {
 }
 
 fn parse_keyup(pair: Pair<Rule>) -> Result<KeyupCmd, ParseError> {
-    // keyup_cmd = { "keyup" ~ WSP+ ~ ("all" | key_name) }
-    // If "all" matches, into_inner is empty.
-    let key = if let Some(inner) = pair.into_inner().next() {
-        inner.as_str().to_string()
-    } else {
-        "all".to_string()
-    };
+    let key = pair
+        .into_inner()
+        .next()
+        .map(|inner| inner.as_str().to_string())
+        .unwrap_or_else(|| "all".to_string());
     Ok(KeyupCmd { key })
 }
 
@@ -492,106 +463,99 @@ fn parse_submit(pair: Pair<Rule>) -> Result<SubmitCmd, ParseError> {
     Ok(SubmitCmd { target })
 }
 
-// --- Wait ---
-
 fn parse_wait(pair: Pair<Rule>) -> Result<WaitCmd, ParseError> {
-    let mut condition = WaitCondition::Load; // Default dummy
-    let mut timeout = None;
-
-    // Check the text string to determine the variant first, because keywords like "visible" are silent.
-    // "wait visible #target --timeout 5s"
     let text = pair.as_str();
     let lower_text = text.trim_start_matches("wait").trim();
-
-    // Determine variant key
-    // We check prefixes. "items" must be checked before "until" if conflict? No.
-    // "visible" vs "hidden" vs "load" etc.
-    // Note: timeouts are at end.
-
-    // We need to parse children to extract Data (Target, Timeout, String).
-    // We can collect children first.
     let inners: Vec<Pair<Rule>> = pair.into_inner().collect();
 
-    // Find timeout if present
-    for inner in &inners {
-        if inner.as_rule() == Rule::timeout_opt {
-            timeout = Some(parse_timeout(inner.clone())?);
-        }
-    }
+    let timeout = inners
+        .iter()
+        .find(|p| p.as_rule() == Rule::timeout_opt)
+        .map(|p| parse_timeout(p.clone()))
+        .transpose()?;
 
-    if lower_text.starts_with("load") {
-        condition = WaitCondition::Load;
+    let find_target = || inners.iter().find(|p| p.as_rule() == Rule::target);
+    let find_string = || inners.iter().find(|p| p.as_rule() == Rule::string_value);
+
+    let condition = if lower_text.starts_with("load") {
+        WaitCondition::Load
     } else if lower_text.starts_with("idle") {
-        condition = WaitCondition::Idle;
+        WaitCondition::Idle
     } else if lower_text.starts_with("navigation") {
-        condition = WaitCondition::Navigation;
+        WaitCondition::Navigation
     } else if lower_text.starts_with("ready") {
-        condition = WaitCondition::Ready;
+        WaitCondition::Ready
     } else if lower_text.starts_with("visible") {
-        if let Some(t_pair) = inners.iter().find(|p| p.as_rule() == Rule::target) {
-            condition = WaitCondition::Visible(parse_target(t_pair.clone())?);
-        }
+        find_target()
+            .map(|t| parse_target(t.clone()))
+            .transpose()?
+            .map(WaitCondition::Visible)
+            .unwrap_or(WaitCondition::Load)
     } else if lower_text.starts_with("hidden") {
-        if let Some(t_pair) = inners.iter().find(|p| p.as_rule() == Rule::target) {
-            condition = WaitCondition::Hidden(parse_target(t_pair.clone())?);
-        }
+        find_target()
+            .map(|t| parse_target(t.clone()))
+            .transpose()?
+            .map(WaitCondition::Hidden)
+            .unwrap_or(WaitCondition::Load)
     } else if lower_text.starts_with("exists") {
-        if let Some(s_pair) = inners.iter().find(|p| p.as_rule() == Rule::string_value) {
-            condition = WaitCondition::Exists(parse_string(s_pair.clone()));
-        }
+        find_string()
+            .map(|s| WaitCondition::Exists(parse_string(s.clone())))
+            .unwrap_or(WaitCondition::Load)
     } else if lower_text.starts_with("gone") {
-        if let Some(s_pair) = inners.iter().find(|p| p.as_rule() == Rule::string_value) {
-            condition = WaitCondition::Gone(parse_string(s_pair.clone()));
-        }
+        find_string()
+            .map(|s| WaitCondition::Gone(parse_string(s.clone())))
+            .unwrap_or(WaitCondition::Load)
     } else if lower_text.starts_with("url") {
-        if let Some(s_pair) = inners.iter().find(|p| p.as_rule() == Rule::string_value) {
-            condition = WaitCondition::Url(parse_string(s_pair.clone()));
-        }
+        find_string()
+            .map(|s| WaitCondition::Url(parse_string(s.clone())))
+            .unwrap_or(WaitCondition::Load)
     } else if lower_text.starts_with("until") {
-        if let Some(s_pair) = inners.iter().find(|p| p.as_rule() == Rule::string_value) {
-            condition = WaitCondition::Until(parse_string(s_pair.clone()));
-        }
+        find_string()
+            .map(|s| WaitCondition::Until(parse_string(s.clone())))
+            .unwrap_or(WaitCondition::Load)
     } else if lower_text.starts_with("items") {
-        let s_pair = inners.iter().find(|p| p.as_rule() == Rule::string_value);
-        let n_pair = inners.iter().find(|p| p.as_rule() == Rule::number);
-
-        if let (Some(s), Some(n)) = (s_pair, n_pair) {
-            condition = WaitCondition::Items {
-                selector: parse_string(s.clone()),
-                count: parse_number(n.clone())?,
-            };
+        let selector = find_string().map(|s| parse_string(s.clone()));
+        let count = inners
+            .iter()
+            .find(|p| p.as_rule() == Rule::number)
+            .map(|n| parse_number(n.clone()))
+            .transpose()?;
+        match (selector, count) {
+            (Some(s), Some(c)) => WaitCondition::Items {
+                selector: s,
+                count: c,
+            },
+            _ => WaitCondition::Load,
         }
-    }
+    } else {
+        WaitCondition::Load
+    };
 
     Ok(WaitCmd { condition, timeout })
 }
 
-// --- Extract ---
 fn parse_extract(pair: Pair<Rule>) -> Result<ExtractCmd, ParseError> {
     let mut what = ExtractWhat::Text;
     let mut selector = None;
     let mut format = None;
 
-    // extract_what is silent, but has literals and maybe extract_css rule.
-    // we iterate inner.
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::extract_css => {
-                let s = parse_string(inner.into_inner().next().unwrap());
-                what = ExtractWhat::Css(s);
+                what = ExtractWhat::Css(parse_string(inner.into_inner().next().unwrap()));
             }
-            Rule::selector_opt => selector = Some(parse_string(inner.into_inner().next().unwrap())),
+            Rule::selector_opt => {
+                selector = Some(parse_string(inner.into_inner().next().unwrap()));
+            }
             Rule::output_format => format = Some(inner.as_str().to_string()),
             _ => {
-                // Check literals
-                match inner.as_str() {
-                    "links" => what = ExtractWhat::Links,
-                    "images" => what = ExtractWhat::Images,
-                    "tables" => what = ExtractWhat::Tables,
-                    "meta" => what = ExtractWhat::Meta,
-                    "text" => what = ExtractWhat::Text,
-                    _ => {}
-                }
+                what = match inner.as_str() {
+                    "links" => ExtractWhat::Links,
+                    "images" => ExtractWhat::Images,
+                    "tables" => ExtractWhat::Tables,
+                    "meta" => ExtractWhat::Meta,
+                    _ => what,
+                };
             }
         }
     }
