@@ -44,6 +44,20 @@ impl ResolutionEngine {
             }
         }
 
+        fn make_click_cmd(id: u32) -> ast::Command {
+            ast::Command::Click(ast::ClickCmd {
+                target: make_id_target(id),
+                double: false,
+                right: false,
+                middle: false,
+                force: false,
+                ctrl: false,
+                shift: false,
+                alt: false,
+                timeout: None,
+            })
+        }
+
         macro_rules! resolve_target_to_id {
             ($target:expr) => {{
                 let resolver_target = $target.to_resolver_target();
@@ -117,17 +131,7 @@ impl ResolutionEngine {
                 match Self::resolve_target(&text_target, &meta.requirement, true, ctx, backend)
                     .await
                 {
-                    Ok(id) => Ok(ast::Command::Click(ast::ClickCmd {
-                        target: make_id_target(id),
-                        double: false,
-                        right: false,
-                        middle: false,
-                        force: false,
-                        ctrl: false,
-                        shift: false,
-                        alt: false,
-                        timeout: None,
-                    })),
+                    Ok(id) => Ok(make_click_cmd(id)),
                     Err(_) if Self::is_dismiss_fallback_keyword(&cmd.target) => {
                         // Keep as Dismiss for backend to handle
                         Ok(ast::Command::Dismiss(cmd))
@@ -141,17 +145,7 @@ impl ResolutionEngine {
                 match Self::resolve_target(&Target::Infer, &meta.requirement, true, ctx, backend)
                     .await
                 {
-                    Ok(id) => Ok(ast::Command::Click(ast::ClickCmd {
-                        target: make_id_target(id),
-                        double: false,
-                        right: false,
-                        middle: false,
-                        force: false,
-                        ctrl: false,
-                        shift: false,
-                        alt: false,
-                        timeout: None,
-                    })),
+                    Ok(id) => Ok(make_click_cmd(id)),
                     Err(_) => {
                         // Keep as AcceptCookies for backend to handle
                         Ok(ast::Command::AcceptCookies)

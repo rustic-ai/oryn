@@ -421,6 +421,7 @@ fn tokenize_and_normalize(input: &str) -> Vec<String> {
 }
 
 fn is_number(s: &str) -> bool {
-    let re = Regex::new(r"^-?\d+(\.\d+)?$").unwrap();
-    re.is_match(s)
+    use std::sync::LazyLock;
+    static NUMBER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-?\d+(\.\d+)?$").unwrap());
+    NUMBER_RE.is_match(s)
 }

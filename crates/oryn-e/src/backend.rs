@@ -68,6 +68,26 @@ impl Default for EmbeddedBackend {
     }
 }
 
+impl EmbeddedBackend {
+    async fn get_navigation_result(
+        client: &WebDriverClient,
+    ) -> Result<NavigationResult, BackendError> {
+        let title = client.client.title().await.unwrap_or_default();
+        let url = client
+            .client
+            .current_url()
+            .await
+            .map(|u| u.to_string())
+            .unwrap_or_default();
+
+        Ok(NavigationResult {
+            url,
+            title,
+            status: 200,
+        })
+    }
+}
+
 #[async_trait]
 impl Backend for EmbeddedBackend {
     async fn launch(&mut self) -> Result<(), BackendError> {
@@ -122,19 +142,7 @@ impl Backend for EmbeddedBackend {
             .await
             .map_err(|e| BackendError::Navigation(e.to_string()))?;
 
-        let title = client.client.title().await.unwrap_or_default();
-        let current_url = client
-            .client
-            .current_url()
-            .await
-            .map(|u| u.to_string())
-            .unwrap_or_else(|_| url.to_string());
-
-        Ok(NavigationResult {
-            url: current_url,
-            title,
-            status: 200,
-        })
+        Self::get_navigation_result(client).await
     }
 
     async fn execute_scanner(
@@ -299,19 +307,7 @@ impl Backend for EmbeddedBackend {
             .await
             .map_err(|e| BackendError::Navigation(format!("go_back failed: {}", e)))?;
 
-        let title = client.client.title().await.unwrap_or_default();
-        let url = client
-            .client
-            .current_url()
-            .await
-            .map(|u| u.to_string())
-            .unwrap_or_default();
-
-        Ok(NavigationResult {
-            url,
-            title,
-            status: 200,
-        })
+        Self::get_navigation_result(client).await
     }
 
     async fn go_forward(&mut self) -> Result<NavigationResult, BackendError> {
@@ -323,19 +319,7 @@ impl Backend for EmbeddedBackend {
             .await
             .map_err(|e| BackendError::Navigation(format!("go_forward failed: {}", e)))?;
 
-        let title = client.client.title().await.unwrap_or_default();
-        let url = client
-            .client
-            .current_url()
-            .await
-            .map(|u| u.to_string())
-            .unwrap_or_default();
-
-        Ok(NavigationResult {
-            url,
-            title,
-            status: 200,
-        })
+        Self::get_navigation_result(client).await
     }
 
     async fn refresh(&mut self) -> Result<NavigationResult, BackendError> {
@@ -347,19 +331,7 @@ impl Backend for EmbeddedBackend {
             .await
             .map_err(|e| BackendError::Navigation(format!("refresh failed: {}", e)))?;
 
-        let title = client.client.title().await.unwrap_or_default();
-        let url = client
-            .client
-            .current_url()
-            .await
-            .map(|u| u.to_string())
-            .unwrap_or_default();
-
-        Ok(NavigationResult {
-            url,
-            title,
-            status: 200,
-        })
+        Self::get_navigation_result(client).await
     }
 
     async fn press_key(&mut self, key: &str, _modifiers: &[String]) -> Result<(), BackendError> {

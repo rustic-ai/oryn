@@ -203,12 +203,11 @@ impl CommandExecutor {
             }
             BrowserAction::Press(req) => {
                 backend.press_key(&req.key, &req.modifiers).await?;
-                let mod_str = if req.modifiers.is_empty() {
-                    "".to_string()
+                if req.modifiers.is_empty() {
+                    Ok(format!("Pressed {}", req.key))
                 } else {
-                    format!("+{:?}", req.modifiers)
-                };
-                Ok(format!("Pressed {}{}", req.key, mod_str))
+                    Ok(format!("Pressed {}+{:?}", req.key, req.modifiers))
+                }
             }
             BrowserAction::Tab(req) => match req.action.as_str() {
                 "list" => {

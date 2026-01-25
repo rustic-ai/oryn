@@ -82,20 +82,7 @@ impl Backend for HeadlessBackend {
             .await
             .map_err(|e| BackendError::Navigation(e.to_string()))?;
 
-        // Wait for load? default goto waits for load event mostly.
-
-        let title = client
-            .page
-            .get_title()
-            .await
-            .unwrap_or_default()
-            .unwrap_or_default();
-
-        Ok(NavigationResult {
-            url: url.to_string(),
-            title,
-            status: 200, // We assume 200 if no error
-        })
+        Self::get_navigation_result(&client.page).await
     }
 
     async fn execute_scanner(
@@ -104,14 +91,8 @@ impl Backend for HeadlessBackend {
     ) -> Result<ScannerProtocolResponse, BackendError> {
         let client = self.client.as_mut().ok_or(BackendError::NotReady)?;
 
-        // Serialize command to get action + params
-        // But our `execute_command` takes (action, params).
-        // `ScannerAction` tag="action".
-        // We can serialize `command` to Value, then extract action.
-
         let value = serde_json::to_value(&command)?;
 
-        // Extract action string, cloning it to allow moving `value` later
         let action = value
             .as_object()
             .and_then(|obj| obj.get("action"))
@@ -119,26 +100,10 @@ impl Backend for HeadlessBackend {
             .map(|s| s.to_string())
             .ok_or_else(|| BackendError::Scanner("Missing action field".into()))?;
 
-        // Passing the whole object as params acts as args?
-        // ScannerAction deserialization expects `ScanRequest` fields inside.
-        // `ScannerAction` is { action: "scan", ...fields }.
-        // `Oryn.process(action, params)` expects `params` to be the object including data fields.
-        // Yes, passing the whole `value` is fine, scanner ignores extra `action` field or uses it.
-        // Wait, `ScannerAction` struct has `action` as tag.
-        // If we access `Scan(ScanRequest)`, `ScanRequest` doesn't have `action`.
-        // But `serde(tag="action")` flattens it?
-        // Serialize `ScannerAction::Scan(...)` -> `{ "action": "scan", "max_elements": ... }`
-        // So `value` is exactly what we want to pass as `params`.
-
-        // Special case: `Execute` command.
-        // If action is `execute`, we might want to run raw script via CDP or via scanner?
-        // Scanner supports `execute` action too.
-
         let result_value = execute_command(&client.page, &action, value)
             .await
             .map_err(|e| BackendError::Scanner(e.to_string()))?;
 
-        // Deserialize result to ScannerProtocolResponse
         let response: ScannerProtocolResponse = serde_json::from_value(result_value)?;
         Ok(response)
     }

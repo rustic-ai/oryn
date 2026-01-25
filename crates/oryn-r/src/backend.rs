@@ -93,12 +93,6 @@ impl Backend for RemoteBackend {
     }
 
     async fn screenshot(&mut self) -> Result<Vec<u8>, BackendError> {
-        // Send screenshot request to extension
-        // The extension should respond with base64-encoded PNG
-        // Previously used ExecuteRequest.
-        // Now use BrowserAction::Screenshot?
-        // If extension supports BrowserAction::Screenshot, prefer that.
-        // Assuming YES since we unified Action.
         use oryn_engine::protocol::ScreenshotRequest;
 
         let action = Action::Browser(BrowserAction::Screenshot(ScreenshotRequest {
@@ -107,16 +101,6 @@ impl Backend for RemoteBackend {
             selector: None,
             fullpage: false,
         }));
-
-        // Wait, did legacy implementation use ExecuteRequest because `ScreenshotRequest` wasn't supported by extension?
-        // Legacy used `chrome.runtime.sendMessage({ action: 'screenshot' })`.
-        // If I send `Action::Browser(Screenshot)`, it serializes to `{ action: "screenshot", ... }`.
-        // This MATCHES `{ action: 'screenshot' }`!
-        // So this is compatible!
-        // Except older extension might expect just action field.
-        // `ScreenshotRequest` has optional fields. Default serialization includes them as null or omitted?
-        // `skip_serializing_if = "Option::is_none"` in protocol.rs.
-        // So `{ action: "screenshot", format: "png", fullpage: false }`.
 
         let resp = self.send_action(action).await?;
 
@@ -170,9 +154,6 @@ impl Backend for RemoteBackend {
     }
 
     async fn press_key(&mut self, key: &str, _modifiers: &[String]) -> Result<(), BackendError> {
-        // Press key via JS execution (as legacy) or BrowserAction?
-        // Currently no BrowserAction::PressKey.
-        // ScannerAction::Execute is fine.
         let script = format!(
             r#"
             const event = new KeyboardEvent('keydown', {{ key: '{}', bubbles: true }});
