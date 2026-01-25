@@ -9,43 +9,36 @@
     // --- State ---
 
     const STATE = {
-        elementMap: new Map(), // ID (number) -> Element
-        inverseMap: new WeakMap(), // Element -> ID (number)
-        cache: new Map(), // ID (number) -> LastSerializedData
+        elementMap: new Map(),
+        inverseMap: new WeakMap(),
+        cache: new Map(),
         nextId: 1,
-        config: {
-            debug: false
-        }
+        config: { debug: false }
     };
 
     // --- State Management ---
     const StateManager = {
         invalidate: () => {
             STATE.elementMap.clear();
-            // inverseMap (WeakMap) will clear as elements are GC'd,
-            // but we can't clear it explicitly. That's fine.
             STATE.cache.clear();
             STATE.nextId = 1;
             if (STATE.config.debug) console.log('Scanner state invalidated due to navigation');
         },
 
         init: () => {
-            // Navigation listeners
             window.addEventListener('hashchange', StateManager.invalidate);
             window.addEventListener('popstate', StateManager.invalidate);
 
-            // Monkeypatch history for SPA
-            const originalPush = window.history.pushState;
-            window.history.pushState = function (...args) {
-                originalPush.apply(this, args);
-                StateManager.invalidate();
+            const wrapHistoryMethod = (methodName) => {
+                const original = window.history[methodName];
+                window.history[methodName] = function (...args) {
+                    original.apply(this, args);
+                    StateManager.invalidate();
+                };
             };
 
-            const originalReplace = window.history.replaceState;
-            window.history.replaceState = function (...args) {
-                originalReplace.apply(this, args);
-                StateManager.invalidate();
-            };
+            wrapHistoryMethod('pushState');
+            wrapHistoryMethod('replaceState');
         }
     };
     StateManager.init();
@@ -55,14 +48,10 @@
     const Protocol = {
         success: (result = {}, timingStart = null) => {
             const response = { status: 'ok', ...result };
-            if (timingStart) {
-                response.timing = { duration_ms: performance.now() - timingStart };
-            }
+            if (timingStart) response.timing = { duration_ms: performance.now() - timingStart };
             return response;
         },
-        error: (msg, code = 'UNKNOWN_ERROR') => {
-            return { status: 'error', error: msg, code: code, message: msg };
-        }
+        error: (msg, code = 'UNKNOWN_ERROR') => ({ status: 'error', error: msg, code, message: msg })
     };
 
     // --- Helpers ---
@@ -182,81 +171,28 @@
             const tag = el.tagName.toLowerCase();
             const type = el.getAttribute('type')?.toLowerCase();
             const role = el.getAttribute('role');
-            const autocomplete = el.getAttribute('autocomplete')?.toLowerCase() || '';
-            const name = (el.getAttribute('name') || '').toLowerCase();
-            const placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
-            const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
-            const labelText = Utils.getLabelText(el).toLowerCase();
 
+            // Input type detection with pattern matching
             if (tag === 'input') {
-                // Submit button detection (distinct from generic button)
                 if (type === 'submit') return 'submit';
                 if (['button', 'image', 'reset'].includes(type)) return 'button';
                 if (['checkbox', 'radio'].includes(type)) return type;
 
-                // Search detection
-                if (
-                    type === 'search' ||
-                    autocomplete === 'search' ||
-                    name.includes('search') ||
-                    name === 'q' ||
-                    name === 'query' ||
-                    placeholder.includes('search') ||
-                    labelText.includes('search') ||
-                    ariaLabel.includes('search')
-                ) {
-                    return 'search';
-                }
+                const hints = Utils.getFieldHints(el);
+                const inputRoles = [
+                    { role: 'search', types: ['search'], names: ['search', 'q', 'query'], keywords: ['search'] },
+                    { role: 'email', types: ['email'], names: [], keywords: ['email'] },
+                    { role: 'username', types: [], names: ['username', 'user', 'login'], keywords: ['username'], autocomplete: ['username', 'nickname'] },
+                    { role: 'password', types: ['password'], names: [], keywords: [], autocomplete: ['password'] },
+                    { role: 'tel', types: ['tel'], names: [], keywords: ['phone'], autocomplete: ['tel'] },
+                    { role: 'url', types: ['url'], names: [], keywords: ['website'], autocomplete: ['url'] }
+                ];
 
-                // Email detection
-                if (
-                    type === 'email' ||
-                    autocomplete === 'email' ||
-                    name.includes('email') ||
-                    placeholder.includes('email') ||
-                    labelText.includes('email')
-                ) {
-                    return 'email';
-                }
-
-                // Username detection (check before generic input)
-                if (
-                    autocomplete === 'username' ||
-                    autocomplete === 'nickname' ||
-                    name === 'username' ||
-                    name === 'user' ||
-                    name === 'login' ||
-                    placeholder.includes('username') ||
-                    labelText.includes('username')
-                ) {
-                    return 'username';
-                }
-
-                // Password detection
-                if (type === 'password' || autocomplete.includes('password')) {
-                    return 'password';
-                }
-
-                // Tel detection
-                if (
-                    type === 'tel' ||
-                    autocomplete === 'tel' ||
-                    name.includes('phone') ||
-                    placeholder.includes('phone') ||
-                    labelText.includes('phone')
-                ) {
-                    return 'tel';
-                }
-
-                // URL detection
-                if (
-                    type === 'url' ||
-                    autocomplete === 'url' ||
-                    name.includes('website') ||
-                    placeholder.includes('website') ||
-                    labelText.includes('website')
-                ) {
-                    return 'url';
+                for (const r of inputRoles) {
+                    if (r.types.includes(type)) return r.role;
+                    if (r.autocomplete?.some((ac) => hints.autocomplete.includes(ac))) return r.role;
+                    if (r.names.includes(hints.name)) return r.role;
+                    if (r.keywords.some((kw) => hints.name.includes(kw) || hints.placeholder.includes(kw) || hints.label.includes(kw) || hints.ariaLabel.includes(kw))) return r.role;
                 }
 
                 return 'input';
@@ -265,50 +201,38 @@
             if (tag === 'textarea') return 'textarea';
             if (tag === 'select') return 'select';
 
-            // Button with submit behavior detection
             if (tag === 'button') {
-                const btnType = el.getAttribute('type');
-                if (btnType === 'submit') return 'submit';
-
-                // Check if it's a primary/prominent button
-                if (Utils.isPrimaryButton(el)) return 'primary';
-
-                return 'button';
+                if (el.getAttribute('type') === 'submit') return 'submit';
+                return Utils.isPrimaryButton(el) ? 'primary' : 'button';
             }
 
             if (tag === 'a' && el.hasAttribute('href')) return 'link';
 
-            if (role === 'button') {
-                if (Utils.isPrimaryButton(el)) return 'primary';
-                return 'button';
-            }
+            if (role === 'button') return Utils.isPrimaryButton(el) ? 'primary' : 'button';
             if (role === 'checkbox') return 'checkbox';
             if (role === 'link') return 'link';
 
-            // Text anchor elements (for "near" resolution reference points)
-            if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)) return 'heading';
-            if (['label', 'strong', 'b', 'em'].includes(tag)) return 'text';
-            if (['span', 'p'].includes(tag)) return 'text';
-            if (['li'].includes(tag)) return 'listitem';
-            if (['td', 'th'].includes(tag)) return 'cell';
+            const TAG_ROLES = {
+                h1: 'heading', h2: 'heading', h3: 'heading', h4: 'heading', h5: 'heading', h6: 'heading',
+                label: 'text', strong: 'text', b: 'text', em: 'text', span: 'text', p: 'text',
+                li: 'listitem',
+                td: 'cell', th: 'cell'
+            };
 
-            return 'generic';
+            return TAG_ROLES[tag] || 'generic';
         },
 
         getLabelText: (el) => {
             const rootNode = el.getRootNode();
 
-            // Try to find associated label via for attribute
             if (el.id) {
                 const label = rootNode.querySelector(`label[for="${el.id}"]`);
                 if (label) return label.textContent || '';
             }
 
-            // Check for parent label
             const parentLabel = el.closest('label');
             if (parentLabel) return parentLabel.textContent || '';
 
-            // Check aria-labelledby
             const labelledBy = el.getAttribute('aria-labelledby');
             if (labelledBy) {
                 const labelEl = rootNode.getElementById?.(labelledBy);
@@ -316,6 +240,52 @@
             }
 
             return '';
+        },
+
+        getFieldHints: (el) => ({
+            autocomplete: (el.getAttribute('autocomplete') || '').toLowerCase(),
+            name: (el.getAttribute('name') || '').toLowerCase(),
+            placeholder: (el.getAttribute('placeholder') || '').toLowerCase(),
+            ariaLabel: (el.getAttribute('aria-label') || '').toLowerCase(),
+            label: Utils.getLabelText(el).toLowerCase()
+        }),
+
+        getClickCoordinates: (el, offset) => {
+            const rect = el.getBoundingClientRect();
+            if (offset) {
+                return { x: rect.left + (offset.x || 0), y: rect.top + (offset.y || 0) };
+            }
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        },
+
+        createChangeTracker: () => {
+            const initialUrl = window.location.href;
+            const domChanges = { added: 0, removed: 0, attributes: 0 };
+
+            const processMutations = (mutations) => {
+                for (const m of mutations) {
+                    if (m.type === 'childList') {
+                        domChanges.added += m.addedNodes.length;
+                        domChanges.removed += m.removedNodes.length;
+                    } else if (m.type === 'attributes') {
+                        domChanges.attributes++;
+                    }
+                }
+            };
+
+            const observer = new window.MutationObserver(processMutations);
+            observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+
+            return {
+                get navigationDetected() {
+                    return window.location.href !== initialUrl;
+                },
+                domChanges,
+                cleanup: () => {
+                    processMutations(observer.takeRecords());
+                    observer.disconnect();
+                }
+            };
         },
 
         isPrimaryButton: (el) => {
@@ -406,19 +376,69 @@
 
         isNear: (elRect, targetRects, threshold = 50) => {
             if (!targetRects || targetRects.length === 0) return false;
-            // Check if elRect intersects or is close to any targetRect
             for (const tr of targetRects) {
-                // Expansion needed? Simplified interaction/proximity check
-                // Check intersection first
                 const intersects =
                     elRect.left < tr.right + threshold &&
                     elRect.right > tr.left - threshold &&
                     elRect.top < tr.bottom + threshold &&
                     elRect.bottom > tr.top - threshold;
-
                 if (intersects) return true;
             }
             return false;
+        },
+
+        getElementText: (el) => {
+            const text = el.innerText || el.textContent || el.value || el.getAttribute('placeholder') || el.getAttribute('aria-label') || '';
+            return text.trim().substring(0, 100);
+        },
+
+        getElementState: (el) => {
+            const isVisible = Utils.isVisible(el);
+            const tag = el.tagName.toLowerCase();
+
+            const state = {
+                visible: isVisible,
+                hidden: !isVisible,
+                disabled: !!el.disabled,
+                focused: document.activeElement === el,
+                primary: Utils.isPrimaryButton(el)
+            };
+
+            if (el.type === 'checkbox' || el.type === 'radio') {
+                state.checked = !!el.checked;
+                state.unchecked = !el.checked;
+            }
+
+            if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+                state.required = !!el.required;
+                state.readonly = !!el.readOnly;
+                state.value = el.value || '';
+            }
+
+            return state;
+        },
+
+        getDataAttributes: (el) => {
+            const attrs = {};
+            for (const name of el.getAttributeNames()) {
+                if (name.startsWith('data-')) attrs[name] = el.getAttribute(name);
+            }
+            return attrs;
+        },
+
+        getElementAttributes: (el, dataAttrs) => {
+            const ATTR_LIST = ['href', 'src', 'placeholder', 'name', 'autocomplete', 'aria-label', 'aria-labelledby', 'aria-hidden', 'aria-disabled', 'aria-describedby', 'for', 'title', 'tabindex'];
+            const attrs = { ...dataAttrs };
+
+            for (const attr of ATTR_LIST) {
+                const val = el.getAttribute(attr);
+                if (val) attrs[attr] = val;
+            }
+
+            if (el.id) attrs.id = el.id;
+            if (el.className) attrs.class = el.className;
+
+            return attrs;
         }
     };
 
@@ -909,24 +929,17 @@
 
         isReferenceable: (el) => {
             const tag = el.tagName.toLowerCase();
-            // Always accept form controls and interactive elements
-            if (['input', 'select', 'textarea', 'button', 'a', 'img', 'table'].includes(tag)) return true;
+            const INTERACTIVE_TAGS = new Set(['input', 'select', 'textarea', 'button', 'a', 'img', 'table']);
+            const TEXT_ANCHOR_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'label', 'strong', 'b', 'em', 'span', 'p', 'li', 'td', 'th']);
+
+            if (INTERACTIVE_TAGS.has(tag)) return true;
             if (el.getAttribute('role')) return true;
             if (el.hasAttribute('onclick') || el.isContentEditable) return true;
+            if (window.getComputedStyle(el).cursor === 'pointer') return true;
 
-            // Check for computed cursor pointer
-            const style = window.getComputedStyle(el);
-            if (style.cursor === 'pointer') return true;
-
-            // Text anchor elements for "near" resolution
-            // These elements serve as reference points for relational queries
-            if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'label', 'strong', 'b', 'em', 'span', 'p', 'li', 'td', 'th'].includes(tag)) {
+            if (TEXT_ANCHOR_TAGS.has(tag)) {
                 const text = el.textContent?.trim();
-                // Only include if has meaningful text and is not a large container
-                // (check childElementCount to avoid large container spans/divs)
-                if (text && text.length > 0 && text.length < 100 && el.childElementCount < 3) {
-                    return true;
-                }
+                if (text && text.length > 0 && text.length < 100 && el.childElementCount < 3) return true;
             }
 
             return false;
@@ -934,61 +947,14 @@
 
         serializeElement: (el, id) => {
             const rect = el.getBoundingClientRect();
-            const role = Utils.detectRole(el);
-
-            // Extract meaningful text
-            let text =
-                el.innerText ||
-                el.textContent ||
-                el.value ||
-                el.getAttribute('placeholder') ||
-                el.getAttribute('aria-label') ||
-                '';
-            text = text.trim().substring(0, 100); // Truncate
-
-            // Build state object with all modifiers
-            const isVisible = Utils.isVisible(el);
-            const state = {
-                visible: isVisible,
-                hidden: !isVisible,
-                disabled: !!el.disabled,
-                focused: document.activeElement === el,
-                primary: Utils.isPrimaryButton(el)
-            };
-
-            // Checkbox/radio specific state
-            if (el.type === 'checkbox' || el.type === 'radio') {
-                state.checked = !!el.checked;
-                state.unchecked = !el.checked;
-            }
-
-            // Input-specific modifiers
-            if (
-                el.tagName.toLowerCase() === 'input' ||
-                el.tagName.toLowerCase() === 'textarea' ||
-                el.tagName.toLowerCase() === 'select'
-            ) {
-                state.required = !!el.required;
-                state.readonly = !!el.readOnly;
-                state.value = el.value || '';
-            }
-
-            // Get associated label text for form elements
+            const dataAttrs = Utils.getDataAttributes(el);
             const label = Utils.getLabelText(el);
 
-            // Capture data attributes
-            const dataAttrs = {};
-            for (const name of el.getAttributeNames()) {
-                if (name.startsWith('data-')) {
-                    dataAttrs[name] = el.getAttribute(name);
-                }
-            }
-
             return {
-                id: id,
+                id,
                 type: el.tagName.toLowerCase(),
-                role: role,
-                text: text,
+                role: Utils.detectRole(el),
+                text: Utils.getElementText(el),
                 label: label || null,
                 selector: Utils.generateSelector(el),
                 xpath: Utils.getXPath(el),
@@ -998,25 +964,8 @@
                     width: Math.round(rect.width),
                     height: Math.round(rect.height)
                 },
-                attributes: {
-                    href: el.getAttribute('href') || undefined,
-                    src: el.getAttribute('src') || undefined,
-                    placeholder: el.getAttribute('placeholder') || undefined,
-                    name: el.getAttribute('name') || undefined,
-                    id: el.id || undefined,
-                    autocomplete: el.getAttribute('autocomplete') || undefined,
-                    'aria-label': el.getAttribute('aria-label') || undefined,
-                    'aria-labelledby': el.getAttribute('aria-labelledby') || undefined,
-                    'aria-hidden': el.getAttribute('aria-hidden') || undefined,
-                    'aria-disabled': el.getAttribute('aria-disabled') || undefined,
-                    'aria-describedby': el.getAttribute('aria-describedby') || undefined,
-                    for: el.getAttribute('for') || undefined,
-                    title: el.getAttribute('title') || undefined,
-                    class: el.className || undefined,
-                    tabindex: el.getAttribute('tabindex') || undefined,
-                    ...dataAttrs
-                },
-                state: state
+                attributes: Utils.getElementAttributes(el, dataAttrs),
+                state: Utils.getElementState(el)
             };
         }
     };
@@ -1048,120 +997,57 @@
 
             if (params.scroll_into_view !== false) el.scrollIntoView({ block: 'center', behavior: 'instant' });
 
-            // Check if element is interactable (not covered) unless force is set
             if (!params.force && !Utils.isInteractable(el)) {
                 throw { msg: `Element ${params.id} is covered by another element`, code: 'ELEMENT_NOT_INTERACTABLE' };
             }
 
-            // Calculate click coordinates
-            const rect = el.getBoundingClientRect();
-            let clientX, clientY;
+            const { x: clientX, y: clientY } = Utils.getClickCoordinates(el, params.offset);
 
-            if (params.offset) {
-                // Offset from top-left of element
-                clientX = rect.left + (params.offset.x || 0);
-                clientY = rect.top + (params.offset.y || 0);
-            } else {
-                // Default to center
-                clientX = rect.left + rect.width / 2;
-                clientY = rect.top + rect.height / 2;
-            }
-
-            // Determine button type (0=left, 1=middle, 2=right)
-            let button = 0;
             const buttonType = (params.button || 'left').toLowerCase();
-            if (buttonType === 'middle') button = 1;
-            else if (buttonType === 'right') button = 2;
+            const BUTTON_MAP = { left: 0, middle: 1, right: 2 };
+            const BUTTONS_MAP = { 0: 1, 1: 4, 2: 2 };
+            const button = BUTTON_MAP[buttonType] || 0;
 
             const clickOpts = {
                 bubbles: true,
                 cancelable: true,
                 view: window,
-                clientX: clientX,
-                clientY: clientY,
-                button: button,
-                buttons: button === 0 ? 1 : button === 1 ? 4 : 2
+                clientX,
+                clientY,
+                button,
+                buttons: BUTTONS_MAP[button]
             };
 
-            // Add modifier keys
             if (params.modifiers) {
-                params.modifiers.forEach((mod) => {
-                    const m = mod.toLowerCase();
-                    if (m === 'shift') clickOpts.shiftKey = true;
-                    if (m === 'ctrl' || m === 'control') clickOpts.ctrlKey = true;
-                    if (m === 'alt') clickOpts.altKey = true;
-                    if (m === 'meta') clickOpts.metaKey = true;
-                });
+                const MODIFIER_MAP = { shift: 'shiftKey', ctrl: 'ctrlKey', control: 'ctrlKey', alt: 'altKey', meta: 'metaKey' };
+                for (const mod of params.modifiers) {
+                    const key = MODIFIER_MAP[mod.toLowerCase()];
+                    if (key) clickOpts[key] = true;
+                }
             }
 
-            // Number of clicks (for double-click support)
             const clickCount = params.click_count || 1;
 
-            // Setup navigation detection
-            let navigationDetected = false;
-            const initialUrl = window.location.href;
-            const checkNavigation = () => {
-                navigationDetected = true;
-            };
-            window.addEventListener('beforeunload', checkNavigation);
-
-            // Watch for DOM mutations
-            const domChanges = { added: 0, removed: 0, attributes: 0 };
-            const observer = new window.MutationObserver((mutations) => {
-                mutations.forEach((m) => {
-                    if (m.type === 'childList') {
-                        domChanges.added += m.addedNodes.length;
-                        domChanges.removed += m.removedNodes.length;
-                    } else if (m.type === 'attributes') {
-                        domChanges.attributes++;
-                    }
-                });
-            });
-            observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+            const { navigationDetected, domChanges, cleanup } = Utils.createChangeTracker();
 
             try {
-                // Perform click sequence...
                 for (let i = 0; i < clickCount; i++) {
-                    clickOpts.detail = i + 1; // Click count in event
-
+                    clickOpts.detail = i + 1;
                     el.dispatchEvent(new MouseEvent('mousedown', clickOpts));
                     el.dispatchEvent(new MouseEvent('mouseup', clickOpts));
 
                     if (button === 0) {
-                        el.click(); // Native click for left button
+                        el.click();
                     } else if (button === 2) {
                         el.dispatchEvent(new MouseEvent('contextmenu', clickOpts));
                     }
 
-                    // For double-click, also fire dblclick event
                     if (i === 1) {
                         el.dispatchEvent(new MouseEvent('dblclick', clickOpts));
                     }
                 }
             } finally {
-                window.removeEventListener('beforeunload', checkNavigation);
-                // Allow a small tick for mutations to register?
-                // Synchronous events should trigger mutations immediately but observer callback is async (microtask).
-                // We'll need to wait momentarily? Or just snapshot what we have?
-                // Spec usually implies async effects might not be caught instantly.
-                // But for valid return, we might need a tiny sleep.
-            }
-
-            // Force observer flush (takeRecords returns queue)
-            const queuedMutations = observer.takeRecords();
-            queuedMutations.forEach((m) => {
-                if (m.type === 'childList') {
-                    domChanges.added += m.addedNodes.length;
-                    domChanges.removed += m.removedNodes.length;
-                } else if (m.type === 'attributes') {
-                    domChanges.attributes++;
-                }
-            });
-            observer.disconnect();
-
-            // Check URL change (SPA nav)
-            if (window.location.href !== initialUrl) {
-                navigationDetected = true;
+                cleanup();
             }
 
             return Protocol.success({
@@ -1330,79 +1216,54 @@
 
         select: (params) => {
             const el = Executor.getElementFromParams(params);
-            if (el.tagName.toLowerCase() !== 'select')
+            if (el.tagName.toLowerCase() !== 'select') {
                 throw { msg: 'Not a select element', code: 'INVALID_ELEMENT_TYPE' };
+            }
 
-            // Capture previous selection
             const previousValue = el.value;
             const previousText = el.options[el.selectedIndex]?.text || '';
-
             const selectedValues = [];
-            // Note: unselectedValues tracking removed - not needed for current implementation
 
-            // Normalize inputs to arrays
-            // Support both 'text' and 'label' parameter names for option text matching
-            // Check for both undefined AND null since JSON null is a valid value
-            let values =
-                params.value != null ? (Array.isArray(params.value) ? params.value : [params.value]) : null;
-            const textOrLabel = params.text != null ? params.text : params.label;
-            let texts = textOrLabel != null ? (Array.isArray(textOrLabel) ? textOrLabel : [textOrLabel]) : null;
-            let indexes =
-                params.index != null ? (Array.isArray(params.index) ? params.index : [params.index]) : null;
+            const toArray = (val) => (val != null ? (Array.isArray(val) ? val : [val]) : null);
+            const lastOnly = (arr) => (arr && arr.length > 1 ? [arr[arr.length - 1]] : arr);
 
-            if (
-                !el.multiple &&
-                ((values && values.length > 1) || (texts && texts.length > 1) || (indexes && indexes.length > 1))
-            ) {
-                // Warn or just select last? Spec says select updates selection.
-                // For single select, let's just pick the last one to be safe/standard
-                if (values) values = [values[values.length - 1]];
-                if (texts) texts = [texts[texts.length - 1]];
-                if (indexes) indexes = [indexes[indexes.length - 1]];
+            let values = toArray(params.value);
+            let texts = toArray(params.text != null ? params.text : params.label);
+            let indexes = toArray(params.index);
+
+            if (!el.multiple) {
+                values = lastOnly(values);
+                texts = lastOnly(texts);
+                indexes = lastOnly(indexes);
             }
 
             const options = Array.from(el.options);
             let foundAny = false;
 
+            const selectOption = (o, match) => {
+                if (match) {
+                    o.selected = true;
+                    selectedValues.push(o.value);
+                    foundAny = true;
+                } else if (el.multiple) {
+                    o.selected = false;
+                }
+            };
+
             if (values) {
-                options.forEach((o) => {
-                    if (values.includes(o.value)) {
-                        o.selected = true;
-                        selectedValues.push(o.value);
-                        foundAny = true;
-                    } else if (el.multiple) {
-                        // In multiple mode, should we Deselect others? Use case implies 'select these'.
-                        // But standard automation often deselects everything else.
-                        // Let's assume we just ADD selection or SET selection?
-                        // "select" command usually implies "set the selection to THIS".
-                        o.selected = false;
-                    }
-                });
+                options.forEach((o) => selectOption(o, values.includes(o.value)));
             } else if (texts) {
                 options.forEach((o) => {
-                    // Case-insensitive text matching with trim
-                    const optionTextLower = o.text.trim().toLowerCase();
-                    if (texts.some((t) => optionTextLower.includes(t.trim().toLowerCase()))) {
-                        o.selected = true;
-                        selectedValues.push(o.value);
-                        foundAny = true;
-                    } else if (el.multiple) {
-                        o.selected = false;
-                    }
+                    const optText = o.text.trim().toLowerCase();
+                    selectOption(o, texts.some((t) => optText.includes(t.trim().toLowerCase())));
                 });
             } else if (indexes) {
-                options.forEach((o, i) => {
-                    if (indexes.includes(i)) {
-                        o.selected = true;
-                        selectedValues.push(o.value);
-                        foundAny = true;
-                    } else if (el.multiple) {
-                        o.selected = false;
-                    }
-                });
+                options.forEach((o, i) => selectOption(o, indexes.includes(i)));
             }
 
-            if (!foundAny && (values || texts || indexes)) throw { msg: 'Option not found', code: 'OPTION_NOT_FOUND' };
+            if (!foundAny && (values || texts || indexes)) {
+                throw { msg: 'Option not found', code: 'OPTION_NOT_FOUND' };
+            }
 
             el.dispatchEvent(new Event('change', { bubbles: true }));
             el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1442,31 +1303,17 @@
 
             if (params.direction) {
                 const amount = params.amount || 100;
-                let x = 0,
-                    y = 0;
-                if (params.direction === 'up') y = -amount;
-                if (params.direction === 'down') y = amount;
-                if (params.direction === 'left') x = -amount;
-                if (params.direction === 'right') x = amount;
-
-                if (isWindow) {
-                    target.scrollBy({ left: x, top: y, behavior: behavior });
-                } else {
-                    target.scrollBy({ left: x, top: y, behavior: behavior });
-                }
+                const DIRECTION_MAP = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+                const [xDir, yDir] = DIRECTION_MAP[params.direction] || [0, 0];
+                target.scrollBy({ left: xDir * amount, top: yDir * amount, behavior });
             } else if (params.element && !isWindow) {
-                target.scrollIntoView({ behavior: behavior, block: 'center' });
+                target.scrollIntoView({ behavior, block: 'center' });
             }
 
-            // Calculate scroll positions and maximums
             const scrollX = isWindow ? window.scrollX : target.scrollLeft;
             const scrollY = isWindow ? window.scrollY : target.scrollTop;
-            const maxX = isWindow
-                ? document.documentElement.scrollWidth - window.innerWidth
-                : target.scrollWidth - target.clientWidth;
-            const maxY = isWindow
-                ? document.documentElement.scrollHeight - window.innerHeight
-                : target.scrollHeight - target.clientHeight;
+            const maxX = isWindow ? document.documentElement.scrollWidth - window.innerWidth : target.scrollWidth - target.clientWidth;
+            const maxY = isWindow ? document.documentElement.scrollHeight - window.innerHeight : target.scrollHeight - target.clientHeight;
 
             return Protocol.success({
                 scroll: {
@@ -1491,33 +1338,13 @@
         hover: (params) => {
             const el = Executor.getElementFromParams(params);
 
-            // Check visibility
             if (!Utils.isVisible(el)) {
                 throw { msg: `Element ${params.id} is not visible`, code: 'ELEMENT_NOT_VISIBLE' };
             }
 
-            // Calculate center coordinates
-            const rect = el.getBoundingClientRect();
-            let clientX, clientY;
+            const { x: clientX, y: clientY } = Utils.getClickCoordinates(el, params.offset);
+            const mouseOpts = { view: window, bubbles: true, cancelable: true, clientX, clientY };
 
-            if (params.offset) {
-                // Offset from top-left of element
-                clientX = rect.left + (params.offset.x || 0);
-                clientY = rect.top + (params.offset.y || 0);
-            } else {
-                clientX = rect.left + rect.width / 2;
-                clientY = rect.top + rect.height / 2;
-            }
-
-            const mouseOpts = {
-                view: window,
-                bubbles: true,
-                cancelable: true,
-                clientX: clientX,
-                clientY: clientY
-            };
-
-            // Dispatch full sequence of mouse events for proper hover behavior
             el.dispatchEvent(new MouseEvent('mouseenter', { ...mouseOpts, bubbles: false }));
             el.dispatchEvent(new MouseEvent('mouseover', mouseOpts));
             el.dispatchEvent(new MouseEvent('mousemove', mouseOpts));
@@ -1997,76 +1824,62 @@
     // --- Pattern Detection ---
 
     const Patterns = {
+        getElementProps: (el) => ({
+            role: el.role,
+            type: el.type,
+            text: (el.text || '').toLowerCase(),
+            placeholder: (el.attributes?.placeholder || '').toLowerCase(),
+            name: (el.attributes?.name || '').toLowerCase(),
+            ariaLabel: (el.attributes?.['aria-label'] || '').toLowerCase()
+        }),
+
+        isButtonRole: (role) => ['button', 'primary', 'submit', 'link'].includes(role),
+
         detectAll: (elements) => {
+            const detectors = [
+                ['login', Patterns.detectLogin],
+                ['search', Patterns.detectSearch],
+                ['pagination', Patterns.detectPagination],
+                ['modal', Patterns.detectModal],
+                ['cookie_banner', Patterns.detectCookieBanner]
+            ];
+
             const patterns = {};
-
-            const login = Patterns.detectLogin(elements);
-            if (login) patterns.login = login;
-
-            const search = Patterns.detectSearch(elements);
-            if (search) patterns.search = search;
-
-            const pagination = Patterns.detectPagination(elements);
-            if (pagination) patterns.pagination = pagination;
-
-            const modal = Patterns.detectModal();
-            if (modal) patterns.modal = modal;
-
-            const cookieBanner = Patterns.detectCookieBanner();
-            if (cookieBanner) patterns.cookie_banner = cookieBanner;
+            for (const [name, detector] of detectors) {
+                const result = detector(elements);
+                if (result) patterns[name] = result;
+            }
 
             return Object.keys(patterns).length > 0 ? patterns : null;
         },
 
         detectLogin: (elements) => {
-            // Look for email/username field + password field + submit button
             let emailField = null;
             let usernameField = null;
             let passwordField = null;
             let submitButton = null;
             let rememberCheckbox = null;
 
-            for (const el of elements) {
-                const role = el.role;
-                const type = el.type;
-                const text = (el.text || '').toLowerCase();
-                const placeholder = (el.attributes?.placeholder || '').toLowerCase();
-                const name = (el.attributes?.name || '').toLowerCase();
+            const LOGIN_BUTTON_TEXTS = ['sign in', 'log in', 'login', 'submit'];
 
-                // Email field detection
+            for (const el of elements) {
+                const { role, type, text, placeholder, name } = Patterns.getElementProps(el);
+
                 if (role === 'email' || name.includes('email') || placeholder.includes('email')) {
                     emailField = el.id;
                 }
 
-                // Username field detection
-                if (
-                    (role === 'username' || role === 'input') &&
-                    !emailField &&
-                    (name.includes('user') ||
-                        name.includes('login') ||
-                        placeholder.includes('username') ||
-                        placeholder.includes('user'))
-                ) {
+                if ((role === 'username' || role === 'input') && !emailField &&
+                    (name.includes('user') || name.includes('login') || placeholder.includes('username') || placeholder.includes('user'))) {
                     usernameField = el.id;
                 }
 
-                // Password field
-                if (role === 'password') {
-                    passwordField = el.id;
-                }
+                if (role === 'password') passwordField = el.id;
 
-                // Submit button - look for button with sign in/login/submit text
-                if (
-                    (role === 'button' || role === 'primary' || role === 'submit' || type === 'input') &&
-                    (text.includes('sign in') ||
-                        text.includes('log in') ||
-                        text.includes('login') ||
-                        text.includes('submit'))
-                ) {
+                if ((Patterns.isButtonRole(role) || type === 'input') && LOGIN_BUTTON_TEXTS.some((t) => text.includes(t))) {
                     submitButton = el.id;
                 }
 
-                // Remember me checkbox
                 if (role === 'checkbox' && (text.includes('remember') || name.includes('remember'))) {
                     rememberCheckbox = el.id;
                 }
@@ -2097,41 +1910,25 @@
             let searchInput = null;
             let submitButton = null;
 
-            for (const el of elements) {
-                const role = el.role;
-                const type = el.type;
-                const text = (el.text || '').toLowerCase();
-                const placeholder = (el.attributes?.placeholder || '').toLowerCase();
-                const name = (el.attributes?.name || '').toLowerCase();
+            const SEARCH_NAMES = new Set(['q', 'query']);
 
-                // Search input
-                if (
-                    role === 'search' ||
-                    type === 'search' ||
-                    name.includes('search') ||
-                    name === 'q' ||
-                    name === 'query' ||
-                    placeholder.includes('search') ||
-                    el.type === 'search'
-                ) {
+            for (const el of elements) {
+                const { role, type, text, placeholder, name } = Patterns.getElementProps(el);
+
+                if (role === 'search' || type === 'search' || name.includes('search') || SEARCH_NAMES.has(name) || placeholder.includes('search')) {
                     searchInput = el.id;
                 }
 
-                // Search submit button
-                if (
-                    (role === 'button' || role === 'submit' || type === 'input') &&
-                    (text.includes('search') || text === 'go' || name.includes('search'))
-                ) {
+                if (Patterns.isButtonRole(role) && (text.includes('search') || text === 'go' || name.includes('search'))) {
                     submitButton = el.id;
                 }
             }
 
-            if (searchInput) {
-                const result = { input: searchInput };
-                if (submitButton) result.submit = submitButton;
-                return result;
-            }
-            return null;
+            if (!searchInput) return null;
+
+            const result = { input: searchInput };
+            if (submitButton) result.submit = submitButton;
+            return result;
         },
 
         detectPagination: (elements) => {
@@ -2139,135 +1936,86 @@
             let nextButton = null;
             const pageNumbers = [];
 
+            const PREV_TEXTS = new Set(['prev', 'previous', '‹', '«']);
+            const NEXT_TEXTS = new Set(['next', '›', '»']);
+
             for (const el of elements) {
-                const role = el.role;
+                const { role, ariaLabel } = Patterns.getElementProps(el);
                 const text = (el.text || '').toLowerCase().trim();
-                const ariaLabel = (el.attributes?.['aria-label'] || '').toLowerCase();
 
-                // Previous button
-                if (
-                    (role === 'button' || role === 'link') &&
-                    (text === 'prev' ||
-                        text === 'previous' ||
-                        text === '‹' ||
-                        text === '«' ||
-                        ariaLabel.includes('previous') ||
-                        ariaLabel.includes('prev'))
-                ) {
+                if (!Patterns.isButtonRole(role)) continue;
+
+                if (PREV_TEXTS.has(text) || ariaLabel.includes('previous') || ariaLabel.includes('prev')) {
                     prevButton = el.id;
-                }
-
-                // Next button
-                if (
-                    (role === 'button' || role === 'link') &&
-                    (text === 'next' || text === '›' || text === '»' || ariaLabel.includes('next'))
-                ) {
+                } else if (NEXT_TEXTS.has(text) || ariaLabel.includes('next')) {
                     nextButton = el.id;
-                }
-
-                // Page number links (single digits or small numbers)
-                if ((role === 'button' || role === 'link') && /^\d{1,3}$/.test(text)) {
+                } else if (/^\d{1,3}$/.test(text)) {
                     pageNumbers.push({ page: parseInt(text), id: el.id });
                 }
             }
 
-            if (prevButton || nextButton || pageNumbers.length > 1) {
-                const result = {};
-                if (prevButton) result.prev = prevButton;
-                if (nextButton) result.next = nextButton;
-                if (pageNumbers.length > 0) {
-                    result.pages = pageNumbers.sort((a, b) => a.page - b.page);
-                }
-                return result;
-            }
-            return null;
+            if (!prevButton && !nextButton && pageNumbers.length <= 1) return null;
+
+            const result = {};
+            if (prevButton) result.prev = prevButton;
+            if (nextButton) result.next = nextButton;
+            if (pageNumbers.length > 0) result.pages = pageNumbers.sort((a, b) => a.page - b.page);
+            return result;
         },
 
         detectModal: () => {
-            // Look for visible modal dialogs
-            const modalSelectors = [
-                '[role="dialog"]',
-                '[aria-modal="true"]',
-                '.modal:not(.hidden)',
-                '.modal.show',
-                '.modal.open',
-                '[class*="modal"][class*="open"]',
-                '[class*="modal"][class*="show"]',
-                '[class*="dialog"][class*="open"]'
+            const MODAL_SELECTORS = [
+                '[role="dialog"]', '[aria-modal="true"]', '.modal:not(.hidden)',
+                '.modal.show', '.modal.open', '[class*="modal"][class*="open"]',
+                '[class*="modal"][class*="show"]', '[class*="dialog"][class*="open"]'
             ];
+            const CLOSE_SELECTORS = [
+                '[aria-label*="close"]', '[aria-label*="Close"]', '.close',
+                '.modal-close', '[class*="close"]', 'button:has(svg)'
+            ];
+            const TITLE_SELECTORS = ['.modal-title', '[class*="title"]', 'h1', 'h2', 'h3'];
 
-            for (const selector of modalSelectors) {
-                try {
-                    const modal = ShadowUtils.querySelectorWithShadow(document.body, selector);
-                    if (modal && Utils.isVisible(modal)) {
-                        const result = {
-                            container: Utils.generateSelector(modal)
-                        };
-
-                        // Find close button
-                        const closeSelectors = [
-                            '[aria-label*="close"]',
-                            '[aria-label*="Close"]',
-                            '.close',
-                            '.modal-close',
-                            '[class*="close"]',
-                            'button:has(svg)' // Icon buttons often close modals
-                        ];
-
-                        for (const closeSelector of closeSelectors) {
-                            try {
-                                const closeBtn = ShadowUtils.querySelectorWithShadow(modal, closeSelector);
-                                if (closeBtn) {
-                                    const closeId = STATE.inverseMap.get(closeBtn);
-                                    if (closeId) result.close = closeId;
-                                    break;
-                                }
-                            } catch (_e) {
-                                /* ignore invalid selectors */
-                            }
-                        }
-
-                        // Find title
-                        const titleSelectors = ['.modal-title', '[class*="title"]', 'h1', 'h2', 'h3'];
-                        for (const titleSelector of titleSelectors) {
-                            const title = ShadowUtils.querySelectorWithShadow(modal, titleSelector);
-                            if (title && title.textContent.trim()) {
-                                result.title = title.textContent.trim().substring(0, 100);
-                                break;
-                            }
-                        }
-
-                        return result;
-                    }
-                } catch (_e) {
-                    /* ignore invalid selectors */
+            const findFirst = (root, selectors, predicate = () => true) => {
+                for (const sel of selectors) {
+                    try {
+                        const el = ShadowUtils.querySelectorWithShadow(root, sel);
+                        if (el && predicate(el)) return el;
+                    } catch (_e) { /* ignore */ }
                 }
+                return null;
+            };
+
+            const modal = findFirst(document.body, MODAL_SELECTORS, Utils.isVisible);
+            if (!modal) return null;
+
+            const result = { container: Utils.generateSelector(modal) };
+
+            const closeBtn = findFirst(modal, CLOSE_SELECTORS);
+            if (closeBtn) {
+                const closeId = STATE.inverseMap.get(closeBtn);
+                if (closeId) result.close = closeId;
             }
-            return null;
+
+            const titleEl = findFirst(modal, TITLE_SELECTORS, (el) => el.textContent.trim());
+            if (titleEl) result.title = titleEl.textContent.trim().substring(0, 100);
+
+            return result;
         },
 
         detectCookieBanner: () => {
-            // Look for cookie consent banners
-            const bannerSelectors = [
-                '[class*="cookie"]',
-                '[class*="consent"]',
-                '[class*="gdpr"]',
-                '[id*="cookie"]',
-                '[id*="consent"]',
-                '[id*="gdpr"]',
-                '[aria-label*="cookie"]',
-                '[aria-label*="consent"]'
+            const BANNER_SELECTORS = [
+                '[class*="cookie"]', '[class*="consent"]', '[class*="gdpr"]',
+                '[id*="cookie"]', '[id*="consent"]', '[id*="gdpr"]',
+                '[aria-label*="cookie"]', '[aria-label*="consent"]'
             ];
+            const ACCEPT_PATTERNS = ['accept', 'agree', 'allow', 'ok', 'got it', 'i understand'];
+            const REJECT_PATTERNS = ['reject', 'decline', 'deny', 'refuse', 'no thanks'];
 
-            for (const selector of bannerSelectors) {
+            for (const selector of BANNER_SELECTORS) {
                 try {
                     const banners = ShadowUtils.querySelectorAllWithShadow(document.body, selector);
                     for (const banner of banners) {
                         if (!Utils.isVisible(banner)) continue;
-
-                        // Look for accept/reject buttons within
-                        const acceptPatterns = ['accept', 'agree', 'allow', 'ok', 'got it', 'i understand'];
-                        const rejectPatterns = ['reject', 'decline', 'deny', 'refuse', 'no thanks'];
 
                         let acceptBtn = null;
                         let rejectBtn = null;
@@ -2275,27 +2023,18 @@
                         const buttons = ShadowUtils.querySelectorAllWithShadow(banner, 'button, a[role="button"], [class*="btn"]');
                         for (const btn of buttons) {
                             const btnText = (btn.textContent || '').toLowerCase().trim();
-
-                            if (!acceptBtn && acceptPatterns.some((p) => btnText.includes(p))) {
-                                acceptBtn = STATE.inverseMap.get(btn);
-                            }
-                            if (!rejectBtn && rejectPatterns.some((p) => btnText.includes(p))) {
-                                rejectBtn = STATE.inverseMap.get(btn);
-                            }
+                            if (!acceptBtn && ACCEPT_PATTERNS.some((p) => btnText.includes(p))) acceptBtn = STATE.inverseMap.get(btn);
+                            if (!rejectBtn && REJECT_PATTERNS.some((p) => btnText.includes(p))) rejectBtn = STATE.inverseMap.get(btn);
                         }
 
                         if (acceptBtn || rejectBtn) {
-                            const result = {
-                                container: Utils.generateSelector(banner)
-                            };
+                            const result = { container: Utils.generateSelector(banner) };
                             if (acceptBtn) result.accept = acceptBtn;
                             if (rejectBtn) result.reject = rejectBtn;
                             return result;
                         }
                     }
-                } catch (_e) {
-                    /* ignore invalid selectors */
-                }
+                } catch (_e) { /* ignore */ }
             }
             return null;
         }
