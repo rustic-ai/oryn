@@ -15,11 +15,18 @@ async function initWasm() {
         await init();
         orynCore = new OrynCore();
         isWasmInitialized = true;
+
+        // Expose to global scope for tests
+        self.orynCore = orynCore;
+        self.isWasmInitialized = isWasmInitialized;
+        self.OrynCoreClass = OrynCore;
+
         console.log('[Oryn-W] WASM initialized successfully');
         console.log('[Oryn-W] Version:', OrynCore.getVersion());
     } catch (e) {
         console.error('[Oryn-W] Failed to initialize WASM:', e);
         isWasmInitialized = false;
+        self.isWasmInitialized = false;
     }
 }
 
