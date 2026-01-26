@@ -272,4 +272,9 @@ async function executeSessionAction(tabId, action) {
     return { error: 'Unsupported session action' };
 }
 
+// Open sidepanel when extension icon is clicked
+chrome.action.onClicked.addListener((tab) => {
+    chrome.sidePanel.open({ tabId: tab.id });
+});
+
 console.log('[Oryn-W] Background service worker loaded');
