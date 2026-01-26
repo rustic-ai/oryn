@@ -29,25 +29,34 @@ if [ ! -f "$EXTENSION_DIR/wasm/oryn_core_bg.wasm" ]; then
     exit 1
 fi
 
-# Find Chrome/Chromium binary
+# Find Chromium binary (Chrome doesn't support unpacked extensions via CLI)
 CHROME_BIN=""
 
-if command -v google-chrome &> /dev/null; then
-    CHROME_BIN="google-chrome"
-elif command -v chromium &> /dev/null; then
+if command -v chromium &> /dev/null; then
     CHROME_BIN="chromium"
 elif command -v chromium-browser &> /dev/null; then
     CHROME_BIN="chromium-browser"
-elif [ -f "/usr/bin/google-chrome-stable" ]; then
-    CHROME_BIN="/usr/bin/google-chrome-stable"
-elif [ -f "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then
-    CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 elif [ -f "/Applications/Chromium.app/Contents/MacOS/Chromium" ]; then
     CHROME_BIN="/Applications/Chromium.app/Contents/MacOS/Chromium"
-else
-    echo -e "${RED}ERROR: Chrome/Chromium not found!${NC}"
+elif command -v google-chrome &> /dev/null; then
+    echo -e "${YELLOW}WARNING: Found Chrome but it may not support unpacked extensions via CLI${NC}"
+    echo -e "${YELLOW}Consider installing Chromium for development${NC}"
     echo ""
-    echo "Please install Chrome or Chromium:"
+    CHROME_BIN="google-chrome"
+elif [ -f "/usr/bin/google-chrome-stable" ]; then
+    echo -e "${YELLOW}WARNING: Found Chrome but it may not support unpacked extensions via CLI${NC}"
+    echo -e "${YELLOW}Consider installing Chromium for development${NC}"
+    echo ""
+    CHROME_BIN="/usr/bin/google-chrome-stable"
+elif [ -f "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then
+    echo -e "${YELLOW}WARNING: Found Chrome but it may not support unpacked extensions via CLI${NC}"
+    echo -e "${YELLOW}Consider installing Chromium for development${NC}"
+    echo ""
+    CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+else
+    echo -e "${RED}ERROR: Chromium not found!${NC}"
+    echo ""
+    echo "Please install Chromium (Chrome doesn't support unpacked extensions via CLI):"
     echo "  - Ubuntu/Debian: sudo apt install chromium-browser"
     echo "  - Fedora: sudo dnf install chromium"
     echo "  - macOS: brew install --cask chromium"
@@ -55,7 +64,7 @@ else
     exit 1
 fi
 
-echo -e "${GREEN}✓${NC} Found Chrome/Chromium: ${CHROME_BIN}"
+echo -e "${GREEN}✓${NC} Found Chromium: ${CHROME_BIN}"
 echo -e "${GREEN}✓${NC} Extension directory: ${EXTENSION_DIR}"
 echo -e "${GREEN}✓${NC} WASM module: $(du -h "$EXTENSION_DIR/wasm/oryn_core_bg.wasm" | cut -f1)"
 echo ""
@@ -64,12 +73,12 @@ echo ""
 USER_DATA_DIR="/tmp/oryn-w-dev-$(date +%s)"
 mkdir -p "$USER_DATA_DIR"
 
-echo -e "${YELLOW}Launching Chrome with extension...${NC}"
+echo -e "${YELLOW}Launching Chromium with extension...${NC}"
 echo ""
 echo "Extension will be loaded from: ${EXTENSION_DIR}"
 echo "User data directory: ${USER_DATA_DIR}"
 echo ""
-echo "Press Ctrl+C to stop Chrome and clean up"
+echo "Press Ctrl+C to stop Chromium and clean up"
 echo ""
 
 # Launch Chrome with extension
