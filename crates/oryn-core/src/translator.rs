@@ -9,6 +9,28 @@ use oryn_common::protocol::{
 };
 use thiserror::Error;
 
+/// Normalize a URL by adding https:// if no protocol is specified
+fn normalize_url(url: &str) -> String {
+    let url = url.trim();
+
+    // If already has a protocol, return as-is
+    if url.contains("://") {
+        return url.to_string();
+    }
+
+    // Special cases that should not get protocol added
+    if url.starts_with("about:")
+        || url.starts_with("data:")
+        || url.starts_with("javascript:")
+        || url.starts_with("file:")
+    {
+        return url.to_string();
+    }
+
+    // Add https:// for everything else
+    format!("https://{}", url)
+}
+
 #[derive(Error, Debug)]
 pub enum TranslationError {
     #[error("Unknown command: {0}")]
@@ -122,7 +144,7 @@ pub fn translate(command: &Command) -> Result<Action, TranslationError> {
     match command {
         // --- Navigation ---
         Command::Goto(cmd) => Ok(Action::Browser(BrowserAction::Navigate(NavigateRequest {
-            url: cmd.url.clone(),
+            url: normalize_url(&cmd.url),
         }))),
         Command::Back => Ok(Action::Browser(BrowserAction::Back(BackRequest::default()))),
         Command::Forward => Ok(Action::Browser(BrowserAction::Forward(
@@ -431,5 +453,32 @@ pub fn translate(command: &Command) -> Result<Action, TranslationError> {
         }))),
 
         _ => Err(TranslationError::Unsupported(format!("{:?}", command))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_url_adds_https() {
+        assert_eq!(normalize_url("google.com"), "https://google.com");
+        assert_eq!(normalize_url("example.org"), "https://example.org");
+        assert_eq!(normalize_url("  subdomain.example.com  "), "https://subdomain.example.com");
+    }
+
+    #[test]
+    fn test_normalize_url_preserves_protocol() {
+        assert_eq!(normalize_url("https://google.com"), "https://google.com");
+        assert_eq!(normalize_url("http://example.com"), "http://example.com");
+        assert_eq!(normalize_url("ftp://files.example.com"), "ftp://files.example.com");
+    }
+
+    #[test]
+    fn test_normalize_url_special_cases() {
+        assert_eq!(normalize_url("about:blank"), "about:blank");
+        assert_eq!(normalize_url("data:text/html,<h1>Hi</h1>"), "data:text/html,<h1>Hi</h1>");
+        assert_eq!(normalize_url("javascript:alert('test')"), "javascript:alert('test')");
+        assert_eq!(normalize_url("file:///home/user/file.html"), "file:///home/user/file.html");
     }
 }
