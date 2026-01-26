@@ -3,7 +3,6 @@
 from pathlib import Path
 from typing import List, Tuple
 
-from .types import OrynResult
 
 
 def parse_oil_file(path: str | Path) -> List[str]:
@@ -31,7 +30,7 @@ def parse_oil_file(path: str | Path) -> List[str]:
     return commands
 
 
-async def run_oil_file_async(client, path: str | Path) -> List[Tuple[str, OrynResult]]:
+async def run_oil_file_async(client, path: str | Path) -> List[Tuple[str, str]]:
     """Run an .oil file using the async client.
 
     Args:
@@ -39,24 +38,19 @@ async def run_oil_file_async(client, path: str | Path) -> List[Tuple[str, OrynRe
         path: Path to .oil file
 
     Returns:
-        List of (command, result) tuples
+        List of (command, response) tuples
     """
     commands = parse_oil_file(path)
     results = []
 
     for cmd in commands:
-        # Special handling for observe - use observe() method
-        if cmd.strip().lower().startswith("observe"):
-            obs = await client.observe()
-            result = OrynResult(success=True, raw=obs.raw, latency_ms=obs.latency_ms)
-        else:
-            result = await client.execute(cmd)
+        result = await client.execute(cmd)
         results.append((cmd, result))
 
     return results
 
 
-def run_oil_file_sync(client, path: str | Path) -> List[Tuple[str, OrynResult]]:
+def run_oil_file_sync(client, path: str | Path) -> List[Tuple[str, str]]:
     """Run an .oil file using the sync client.
 
     Args:
@@ -64,18 +58,13 @@ def run_oil_file_sync(client, path: str | Path) -> List[Tuple[str, OrynResult]]:
         path: Path to .oil file
 
     Returns:
-        List of (command, result) tuples
+        List of (command, response) tuples
     """
     commands = parse_oil_file(path)
     results = []
 
     for cmd in commands:
-        # Special handling for observe - use observe() method
-        if cmd.strip().lower().startswith("observe"):
-            obs = client.observe()
-            result = OrynResult(success=True, raw=obs.raw, latency_ms=obs.latency_ms)
-        else:
-            result = client.execute(cmd)
+        result = client.execute(cmd)
         results.append((cmd, result))
 
     return results

@@ -14,7 +14,7 @@ TEST_HARNESS_URL = os.environ.get("TEST_HARNESS_URL", "http://localhost:3000")
 # 1. Relative to this test file (when running from repo root)
 # 2. Docker path (when running in container)
 SCRIPT_PATHS = [
-    Path(__file__).parent.parent.parent.parent.parent / "test-harness" / "scripts",
+    Path(__file__).parent.parent.parent.parent / "test-harness" / "scripts",
     Path("/app/test-harness/scripts"),
 ]
 
