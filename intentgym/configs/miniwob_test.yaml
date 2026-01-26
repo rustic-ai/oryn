@@ -6,5 +6,5 @@ llm_provider: mock
 llm_model: mock-gpt
 agent_type: react
 max_steps: 2
-prompt_template: minimal
+prompt_template: oil_standard
 
