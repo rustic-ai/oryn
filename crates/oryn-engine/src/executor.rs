@@ -75,6 +75,31 @@ impl CommandExecutor {
         self.last_scan.as_ref()
     }
 
+    fn check_scanner_error(resp: &ScannerProtocolResponse) -> Result<(), ExecutorError> {
+        if let ScannerProtocolResponse::Error { code, message, .. } = resp {
+            Err(ExecutorError::Scanner(format!("{}: {}", code, message)))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn cookie_with_defaults(
+        name: String,
+        value: String,
+        domain: Option<String>,
+        expires: Option<f64>,
+    ) -> Cookie {
+        Cookie {
+            name,
+            value,
+            domain,
+            path: Some("/".into()),
+            expires,
+            http_only: None,
+            secure: None,
+        }
+    }
+
     /// Execute a line of input.
     pub async fn execute_line<B: Backend + ?Sized>(
         &mut self,
@@ -99,10 +124,7 @@ impl CommandExecutor {
                         let req = ScannerAction::Scan(ScanRequest::default());
                         let resp = backend.execute_scanner(req).await?;
 
-                        // Check if scanner returned an error
-                        if let ScannerProtocolResponse::Error { code, message, .. } = &resp {
-                            return Err(ExecutorError::Scanner(format!("{}: {}", code, message)));
-                        }
+                        Self::check_scanner_error(&resp)?;
 
                         self.update_from_response(&resp);
 
@@ -153,10 +175,7 @@ impl CommandExecutor {
             Action::Scanner(sa) => {
                 let resp = backend.execute_scanner(sa).await?;
 
-                // Check if scanner returned an error
-                if let ScannerProtocolResponse::Error { code, message, .. } = &resp {
-                    return Err(ExecutorError::Scanner(format!("{}: {}", code, message)));
-                }
+                Self::check_scanner_error(&resp)?;
 
                 self.update_from_response(&resp);
                 Ok(format_response(&resp))
@@ -272,29 +291,23 @@ impl CommandExecutor {
                     }
                 }
                 "set" => {
-                    let c = Cookie {
-                        name: req.name.unwrap_or_default(),
-                        value: req.value.unwrap_or_default(),
-                        domain: req.domain,
-                        path: Some("/".into()),
-                        expires: None,
-                        http_only: None,
-                        secure: None,
-                    };
+                    let c = Self::cookie_with_defaults(
+                        req.name.unwrap_or_default(),
+                        req.value.unwrap_or_default(),
+                        req.domain,
+                        None,
+                    );
                     backend.set_cookie(c).await?;
                     Ok("Cookie set".into())
                 }
                 "delete" => {
                     let name = req.name.unwrap_or_default();
-                    let c = Cookie {
-                        name: name.clone(),
-                        value: String::new(),
-                        domain: req.domain,
-                        path: Some("/".into()),
-                        expires: Some(0.0),
-                        http_only: None,
-                        secure: None,
-                    };
+                    let c = Self::cookie_with_defaults(
+                        name.clone(),
+                        String::new(),
+                        req.domain,
+                        Some(0.0),
+                    );
                     backend.set_cookie(c).await?;
                     Ok(format!("Cookie {} deleted", name))
                 }

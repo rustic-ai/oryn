@@ -191,6 +191,36 @@ fn calculate_proximity(label_rect: &Rect, elem_rect: &Rect) -> f32 {
     dy * 2.0 + dx
 }
 
+/// Check if an element is inside a clickable parent (label with form control or role-based).
+fn is_inside_clickable_parent(elem_id: u32, elem_rect: &Rect, ctx: &ResolutionContext) -> bool {
+    // Check if element is inside a label that contains a form control
+    let inside_form_label = ctx.elements().any(|label| {
+        label.element_type == "label"
+            && label.id != elem_id
+            && is_inside(elem_rect, &label.rect)
+            && ctx.elements().any(|e| {
+                e.id != elem_id
+                    && e.id != label.id
+                    && is_inside(&e.rect, &label.rect)
+                    && matches!(e.element_type.as_str(), "input" | "select" | "textarea")
+            })
+    });
+
+    if inside_form_label {
+        return true;
+    }
+
+    // Check if element is inside a parent with clickable role
+    ctx.elements().any(|parent| {
+        parent.id != elem_id
+            && is_inside(elem_rect, &parent.rect)
+            && parent
+                .attributes
+                .get("role")
+                .is_some_and(|r| matches!(r.as_str(), "checkbox" | "radio" | "switch" | "button"))
+    })
+}
+
 /// Check if an element is a label that can trigger an action on its associated control.
 ///
 /// This handles cases where clicking/checking a label element will trigger the browser's
@@ -222,31 +252,6 @@ pub fn is_actionable_label(elem_id: u32, ctx: &ResolutionContext) -> bool {
         }
     }
 
-    // Check if this element is INSIDE a label that contains a form control
-    // (e.g., <label><strong>Text</strong><input></label>)
-    let elem_rect = &elem.rect;
-    if ctx.elements().any(|label| {
-        label.element_type == "label"
-            && label.id != elem_id
-            && is_inside(elem_rect, &label.rect)
-            && ctx.elements().any(|e| {
-                e.id != elem_id
-                    && e.id != label.id
-                    && is_inside(&e.rect, &label.rect)
-                    && matches!(e.element_type.as_str(), "input" | "select" | "textarea")
-            })
-    }) {
-        return true;
-    }
-
-    // Check if this element is INSIDE a parent with role="checkbox" or role="radio"
-    // (e.g., <div role="checkbox"><span>☐</span> Email notifications</div>)
-    ctx.elements().any(|parent| {
-        parent.id != elem_id
-            && is_inside(elem_rect, &parent.rect)
-            && parent
-                .attributes
-                .get("role")
-                .is_some_and(|r| matches!(r.as_str(), "checkbox" | "radio" | "switch" | "button"))
-    })
+    // Check if element is inside a clickable parent
+    is_inside_clickable_parent(elem_id, &elem.rect, ctx)
 }

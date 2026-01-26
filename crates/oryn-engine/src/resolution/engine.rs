@@ -19,6 +19,38 @@ use async_recursion::async_recursion;
 pub struct ResolutionEngine;
 
 impl ResolutionEngine {
+    /// Find an element by matching its selector against the search string.
+    fn find_by_selector_match(ctx: &ResolutionContext, s: &str) -> Option<u32> {
+        ctx.elements()
+            .find(|e| e.selector == s || e.selector.contains(s))
+            .map(|e| e.id)
+    }
+
+    /// Find an element by matching against text content, label, or placeholder.
+    fn find_by_text_content(ctx: &ResolutionContext, s: &str) -> Option<u32> {
+        ctx.elements()
+            .find(|e| {
+                e.text
+                    .as_ref()
+                    .map(|t| t == s || t.contains(s))
+                    .unwrap_or(false)
+                    || e.label
+                        .as_ref()
+                        .map(|l| l == s || l.contains(s))
+                        .unwrap_or(false)
+                    || e.placeholder
+                        .as_ref()
+                        .map(|p| p == s || p.contains(s))
+                        .unwrap_or(false)
+            })
+            .map(|e| e.id)
+    }
+
+    /// Find an element by text or selector (fallback when semantic resolution fails).
+    fn find_element_by_text_or_selector(ctx: &ResolutionContext, s: &str) -> Option<u32> {
+        Self::find_by_selector_match(ctx, s).or_else(|| Self::find_by_text_content(ctx, s))
+    }
+
     /// Resolve a command, returning a command with all targets as Target::Id.
     pub async fn resolve<B: Backend + ?Sized>(
         cmd: ast::Command,
@@ -217,33 +249,7 @@ impl ResolutionEngine {
                 let resolved_id =
                     match resolver::resolve_target(target, &ctx.to_resolver_context(), strategy) {
                         Ok(Target::Id(id)) => Some(id as u32),
-                        _ => {
-                            // Fallback: If semantic resolution failed, try matching against selectors
-                            // This handles cases like `click "modal"` or `#id` passed as text
-                            // We do a loose match on selector
-                            ctx.elements()
-                                .find(|e| e.selector == *s || e.selector.contains(s))
-                                .map(|e| e.id)
-                                .or_else(|| {
-                                    // Secondary fallback: Try to find element by text content directly in ctx
-                                    ctx.elements()
-                                        .find(|e| {
-                                            e.text
-                                                .as_ref()
-                                                .map(|t| t == s || t.contains(s))
-                                                .unwrap_or(false)
-                                                || e.label
-                                                    .as_ref()
-                                                    .map(|l| l == s || l.contains(s))
-                                                    .unwrap_or(false)
-                                                || e.placeholder
-                                                    .as_ref()
-                                                    .map(|p| p == s || p.contains(s))
-                                                    .unwrap_or(false)
-                                        })
-                                        .map(|e| e.id)
-                                })
-                        }
+                        _ => Self::find_element_by_text_or_selector(ctx, s),
                     };
 
                 match resolved_id {

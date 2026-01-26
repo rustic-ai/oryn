@@ -24,16 +24,22 @@ pub fn format_response(resp: &ScannerProtocolResponse) -> String {
                 );
 
                 if let Some(patterns) = &scan.patterns {
-                    let detected: Vec<&str> = [
-                        patterns.login.as_ref().map(|_| "Login Form"),
-                        patterns.search.as_ref().map(|_| "Search Box"),
-                        patterns.pagination.as_ref().map(|_| "Pagination"),
-                        patterns.modal.as_ref().map(|_| "Modal"),
-                        patterns.cookie_banner.as_ref().map(|_| "Cookie Banner"),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    .collect();
+                    let mut detected = Vec::new();
+                    if patterns.login.is_some() {
+                        detected.push("Login Form");
+                    }
+                    if patterns.search.is_some() {
+                        detected.push("Search Box");
+                    }
+                    if patterns.pagination.is_some() {
+                        detected.push("Pagination");
+                    }
+                    if patterns.modal.is_some() {
+                        detected.push("Modal");
+                    }
+                    if patterns.cookie_banner.is_some() {
+                        detected.push("Cookie Banner");
+                    }
 
                     if !detected.is_empty() {
                         output.push_str("\n\nPatterns:");

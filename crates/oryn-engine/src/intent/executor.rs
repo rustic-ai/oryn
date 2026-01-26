@@ -96,6 +96,60 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
         }
     }
 
+    fn partial_success_result(
+        &self,
+        completed: usize,
+        total: usize,
+        data: Option<Value>,
+        hints: Vec<String>,
+    ) -> IntentResult {
+        IntentResult {
+            status: IntentStatus::PartialSuccess { completed, total },
+            data,
+            logs: self.logs.clone(),
+            checkpoint: self.last_checkpoint.clone(),
+            hints,
+            changes: self.calculate_changes(),
+        }
+    }
+
+    async fn verify_success_conditions(
+        &mut self,
+        success_cond: &oryn_common::intent::definition::SuccessCondition,
+    ) -> Result<bool, ExecutorError> {
+        self.perform_scan().await?;
+        if let Some(scan) = &self.last_scan {
+            let ctx = VerifierContext::with_variables(scan, &self.variables);
+            self.verifier
+                .verify(&Condition::All(success_cond.conditions.clone()), &ctx)
+                .await
+                .map_err(ExecutorError::Verification)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn resolve_loop_items(&self, over: &str, max: usize) -> Vec<Value> {
+        if let Some(val) = self.variables.get(over) {
+            // Loop over array variable
+            val.as_array().cloned().unwrap_or_default()
+        } else if let Ok(n) = over.parse::<usize>() {
+            // Treat as count 0..N
+            (0..n).map(|i| json!(i)).collect()
+        } else if let Some((start, end)) = over.split_once("..") {
+            // Parse range "start..end"
+            if let (Ok(s), Ok(e)) = (start.parse::<usize>(), end.parse::<usize>()) {
+                (s..e).map(|i| json!(i)).collect()
+            } else {
+                // Fallback: run 'max' times
+                (0..max).map(|i| json!(i)).collect()
+            }
+        } else {
+            // Fallback: run 'max' times
+            (0..max).map(|i| json!(i)).collect()
+        }
+    }
+
     pub async fn execute(
         &mut self,
         intent_name: &str,
@@ -137,17 +191,12 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
                 Err(e) => {
                     // Return PartialSuccess if some steps completed
                     if steps_completed > 0 {
-                        return Ok(IntentResult {
-                            status: IntentStatus::PartialSuccess {
-                                completed: steps_completed,
-                                total: total_steps,
-                            },
-                            data: None,
-                            logs: self.logs.clone(),
-                            checkpoint: self.last_checkpoint.clone(),
-                            hints: vec![format!("Failed at step {}: {}", steps_completed + 1, e)],
-                            changes: self.calculate_changes(),
-                        });
+                        return Ok(self.partial_success_result(
+                            steps_completed,
+                            total_steps,
+                            None,
+                            vec![format!("Failed at step {}: {}", steps_completed + 1, e)],
+                        ));
                     } else {
                         return Err(e);
                     }
@@ -157,28 +206,15 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
 
         // 5. VERIFY
         if let Some(success_cond) = &intent.success {
-            // Need fresh scan for final verification
-            self.perform_scan().await?;
-            if let Some(scan) = &self.last_scan {
-                let ctx = VerifierContext::with_variables(scan, &self.variables);
-                let passed = self
-                    .verifier
-                    .verify(&Condition::All(success_cond.conditions.clone()), &ctx)
-                    .await?;
-                if !passed {
-                    // Verification failed after steps executed
-                    return Ok(IntentResult {
-                        status: IntentStatus::PartialSuccess {
-                            completed: steps_completed,
-                            total: total_steps,
-                        },
-                        data: None,
-                        logs: self.logs.clone(),
-                        checkpoint: self.last_checkpoint.clone(),
-                        hints: vec!["Steps completed but verification failed".to_string()],
-                        changes: self.calculate_changes(),
-                    });
-                }
+            let passed = self.verify_success_conditions(success_cond).await?;
+            if !passed {
+                // Verification failed after steps executed
+                return Ok(self.partial_success_result(
+                    steps_completed,
+                    total_steps,
+                    None,
+                    vec!["Steps completed but verification failed".to_string()],
+                ));
             }
         } else {
             // If no verification needed, maybe refresh scan for final state diff?
@@ -266,18 +302,11 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
         // 6. RESPOND (Verify omitted for brevity in resume flow? Or strictly verify?)
         // Let's verify success condition
         if let Some(success_cond) = &intent.success {
-            self.perform_scan().await?;
-            if let Some(scan) = &self.last_scan {
-                let ctx = VerifierContext::with_variables(scan, &self.variables);
-                let passed = self
-                    .verifier
-                    .verify(&Condition::All(success_cond.conditions.clone()), &ctx)
-                    .await?;
-                if !passed {
-                    return Err(ExecutorError::IntentFailed(
-                        "Success conditions not met".into(),
-                    ));
-                }
+            let passed = self.verify_success_conditions(success_cond).await?;
+            if !passed {
+                return Err(ExecutorError::IntentFailed(
+                    "Success conditions not met".into(),
+                ));
             }
         } else {
             self.perform_scan().await?;
@@ -504,30 +533,9 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
                 Ok(())
             }
             Step::Loop(wrapper) => {
-                // Determine what to loop over
-                let items = if let Some(val) = self.variables.get(&wrapper.loop_.over) {
-                    // Loop over array variable
-                    val.as_array().cloned().unwrap_or_default()
-                } else if let Ok(n) = wrapper.loop_.over.parse::<usize>() {
-                    // Treat as count 0..N
-                    (0..n).map(|i| json!(i)).collect()
-                } else {
-                    // Fallback: see if it looks like "start..end"
-                    if let Some((start, end)) = wrapper.loop_.over.split_once("..") {
-                        if let (Ok(s), Ok(e)) = (start.parse::<usize>(), end.parse::<usize>()) {
-                            (s..e).map(|i| json!(i)).collect()
-                        } else {
-                            // Fallback: run 'max' times
-                            (0..wrapper.loop_.max).map(|i| json!(i)).collect()
-                        }
-                    } else {
-                        // Fallback: run 'max' times
-                        (0..wrapper.loop_.max).map(|i| json!(i)).collect()
-                    }
-                };
+                let items = self.resolve_loop_items(&wrapper.loop_.over, wrapper.loop_.max);
 
-                let limit = wrapper.loop_.max;
-                for item in items.iter().take(limit) {
+                for item in items.iter().take(wrapper.loop_.max) {
                     self.variables
                         .insert(wrapper.loop_.as_var.clone(), item.clone());
                     for s in &wrapper.loop_.steps {
@@ -1107,17 +1115,12 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
                         ));
                         current_page_name = Some(error_page.clone());
                     } else if pages_completed > 0 {
-                        return Ok(IntentResult {
-                            status: IntentStatus::PartialSuccess {
-                                completed: pages_completed,
-                                total: total_pages,
-                            },
-                            data: Some(json!(extracted_data)),
-                            logs: self.logs.clone(),
-                            checkpoint: self.last_checkpoint.clone(),
-                            hints: vec![format!("Flow failed at page '{}': {}", page.name, e)],
-                            changes: self.calculate_changes(),
-                        });
+                        return Ok(self.partial_success_result(
+                            pages_completed,
+                            total_pages,
+                            Some(json!(extracted_data)),
+                            vec![format!("Flow failed at page '{}': {}", page.name, e)],
+                        ));
                     } else {
                         return Err(e);
                     }
@@ -1127,26 +1130,14 @@ impl<'a, B: Backend + ?Sized> IntentExecutor<'a, B> {
 
         // Verify success conditions if specified
         if let Some(success_cond) = &intent.success {
-            self.perform_scan().await?;
-            if let Some(scan) = &self.last_scan {
-                let ctx = VerifierContext::with_variables(scan, &self.variables);
-                let passed = self
-                    .verifier
-                    .verify(&Condition::All(success_cond.conditions.clone()), &ctx)
-                    .await?;
-                if !passed {
-                    return Ok(IntentResult {
-                        status: IntentStatus::PartialSuccess {
-                            completed: pages_completed,
-                            total: total_pages,
-                        },
-                        data: Some(json!(extracted_data)),
-                        logs: self.logs.clone(),
-                        checkpoint: self.last_checkpoint.clone(),
-                        hints: vec!["Flow pages completed but verification failed".to_string()],
-                        changes: self.calculate_changes(),
-                    });
-                }
+            let passed = self.verify_success_conditions(success_cond).await?;
+            if !passed {
+                return Ok(self.partial_success_result(
+                    pages_completed,
+                    total_pages,
+                    Some(json!(extracted_data)),
+                    vec!["Flow pages completed but verification failed".to_string()],
+                ));
             }
         }
 
