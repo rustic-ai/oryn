@@ -23,28 +23,28 @@ function addLog(message, type = 'info') {
     renderLogs();
 }
 
+// Create a log entry element
+function createLogEntry(log) {
+    const entry = document.createElement('div');
+    entry.className = `log-entry log-${log.type}`;
+
+    const time = document.createElement('span');
+    time.className = 'log-time';
+    time.textContent = log.timestamp;
+
+    const msg = document.createElement('span');
+    msg.className = 'log-msg';
+    msg.textContent = log.message;
+
+    entry.appendChild(time);
+    entry.appendChild(msg);
+    return entry;
+}
+
 // Render logs
 function renderLogs() {
     logContainer.innerHTML = '';
-
-    logs.forEach(log => {
-        const entry = document.createElement('div');
-        entry.className = `log-entry log-${log.type}`;
-
-        const time = document.createElement('span');
-        time.className = 'log-time';
-        time.textContent = log.timestamp;
-
-        const msg = document.createElement('span');
-        msg.className = 'log-msg';
-        msg.textContent = log.message;
-
-        entry.appendChild(time);
-        entry.appendChild(msg);
-        logContainer.appendChild(entry);
-    });
-
-    // Auto-scroll to bottom
+    logs.forEach(log => logContainer.appendChild(createLogEntry(log)));
     logContainer.scrollTop = logContainer.scrollHeight;
 }
 
@@ -54,26 +54,23 @@ function clearLogs() {
     renderLogs();
 }
 
+// Set status element state
+function setStatusElement(element, isReady, readyText, notReadyText) {
+    element.textContent = isReady ? readyText : notReadyText;
+    element.className = isReady ? 'status-value ready' : 'status-value';
+}
+
 // Update status
 async function updateStatus() {
     try {
         const response = await chrome.runtime.sendMessage({ type: 'get_status' });
 
-        if (response.wasmInitialized) {
-            wasmStatus.textContent = 'Ready';
-            wasmStatus.className = 'status-value ready';
-        } else {
-            wasmStatus.textContent = 'Error';
+        setStatusElement(wasmStatus, response.wasmInitialized, 'Ready', 'Error');
+        if (!response.wasmInitialized) {
             wasmStatus.className = 'status-value error';
         }
 
-        if (response.hasScan) {
-            scanStatus.textContent = 'Loaded';
-            scanStatus.className = 'status-value ready';
-        } else {
-            scanStatus.textContent = 'Not loaded';
-            scanStatus.className = 'status-value';
-        }
+        setStatusElement(scanStatus, response.hasScan, 'Loaded', 'Not loaded');
     } catch (error) {
         wasmStatus.textContent = 'Error';
         wasmStatus.className = 'status-value error';
@@ -100,15 +97,13 @@ updateStatus();
 setInterval(updateStatus, 2000);
 
 // Intercept console logs (for debugging)
-const originalConsoleLog = console.log;
-const originalConsoleError = console.error;
+function wrapConsoleMethod(method, type) {
+    const original = console[method];
+    console[method] = function (...args) {
+        original.apply(console, args);
+        addLog(args.join(' '), type);
+    };
+}
 
-console.log = function (...args) {
-    originalConsoleLog.apply(console, args);
-    addLog(args.join(' '), 'info');
-};
-
-console.error = function (...args) {
-    originalConsoleError.apply(console, args);
-    addLog(args.join(' '), 'error');
-};
+wrapConsoleMethod('log', 'info');
+wrapConsoleMethod('error', 'error');

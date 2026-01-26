@@ -1,9 +1,26 @@
 // Helper functions for mocking Chrome APIs
 
+const DEFAULT_ELEMENT = {
+  id: 1,
+  selector: '#submit',
+  element_type: 'button',
+  text: 'Submit',
+  attributes: {},
+  rect: { x: 0, y: 0, width: 100, height: 30 },
+  label: null,
+  placeholder: null,
+  value: null,
+  checked: null,
+  href: null
+};
+
 /**
  * Create a mock ScanResult
  */
 function createMockScanResult(options = {}) {
+  const elements = options.elements || [DEFAULT_ELEMENT];
+  const elementCount = elements.length;
+
   return {
     page: {
       url: options.url || 'https://example.com',
@@ -11,24 +28,10 @@ function createMockScanResult(options = {}) {
       viewport: { width: 1920, height: 1080 },
       scroll: { x: 0, y: 0 }
     },
-    elements: options.elements || [
-      {
-        id: 1,
-        selector: '#submit',
-        element_type: 'button',
-        text: 'Submit',
-        attributes: {},
-        rect: { x: 0, y: 0, width: 100, height: 30 },
-        label: null,
-        placeholder: null,
-        value: null,
-        checked: null,
-        href: null
-      }
-    ],
+    elements,
     stats: {
-      total: options.elements?.length || 1,
-      scanned: options.elements?.length || 1
+      total: elementCount,
+      scanned: elementCount
     },
     patterns: options.patterns || null,
     changes: null,
@@ -57,17 +60,19 @@ function mockTabsQuery(tabs) {
   global.chrome.tabs.query.yields(tabs);
 }
 
+const DEFAULT_TAB = {
+  id: 1,
+  url: 'https://example.com',
+  title: 'Test Page',
+  active: true,
+  windowId: 1
+};
+
 /**
  * Create a mock Chrome tab
  */
 function createMockTab(options = {}) {
-  return {
-    id: options.id || 1,
-    url: options.url || 'https://example.com',
-    title: options.title || 'Test Page',
-    active: options.active !== undefined ? options.active : true,
-    windowId: options.windowId || 1
-  };
+  return { ...DEFAULT_TAB, ...options };
 }
 
 /**

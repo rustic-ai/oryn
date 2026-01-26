@@ -169,58 +169,69 @@ async function executeAction(tabId, action) {
 // Execute browser action (navigate, back, forward, etc.)
 async function executeBrowserAction(tabId, browserAction) {
     if (browserAction.Navigate) {
-        await chrome.tabs.update(tabId, { url: browserAction.Navigate.url });
-        return { success: true, message: `Navigated to ${browserAction.Navigate.url}` };
-    } else if (browserAction.Back) {
+        const url = browserAction.Navigate.url;
+        await chrome.tabs.update(tabId, { url });
+        return { success: true, message: `Navigated to ${url}` };
+    }
+    if (browserAction.Back) {
         await chrome.tabs.goBack(tabId);
         return { success: true, message: 'Navigated back' };
-    } else if (browserAction.Forward) {
+    }
+    if (browserAction.Forward) {
         await chrome.tabs.goForward(tabId);
         return { success: true, message: 'Navigated forward' };
-    } else if (browserAction.Refresh) {
+    }
+    if (browserAction.Refresh) {
         await chrome.tabs.reload(tabId);
         return { success: true, message: 'Page refreshed' };
-    } else if (browserAction.Screenshot) {
+    }
+    if (browserAction.Screenshot) {
         const dataUrl = await chrome.tabs.captureVisibleTab();
         return { success: true, data: dataUrl };
-    } else {
-        return { error: 'Unsupported browser action' };
     }
+    return { error: 'Unsupported browser action' };
 }
 
 // Execute session action (cookies, etc.)
 async function executeSessionAction(tabId, sessionAction) {
-    if (sessionAction.Cookie) {
-        const cookieAction = sessionAction.Cookie;
-        const tab = await chrome.tabs.get(tabId);
-        const url = new URL(tab.url);
+    if (!sessionAction.Cookie) {
+        return { error: 'Unsupported session action' };
+    }
 
-        if (cookieAction.action === 'list') {
-            const cookies = await chrome.cookies.getAll({ url: tab.url });
+    const cookieAction = sessionAction.Cookie;
+    const tab = await chrome.tabs.get(tabId);
+    const tabUrl = tab.url;
+
+    switch (cookieAction.action) {
+        case 'list': {
+            const cookies = await chrome.cookies.getAll({ url: tabUrl });
             return { success: true, cookies };
-        } else if (cookieAction.action === 'get') {
+        }
+        case 'get': {
             const cookie = await chrome.cookies.get({
-                url: tab.url,
+                url: tabUrl,
                 name: cookieAction.name,
             });
             return { success: true, cookie };
-        } else if (cookieAction.action === 'set') {
+        }
+        case 'set': {
             await chrome.cookies.set({
-                url: tab.url,
+                url: tabUrl,
                 name: cookieAction.name,
                 value: cookieAction.value,
             });
             return { success: true, message: 'Cookie set' };
-        } else if (cookieAction.action === 'delete') {
+        }
+        case 'delete': {
             await chrome.cookies.remove({
-                url: tab.url,
+                url: tabUrl,
                 name: cookieAction.name,
             });
             return { success: true, message: 'Cookie deleted' };
         }
+        default:
+            return { error: 'Unsupported cookie action' };
     }
-
-    return { error: 'Unsupported session action' };
 }
 
 console.log('[Oryn-W] Background service worker loaded');

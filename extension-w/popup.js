@@ -7,6 +7,13 @@ const btnExecute = document.getElementById('btn-execute');
 const btnLogs = document.getElementById('btn-logs');
 const statusMessage = document.getElementById('status-message');
 
+// Update UI to show error state
+function setErrorState(message) {
+    statusBadge.textContent = 'Error';
+    statusBadge.className = 'status-badge status-error';
+    wasmStatus.textContent = message;
+}
+
 // Check WASM status on load
 async function checkStatus() {
     try {
@@ -19,15 +26,11 @@ async function checkStatus() {
             commandInput.disabled = false;
             btnExecute.disabled = false;
         } else {
-            statusBadge.textContent = 'Error';
-            statusBadge.className = 'status-badge status-error';
-            wasmStatus.textContent = 'WASM failed to initialize';
+            setErrorState('WASM failed to initialize');
         }
     } catch (error) {
         console.error('Failed to check status:', error);
-        statusBadge.textContent = 'Error';
-        statusBadge.className = 'status-badge status-error';
-        wasmStatus.textContent = 'Connection error';
+        setErrorState('Connection error');
     }
 }
 
@@ -77,9 +80,7 @@ async function executeCommand() {
 // Show status message
 function showStatus(message, type) {
     statusMessage.textContent = message;
-    statusMessage.className = type === 'success'
-        ? 'status-message-success'
-        : 'status-message-error';
+    statusMessage.className = type === 'success' ? 'status-message-success' : 'status-message-error';
     statusMessage.classList.remove('hidden');
 
     // Auto-hide after 3 seconds
