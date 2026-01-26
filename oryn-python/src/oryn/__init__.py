@@ -49,27 +49,9 @@ from .errors import (
     TimeoutError,
 )
 
-# Protocol types (for parsing observations)
-from .protocol import (
-    DetectedPatterns,
-    Element,
-    ElementState,
-    IntentAvailability,
-    LoginPattern,
-    ModalPattern,
-    PageInfo,
-    PaginationPattern,
-    Rect,
-    SearchPattern,
-)
-
 # Script runner
 from .script import parse_oil_file, run_oil_file_async, run_oil_file_sync
 from .sync import OrynClientSync
-
-# Types
-from .types import OrynObservation, OrynResult
-
 __all__ = [
     # Version
     "__version__",
@@ -78,20 +60,6 @@ __all__ = [
     "OrynClientSync",
     # Config
     "OrynConfig",
-    # Result types
-    "OrynObservation",
-    "OrynResult",
-    # Protocol types
-    "Element",
-    "ElementState",
-    "Rect",
-    "PageInfo",
-    "DetectedPatterns",
-    "LoginPattern",
-    "SearchPattern",
-    "PaginationPattern",
-    "ModalPattern",
-    "IntentAvailability",
     # Errors
     "OrynError",
     "BinaryNotFoundError",

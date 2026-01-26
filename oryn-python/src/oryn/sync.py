@@ -4,7 +4,7 @@ import asyncio
 from typing import Literal, Optional
 
 from .client import OrynClient
-from .types import OrynObservation, OrynResult
+from .client import OrynClient
 
 
 class OrynClientSync:
@@ -105,40 +105,13 @@ class OrynClientSync:
         """Check if client is connected to oryn."""
         return self._client.is_connected()
 
-    @property
-    def last_observation(self) -> Optional[OrynObservation]:
-        """Get the most recent observation."""
-        return self._client.last_observation
-
-    def execute(self, command: str) -> OrynResult:
+    def execute(self, command: str) -> str:
         """Execute an Intent Language command.
-
-        This is the primary method for interacting with Oryn. Commands are
-        passed through directly to the oryn backend without modification.
 
         Args:
             command: Intent Language command string
 
         Returns:
-            OrynResult with success status and raw response
-
-        Example:
-            ```python
-            client.execute('goto "https://example.com"')
-            client.execute('click "Sign In"')
-            client.execute('type email "user@example.com"')
-            client.execute('login "user" "pass"')
-            ```
+            The raw string response from Oryn.
         """
         return self._run(self._client.execute(command))
-
-    def observe(self, **options) -> OrynObservation:
-        """Execute 'observe' command and return structured observation.
-
-        Args:
-            **options: Options passed to observe command
-
-        Returns:
-            OrynObservation with parsed elements and patterns
-        """
-        return self._run(self._client.observe(**options))

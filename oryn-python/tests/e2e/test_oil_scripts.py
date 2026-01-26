@@ -22,6 +22,20 @@ OIL_SCRIPTS = [
 ]
 
 
+def is_success(response: str) -> bool:
+    """Check if a response string indicates success."""
+    lower = response.lower()
+    if lower.startswith("error:"):
+        return False
+    if "unknown command:" in lower:
+        return False
+    if "element not found" in lower:
+        return False
+    if "navigation failed" in lower:
+        return False
+    return True
+
+
 @pytest.mark.e2e
 @pytest.mark.oil
 class TestOilScripts:
@@ -41,8 +55,8 @@ class TestOilScripts:
         # Check results
         failures = []
         for cmd, result in results:
-            if not result.success:
-                failures.append(f"  {cmd}: {result.error or result.raw}")
+            if not is_success(result):
+                failures.append(f"  {cmd}: {result}")
 
         if failures:
             failure_msg = "\n".join(failures)
@@ -71,7 +85,7 @@ class TestOilScriptDetails:
         # Check for navigation success
         nav_results = [r for cmd, r in results if cmd.startswith("goto")]
         for result in nav_results:
-            assert result.success, f"Navigation failed: {result.raw}"
+            assert is_success(result), f"Navigation failed: {result}"
 
     def test_02_forms(self, client, scripts_dir):
         """Test form interactions."""
@@ -86,7 +100,7 @@ class TestOilScriptDetails:
         # Check type commands succeeded
         type_results = [r for cmd, r in results if cmd.startswith("type")]
         for result in type_results:
-            assert result.success, f"Type command failed: {result.raw}"
+            assert is_success(result), f"Type command failed: {result}"
 
     def test_03_ecommerce(self, client, scripts_dir):
         """Test e-commerce flow."""
@@ -166,7 +180,7 @@ def test_run_all_scripts_sequentially(client, scripts_dir):
             continue
 
         results = run_oil_file_sync(client, script_path)
-        failures = sum(1 for _, r in results if not r.success)
+        failures = sum(1 for _, r in results if not is_success(r))
 
         total_commands += len(results)
         total_failures += failures
