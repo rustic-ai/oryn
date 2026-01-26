@@ -1,4 +1,3 @@
-import time
 from typing import Callable, List, Optional
 
 from intentgym.agents.react import ReActAgent
@@ -20,6 +19,7 @@ class BenchmarkRunner:
 
         # Initialize Oryn
         self.oryn = OrynInterface(mode=config.oryn_mode, **config.oryn_options)
+        self.oryn.connect()
 
         self.llm: LLMProvider
         self.benchmark: Benchmark
@@ -33,6 +33,10 @@ class BenchmarkRunner:
             from .llm import MockLLMProvider
 
             self.llm = MockLLMProvider(model=config.llm.model, **config.llm.options)
+        elif config.llm.provider == "litellm":
+            from .llm import LiteLLMProvider
+
+            self.llm = LiteLLMProvider(model=config.llm.model, **config.llm.options)
         else:
             raise ValueError(f"Unknown LLM provider: {config.llm.provider}")
 

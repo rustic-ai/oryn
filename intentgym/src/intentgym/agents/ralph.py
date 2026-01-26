@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 
-from ..core.agent import Agent, AgentAction, AgentState, PromptTemplate
+from ..core.agent import Agent, AgentAction, AgentState
 from ..core.oryn import OrynObservation
 
 

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..core.agent import AgentAction, AgentState
 from ..core.oryn import OrynObservation
@@ -21,7 +21,7 @@ class GoogleADKAdapter(FrameworkAdapter):
     def step(self, state: AgentState, observation: OrynObservation) -> AgentAction:
         # 1. Convert OrynObservation to ADK native format if needed
         # For now, pass the raw observation string
-        adk_obs = observation.raw
+        # adk_obs = observation.raw
 
         # 2. Run Agent
         if self.agent:

@@ -16,12 +16,44 @@ pub fn format_response(resp: &ScannerProtocolResponse) -> String {
     match resp {
         ScannerProtocolResponse::Ok { data, .. } => match data.as_ref() {
             ScannerData::Scan(scan) => {
-                let mut output = format!(
-                    "Scanned {} elements.\nTitle: {}\nURL: {}",
-                    scan.elements.len(),
-                    scan.page.title,
-                    scan.page.url
-                );
+                let mut output = format!("@ {} \"{}\"\n", scan.page.url, scan.page.title);
+
+                for (i, el) in scan.elements.iter().enumerate() {
+                    // e.g. [1] input/email "Username" {required}
+                    let type_str = if let Some(role) = &el.role {
+                        format!("{}/{}", el.element_type, role)
+                    } else {
+                        el.element_type.clone()
+                    };
+
+                    let label = el.text.clone().or(el.label.clone()).unwrap_or_default();
+
+                    // Build state flags
+                    let mut flags = Vec::new();
+                    if el.state.checked {
+                        flags.push("checked");
+                    }
+                    if el.state.selected {
+                        flags.push("selected");
+                    }
+                    if el.state.disabled {
+                        flags.push("disabled");
+                    }
+                    if el.state.readonly {
+                        flags.push("readonly");
+                    }
+
+                    let flags_str = if flags.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {{{}}}", flags.join(", "))
+                    };
+
+                    output.push_str(&format!(
+                        "[{}] {} {:?}{}\n",
+                        el.id, type_str, label, flags_str
+                    ));
+                }
 
                 if let Some(patterns) = &scan.patterns {
                     let mut detected = Vec::new();
@@ -42,19 +74,10 @@ pub fn format_response(resp: &ScannerProtocolResponse) -> String {
                     }
 
                     if !detected.is_empty() {
-                        output.push_str("\n\nPatterns:");
+                        output.push_str("\nPatterns:");
                         for p in detected {
                             output.push_str(&format!("\n- {}", p));
                         }
-                    }
-                }
-
-                if let Some(intents) = &scan.available_intents
-                    && !intents.is_empty()
-                {
-                    output.push_str("\n\nAvailable Intents:");
-                    for intent in intents {
-                        output.push_str(&format!("\n- {} ({:?})", intent.name, intent.status));
                     }
                 }
 

@@ -52,6 +52,8 @@ from .errors import (
 # Script runner
 from .script import parse_oil_file, run_oil_file_async, run_oil_file_sync
 from .sync import OrynClientSync
+from .types import OrynObservation, OrynResult
+
 __all__ = [
     # Version
     "__version__",
@@ -76,4 +78,7 @@ __all__ = [
     "parse_oil_file",
     "run_oil_file_async",
     "run_oil_file_sync",
+    # Types
+    "OrynObservation",
+    "OrynResult",
 ]

@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import List, Tuple
 
 
-
 def parse_oil_file(path: str | Path) -> List[str]:
     """Parse an .oil file and return list of commands.
 

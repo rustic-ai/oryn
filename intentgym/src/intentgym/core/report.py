@@ -2,12 +2,12 @@ import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from rich.console import Console
 from rich.table import Table
 
-from ..collection.metrics import TaskMetrics, TurnMetrics
+from ..collection.metrics import TaskMetrics
 
 
 @dataclass

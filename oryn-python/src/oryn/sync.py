@@ -1,10 +1,12 @@
 """Synchronous wrapper for OrynClient."""
 
 import asyncio
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from .client import OrynClient
-from .client import OrynClient
+
+if TYPE_CHECKING:
+    from .types import OrynObservation
 
 
 class OrynClientSync:
@@ -115,3 +117,11 @@ class OrynClientSync:
             The raw string response from Oryn.
         """
         return self._run(self._client.execute(command))
+
+    def observe(self) -> "OrynObservation":
+        """Get structured observation of current page.
+
+        Returns:
+            OrynObservation object.
+        """
+        return self._run(self._client.observe())

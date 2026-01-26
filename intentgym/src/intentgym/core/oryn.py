@@ -159,7 +159,32 @@ class OrynInterface:
             return self._mock_observe(**options)
 
         start = time.time()
-        real_obs = self._client.observe(**options)
+
+        # Retry logic for unstable backend
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                real_obs = self._client.observe(**options)
+                break
+            except Exception as e:
+                if (
+                    "ConnectionLostError" in str(e)
+                    or "exit code" in str(e)
+                    or isinstance(e, (BrokenPipeError, ConnectionError))
+                ):
+                    if attempt < max_retries - 1:
+                        print(
+                            f"Oryn connection lost during observe. Reconnecting... (Attempt {attempt + 1}/{max_retries})"
+                        )
+                        try:
+                            self._client.close()
+                        except Exception:
+                            pass
+                        time.sleep(1)
+                        self._client.connect()
+                        continue
+                raise e
+
         obs = OrynObservation.from_real(real_obs)
         obs.latency_ms = (time.time() - start) * 1000
         return obs
@@ -187,10 +212,80 @@ class OrynInterface:
             return self._mock_execute(command)
 
         start = time.time()
-        real_result = self._client.execute(command)
+
+        # Retry logic for unstable backend
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                # _client.execute returns a raw string (or OrynResult if configured?)
+                # Current oryn-python returns str.
+                real_result = self._client.execute(command)
+                break
+            except Exception as e:
+                # Check for connection lost
+                if (
+                    "ConnectionLostError" in str(e)
+                    or "exit code" in str(e)
+                    or isinstance(e, (BrokenPipeError, ConnectionError))
+                ):
+                    if attempt < max_retries - 1:
+                        print(
+                            f"Oryn connection lost. Reconnecting... (Attempt {attempt + 1}/{max_retries})"
+                        )
+                        try:
+                            self._client.close()
+                        except Exception:
+                            pass
+                        time.sleep(1)
+                        self._client.connect()
+                        # If we were on a page, we might need to restore state?
+                        # Ideally the agent handles state, but for a simple crash we might lose the page.
+                        # For now, just retry the command.
+                        continue
+                raise e
+
+        duration = (time.time() - start) * 1000
+
+        # If real_result is string, wrap it
+        if isinstance(real_result, str):
+            success = not real_result.strip().lower().startswith("error")
+            return OrynResult(success=success, raw=real_result, latency_ms=duration)
+
+        # If it returned an object (future compatibility or if I change client)
         result = OrynResult.from_real(real_result)
-        result.latency_ms = (time.time() - start) * 1000
+        result.latency_ms = duration
         return result
+
+    # Convenience methods
+    def goto(self, url: str) -> OrynResult:
+        """Navigate to a URL."""
+        return self.execute(f'goto "{url}"')
+
+    def click(self, target: str | int) -> OrynResult:
+        """Click on an element."""
+        if isinstance(target, int):
+            return self.execute(f"click {target}")
+        return self.execute(f'click "{target}"')
+
+    def type(self, target: str | int, text: str) -> OrynResult:
+        """Type text into an element."""
+        if isinstance(target, int):
+            return self.execute(f'type {target} "{text}"')
+        return self.execute(f'type "{target}" "{text}"')
+
+    def select(self, target: str | int, value: str) -> OrynResult:
+        """Select an option in a dropdown."""
+        if isinstance(target, int):
+            return self.execute(f'select {target} "{value}"')
+        return self.execute(f'select "{target}" "{value}"')
+
+    def scroll(self, direction: str = "down") -> OrynResult:
+        """Scroll the page."""
+        return self.execute(f"scroll {direction}")
+
+    def wait(self, condition: str, timeout: int = 30) -> OrynResult:
+        """Wait for a condition."""
+        return self.execute(f'wait "{condition}" {timeout}')
 
     # Mock implementations
     def _mock_observe(self, **options) -> OrynObservation:

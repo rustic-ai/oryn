@@ -1,7 +1,11 @@
-from typing import Any, Dict, Optional, Tuple
+import json
+import logging
+from typing import Tuple
 
 from ..core.agent import Agent, AgentAction, AgentState
 from ..core.oryn import OrynObservation
+
+logger = logging.getLogger(__name__)
 
 
 class ReActAgent(Agent):
@@ -38,8 +42,14 @@ class ReActAgent(Agent):
         )
 
         # Get LLM response
+        if True:  # Force print
+            print(f"\n[DEBUG] LLM INPUT MESSAGES:\n{json.dumps(messages, indent=2)}")
+
         self.last_llm_response = self.llm.complete(messages)
         response = self.last_llm_response
+
+        if True:  # Force print
+            print(f"\n[DEBUG] LLM RAW RESPONSE:\n{response.content}")
 
         # Update state metrics
         state.total_input_tokens += response.input_tokens
@@ -74,8 +84,10 @@ class ReActAgent(Agent):
                 action_start = response.index("Action:") + 7
                 action = response[action_start:].strip().split("\n")[0]
             else:
-                # Fallback: if only one line and no Action:, treat as action if short, else fail
-                pass
+                # Fallback: if only one line and no Action:, treat as action if short
+                stripped = response.strip()
+                if len(stripped.splitlines()) == 1:
+                    action = stripped
 
         except Exception:
             # Fallback for parsing errors
