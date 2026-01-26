@@ -153,34 +153,42 @@ async function scanPage(tabId) {
 // Execute an action via scanner
 async function executeAction(tabId, action) {
     console.log('[Oryn-W] Executing action:', action);
-    console.log('[Oryn-W] Action type check - Scanner:', !!action.Scanner, 'Browser:', !!action.Browser, 'Session:', !!action.Session);
+    console.log('[Oryn-W] Action type:', action.action);
 
     try {
-        // Map action types to scanner commands
-        let scannerCommand;
+        // Action enum is #[serde(untagged)], so we get the flat structure
+        // Determine action category by the action field
+        const actionType = action.action;
 
-        if (action.Scanner) {
-            console.log('[Oryn-W] Detected Scanner action');
-            scannerCommand = action.Scanner;
-        } else if (action.Browser) {
+        // Browser actions: navigate, back, forward, refresh, screenshot, pdf, tab, frame, dialog, press
+        const browserActions = ['navigate', 'back', 'forward', 'refresh', 'screenshot', 'pdf', 'tab', 'frame', 'dialog', 'press'];
+
+        // Session actions: cookie, storage, headers, proxy
+        const sessionActions = ['cookie', 'storage', 'headers', 'proxy'];
+
+        // Meta actions: pack, intent, learn, config
+        const metaActions = ['pack', 'intent', 'learn', 'config'];
+
+        if (browserActions.includes(actionType)) {
             console.log('[Oryn-W] Detected Browser action');
-            return await executeBrowserAction(tabId, action.Browser);
-        } else if (action.Session) {
+            return await executeBrowserAction(tabId, action);
+        } else if (sessionActions.includes(actionType)) {
             console.log('[Oryn-W] Detected Session action');
-            return await executeSessionAction(tabId, action.Session);
+            return await executeSessionAction(tabId, action);
+        } else if (metaActions.includes(actionType)) {
+            console.log('[Oryn-W] Detected Meta action');
+            return { error: 'Meta actions not supported in extension mode' };
         } else {
-            console.error('[Oryn-W] Unsupported action type. Action object:', action);
-            return { error: 'Unsupported action type' };
+            // Scanner action - send directly to content script
+            console.log('[Oryn-W] Detected Scanner action');
+            const response = await chrome.tabs.sendMessage(tabId, action);
+
+            if (response.error) {
+                return { error: response.error };
+            }
+
+            return { success: true, result: response };
         }
-
-        // Send to scanner
-        const response = await chrome.tabs.sendMessage(tabId, scannerCommand);
-
-        if (response.error) {
-            return { error: response.error };
-        }
-
-        return { success: true, result: response };
     } catch (error) {
         console.error('[Oryn-W] Action execution error:', error);
         return { error: error.message };
@@ -188,75 +196,80 @@ async function executeAction(tabId, action) {
 }
 
 // Execute browser action (navigate, back, forward, etc.)
-async function executeBrowserAction(tabId, browserAction) {
-    console.log('[Oryn-W] Executing browser action:', browserAction);
-    console.log('[Oryn-W] Browser action type - Navigate:', !!browserAction.Navigate, 'Back:', !!browserAction.Back);
+async function executeBrowserAction(tabId, action) {
+    console.log('[Oryn-W] Executing browser action:', action);
 
-    if (browserAction.Navigate) {
-        const url = browserAction.Navigate.url;
-        console.log('[Oryn-W] Navigating to:', url);
-        await chrome.tabs.update(tabId, { url });
-        return { success: true, message: `Navigated to ${url}` };
+    switch (action.action) {
+        case 'navigate':
+            console.log('[Oryn-W] Navigating to:', action.url);
+            await chrome.tabs.update(tabId, { url: action.url });
+            return { success: true, message: `Navigated to ${action.url}` };
+
+        case 'back':
+            await chrome.tabs.goBack(tabId);
+            return { success: true, message: 'Navigated back' };
+
+        case 'forward':
+            await chrome.tabs.goForward(tabId);
+            return { success: true, message: 'Navigated forward' };
+
+        case 'refresh':
+            await chrome.tabs.reload(tabId);
+            return { success: true, message: 'Page refreshed' };
+
+        case 'screenshot':
+            const dataUrl = await chrome.tabs.captureVisibleTab();
+            return { success: true, data: dataUrl };
+
+        default:
+            return { error: `Unsupported browser action: ${action.action}` };
     }
-    if (browserAction.Back) {
-        await chrome.tabs.goBack(tabId);
-        return { success: true, message: 'Navigated back' };
-    }
-    if (browserAction.Forward) {
-        await chrome.tabs.goForward(tabId);
-        return { success: true, message: 'Navigated forward' };
-    }
-    if (browserAction.Refresh) {
-        await chrome.tabs.reload(tabId);
-        return { success: true, message: 'Page refreshed' };
-    }
-    if (browserAction.Screenshot) {
-        const dataUrl = await chrome.tabs.captureVisibleTab();
-        return { success: true, data: dataUrl };
-    }
-    return { error: 'Unsupported browser action' };
 }
 
 // Execute session action (cookies, etc.)
-async function executeSessionAction(tabId, sessionAction) {
-    if (!sessionAction.Cookie) {
-        return { error: 'Unsupported session action' };
-    }
+async function executeSessionAction(tabId, action) {
+    console.log('[Oryn-W] Executing session action:', action);
 
-    const cookieAction = sessionAction.Cookie;
     const tab = await chrome.tabs.get(tabId);
     const tabUrl = tab.url;
 
-    switch (cookieAction.action) {
-        case 'list': {
-            const cookies = await chrome.cookies.getAll({ url: tabUrl });
-            return { success: true, cookies };
+    // SessionAction uses action field, but CookieRequest also has action field
+    // So we get a flat structure with action being the cookie operation
+    if (action.action) {
+        // This is a cookie action
+        switch (action.action) {
+            case 'list': {
+                const cookies = await chrome.cookies.getAll({ url: tabUrl });
+                return { success: true, cookies };
+            }
+            case 'get': {
+                const cookie = await chrome.cookies.get({
+                    url: tabUrl,
+                    name: action.name,
+                });
+                return { success: true, cookie };
+            }
+            case 'set': {
+                await chrome.cookies.set({
+                    url: tabUrl,
+                    name: action.name,
+                    value: action.value,
+                });
+                return { success: true, message: 'Cookie set' };
+            }
+            case 'delete': {
+                await chrome.cookies.remove({
+                    url: tabUrl,
+                    name: action.name,
+                });
+                return { success: true, message: 'Cookie deleted' };
+            }
+            default:
+                return { error: `Unsupported cookie action: ${action.action}` };
         }
-        case 'get': {
-            const cookie = await chrome.cookies.get({
-                url: tabUrl,
-                name: cookieAction.name,
-            });
-            return { success: true, cookie };
-        }
-        case 'set': {
-            await chrome.cookies.set({
-                url: tabUrl,
-                name: cookieAction.name,
-                value: cookieAction.value,
-            });
-            return { success: true, message: 'Cookie set' };
-        }
-        case 'delete': {
-            await chrome.cookies.remove({
-                url: tabUrl,
-                name: cookieAction.name,
-            });
-            return { success: true, message: 'Cookie deleted' };
-        }
-        default:
-            return { error: 'Unsupported cookie action' };
     }
+
+    return { error: 'Unsupported session action' };
 }
 
 console.log('[Oryn-W] Background service worker loaded');
