@@ -6,13 +6,16 @@ Oryn-W is a standalone browser extension that executes OIL (Oryn Intent Language
 
 ```bash
 # Build WASM module
-./scripts/build-wasm.sh
+cd ../crates/oryn-core
+wasm-pack build --target web --out-dir ../../extension-w/wasm --release
 
-# Launch Chromium with extension
-./scripts/launch-chromium-w.sh
+# Launch Chrome with extension
+cd ../../extension-w
+./launch-dev.sh  # Linux/macOS
+# OR launch-dev.bat on Windows
 ```
 
-See [LAUNCH.md](LAUNCH.md) for detailed usage instructions.
+See [LAUNCH_README.md](LAUNCH_README.md) for usage instructions and [DEV_GUIDE.md](DEV_GUIDE.md) for development workflow.
 
 ## Key Features
 
