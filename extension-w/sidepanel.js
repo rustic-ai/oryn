@@ -1,109 +1,201 @@
-// Sidepanel for Oryn-W extension
+// Sidepanel for Oryn-W extension - Chat/Command Interface
 
-const logContainer = document.getElementById('log-container');
+const chatContainer = document.getElementById('chat-container');
+const emptyState = document.getElementById('empty-state');
+const commandInput = document.getElementById('command-input');
+const btnExecute = document.getElementById('btn-execute');
 const btnClear = document.getElementById('btn-clear');
-const wasmStatus = document.getElementById('wasm-status');
-const scanStatus = document.getElementById('scan-status');
+const wasmBadge = document.getElementById('wasm-badge');
+const scanBadge = document.getElementById('scan-badge');
 
-// Log storage
-const logs = [];
-const MAX_LOGS = 500;
+// Message storage
+const messages = [];
+const MAX_MESSAGES = 100;
 
-// Add log entry
-function addLog(message, type = 'info') {
+// Add message to chat
+function addMessage(text, type = 'system') {
     const timestamp = new Date().toLocaleTimeString();
 
-    logs.push({ timestamp, message, type });
+    messages.push({ text, type, timestamp });
 
-    // Trim logs if too many
-    if (logs.length > MAX_LOGS) {
-        logs.shift();
+    // Trim messages if too many
+    if (messages.length > MAX_MESSAGES) {
+        messages.shift();
     }
 
-    renderLogs();
+    renderMessages();
 }
 
-// Create a log entry element
-function createLogEntry(log) {
-    const entry = document.createElement('div');
-    entry.className = `log-entry log-${log.type}`;
+// Create a message element
+function createMessageElement(msg) {
+    const message = document.createElement('div');
+    message.className = `message message-${msg.type}`;
 
-    const time = document.createElement('span');
-    time.className = 'log-time';
-    time.textContent = log.timestamp;
+    const text = document.createElement('div');
+    text.textContent = msg.text;
 
-    const msg = document.createElement('span');
-    msg.className = 'log-msg';
-    msg.textContent = log.message;
+    const time = document.createElement('div');
+    time.className = 'message-time';
+    time.textContent = msg.timestamp;
 
-    entry.appendChild(time);
-    entry.appendChild(msg);
-    return entry;
+    message.appendChild(text);
+    message.appendChild(time);
+
+    return message;
 }
 
-// Render logs
-function renderLogs() {
-    logContainer.innerHTML = '';
-    logs.forEach(log => logContainer.appendChild(createLogEntry(log)));
-    logContainer.scrollTop = logContainer.scrollHeight;
+// Render all messages
+function renderMessages() {
+    // Hide empty state if there are messages
+    if (messages.length > 0) {
+        emptyState.style.display = 'none';
+    } else {
+        emptyState.style.display = 'flex';
+    }
+
+    // Clear existing messages (except empty state)
+    const existingMessages = chatContainer.querySelectorAll('.message');
+    existingMessages.forEach(msg => msg.remove());
+
+    // Add all messages
+    messages.forEach(msg => {
+        chatContainer.appendChild(createMessageElement(msg));
+    });
+
+    // Scroll to bottom
+    chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
-// Clear logs
-function clearLogs() {
-    logs.length = 0;
-    renderLogs();
+// Clear all messages
+function clearMessages() {
+    messages.length = 0;
+    renderMessages();
 }
 
-// Set status element state
-function setStatusElement(element, isReady, readyText, notReadyText) {
-    element.textContent = isReady ? readyText : notReadyText;
-    element.className = isReady ? 'status-value ready' : 'status-value';
-}
-
-// Update status
+// Update status badges
 async function updateStatus() {
     try {
         const response = await chrome.runtime.sendMessage({ type: 'get_status' });
 
-        setStatusElement(wasmStatus, response.wasmInitialized, 'Ready', 'Error');
-        if (!response.wasmInitialized) {
-            wasmStatus.className = 'status-value error';
+        // Update WASM badge
+        if (response.wasmInitialized) {
+            wasmBadge.textContent = 'WASM: Ready';
+            wasmBadge.className = 'status-badge ready';
+            commandInput.disabled = false;
+            btnExecute.disabled = false;
+        } else {
+            wasmBadge.textContent = 'WASM: Error';
+            wasmBadge.className = 'status-badge error';
+            commandInput.disabled = true;
+            btnExecute.disabled = true;
         }
 
-        setStatusElement(scanStatus, response.hasScan, 'Loaded', 'Not loaded');
+        // Update scan badge
+        if (response.hasScan) {
+            scanBadge.textContent = 'Scan: Loaded';
+            scanBadge.className = 'status-badge ready';
+        } else {
+            scanBadge.textContent = 'Scan: Not loaded';
+            scanBadge.className = 'status-badge idle';
+        }
     } catch (error) {
-        wasmStatus.textContent = 'Error';
-        wasmStatus.className = 'status-value error';
-        addLog(`Failed to update status: ${error.message}`, 'error');
+        console.error('Failed to update status:', error);
+        wasmBadge.textContent = 'WASM: Error';
+        wasmBadge.className = 'status-badge error';
+        commandInput.disabled = true;
+        btnExecute.disabled = true;
     }
 }
 
-// Listen for console messages from background
+// Execute command
+async function executeCommand() {
+    const command = commandInput.value.trim();
+    if (!command) {
+        return;
+    }
+
+    // Disable input during execution
+    commandInput.disabled = true;
+    btnExecute.disabled = true;
+    btnExecute.textContent = 'Executing...';
+
+    // Add user message
+    addMessage(command, 'user');
+
+    // Clear input
+    commandInput.value = '';
+
+    try {
+        // Get active tab
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tabs[0]) {
+            addMessage('No active tab found', 'error');
+            return;
+        }
+
+        // Send command to background
+        const response = await chrome.runtime.sendMessage({
+            type: 'execute_oil',
+            oil: command,
+            tabId: tabs[0].id,
+        });
+
+        // Display result
+        if (response.error) {
+            addMessage(`Error: ${response.error}`, 'error');
+        } else if (response.success) {
+            const resultMsg = response.message || 'Command executed successfully';
+            addMessage(resultMsg, 'success');
+        } else {
+            addMessage('Unexpected response from background script', 'error');
+        }
+
+        // Update scan status
+        await updateStatus();
+    } catch (error) {
+        console.error('Command execution error:', error);
+        addMessage(`Error: ${error.message}`, 'error');
+    } finally {
+        // Re-enable input
+        commandInput.disabled = false;
+        btnExecute.disabled = false;
+        btnExecute.textContent = 'Execute';
+        commandInput.focus();
+    }
+}
+
+// Auto-resize textarea
+commandInput.addEventListener('input', () => {
+    commandInput.style.height = 'auto';
+    commandInput.style.height = Math.min(commandInput.scrollHeight, 120) + 'px';
+});
+
+// Handle Enter key (Shift+Enter for newline, Enter to execute)
+commandInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        executeCommand();
+    }
+});
+
+// Event listeners
+btnExecute.addEventListener('click', executeCommand);
+btnClear.addEventListener('click', clearMessages);
+
+// Listen for messages from background script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'log') {
-        addLog(request.message, request.level || 'info');
+        addMessage(request.message, request.level || 'system');
     }
     sendResponse({ ok: true });
 });
 
-// Event listeners
-btnClear.addEventListener('click', clearLogs);
-
 // Initialize
-addLog('[Oryn-W] Sidepanel initialized', 'info');
+console.log('[Oryn-W] Sidepanel initialized');
 updateStatus();
 
 // Update status periodically
 setInterval(updateStatus, 2000);
 
-// Intercept console logs (for debugging)
-function wrapConsoleMethod(method, type) {
-    const original = console[method];
-    console[method] = function (...args) {
-        original.apply(console, args);
-        addLog(args.join(' '), type);
-    };
-}
-
-wrapConsoleMethod('log', 'info');
-wrapConsoleMethod('error', 'error');
+// Focus input on load
+commandInput.focus();

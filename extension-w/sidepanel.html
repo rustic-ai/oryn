@@ -2,137 +2,257 @@
 <html>
 
 <head>
-    <title>Oryn-W Logs</title>
+    <title>Oryn-W</title>
     <style>
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: monospace;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             padding: 0;
             margin: 0;
-            background-color: #f8f9fa;
+            background-color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
         }
 
         .header {
-            padding: 10px;
+            padding: 12px 16px;
             background: #fff;
-            border-bottom: 1px solid #ddd;
-            position: sticky;
-            top: 0;
+            border-bottom: 1px solid #e0e0e0;
+            flex-shrink: 0;
+        }
+
+        .header-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #212121;
+            margin: 0 0 8px 0;
+        }
+
+        .status-badges {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            gap: 8px;
         }
 
-        h2 {
-            margin: 0;
-            font-size: 14px;
-            color: #333;
-        }
-
-        button {
-            padding: 4px 8px;
-            font-size: 12px;
-            cursor: pointer;
-            background: #fff;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-
-        button:hover {
-            background: #f0f0f0;
-        }
-
-        .status-section {
-            padding: 10px;
-            background: white;
-            border-bottom: 1px solid #ddd;
-            font-size: 12px;
-        }
-
-        .status-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 4px 0;
-        }
-
-        .status-label {
-            color: #666;
-        }
-
-        .status-value {
-            color: #333;
+        .status-badge {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 12px;
             font-weight: 500;
         }
 
-        .status-value.ready {
-            color: #388E3C;
+        .status-badge.ready {
+            background: #E8F5E9;
+            color: #2E7D32;
         }
 
-        .status-value.error {
-            color: #D32F2F;
+        .status-badge.error {
+            background: #FFEBEE;
+            color: #C62828;
         }
 
-        #log-container {
-            padding: 10px;
-            font-size: 12px;
-            line-height: 1.4;
+        .status-badge.idle {
+            background: #E0E0E0;
+            color: #616161;
+        }
+
+        .chat-container {
+            flex: 1;
             overflow-y: auto;
-            height: calc(100vh - 120px);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
 
-        .log-entry {
-            margin-bottom: 4px;
-            padding: 4px;
-            border-radius: 2px;
-            word-break: break-all;
+        .message {
+            max-width: 85%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 14px;
+            line-height: 1.4;
+            word-wrap: break-word;
         }
 
-        .log-entry:hover {
-            background: #eee;
+        .message-user {
+            align-self: flex-end;
+            background: #2196F3;
+            color: white;
         }
 
-        .log-time {
-            color: #888;
-            margin-right: 5px;
-            font-size: 10px;
+        .message-system {
+            align-self: flex-start;
+            background: white;
+            color: #212121;
+            border: 1px solid #E0E0E0;
         }
 
-        .log-msg {
-            color: #333;
+        .message-error {
+            align-self: flex-start;
+            background: #FFEBEE;
+            color: #C62828;
+            border: 1px solid #FFCDD2;
         }
 
-        .log-error {
-            color: #d32f2f;
-            background: #ffebee;
+        .message-success {
+            align-self: flex-start;
+            background: #E8F5E9;
+            color: #2E7D32;
+            border: 1px solid #C8E6C9;
         }
 
-        .log-info {
-            color: #1976D2;
+        .message-time {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 4px;
         }
 
-        .log-success {
-            color: #388E3C;
+        .input-container {
+            padding: 12px 16px;
+            background: #fff;
+            border-top: 1px solid #e0e0e0;
+            flex-shrink: 0;
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        #command-input {
+            flex: 1;
+            padding: 10px 12px;
+            border: 1px solid #E0E0E0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            resize: none;
+            max-height: 120px;
+            min-height: 40px;
+        }
+
+        #command-input:focus {
+            outline: none;
+            border-color: #2196F3;
+        }
+
+        #command-input:disabled {
+            background: #f5f5f5;
+            color: #9e9e9e;
+        }
+
+        #btn-execute {
+            padding: 10px 20px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        #btn-execute:hover:not(:disabled) {
+            background: #1976D2;
+        }
+
+        #btn-execute:disabled {
+            background: #BDBDBD;
+            cursor: not-allowed;
+        }
+
+        #btn-clear {
+            padding: 6px 12px;
+            background: #fff;
+            color: #757575;
+            border: 1px solid #E0E0E0;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-left: auto;
+        }
+
+        #btn-clear:hover {
+            background: #f5f5f5;
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #9e9e9e;
+            text-align: center;
+            padding: 32px;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .empty-state-title {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .empty-state-subtitle {
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .example-command {
+            font-family: 'Consolas', 'Monaco', monospace;
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
         }
     </style>
 </head>
 
 <body>
     <div class="header">
-        <h2>Oryn-W Logs</h2>
-        <button id="btn-clear">Clear</button>
-    </div>
-
-    <div class="status-section">
-        <div class="status-item">
-            <span class="status-label">WASM Engine:</span>
-            <span id="wasm-status" class="status-value">Loading...</span>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <h1 class="header-title">Oryn-W</h1>
+            <button id="btn-clear">Clear History</button>
         </div>
-        <div class="status-item">
-            <span class="status-label">Scan:</span>
-            <span id="scan-status" class="status-value">Not loaded</span>
+        <div class="status-badges">
+            <span id="wasm-badge" class="status-badge idle">WASM: Loading...</span>
+            <span id="scan-badge" class="status-badge idle">Scan: Not loaded</span>
         </div>
     </div>
 
-    <div id="log-container"></div>
+    <div class="chat-container" id="chat-container">
+        <div class="empty-state" id="empty-state">
+            <div class="empty-state-icon">💬</div>
+            <div class="empty-state-title">Welcome to Oryn-W</div>
+            <div class="empty-state-subtitle">
+                Enter commands below to interact with the page.<br>
+                Try: <span class="example-command">goto google.com</span> or <span class="example-command">observe</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="input-container">
+        <div class="input-wrapper">
+            <textarea
+                id="command-input"
+                placeholder="Enter command (e.g., goto google.com)"
+                rows="1"
+            ></textarea>
+            <button id="btn-execute">Execute</button>
+        </div>
+    </div>
+
     <script src="sidepanel.js"></script>
 </body>
 
