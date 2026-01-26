@@ -4,7 +4,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-EXTENSION_DIR="$SCRIPT_DIR"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+EXTENSION_DIR="$PROJECT_ROOT/extension-w"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -20,7 +21,9 @@ if [ ! -f "$EXTENSION_DIR/wasm/oryn_core_bg.wasm" ]; then
     echo -e "${RED}ERROR: WASM module not found!${NC}"
     echo ""
     echo "Please build the WASM module first:"
-    echo "  cd ../crates/oryn-core"
+    echo "  ./scripts/build-wasm.sh"
+    echo "Or manually:"
+    echo "  cd crates/oryn-core"
     echo "  wasm-pack build --target web --out-dir ../../extension-w/wasm --release"
     echo ""
     exit 1
