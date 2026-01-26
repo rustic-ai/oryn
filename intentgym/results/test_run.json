@@ -1,6 +1,6 @@
 {
   "run_id": "test_run",
-  "timestamp": "2026-01-20T09:34:17.923125",
+  "timestamp": "2026-01-26T05:45:36.448265",
   "config": {
     "run_id": "test_run",
     "seed": 42,
@@ -31,9 +31,9 @@
     "success_rate": 1.0,
     "mean_steps": 1.0,
     "mean_cost_usd": 0.001,
-    "mean_duration_s": 4.1961669921875e-05,
+    "mean_duration_s": 3.886222839355469e-05,
     "total_cost_usd": 0.001,
-    "total_duration_s": 4.1961669921875e-05
+    "total_duration_s": 3.886222839355469e-05
   },
   "tasks": [
     {
@@ -69,14 +69,14 @@
       "total_output_tokens": 20,
       "total_observation_tokens": 10,
       "total_cost_usd": 0.001,
-      "total_duration_ms": 0.041961669921875,
+      "total_duration_ms": 0.03886222839355469,
       "observation_ratio": 0.1,
       "peak_context_tokens": 100,
       "failed_actions": 0,
       "turns": [
         {
           "turn_number": 1,
-          "timestamp": 1768901657.9216905,
+          "timestamp": 1769406336.4452364,
           "observation_tokens": 10,
           "history_tokens": 0,
           "system_tokens": 38,
@@ -84,8 +84,8 @@
           "total_input_tokens": 100,
           "output_tokens": 20,
           "llm_latency_ms": 50.0,
-          "oryn_observe_latency_ms": 0.0021457672119140625,
-          "oryn_action_latency_ms": 0.0016689300537109375,
+          "oryn_observe_latency_ms": 0.0019073486328125,
+          "oryn_action_latency_ms": 0.0021457672119140625,
           "cost_usd": 0.001,
           "action_command": "observe",
           "action_success": true,

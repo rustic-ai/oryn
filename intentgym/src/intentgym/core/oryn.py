@@ -192,6 +192,37 @@ class OrynInterface:
         result.latency_ms = (time.time() - start) * 1000
         return result
 
+    # Convenience methods
+    def goto(self, url: str) -> OrynResult:
+        """Navigate to a URL."""
+        return self.execute(f'goto "{url}"')
+
+    def click(self, target: str | int) -> OrynResult:
+        """Click on an element."""
+        if isinstance(target, int):
+            return self.execute(f"click {target}")
+        return self.execute(f'click "{target}"')
+
+    def type(self, target: str | int, text: str) -> OrynResult:
+        """Type text into an element."""
+        if isinstance(target, int):
+            return self.execute(f'type {target} "{text}"')
+        return self.execute(f'type "{target}" "{text}"')
+
+    def select(self, target: str | int, value: str) -> OrynResult:
+        """Select an option in a dropdown."""
+        if isinstance(target, int):
+            return self.execute(f'select {target} "{value}"')
+        return self.execute(f'select "{target}" "{value}"')
+
+    def scroll(self, direction: str = "down") -> OrynResult:
+        """Scroll the page."""
+        return self.execute(f"scroll {direction}")
+
+    def wait(self, condition: str, timeout: int = 30) -> OrynResult:
+        """Wait for a condition."""
+        return self.execute(f'wait "{condition}" {timeout}')
+
     # Mock implementations
     def _mock_observe(self, **options) -> OrynObservation:
         """Mock observe implementation."""
