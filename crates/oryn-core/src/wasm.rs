@@ -1,5 +1,5 @@
-use wasm_bindgen::prelude::*;
 use oryn_common::protocol::ScanResult;
+use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub struct OrynCore {
@@ -26,7 +26,9 @@ impl OrynCore {
     /// Process an OIL command and return the resulting action as JSON
     #[wasm_bindgen(js_name = processCommand)]
     pub fn process_command(&self, oil: &str) -> Result<String, JsValue> {
-        let scan = self.scan.as_ref()
+        let scan = self
+            .scan
+            .as_ref()
             .ok_or_else(|| JsValue::from_str("No scan loaded. Call updateScan() first."))?;
 
         let result = crate::api::process_command(oil, scan)

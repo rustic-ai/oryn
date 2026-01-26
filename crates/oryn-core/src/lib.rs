@@ -2,8 +2,8 @@ pub mod api;
 pub mod ast;
 pub mod normalizer;
 pub mod parser;
-pub mod translator;
 pub mod resolution;
+pub mod translator;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;

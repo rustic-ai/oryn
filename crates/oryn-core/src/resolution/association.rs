@@ -5,9 +5,9 @@
 //! strategies to find the associated form control when the resolved element doesn't satisfy
 //! the command's requirement.
 
-use crate::resolution::context::{ResolutionContext, is_inside};
-use crate::resolution::validation::validate_requirement;
+use crate::resolution::context::{is_inside, ResolutionContext};
 use crate::resolution::requirement::TargetRequirement;
+use crate::resolution::validation::validate_requirement;
 use oryn_common::protocol::Rect;
 
 /// Result of attempting to find an associated control.

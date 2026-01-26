@@ -1,8 +1,8 @@
-use crate::resolution::{
-    AssociationResult, CommandMeta, ResolutionContext, TargetRequirement,
-    find_associated_control, get_inference_rules, is_actionable_label, validate_requirement,
-};
 use crate::resolution::result::ResolutionError;
+use crate::resolution::{
+    AssociationResult, CommandMeta, ResolutionContext, TargetRequirement, find_associated_control,
+    get_inference_rules, is_actionable_label, validate_requirement,
+};
 
 use crate::backend::Backend;
 use oryn_common::protocol::{

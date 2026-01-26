@@ -1,4 +1,4 @@
-use super::{ContainerType, ResolutionContext, TargetRequirement, is_inside};
+use super::{is_inside, ContainerType, ResolutionContext, TargetRequirement};
 use oryn_common::protocol::Element;
 use oryn_common::resolver::Target;
 

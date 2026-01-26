@@ -1,5 +1,5 @@
-use super::{ResolutionContext, TargetRequirement};
 use super::requirement::ContainerType;
+use super::{ResolutionContext, TargetRequirement};
 
 /// Check if an element satisfies a requirement.
 pub fn validate_requirement(
