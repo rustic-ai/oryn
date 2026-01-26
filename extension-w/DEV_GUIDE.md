@@ -13,14 +13,12 @@ wasm-pack build --target web --out-dir ../../extension-w/wasm --release
 
 **Linux/macOS:**
 ```bash
-cd extension-w
-./launch-dev.sh
+./scripts/launch-chromium-w.sh
 ```
 
 **Windows:**
 ```cmd
-cd extension-w
-launch-dev.bat
+scripts\launch-chromium-w.bat
 ```
 
 ## What the Launch Scripts Do

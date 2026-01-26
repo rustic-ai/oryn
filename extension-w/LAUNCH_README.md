@@ -6,24 +6,24 @@
 
 ```bash
 # 1. Build WASM module (one time, or after Rust changes)
-cd ../crates/oryn-core
+cd crates/oryn-core
 wasm-pack build --target web --out-dir ../../extension-w/wasm --release
 
 # 2. Launch Chrome with extension
-cd ../../extension-w
-./launch-dev.sh
+cd ../..
+./scripts/launch-chromium-w.sh
 ```
 
 ### Windows
 
 ```cmd
 REM 1. Build WASM module (one time, or after Rust changes)
-cd ..\crates\oryn-core
+cd crates\oryn-core
 wasm-pack build --target web --out-dir ..\..\extension-w\wasm --release
 
 REM 2. Launch Chrome with extension
-cd ..\..\extension-w
-launch-dev.bat
+cd ..\..
+scripts\launch-chromium-w.bat
 ```
 
 ## What It Does
@@ -107,10 +107,10 @@ wasm-pack build --target web --out-dir ../../extension-w/wasm --release
 
 ## Files
 
-- **`launch-dev.sh`** - Linux/macOS launch script
-- **`launch-dev.bat`** - Windows launch script
-- **`DEV_GUIDE.md`** - Comprehensive development guide
-- **`LAUNCH_README.md`** - This file
+- **`scripts/launch-chromium-w.sh`** - Linux/macOS launch script
+- **`scripts/launch-chromium-w.bat`** - Windows launch script
+- **`extension-w/DEV_GUIDE.md`** - Comprehensive development guide
+- **`extension-w/LAUNCH_README.md`** - This file
 
 ## Next Steps
 
