@@ -1,6 +1,6 @@
-from typing import List, Optional
+from typing import List
 
-from ..core.agent import Agent, AgentAction, AgentState, PromptTemplate
+from ..core.agent import Agent, AgentAction, AgentState
 from ..core.oryn import OrynObservation, OrynResult
 
 
