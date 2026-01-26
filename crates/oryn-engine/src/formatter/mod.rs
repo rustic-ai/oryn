@@ -18,7 +18,7 @@ pub fn format_response(resp: &ScannerProtocolResponse) -> String {
             ScannerData::Scan(scan) => {
                 let mut output = format!("@ {} \"{}\"\n", scan.page.url, scan.page.title);
 
-                for (i, el) in scan.elements.iter().enumerate() {
+                for el in &scan.elements {
                     // e.g. [1] input/email "Username" {required}
                     let type_str = if let Some(role) = &el.role {
                         format!("{}/{}", el.element_type, role)

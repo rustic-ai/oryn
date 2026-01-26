@@ -25,6 +25,7 @@ class OrynConfig:
     driver_url: str | None = None
     port: int = 9001
     env: dict[str, str] = field(default_factory=dict)
+    log_file: str | None = None
 
     def get_cli_args(self) -> list[str]:
         """Generate CLI arguments for oryn binary."""

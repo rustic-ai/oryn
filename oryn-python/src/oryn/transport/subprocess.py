@@ -30,6 +30,7 @@ class SubprocessTransport(Transport):
         self._reader_task: Optional[asyncio.Task] = None
         self._response_queue: asyncio.Queue[str] = asyncio.Queue()
         self._lock = asyncio.Lock()
+        self._log_file_handle = None
 
     async def connect(self) -> None:
         """Launch oryn subprocess and establish connection."""
@@ -43,17 +44,33 @@ class SubprocessTransport(Transport):
         env = os.environ.copy()
         env.update(self._config.env)
 
+        # Prepare stderr redirection
+        stderr = asyncio.subprocess.PIPE
+        if self._config.log_file:
+            try:
+                self._log_file_handle = open(self._config.log_file, "a")
+                stderr = self._log_file_handle
+            except Exception:
+                # Fallback to PIPE if file opening fails
+                pass
+
         try:
             self._process = await asyncio.create_subprocess_exec(
                 *args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=stderr,
                 env=env,
             )
         except FileNotFoundError as e:
+            if self._log_file_handle:
+                self._log_file_handle.close()
+                self._log_file_handle = None
             raise LaunchError(f"Failed to launch oryn: {e}")
         except PermissionError as e:
+            if self._log_file_handle:
+                self._log_file_handle.close()
+                self._log_file_handle = None
             raise LaunchError(f"Permission denied launching oryn: {e}")
 
         # Wait for the initial prompt/ready message
@@ -189,6 +206,13 @@ class SubprocessTransport(Transport):
                 pass
 
             await self._kill_process()
+
+        if self._log_file_handle:
+            try:
+                self._log_file_handle.close()
+            except Exception:
+                pass
+            self._log_file_handle = None
 
     async def _kill_process(self) -> None:
         """Force kill the subprocess."""

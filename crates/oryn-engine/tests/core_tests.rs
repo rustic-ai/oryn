@@ -120,7 +120,7 @@ fn test_formatter_scan_scanresult() {
     };
 
     let output = formatter::format_response(&resp);
-    
+
     // Check for OIL format
     assert!(output.contains("@ https://example.com \"Example Domain\""));
     assert!(output.contains("[1] button/button \"Submit\""));

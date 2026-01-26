@@ -3,7 +3,7 @@ use oryn_e::backend::EmbeddedBackend;
 use oryn_engine::backend::Backend;
 use oryn_h::backend::HeadlessBackend;
 use oryn_r::backend::RemoteBackend;
-use std::process::exit;
+// use std::process::exit;
 
 mod repl;
 
@@ -37,9 +37,11 @@ enum Mode {
 }
 
 #[tokio::main]
-async fn main() {
-    // Initialize logging if not already done by env logger
-    tracing_subscriber::fmt::init();
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging to stderr to avoid polluting stdout (used for IPC)
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
 
     let args = Args::parse();
 
@@ -52,19 +54,21 @@ async fn main() {
         Mode::Remote { port } => Box::new(RemoteBackend::new(port)),
     };
 
-    let mut backend_ptr = backend;
-    if let Err(e) = backend_ptr.launch().await {
+    let mut backend = backend;
+    if let Err(e) = backend.launch().await {
         eprintln!("Failed to launch backend: {}", e);
-        exit(1);
+        return Err(e.into());
     }
 
     if let Some(file_path) = args.file {
-        if let Err(e) = repl::run_file(backend_ptr, &file_path).await {
+        if let Err(e) = repl::run_file(backend, &file_path).await {
             eprintln!("Error executing file {}: {}", file_path, e);
-            exit(1);
+            return Err(e.into());
         }
-    } else if let Err(e) = repl::run_repl(backend_ptr).await {
+    } else if let Err(e) = repl::run_repl(backend).await {
         eprintln!("Error during session: {}", e);
-        exit(1);
+        return Err(e.into());
     }
+
+    Ok(())
 }

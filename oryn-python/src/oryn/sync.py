@@ -36,6 +36,7 @@ class OrynClientSync:
         driver_url: str | None = None,
         port: int = 9001,
         env: dict[str, str] | None = None,
+        log_file: str | None = None,
     ):
         """Initialize OrynClientSync.
 
@@ -56,6 +57,7 @@ class OrynClientSync:
             driver_url=driver_url,
             port=port,
             env=env,
+            log_file=log_file,
         )
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._owns_loop = False

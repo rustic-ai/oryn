@@ -17,7 +17,7 @@ try:
     from oryn import OrynClientSync as _OrynClientSync
     from oryn import OrynObservation as _RealObservation
     from oryn import OrynResult as _RealResult
-    from oryn import BinaryNotFoundError
+    from oryn import BinaryNotFoundError, ConnectionLostError
 
     _HAS_ORYN = True
 except ImportError:
@@ -26,6 +26,7 @@ except ImportError:
     _RealObservation = None
     _RealResult = None
     BinaryNotFoundError = Exception
+    ConnectionLostError = Exception
 
 
 @dataclass
@@ -159,31 +160,10 @@ class OrynInterface:
             return self._mock_observe(**options)
 
         start = time.time()
-
-        # Retry logic for unstable backend
-        max_retries = 2
-        for attempt in range(max_retries):
-            try:
-                real_obs = self._client.observe(**options)
-                break
-            except Exception as e:
-                if (
-                    "ConnectionLostError" in str(e)
-                    or "exit code" in str(e)
-                    or isinstance(e, (BrokenPipeError, ConnectionError))
-                ):
-                    if attempt < max_retries - 1:
-                        print(
-                            f"Oryn connection lost during observe. Reconnecting... (Attempt {attempt + 1}/{max_retries})"
-                        )
-                        try:
-                            self._client.close()
-                        except Exception:
-                            pass
-                        time.sleep(1)
-                        self._client.connect()
-                        continue
-                raise e
+        real_obs = self._client.observe(**options)
+        # Check for fatal backend errors in the raw response
+        if real_obs.raw and ("webdriver connection lost" in real_obs.raw or "WebDriver session has been closed" in real_obs.raw):
+            raise ConnectionLostError(None)
 
         obs = OrynObservation.from_real(real_obs)
         obs.latency_ms = (time.time() - start) * 1000
@@ -213,36 +193,14 @@ class OrynInterface:
 
         start = time.time()
 
-        # Retry logic for unstable backend
-        max_retries = 2
-        for attempt in range(max_retries):
-            try:
-                # _client.execute returns a raw string (or OrynResult if configured?)
-                # Current oryn-python returns str.
-                real_result = self._client.execute(command)
-                break
-            except Exception as e:
-                # Check for connection lost
-                if (
-                    "ConnectionLostError" in str(e)
-                    or "exit code" in str(e)
-                    or isinstance(e, (BrokenPipeError, ConnectionError))
-                ):
-                    if attempt < max_retries - 1:
-                        print(
-                            f"Oryn connection lost. Reconnecting... (Attempt {attempt + 1}/{max_retries})"
-                        )
-                        try:
-                            self._client.close()
-                        except Exception:
-                            pass
-                        time.sleep(1)
-                        self._client.connect()
-                        # If we were on a page, we might need to restore state?
-                        # Ideally the agent handles state, but for a simple crash we might lose the page.
-                        # For now, just retry the command.
-                        continue
-                raise e
+        # _client.execute returns a raw string (or OrynResult if configured?)
+        # Current oryn-python returns str.
+        real_result = self._client.execute(command)
+
+        # Check for fatal backend errors in the response string
+        if isinstance(real_result, str):
+            if "webdriver connection lost" in real_result or "WebDriver session has been closed" in real_result:
+                raise ConnectionLostError(None)
 
         duration = (time.time() - start) * 1000
 

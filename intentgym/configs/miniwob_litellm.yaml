@@ -9,7 +9,7 @@ llm_options:
 agent_type: react
 agent_options: {}
 max_steps: 20
-prompt_template: oil_standard
-oryn_mode: headless
+prompt_template: oil_instructions_v2
+oryn_mode: embedded
 oryn_options:
-  binary_path: /home/rohit/work/dragonscale/oryn-remote/target/debug/oryn
+  binary_path: ../target/debug/oryn

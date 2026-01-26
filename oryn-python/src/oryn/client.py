@@ -38,6 +38,7 @@ class OrynClient:
         driver_url: str | None = None,
         port: int = 9001,
         env: dict[str, str] | None = None,
+        log_file: str | None = None,
     ):
         """Initialize OrynClient.
 
@@ -49,6 +50,7 @@ class OrynClient:
             driver_url: WebDriver URL for embedded mode (optional)
             port: WebSocket port for remote mode
             env: Additional environment variables for subprocess
+            log_file: Path to file for redirecting Oryn output (optional)
         """
         self._config = OrynConfig(
             mode=mode,
@@ -58,6 +60,7 @@ class OrynClient:
             driver_url=driver_url,
             port=port,
             env=env or {},
+            log_file=log_file,
         )
         self._transport: Optional[Transport] = None
 
@@ -140,8 +143,7 @@ class OrynClient:
         for line in lines:
             if line.startswith("@ "):
                 parts = line[2:].split(" ", 1)
-                if len(parts) >= 1:
-                    page_info["url"] = parts[0]
+                page_info["url"] = parts[0]
                 if len(parts) >= 2:
                     page_info["title"] = parts[1].strip('"')
                 continue
