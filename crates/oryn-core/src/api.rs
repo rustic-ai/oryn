@@ -1,4 +1,6 @@
+use crate::ast::{Command, Target, TargetAtomic};
 use oryn_common::protocol::{Action, ScanResult};
+use oryn_common::resolver::{self, ResolutionStrategy, ResolverContext};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,21 +17,23 @@ pub enum ProcessError {
     #[error("Translation error: {0}")]
     Translation(#[from] crate::translator::TranslationError),
 
+    #[error("Resolution error: {0}")]
+    Resolution(#[from] oryn_common::resolver::ResolverError),
+
     #[error("Empty script")]
     EmptyScript,
 }
 
-/// Process an OIL command (minimal version for WASM)
+/// Process an OIL command (WASM version)
 ///
 /// This version does:
 /// 1. Normalize input
 /// 2. Parse to AST
-/// 3. Translate to Action
-///
-/// Note: Resolution happens on the JS side via the scanner's capabilities
+/// 3. Resolve targets using scan data
+/// 4. Translate to Action
 pub fn process_command(
     oil_input: &str,
-    _scan: &ScanResult,
+    scan: &ScanResult,
 ) -> Result<ProcessedCommand, ProcessError> {
     // 1. Normalize
     let normalized = crate::normalizer::normalize(oil_input);
@@ -46,10 +50,78 @@ pub fn process_command(
         return Err(ProcessError::EmptyScript);
     };
 
-    // 4. Translate to protocol action
-    let action = crate::translator::translate(cmd)?;
+    // 4. Resolve targets in the command
+    let resolved_cmd = resolve_command_targets(cmd, scan)?;
+
+    // 5. Translate to protocol action
+    let action = crate::translator::translate(&resolved_cmd)?;
 
     Ok(ProcessedCommand::Resolved(action))
+}
+
+/// Resolve all targets in a command using the scan data
+fn resolve_command_targets(cmd: &Command, scan: &ScanResult) -> Result<Command, ProcessError> {
+    let ctx = ResolverContext::new(scan);
+    let strategy = ResolutionStrategy::First;
+
+    // Helper to resolve a single target
+    let resolve_target = |target: &Target| -> Result<Target, ProcessError> {
+        // Convert AST target to resolver target
+        let resolver_target = target.to_resolver_target();
+
+        // Resolve using oryn_common::resolver
+        let resolved = resolver::resolve_target(&resolver_target, &ctx, strategy)?;
+
+        // Convert back to AST target
+        match resolved {
+            resolver::Target::Id(id) => Ok(Target {
+                atomic: TargetAtomic::Id(id),
+                relation: None,
+            }),
+            // If not resolved to ID, return original target (for selectors, etc.)
+            _ => Ok(target.clone()),
+        }
+    };
+
+    // Resolve targets based on command type
+    match cmd {
+        Command::Click(c) => Ok(Command::Click(crate::ast::ClickCmd {
+            target: resolve_target(&c.target)?,
+            ..c.clone()
+        })),
+        Command::Type(c) => Ok(Command::Type(crate::ast::TypeCmd {
+            target: resolve_target(&c.target)?,
+            ..c.clone()
+        })),
+        Command::Check(_c) => Ok(Command::Check(crate::ast::CheckCmd {
+            target: resolve_target(&_c.target)?,
+        })),
+        Command::Select(c) => Ok(Command::Select(crate::ast::SelectCmd {
+            target: resolve_target(&c.target)?,
+            value: c.value.clone(),
+        })),
+        Command::Hover(_c) => Ok(Command::Hover(crate::ast::HoverCmd {
+            target: resolve_target(&_c.target)?,
+        })),
+        Command::Focus(_c) => Ok(Command::Focus(crate::ast::FocusCmd {
+            target: resolve_target(&_c.target)?,
+        })),
+        Command::Clear(_c) => Ok(Command::Clear(crate::ast::ClearCmd {
+            target: resolve_target(&_c.target)?,
+        })),
+        Command::Text(c) => Ok(Command::Text(crate::ast::TextCmd {
+            target: c.target.as_ref().map(resolve_target).transpose()?,
+            selector: c.selector.clone(),
+        })),
+        Command::Html(_c) => Ok(cmd.clone()), // HtmlCmd doesn't have target, just selector
+        Command::Uncheck(c) => Ok(Command::Uncheck(crate::ast::UncheckCmd {
+            target: resolve_target(&c.target)?,
+        })),
+        // Wait has target embedded in condition - more complex resolution needed
+        Command::Wait(_c) => Ok(cmd.clone()),
+        // Commands without targets - return as-is
+        _ => Ok(cmd.clone()),
+    }
 }
 
 #[cfg(test)]
