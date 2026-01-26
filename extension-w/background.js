@@ -79,6 +79,12 @@ function handleScanComplete(scan) {
         if (orynCore) {
             orynCore.updateScan(JSON.stringify(scan));
             console.log('[Oryn-W] Scan updated:', scan.stats);
+            console.log('[Oryn-W] Sample elements:', scan.elements.slice(0, 5).map(e => ({
+                id: e.id,
+                type: e.type,
+                text: e.text?.substring(0, 30),
+                label: e.label?.substring(0, 30)
+            })));
         }
     } catch (error) {
         console.error('[Oryn-W] Failed to update scan:', error);
