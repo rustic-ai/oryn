@@ -12,7 +12,7 @@ use oryn_common::protocol::{
     Action, BrowserAction, Cookie, ScanRequest, ScanResult, ScannerAction, ScannerData,
     ScannerProtocolResponse, SessionAction,
 };
-use oryn_parser::{
+use oryn_core::{
     normalize, parse,
     parser::ParseError,
     translator::{self, TranslationError},
@@ -152,9 +152,9 @@ impl CommandExecutor {
     /// Resolve a command using the sophisticated resolution engine.
     async fn resolve_command<B: Backend + ?Sized>(
         &self,
-        cmd: oryn_parser::ast::Command,
+        cmd: oryn_core::ast::Command,
         backend: &mut B,
-    ) -> Result<oryn_parser::ast::Command, ExecutorError> {
+    ) -> Result<oryn_core::ast::Command, ExecutorError> {
         if let Some(scan) = &self.last_scan {
             ResolutionEngine::resolve(cmd, scan, backend)
                 .await

@@ -1,5 +1,5 @@
 use super::TargetRequirement;
-use oryn_parser::ast::Command;
+use crate::ast::Command;
 
 /// Metadata about a command's resolution requirements.
 pub struct CommandMeta {

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Oryn-W Settings</title>
+    <style>
+        body {
+            width: 300px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+            padding: 15px;
+            background-color: #f5f5f5;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #333;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+        }
+
+        .status-badge {
+            margin-left: auto;
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            background: #e0e0e0;
+            color: #666;
+        }
+
+        .status-ready {
+            background: #E8F5E9;
+            color: #388E3C;
+        }
+
+        .status-loading {
+            background: #FFF3E0;
+            color: #F57C00;
+        }
+
+        .status-error {
+            background: #FFEBEE;
+            color: #D32F2F;
+        }
+
+        .info-section {
+            background: white;
+            border-radius: 4px;
+            padding: 12px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+
+        .info-label {
+            font-weight: 500;
+            color: #555;
+            margin-bottom: 4px;
+        }
+
+        .info-value {
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #2196F3;
+        }
+
+        button {
+            width: 100%;
+            padding: 8px 0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background 0.2s;
+            background-color: #2196F3;
+            color: white;
+        }
+
+        button:hover {
+            background-color: #1976D2;
+        }
+
+        button:disabled {
+            background-color: #e0e0e0;
+            color: #999;
+            cursor: not-allowed;
+        }
+
+        #status-message {
+            margin-top: 10px;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .status-message-success {
+            background: #E8F5E9;
+            color: #388E3C;
+        }
+
+        .status-message-error {
+            background: #FFEBEE;
+            color: #D32F2F;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .links {
+            margin-top: 15px;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+            font-size: 12px;
+        }
+
+        .links a {
+            color: #666;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .links a:hover {
+            color: #333;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>
+        Oryn-W
+        <span id="status-badge" class="status-badge status-loading">Loading...</span>
+    </h2>
+
+    <div class="info-section">
+        <div class="info-label">Mode:</div>
+        <div class="info-value">Client-side WASM</div>
+        <div class="info-label" style="margin-top: 8px;">Status:</div>
+        <div class="info-value" id="wasm-status">Initializing...</div>
+    </div>
+
+    <div class="form-group">
+        <label for="command-input">Execute Command</label>
+        <input type="text" id="command-input" placeholder='e.g., click "Submit"' disabled>
+    </div>
+
+    <button id="btn-execute" disabled>Execute</button>
+
+    <div id="status-message" class="hidden"></div>
+
+    <div class="links">
+        <a id="btn-logs">Open Sidepanel & Logs</a>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>

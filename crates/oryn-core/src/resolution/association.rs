@@ -6,7 +6,7 @@
 //! the command's requirement.
 
 use crate::resolution::context::{ResolutionContext, is_inside};
-use crate::resolution::engine::validate_requirement;
+use crate::resolution::validation::validate_requirement;
 use crate::resolution::requirement::TargetRequirement;
 use oryn_common::protocol::Rect;
 

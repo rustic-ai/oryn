@@ -53,6 +53,42 @@ E2E tests use `.oil` scripts located in `test-harness/scripts/`:
 
 Results are saved to `e2e-results/`.
 
+## Building Oryn-W (WASM Extension)
+
+Oryn-W is a standalone browser extension that runs entirely client-side using WebAssembly.
+
+### Prerequisites
+
+```bash
+# Install wasm-pack
+curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+# (Optional) Install wasm-opt for better compression
+npm install -g wasm-opt
+```
+
+### Build Extension
+
+```bash
+# Build WASM module and extension
+./scripts/build-extension-w.sh
+```
+
+This will:
+1. Compile `oryn-core` to WebAssembly
+2. Optimize the WASM binary (target: <400KB)
+3. Verify all extension files are present
+4. Output ready-to-load extension in `extension-w/`
+
+### Loading in Browser
+
+1. Open `chrome://extensions`
+2. Enable "Developer mode"
+3. Click "Load unpacked"
+4. Select the `extension-w/` directory
+
+See `extension-w/README.md` for detailed usage instructions.
+
 ## Manual Commands
 
 If you need to run individual steps:
@@ -66,4 +102,7 @@ cargo clippy --workspace
 
 # Tests only (requires test harness running on port 3000)
 cargo test --workspace
+
+# Build WASM only
+./scripts/build-wasm.sh
 ```

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Oryn-W Logs</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 0;
+            margin: 0;
+            background-color: #f8f9fa;
+        }
+
+        .header {
+            padding: 10px;
+            background: #fff;
+            border-bottom: 1px solid #ddd;
+            position: sticky;
+            top: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h2 {
+            margin: 0;
+            font-size: 14px;
+            color: #333;
+        }
+
+        button {
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        button:hover {
+            background: #f0f0f0;
+        }
+
+        .status-section {
+            padding: 10px;
+            background: white;
+            border-bottom: 1px solid #ddd;
+            font-size: 12px;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+        }
+
+        .status-label {
+            color: #666;
+        }
+
+        .status-value {
+            color: #333;
+            font-weight: 500;
+        }
+
+        .status-value.ready {
+            color: #388E3C;
+        }
+
+        .status-value.error {
+            color: #D32F2F;
+        }
+
+        #log-container {
+            padding: 10px;
+            font-size: 12px;
+            line-height: 1.4;
+            overflow-y: auto;
+            height: calc(100vh - 120px);
+        }
+
+        .log-entry {
+            margin-bottom: 4px;
+            padding: 4px;
+            border-radius: 2px;
+            word-break: break-all;
+        }
+
+        .log-entry:hover {
+            background: #eee;
+        }
+
+        .log-time {
+            color: #888;
+            margin-right: 5px;
+            font-size: 10px;
+        }
+
+        .log-msg {
+            color: #333;
+        }
+
+        .log-error {
+            color: #d32f2f;
+            background: #ffebee;
+        }
+
+        .log-info {
+            color: #1976D2;
+        }
+
+        .log-success {
+            color: #388E3C;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h2>Oryn-W Logs</h2>
+        <button id="btn-clear">Clear</button>
+    </div>
+
+    <div class="status-section">
+        <div class="status-item">
+            <span class="status-label">WASM Engine:</span>
+            <span id="wasm-status" class="status-value">Loading...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Scan:</span>
+            <span id="scan-status" class="status-value">Not loaded</span>
+        </div>
+    </div>
+
+    <div id="log-container"></div>
+    <script src="sidepanel.js"></script>
+</body>
+
+</html>

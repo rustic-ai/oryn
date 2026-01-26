@@ -1,4 +1,4 @@
-use oryn_parser::{normalize, parse};
+use oryn_core::{normalize, parse};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;

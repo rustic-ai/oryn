@@ -1,0 +1,58 @@
+{
+    "manifest_version": 3,
+    "name": "Oryn Agent (WASM)",
+    "version": "0.1.0",
+    "description": "Browser automation agent with client-side WASM execution",
+    "permissions": [
+        "activeTab",
+        "scripting",
+        "tabs",
+        "storage",
+        "sidePanel"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "icons/icon-128.svg",
+            "48": "icons/icon-128.svg",
+            "128": "icons/icon-128.svg"
+        }
+    },
+    "icons": {
+        "16": "icons/icon-128.svg",
+        "48": "icons/icon-128.svg",
+        "128": "icons/icon-128.svg"
+    },
+    "side_panel": {
+        "default_path": "sidepanel.html"
+    },
+    "content_security_policy": {
+        "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+    },
+    "background": {
+        "service_worker": "background.js",
+        "type": "module"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "suppress_alerts.js",
+                "scanner.js",
+                "content.js"
+            ],
+            "run_at": "document_start"
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": ["wasm/*"],
+            "matches": ["<all_urls>"]
+        }
+    ]
+}

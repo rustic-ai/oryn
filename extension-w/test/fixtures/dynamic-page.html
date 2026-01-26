@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Content Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .container {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        #dynamic-content {
+            min-height: 100px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 3px;
+        }
+        .loading {
+            color: #666;
+            font-style: italic;
+        }
+        .item {
+            padding: 10px;
+            margin: 5px 0;
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Dynamic Content Test Page</h1>
+
+    <div class="container">
+        <h2>Dynamic Loading</h2>
+        <button id="load-content">Load Content</button>
+        <button id="clear-content">Clear Content</button>
+        <div id="dynamic-content"></div>
+    </div>
+
+    <div class="container">
+        <h2>Add/Remove Elements</h2>
+        <button id="add-item">Add Item</button>
+        <button id="remove-item">Remove Last Item</button>
+        <div id="item-list"></div>
+    </div>
+
+    <div class="container">
+        <h2>Show/Hide Elements</h2>
+        <button id="toggle-section">Toggle Section</button>
+        <div id="toggleable-section" style="display: none;">
+            <p>This section can be toggled on and off.</p>
+            <button id="hidden-button">Hidden Button</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Modal Simulation</h2>
+        <button id="open-modal">Open Modal</button>
+        <div id="modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border: 2px solid #333; z-index: 1000;">
+            <h3>Modal Dialog</h3>
+            <p>This is a modal dialog.</p>
+            <button id="close-modal">Close</button>
+        </div>
+        <div id="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999;"></div>
+    </div>
+
+    <script>
+        let itemCount = 0;
+
+        // Load content dynamically
+        document.getElementById('load-content').addEventListener('click', () => {
+            const contentDiv = document.getElementById('dynamic-content');
+            contentDiv.innerHTML = '<p class="loading">Loading...</p>';
+
+            setTimeout(() => {
+                contentDiv.innerHTML = `
+                    <h3>Loaded Content</h3>
+                    <p>This content was loaded dynamically at ${new Date().toLocaleTimeString()}</p>
+                    <button id="dynamic-button">Dynamic Button</button>
+                `;
+
+                // Add handler to dynamically created button
+                document.getElementById('dynamic-button').addEventListener('click', () => {
+                    alert('Dynamic button clicked!');
+                });
+            }, 500);
+        });
+
+        document.getElementById('clear-content').addEventListener('click', () => {
+            document.getElementById('dynamic-content').innerHTML = '';
+        });
+
+        // Add/remove items
+        document.getElementById('add-item').addEventListener('click', () => {
+            itemCount++;
+            const itemList = document.getElementById('item-list');
+            const item = document.createElement('div');
+            item.className = 'item';
+            item.textContent = `Item ${itemCount}`;
+            item.id = `item-${itemCount}`;
+            itemList.appendChild(item);
+        });
+
+        document.getElementById('remove-item').addEventListener('click', () => {
+            const itemList = document.getElementById('item-list');
+            if (itemList.lastChild) {
+                itemList.removeChild(itemList.lastChild);
+                itemCount = Math.max(0, itemCount - 1);
+            }
+        });
+
+        // Toggle section
+        document.getElementById('toggle-section').addEventListener('click', () => {
+            const section = document.getElementById('toggleable-section');
+            section.style.display = section.style.display === 'none' ? 'block' : 'none';
+        });
+
+        // Modal controls
+        document.getElementById('open-modal').addEventListener('click', () => {
+            document.getElementById('modal').style.display = 'block';
+            document.getElementById('modal-overlay').style.display = 'block';
+        });
+
+        document.getElementById('close-modal').addEventListener('click', () => {
+            document.getElementById('modal').style.display = 'none';
+            document.getElementById('modal-overlay').style.display = 'none';
+        });
+
+        document.getElementById('modal-overlay').addEventListener('click', () => {
+            document.getElementById('modal').style.display = 'none';
+            document.getElementById('modal-overlay').style.display = 'none';
+        });
+    </script>
+</body>
+</html>

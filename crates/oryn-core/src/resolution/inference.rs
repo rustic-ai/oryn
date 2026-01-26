@@ -102,10 +102,11 @@ fn submittable_rules() -> Vec<InferenceRule> {
             infer: |ctx| {
                 let form = find_single(ctx, |e| e.element_type == "form")?;
                 let scoped = ctx.scoped_to(form.id);
-                scoped
+                let result = scoped
                     .elements()
                     .find(|e| is_submit_button(e))
-                    .map(|e| id_to_target(e.id))
+                    .map(|e| id_to_target(e.id));
+                result
             },
         },
         InferenceRule {
@@ -182,10 +183,11 @@ fn dismissable_rules() -> Vec<InferenceRule> {
             infer: |ctx| {
                 let modal = find_single(ctx, is_modal)?;
                 let scoped = ctx.scoped_to(modal.id);
-                scoped
+                let result = scoped
                     .elements()
                     .find(|e| is_close_button(e))
-                    .map(|e| id_to_target(e.id))
+                    .map(|e| id_to_target(e.id));
+                result
             },
         },
     ]

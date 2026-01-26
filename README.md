@@ -91,6 +91,13 @@ Oryn presents the web as agents need to see it:
 - User wants to watch agent actions
 - Interactive assistance workflows
 
+**Choose oryn-w (WASM Extension) when:**
+- No server/backend infrastructure available
+- Instant setup required (load extension, go)
+- Quick one-off commands on any webpage
+- Minimal resource footprint needed (<10MB memory)
+- See [extension-w/README.md](extension-w/README.md) for details
+
 ## Documentation
 
 | Document                                                  | Description                        |

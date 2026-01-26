@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Static Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px 5px;
+            cursor: pointer;
+        }
+        .container {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Static Test Page</h1>
+
+    <div class="container">
+        <h2>Buttons</h2>
+        <button id="submit">Submit</button>
+        <button id="cancel">Cancel</button>
+        <button id="delete">Delete</button>
+    </div>
+
+    <div class="container">
+        <h2>Links</h2>
+        <a href="#home" id="home-link">Home</a>
+        <a href="#about" id="about-link">About</a>
+        <a href="#contact" id="contact-link">Contact</a>
+    </div>
+
+    <div class="container">
+        <h2>Text</h2>
+        <p id="description">This is a test page for E2E testing.</p>
+        <span id="status">Ready</span>
+    </div>
+
+    <div class="container">
+        <h2>Lists</h2>
+        <ul id="item-list">
+            <li>Item 1</li>
+            <li>Item 2</li>
+            <li>Item 3</li>
+        </ul>
+    </div>
+
+    <script>
+        // Add click handlers for testing
+        document.getElementById('submit').addEventListener('click', () => {
+            document.getElementById('status').textContent = 'Submit clicked';
+        });
+
+        document.getElementById('cancel').addEventListener('click', () => {
+            document.getElementById('status').textContent = 'Cancel clicked';
+        });
+
+        document.getElementById('delete').addEventListener('click', () => {
+            document.getElementById('status').textContent = 'Delete clicked';
+        });
+    </script>
+</body>
+</html>

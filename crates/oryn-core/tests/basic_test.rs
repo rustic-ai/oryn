@@ -1,4 +1,4 @@
-use oryn_parser::{normalize, parse};
+use oryn_core::{normalize, parse};
 
 #[test]
 fn test_parser_basic() {

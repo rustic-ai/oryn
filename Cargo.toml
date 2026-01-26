@@ -2,11 +2,11 @@
 resolver = "2"
 members = [
     "crates/oryn-common",
+    "crates/oryn-core",
     "crates/oryn-engine",
     "crates/oryn-scanner",
     "crates/oryn-e",
     "crates/oryn-h",
     "crates/oryn-r",
-    "crates/oryn-parser",
     "crates/oryn",
 ]
