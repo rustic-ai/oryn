@@ -1,6 +1,8 @@
 /**
  * E2E tests for extension loading and initialization
  * Uses Puppeteer to test extension in real Chrome
+ *
+ * @jest-environment node
  */
 
 const puppeteer = require('puppeteer');

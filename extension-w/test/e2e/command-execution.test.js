@@ -1,6 +1,8 @@
 /**
  * E2E tests for command execution
  * Tests full command flow through extension
+ *
+ * @jest-environment node
  */
 
 const puppeteer = require('puppeteer');
