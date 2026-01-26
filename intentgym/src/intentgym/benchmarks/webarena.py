@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from ..collection.metrics import Evaluation
 from ..core.oryn import OrynInterface
@@ -91,17 +91,18 @@ class WebArenaLoader(Benchmark):
             try:
                 current_url = oryn.execute("url").raw
                 results["url"] = criteria["url_contains"] in current_url
-            except:
+            except Exception:
                 results["url_check_failed"] = False
 
         # Element existence
-        if "element_exists" in criteria:
-            for selector in criteria["element_exists"]:
-                try:
-                    exists = oryn.execute(f'exists "{selector}"').raw
-                    results[f"exists_{selector}"] = "true" in str(exists).lower()
-                except:
-                    results[f"exists_{selector}"] = False
+        if "exists" in criteria:
+            selector = criteria["exists"]
+            try:
+                # Naive existential check
+                exists = oryn.execute(f'exists "{selector}"').raw
+                results[f"exists_{selector}"] = "true" in str(exists).lower()
+            except Exception:
+                results[f"exists_{selector}"] = False
 
         # Mocking evaluation for now if no criteria matched or complex logic needed
         if not results:
