@@ -2,6 +2,18 @@
 
 Oryn-W is a standalone browser extension that executes OIL (Oryn Intent Language) commands entirely client-side using WebAssembly.
 
+## Quick Start
+
+```bash
+# Build WASM module
+./scripts/build-wasm.sh
+
+# Launch Chromium with extension
+./scripts/launch-chromium-w.sh
+```
+
+See [LAUNCH.md](LAUNCH.md) for detailed usage instructions.
+
 ## Key Features
 
 - **Client-Side Execution**: All command processing happens in the browser via WASM
