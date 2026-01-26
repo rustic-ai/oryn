@@ -28,7 +28,24 @@ This creates:
 
 ## Running the Tests
 
-### Option 1: Browser-Based Test Page (Recommended)
+### Option 1: Extension-Based Automated Tests (Recommended)
+
+Run tests with the extension actually loaded in Chromium:
+
+```bash
+npm run test:integration:real
+```
+
+This uses Puppeteer to:
+- Launch Chromium with the extension loaded
+- Access the background service worker
+- Test WASM in its real execution context
+- Verify message passing through the extension
+- Measure performance in the actual environment
+
+**Note:** Requires `headless: false` because Chrome extensions don't work in headless mode. A browser window will open and close automatically.
+
+### Option 2: Browser-Based Visual Test Page
 
 Open the test page in a browser:
 
@@ -52,15 +69,33 @@ xdg-open test/integration-real/wasm-test-page.html
 - Test summary at the bottom
 - Detailed error messages for failures
 
-### Option 2: Puppeteer-Based Tests (Automated)
+**Use case:** Quick visual check that WASM module works in isolation.
 
-Run automated tests with Puppeteer:
+## Test Files
 
-```bash
-npm run test:integration:real
-```
+This directory contains two types of WASM tests:
 
-**Note:** This requires Puppeteer and takes longer to run (~10-15 seconds) compared to the mock tests (~0.6 seconds).
+### extension-wasm.test.js (Recommended)
+Tests WASM module **within the extension context**:
+- Loads the actual browser extension
+- Tests WASM in background service worker
+- Verifies message passing through extension
+- Tests real-world integration
+- Automated with Puppeteer
+
+**Run:** `npm run test:integration:real`
+
+### wasm-test-page.html
+Tests WASM module **in isolation**:
+- Loads WASM module directly in a webpage
+- No extension context required
+- Visual feedback with color-coded results
+- Quick manual verification
+
+**Run:** `chromium test/integration-real/wasm-test-page.html`
+
+### wasm-real.test.js (Legacy)
+Isolated Puppeteer tests for WASM only (no extension). Mostly superseded by extension-wasm.test.js.
 
 ## What Gets Tested
 
