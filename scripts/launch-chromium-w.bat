@@ -65,7 +65,19 @@ echo.
 
 REM Create temporary user data directory
 set USER_DATA_DIR=%TEMP%\oryn-w-dev-%RANDOM%
-mkdir "%USER_DATA_DIR%"
+mkdir "%USER_DATA_DIR%\Default"
+
+REM Create preferences to pin the extension to toolbar
+echo {> "%USER_DATA_DIR%\Default\Preferences"
+echo   "browser": {>> "%USER_DATA_DIR%\Default\Preferences"
+echo     "show_toolbar_bookmarks_button": false>> "%USER_DATA_DIR%\Default\Preferences"
+echo   },>> "%USER_DATA_DIR%\Default\Preferences"
+echo   "extensions": {>> "%USER_DATA_DIR%\Default\Preferences"
+echo     "ui": {>> "%USER_DATA_DIR%\Default\Preferences"
+echo       "developer_mode": true>> "%USER_DATA_DIR%\Default\Preferences"
+echo     }>> "%USER_DATA_DIR%\Default\Preferences"
+echo   }>> "%USER_DATA_DIR%\Default\Preferences"
+echo }>> "%USER_DATA_DIR%\Default\Preferences"
 
 echo Launching Chromium with extension...
 echo.
@@ -76,6 +88,7 @@ echo Press Ctrl+C to stop Chromium
 echo.
 
 REM Launch Chromium with extension
+REM --disable-features=ExtensionsToolbarMenu keeps extension icons in toolbar (not hidden in menu)
 "%CHROME_BIN%" ^
     --user-data-dir="%USER_DATA_DIR%" ^
     --disable-extensions-except="%EXTENSION_DIR%" ^
@@ -83,6 +96,7 @@ REM Launch Chromium with extension
     --no-first-run ^
     --no-default-browser-check ^
     --disable-features=ExtensionsToolbarMenu ^
+    --show-component-extension-options ^
     "https://example.com"
 
 REM Cleanup

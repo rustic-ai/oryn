@@ -71,7 +71,22 @@ echo ""
 
 # Create a temporary user data directory for clean testing
 USER_DATA_DIR="/tmp/oryn-w-dev-$(date +%s)"
-mkdir -p "$USER_DATA_DIR"
+mkdir -p "$USER_DATA_DIR/Default"
+
+# Create preferences to pin the extension to toolbar
+# Note: Extension ID is auto-generated for unpacked extensions
+cat > "$USER_DATA_DIR/Default/Preferences" << 'EOF'
+{
+  "browser": {
+    "show_toolbar_bookmarks_button": false
+  },
+  "extensions": {
+    "ui": {
+      "developer_mode": true
+    }
+  }
+}
+EOF
 
 echo -e "${YELLOW}Launching Chromium with extension...${NC}"
 echo ""
@@ -82,6 +97,7 @@ echo "Press Ctrl+C to stop Chromium and clean up"
 echo ""
 
 # Launch Chrome with extension
+# --disable-features=ExtensionsToolbarMenu keeps extension icons in toolbar (not hidden in menu)
 "$CHROME_BIN" \
     --user-data-dir="$USER_DATA_DIR" \
     --disable-extensions-except="$EXTENSION_DIR" \
@@ -89,6 +105,7 @@ echo ""
     --no-first-run \
     --no-default-browser-check \
     --disable-features=ExtensionsToolbarMenu \
+    --show-component-extension-options \
     --enable-logging=stderr \
     --v=0 \
     "https://example.com" \
