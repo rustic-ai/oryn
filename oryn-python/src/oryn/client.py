@@ -1,10 +1,13 @@
 """Async client for Oryn browser automation via Intent Language pass-through."""
 
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from .config import OrynConfig
 from .errors import ConnectionLostError
 from .transport import SubprocessTransport, Transport
+
+if TYPE_CHECKING:
+    from .types import OrynObservation
 
 
 class OrynClient:
@@ -111,3 +114,61 @@ class OrynClient:
             raise ConnectionLostError()
 
         return await self._transport.send(command)
+
+    async def observe(self) -> "OrynObservation":
+        """Get structured observation of current page.
+
+        Returns:
+            OrynObservation object.
+        """
+
+        from .types import OrynObservation
+
+        # 'scan' returns the element list in OIL text format
+        raw_response = await self.execute("scan")
+
+        # OIL format: [id] type/role "label" {flags}
+        # e.g. [1] input/email "Username" {required}
+        import re
+
+        elements = []
+        element_pattern = re.compile(r'^\[(\d+)\]\s+([^\s"]+)(?:\s+"([^"]*)")?(?:\s+\{(.*)\})?')
+
+        lines = raw_response.splitlines()
+        page_info = {"url": "", "title": ""}
+
+        for line in lines:
+            if line.startswith("@ "):
+                parts = line[2:].split(" ", 1)
+                if len(parts) >= 1:
+                    page_info["url"] = parts[0]
+                if len(parts) >= 2:
+                    page_info["title"] = parts[1].strip('"')
+                continue
+
+            match = element_pattern.match(line)
+            if match:
+                eid, type_role, label, flags = match.groups()
+                # Split type/role
+                if "/" in type_role:
+                    etype, role = type_role.split("/", 1)
+                else:
+                    etype, role = type_role, None
+
+                elements.append(
+                    {
+                        "id": int(eid),
+                        "type": etype,
+                        "role": role,
+                        "text": label if label else None,
+                        "state": {f: True for f in (flags.split(", ") if flags else [])},
+                    }
+                )
+
+        return OrynObservation(
+            raw=raw_response,
+            url=page_info["url"],
+            title=page_info["title"],
+            elements=elements,
+            token_count=len(raw_response) // 4,
+        )
