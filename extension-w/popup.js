@@ -54,10 +54,11 @@ async function executeCommand() {
             return;
         }
 
-        // Send command to background
+        // Send command to background with tabId
         const response = await chrome.runtime.sendMessage({
             type: 'execute_oil',
             oil: command,
+            tabId: tabs[0].id,
         });
 
         if (response.error) {

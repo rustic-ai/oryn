@@ -12,8 +12,14 @@ let isWasmInitialized = false;
 async function initWasm() {
     try {
         console.log('[Oryn-W] Initializing WASM module...');
+        console.log('[Oryn-W] Service worker location:', self.location.href);
+
         await init();
+        console.log('[Oryn-W] WASM init() completed');
+
         orynCore = new OrynCore();
+        console.log('[Oryn-W] OrynCore instance created');
+
         isWasmInitialized = true;
 
         // Expose to global scope for tests
@@ -24,7 +30,10 @@ async function initWasm() {
         console.log('[Oryn-W] WASM initialized successfully');
         console.log('[Oryn-W] Version:', OrynCore.getVersion());
     } catch (e) {
-        console.error('[Oryn-W] Failed to initialize WASM:', e);
+        console.error('[Oryn-W] Failed to initialize WASM:');
+        console.error('[Oryn-W] Error name:', e.name);
+        console.error('[Oryn-W] Error message:', e.message);
+        console.error('[Oryn-W] Error stack:', e.stack);
         isWasmInitialized = false;
         self.isWasmInitialized = false;
     }
@@ -39,7 +48,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
         try {
             if (request.type === 'execute_oil') {
-                const result = await executeOilCommand(request.oil, sender.tab?.id);
+                // Use tabId from request (sent by popup) or from sender (sent by content script)
+                const tabId = request.tabId || sender.tab?.id;
+                const result = await executeOilCommand(request.oil, tabId);
                 sendResponse(result);
             } else if (request.type === 'scan_complete') {
                 handleScanComplete(request.scan);
@@ -96,15 +107,20 @@ async function executeOilCommand(oil, tabId) {
         // Process command with WASM
         console.log('[Oryn-W] Processing command:', oil);
         const resultJson = orynCore.processCommand(oil);
-        const result = JSON.parse(resultJson);
+        console.log('[Oryn-W] WASM returned JSON:', resultJson);
 
-        console.log('[Oryn-W] Command processed:', result);
+        const result = JSON.parse(resultJson);
+        console.log('[Oryn-W] Parsed result:', result);
 
         // Execute the action
         if (result.Resolved) {
+            console.log('[Oryn-W] Executing resolved action');
             const action = result.Resolved;
-            return await executeAction(tabId, action);
+            const execResult = await executeAction(tabId, action);
+            console.log('[Oryn-W] Action execution result:', execResult);
+            return execResult;
         } else {
+            console.error('[Oryn-W] Unexpected result format:', result);
             return { error: 'Unexpected result format' };
         }
     } catch (error) {
@@ -137,18 +153,23 @@ async function scanPage(tabId) {
 // Execute an action via scanner
 async function executeAction(tabId, action) {
     console.log('[Oryn-W] Executing action:', action);
+    console.log('[Oryn-W] Action type check - Scanner:', !!action.Scanner, 'Browser:', !!action.Browser, 'Session:', !!action.Session);
 
     try {
         // Map action types to scanner commands
         let scannerCommand;
 
         if (action.Scanner) {
+            console.log('[Oryn-W] Detected Scanner action');
             scannerCommand = action.Scanner;
         } else if (action.Browser) {
+            console.log('[Oryn-W] Detected Browser action');
             return await executeBrowserAction(tabId, action.Browser);
         } else if (action.Session) {
+            console.log('[Oryn-W] Detected Session action');
             return await executeSessionAction(tabId, action.Session);
         } else {
+            console.error('[Oryn-W] Unsupported action type. Action object:', action);
             return { error: 'Unsupported action type' };
         }
 
@@ -168,8 +189,12 @@ async function executeAction(tabId, action) {
 
 // Execute browser action (navigate, back, forward, etc.)
 async function executeBrowserAction(tabId, browserAction) {
+    console.log('[Oryn-W] Executing browser action:', browserAction);
+    console.log('[Oryn-W] Browser action type - Navigate:', !!browserAction.Navigate, 'Back:', !!browserAction.Back);
+
     if (browserAction.Navigate) {
         const url = browserAction.Navigate.url;
+        console.log('[Oryn-W] Navigating to:', url);
         await chrome.tabs.update(tabId, { url });
         return { success: true, message: `Navigated to ${url}` };
     }
