@@ -248,6 +248,78 @@ fn normalize_command_part(input: &str) -> String {
                 }
                 "wait" => arg, // don't touch options
 
+                // Relational keywords - auto-quote following bare words
+                _ if !normalized_args.is_empty()
+                    && matches!(
+                        normalized_args.last().unwrap().to_lowercase().as_str(),
+                        "inside" | "near" | "after" | "before" | "contains"
+                    ) =>
+                {
+                    // Auto-quote if not already quoted/id/selector
+                    if !arg.starts_with('"')
+                        && !arg.starts_with('\'')
+                        && !arg.starts_with('#')
+                        && !arg.starts_with('@')
+                        && !arg.starts_with("css(")
+                        && !arg.starts_with("xpath(")
+                        && !arg.starts_with('-')
+                    {
+                        format!("\"{}\"", arg)
+                    } else {
+                        arg
+                    }
+                }
+
+                // Commands that expect text targets - auto-quote bare words
+                "click" | "hover" | "focus" | "check" | "uncheck" | "select" => {
+                    // If this is the first arg and it's not quoted, not an ID, not a selector
+                    if normalized_args.is_empty()
+                        && !arg.starts_with('"')
+                        && !arg.starts_with('\'')
+                        && !arg.starts_with('#')
+                        && !arg.starts_with('@')
+                        && !arg.starts_with("css(")
+                        && !arg.starts_with("xpath(")
+                        && !arg.starts_with('-')
+                    {
+                        // Collect all following bare words until we hit an option or relational keyword
+                        let mut text = arg.clone();
+                        while let Some(peek) = arg_iter.peek() {
+                            if peek.starts_with('-')
+                                || matches!(
+                                    peek.to_lowercase().as_str(),
+                                    "inside" | "near" | "after" | "before" | "contains"
+                                )
+                            {
+                                break;
+                            }
+                            let next = arg_iter.next().unwrap();
+                            text.push(' ');
+                            text.push_str(&next);
+                        }
+                        format!("\"{}\"", text)
+                    } else {
+                        arg
+                    }
+                }
+
+                // Type command - auto-quote first two bare word sequences separately
+                "type" => {
+                    // Check if this should be auto-quoted
+                    if !arg.starts_with('"')
+                        && !arg.starts_with('\'')
+                        && !arg.starts_with('#')
+                        && !arg.starts_with('@')
+                        && !arg.starts_with("css(")
+                        && !arg.starts_with("xpath(")
+                        && !arg.starts_with('-')
+                    {
+                        format!("\"{}\"", arg)
+                    } else {
+                        arg
+                    }
+                }
+
                 _ => arg,
             };
             normalized_args.push(norm);
@@ -424,4 +496,44 @@ fn is_number(s: &str) -> bool {
     use std::sync::LazyLock;
     static NUMBER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-?\d+(\.\d+)?$").unwrap());
     NUMBER_RE.is_match(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_auto_quote_click() {
+        assert_eq!(normalize("click store"), "click \"store\"");
+        assert_eq!(normalize("click Add to Cart"), "click \"Add to Cart\"");
+        assert_eq!(normalize("click Submit --force"), "click \"Submit\" --force");
+    }
+
+    #[test]
+    fn test_auto_quote_type() {
+        assert_eq!(normalize("type email test@example.com"), "type \"email\" \"test@example.com\"");
+    }
+
+    #[test]
+    fn test_dont_quote_ids() {
+        assert_eq!(normalize("click #5"), "click #5");
+        assert_eq!(normalize("click @button"), "click @button");
+    }
+
+    #[test]
+    fn test_dont_quote_already_quoted() {
+        assert_eq!(normalize("click \"Submit\""), "click \"Submit\"");
+        assert_eq!(normalize("click 'Submit'"), "click \"Submit\""); // single -> double
+    }
+
+    #[test]
+    fn test_dont_quote_selectors() {
+        assert_eq!(normalize("click css(.button)"), "click css(\".button\")");
+        assert_eq!(normalize("click xpath(//button)"), "click xpath(\"//button\")");
+    }
+
+    #[test]
+    fn test_relational_keywords() {
+        assert_eq!(normalize("click Submit inside form"), "click \"Submit\" inside \"form\"");
+    }
 }
