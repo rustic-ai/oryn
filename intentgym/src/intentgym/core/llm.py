@@ -1,7 +1,7 @@
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, List
 
 
 @dataclass
@@ -167,3 +167,69 @@ class MockLLMProvider(LLMProvider):
     @property
     def context_limit(self) -> int:
         return 10000
+
+
+class LiteLLMProvider(LLMProvider):
+    """LiteLLM provider for multi-engine support."""
+
+    def __init__(self, model: str = "gpt-3.5-turbo", **options):
+        try:
+            from litellm import completion, token_counter
+
+            self._completion = completion
+            self._token_counter = token_counter
+        except ImportError:
+            raise ImportError("Please install litellm: pip install litellm")
+
+        self.model = model
+        self.options = options
+        # Set specific options for liteLLM if needed, e.g. api_base
+        self.completion_kwargs = options.copy()
+
+    def complete(self, messages: List[Dict[str, str]]) -> LLMResponse:
+        start = time.time()
+
+        # litellm expectation: messages list of dicts {role, content}
+        response = self._completion(
+            model=self.model, messages=messages, **self.completion_kwargs
+        )
+        duration = (time.time() - start) * 1000
+
+        # liteLLM normalizes the response object to be similar to OpenAI's
+        usage = response.usage
+        input_tokens = usage.prompt_tokens if usage else 0
+        output_tokens = usage.completion_tokens if usage else 0
+
+        # Cost is usually provided or calculatable, but let's see if usage has cost
+        # litellm calculates cost if possible in a separate call or we rely on its method
+        from litellm import completion_cost
+
+        try:
+            cost = completion_cost(completion_response=response)
+        except Exception:
+            cost = 0.0
+
+        content = response.choices[0].message.content or ""
+
+        return LLMResponse(
+            content=content,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            latency_ms=duration,
+            cost_usd=cost,
+        )
+
+    def count_tokens(self, text: str) -> int:
+        # litellm.token_counter requires model
+        return self._token_counter(model=self.model, text=text)
+
+    @property
+    def context_limit(self) -> int:
+        from litellm import model_cost
+
+        # Try to look up context window from litellm's model_cost map
+        try:
+            info = model_cost.get(self.model, {})
+            return info.get("max_tokens", 4096)
+        except Exception:
+            return 4096

@@ -31,7 +31,7 @@ def run(config, subset):
         results = runner.run(
             subset=subset,
             progress_callback=lambda i, n, t: console.print(
-                f"Running task {i+1}/{n}: {t}"
+                f"Running task {i + 1}/{n}: {t}"
             ),
         )
 
@@ -88,13 +88,11 @@ def inspect(run_id):
 
     import json
 
-    from .core.report import BenchmarkReport
-
     with open(report_path) as f:
         data = json.load(f)
 
     console.print(f"[bold]Inspect Run: {run_id}[/bold]")
-    console.print(f"Success Rate: {data['summary']['success_rate']*100:.1f}%")
+    console.print(f"Success Rate: {data['summary']['success_rate'] * 100:.1f}%")
     console.print(f"Total Cost: ${data['summary']['total_cost_usd']:.4f}")
 
     table = Table(title="Task Breakdown")
@@ -146,7 +144,7 @@ def compare(run_ids):
         table.add_column(r["run_id"])
 
     metrics = [
-        ("Success Rate", lambda d: f"{d['summary']['success_rate']*100:.1f}%"),
+        ("Success Rate", lambda d: f"{d['summary']['success_rate'] * 100:.1f}%"),
         ("Avg Cost", lambda d: f"${d['summary']['mean_cost_usd']:.4f}"),
         ("Avg Steps", lambda d: f"{d['summary']['mean_steps']:.1f}"),
         ("Avg Latency", lambda d: f"{d['summary']['mean_duration_s']:.2f}s"),

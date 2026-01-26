@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import List
 
 from ..collection.metrics import Evaluation
 from ..core.oryn import OrynInterface
