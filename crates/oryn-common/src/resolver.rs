@@ -947,6 +947,7 @@ mod tests {
                 title: "Test".to_string(),
                 viewport: ViewportInfo::default(),
                 scroll: ScrollInfo::default(),
+                ready_state: None,
             },
             elements,
             stats: ScanStats {
@@ -957,6 +958,8 @@ mod tests {
             changes: None,
             available_intents: None,
             full_mode: false,
+            settings_applied: None,
+            timing: None,
         };
         ResolverContext::new(&scan_result)
     }

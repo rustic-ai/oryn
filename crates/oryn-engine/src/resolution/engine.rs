@@ -24,22 +24,28 @@ impl ResolutionEngine {
     }
 
     /// Find an element by matching against text content, label, or placeholder.
+    /// Prioritizes exact matches over partial matches.
     fn find_by_text_content(ctx: &ResolutionContext, s: &str) -> Option<u32> {
-        ctx.elements()
-            .find(|e| {
-                e.text
-                    .as_ref()
-                    .map(|t| t == s || t.contains(s))
-                    .unwrap_or(false)
-                    || e.label
-                        .as_ref()
-                        .map(|l| l == s || l.contains(s))
-                        .unwrap_or(false)
-                    || e.placeholder
-                        .as_ref()
-                        .map(|p| p == s || p.contains(s))
-                        .unwrap_or(false)
+        fn matches_field(field: &Option<String>, target: &str, exact: bool) -> bool {
+            field.as_ref().is_some_and(|v| {
+                if exact {
+                    v == target
+                } else {
+                    v.contains(target)
+                }
             })
+        }
+
+        fn matches_element(e: &oryn_common::protocol::Element, s: &str, exact: bool) -> bool {
+            matches_field(&e.text, s, exact)
+                || matches_field(&e.label, s, exact)
+                || matches_field(&e.placeholder, s, exact)
+        }
+
+        // First, try exact match; fallback to partial match (contains)
+        ctx.elements()
+            .find(|e| matches_element(e, s, true))
+            .or_else(|| ctx.elements().find(|e| matches_element(e, s, false)))
             .map(|e| e.id)
     }
 

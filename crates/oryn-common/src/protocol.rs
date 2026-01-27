@@ -9,10 +9,13 @@ fn deserialize_nullable_string_map<'de, D>(
 where
     D: Deserializer<'de>,
 {
-    let map: HashMap<String, Option<String>> = HashMap::deserialize(deserializer)?;
+    let map: HashMap<String, serde_json::Value> = HashMap::deserialize(deserializer)?;
     Ok(map
         .into_iter()
-        .filter_map(|(k, v)| v.map(|val| (k, val)))
+        .filter_map(|(k, v)| {
+            // Convert value to string if it is a string, skip otherwise
+            v.as_str().map(|s| (k, s.to_string()))
+        })
         .collect())
 }
 
@@ -335,6 +338,10 @@ pub struct ScanResult {
     pub available_intents: Option<Vec<IntentAvailability>>,
     #[serde(default)]
     pub full_mode: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings_applied: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timing: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -467,6 +474,12 @@ pub struct PageInfo {
     pub title: String,
     pub viewport: ViewportInfo,
     pub scroll: ScrollInfo,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "readyState"
+    )]
+    pub ready_state: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -10,6 +10,10 @@ struct Args {
     /// Script file to execute
     #[arg(long)]
     file: Option<String>,
+
+    /// Launch browser in visible mode (not headless)
+    #[arg(long)]
+    visible: bool,
 }
 
 #[tokio::main]
@@ -19,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     println!("Starting Oryn Headless Backend...");
 
-    let mut backend = HeadlessBackend::new();
+    let mut backend = HeadlessBackend::new_with_visibility(args.visible);
     backend.launch().await?;
     let mut executor = CommandExecutor::new();
 

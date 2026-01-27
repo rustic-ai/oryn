@@ -7,11 +7,22 @@ use tracing::info;
 
 pub struct HeadlessBackend {
     client: Option<CdpClient>,
+    visible: bool,
 }
 
 impl HeadlessBackend {
     pub fn new() -> Self {
-        Self { client: None }
+        Self {
+            client: None,
+            visible: false,
+        }
+    }
+
+    pub fn new_with_visibility(visible: bool) -> Self {
+        Self {
+            client: None,
+            visible,
+        }
     }
 
     pub fn get_client(&self) -> Option<&CdpClient> {
@@ -51,7 +62,7 @@ impl HeadlessBackend {
 impl Backend for HeadlessBackend {
     async fn launch(&mut self) -> Result<(), BackendError> {
         info!("Launching Headless Backend (Chromium)...");
-        let client = CdpClient::launch()
+        let client = CdpClient::launch(self.visible)
             .await
             .map_err(|e| BackendError::Other(e.to_string()))?;
         self.client = Some(client);

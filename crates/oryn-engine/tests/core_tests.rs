@@ -87,6 +87,7 @@ fn test_formatter_scan_scanresult() {
                 max_x: 0,
                 max_y: 1000,
             },
+            ready_state: None,
         },
         elements: vec![Element {
             id: 1,
@@ -116,6 +117,8 @@ fn test_formatter_scan_scanresult() {
         changes: None,
         available_intents: None,
         full_mode: false,
+        settings_applied: None,
+        timing: None,
     };
 
     let resp = ScannerProtocolResponse::Ok {

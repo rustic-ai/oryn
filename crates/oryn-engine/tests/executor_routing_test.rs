@@ -143,6 +143,7 @@ impl Backend for TrackingMockBackend {
                         title: "test".into(),
                         viewport: ViewportInfo::default(),
                         scroll: ScrollInfo::default(),
+                        ready_state: None,
                     },
                     elements: vec![],
                     stats: ScanStats {
@@ -153,6 +154,8 @@ impl Backend for TrackingMockBackend {
                     changes: None,
                     available_intents: None,
                     full_mode: false,
+                    settings_applied: None,
+                    timing: None,
                 }))),
                 warnings: vec![],
             }),

@@ -311,6 +311,7 @@ fn test_scan_result_roundtrip() {
                 max_x: 500,
                 max_y: 3000,
             },
+            ready_state: None,
         },
         elements: vec![Element {
             id: 1,
@@ -340,6 +341,8 @@ fn test_scan_result_roundtrip() {
         changes: None,
         available_intents: None,
         full_mode: false,
+        settings_applied: None,
+        timing: None,
     };
 
     let json = serde_json::to_string(&original).unwrap();

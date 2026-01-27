@@ -9,9 +9,17 @@ pub struct CdpClient {
 }
 
 impl CdpClient {
-    pub async fn launch() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn launch(visible: bool) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let mut config_builder = BrowserConfig::builder();
         config_builder = config_builder.no_sandbox(); // Often needed in docker/CI/restricted envs
+
+        // Enable visible/headed mode if requested
+        if visible {
+            tracing::info!("Launching browser in visible mode");
+            config_builder = config_builder.with_head();
+        } else {
+            tracing::info!("Launching browser in headless mode");
+        }
 
         // Support custom Chrome path via CHROME_BIN environment variable
         if let Ok(chrome_bin) = std::env::var("CHROME_BIN") {
