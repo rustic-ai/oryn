@@ -6,6 +6,10 @@ echo "Building Oryn-W Extension"
 echo "========================================="
 echo ""
 
+# Step 0: Sync scanner.js from source
+echo "Step 0: Syncing scanner.js from source..."
+./scripts/sync-scanner.sh
+
 # Step 1: Build WASM module
 echo "Step 1: Building WASM module..."
 ./scripts/build-wasm.sh

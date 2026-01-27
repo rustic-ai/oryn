@@ -125,6 +125,8 @@ impl Backend for EmbeddedBackend {
                 .await
                 .map_err(|e| BackendError::Other(e.to_string()))?;
         }
+        // Explicitly drop cog_process to trigger its cleanup
+        self.cog_process = None;
         Ok(())
     }
 
@@ -286,16 +288,15 @@ impl Backend for EmbeddedBackend {
             .await
             .map_err(|e| BackendError::Other(format!("Get windows failed: {}", e)))?;
 
-        let mut tabs = Vec::new();
-        for handle in handles {
-            tabs.push(oryn_engine::protocol::TabInfo {
+        Ok(handles
+            .into_iter()
+            .map(|handle| oryn_engine::protocol::TabInfo {
                 id: format!("{:?}", handle),
                 url: "unknown".to_string(),
                 title: "unknown".to_string(),
                 active: false,
-            });
-        }
-        Ok(tabs)
+            })
+            .collect())
     }
 
     async fn go_back(&mut self) -> Result<NavigationResult, BackendError> {

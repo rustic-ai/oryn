@@ -20,6 +20,7 @@
     const StateManager = {
         invalidate: () => {
             STATE.elementMap.clear();
+            STATE.inverseMap = new WeakMap();
             STATE.cache.clear();
             STATE.nextId = 1;
             if (STATE.config.debug) console.log('Scanner state invalidated due to navigation');
@@ -697,9 +698,10 @@
                 if (!id) {
                     id = STATE.nextId++;
                     STATE.inverseMap.set(el, id);
-                    STATE.elementMap.set(id, el);
                     if (monitorChanges) changes.push({ id, change_type: 'appeared' });
                 }
+                // Always ensure element is in the active map for execution
+                STATE.elementMap.set(id, el);
                 seenIds.add(id);
 
                 const serialized = Scanner.serializeElement(el, id);
@@ -1646,7 +1648,7 @@
                     if (hasSvg || hasCloseIcon) {
                         const btnRect = btn.getBoundingClientRect();
                         const isTopRight = btnRect.right > modalRect.right - 100 &&
-                                           btnRect.top < modalRect.top + 100;
+                            btnRect.top < modalRect.top + 100;
                         if (isTopRight || hasSvg) return btn;
                     }
                 }
@@ -2166,7 +2168,7 @@
             if (result && result.status === 'ok' && !result.timing) {
                 result.timing = { duration_ms: performance.now() - t0 };
             }
-            
+
             if (!result) {
                 return Protocol.error('Internal Error: Result is null/undefined', 'INTERNAL_ERROR');
             }

@@ -3,13 +3,14 @@ benchmark: miniwob
 benchmark_options:
   server_url: http://localhost:8765
 llm_provider: litellm
-llm_model: gpt-5
+llm_model: vertex_ai/gemini-2.5-flash-lite
+
 llm_options:
   temperature: 1.0
 agent_type: react
 agent_options: {}
-max_steps: 20
-prompt_template: oil_standard
-oryn_mode: headless
+max_steps: 25
+prompt_template: oil_instructions_v2
+oryn_mode: embedded
 oryn_options:
-  binary_path: /home/rohit/work/dragonscale/oryn-remote/target/debug/oryn
+  binary_path: ../target/debug/oryn

@@ -211,15 +211,9 @@ impl ResolutionEngine {
             // Already resolved
             Target::Id(id) => {
                 let id32 = *id as u32;
-                if validate_requirement(id32, requirement, ctx) {
-                    Ok(id32)
-                } else {
-                    Err(ResolutionError {
-                        target: format!("{:?}", target),
-                        reason: format!("Element {} doesn't satisfy {:?}", id, requirement),
-                        attempted: vec![],
-                    })
-                }
+                // TRUST THE ID: If the user/agent specified an ID, assume it's actionable.
+                // The scanner has already filtered for "referenceable" elements.
+                Ok(id32)
             }
 
             // Inference requested

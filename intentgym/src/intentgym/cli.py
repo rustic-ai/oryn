@@ -19,21 +19,30 @@ def cli():
 @cli.command()
 @click.option("--config", required=True, type=Path, help="Path to run configuration")
 @click.option("--subset", default="all", help="Task subset to run")
-def run(config, subset):
+@click.option("--oryn-log-file", default=None, help="File to redirect oryn browser logs to")
+def run(config, subset, oryn_log_file):
     """Run benchmark using configuration file."""
     try:
         run_config = RunConfig.from_yaml(config)
+        
+        # Override oryn options if log file provided via CLI
+        if oryn_log_file:
+            run_config.oryn_options["log_file"] = str(oryn_log_file)
+            
         console.print(f"[green]Loaded config for run_id: {run_config.run_id}[/green]")
 
         runner = BenchmarkRunner(run_config)
         console.print("[yellow]Starting benchmark run...[/yellow]")
 
-        results = runner.run(
-            subset=subset,
-            progress_callback=lambda i, n, t: console.print(
-                f"Running task {i + 1}/{n}: {t}"
-            ),
-        )
+        try:
+            results = runner.run(
+                subset=subset,
+                progress_callback=lambda i, n, t: console.print(
+                    f"Running task {i + 1}/{n}: {t}"
+                ),
+            )
+        finally:
+            runner.close()
 
         # Generate and save report
         from .core.report import BenchmarkReport

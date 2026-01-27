@@ -1,3 +1,6 @@
+use nix::sys::signal::{self, Signal};
+use nix::unistd::Pid;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
@@ -151,8 +154,22 @@ impl CogProcess {
 impl Drop for CogProcess {
     fn drop(&mut self) {
         info!("Shutting down WPEWebDriver process...");
-        let _ = self.child.kill();
+
+        // Try to kill the whole process group
+        // Negating the PID sends signal to the process group with that ID
+        let pgid = Pid::from_raw(-(self.child.id() as i32));
+
+        // 1. Send SIGTERM first
+        let _ = signal::kill(pgid, Signal::SIGTERM);
+
+        // 2. Wait a bit for graceful shutdown
+        // We can't await in Drop, so we use a blocking sleep or just wait on the child
+        // WPEWebDriver doesn't always exit clean on SIGTERM quickly
+
         let _ = self.child.wait();
+
+        // 3. Just in case, send SIGKILL to the group to ensure no zombies (like cog) remain
+        let _ = signal::kill(pgid, Signal::SIGKILL);
 
         // Clean up weston if we started it
         if let Some(ref mut weston) = self.weston_process {
@@ -256,6 +273,7 @@ pub async fn launch_cog(port: u16, force_headless: bool) -> Result<CogProcess, S
     let mut cmd = Command::new(&webdriver_path);
     cmd.args([&format!("--port={}", port)])
         .env("PATH", &new_path)
+        .process_group(0) // Start in new process group so we can kill entire tree
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 

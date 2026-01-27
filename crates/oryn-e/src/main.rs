@@ -3,6 +3,8 @@ use oryn_e::backend::EmbeddedBackend;
 use oryn_engine::backend::Backend;
 use oryn_engine::executor::CommandExecutor;
 use std::io::{self, Write};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::signal;
 use tracing::{error, info};
 
 #[derive(ClapParser, Debug)]
@@ -80,27 +82,39 @@ async fn run_repl(
     executor: &mut CommandExecutor,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!(
-        "Backend ready. Enter commands (e.g., 'goto google.com', 'scan'). Type 'exit' to quit."
+        "Backend ready. Enter commands (e.g., 'goto google.com', 'scan'). Type 'exit' to quit or Ctrl+C to shutdown."
     );
-    let stdin = io::stdin();
+
+    let stdin = tokio::io::stdin();
+    let mut reader = BufReader::new(stdin).lines();
     let mut stdout = io::stdout();
-    let mut input = String::new();
 
     loop {
         print!("> ");
         stdout.flush()?;
-        input.clear();
-        if stdin.read_line(&mut input)? == 0 {
-            break;
+
+        tokio::select! {
+            line = reader.next_line() => {
+                match line {
+                    Ok(Some(input)) => {
+                        let trimmed = input.trim();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        if trimmed == "exit" || trimmed == "quit" {
+                            break;
+                        }
+                        execute_line(backend, executor, trimmed).await?;
+                    }
+                    Ok(None) => break, // EOF
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            _ = signal::ctrl_c() => {
+                println!("\nShutdown signal received.");
+                break;
+            }
         }
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if trimmed == "exit" || trimmed == "quit" {
-            break;
-        }
-        execute_line(backend, executor, trimmed).await?;
     }
     Ok(())
 }

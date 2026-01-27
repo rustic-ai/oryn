@@ -24,51 +24,62 @@ class BenchmarkRunner:
         self.llm: LLMProvider
         self.benchmark: Benchmark
         self.agent: Agent
-        # Initialize LLM
-        if config.llm.provider == "openai":
-            self.llm = OpenAIProvider(model=config.llm.model, **config.llm.options)
-        elif config.llm.provider == "anthropic":
-            self.llm = AnthropicProvider(model=config.llm.model, **config.llm.options)
-        elif config.llm.provider == "mock":
-            from .llm import MockLLMProvider
 
-            self.llm = MockLLMProvider(model=config.llm.model, **config.llm.options)
-        elif config.llm.provider == "litellm":
-            from .llm import LiteLLMProvider
-
-            self.llm = LiteLLMProvider(model=config.llm.model, **config.llm.options)
-        else:
-            raise ValueError(f"Unknown LLM provider: {config.llm.provider}")
+        # Initialize LLM provider
+        self.llm = self._create_llm_provider(config)
 
         # Initialize Benchmark
-        # For now, default to Mock if not found, or implement loader
-        if config.benchmark.name == "mock":
-            self.benchmark = MockBenchmark()
-        elif config.benchmark.name == "miniwob":
-            from ..benchmarks.miniwob import MiniWoBLoader
-
-            self.benchmark = MiniWoBLoader(**config.benchmark.options)
-        elif config.benchmark.name == "webshop":
-            from ..benchmarks.webshop import WebShopLoader
-
-            self.benchmark = WebShopLoader(**config.benchmark.options)
-        elif config.benchmark.name == "webarena":
-            from ..benchmarks.webarena import WebArenaLoader
-
-            self.benchmark = WebArenaLoader(**config.benchmark.options)
-        else:
-            # TODO: Dynamic loading of benchmarks
-            self.benchmark = MockBenchmark()
+        self.benchmark = self._create_benchmark(config)
 
         # Initialize Agent
-        # Load prompt from file using utility
+        self.agent = self._create_agent(config)
+
+    def _create_llm_provider(self, config: RunConfig) -> LLMProvider:
+        """Create the LLM provider based on configuration."""
+        provider = config.llm.provider
+        model = config.llm.model
+        options = config.llm.options
+
+        if provider == "openai":
+            return OpenAIProvider(model=model, **options)
+        if provider == "anthropic":
+            return AnthropicProvider(model=model, **options)
+        if provider == "mock":
+            from .llm import MockLLMProvider
+            return MockLLMProvider(model=model, **options)
+        if provider == "litellm":
+            from .llm import LiteLLMProvider
+            return LiteLLMProvider(model=model, **options)
+
+        raise ValueError(f"Unknown LLM provider: {provider}")
+
+    def _create_benchmark(self, config: RunConfig) -> Benchmark:
+        """Create the benchmark based on configuration."""
+        name = config.benchmark.name
+        options = config.benchmark.options
+
+        if name == "mock":
+            return MockBenchmark()
+        if name == "miniwob":
+            from ..benchmarks.miniwob import MiniWoBLoader
+            return MiniWoBLoader(**options)
+        if name == "webshop":
+            from ..benchmarks.webshop import WebShopLoader
+            return WebShopLoader(**options)
+        if name == "webarena":
+            from ..benchmarks.webarena import WebArenaLoader
+            return WebArenaLoader(**options)
+
+        raise ValueError(f"Unknown benchmark: {name}")
+
+    def _create_agent(self, config: RunConfig) -> Agent:
+        """Create the agent based on configuration."""
         from ..utils.prompts import load_prompt
 
+        # Load prompt template
         try:
             prompt = load_prompt(config.prompt_template)
         except Exception:
-            # Fallback if file not found (e.g. for testing with just a string name that doesn't exist)
-            # or create a default minimal one
             print(
                 f"Warning: Could not load prompt '{config.prompt_template}', using minimal default."
             )
@@ -80,42 +91,31 @@ class BenchmarkRunner:
                 action_format="Action: ",
             )
 
-        if config.agent.type == "react":
-            self.agent = ReActAgent(llm=self.llm, prompt=prompt, **config.agent.options)
-        elif config.agent.type == "plan_act":
+        agent_type = config.agent.type
+        options = config.agent.options
+
+        # Standard agents
+        if agent_type == "react":
+            return ReActAgent(llm=self.llm, prompt=prompt, **options)
+        if agent_type == "plan_act":
             from intentgym.agents.plan_act import PlanActAgent
-
-            self.agent = PlanActAgent(
-                llm=self.llm, prompt=prompt, **config.agent.options
-            )
-        elif config.agent.type == "reflexion":
+            return PlanActAgent(llm=self.llm, prompt=prompt, **options)
+        if agent_type == "reflexion":
             from intentgym.agents.reflexion import ReflexionAgent
-
-            self.agent = ReflexionAgent(
-                llm=self.llm, prompt=prompt, **config.agent.options
-            )
-        elif config.agent.type == "ralph":
+            return ReflexionAgent(llm=self.llm, prompt=prompt, **options)
+        if agent_type == "ralph":
             from intentgym.agents.ralph import RALPHAgent
+            return RALPHAgent(llm=self.llm, prompt=prompt, **options)
 
-            self.agent = RALPHAgent(llm=self.llm, prompt=prompt, **config.agent.options)
-
-        # Adapters
-        elif config.agent.type == "swarm":
+        # Framework adapters
+        if agent_type == "swarm":
             from intentgym.adapters.swarm import SwarmAdapter
-
-            # Adapter wrapping logic might need to change Agent interface or wrap it
-            # For now, we assume Adapter implements Agent-like interface or we wrap it
-            # But Adapter has 'step' not 'decide'.
-            # We need an AdapterWrapperAgent.
-            self.agent = AdapterWrapperAgent(SwarmAdapter(**config.agent.options))
-
-        elif config.agent.type == "adk":
+            return AdapterWrapperAgent(SwarmAdapter(**options))
+        if agent_type == "adk":
             from intentgym.adapters.adk import GoogleADKAdapter
+            return AdapterWrapperAgent(GoogleADKAdapter(**options))
 
-            self.agent = AdapterWrapperAgent(GoogleADKAdapter(**config.agent.options))
-
-        else:
-            raise ValueError(f"Unknown agent type: {config.agent.type}")
+        raise ValueError(f"Unknown agent type: {agent_type}")
 
     def run(self, subset: str = "all", progress_callback: Optional[Callable] = None):
         tasks = self.benchmark.load_tasks(subset)
@@ -128,6 +128,11 @@ class BenchmarkRunner:
             self.results.append(result)
 
         return self.results
+
+    def close(self):
+        """Clean up resources."""
+        if hasattr(self, 'oryn'):
+            self.oryn.close()
 
     def _run_task(self, task: Task) -> TaskMetrics:
         collector = MetricsCollector(

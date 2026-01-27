@@ -1,5 +1,3 @@
-"""Binary discovery utilities for finding the oryn executable."""
-
 import os
 import shutil
 
