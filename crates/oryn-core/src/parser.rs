@@ -1,4 +1,5 @@
 use super::ast::*;
+use super::normalizer::find_invalid_digit_hash;
 use pest::iterators::Pair;
 use pest::Parser;
 use pest_derive::Parser;
@@ -18,9 +19,21 @@ pub enum ParseError {
     InvalidInteger(std::num::ParseIntError),
     #[error("Invalid float: {0}")]
     InvalidFloat(std::num::ParseFloatError),
+    #[error("Unexpected input at position {position}: found '{found}'\nHint: {hint}")]
+    UnexpectedInput {
+        position: usize,
+        found: String,
+        hint: String,
+    },
 }
 
 pub fn parse(input: &str) -> Result<Script, ParseError> {
+    // Validate input for common syntax errors before Pest parsing
+    // This gives better error messages than generic Pest errors
+    for line in input.lines() {
+        validate_no_invalid_hash_after_id(line)?;
+    }
+
     let mut pairs = OilParser::parse(Rule::oil_input, input)?;
     let mut script = Script { lines: Vec::new() };
 
@@ -65,6 +78,25 @@ fn parse_line(pair: Pair<Rule>) -> Result<Line, ParseError> {
     }
 
     Ok(Line { command, comment })
+}
+
+/// Validates that '#' doesn't appear immediately after numeric target IDs.
+///
+/// Catches invalid syntax like "click 5#comment" which should be "click 5 #comment".
+fn validate_no_invalid_hash_after_id(line: &str) -> Result<(), ParseError> {
+    let Some(hash_pos) = find_invalid_digit_hash(line) else {
+        return Ok(());
+    };
+
+    let remaining = &line[hash_pos..];
+    let found = remaining.split_whitespace().next().unwrap_or("#");
+    let prefix = line[..hash_pos].trim();
+
+    Err(ParseError::UnexpectedInput {
+        position: hash_pos,
+        found: found.to_string(),
+        hint: format!("Add space before '#' for comment: {} {}", prefix, found),
+    })
 }
 
 fn parse_command(pair: Pair<Rule>) -> Result<Command, ParseError> {
@@ -1072,5 +1104,68 @@ fn parse_name_value(pair: Pair<Rule>) -> String {
         parse_string(inner)
     } else {
         inner.as_str().to_string()
+    }
+}
+
+#[cfg(test)]
+mod comment_validation_tests {
+    use super::*;
+
+    fn assert_invalid_digit_hash(input: &str, expected_position: usize, expected_found: &str) {
+        let result = parse(input);
+        let Err(ParseError::UnexpectedInput {
+            position, found, ..
+        }) = result
+        else {
+            panic!("Expected UnexpectedInput error for input: {}", input);
+        };
+        assert_eq!(
+            position, expected_position,
+            "position mismatch for: {}",
+            input
+        );
+        assert_eq!(found, expected_found, "found mismatch for: {}", input);
+    }
+
+    #[test]
+    fn test_rejects_digit_hash_without_space() {
+        assert_invalid_digit_hash("click 5#comment", 7, "#comment");
+        assert_invalid_digit_hash("click 5#x", 7, "#x");
+        assert_invalid_digit_hash(r#"type 3#x "hello""#, 6, "#x");
+        assert_invalid_digit_hash(r#"type 3#note "hello""#, 6, "#note");
+    }
+
+    #[test]
+    fn test_error_includes_helpful_hint() {
+        let Err(ParseError::UnexpectedInput { hint, .. }) = parse("click 5#comment") else {
+            panic!("Expected UnexpectedInput error");
+        };
+        assert!(hint.contains("Add space before '#' for comment"));
+        assert!(hint.contains("click 5 #comment"));
+    }
+
+    #[test]
+    fn test_accepts_digit_with_space_before_hash() {
+        assert!(parse("click 5 #comment").is_ok());
+    }
+
+    #[test]
+    fn test_accepts_hash_in_url() {
+        assert!(parse("goto example.com#section").is_ok());
+    }
+
+    #[test]
+    fn test_accepts_hash_in_file_path() {
+        assert!(parse("screenshot --output /tmp/file#1.png").is_ok());
+    }
+
+    #[test]
+    fn test_accepts_hash_in_quoted_string() {
+        assert!(parse(r#"click "Button#1""#).is_ok());
+    }
+
+    #[test]
+    fn test_accepts_full_line_comment() {
+        assert!(parse("#this is a comment").is_ok());
     }
 }

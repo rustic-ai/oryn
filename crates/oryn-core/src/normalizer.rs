@@ -248,6 +248,19 @@ fn normalize_command_part(input: &str) -> String {
                 }
                 "wait" => arg, // don't touch options
 
+                // Check if previous arg was an option that expects a numeric/duration value
+                _ if !normalized_args.is_empty()
+                    && normalized_args.last().unwrap().starts_with("--")
+                    && matches!(
+                        normalized_args.last().unwrap().as_str(),
+                        "--timeout" | "--delay" | "--amount" | "--wait" | "--last" | "--status"
+                    )
+                    && should_not_quote_value(&arg) =>
+                {
+                    // Keep numeric/duration option values unquoted
+                    arg
+                }
+
                 // Relational keywords - auto-quote following bare words
                 _ if !normalized_args.is_empty()
                     && matches!(
@@ -271,8 +284,7 @@ fn normalize_command_part(input: &str) -> String {
                 }
 
                 // Commands that expect text targets - auto-quote bare words
-                "click" | "hover" | "focus" | "check" | "uncheck" | "select" => {
-                    // If this is the first arg and it's not quoted, not an ID, not a selector
+                "click" | "hover" | "focus" | "check" | "uncheck" => {
                     if normalized_args.is_empty()
                         && !arg.starts_with('"')
                         && !arg.starts_with('\'')
@@ -282,22 +294,49 @@ fn normalize_command_part(input: &str) -> String {
                         && !arg.starts_with("xpath(")
                         && !arg.starts_with('-')
                     {
-                        // Collect all following bare words until we hit an option or relational keyword
-                        let mut text = arg.clone();
-                        while let Some(peek) = arg_iter.peek() {
-                            if peek.starts_with('-')
-                                || matches!(
-                                    peek.to_lowercase().as_str(),
-                                    "inside" | "near" | "after" | "before" | "contains"
-                                )
-                            {
-                                break;
+                        // Check if this is a numeric ID or role keyword - if so, don't quote
+                        if should_not_quote_target(&arg) {
+                            arg
+                        } else {
+                            // This is a text target - collect words and quote
+                            let mut text = arg.clone();
+                            while let Some(peek) = arg_iter.peek() {
+                                if peek.starts_with('-')
+                                    || matches!(
+                                        peek.to_lowercase().as_str(),
+                                        "inside" | "near" | "after" | "before" | "contains"
+                                    )
+                                {
+                                    break;
+                                }
+                                let next = arg_iter.next().unwrap();
+                                text.push(' ');
+                                text.push_str(&next);
                             }
-                            let next = arg_iter.next().unwrap();
-                            text.push(' ');
-                            text.push_str(&next);
+                            format!("\"{}\"", text)
                         }
-                        format!("\"{}\"", text)
+                    } else {
+                        arg
+                    }
+                }
+
+                "select" => {
+                    if normalized_args.is_empty()
+                        && !arg.starts_with('"')
+                        && !arg.starts_with('\'')
+                        && !arg.starts_with('#')
+                        && !arg.starts_with('@')
+                        && !arg.starts_with("css(")
+                        && !arg.starts_with("xpath(")
+                        && !arg.starts_with('-')
+                    {
+                        // For select: Only quote if target is text, don't consume the value
+                        if should_not_quote_target(&arg) {
+                            arg
+                        } else {
+                            // Text target: only quote THIS word, don't consume following args
+                            format!("\"{}\"", arg)
+                        }
                     } else {
                         arg
                     }
@@ -305,7 +344,6 @@ fn normalize_command_part(input: &str) -> String {
 
                 // Type command - auto-quote first two bare word sequences separately
                 "type" => {
-                    // Check if this should be auto-quoted
                     if !arg.starts_with('"')
                         && !arg.starts_with('\'')
                         && !arg.starts_with('#')
@@ -314,7 +352,17 @@ fn normalize_command_part(input: &str) -> String {
                         && !arg.starts_with("xpath(")
                         && !arg.starts_with('-')
                     {
-                        format!("\"{}\"", arg)
+                        // Don't quote numeric IDs, role keywords, or relational keywords
+                        if should_not_quote_target(&arg)
+                            || matches!(
+                                arg.to_lowercase().as_str(),
+                                "inside" | "near" | "after" | "before" | "contains"
+                            )
+                        {
+                            arg
+                        } else {
+                            format!("\"{}\"", arg)
+                        }
                     } else {
                         arg
                     }
@@ -498,6 +546,67 @@ fn is_number(s: &str) -> bool {
     NUMBER_RE.is_match(s)
 }
 
+fn is_numeric_id(s: &str) -> bool {
+    // Match plain integers: 0, 5, 99999, -1
+    use std::sync::LazyLock;
+    static ID_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-?\d+$").unwrap());
+    ID_RE.is_match(s)
+}
+
+fn is_role_keyword(s: &str) -> bool {
+    // Defined in oil.pest line 477
+    matches!(
+        s.to_lowercase().as_str(),
+        "email" | "password" | "search" | "submit" | "username" | "phone" | "url"
+    )
+}
+
+fn is_duration(s: &str) -> bool {
+    // Pattern: <number><unit> where unit is ms, s, or m
+    // Examples: 10s, 500ms, 2m, 0.5s
+    use std::sync::LazyLock;
+    static DURATION_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^-?\d+(\.\d+)?(ms|s|m)$").unwrap());
+    DURATION_RE.is_match(s)
+}
+
+fn should_not_quote_target(s: &str) -> bool {
+    // Don't quote numeric IDs, role keywords, or invalid digit# patterns
+    // (preserving invalid syntax allows the parser to reject it with a helpful error)
+    is_numeric_id(s) || is_role_keyword(s) || find_invalid_digit_hash(s).is_some()
+}
+
+/// Finds the position of an invalid digit# pattern in a string.
+///
+/// Returns the byte index of the '#' character if the pattern is found, None otherwise.
+/// The pattern matches when a digit immediately precedes '#' and that digit is part of
+/// a standalone number (at start of string, after whitespace, or after another digit).
+///
+/// Examples:
+/// - "click 5#comment" -> Some(7) (the '#' position)
+/// - "example.com#section" -> None (digit not standalone)
+/// - "click 5 #comment" -> None (space before '#')
+pub fn find_invalid_digit_hash(input: &str) -> Option<usize> {
+    let bytes = input.as_bytes();
+
+    for i in 0..bytes.len().saturating_sub(1) {
+        if bytes[i].is_ascii_digit() && bytes[i + 1] == b'#' {
+            let is_standalone_number =
+                i == 0 || bytes[i - 1].is_ascii_whitespace() || bytes[i - 1].is_ascii_digit();
+
+            if is_standalone_number {
+                return Some(i + 1);
+            }
+        }
+    }
+
+    None
+}
+
+fn should_not_quote_value(s: &str) -> bool {
+    is_number(s) || is_duration(s)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -507,16 +616,16 @@ mod tests {
         assert_eq!(normalize("click store"), "click \"store\"");
         assert_eq!(normalize("click Add to Cart"), "click \"Add to Cart\"");
         assert_eq!(
-            normalize("click Submit --force"),
-            "click \"Submit\" --force"
+            normalize("click Continue --force"),
+            "click \"Continue\" --force"
         );
     }
 
     #[test]
     fn test_auto_quote_type() {
         assert_eq!(
-            normalize("type email test@example.com"),
-            "type \"email\" \"test@example.com\""
+            normalize("type field1 test@example.com"),
+            "type \"field1\" \"test@example.com\""
         );
     }
 
@@ -544,8 +653,56 @@ mod tests {
     #[test]
     fn test_relational_keywords() {
         assert_eq!(
-            normalize("click Submit inside form"),
-            "click \"Submit\" inside \"form\""
+            normalize("click Continue inside form"),
+            "click \"Continue\" inside \"form\""
         );
+    }
+
+    #[test]
+    fn test_dont_quote_numeric_ids() {
+        assert_eq!(normalize("click 5"), "click 5");
+        assert_eq!(normalize("click 0"), "click 0");
+        assert_eq!(normalize("click 99999"), "click 99999");
+        assert_eq!(normalize("type 3 \"hello\""), "type 3 \"hello\"");
+    }
+
+    #[test]
+    fn test_dont_quote_role_keywords() {
+        assert_eq!(normalize("click email"), "click email");
+        assert_eq!(normalize("click submit"), "click submit");
+        assert_eq!(
+            normalize("type email \"user@example.com\""),
+            "type email \"user@example.com\""
+        );
+    }
+
+    #[test]
+    fn test_dont_quote_duration_values() {
+        assert_eq!(
+            normalize("wait load --timeout 10s"),
+            "wait load --timeout 10s"
+        );
+        assert_eq!(
+            normalize("click 5 --timeout 500ms"),
+            "click 5 --timeout 500ms"
+        );
+    }
+
+    #[test]
+    fn test_dont_quote_numeric_option_values() {
+        assert_eq!(
+            normalize("type 5 \"test\" --delay 50"),
+            "type 5 \"test\" --delay 50"
+        );
+        assert_eq!(
+            normalize("type 5 \"test\" --delay 0.5"),
+            "type 5 \"test\" --delay 0.5"
+        );
+    }
+
+    #[test]
+    fn test_select_separate_args() {
+        assert_eq!(normalize("select 5 \"option1\""), "select 5 \"option1\"");
+        assert_eq!(normalize("select 5 2"), "select 5 2");
     }
 }

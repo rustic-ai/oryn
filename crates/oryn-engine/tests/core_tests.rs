@@ -66,7 +66,7 @@ fn test_formatter_ok() {
 
     assert_eq!(
         formatter::format_response(&resp),
-        "Action Result: success=true, msg=Some(\"Clicked successfully\")"
+        "ok Clicked successfully\n"
     );
 }
 

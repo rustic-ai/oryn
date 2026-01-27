@@ -10,7 +10,7 @@ pub mod wasm;
 
 pub use api::{process_command, ProcessError, ProcessedCommand};
 pub use ast::*;
-pub use normalizer::normalize;
+pub use normalizer::{find_invalid_digit_hash, normalize};
 pub use parser::{parse, OilParser, Rule};
 
 #[cfg(target_arch = "wasm32")]
