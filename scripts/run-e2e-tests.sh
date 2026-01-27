@@ -205,8 +205,10 @@ test_oryn_h() {
         if docker run --rm \
             --network host \
             --shm-size=2gb \
+            --security-opt seccomp:unconfined \
+            --cap-add SYS_ADMIN \
             -e "RUST_LOG=info" \
-            -v "$scripts_dir:/scripts:ro" \
+            -v "$scripts_dir:/scripts:ro,z" \
             oryn-h:latest \
             /usr/local/bin/oryn-h --file "/scripts/$script_name" >> "$results_file" 2>&1; then
             log_pass "  $script_name"
@@ -256,7 +258,7 @@ test_oryn_e_debian() {
             --security-opt seccomp:unconfined \
             --cap-add SYS_ADMIN \
             -e "COG_PLATFORM_NAME=headless" \
-            -v "$scripts_dir:/scripts:ro" \
+            -v "$scripts_dir:/scripts:ro,z" \
             oryn-e:debian \
             /usr/local/bin/oryn-e --file "/scripts/$script_name" >> "$results_file" 2>&1; then
             log_pass "  $script_name"
@@ -304,7 +306,7 @@ test_oryn_e_alpine() {
             --network host \
             --privileged \
             --shm-size=1gb \
-            -v "$scripts_dir:/scripts:ro" \
+            -v "$scripts_dir:/scripts:ro,z" \
             oryn-e:latest \
             /usr/local/bin/oryn-e --file "/scripts/$script_name" >> "$results_file" 2>&1; then
             log_pass "  $script_name"
@@ -353,7 +355,7 @@ test_oryn_e_weston() {
             --network host \
             --privileged \
             --shm-size=1gb \
-            -v "$scripts_dir:/scripts:ro" \
+            -v "$scripts_dir:/scripts:ro,z" \
             oryn-e:weston \
             /usr/local/bin/oryn-e --file "/scripts/$script_name" >> "$results_file" 2>&1; then
             log_pass "  $script_name"
@@ -445,33 +447,47 @@ test_oryn_r() {
         local ORYN_PID=$!
 
         # Wait for server to be listening
+        # Note: Use lsof instead of nc to avoid spurious WebSocket handshake errors
         for i in {1..30}; do
-            if nc -z 127.0.0.1 $REMOTE_PORT 2>/dev/null; then
+            if lsof -ti:$REMOTE_PORT > /dev/null 2>&1; then
                 break
             fi
             sleep 0.5
         done
+        sleep 1  # Give server a moment to fully initialize
 
         # Launch Chromium in Docker with extension
         log_info "  Launching Chromium (Docker)..."
+        # Note: Use --disable-background-timer-throttling to prevent extension throttling
+        # Use --headless=old mode which has better extension support than --headless=new
         docker run --rm -d \
             --name oryn-chrome-$$ \
             --network host \
             -v "$ext_patch_dir:$ext_patch_dir:z" \
             -v "$user_data_dir:$user_data_dir:z" \
+            --entrypoint="" \
             zenika/alpine-chrome:with-node \
-            chromium-browser \
-            --headless=new \
+            /usr/bin/chromium-browser \
+            --headless=old \
             --no-sandbox \
             --disable-gpu \
             --disable-dev-shm-usage \
+            --disable-background-timer-throttling \
+            --disable-backgrounding-occluded-windows \
+            --disable-renderer-backgrounding \
             --disable-first-run-ui \
             --no-first-run \
             --no-default-browser-check \
             --user-data-dir="$user_data_dir" \
             --load-extension="$ext_patch_dir" \
             --remote-debugging-port=$CHROME_DEBUG_PORT \
+            --enable-logging=stderr \
+            --v=1 \
             "http://localhost:$HARNESS_PORT/" > "$RESULTS_DIR/chrome_$script_name.log" 2>&1
+
+        # Give extension time to load and connect
+        log_info "  Waiting for extension to connect..."
+        sleep 5
 
         # Wait for oryn to complete (it exits after script finishes)
         log_info "  Waiting for script to complete..."
