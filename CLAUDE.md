@@ -1,5 +1,24 @@
 # Oryn Project Instructions
 
+## Scanner.js Synchronization
+
+**IMPORTANT:** The scanner.js implementation must be kept in sync across all deployments.
+
+- **Source of truth:** `crates/oryn-scanner/src/scanner.js`
+- **Auto-synced to:** `extension/scanner.js` and `extension-w/scanner.js`
+
+**Before editing scanner.js:**
+1. Always edit `crates/oryn-scanner/src/scanner.js` only
+2. Run `./scripts/sync-scanner.sh` to sync to extensions
+3. Test all modes (see below)
+
+**Check sync status:**
+```bash
+./scripts/check-scanner-sync.sh
+```
+
+See [SCANNER-SYNC.md](SCANNER-SYNC.md) for detailed architecture and workflow.
+
 ## Running Tests
 
 Use the test runner script which handles formatting, linting, and running all tests:
