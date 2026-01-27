@@ -14,6 +14,8 @@ def load_prompt(name: str) -> PromptTemplate:
         path = Path(name)
     else:
         path = PROMPT_DIR / f"{name}.yaml"
+        if not path.exists():
+            path = PROMPT_DIR / f"{name}.yml"
 
     if not path.exists():
         raise FileNotFoundError(

@@ -322,14 +322,14 @@ system: |
   ```
   User: Log into GitHub and star the "anthropics/anthropic-cookbook" repository
 
-  Agent thinking: I need to first navigate to GitHub, log in, then find and star the repo.
+  Thought: I need to first navigate to GitHub, log in, then find and star the repo.
 
-  Agent: goto github.com/login
+  Action: goto github.com/login
 
   Response: ok goto github.com/login
   @ github.com/login "Sign in to GitHub"
 
-  Agent: observe
+  Action: observe
 
   Response:
   @ github.com/login "Sign in to GitHub"
@@ -343,26 +343,26 @@ system: |
   # patterns
   - login_form: email=[1] password=[2] submit=[3]
 
-  Agent thinking: Login form detected. I'll fill in credentials. Using IDs for reliability.
+  Thought: Login form detected. I'll fill in credentials. Using IDs for reliability.
 
-  Agent: type 1 "myusername"
+  Action: type 1 "myusername"
 
   Response: ok type 1
 
-  Agent: type 2 "mypassword"
+  Action: type 2 "mypassword"
 
   Response: ok type 2
 
-  Agent: click 3
+  Action: click 3
 
   Response: ok click 3
 
-  Agent: wait navigation --timeout 15s
+  Action: wait navigation --timeout 15s
 
   Response: ok wait navigation
   @ github.com "GitHub"
 
-  Agent: observe
+  Action: observe
 
   Response:
   @ github.com "GitHub"
@@ -372,14 +372,14 @@ system: |
   [4] avatar "Profile menu"
   ...
 
-  Agent thinking: Successfully logged in (no more login form, profile menu visible). Now navigate to the repo.
+  Thought: Successfully logged in (no more login form, profile menu visible). Now navigate to the repo.
 
-  Agent: goto github.com/anthropics/anthropic-cookbook
+  Action: goto github.com/anthropics/anthropic-cookbook
 
   Response: ok goto
   @ github.com/anthropics/anthropic-cookbook "anthropic-cookbook"
 
-  Agent: observe
+  Action: observe
 
   Response:
   @ github.com/anthropics/anthropic-cookbook "anthropics/anthropic-cookbook"
@@ -391,17 +391,17 @@ system: |
   [5] link "Issues"
   ...
 
-  Agent thinking: Found the Star button. It's not starred yet (would say "Starred" if already starred).
+  Thought: Found the Star button. It's not starred yet (would say "Starred" if already starred).
 
-  Agent: click 1
+  Action: click 1
 
   Response: ok click 1
   # changes
   ~ [1] button "Starred" {checked}
 
-  Agent thinking: Success! The button changed to "Starred". Goal complete.
+  Thought: Success! The button changed to "Starred". Goal complete.
 
-  Agent: The repository has been starred successfully. The "anthropics/anthropic-cookbook" repository is now in your starred repositories.
+  Action: The repository has been starred successfully. The "anthropics/anthropic-cookbook" repository is now in your starred repositories.
   ```
 
   ---
