@@ -193,6 +193,12 @@ async function executeAction(tabId, action) {
                 return { error: response.error };
             }
 
+            // If this is a scan action, update the WASM context
+            if (actionType === 'scan' && response.elements) {
+                console.log('[Oryn-W] Updating WASM scan context with', response.elements.length, 'elements');
+                handleScanComplete(response);
+            }
+
             return { success: true, result: response };
         }
     } catch (error) {

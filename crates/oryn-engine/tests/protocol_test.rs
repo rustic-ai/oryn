@@ -339,6 +339,7 @@ fn test_scan_result_roundtrip() {
         patterns: None,
         changes: None,
         available_intents: None,
+        full_mode: false,
     };
 
     let json = serde_json::to_string(&original).unwrap();
@@ -358,6 +359,9 @@ fn test_action_result_roundtrip() {
         success: true,
         message: Some("Action completed".to_string()),
         navigation: Some(false),
+        dom_changes: None,
+        value: None,
+        coordinates: None,
     };
 
     let json = serde_json::to_string(&original).unwrap();

@@ -506,12 +506,18 @@ mod tests {
     fn test_auto_quote_click() {
         assert_eq!(normalize("click store"), "click \"store\"");
         assert_eq!(normalize("click Add to Cart"), "click \"Add to Cart\"");
-        assert_eq!(normalize("click Submit --force"), "click \"Submit\" --force");
+        assert_eq!(
+            normalize("click Submit --force"),
+            "click \"Submit\" --force"
+        );
     }
 
     #[test]
     fn test_auto_quote_type() {
-        assert_eq!(normalize("type email test@example.com"), "type \"email\" \"test@example.com\"");
+        assert_eq!(
+            normalize("type email test@example.com"),
+            "type \"email\" \"test@example.com\""
+        );
     }
 
     #[test]
@@ -529,11 +535,17 @@ mod tests {
     #[test]
     fn test_dont_quote_selectors() {
         assert_eq!(normalize("click css(.button)"), "click css(\".button\")");
-        assert_eq!(normalize("click xpath(//button)"), "click xpath(\"//button\")");
+        assert_eq!(
+            normalize("click xpath(//button)"),
+            "click xpath(\"//button\")"
+        );
     }
 
     #[test]
     fn test_relational_keywords() {
-        assert_eq!(normalize("click Submit inside form"), "click \"Submit\" inside \"form\"");
+        assert_eq!(
+            normalize("click Submit inside form"),
+            "click \"Submit\" inside \"form\""
+        );
     }
 }

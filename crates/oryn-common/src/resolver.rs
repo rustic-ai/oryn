@@ -837,6 +837,73 @@ fn select_match(
     }
 }
 
+/// Minimum similarity score (0.0-1.0) required to include an element in suggestions.
+const MIN_SIMILARITY_THRESHOLD: f32 = 0.5;
+
+/// Find elements similar to the target text using fuzzy matching.
+/// Returns up to `limit` tuples of (element_id, display_text, similarity_score),
+/// sorted by similarity descending. Useful for suggesting alternatives when
+/// element resolution fails.
+pub fn find_similar_elements(
+    target_text: &str,
+    elements: &[Element],
+    limit: usize,
+) -> Vec<(u32, String, f32)> {
+    let normalized_target = normalize_text(target_text);
+    let mut scores: Vec<(u32, String, f32)> = Vec::new();
+
+    for elem in elements {
+        // Check all text-like fields and keep the best match per element
+        let candidates = [elem.text.as_ref(), elem.label.as_ref()];
+
+        for candidate in candidates.into_iter().flatten() {
+            let score = string_similarity(&normalized_target, &normalize_text(candidate));
+            if score > MIN_SIMILARITY_THRESHOLD {
+                scores.push((elem.id, candidate.clone(), score));
+            }
+        }
+    }
+
+    scores.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+    scores.truncate(limit);
+    scores
+}
+
+/// Calculate string similarity using Longest Common Subsequence (LCS) ratio.
+/// Returns a value between 0.0 (no similarity) and 1.0 (identical).
+fn string_similarity(a: &str, b: &str) -> f32 {
+    let total_len = a.len() + b.len();
+    if total_len == 0 {
+        return 1.0; // Two empty strings are identical
+    }
+    let lcs_len = lcs_length(a.as_bytes(), b.as_bytes());
+    (2.0 * lcs_len as f32) / total_len as f32
+}
+
+/// Calculate the length of the Longest Common Subsequence.
+/// Uses O(min(m,n)) space optimization instead of full O(m*n) matrix.
+fn lcs_length(a: &[u8], b: &[u8]) -> usize {
+    // Ensure b is the shorter sequence to minimize space usage
+    let (a, b) = if a.len() < b.len() { (b, a) } else { (a, b) };
+
+    let n = b.len();
+    let mut prev = vec![0; n + 1];
+    let mut curr = vec![0; n + 1];
+
+    for &a_byte in a {
+        for (j, &b_byte) in b.iter().enumerate() {
+            curr[j + 1] = if a_byte == b_byte {
+                prev[j] + 1
+            } else {
+                prev[j + 1].max(curr[j])
+            };
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+
+    prev[n]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -889,6 +956,7 @@ mod tests {
             patterns: None,
             changes: None,
             available_intents: None,
+            full_mode: false,
         };
         ResolverContext::new(&scan_result)
     }

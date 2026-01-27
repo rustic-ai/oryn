@@ -54,6 +54,9 @@ fn test_formatter_ok() {
         success: true,
         message: Some("Clicked successfully".into()),
         navigation: None,
+        dom_changes: None,
+        value: None,
+        coordinates: None,
     });
 
     let resp = ScannerProtocolResponse::Ok {
@@ -112,6 +115,7 @@ fn test_formatter_scan_scanresult() {
         patterns: None,
         changes: None,
         available_intents: None,
+        full_mode: false,
     };
 
     let resp = ScannerProtocolResponse::Ok {

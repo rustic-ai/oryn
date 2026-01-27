@@ -90,6 +90,7 @@ observe_opt = _{
     "--viewport" |
     "--hidden" |
     "--positions" |
+    "--diff" |
     near_opt |
     timeout_opt
 }

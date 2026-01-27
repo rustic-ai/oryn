@@ -112,6 +112,8 @@ pub struct ScanRequest {
     pub near: Option<String>,
     #[serde(default)]
     pub viewport_only: bool,
+    #[serde(default)]
+    pub full_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -331,6 +333,8 @@ pub struct ScanResult {
     pub changes: Option<Vec<ElementChange>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_intents: Option<Vec<IntentAvailability>>,
+    #[serde(default)]
+    pub full_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -379,6 +383,8 @@ pub struct LoginPattern {
     pub submit: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remember: Option<u32>,
+    #[serde(default)]
+    pub confidence: f32,
 }
 
 /// Search box pattern.
@@ -537,6 +543,25 @@ pub struct ActionResult {
     pub success: bool,
     pub message: Option<String>,
     pub navigation: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dom_changes: Option<DomChanges>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coordinates: Option<Coordinates>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DomChanges {
+    pub added: usize,
+    pub removed: usize,
+    pub attributes: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Coordinates {
+    pub x: i32,
+    pub y: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

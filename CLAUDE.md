@@ -19,6 +19,12 @@
 
 See [SCANNER-SYNC.md](SCANNER-SYNC.md) for detailed architecture and workflow.
 
+## General Guidelines
+
+**IMPORTANT - Commit Policy:**
+- **Never commit code without explicit user approval.** Always wait for the user to say "commit" or give explicit permission before running `git commit`.
+- **Never add `Co-Authored-By: Claude` or similar attribution lines to commit messages.** Keep commit messages clean and focused on the changes only.
+
 ## Running Tests
 
 Use the test runner script which handles formatting, linting, and running all tests:

@@ -209,6 +209,7 @@ fn parse_observe(pair: Pair<Rule>) -> Result<ObserveCmd, ParseError> {
         viewport: false,
         hidden: false,
         positions: false,
+        diff: false,
         near: None,
         timeout: None,
     };
@@ -225,6 +226,7 @@ fn parse_observe(pair: Pair<Rule>) -> Result<ObserveCmd, ParseError> {
                 "--viewport" => cmd.viewport = true,
                 "--hidden" => cmd.hidden = true,
                 "--positions" => cmd.positions = true,
+                "--diff" => cmd.diff = true,
                 _ => {}
             },
         }

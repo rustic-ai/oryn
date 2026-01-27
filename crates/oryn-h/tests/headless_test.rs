@@ -48,6 +48,7 @@ async fn test_headless_lifecycle_and_scan() {
         view_all: true,
         near: None,
         viewport_only: false,
+        full_mode: false,
     });
 
     let resp = backend

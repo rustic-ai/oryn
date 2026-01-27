@@ -51,7 +51,33 @@ pub fn process_command(
     };
 
     // 4. Resolve targets in the command
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::console::log_1(&format!("[WASM] Resolving command: {:?}", cmd).into());
+        web_sys::console::log_1(
+            &format!("[WASM] Scan has {} elements", scan.elements.len()).into(),
+        );
+        if let Command::Click(ref c) = cmd {
+            web_sys::console::log_1(&format!("[WASM] Click target: {:?}", c.target).into());
+        }
+        // Show first few elements for debugging
+        for (i, elem) in scan.elements.iter().take(5).enumerate() {
+            web_sys::console::log_1(
+                &format!(
+                    "[WASM] Element {}: id={}, type={}, text={:?}, label={:?}",
+                    i, elem.id, elem.element_type, elem.text, elem.label
+                )
+                .into(),
+            );
+        }
+    }
+
     let resolved_cmd = resolve_command_targets(cmd, scan)?;
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::console::log_1(&format!("[WASM] Resolved to: {:?}", resolved_cmd).into());
+    }
 
     // 5. Translate to protocol action
     let action = crate::translator::translate(&resolved_cmd)?;
@@ -145,6 +171,7 @@ mod tests {
             patterns: None,
             changes: None,
             available_intents: None,
+            full_mode: false,
         }
     }
 

@@ -72,6 +72,87 @@ function clearMessages() {
     renderMessages();
 }
 
+// Format result for display - matches oryn-h CLI output
+function formatResult(response) {
+    // If there's a message, use it
+    if (response.message) {
+        return response.message;
+    }
+
+    // If there's result data, format it
+    if (response.result) {
+        const result = response.result;
+
+        // Scan result - format as canonical OIL text output
+        if (result.page && result.elements && result.stats) {
+            return formatScanResult(result);
+        }
+
+        // String result (from execute, url, title, etc.)
+        if (typeof result === 'string') {
+            return result;
+        }
+
+        // Extraction result
+        if (result.values || result.value !== undefined) {
+            return `Value: ${JSON.stringify(result)}`;
+        }
+
+        // Object result - show as "Value: {json}"
+        if (typeof result === 'object') {
+            return `Value: ${JSON.stringify(result)}`;
+        }
+    }
+
+    return 'Command executed successfully';
+}
+
+// Format scan result as canonical OIL text output
+function formatScanResult(scan) {
+    let output = `@ ${scan.page.url} "${scan.page.title}"\n`;
+
+    for (const el of scan.elements) {
+        // Format type/role
+        const typeStr = el.role ? `${el.type}/${el.role}` : el.type;
+
+        // Get label (text or label attribute)
+        const label = el.text || el.label || '';
+
+        // Build state flags
+        const flags = [];
+        if (el.state.checked) flags.push('checked');
+        if (el.state.selected) flags.push('selected');
+        if (el.state.disabled) flags.push('disabled');
+        if (el.state.readonly) flags.push('readonly');
+        if (el.state.required) flags.push('required');
+        if (el.state.primary) flags.push('primary');
+
+        const flagsStr = flags.length > 0 ? ` {${flags.join(', ')}}` : '';
+
+        output += `[${el.id}] ${typeStr} "${label}"${flagsStr}\n`;
+    }
+
+    // Add patterns if detected
+    if (scan.patterns) {
+        const detected = [];
+        if (scan.patterns.login) detected.push('Login Form');
+        if (scan.patterns.search) detected.push('Search Box');
+        if (scan.patterns.pagination) detected.push('Pagination');
+        if (scan.patterns.modal) detected.push('Modal');
+        if (scan.patterns.cookie_banner) detected.push('Cookie Banner');
+
+        if (detected.length > 0) {
+            output += '\nPatterns:';
+            for (const p of detected) {
+                output += `\n- ${p}`;
+            }
+        }
+    }
+
+    return output;
+}
+
+
 // Update status badges
 async function updateStatus() {
     try {
@@ -144,8 +225,9 @@ async function executeCommand() {
         if (response.error) {
             addMessage(`Error: ${response.error}`, 'error');
         } else if (response.success) {
-            const resultMsg = response.message || 'Command executed successfully';
-            addMessage(resultMsg, 'success');
+            // Format result based on type
+            const formatted = formatResult(response);
+            addMessage(formatted, 'success');
         } else {
             addMessage('Unexpected response from background script', 'error');
         }

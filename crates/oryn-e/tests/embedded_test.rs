@@ -61,6 +61,7 @@ async fn test_embedded_features() {
         view_all: false,
         near: None,
         viewport_only: false,
+        full_mode: false,
     });
 
     let scan_res = backend.execute_scanner(scan_req).await;

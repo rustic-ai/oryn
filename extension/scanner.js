@@ -994,7 +994,23 @@
 
             // Check visibility unless force is set
             if (!params.force && !Utils.isVisible(el)) {
-                throw { msg: `Element ${params.id} is not visible`, code: 'ELEMENT_NOT_VISIBLE' };
+                const rect = el.getBoundingClientRect();
+                throw {
+                    msg: `Element ${params.id} is not visible`,
+                    code: 'ELEMENT_NOT_VISIBLE',
+                    details: {
+                        rect: {
+                            x: Math.round(rect.x),
+                            y: Math.round(rect.y),
+                            width: Math.round(rect.width),
+                            height: Math.round(rect.height)
+                        },
+                        viewport: {
+                            width: window.innerWidth,
+                            height: window.innerHeight
+                        }
+                    }
+                };
             }
 
             if (params.scroll_into_view !== false) el.scrollIntoView({ block: 'center', behavior: 'instant' });
@@ -1341,7 +1357,23 @@
             const el = Executor.getElementFromParams(params);
 
             if (!Utils.isVisible(el)) {
-                throw { msg: `Element ${params.id} is not visible`, code: 'ELEMENT_NOT_VISIBLE' };
+                const rect = el.getBoundingClientRect();
+                throw {
+                    msg: `Element ${params.id} is not visible`,
+                    code: 'ELEMENT_NOT_VISIBLE',
+                    details: {
+                        rect: {
+                            x: Math.round(rect.x),
+                            y: Math.round(rect.y),
+                            width: Math.round(rect.width),
+                            height: Math.round(rect.height)
+                        },
+                        viewport: {
+                            width: window.innerWidth,
+                            height: window.innerHeight
+                        }
+                    }
+                };
             }
 
             const { x: clientX, y: clientY } = Utils.getClickCoordinates(el, params.offset);
@@ -1899,9 +1931,24 @@
 
                 // Try to find form container
                 const pwEl = STATE.elementMap.get(passwordField);
+                let isInForm = false;
                 if (pwEl?.form) {
                     result.form = Utils.generateSelector(pwEl.form);
+                    isInForm = true;
                 }
+
+                // Calculate confidence score based on presence of login form indicators
+                // Base: 0.5 (password field required), max bonus: 0.5 from other indicators
+                const CONFIDENCE_BASE = 0.5;
+                const CONFIDENCE_HAS_IDENTITY_FIELD = 0.2;  // email or username
+                const CONFIDENCE_HAS_SUBMIT = 0.15;
+                const CONFIDENCE_IN_FORM = 0.15;
+
+                let confidence = CONFIDENCE_BASE;
+                if (emailField || usernameField) confidence += CONFIDENCE_HAS_IDENTITY_FIELD;
+                if (submitButton) confidence += CONFIDENCE_HAS_SUBMIT;
+                if (isInForm) confidence += CONFIDENCE_IN_FORM;
+                result.confidence = Math.min(confidence, 1.0);
 
                 return result;
             }

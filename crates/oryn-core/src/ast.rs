@@ -134,6 +134,7 @@ pub struct ObserveCmd {
     pub viewport: bool,
     pub hidden: bool,
     pub positions: bool,
+    pub diff: bool,
     pub near: Option<String>,
     pub timeout: Option<String>,
 }

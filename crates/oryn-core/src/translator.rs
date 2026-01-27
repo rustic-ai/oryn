@@ -161,11 +161,12 @@ pub fn translate(command: &Command) -> Result<Action, TranslationError> {
         // --- Observation ---
         Command::Observe(cmd) => Ok(Action::Scanner(ScannerAction::Scan(ScanRequest {
             max_elements: None, // TODO
-            monitor_changes: false,
+            monitor_changes: cmd.diff,
             include_hidden: cmd.hidden,
             view_all: cmd.full,
             near: cmd.near.clone(),
             viewport_only: cmd.viewport,
+            full_mode: cmd.full,
         }))),
         Command::Html(cmd) => Ok(Action::Scanner(ScannerAction::GetHtml(GetHtmlRequest {
             selector: cmd.selector.clone(),
@@ -464,21 +465,36 @@ mod tests {
     fn test_normalize_url_adds_https() {
         assert_eq!(normalize_url("google.com"), "https://google.com");
         assert_eq!(normalize_url("example.org"), "https://example.org");
-        assert_eq!(normalize_url("  subdomain.example.com  "), "https://subdomain.example.com");
+        assert_eq!(
+            normalize_url("  subdomain.example.com  "),
+            "https://subdomain.example.com"
+        );
     }
 
     #[test]
     fn test_normalize_url_preserves_protocol() {
         assert_eq!(normalize_url("https://google.com"), "https://google.com");
         assert_eq!(normalize_url("http://example.com"), "http://example.com");
-        assert_eq!(normalize_url("ftp://files.example.com"), "ftp://files.example.com");
+        assert_eq!(
+            normalize_url("ftp://files.example.com"),
+            "ftp://files.example.com"
+        );
     }
 
     #[test]
     fn test_normalize_url_special_cases() {
         assert_eq!(normalize_url("about:blank"), "about:blank");
-        assert_eq!(normalize_url("data:text/html,<h1>Hi</h1>"), "data:text/html,<h1>Hi</h1>");
-        assert_eq!(normalize_url("javascript:alert('test')"), "javascript:alert('test')");
-        assert_eq!(normalize_url("file:///home/user/file.html"), "file:///home/user/file.html");
+        assert_eq!(
+            normalize_url("data:text/html,<h1>Hi</h1>"),
+            "data:text/html,<h1>Hi</h1>"
+        );
+        assert_eq!(
+            normalize_url("javascript:alert('test')"),
+            "javascript:alert('test')"
+        );
+        assert_eq!(
+            normalize_url("file:///home/user/file.html"),
+            "file:///home/user/file.html"
+        );
     }
 }

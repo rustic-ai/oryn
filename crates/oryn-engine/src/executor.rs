@@ -83,6 +83,41 @@ impl CommandExecutor {
         }
     }
 
+    /// Enhance resolution errors with fuzzy matching suggestions.
+    /// When an element cannot be found, this searches for similar elements
+    /// and provides helpful suggestions to the user.
+    fn enhance_resolution_error(
+        &self,
+        err: crate::resolution::result::ResolutionError,
+    ) -> ExecutorError {
+        use oryn_common::resolver::find_similar_elements;
+
+        let Some(scan) = &self.last_scan else {
+            return ExecutorError::Resolution(err);
+        };
+
+        let similar = find_similar_elements(&err.target, &scan.elements, 3);
+
+        if similar.is_empty() {
+            return ExecutorError::Scanner(format!(
+                "{}\n\nHint: Run 'observe' to see available elements",
+                err
+            ));
+        }
+
+        let suggestions: String = similar
+            .iter()
+            .map(|(id, text, score)| format!("  [{}] {:?} ({:.0}% match)", id, text, score * 100.0))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let first_id = similar[0].0;
+        ExecutorError::Scanner(format!(
+            "{}\n\nSimilar elements:\n{}\n\nHint: Try 'click {}' or run 'observe' to refresh",
+            err, suggestions, first_id
+        ))
+    }
+
     fn cookie_with_defaults(
         name: String,
         value: String,
@@ -129,7 +164,14 @@ impl CommandExecutor {
                         self.update_from_response(&resp);
 
                         // Retry resolution
-                        self.resolve_command(cmd_clone, backend).await?
+                        match self.resolve_command(cmd_clone, backend).await {
+                            Ok(c) => c,
+                            Err(ExecutorError::Resolution(err)) => {
+                                // Enhance error with fuzzy matching
+                                return Err(self.enhance_resolution_error(err));
+                            }
+                            Err(e) => return Err(e),
+                        }
                     }
                     Err(e) => return Err(e),
                 };

@@ -207,6 +207,9 @@ impl Backend for EmbeddedBackend {
                                             "Synthesized success (suspected navigation)".into(),
                                         ),
                                         navigation: Some(true),
+                                        dom_changes: None,
+                                        value: None,
+                                        coordinates: None,
                                     })),
                                     warnings: vec![
                                         "Scanner returned Null, assuming navigation occurred"

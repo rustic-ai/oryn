@@ -35,6 +35,7 @@ async fn test_server_connection_and_messaging() {
         view_all: false,
         near: None,
         viewport_only: false,
+        full_mode: false,
     });
 
     // Wrap in Action
