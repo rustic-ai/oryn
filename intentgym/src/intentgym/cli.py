@@ -10,6 +10,30 @@ from .core.runner import BenchmarkRunner
 console = Console()
 
 
+def _parse_value(value: str):
+    """Parse CLI value string to appropriate Python type."""
+    # Try boolean
+    if value.lower() in ("true", "yes", "1"):
+        return True
+    if value.lower() in ("false", "no", "0"):
+        return False
+
+    # Try integer
+    try:
+        return int(value)
+    except ValueError:
+        pass
+
+    # Try float
+    try:
+        return float(value)
+    except ValueError:
+        pass
+
+    # Return as string
+    return value
+
+
 @click.group()
 def cli():
     """IntentGym Benchmark Harness."""
@@ -20,14 +44,30 @@ def cli():
 @click.option("--config", required=True, type=Path, help="Path to run configuration")
 @click.option("--subset", default="all", help="Task subset to run")
 @click.option("--oryn-log-file", default=None, help="File to redirect oryn browser logs to")
-def run(config, subset, oryn_log_file):
+@click.option(
+    "--oryn-opt",
+    multiple=True,
+    help="Override oryn options (can be repeated). Format: key=value"
+)
+def run(config, subset, oryn_log_file, oryn_opt):
     """Run benchmark using configuration file."""
     try:
         run_config = RunConfig.from_yaml(config)
-        
+
         # Override oryn options if log file provided via CLI
         if oryn_log_file:
             run_config.oryn_options["log_file"] = str(oryn_log_file)
+
+        # Parse and apply --oryn-opt overrides
+        for opt in oryn_opt:
+            if "=" not in opt:
+                console.print(f"[yellow]Warning: Skipping invalid --oryn-opt format: {opt} (expected key=value)[/yellow]")
+                continue
+
+            key, value = opt.split("=", 1)
+            parsed_value = _parse_value(value)
+            run_config.oryn_options[key] = parsed_value
+            console.print(f"[dim]Setting oryn option: {key}={parsed_value}[/dim]")
             
         console.print(f"[green]Loaded config for run_id: {run_config.run_id}[/green]")
 

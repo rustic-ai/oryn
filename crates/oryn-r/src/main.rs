@@ -49,9 +49,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
 
-        if let Err(e) = execute_line(&mut backend, &mut executor, trimmed).await {
-            println!("Error: {}", e);
-            return Err(e);
+        // In interactive mode, handle errors and continue instead of exiting
+        if let Err(_) = execute_line(&mut backend, &mut executor, trimmed).await {
+            // Error already printed by execute_line, just continue
+            continue;
         }
     }
 

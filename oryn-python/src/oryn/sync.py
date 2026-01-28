@@ -37,6 +37,7 @@ class OrynClientSync:
         port: int = 9001,
         env: dict[str, str] | None = None,
         log_file: str | None = None,
+        cli_args: list[str] | None = None,
     ):
         """Initialize OrynClientSync.
 
@@ -48,6 +49,8 @@ class OrynClientSync:
             driver_url: WebDriver URL for embedded mode (optional)
             port: WebSocket port for remote mode
             env: Additional environment variables for subprocess
+            log_file: Path to file for redirecting Oryn output (optional)
+            cli_args: Additional CLI arguments to pass to oryn binary (optional)
         """
         self._client = OrynClient(
             mode=mode,
@@ -58,6 +61,7 @@ class OrynClientSync:
             port=port,
             env=env,
             log_file=log_file,
+            cli_args=cli_args,
         )
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._owns_loop = False

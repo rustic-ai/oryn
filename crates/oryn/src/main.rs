@@ -21,7 +21,11 @@ struct Args {
 #[derive(Subcommand)]
 enum Mode {
     /// Use headless browser (Chromium) via CDP
-    Headless,
+    Headless {
+        /// Launch browser in visible mode (not headless)
+        #[arg(long)]
+        visible: bool,
+    },
     /// Use embedded browser (WebDriver/COG). Auto-launches COG if no URL provided.
     Embedded {
         /// External WebDriver URL (optional - COG auto-launches if not provided)
@@ -46,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     let backend: Box<dyn Backend> = match args.mode {
-        Mode::Headless => Box::new(HeadlessBackend::new()),
+        Mode::Headless { visible } => Box::new(HeadlessBackend::new_with_visibility(visible)),
         Mode::Embedded { driver_url } => match driver_url {
             Some(url) => Box::new(EmbeddedBackend::with_url(url)),
             None => Box::new(EmbeddedBackend::new()), // Auto-launch COG

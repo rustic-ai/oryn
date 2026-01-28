@@ -39,6 +39,7 @@ class OrynClient:
         port: int = 9001,
         env: dict[str, str] | None = None,
         log_file: str | None = None,
+        cli_args: list[str] | None = None,
     ):
         """Initialize OrynClient.
 
@@ -51,6 +52,7 @@ class OrynClient:
             port: WebSocket port for remote mode
             env: Additional environment variables for subprocess
             log_file: Path to file for redirecting Oryn output (optional)
+            cli_args: Additional CLI arguments to pass to oryn binary (optional)
         """
         self._config = OrynConfig(
             mode=mode,
@@ -61,6 +63,7 @@ class OrynClient:
             port=port,
             env=env or {},
             log_file=log_file,
+            cli_args=cli_args or [],
         )
         self._transport: Optional[Transport] = None
 

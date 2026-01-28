@@ -104,7 +104,11 @@ async fn run_repl(
                         if trimmed == "exit" || trimmed == "quit" {
                             break;
                         }
-                        execute_line(backend, executor, trimmed).await?;
+                        // In interactive mode, handle errors and continue instead of exiting
+                        if let Err(_) = execute_line(backend, executor, trimmed).await {
+                            // Error already printed by execute_line, just continue
+                            continue;
+                        }
                     }
                     Ok(None) => break, // EOF
                     Err(e) => return Err(e.into()),

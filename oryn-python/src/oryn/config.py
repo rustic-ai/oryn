@@ -16,6 +16,7 @@ class OrynConfig:
         driver_url: WebDriver URL for embedded mode (optional)
         port: WebSocket port for remote mode
         env: Additional environment variables for subprocess
+        cli_args: Additional CLI arguments to pass to oryn binary
     """
 
     mode: Literal["headless", "embedded", "remote"] = "headless"
@@ -26,6 +27,7 @@ class OrynConfig:
     port: int = 9001
     env: dict[str, str] = field(default_factory=dict)
     log_file: str | None = None
+    cli_args: list[str] = field(default_factory=list)
 
     def get_cli_args(self) -> list[str]:
         """Generate CLI arguments for oryn binary."""
@@ -35,5 +37,8 @@ class OrynConfig:
             args.extend(["--driver-url", self.driver_url])
         elif self.mode == "remote":
             args.extend(["--port", str(self.port)])
+
+        # Append any additional CLI arguments
+        args.extend(self.cli_args)
 
         return args

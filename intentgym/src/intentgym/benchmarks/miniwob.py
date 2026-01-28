@@ -56,28 +56,44 @@ class MiniWoBLoader(Benchmark):
         ]
 
     def evaluate(self, task: Task, oryn: OrynInterface) -> Evaluation:
-        # MiniWoB environments have built-in success detection via JS
-        # We check window.__miniwob_success__ (assuming helper snippet injected or standard env)
-
-        # In a real Oryn implementation, we would execute JS.
-        # For now, we simulate or use the execute command.
-        # Note: Oryn 'execute' returns OrynResult.
-        # We assume there's a way to run JS or check state.
-
-        # Try to read success state from the page
-        # check = oryn.execute("js return window.__miniwob_success__")
-        # But Oryn might not support direct JS eval in Intent Language yet.
-        # SPEC says: result = oryn.execute("execute window.__miniwob_success__")
+        # MiniWoB environments expose success via window.WOB_DONE_GLOBAL and window.WOB_REWARD_GLOBAL
+        # Since Oryn doesn't have a generic JS eval command yet, we use a workaround:
+        # Extract the "Last reward:" value from the reward display UI
 
         try:
-            result = oryn.execute("execute window.__miniwob_success__")
-            success = "true" in str(result.raw).lower()
-        except Exception:
+            # Get page text which includes the reward display
+            # MiniWoB shows: "Last reward: X.XX" where X.XX is the reward
+            result = oryn.execute('text')
+            text_content = result.raw.strip()
+
+            # Parse reward from "Last reward: X.XX" line
+            import re
+            reward_match = re.search(r'Last reward:\s*([-\d.]+)', text_content)
+
+            if reward_match:
+                reward_text = reward_match.group(1)
+                try:
+                    reward = float(reward_text)
+                    # MiniWoB rewards: 1.0 (or time-adjusted ~0.8-1.0) for success, -1.0 for failure
+                    success = reward >= 0.5
+                    partial_score = max(0.0, reward)
+                except ValueError:
+                    # If we can't parse, task not complete
+                    success = False
+                    partial_score = 0.0
+            else:
+                # "Last reward: -" means no reward yet (task not done)
+                success = False
+                partial_score = 0.0
+
+        except Exception as e:
+            # If text extraction fails, assume not done yet
             success = False
+            partial_score = 0.0
 
         return Evaluation(
             success=success,
-            partial_score=1.0 if success else 0.0,
+            partial_score=partial_score,
             criteria_met={"env_success": success},
         )
 
