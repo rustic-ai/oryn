@@ -1,4 +1,5 @@
 use crate::ast::{Command, Target, TargetAtomic};
+use crate::resolution::{ResolutionEngine, ResolutionError, WasmSelectorResolver};
 use oryn_common::protocol::{Action, ScanResult};
 use oryn_common::resolver::{self, ResolutionStrategy, ResolverContext};
 use serde::{Deserialize, Serialize};
@@ -17,40 +18,45 @@ pub enum ProcessError {
     #[error("Translation error: {0}")]
     Translation(#[from] crate::translator::TranslationError),
 
-    #[error("Resolution error: {0}")]
+    #[error("Resolution error (legacy): {0}")]
     Resolution(#[from] oryn_common::resolver::ResolverError),
+
+    #[error("Resolution error (advanced): {0}")]
+    AdvancedResolution(#[from] ResolutionError),
 
     #[error("Empty script")]
     EmptyScript,
 }
 
-/// Process an OIL command (WASM version)
+/// Process an OIL command (legacy version - basic resolution only)
+///
+/// This version uses basic text/role resolution from oryn_common::resolver.
+/// It does NOT include:
+/// - Label association
+/// - Target inference rules
+/// - Requirement validation
+///
+/// For advanced features, use `process_command_advanced()` instead.
 ///
 /// This version does:
 /// 1. Normalize input
 /// 2. Parse to AST
-/// 3. Resolve targets using scan data
+/// 3. Resolve targets using basic scan data matching
 /// 4. Translate to Action
 pub fn process_command(
     oil_input: &str,
     scan: &ScanResult,
 ) -> Result<ProcessedCommand, ProcessError> {
-    // 1. Normalize
     let normalized = crate::normalizer::normalize(oil_input);
-
-    // 2. Parse
     let script = crate::parser::parse(&normalized)?;
 
-    // 3. Extract first command
     let Some(script_line) = script.lines.first() else {
         return Err(ProcessError::EmptyScript);
     };
-
     let Some(cmd) = &script_line.command else {
         return Err(ProcessError::EmptyScript);
     };
 
-    // 4. Resolve targets in the command
     #[cfg(target_arch = "wasm32")]
     {
         web_sys::console::log_1(&format!("[WASM] Resolving command: {:?}", cmd).into());
@@ -60,7 +66,6 @@ pub fn process_command(
         if let Command::Click(ref c) = cmd {
             web_sys::console::log_1(&format!("[WASM] Click target: {:?}", c.target).into());
         }
-        // Show first few elements for debugging
         for (i, elem) in scan.elements.iter().take(5).enumerate() {
             web_sys::console::log_1(
                 &format!(
@@ -75,13 +80,9 @@ pub fn process_command(
     let resolved_cmd = resolve_command_targets(cmd, scan)?;
 
     #[cfg(target_arch = "wasm32")]
-    {
-        web_sys::console::log_1(&format!("[WASM] Resolved to: {:?}", resolved_cmd).into());
-    }
+    web_sys::console::log_1(&format!("[WASM] Resolved to: {:?}", resolved_cmd).into());
 
-    // 5. Translate to protocol action
     let action = crate::translator::translate(&resolved_cmd)?;
-
     Ok(ProcessedCommand::Resolved(action))
 }
 
@@ -119,35 +120,67 @@ fn resolve_command_targets(cmd: &Command, scan: &ScanResult) -> Result<Command, 
             target: resolve_target(&c.target)?,
             ..c.clone()
         })),
-        Command::Check(_c) => Ok(Command::Check(crate::ast::CheckCmd {
-            target: resolve_target(&_c.target)?,
+        Command::Check(c) => Ok(Command::Check(crate::ast::CheckCmd {
+            target: resolve_target(&c.target)?,
         })),
         Command::Select(c) => Ok(Command::Select(crate::ast::SelectCmd {
             target: resolve_target(&c.target)?,
             value: c.value.clone(),
         })),
-        Command::Hover(_c) => Ok(Command::Hover(crate::ast::HoverCmd {
-            target: resolve_target(&_c.target)?,
+        Command::Hover(c) => Ok(Command::Hover(crate::ast::HoverCmd {
+            target: resolve_target(&c.target)?,
         })),
-        Command::Focus(_c) => Ok(Command::Focus(crate::ast::FocusCmd {
-            target: resolve_target(&_c.target)?,
+        Command::Focus(c) => Ok(Command::Focus(crate::ast::FocusCmd {
+            target: resolve_target(&c.target)?,
         })),
-        Command::Clear(_c) => Ok(Command::Clear(crate::ast::ClearCmd {
-            target: resolve_target(&_c.target)?,
+        Command::Clear(c) => Ok(Command::Clear(crate::ast::ClearCmd {
+            target: resolve_target(&c.target)?,
         })),
         Command::Text(c) => Ok(Command::Text(crate::ast::TextCmd {
             target: c.target.as_ref().map(resolve_target).transpose()?,
             selector: c.selector.clone(),
         })),
-        Command::Html(_c) => Ok(cmd.clone()), // HtmlCmd doesn't have target, just selector
         Command::Uncheck(c) => Ok(Command::Uncheck(crate::ast::UncheckCmd {
             target: resolve_target(&c.target)?,
         })),
-        // Wait has target embedded in condition - more complex resolution needed
-        Command::Wait(_c) => Ok(cmd.clone()),
-        // Commands without targets - return as-is
+        // These commands don't have resolvable targets
+        Command::Html(_) | Command::Wait(_) => Ok(cmd.clone()),
         _ => Ok(cmd.clone()),
     }
+}
+
+/// Process an OIL command with advanced resolution (async version).
+///
+/// Uses the full `ResolutionEngine` with label association, target inference,
+/// requirement validation, and dismiss/accept inference.
+///
+/// Note: Requires `WasmSelectorResolver` to be fully implemented for CSS selector
+/// support. Currently, selectors fail gracefully (return `None`).
+pub async fn process_command_advanced(
+    oil_input: &str,
+    scan: &ScanResult,
+) -> Result<ProcessedCommand, ProcessError> {
+    let normalized = crate::normalizer::normalize(oil_input);
+    let script = crate::parser::parse(&normalized)?;
+
+    let Some(script_line) = script.lines.first() else {
+        return Err(ProcessError::EmptyScript);
+    };
+    let Some(cmd) = &script_line.command else {
+        return Err(ProcessError::EmptyScript);
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!("[WASM Advanced] Resolving command: {:?}", cmd).into());
+
+    let mut resolver = WasmSelectorResolver::new();
+    let resolved_cmd = ResolutionEngine::resolve(cmd.clone(), scan, &mut resolver).await?;
+
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!("[WASM Advanced] Resolved to: {:?}", resolved_cmd).into());
+
+    let action = crate::translator::translate(&resolved_cmd)?;
+    Ok(ProcessedCommand::Resolved(action))
 }
 
 #[cfg(test)]

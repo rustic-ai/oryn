@@ -1576,6 +1576,8 @@ dependencies = [
 name = "oryn-core"
 version = "0.1.0"
 dependencies = [
+ "async-recursion",
+ "async-trait",
  "console_error_panic_hook",
  "js-sys",
  "lazy_static",
@@ -1590,6 +1592,7 @@ dependencies = [
  "strsim",
  "thiserror 1.0.69",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 

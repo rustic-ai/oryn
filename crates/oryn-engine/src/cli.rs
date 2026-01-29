@@ -154,12 +154,10 @@ pub async fn run_repl<B: Backend + ?Sized>(
         )
         .await
         {
-            ReadLineResult::Input(line) => {
-                match execute_line(backend, executor, &line).await {
-                    Ok(result) => (output.out)(&result),
-                    Err(err) => (output.err)(&format!("Error: {}", err)),
-                }
-            }
+            ReadLineResult::Input(line) => match execute_line(backend, executor, &line).await {
+                Ok(result) => (output.out)(&result),
+                Err(err) => (output.err)(&format!("Error: {}", err)),
+            },
             ReadLineResult::Skip => continue,
             ReadLineResult::Exit => break,
             ReadLineResult::Error(e) => return Err(e.into()),

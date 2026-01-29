@@ -1,13 +1,21 @@
 pub mod association;
 pub mod command_meta;
 pub mod context;
+pub mod engine;
 pub mod inference;
 pub mod requirement;
+pub mod result;
+pub mod selector_resolver;
 pub mod validation;
+pub mod wasm_selector_resolver;
 
 pub use association::{find_associated_control, is_actionable_label, AssociationResult};
 pub use command_meta::CommandMeta;
 pub use context::{is_inside, RecentCommand, ResolutionContext};
+pub use engine::ResolutionEngine;
 pub use inference::{get_inference_rules, InferenceRule};
 pub use requirement::{ContainerType, TargetRequirement};
+pub use result::{Resolution, ResolutionError};
+pub use selector_resolver::{SelectorError, SelectorResolver};
 pub use validation::validate_requirement;
+pub use wasm_selector_resolver::WasmSelectorResolver;
