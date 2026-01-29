@@ -10,6 +10,7 @@ class BenchmarkConfig:
     name: str
     data_dir: Optional[str] = None
     server_url: Optional[str] = None
+    episodes_per_task: int = 1  # Number of episodes to run per task (for multi-episode benchmarks)
     options: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -38,17 +39,23 @@ class RunConfig:
     oryn_options: Dict[str, Any] = field(default_factory=dict)
     max_steps: int = 30
     timeout_seconds: int = 300
+    save_transcript: bool = True  # Save detailed transcript to markdown file
 
     @classmethod
     def from_yaml(cls, path: Path) -> "RunConfig":
         with open(path, "r") as f:
             data = yaml.safe_load(f)
 
+        benchmark_options = data.get("benchmark_options", {})
+        episodes_per_task = benchmark_options.pop("episodes_per_task", 1)
+
         return cls(
             run_id=data.get("run_id", "default_run"),
             seed=data.get("seed", 42),
             benchmark=BenchmarkConfig(
-                name=data["benchmark"], options=data.get("benchmark_options", {})
+                name=data["benchmark"],
+                episodes_per_task=episodes_per_task,
+                options=benchmark_options,
             ),
             llm=LLMConfig(
                 provider=data["llm_provider"],
@@ -63,4 +70,5 @@ class RunConfig:
             oryn_options=data.get("oryn_options", {}),
             max_steps=data.get("max_steps", 30),
             timeout_seconds=data.get("timeout_seconds", 300),
+            save_transcript=data.get("save_transcript", True),
         )

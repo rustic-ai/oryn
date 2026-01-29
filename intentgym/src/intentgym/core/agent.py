@@ -20,12 +20,31 @@ class PromptTemplate:
     error_recovery_hints: Optional[str] = None
 
     def format_observation(
-        self, observation: OrynObservation, task: str, history: List[Dict[str, str]]
+        self,
+        observation: Optional[OrynObservation],
+        task: str,
+        history: List[Dict[str, str]],
     ) -> str:
-        """Format observation for LLM consumption using string.Template."""
+        """Format observation for LLM consumption using string.Template.
+
+        Args:
+            observation: Current observation, or None on first turn
+            task: Task description
+            history: Action history
+        """
         formatted_history = "\n".join(
             [f"Action: {h['action']}\nResult: {h.get('result', '')}" for h in history]
         )
+
+        # On first turn (no observation yet), just provide the task
+        if observation is None:
+            return Template(self.observation_format).safe_substitute(
+                observation="",
+                task=task,
+                history=formatted_history,
+                url="",
+                title="",
+            )
 
         return Template(self.observation_format).safe_substitute(
             observation=observation.raw,
@@ -69,8 +88,15 @@ class Agent(ABC):
         self.last_llm_response: Optional[LLMResponse] = None
 
     @abstractmethod
-    def decide(self, state: AgentState, observation: OrynObservation) -> AgentAction:
-        """Decide next action based on state and observation."""
+    def decide(
+        self, state: AgentState, observation: Optional[OrynObservation] = None
+    ) -> AgentAction:
+        """Decide next action based on state and observation.
+
+        Args:
+            state: Current agent state
+            observation: Current observation, or None on first turn
+        """
         pass
 
     def update(self, state: AgentState, action: AgentAction, result: OrynResult):

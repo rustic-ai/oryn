@@ -189,10 +189,44 @@ class LiteLLMProvider(LLMProvider):
     def complete(self, messages: List[Dict[str, str]]) -> LLMResponse:
         start = time.time()
 
-        # litellm expectation: messages list of dicts {role, content}
-        response = self._completion(
-            model=self.model, messages=messages, **self.completion_kwargs
-        )
+        # Retry logic for API failures
+        max_retries = 3
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                # litellm expectation: messages list of dicts {role, content}
+                response = self._completion(
+                    model=self.model, messages=messages, **self.completion_kwargs
+                )
+
+                # Check if choices array is empty (API failure or rate limiting)
+                if not response.choices or len(response.choices) == 0:
+                    error_msg = "LLM API returned empty choices array"
+                    if hasattr(response, 'error'):
+                        error_msg += f": {response.error}"
+
+                    # If this is rate limiting, wait and retry
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 2  # 2s, 4s, 6s
+                        print(f"Warning: {error_msg}. Retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        raise RuntimeError(error_msg)
+
+                # Success - extract content
+                break
+
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2
+                    print(f"Warning: LLM API error: {e}. Retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    raise
+
         duration = (time.time() - start) * 1000
 
         # liteLLM normalizes the response object to be similar to OpenAI's

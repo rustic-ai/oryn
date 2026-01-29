@@ -126,7 +126,8 @@ def download(benchmark):
 
 @cli.command()
 @click.argument("run_id")
-def inspect(run_id):
+@click.option("--episodes", is_flag=True, help="Show per-episode details (for multi-episode runs)")
+def inspect(run_id, episodes):
     """Inspect a specific run."""
     output_dir = Path("results")
     report_path = output_dir / f"{run_id}.json"
@@ -141,22 +142,98 @@ def inspect(run_id):
         data = json.load(f)
 
     console.print(f"[bold]Inspect Run: {run_id}[/bold]")
-    console.print(f"Success Rate: {data['summary']['success_rate'] * 100:.1f}%")
-    console.print(f"Total Cost: ${data['summary']['total_cost_usd']:.4f}")
 
-    table = Table(title="Task Breakdown")
-    table.add_column("Task ID", style="cyan")
-    table.add_column("Success", style="green")
-    table.add_column("Steps", style="magenta")
-    table.add_column("Cost", style="yellow")
+    is_multi_episode = data["summary"].get("is_multi_episode", False)
 
-    for t in data["tasks"]:
-        status = "[green]PASS[/green]" if t["success"] else "[red]FAIL[/red]"
-        table.add_row(
-            t["task_id"], status, str(t["total_steps"]), f"${t['total_cost_usd']:.4f}"
+    if is_multi_episode:
+        # Multi-episode run
+        console.print(
+            f"Overall Success Rate: {data['summary']['overall_success_rate'] * 100:.1f}%"
+        )
+        console.print(f"Total Cost: ${data['summary']['total_cost_usd']:.4f}")
+        console.print(f"Total Episodes: {data['summary']['total_episodes']}")
+        console.print(
+            f"Episodes Succeeded: {data['summary']['episodes_succeeded']}"
         )
 
-    console.print(table)
+        # Task-level summary
+        table = Table(title="Task Summary")
+        table.add_column("Task ID", style="cyan")
+        table.add_column("Success Rate", style="green")
+        table.add_column("Episodes", style="magenta")
+        table.add_column("Mean Steps", style="yellow")
+        table.add_column("Mean Cost", style="blue")
+        table.add_column("Timeouts", style="red")
+
+        for t in data["tasks"]:
+            success_rate = t.get("success_rate", 0) * 100
+            episodes_count = t.get("episodes_count", 1)
+            episodes_succeeded = t.get("episodes_succeeded", 0)
+            mean_steps = t.get("mean_steps_per_episode", 0)
+            mean_cost = t.get("mean_cost_per_episode", 0)
+            timeout_count = t.get("timeout_count", 0)
+
+            table.add_row(
+                t["task_id"],
+                f"{success_rate:.1f}%",
+                f"{episodes_succeeded}/{episodes_count}",
+                f"{mean_steps:.1f}",
+                f"${mean_cost:.4f}",
+                str(timeout_count),
+            )
+
+        console.print(table)
+
+        # Show per-episode details if --episodes flag is used
+        if episodes:
+            for t in data["tasks"]:
+                if "episodes" in t and t["episodes"]:
+                    console.print(f"\n[bold cyan]Task: {t['task_id']}[/bold cyan]")
+
+                    ep_table = Table(title="Episode Details")
+                    ep_table.add_column("Episode", style="cyan")
+                    ep_table.add_column("Success", style="green")
+                    ep_table.add_column("Steps", style="magenta")
+                    ep_table.add_column("Cost", style="yellow")
+                    ep_table.add_column("Duration", style="blue")
+                    ep_table.add_column("Timeout", style="red")
+
+                    for ep in t["episodes"]:
+                        status = "✓" if ep["success"] else "✗"
+                        timeout_mark = "⏱" if ep.get("timeout", False) else ""
+                        ep_table.add_row(
+                            str(ep["episode_number"]),
+                            status,
+                            str(ep["total_steps"]),
+                            f"${ep['total_cost_usd']:.4f}",
+                            f"{ep['total_duration_ms']:.0f}ms",
+                            timeout_mark,
+                        )
+
+                    console.print(ep_table)
+    else:
+        # Single-episode run (original behavior)
+        console.print(
+            f"Success Rate: {data['summary']['success_rate'] * 100:.1f}%"
+        )
+        console.print(f"Total Cost: ${data['summary']['total_cost_usd']:.4f}")
+
+        table = Table(title="Task Breakdown")
+        table.add_column("Task ID", style="cyan")
+        table.add_column("Success", style="green")
+        table.add_column("Steps", style="magenta")
+        table.add_column("Cost", style="yellow")
+
+        for t in data["tasks"]:
+            status = "[green]PASS[/green]" if t["success"] else "[red]FAIL[/red]"
+            table.add_row(
+                t["task_id"],
+                status,
+                str(t["total_steps"]),
+                f"${t['total_cost_usd']:.4f}",
+            )
+
+        console.print(table)
 
 
 @cli.command()

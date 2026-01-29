@@ -35,11 +35,34 @@ class TurnMetrics:
 
 
 @dataclass
+class EpisodeMetrics:
+    """Metrics for a single episode in a multi-episode task run."""
+
+    episode_number: int
+    success: bool
+    partial_score: float
+    total_steps: int
+    total_input_tokens: int
+    total_output_tokens: int
+    total_observation_tokens: int
+    total_cost_usd: float
+    total_duration_ms: float
+    observation_ratio: float
+    peak_context_tokens: int
+    failed_actions: int
+    timeout: bool = False  # Episode hit time limit
+    error: Optional[str] = None
+    turns: List[TurnMetrics] = field(default_factory=list)
+
+
+@dataclass
 class Evaluation:
     success: bool
     partial_score: float = 0.0
     criteria_met: dict = field(default_factory=dict)
     error: Optional[str] = None
+    episode_done: bool = False  # For episodic environments like MiniWoB++
+    raw_reward: Optional[float] = None  # Raw reward before clamping (for timeout detection)
 
 
 @dataclass
@@ -58,6 +81,17 @@ class TaskMetrics:
     peak_context_tokens: int
     failed_actions: int
     turns: List[TurnMetrics]
+    # Multi-episode fields (with defaults for backward compatibility)
+    is_multi_episode: bool = False
+    episodes_count: int = 1
+    episodes: List[EpisodeMetrics] = field(default_factory=list)
+    success_rate: Optional[float] = None
+    episodes_succeeded: int = 0
+    mean_steps_per_episode: Optional[float] = None
+    mean_cost_per_episode: Optional[float] = None
+    mean_duration_per_episode: Optional[float] = None
+    timeout_count: int = 0
+    episode_stats: Optional[dict] = None
 
 
 class MetricsCollector:
@@ -75,13 +109,21 @@ class MetricsCollector:
 
     def record_turn(
         self,
-        observation: OrynObservation,
+        observation: Optional[OrynObservation],
         llm_response: Optional[LLMResponse],
         action: AgentAction,
         result: OrynResult,
         token_breakdown: TokenBreakdown,
     ):
-        """Record metrics for a single turn."""
+        """Record metrics for a single turn.
+
+        Args:
+            observation: Observation for this turn, or None on first turn
+            llm_response: LLM response, or None if failed
+            action: Action taken
+            result: Result of action execution
+            token_breakdown: Token usage breakdown
+        """
         if llm_response is None:
             # Create dummy response for failed/empty turns to avoid None errors
             llm_response = LLMResponse("", 0, 0, 0.0, 0.0)
@@ -89,14 +131,14 @@ class MetricsCollector:
         turn = TurnMetrics(
             turn_number=len(self.turns) + 1,
             timestamp=time.time(),
-            observation_tokens=observation.token_count,
+            observation_tokens=observation.token_count if observation else 0,
             history_tokens=token_breakdown.history,
             system_tokens=token_breakdown.system,
             task_tokens=token_breakdown.task,
             total_input_tokens=llm_response.input_tokens,
             output_tokens=llm_response.output_tokens,
             llm_latency_ms=llm_response.latency_ms,
-            oryn_observe_latency_ms=observation.latency_ms,
+            oryn_observe_latency_ms=observation.latency_ms if observation else 0.0,
             oryn_action_latency_ms=result.latency_ms if result else 0.0,
             cost_usd=llm_response.cost_usd,
             action_command=action.command,

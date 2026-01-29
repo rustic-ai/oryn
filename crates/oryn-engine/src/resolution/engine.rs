@@ -295,15 +295,44 @@ impl ResolutionEngine {
                             }
                         }
                     }
-                    None => Err(ResolutionError {
-                        target: format!("{:?}", target),
-                        reason: format!("No element matches target: {}", s),
-                        attempted: vec![
-                            "semantic_resolution".into(),
-                            "selector_fallback".into(),
-                            "text_fallback".into(),
-                        ],
-                    }),
+                    None => {
+                        // Check if user tried to use element ID with quotes (common mistake)
+                        let mut reason = format!("No element matches text {:?}", s);
+                        let mut hint = None;
+
+                        if s.parse::<u32>().is_ok() {
+                            // Text is numeric - user likely meant to use ID without quotes
+                            hint = Some(format!(
+                                "Syntax error: Element IDs should not use quotes.\n\
+                                 \n\
+                                 If you meant element ID {}: use `click {}` (without quotes)\n\
+                                 If you meant to search for text \"{}\": the text wasn't found on page\n\
+                                 \n\
+                                 Remember: Numbers are IDs (no quotes). Text uses quotes.\n\
+                                 \n\
+                                 Run 'observe' to see available elements with their [IDs].",
+                                s, s, s
+                            ));
+                            reason = format!("No element matches text \"{}\" (numeric)", s);
+                        }
+
+                        let mut error = ResolutionError {
+                            target: format!("{:?}", target),
+                            reason,
+                            attempted: vec![
+                                "semantic_resolution".into(),
+                                "selector_fallback".into(),
+                                "text_fallback".into(),
+                            ],
+                        };
+
+                        if let Some(h) = hint {
+                            error.reason.push_str("\n\n");
+                            error.reason.push_str(&h);
+                        }
+
+                        Err(error)
+                    }
                 }
             }
 

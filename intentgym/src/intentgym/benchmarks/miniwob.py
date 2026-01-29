@@ -60,6 +60,10 @@ class MiniWoBLoader(Benchmark):
         # Since Oryn doesn't have a generic JS eval command yet, we use a workaround:
         # Extract the "Last reward:" value from the reward display UI
 
+        episode_done = False
+        success = False
+        partial_score = 0.0
+
         try:
             # Get page text which includes the reward display
             # MiniWoB shows: "Last reward: X.XX" where X.XX is the reward
@@ -74,40 +78,51 @@ class MiniWoBLoader(Benchmark):
                 reward_text = reward_match.group(1)
                 try:
                     reward = float(reward_text)
-                    # MiniWoB rewards: 1.0 (or time-adjusted ~0.8-1.0) for success, -1.0 for failure
-                    success = reward >= 0.5
+                    # Episode is done - a numeric reward was assigned
+                    episode_done = True
+                    # MiniWoB rewards: positive (>0) for success, negative (<0) for failure
+                    success = reward > 0
                     partial_score = max(0.0, reward)
+                    raw_reward = reward  # Preserve raw reward for timeout detection
                 except ValueError:
-                    # If we can't parse, task not complete
+                    # If we can't parse (e.g., "-" for not started), task not complete
+                    episode_done = False
                     success = False
                     partial_score = 0.0
+                    raw_reward = None
             else:
                 # "Last reward: -" means no reward yet (task not done)
+                episode_done = False
                 success = False
                 partial_score = 0.0
+                raw_reward = None
 
         except Exception as e:
             # If text extraction fails, assume not done yet
+            episode_done = False
             success = False
             partial_score = 0.0
+            raw_reward = None
 
         return Evaluation(
             success=success,
             partial_score=partial_score,
             criteria_met={"env_success": success},
+            episode_done=episode_done,
+            raw_reward=raw_reward,
         )
 
     def _get_intent(self, name: str) -> str:
         # Map task names to natural language intents
         # This is a simplified map
         intents = {
-            "click-button": "Click the button required by the instruction.",
+            "click-button": "Retrieve the instructions from the page and click the button as required by the instruction.",
             "click-link": "Click the specified link.",
             "click-option": "Select the correct option.",
             "enter-text": "Enter the specified text into the input.",
             "focus-text": "Focus into the specified text input.",
             "choose-date": "Select the specified date from the date picker.",
-            "login-user": "Log in with the given username and password.",
+            "login-user": "Read the page content for the username and password. Then log in with the given username and password.",
             "search-engine": "Search for the specified query and click the result.",
             "email-inbox": "Navigate the email inbox to find the required email.",
         }

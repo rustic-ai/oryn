@@ -1,0 +1,27 @@
+run_id: miniwob_5ep_stable
+benchmark: miniwob
+benchmark_options:
+  server_url: http://localhost:8765
+  episodes_per_task: 5
+
+llm_provider: litellm
+llm_model: vertex_ai/gemini-2.5-flash-lite
+
+llm_options:
+  temperature: 1.0
+
+agent_type: react
+agent_options: {}
+
+max_steps: 50
+
+prompt_template: oil_instructions_v2
+
+oryn_mode: headless
+oryn_options:
+  binary_path: ../target/debug/oryn
+  cli_args: ["--visible"]
+  timeout: 60.0
+
+# Save detailed transcript to markdown file (default: true)
+save_transcript: true

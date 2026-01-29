@@ -389,6 +389,29 @@
         },
 
         getElementText: (el) => {
+            const tag = el.tagName.toLowerCase();
+
+            // For leaf divs with direct text, use textContent to preserve full context
+            if (tag === 'div') {
+                const hasDivChildren = Array.from(el.children).some(child =>
+                    child.tagName.toLowerCase() === 'div'
+                );
+
+                if (!hasDivChildren) {
+                    const hasDirectText = Array.from(el.childNodes).some(node =>
+                        node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+                    );
+
+                    if (hasDirectText) {
+                        // Use textContent (not innerText) to get full context including text around child elements
+                        const text = el.textContent || '';
+                        // Don't truncate - these often contain important instructions
+                        return text.trim();
+                    }
+                }
+            }
+
+            // For all other elements, use the original logic
             const text = el.innerText || el.textContent || el.value || el.getAttribute('placeholder') || el.getAttribute('aria-label') || '';
             return text.trim().substring(0, 100);
         },
@@ -684,7 +707,21 @@
             for (const el of candidateElements) {
                 if (elements.length >= maxElements) break;
 
-                if (!includeHidden && !Utils.isVisible(el)) continue;
+                // Skip visibility check for leaf divs with direct text (they may have minimal dimensions)
+                let isLeafDivWithText = false;
+                if (el.tagName.toLowerCase() === 'div') {
+                    const hasDivChildren = Array.from(el.children).some(child =>
+                        child.tagName.toLowerCase() === 'div'
+                    );
+                    if (!hasDivChildren) {
+                        const hasDirectText = Array.from(el.childNodes).some(node =>
+                            node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+                        );
+                        isLeafDivWithText = hasDirectText;
+                    }
+                }
+
+                if (!includeHidden && !isLeafDivWithText && !Utils.isVisible(el)) continue;
                 if (params.viewport_only && !Utils.isInViewport(el)) continue;
 
                 // Near Check
@@ -790,6 +827,7 @@
                     scroll: {
                         x: window.scrollX,
                         y: window.scrollY,
+                        max_x: document.documentElement.scrollWidth - window.innerWidth,
                         max_y: document.documentElement.scrollHeight - window.innerHeight
                     },
                     readyState: document.readyState
@@ -886,8 +924,23 @@
                     }
                     // Check if element is referenceable
                     if (!Scanner.isReferenceable(el)) return false;
+
+                    // Skip visibility check for leaf divs with direct text
+                    let isLeafDivWithText = false;
+                    if (el.tagName.toLowerCase() === 'div') {
+                        const hasDivChildren = Array.from(el.children).some(child =>
+                            child.tagName.toLowerCase() === 'div'
+                        );
+                        if (!hasDivChildren) {
+                            const hasDirectText = Array.from(el.childNodes).some(node =>
+                                node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+                            );
+                            isLeafDivWithText = hasDirectText;
+                        }
+                    }
+
                     // Visibility check within iframe
-                    if (!includeHidden && !Utils.isVisible(el)) return false;
+                    if (!includeHidden && !isLeafDivWithText && !Utils.isVisible(el)) return false;
                     return true;
                 };
 
@@ -939,7 +992,61 @@
             if (el.hasAttribute('onclick') || el.isContentEditable) return true;
             if (window.getComputedStyle(el).cursor === 'pointer') return true;
 
+            // Generic handling for divs based on structure, not names
+            if (tag === 'div') {
+                const text = el.textContent?.trim();
+                if (!text || text.length === 0) return false;
+
+                // Check if this is a leaf div (no div children)
+                const hasDivChildren = Array.from(el.children).some(child =>
+                    child.tagName.toLowerCase() === 'div'
+                );
+
+                if (hasDivChildren) return false;  // Skip container divs
+
+                // Check if div has direct text content (not just from nested elements)
+                const hasDirectText = Array.from(el.childNodes).some(node =>
+                    node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+                );
+
+                // Include leaf divs with direct text content that are reasonably sized
+                // Using 500 chars as max to capture instructions without including large content blocks
+                if (hasDirectText && text.length <= 500) {
+                    return true;
+                }
+
+                // Also include completely empty leaf divs (no children at all) if short
+                if (el.childElementCount === 0 && text.length > 10 && text.length <= 100) {
+                    return true;
+                }
+
+                return false;
+            }
+
             if (TEXT_ANCHOR_TAGS.has(tag)) {
+                // Don't include text elements if they're inside a leaf div with direct text
+                // (the parent div already has the full text)
+                let parent = el.parentElement;
+                while (parent) {
+                    if (parent.tagName.toLowerCase() === 'div') {
+                        // Check if this parent is a leaf div with direct text
+                        const hasDivChildren = Array.from(parent.children).some(child =>
+                            child.tagName.toLowerCase() === 'div'
+                        );
+
+                        if (!hasDivChildren) {
+                            const hasDirectText = Array.from(parent.childNodes).some(node =>
+                                node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+                            );
+
+                            if (hasDirectText) {
+                                return false;  // Skip child text elements inside leaf divs with direct text
+                            }
+                        }
+                    }
+                    parent = parent.parentElement;
+                }
+
                 const text = el.textContent?.trim();
                 if (text && text.length > 0 && text.length < 100 && el.childElementCount < 3) return true;
             }
@@ -1069,12 +1176,9 @@
             }
 
             return Protocol.success({
-                action: clickCount > 1 ? 'double_clicked' : 'clicked',
-                id: params.id,
-                tag: el.tagName.toLowerCase(),
-                selector: Utils.generateSelector(el),
+                success: true,
+                message: clickCount > 1 ? 'double_clicked' : 'clicked',
                 coordinates: { x: Math.round(clientX), y: Math.round(clientY) },
-                button: buttonType,
                 navigation: navigationDetected,
                 dom_changes: domChanges
             });
@@ -1189,12 +1293,9 @@
             }
 
             return Protocol.success({
-                action: 'typed',
-                id: params.id,
-                selector: Utils.generateSelector(el),
-                text: text,
-                value: el.isContentEditable ? el.innerText : el.value,
-                submitted: !!params.submit
+                success: true,
+                message: params.submit ? 'typed_and_submitted' : 'typed',
+                value: el.isContentEditable ? el.innerText : el.value
             });
         },
 
@@ -1204,9 +1305,8 @@
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
             return Protocol.success({
-                action: 'cleared',
-                id: params.id,
-                selector: Utils.generateSelector(el)
+                success: true,
+                message: 'cleared'
             });
         },
 
@@ -1224,11 +1324,9 @@
             }
 
             return Protocol.success({
-                action: targetState ? 'checked' : 'unchecked',
-                id: params.id,
-                selector: Utils.generateSelector(el),
-                checked: el.checked,
-                previous: previousState
+                success: true,
+                message: targetState ? 'checked' : 'unchecked',
+                value: el.checked ? 'true' : 'false'
             });
         },
 
@@ -1287,20 +1385,10 @@
             el.dispatchEvent(new Event('input', { bubbles: true }));
 
             const response = {
-                action: 'selected',
-                id: params.id,
-                selector: Utils.generateSelector(el),
-                value: selectedValues, // Return array
-                previous: {
-                    value: previousValue,
-                    text: previousText
-                }
+                success: true,
+                message: 'selected',
+                value: selectedValues.length === 1 ? selectedValues[0] : selectedValues.join(',')
             };
-
-            // Add index field if selecting by index
-            if (indexes) {
-                response.index = indexes;
-            }
 
             return Protocol.success(response);
         },
@@ -1334,12 +1422,9 @@
             const maxY = isWindow ? document.documentElement.scrollHeight - window.innerHeight : target.scrollHeight - target.clientHeight;
 
             return Protocol.success({
-                scroll: {
-                    x: Math.round(scrollX),
-                    y: Math.round(scrollY),
-                    max_x: Math.round(Math.max(0, maxX)),
-                    max_y: Math.round(Math.max(0, maxY))
-                }
+                success: true,
+                message: 'scrolled',
+                value: `${Math.round(scrollX)},${Math.round(scrollY)}`
             });
         },
 
@@ -1347,9 +1432,8 @@
             const el = Executor.getElementFromParams(params);
             el.focus();
             return Protocol.success({
-                action: 'focused',
-                id: params.id,
-                selector: Utils.generateSelector(el)
+                success: true,
+                message: 'focused'
             });
         },
 
@@ -1384,9 +1468,8 @@
             el.dispatchEvent(new MouseEvent('mousemove', mouseOpts));
 
             return Protocol.success({
-                action: 'hovered',
-                id: params.id,
-                selector: Utils.generateSelector(el),
+                success: true,
+                message: 'hovered',
                 coordinates: { x: Math.round(clientX), y: Math.round(clientY) }
             });
         },
@@ -1415,9 +1498,8 @@
             }
 
             return Protocol.success({
-                action: 'submitted',
-                form_selector: Utils.generateSelector(el),
-                form_id: el.id || null
+                success: true,
+                message: 'submitted'
             });
         },
 
@@ -1574,7 +1656,7 @@
                 if (pwEl && pwEl.form) pwEl.form.submit();
             }
 
-            return Protocol.success({ action: 'login_initiated' });
+            return Protocol.success({ success: true, message: 'login_initiated' });
         },
 
         search: async (params) => {
@@ -1598,7 +1680,7 @@
                 }
             }
 
-            return Protocol.success({ action: 'search_initiated' });
+            return Protocol.success({ success: true, message: 'search_initiated' });
         },
 
         dismiss: (params) => {
@@ -1729,7 +1811,7 @@
             }
 
             if (!clicked) throw { msg: `Could not find anything to dismiss for: ${target}`, code: 'NOT_FOUND' };
-            return Protocol.success({ action: 'dismissed', target });
+            return Protocol.success({ success: true, message: `dismissed_${target}` });
         },
 
         accept: (params) => {
@@ -1738,7 +1820,7 @@
                 const scanRes = Scanner.scan({ max_elements: 500 });
                 if (scanRes.patterns?.cookie_banner?.accept) {
                     Executor.click({ id: scanRes.patterns.cookie_banner.accept });
-                    return Protocol.success({ action: 'accepted', target });
+                    return Protocol.success({ success: true, message: `accepted_${target}` });
                 }
             }
             throw { msg: `Could not find anything to accept for: ${target}`, code: 'NOT_FOUND' };

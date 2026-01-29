@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from ..core.agent import Agent, AgentAction, AgentState
 from ..core.oryn import OrynObservation, OrynResult
@@ -9,7 +9,15 @@ class PlanActAgent(Agent):
     Plan-and-Act: Generate complete plan first, then execute.
     """
 
-    def decide(self, state: AgentState, observation: OrynObservation) -> AgentAction:
+    def decide(
+        self, state: AgentState, observation: Optional[OrynObservation] = None
+    ) -> AgentAction:
+        # On first turn (no observation), agent should observe first
+        if observation is None:
+            return AgentAction(
+                command="observe", reasoning="First turn, need to observe page state"
+            )
+
         # Check if we need to (re)plan
         if not hasattr(state, "plan") or state.plan is None:
             state.plan = self._generate_plan(state, observation)

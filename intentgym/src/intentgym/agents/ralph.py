@@ -65,7 +65,15 @@ class RALPHAgent(Agent):
         # If store not provided, create empty one (or load from disk in future)
         self.trajectory_store = trajectory_store or TrajectoryStore()
 
-    def decide(self, state: AgentState, observation: OrynObservation) -> AgentAction:
+    def decide(
+        self, state: AgentState, observation: Optional[OrynObservation] = None
+    ) -> AgentAction:
+        # On first turn (no observation), agent should observe first
+        if observation is None:
+            return AgentAction(
+                command="observe", reasoning="First turn, need to observe page state"
+            )
+
         # Retrieve similar past trajectories
         similar_trajectories = self.trajectory_store.retrieve(
             task=state.task, observation=observation.raw, k=3

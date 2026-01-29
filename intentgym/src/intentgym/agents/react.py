@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Tuple
+from typing import Optional, Tuple
 
 from ..core.agent import Agent, AgentAction, AgentState
 from ..core.oryn import OrynObservation
@@ -14,7 +14,15 @@ class ReActAgent(Agent):
     Interleaves reasoning (Thought) with acting (Action).
     """
 
-    def decide(self, state: AgentState, observation: OrynObservation) -> AgentAction:
+    def decide(
+        self, state: AgentState, observation: Optional[OrynObservation] = None
+    ) -> AgentAction:
+        # On first turn (no observation), agent should observe first
+        if observation is None:
+            return AgentAction(
+                command="observe", reasoning="First turn, need to observe page state"
+            )
+
         # Build messages with ReAct format
         messages = [
             {"role": "system", "content": self.prompt.system},
@@ -42,14 +50,12 @@ class ReActAgent(Agent):
         )
 
         # Get LLM response
-        if True:  # Force print
-            print(f"\n[DEBUG] LLM INPUT MESSAGES:\n{json.dumps(messages, indent=2)}")
+        logger.debug(f"LLM input messages: {json.dumps(messages, indent=2)}")
 
         self.last_llm_response = self.llm.complete(messages)
         response = self.last_llm_response
 
-        if True:  # Force print
-            print(f"\n[DEBUG] LLM RAW RESPONSE:\n{response.content}")
+        logger.debug(f"LLM response: {response.content}")
 
         # Update state metrics
         state.total_input_tokens += response.input_tokens

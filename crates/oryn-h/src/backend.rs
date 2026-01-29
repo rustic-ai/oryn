@@ -115,7 +115,9 @@ impl Backend for HeadlessBackend {
             .await
             .map_err(|e| BackendError::Scanner(e.to_string()))?;
 
-        let response: ScannerProtocolResponse = serde_json::from_value(result_value)?;
+        // Add diagnostics for deserialization
+        let response: ScannerProtocolResponse = serde_json::from_value(result_value.clone())?;
+
         Ok(response)
     }
 

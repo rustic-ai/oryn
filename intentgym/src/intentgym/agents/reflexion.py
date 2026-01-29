@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from ..core.agent import Agent, AgentAction, AgentState
 from ..core.oryn import OrynObservation
@@ -15,7 +15,15 @@ class ReflexionAgent(Agent):
         self.reflections: List[str] = []
         self.max_reflections: int = 3
 
-    def decide(self, state: AgentState, observation: OrynObservation) -> AgentAction:
+    def decide(
+        self, state: AgentState, observation: Optional[OrynObservation] = None
+    ) -> AgentAction:
+        # On first turn (no observation), agent should observe first
+        if observation is None:
+            return AgentAction(
+                command="observe", reasoning="First turn, need to observe page state"
+            )
+
         messages = [{"role": "system", "content": self.prompt.system}]
 
         # Include relevant reflections

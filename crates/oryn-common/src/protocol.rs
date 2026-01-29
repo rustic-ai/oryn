@@ -487,7 +487,12 @@ pub struct PageInfo {
 pub struct ViewportInfo {
     pub width: u32,
     pub height: u32,
+    #[serde(default = "default_scale")]
     pub scale: f32,
+}
+
+fn default_scale() -> f32 {
+    1.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -495,7 +500,9 @@ pub struct ViewportInfo {
 pub struct ScrollInfo {
     pub x: u32,
     pub y: u32,
+    #[serde(default)]
     pub max_x: u32,
+    #[serde(default)]
     pub max_y: u32,
 }
 
@@ -535,12 +542,25 @@ pub struct Rect {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct ElementState {
-    pub checked: bool,
-    pub selected: bool,
+    pub visible: bool,
+    pub hidden: bool,
     pub disabled: bool,
-    pub readonly: bool,
-    pub expanded: bool,
     pub focused: bool,
+    pub primary: bool,
+    #[serde(default)]
+    pub checked: bool,
+    #[serde(default)]
+    pub unchecked: bool,
+    #[serde(default)]
+    pub selected: bool,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub readonly: bool,
+    #[serde(default)]
+    pub value: Option<String>,
+    #[serde(default)]
+    pub expanded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -548,7 +568,17 @@ pub struct ScanStats {
     pub total: usize,
     #[serde(default)]
     pub scanned: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iframes: Option<IframeStats>,
     // duration_ms moved to top-level timing in response
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct IframeStats {
+    pub total: usize,
+    pub accessible: usize,
+    pub cross_origin: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
