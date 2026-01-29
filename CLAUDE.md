@@ -17,7 +17,7 @@
 ./scripts/check-scanner-sync.sh
 ```
 
-See [SCANNER-SYNC.md](SCANNER-SYNC.md) for detailed architecture and workflow.
+See [docs/SCANNER-SYNC.md](docs/SCANNER-SYNC.md) for detailed architecture and workflow.
 
 ## General Guidelines
 
