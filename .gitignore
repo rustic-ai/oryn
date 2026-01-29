@@ -32,3 +32,6 @@ unified-test-results.md
 e2e-results/
 *.whl
 **/dist/
+
+intentgym/transcripts/
+intentgym//results/
