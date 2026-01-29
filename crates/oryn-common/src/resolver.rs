@@ -953,6 +953,7 @@ mod tests {
             stats: ScanStats {
                 total: 3,
                 scanned: 3,
+                iframes: None,
             },
             patterns: None,
             changes: None,

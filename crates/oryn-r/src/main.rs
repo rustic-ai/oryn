@@ -1,8 +1,8 @@
 use clap::Parser as ClapParser;
 use oryn_engine::backend::Backend;
+use oryn_engine::cli::{self, OutputHandlers, ReplOptions};
 use oryn_engine::executor::CommandExecutor;
 use oryn_r::backend::RemoteBackend;
-use std::io::{self, Write};
 
 #[derive(ClapParser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -26,53 +26,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     backend.launch().await?;
 
     let mut executor = CommandExecutor::new();
+    let output = OutputHandlers {
+        out: |msg| println!("{}", msg),
+        err: |msg| println!("{}", msg),
+    };
+    let repl_options = ReplOptions {
+        banner_lines: &["Backend launched. Enter commands (e.g., 'goto google.com', 'scan')."],
+        prompt: "> ",
+        exit_commands: &["exit", "quit"],
+        handle_ctrl_c: false,
+        ctrl_c_message: None,
+    };
 
-    println!("Backend launched. Enter commands (e.g., 'goto google.com', 'scan').");
-
-    let stdin = io::stdin();
-    let mut stdout = io::stdout();
-    let mut input = String::new();
-
-    loop {
-        print!("> ");
-        stdout.flush()?;
-        input.clear();
-        if stdin.read_line(&mut input)? == 0 {
-            break;
-        }
-
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if trimmed == "exit" || trimmed == "quit" {
-            break;
-        }
-
-        // In interactive mode, handle errors and continue instead of exiting
-        if let Err(_) = execute_line(&mut backend, &mut executor, trimmed).await {
-            // Error already printed by execute_line, just continue
-            continue;
-        }
-    }
+    cli::run_repl(&mut backend, &mut executor, output, repl_options).await?;
 
     backend.close().await?;
     Ok(())
-}
-
-async fn execute_line(
-    backend: &mut RemoteBackend,
-    executor: &mut CommandExecutor,
-    line: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    match executor.execute_line(backend, line).await {
-        Ok(result) => {
-            println!("{}", result.output);
-            Ok(())
-        }
-        Err(e) => {
-            println!("Error: {}", e);
-            Err(format!("{}", e).into())
-        }
-    }
 }

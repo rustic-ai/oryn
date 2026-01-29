@@ -1,10 +1,8 @@
 use clap::Parser as ClapParser;
 use oryn_e::backend::EmbeddedBackend;
 use oryn_engine::backend::Backend;
+use oryn_engine::cli::{self, FileErrorMode, FileOptions, OutputHandlers, ReplOptions};
 use oryn_engine::executor::CommandExecutor;
-use std::io::{self, Write};
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::signal;
 use tracing::{error, info};
 
 #[derive(ClapParser, Debug)]
@@ -50,92 +48,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut executor = CommandExecutor::new();
+    let output = OutputHandlers {
+        out: |msg| println!("{}", msg),
+        err: |msg| error!("{}", msg),
+    };
+    let repl_options = ReplOptions {
+        banner_lines: &[
+            "Backend ready. Enter commands (e.g., 'goto google.com', 'scan'). Type 'exit' to quit or Ctrl+C to shutdown.",
+        ],
+        prompt: "> ",
+        exit_commands: &["exit", "quit"],
+        handle_ctrl_c: true,
+        ctrl_c_message: Some("\nShutdown signal received."),
+    };
 
     if let Some(file_path) = args.file {
-        run_file(&mut backend, &mut executor, &file_path).await?;
+        cli::run_file(
+            &mut backend,
+            &mut executor,
+            output,
+            &file_path,
+            FileOptions {
+                stop_on_error: true,
+                error_mode: FileErrorMode::Plain,
+            },
+        )
+        .await?;
     } else {
-        run_repl(&mut backend, &mut executor).await?;
+        cli::run_repl(&mut backend, &mut executor, output, repl_options).await?;
     }
 
     backend.close().await?;
     Ok(())
-}
-
-async fn run_file(
-    backend: &mut EmbeddedBackend,
-    executor: &mut CommandExecutor,
-    path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let content = std::fs::read_to_string(path)?;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        execute_line(backend, executor, trimmed).await?;
-    }
-    Ok(())
-}
-
-async fn run_repl(
-    backend: &mut EmbeddedBackend,
-    executor: &mut CommandExecutor,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!(
-        "Backend ready. Enter commands (e.g., 'goto google.com', 'scan'). Type 'exit' to quit or Ctrl+C to shutdown."
-    );
-
-    let stdin = tokio::io::stdin();
-    let mut reader = BufReader::new(stdin).lines();
-    let mut stdout = io::stdout();
-
-    loop {
-        print!("> ");
-        stdout.flush()?;
-
-        tokio::select! {
-            line = reader.next_line() => {
-                match line {
-                    Ok(Some(input)) => {
-                        let trimmed = input.trim();
-                        if trimmed.is_empty() {
-                            continue;
-                        }
-                        if trimmed == "exit" || trimmed == "quit" {
-                            break;
-                        }
-                        // In interactive mode, handle errors and continue instead of exiting
-                        if let Err(_) = execute_line(backend, executor, trimmed).await {
-                            // Error already printed by execute_line, just continue
-                            continue;
-                        }
-                    }
-                    Ok(None) => break, // EOF
-                    Err(e) => return Err(e.into()),
-                }
-            }
-            _ = signal::ctrl_c() => {
-                println!("\nShutdown signal received.");
-                break;
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn execute_line(
-    backend: &mut EmbeddedBackend,
-    executor: &mut CommandExecutor,
-    line: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    match executor.execute_line(backend, line).await {
-        Ok(result) => {
-            println!("{}", result.output);
-            Ok(())
-        }
-        Err(e) => {
-            error!("Error: {}", e);
-            Err(format!("{}", e).into())
-        }
-    }
 }

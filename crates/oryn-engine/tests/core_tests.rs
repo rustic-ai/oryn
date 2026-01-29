@@ -112,6 +112,7 @@ fn test_formatter_scan_scanresult() {
         stats: ScanStats {
             total: 1,
             scanned: 1,
+            iframes: None,
         },
         patterns: None,
         changes: None,

@@ -168,6 +168,7 @@ mod tests {
             stats: ScanStats {
                 total: 0,
                 scanned: 0,
+                iframes: None,
             },
             patterns: None,
             changes: None,

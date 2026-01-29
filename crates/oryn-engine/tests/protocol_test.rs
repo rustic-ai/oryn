@@ -336,6 +336,7 @@ fn test_scan_result_roundtrip() {
         stats: ScanStats {
             total: 100,
             scanned: 50,
+            iframes: None,
         },
         patterns: None,
         changes: None,
