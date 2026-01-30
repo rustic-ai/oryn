@@ -1,4 +1,4 @@
-use oryn_common::protocol::{ChangeType, ElementChange, ScannerData, ScannerProtocolResponse};
+use crate::protocol::{ChangeType, ElementChange, ScannerData, ScannerProtocolResponse};
 
 /// Default sensitive field names that should be masked in output.
 const DEFAULT_SENSITIVE_FIELDS: &[&str] = &[

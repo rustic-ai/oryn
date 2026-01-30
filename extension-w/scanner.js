@@ -827,8 +827,8 @@
                     scroll: {
                         x: window.scrollX,
                         y: window.scrollY,
-                        max_x: document.documentElement.scrollWidth - window.innerWidth,
-                        max_y: document.documentElement.scrollHeight - window.innerHeight
+                        max_x: Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
+                        max_y: Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
                     },
                     readyState: document.readyState
                 },
@@ -2090,7 +2090,7 @@
             const result = {};
             if (prevButton) result.prev = prevButton;
             if (nextButton) result.next = nextButton;
-            if (pageNumbers.length > 0) result.pages = pageNumbers.sort((a, b) => a.page - b.page);
+            if (pageNumbers.length > 0) result.pages = pageNumbers.sort((a, b) => a.page - b.page).map(p => p.id);
             return result;
         },
 

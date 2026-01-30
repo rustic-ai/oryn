@@ -4,6 +4,7 @@
 //! and a no-op stub for native builds.
 
 use super::{SelectorError, SelectorResolver};
+use async_trait::async_trait;
 
 /// Selector resolver for WASM builds.
 ///
@@ -38,7 +39,7 @@ impl SelectorResolver for WasmSelectorResolver {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[async_trait::async_trait]
+#[async_trait]
 impl SelectorResolver for WasmSelectorResolver {
     async fn resolve_selector(&mut self, _selector: &str) -> Result<Option<u32>, SelectorError> {
         Err(SelectorError::NotAvailable(

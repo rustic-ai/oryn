@@ -222,7 +222,8 @@ impl ResolutionEngine {
     }
 
     /// Resolve a single target to an element ID.
-    #[async_recursion]
+    #[cfg_attr(not(target_arch = "wasm32"), async_recursion)]
+    #[cfg_attr(target_arch = "wasm32", async_recursion(?Send))]
     async fn resolve_target<S>(
         target: &Target,
         requirement: &TargetRequirement,
@@ -372,7 +373,8 @@ impl ResolutionEngine {
     }
 
     /// Infer a target using inference rules.
-    #[async_recursion]
+    #[cfg_attr(not(target_arch = "wasm32"), async_recursion)]
+    #[cfg_attr(target_arch = "wasm32", async_recursion(?Send))]
     async fn infer_target<S>(
         requirement: &TargetRequirement,
         ctx: &ResolutionContext<'_>,
@@ -414,7 +416,7 @@ impl ResolutionEngine {
     }
 
     /// Resolve a CSS selector using the provided selector resolver.
-    async fn resolve_selector<S: SelectorResolver + Send>(
+    async fn resolve_selector<S: SelectorResolver>(
         selector: &str,
         _requirement: &TargetRequirement,
         selector_resolver: &mut S,

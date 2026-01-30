@@ -12,6 +12,12 @@ function remoteLog(msg) {
 
 // Handle incoming messages
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    // Handle ping requests (for checking if content script is loaded)
+    if (request.action === 'ping') {
+        sendResponse({ status: 'ok', loaded: true });
+        return true;
+    }
+
     if (!isScannerLoaded()) {
         console.error("Oryn Scanner not loaded on page.");
         sendResponse({ ok: false, error: "Scanner not loaded", code: "SCANNER_MISSING" });

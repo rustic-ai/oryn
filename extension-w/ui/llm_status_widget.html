@@ -1,0 +1,373 @@
+<!-- LLM Status Widget for Sidepanel -->
+<!-- Can be embedded in sidepanel.html -->
+
+<style>
+    .llm-widget {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        color: white;
+    }
+
+    .llm-widget-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+
+    .llm-widget-title {
+        font-size: 13px;
+        font-weight: 600;
+        opacity: 0.9;
+    }
+
+    .llm-widget-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+    }
+
+    .llm-status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #4ade80;
+        animation: pulse 2s infinite;
+    }
+
+    .llm-status-dot.loading {
+        background: #fbbf24;
+    }
+
+    .llm-status-dot.error {
+        background: #f87171;
+        animation: none;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    .llm-current {
+        font-size: 14px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .llm-model {
+        font-size: 11px;
+        opacity: 0.8;
+        margin-top: 4px;
+    }
+
+    .llm-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+    }
+
+    .llm-btn {
+        flex: 1;
+        padding: 6px 12px;
+        background: rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 4px;
+        color: white;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .llm-btn:hover {
+        background: rgba(255, 255, 255, 0.3);
+    }
+
+    /* Quick Switcher Dropdown */
+    .llm-switcher {
+        position: relative;
+    }
+
+    .llm-switcher-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        margin-top: 4px;
+        max-height: 300px;
+        overflow-y: auto;
+        z-index: 1000;
+        display: none;
+    }
+
+    .llm-switcher-dropdown.visible {
+        display: block;
+    }
+
+    .llm-switcher-item {
+        padding: 10px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #f0f0f0;
+        transition: background 0.15s;
+        color: #333;
+    }
+
+    .llm-switcher-item:last-child {
+        border-bottom: none;
+    }
+
+    .llm-switcher-item:hover {
+        background: #f8f9ff;
+    }
+
+    .llm-switcher-item.active {
+        background: #e8f0ff;
+        font-weight: 600;
+    }
+
+    .llm-switcher-item.unavailable {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .llm-switcher-item.unavailable:hover {
+        background: transparent;
+    }
+
+    .llm-switcher-name {
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .llm-switcher-icon {
+        font-size: 16px;
+    }
+
+    .llm-switcher-desc {
+        font-size: 11px;
+        color: #666;
+        margin-top: 2px;
+    }
+</style>
+
+<div class="llm-widget" id="llmWidget">
+    <div class="llm-widget-header">
+        <div class="llm-widget-title">LLM Provider</div>
+        <div class="llm-widget-status">
+            <div class="llm-status-dot" id="llmStatusDot"></div>
+            <span id="llmStatusText">Ready</span>
+        </div>
+    </div>
+
+    <div class="llm-current" id="llmCurrent">
+        <span id="llmIcon">⚡</span>
+        <span id="llmName">Loading...</span>
+    </div>
+
+    <div class="llm-model" id="llmModel"></div>
+
+    <div class="llm-actions">
+        <button class="llm-btn" id="llmSwitchBtn">
+            Switch LLM
+        </button>
+        <button class="llm-btn" id="llmConfigBtn">
+            Configure
+        </button>
+    </div>
+
+    <!-- Quick Switcher Dropdown -->
+    <div class="llm-switcher-dropdown" id="llmSwitcher">
+        <!-- Populated dynamically -->
+    </div>
+</div>
+
+<script>
+// LLM Status Widget Controller
+(function() {
+    let currentStatus = null;
+    let switcherVisible = false;
+
+    // Adapter metadata (simplified version)
+    const ADAPTER_ICONS = {
+        'chrome-ai': { icon: '⚡', name: 'Chrome AI' },
+        'webllm': { icon: '🚀', name: 'WebLLM' },
+        'wllama': { icon: '🦙', name: 'llama.cpp' },
+        'onnx': { icon: '⚙️', name: 'ONNX Runtime' },
+        'openai': { icon: '🤖', name: 'OpenAI' },
+        'claude': { icon: '🧠', name: 'Claude' },
+        'gemini': { icon: '✨', name: 'Gemini' }
+    };
+
+    // Update widget status
+    async function updateStatus() {
+        try {
+            const status = await chrome.runtime.sendMessage({ type: 'llm_status' });
+            currentStatus = status;
+
+            const dot = document.getElementById('llmStatusDot');
+            const text = document.getElementById('llmStatusText');
+            const icon = document.getElementById('llmIcon');
+            const name = document.getElementById('llmName');
+            const model = document.getElementById('llmModel');
+
+            if (status.ready) {
+                dot.className = 'llm-status-dot';
+                text.textContent = 'Ready';
+
+                const adapterMeta = ADAPTER_ICONS[status.current] || { icon: '🤖', name: status.current };
+                icon.textContent = adapterMeta.icon;
+                name.textContent = adapterMeta.name;
+
+                // Show model if available
+                if (status.model) {
+                    model.textContent = `Model: ${status.model}`;
+                    model.style.display = 'block';
+                } else {
+                    model.style.display = 'none';
+                }
+            } else {
+                dot.className = 'llm-status-dot error';
+                text.textContent = 'Not Ready';
+                icon.textContent = '⚠️';
+                name.textContent = 'No LLM Selected';
+                model.style.display = 'none';
+            }
+        } catch (error) {
+            console.error('Failed to update LLM status:', error);
+        }
+    }
+
+    // Populate switcher dropdown
+    function populateSwitcher() {
+        const switcher = document.getElementById('llmSwitcher');
+        switcher.innerHTML = '';
+
+        if (!currentStatus || !currentStatus.adapters) {
+            return;
+        }
+
+        currentStatus.adapters.forEach(adapter => {
+            const item = document.createElement('div');
+            item.className = `llm-switcher-item ${adapter.id === currentStatus.current ? 'active' : ''} ${!adapter.available ? 'unavailable' : ''}`;
+
+            const meta = ADAPTER_ICONS[adapter.id] || { icon: '🤖', name: adapter.id };
+
+            item.innerHTML = `
+                <div class="llm-switcher-name">
+                    <span class="llm-switcher-icon">${meta.icon}</span>
+                    <span>${meta.name}</span>
+                    ${adapter.id === currentStatus.current ? '<span>✓</span>' : ''}
+                </div>
+                <div class="llm-switcher-desc">${adapter.available ? 'Available' : 'Not available'}</div>
+            `;
+
+            if (adapter.available) {
+                item.addEventListener('click', async () => {
+                    await switchAdapter(adapter.id);
+                    toggleSwitcher();
+                });
+            }
+
+            switcher.appendChild(item);
+        });
+
+        // Add "Open Settings" option
+        const settingsItem = document.createElement('div');
+        settingsItem.className = 'llm-switcher-item';
+        settingsItem.innerHTML = `
+            <div class="llm-switcher-name">
+                <span class="llm-switcher-icon">⚙️</span>
+                <span>Full Configuration</span>
+            </div>
+        `;
+        settingsItem.addEventListener('click', () => {
+            openConfiguration();
+            toggleSwitcher();
+        });
+        switcher.appendChild(settingsItem);
+    }
+
+    // Toggle switcher dropdown
+    function toggleSwitcher() {
+        switcherVisible = !switcherVisible;
+        const switcher = document.getElementById('llmSwitcher');
+
+        if (switcherVisible) {
+            populateSwitcher();
+            switcher.classList.add('visible');
+        } else {
+            switcher.classList.remove('visible');
+        }
+    }
+
+    // Close switcher when clicking outside
+    document.addEventListener('click', (e) => {
+        const widget = document.getElementById('llmWidget');
+        if (switcherVisible && !widget.contains(e.target)) {
+            toggleSwitcher();
+        }
+    });
+
+    // Switch adapter
+    async function switchAdapter(adapterId) {
+        try {
+            const dot = document.getElementById('llmStatusDot');
+            const text = document.getElementById('llmStatusText');
+
+            dot.className = 'llm-status-dot loading';
+            text.textContent = 'Switching...';
+
+            await chrome.runtime.sendMessage({
+                type: 'llm_set_adapter',
+                adapter: adapterId
+            });
+
+            await updateStatus();
+        } catch (error) {
+            console.error('Failed to switch adapter:', error);
+            alert('Failed to switch adapter: ' + error.message);
+            await updateStatus();
+        }
+    }
+
+    // Open configuration page
+    function openConfiguration() {
+        chrome.tabs.create({
+            url: chrome.runtime.getURL('ui/llm_selector.html')
+        });
+    }
+
+    // Setup event listeners
+    document.getElementById('llmSwitchBtn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleSwitcher();
+    });
+
+    document.getElementById('llmConfigBtn').addEventListener('click', openConfiguration);
+
+    // Initial status update
+    updateStatus();
+
+    // Refresh status every 5 seconds
+    setInterval(updateStatus, 5000);
+
+    // Listen for configuration changes
+    chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'sync' && changes.llmConfig) {
+            updateStatus();
+        }
+    });
+})();
+</script>

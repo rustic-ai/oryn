@@ -1,4 +1,5 @@
-use oryn_common::protocol::ScanResult;
+use oryn_common::formatter::format_response;
+use oryn_common::protocol::{ScanResult, ScannerData, ScannerProtocolResponse};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -68,5 +69,24 @@ impl OrynCore {
     #[wasm_bindgen(js_name = getVersion)]
     pub fn get_version() -> String {
         env!("CARGO_PKG_VERSION").to_string()
+    }
+
+    /// Format a scan result as OIL text output
+    ///
+    /// Takes a scan result as JSON and returns formatted text matching
+    /// the REPL/CLI output format. This ensures uniform output across
+    /// all Oryn modes (REPL, CLI, Extension).
+    #[wasm_bindgen(js_name = formatScan)]
+    pub fn format_scan(scan_json: &str) -> Result<String, JsValue> {
+        let scan: ScanResult = serde_json::from_str(scan_json)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse scan: {}", e)))?;
+
+        // Wrap in ScannerProtocolResponse format expected by formatter
+        let response = ScannerProtocolResponse::Ok {
+            data: Box::new(ScannerData::Scan(Box::new(scan))),
+            warnings: Vec::new(),
+        };
+
+        Ok(format_response(&response))
     }
 }

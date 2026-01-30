@@ -6,8 +6,8 @@
 //! All Oryn binaries (oryn-h, oryn-e, oryn-r) should use this shared executor.
 
 use crate::backend::Backend;
-use crate::formatter::format_response;
 use crate::resolution::ResolutionEngine;
+use oryn_common::formatter::format_response;
 use oryn_common::protocol::{
     Action, BrowserAction, Cookie, ScanRequest, ScanResult, ScannerAction, ScannerData,
     ScannerProtocolResponse, SessionAction,

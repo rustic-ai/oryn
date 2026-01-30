@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Configuration - Oryn-W</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 24px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .section {
+            padding: 24px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .section:last-child {
+            border-bottom: none;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #333;
+        }
+
+        .section-subtitle {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 16px;
+        }
+
+        /* Adapter Cards */
+        .adapter-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .adapter-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .adapter-card:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .adapter-card.selected {
+            border-color: #667eea;
+            background: #f0f2ff;
+        }
+
+        .adapter-card.unavailable {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .adapter-card.unavailable:hover {
+            border-color: #e0e0e0;
+            background: white;
+        }
+
+        .adapter-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .adapter-name {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .adapter-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .adapter-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-ready {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-unavailable {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .adapter-description {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+
+        .adapter-specs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .spec-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        .spec-badge.highlight {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        /* Model Selection */
+        .model-selector {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #e0e0e0;
+            display: none;
+        }
+
+        .adapter-card.selected .model-selector {
+            display: block;
+        }
+
+        .model-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .model-select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+        }
+
+        .model-select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .model-info {
+            margin-top: 8px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        /* API Key Input */
+        .api-key-section {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #e0e0e0;
+            display: none;
+        }
+
+        .adapter-card.selected.requires-api .api-key-section {
+            display: block;
+        }
+
+        .input-group {
+            margin-bottom: 12px;
+        }
+
+        .input-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 6px;
+            display: block;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: monospace;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .input-hint {
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        /* Quick Settings */
+        .quick-settings {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .setting-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .setting-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .slider {
+            flex: 1;
+            height: 6px;
+            border-radius: 3px;
+            background: #e0e0e0;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+        }
+
+        .slider-value {
+            font-size: 13px;
+            font-weight: 600;
+            color: #667eea;
+            min-width: 40px;
+            text-align: right;
+        }
+
+        /* Action Buttons */
+        .actions {
+            padding: 20px 24px;
+            background: #f8f9fa;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+
+        .btn-secondary:hover {
+            background: #f5f5f5;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Status Messages */
+        .status-message {
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .status-message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-message.visible {
+            display: block;
+        }
+
+        /* Test Section */
+        .test-section {
+            background: #f8f9fa;
+        }
+
+        .test-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            margin-bottom: 12px;
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        .test-output {
+            padding: 12px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            white-space: pre-wrap;
+            margin-top: 12px;
+            display: none;
+        }
+
+        .test-output.visible {
+            display: block;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 LLM Configuration</h1>
+            <p>Select and configure your preferred language model for Ralph Agent</p>
+        </div>
+
+        <div class="section">
+            <div id="statusMessage" class="status-message"></div>
+
+            <div class="section-title">Select LLM Provider</div>
+            <div class="section-subtitle">Choose the language model that best fits your needs. Local models provide privacy and work offline, while remote APIs offer more capabilities.</div>
+
+            <div class="adapter-grid" id="adapterGrid">
+                <!-- Adapters will be dynamically inserted here -->
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Agent Settings</div>
+            <div class="quick-settings">
+                <div class="setting-item">
+                    <label class="setting-label">Max Iterations</label>
+                    <div class="slider-container">
+                        <input type="range" class="slider" id="maxIterations" min="1" max="20" value="10">
+                        <span class="slider-value" id="maxIterationsValue">10</span>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <label class="setting-label">Temperature</label>
+                    <div class="slider-container">
+                        <input type="range" class="slider" id="temperature" min="0" max="100" value="70">
+                        <span class="slider-value" id="temperatureValue">0.7</span>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <label class="setting-label">Retrieval Count</label>
+                    <div class="slider-container">
+                        <input type="range" class="slider" id="retrievalCount" min="1" max="10" value="3">
+                        <span class="slider-value" id="retrievalCountValue">3</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section test-section">
+            <div class="section-title">Test LLM Connection</div>
+            <textarea class="test-input" id="testPrompt" placeholder="Enter a test prompt (e.g., 'What is the capital of France?')">What is the capital of France?</textarea>
+            <button class="btn btn-primary" id="testBtn">
+                <span id="testBtnText">Test Prompt</span>
+                <span id="testSpinner" class="spinner" style="display: none;"></span>
+            </button>
+            <div class="test-output" id="testOutput"></div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-secondary" id="resetBtn">Reset to Defaults</button>
+            <button class="btn btn-primary" id="saveBtn">Save Configuration</button>
+        </div>
+    </div>
+
+    <script src="llm_selector.js"></script>
+</body>
+</html>

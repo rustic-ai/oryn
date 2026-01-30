@@ -11,7 +11,10 @@
         "sidePanel"
     ],
     "host_permissions": [
-        "<all_urls>"
+        "<all_urls>",
+        "https://api.openai.com/*",
+        "https://api.anthropic.com/*",
+        "https://generativelanguage.googleapis.com/*"
     ],
     "action": {
         "default_icon": {
@@ -51,7 +54,12 @@
     ],
     "web_accessible_resources": [
         {
-            "resources": ["wasm/*"],
+            "resources": [
+                "wasm/*",
+                "ui/llm_selector.html",
+                "ui/llm_selector.js",
+                "ui/llm_status_widget.html"
+            ],
             "matches": ["<all_urls>"]
         }
     ]
