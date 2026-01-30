@@ -154,7 +154,7 @@ let availableAdapters = [];
 document.addEventListener('DOMContentLoaded', async () => {
     await loadConfiguration();
     await detectAdapters();
-    renderAdapters();
+    await renderAdapters();
     setupEventListeners();
 });
 
@@ -200,44 +200,107 @@ async function detectAdapters() {
 }
 
 // Render adapter cards
-function renderAdapters() {
-    const grid = document.getElementById('adapterGrid');
-    grid.innerHTML = '';
+async function renderAdapters() {
+    const gridLocal = document.getElementById('adapterGridLocal');
+    const gridRemote = document.getElementById('adapterGridRemote');
+    const hwSummary = document.getElementById('hardwareSummary');
 
-    // Only show adapters that are available from the backend
-    // This ensures we don't show unimplemented adapters (webllm, wllama, onnx)
-    availableAdapters.forEach(adapter => {
+    gridLocal.innerHTML = '';
+    gridRemote.innerHTML = '';
+
+    // Render hardware summary
+    await renderHardwareSummary(hwSummary);
+
+    // Separate adapters by category
+    const localCards = [];
+    const remoteCards = [];
+
+    // Create all adapter cards (async)
+    for (const adapter of availableAdapters) {
         const adapterId = adapter.id;
         const meta = ADAPTER_META[adapterId];
 
-        // Skip if we don't have metadata for this adapter
         if (!meta) {
             console.warn('[LLM Selector] No metadata for adapter:', adapterId);
+            continue;
+        }
+
+        const isSelected = currentConfig.selectedAdapter === adapterId;
+        const card = await createAdapterCard(adapterId, meta, true, isSelected);
+
+        // Categorize by type
+        if (meta.type === 'local') {
+            localCards.push(card);
+        } else if (meta.type === 'remote') {
+            remoteCards.push(card);
+        }
+    }
+
+    // Append to appropriate grids
+    localCards.forEach(card => gridLocal.appendChild(card));
+    remoteCards.forEach(card => gridRemote.appendChild(card));
+
+    // Show empty states if needed
+    if (localCards.length === 0) {
+        gridLocal.innerHTML = '<div class="empty-message">ℹ️ No local models available on this device. Check hardware requirements.</div>';
+    }
+    if (remoteCards.length === 0) {
+        gridRemote.innerHTML = '<div class="empty-message">ℹ️ Remote APIs are always available with API keys.</div>';
+    }
+}
+
+// Render hardware summary
+async function renderHardwareSummary(container) {
+    try {
+        // Get cached hardware profile from background
+        const response = await chrome.runtime.sendMessage({ type: 'get_hardware_profile' });
+        const hw = response.profile;
+
+        if (!hw) {
+            container.style.display = 'none';
             return;
         }
 
-        const isAvailable = true; // It's in availableAdapters, so it's available
-        const isSelected = currentConfig.selectedAdapter === adapterId;
-
-        const card = createAdapterCard(adapterId, meta, isAvailable, isSelected);
-        grid.appendChild(card);
-    });
-
-    // If no adapters are available, show a message
-    if (availableAdapters.length === 0) {
-        const emptyMessage = document.createElement('div');
-        emptyMessage.className = 'empty-message';
-        emptyMessage.innerHTML = `
-            <p><strong>No LLM adapters available</strong></p>
-            <p>Chrome AI requires Chrome 127+ with Prompt API enabled.</p>
-            <p>Remote APIs (OpenAI, Claude, Gemini) are always available with API keys.</p>
+        container.style.display = 'block';
+        container.innerHTML = `
+            <strong>Your Device:</strong>
+            <div class="hw-item ${hw.chromeAI.available ? 'available' : 'unavailable'}">
+                ${hw.chromeAI.available ? '✓' : '✗'} Chrome AI
+            </div>
+            <div class="hw-item ${hw.webgpu.available ? 'available' : 'unavailable'}">
+                ${hw.webgpu.available ? '✓' : '✗'} WebGPU
+            </div>
+            <div class="hw-item">
+                💾 ~${hw.ram.estimated || '?'}GB RAM
+            </div>
+            ${hw.recommendations && hw.recommendations.length > 0 ? `
+                <div style="margin-top: 8px;">
+                    <strong>💡 Recommendation:</strong> ${hw.recommendations[0]}
+                </div>
+            ` : ''}
         `;
-        grid.appendChild(emptyMessage);
+    } catch (error) {
+        console.error('[LLM Selector] Failed to render hardware summary:', error);
+        container.style.display = 'none';
+    }
+}
+
+// Get compatibility warning for adapter
+async function getCompatibilityWarning(adapterId) {
+    try {
+        const response = await chrome.runtime.sendMessage({
+            type: 'check_adapter_compatibility',
+            adapter: adapterId
+        });
+        return response.warning || null;
+    } catch (error) {
+        console.error('[LLM Selector] Compatibility check failed:', error);
+        return null;
     }
 }
 
 // Create adapter card element
-function createAdapterCard(adapterId, meta, isAvailable, isSelected) {
+async function createAdapterCard(adapterId, meta, isAvailable, isSelected) {
     const card = document.createElement('div');
     card.className = `adapter-card ${isSelected ? 'selected' : ''} ${!isAvailable ? 'unavailable' : ''} ${meta.requiresApi ? 'requires-api' : ''}`;
     card.dataset.adapterId = adapterId;
@@ -290,6 +353,16 @@ function createAdapterCard(adapterId, meta, isAvailable, isSelected) {
     card.appendChild(header);
     card.appendChild(description);
     card.appendChild(specsDiv);
+
+    // Add hardware compatibility warning
+    const warning = await getCompatibilityWarning(adapterId);
+    if (warning) {
+        const warningDiv = document.createElement('div');
+        warningDiv.className = 'adapter-warning';
+        warningDiv.innerHTML = `⚠️ ${warning}`;
+        card.appendChild(warningDiv);
+    }
+
     if (modelSelector) card.appendChild(modelSelector);
     if (apiKeySection) card.appendChild(apiKeySection);
 
@@ -452,6 +525,7 @@ function setupEventListeners() {
     document.getElementById('saveBtn').addEventListener('click', saveConfiguration);
     document.getElementById('resetBtn').addEventListener('click', resetConfiguration);
     document.getElementById('testBtn').addEventListener('click', testLLM);
+    document.getElementById('progressCancelBtn').addEventListener('click', closeProgressModal);
 }
 
 // Update slider value displays
@@ -474,21 +548,36 @@ async function saveConfiguration() {
     try {
         await chrome.storage.sync.set({ llmConfig: currentConfig });
 
+        // Check if this is a local adapter that needs model download
+        const needsDownload = ['webllm', 'wllama'].includes(currentConfig.selectedAdapter);
+
+        if (needsDownload) {
+            // Show progress modal for local adapters
+            showProgressModal(currentConfig.selectedAdapter, currentConfig.selectedModel);
+        }
+
         // Notify background script to update adapter
         if (currentConfig.selectedAdapter) {
-            await chrome.runtime.sendMessage({
+            const response = await chrome.runtime.sendMessage({
                 type: 'llm_set_adapter',
                 adapter: currentConfig.selectedAdapter,
                 model: currentConfig.selectedModel,
                 apiKey: currentConfig.apiKeys[currentConfig.selectedAdapter],
                 settings: currentConfig.agentSettings
             });
-        }
 
-        showStatusMessage('Configuration saved successfully!', 'success');
+            if (needsDownload && response.success) {
+                // Start polling for progress
+                startProgressPolling();
+            } else if (!needsDownload) {
+                // For non-downloading adapters, show success immediately
+                showStatusMessage('Configuration saved successfully!', 'success');
+            }
+        }
     } catch (error) {
         console.error('Failed to save configuration:', error);
         showStatusMessage('Failed to save configuration: ' + error.message, 'error');
+        closeProgressModal();
     }
 }
 
@@ -582,4 +671,119 @@ function showStatusMessage(message, type) {
     setTimeout(() => {
         statusMsg.classList.remove('visible');
     }, 5000);
+}
+
+// Progress Modal Functions
+let progressPollInterval = null;
+
+function showProgressModal(adapterId, modelId) {
+    const modal = document.getElementById('progressModal');
+    const title = document.getElementById('progressTitle');
+    const subtitle = document.getElementById('progressSubtitle');
+    const status = document.getElementById('progressStatus');
+
+    const meta = ADAPTER_META[adapterId];
+    const model = meta?.models?.find(m => m.id === modelId);
+
+    title.textContent = `Downloading ${meta?.name || adapterId} Model`;
+    subtitle.textContent = `Model: ${model?.name || modelId}${model?.size ? ' (' + model.size + ')' : ''}`;
+    status.textContent = 'Initializing download...';
+
+    document.getElementById('progressPercentage').textContent = '0%';
+    document.getElementById('progressSize').textContent = '';
+    document.getElementById('progressBarFill').style.width = '0%';
+
+    modal.classList.add('visible');
+}
+
+function closeProgressModal() {
+    const modal = document.getElementById('progressModal');
+    modal.classList.remove('visible');
+
+    if (progressPollInterval) {
+        clearInterval(progressPollInterval);
+        progressPollInterval = null;
+    }
+}
+
+async function startProgressPolling() {
+    let lastProgress = 0;
+    let stuckCount = 0;
+
+    progressPollInterval = setInterval(async () => {
+        try {
+            const response = await chrome.runtime.sendMessage({ type: 'llm_status' });
+
+            // Check if adapter is ready (download complete)
+            if (response.ready && response.adapter) {
+                clearInterval(progressPollInterval);
+                progressPollInterval = null;
+
+                updateProgressUI(100, 'Download complete!', true);
+
+                setTimeout(() => {
+                    closeProgressModal();
+                    showStatusMessage('Configuration saved and model loaded successfully!', 'success');
+                }, 1500);
+
+                return;
+            }
+
+            // Check for errors
+            if (response.error) {
+                clearInterval(progressPollInterval);
+                progressPollInterval = null;
+
+                updateProgressUI(lastProgress, `Error: ${response.error}`, true);
+                showStatusMessage('Failed to load model: ' + response.error, 'error');
+
+                return;
+            }
+
+            // Update progress if available
+            if (response.downloadProgress !== undefined) {
+                const progress = Math.round(response.downloadProgress);
+
+                // Check if progress is stuck
+                if (progress === lastProgress && progress < 100) {
+                    stuckCount++;
+                    if (stuckCount > 10) { // Stuck for ~20 seconds
+                        updateProgressUI(progress, 'Download may be slow or stalled. Please wait...', false);
+                    }
+                } else {
+                    stuckCount = 0;
+                    lastProgress = progress;
+                }
+
+                let statusText = 'Downloading model...';
+                if (progress > 0 && progress < 100) {
+                    statusText = `Downloading model... ${progress}% complete`;
+                } else if (progress === 100) {
+                    statusText = 'Initializing model...';
+                }
+
+                updateProgressUI(progress, statusText, false);
+            } else if (response.isLoading) {
+                updateProgressUI(lastProgress, 'Loading model...', false);
+            }
+
+        } catch (error) {
+            console.error('Progress poll failed:', error);
+            // Don't stop polling on error, might be transient
+        }
+    }, 2000); // Poll every 2 seconds
+}
+
+function updateProgressUI(percentage, statusText, isComplete) {
+    const progressBar = document.getElementById('progressBarFill');
+    const progressPercentage = document.getElementById('progressPercentage');
+    const progressStatus = document.getElementById('progressStatus');
+
+    progressBar.style.width = `${percentage}%`;
+    progressPercentage.textContent = `${percentage}%`;
+    progressStatus.textContent = statusText;
+
+    if (isComplete) {
+        progressStatus.style.borderLeftColor = '#4ade80';
+    }
 }

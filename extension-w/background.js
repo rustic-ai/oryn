@@ -6,6 +6,7 @@ import { LLMManager } from './llm/llm_manager.js';
 import { TrajectoryStore } from './agent/trajectory_store.js';
 import { RalphAgent } from './agent/ralph_agent.js';
 import { loadSeedTrajectories } from './agent/seed_trajectories.js';
+import { HardwareDetector } from './llm/hardware_detector.js';
 
 // Global state
 let orynCore = null;
@@ -63,9 +64,42 @@ async function initLLM() {
         llmManager = new LLMManager();
         await llmManager.initialize();
         console.log('[Oryn-W] LLM manager initialized successfully');
+
+        // Check if first run
+        await checkFirstRun();
     } catch (error) {
         console.error('[Oryn-W] Failed to initialize LLM manager:', error);
     }
+}
+
+// Check for first run and show wizard
+async function checkFirstRun() {
+    try {
+        const result = await chrome.storage.local.get(['oryn_w_first_run_complete']);
+
+        if (!result.oryn_w_first_run_complete) {
+            console.log('[Oryn-W] First run detected, opening wizard...');
+
+            // Open wizard in new tab
+            chrome.tabs.create({
+                url: chrome.runtime.getURL('ui/first_run_wizard.html'),
+                active: true
+            });
+        }
+    } catch (error) {
+        console.error('[Oryn-W] First run check failed:', error);
+    }
+}
+
+// Cache hardware profile
+let cachedHardwareProfile = null;
+
+// Get hardware profile (cached)
+async function getHardwareProfile() {
+    if (!cachedHardwareProfile) {
+        cachedHardwareProfile = await HardwareDetector.detect();
+    }
+    return cachedHardwareProfile;
 }
 
 // Initialize trajectory store and agent
@@ -192,6 +226,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     sendResponse({ success: true, response });
                 } catch (error) {
                     console.error('[Oryn-W] LLM stream failed:', error);
+                    sendResponse({ error: error.message });
+                }
+            } else if (request.type === 'detect_hardware') {
+                // Detect hardware capabilities
+                try {
+                    const profile = await HardwareDetector.detect();
+                    cachedHardwareProfile = profile; // Update cache
+                    sendResponse({ profile });
+                } catch (error) {
+                    console.error('[Oryn-W] Hardware detection failed:', error);
+                    sendResponse({ error: error.message });
+                }
+            } else if (request.type === 'get_hardware_profile') {
+                // Get cached hardware profile
+                try {
+                    const profile = await getHardwareProfile();
+                    sendResponse({ profile });
+                } catch (error) {
+                    console.error('[Oryn-W] Get hardware profile failed:', error);
+                    sendResponse({ error: error.message });
+                }
+            } else if (request.type === 'check_adapter_compatibility') {
+                // Check if adapter is compatible with hardware
+                try {
+                    const profile = await getHardwareProfile();
+                    const warning = HardwareDetector.getWarning(request.adapter, profile);
+                    sendResponse({ warning });
+                } catch (error) {
+                    console.error('[Oryn-W] Compatibility check failed:', error);
                     sendResponse({ error: error.message });
                 }
             } else if (request.type === 'execute_agent') {

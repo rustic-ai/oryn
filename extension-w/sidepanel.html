@@ -60,6 +60,144 @@
             color: #616161;
         }
 
+        .llm-switcher-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        .llm-switcher-btn {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding-right: 8px;
+        }
+
+        .llm-switcher-btn:hover {
+            background: rgba(33, 150, 243, 0.1);
+        }
+
+        .dropdown-arrow {
+            font-size: 10px;
+            opacity: 0.7;
+            transition: transform 0.2s;
+        }
+
+        .llm-switcher-btn.open .dropdown-arrow {
+            transform: rotate(180deg);
+        }
+
+        .switcher-menu {
+            position: absolute;
+            top: calc(100% + 4px);
+            right: 0;
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+            min-width: 220px;
+            max-height: 400px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .switcher-item {
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-bottom: 1px solid #f5f5f5;
+        }
+
+        .switcher-item:last-child {
+            border-bottom: none;
+        }
+
+        .switcher-item:hover {
+            background: #f8f9ff;
+        }
+
+        .switcher-item.active {
+            background: #e8f0ff;
+            font-weight: 600;
+        }
+
+        .switcher-item.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .switcher-item.disabled:hover {
+            background: white;
+        }
+
+        .switcher-item.config {
+            border-top: 2px solid #e0e0e0;
+            color: #2196F3;
+            font-weight: 500;
+        }
+
+        .switcher-icon {
+            font-size: 18px;
+            width: 24px;
+            text-align: center;
+        }
+
+        .switcher-name {
+            flex: 1;
+            font-size: 13px;
+        }
+
+        .switcher-check {
+            color: #4CAF50;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .switcher-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            background: #ff9800;
+            color: white;
+            border-radius: 3px;
+            font-weight: 500;
+        }
+
+        .download-progress {
+            margin: 12px 0;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .progress-bar-bg {
+            width: 100%;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
         .chat-container {
             flex: 1;
             overflow-y: auto;
@@ -421,8 +559,30 @@
         <div class="status-badges">
             <span id="wasm-badge" class="status-badge idle">WASM: Loading...</span>
             <span id="scan-badge" class="status-badge idle">Scan: Not loaded</span>
-            <span id="llm-badge" class="status-badge idle">LLM: Not configured</span>
+
+            <!-- Quick Switcher -->
+            <div class="llm-switcher-wrapper">
+                <button id="llm-switcher-btn" class="status-badge idle llm-switcher-btn">
+                    <span id="llm-switcher-text">LLM: Not configured</span>
+                    <span class="dropdown-arrow">▾</span>
+                </button>
+                <div id="llm-switcher-menu" class="switcher-menu" style="display: none;">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
         </div>
+
+        <!-- Download Progress Indicator -->
+        <div id="download-progress-container" class="download-progress" style="display: none;">
+            <div class="progress-info">
+                <span id="download-status">Downloading model...</span>
+                <span id="download-percentage">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="download-progress-fill"></div>
+            </div>
+        </div>
+
         <div class="mode-selector">
             <button id="oil-mode-btn" class="mode-btn active">OIL Mode</button>
             <button id="agent-mode-btn" class="mode-btn">Agent Mode</button>

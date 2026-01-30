@@ -9,6 +9,9 @@ import { ChromeAIAdapter } from './chrome_ai_adapter.js';
 import { OpenAIAdapter } from './openai_adapter.js';
 import { ClaudeAdapter } from './claude_adapter.js';
 import { GeminiAdapter } from './gemini_adapter.js';
+import { WebLLMAdapter } from './webllm_adapter.js';
+import { WllamaAdapter } from './wllama_adapter.js';
+import { HardwareDetector } from './hardware_detector.js';
 
 export class LLMManager {
     constructor() {
@@ -25,6 +28,8 @@ export class LLMManager {
 
         // Register all adapters
         this.registerAdapter('chrome-ai', ChromeAIAdapter);
+        this.registerAdapter('webllm', WebLLMAdapter);
+        this.registerAdapter('wllama', WllamaAdapter);
         this.registerAdapter('openai', OpenAIAdapter);
         this.registerAdapter('claude', ClaudeAdapter);
         this.registerAdapter('gemini', GeminiAdapter);
@@ -151,12 +156,19 @@ export class LLMManager {
             };
         }
 
+        // Get detailed status from adapter
+        const adapterStatus = this.activeAdapter.getStatus();
+
         return {
             ready: this.activeAdapter.initialized,
             adapter: this.activeAdapter.name,
+            current: this.activeAdapter.name,
             model: this.activeAdapter.model,
             error: this.activeAdapter.error,
             capabilities: this.activeAdapter.getCapabilities(),
+            // Include download progress for local adapters
+            downloadProgress: adapterStatus.downloadProgress,
+            isLoading: adapterStatus.isLoading,
         };
     }
 
@@ -166,8 +178,11 @@ export class LLMManager {
     async loadConfig() {
         try {
             const result = await chrome.storage.sync.get(['llmConfig']);
-            if (!result.llmConfig) {
-                console.log('[LLM Manager] No saved configuration found');
+
+            // Check if first run (no config exists)
+            if (!result.llmConfig || !result.llmConfig.selectedAdapter) {
+                console.log('[LLM Manager] First run detected, auto-configuring...');
+                await this.autoConfigureAdapter();
                 return;
             }
 
@@ -185,10 +200,54 @@ export class LLMManager {
                     console.log('[LLM Manager] Restored previous adapter:', config.selectedAdapter);
                 } catch (error) {
                     console.error('[LLM Manager] Failed to restore adapter:', error);
+                    // If restore fails, try auto-config as fallback
+                    await this.autoConfigureAdapter();
                 }
             }
         } catch (error) {
             console.error('[LLM Manager] Failed to load config:', error);
+        }
+    }
+
+    /**
+     * Auto-configure adapter based on hardware capabilities
+     */
+    async autoConfigureAdapter() {
+        try {
+            // Detect hardware capabilities
+            const hwProfile = await HardwareDetector.detect();
+            console.log('[LLM Manager] Hardware profile:', hwProfile);
+
+            // Get recommended adapter based on hardware and availability
+            const recommended = HardwareDetector.getRecommendedAdapter(
+                this.availableAdapters,
+                hwProfile
+            );
+
+            if (!recommended) {
+                console.log('[LLM Manager] No adapters available for auto-config');
+                return;
+            }
+
+            console.log('[LLM Manager] Auto-configuring with:', recommended.id);
+
+            // Determine default model for adapter
+            let defaultModel = null;
+            if (recommended.id === 'chrome-ai') {
+                defaultModel = 'gemini-nano';
+            } else if (recommended.id === 'webllm') {
+                defaultModel = 'Phi-3-mini-4k-instruct-q4f16_1'; // Balanced 2.2GB
+            } else if (recommended.id === 'wllama') {
+                defaultModel = 'tinyllama'; // Smallest 669MB
+            }
+
+            // Initialize adapter
+            await this.setActiveAdapter(recommended.id, defaultModel, {});
+
+            console.log('[LLM Manager] Auto-configuration complete');
+        } catch (error) {
+            console.error('[LLM Manager] Auto-configuration failed:', error);
+            // Non-fatal - user can configure manually
         }
     }
 

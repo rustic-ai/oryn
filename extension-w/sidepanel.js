@@ -7,7 +7,13 @@ const btnExecute = document.getElementById('btn-execute');
 const btnClear = document.getElementById('btn-clear');
 const wasmBadge = document.getElementById('wasm-badge');
 const scanBadge = document.getElementById('scan-badge');
-const llmBadge = document.getElementById('llm-badge');
+const llmSwitcherBtn = document.getElementById('llm-switcher-btn');
+const llmSwitcherText = document.getElementById('llm-switcher-text');
+const llmSwitcherMenu = document.getElementById('llm-switcher-menu');
+const downloadProgressContainer = document.getElementById('download-progress-container');
+const downloadStatus = document.getElementById('download-status');
+const downloadPercentage = document.getElementById('download-percentage');
+const downloadProgressFill = document.getElementById('download-progress-fill');
 
 // Agent mode elements
 const oilModeBtn = document.getElementById('oil-mode-btn');
@@ -21,6 +27,16 @@ const btnConfigLLM = document.getElementById('btn-config-llm');
 
 // Current mode
 let currentMode = 'oil'; // 'oil' or 'agent'
+
+// Adapter icons for quick switcher
+const ADAPTER_ICONS = {
+    'chrome-ai': '⚡',
+    'webllm': '🚀',
+    'wllama': '🦙',
+    'openai': '🤖',
+    'claude': '🧠',
+    'gemini': '✨'
+};
 
 // Message storage
 const messages = [];
@@ -311,16 +327,28 @@ async function updateStatus() {
             scanBadge.className = 'status-badge idle';
         }
 
-        // Update LLM badge
+        // Update LLM badge/switcher
         const llmStatus = await chrome.runtime.sendMessage({ type: 'llm_status' });
         if (llmStatus.ready) {
-            llmBadge.textContent = `LLM: ${llmStatus.adapter}`;
-            llmBadge.className = 'status-badge ready';
+            const icon = ADAPTER_ICONS[llmStatus.adapter] || '🤖';
+            llmSwitcherText.textContent = `${icon} ${llmStatus.adapter}`;
+            llmSwitcherBtn.className = 'status-badge ready llm-switcher-btn';
             executeAgent.disabled = false;
         } else {
-            llmBadge.textContent = 'LLM: Not configured';
-            llmBadge.className = 'status-badge idle';
+            llmSwitcherText.textContent = 'LLM: Not configured';
+            llmSwitcherBtn.className = 'status-badge idle llm-switcher-btn';
             executeAgent.disabled = true;
+        }
+
+        // Update download progress
+        if (llmStatus.isLoading && llmStatus.downloadProgress !== undefined) {
+            downloadProgressContainer.style.display = 'block';
+            const percent = Math.round(llmStatus.downloadProgress);
+            downloadStatus.textContent = `Downloading ${llmStatus.adapter || 'model'}...`;
+            downloadPercentage.textContent = `${percent}%`;
+            downloadProgressFill.style.width = `${percent}%`;
+        } else {
+            downloadProgressContainer.style.display = 'none';
         }
     } catch (error) {
         console.error('Failed to update status:', error);
@@ -417,6 +445,133 @@ commandInput.addEventListener('keydown', (e) => {
     }
 });
 
+// Quick LLM Switcher
+function setupQuickSwitcher() {
+    if (!llmSwitcherBtn || !llmSwitcherMenu) return;
+
+    llmSwitcherBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+
+        if (llmSwitcherMenu.style.display === 'none') {
+            await populateSwitcherMenu();
+            llmSwitcherMenu.style.display = 'block';
+            llmSwitcherBtn.classList.add('open');
+        } else {
+            llmSwitcherMenu.style.display = 'none';
+            llmSwitcherBtn.classList.remove('open');
+        }
+    });
+
+    // Close menu when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!llmSwitcherBtn.contains(e.target) && !llmSwitcherMenu.contains(e.target)) {
+            llmSwitcherMenu.style.display = 'none';
+            llmSwitcherBtn.classList.remove('open');
+        }
+    });
+}
+
+async function populateSwitcherMenu() {
+    try {
+        // Get available adapters and current status
+        const adaptersResponse = await chrome.runtime.sendMessage({ type: 'llm_get_adapters' });
+        const statusResponse = await chrome.runtime.sendMessage({ type: 'llm_status' });
+
+        const adapters = adaptersResponse.adapters || [];
+        const currentAdapter = statusResponse.adapter;
+
+        llmSwitcherMenu.innerHTML = '';
+
+        if (adapters.length === 0) {
+            llmSwitcherMenu.innerHTML = '<div class="switcher-item disabled">No adapters available</div>';
+            return;
+        }
+
+        // Render each adapter
+        adapters.forEach(adapter => {
+            const item = document.createElement('div');
+            const isActive = adapter.id === currentAdapter;
+            const needsKey = adapter.requiresApiKey && !hasApiKey(adapter.id);
+
+            item.className = 'switcher-item';
+            if (isActive) item.classList.add('active');
+            if (needsKey) item.classList.add('disabled');
+
+            const icon = ADAPTER_ICONS[adapter.id] || '🤖';
+            const name = adapter.displayName || adapter.name;
+
+            item.innerHTML = `
+                <span class="switcher-icon">${icon}</span>
+                <span class="switcher-name">${name}</span>
+                ${isActive ? '<span class="switcher-check">✓</span>' : ''}
+                ${needsKey ? '<span class="switcher-badge">Key Required</span>' : ''}
+            `;
+
+            if (!needsKey) {
+                item.addEventListener('click', async () => {
+                    await switchToAdapter(adapter.id);
+                    llmSwitcherMenu.style.display = 'none';
+                    llmSwitcherBtn.classList.remove('open');
+                });
+            }
+
+            llmSwitcherMenu.appendChild(item);
+        });
+
+        // Add separator and config option
+        const separator = document.createElement('div');
+        separator.style.borderTop = '1px solid #e0e0e0';
+        separator.style.margin = '4px 0';
+        llmSwitcherMenu.appendChild(separator);
+
+        const configItem = document.createElement('div');
+        configItem.className = 'switcher-item config';
+        configItem.innerHTML = `
+            <span class="switcher-icon">⚙️</span>
+            <span class="switcher-name">Configure LLMs...</span>
+        `;
+        configItem.addEventListener('click', () => {
+            const url = chrome.runtime.getURL('ui/llm_selector.html');
+            chrome.tabs.create({ url });
+            llmSwitcherMenu.style.display = 'none';
+            llmSwitcherBtn.classList.remove('open');
+        });
+        llmSwitcherMenu.appendChild(configItem);
+
+    } catch (error) {
+        console.error('[Sidepanel] Failed to populate switcher menu:', error);
+        llmSwitcherMenu.innerHTML = '<div class="switcher-item disabled">Error loading adapters</div>';
+    }
+}
+
+function hasApiKey(adapterId) {
+    // TODO: implement proper check by querying storage
+    return false;
+}
+
+async function switchToAdapter(adapterId) {
+    try {
+        addMessage(`Switching to ${adapterId}...`, 'status');
+
+        const response = await chrome.runtime.sendMessage({
+            type: 'llm_set_adapter',
+            adapter: adapterId,
+            model: null, // Use default model
+            apiKey: null  // Use saved key
+        });
+
+        if (response.success) {
+            addMessage(`✓ Switched to ${adapterId}`, 'success');
+            await updateStatus();
+        } else {
+            addMessage(`✗ Failed to switch: ${response.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('[Sidepanel] Switch adapter failed:', error);
+        addMessage(`✗ Error: ${error.message}`, 'error');
+    }
+}
+
 // Event listeners
 btnExecute.addEventListener('click', executeCommand);
 btnClear.addEventListener('click', clearMessages);
@@ -500,6 +655,7 @@ async function showPageWarningIfNeeded() {
 
 // Initialize
 console.log('[Oryn-W] Sidepanel initialized');
+setupQuickSwitcher();
 updateStatus();
 showPageWarningIfNeeded();
 

@@ -1,7 +1,7 @@
 /**
  * Chrome AI Adapter
  *
- * Uses the Chrome built-in AI API (window.LanguageModel) to access Gemini Nano locally.
+ * Uses the Chrome built-in AI API (LanguageModel) to access Gemini Nano locally.
  * This is the fastest and most private option when available.
  *
  * Requires Chrome 127+ with Prompt API enabled.
@@ -22,25 +22,25 @@ export class ChromeAIAdapter extends LLMAdapter {
     async initialize(model = 'gemini-nano', config = {}) {
         try {
             // Check if LanguageModel API is available (current API)
-            if (typeof self.LanguageModel === 'undefined') {
+            if (typeof LanguageModel === 'undefined') {
                 throw new Error('Chrome AI not available. Requires Chrome 127+ with Prompt API enabled (chrome://flags/#prompt-api-for-gemini-nano)');
             }
 
             // Get availability status
-            const availability = await self.LanguageModel.availability();
+            const availability = await LanguageModel.availability();
             console.log('[Chrome AI] Availability:', availability);
 
-            if (availability === 'no') {
+            if (availability === 'unavailable') {
                 throw new Error('Chrome AI language model is not available on this device.');
             }
 
             // If model needs to be downloaded, inform the user
-            if (availability === 'after-download') {
+            if (availability === 'downloadable' || availability === 'downloading') {
                 console.log('[Chrome AI] Model needs to be downloaded. Creating session will trigger download...');
             }
 
             // Create a session
-            this.session = await self.LanguageModel.create({
+            this.session = await LanguageModel.create({
                 temperature: config.temperature || 0.7,
                 topK: config.topK || 40,
             });
@@ -173,19 +173,19 @@ export class ChromeAIAdapter extends LLMAdapter {
             }
 
             // Check if LanguageModel API exists (current API, not window.ai.languageModel)
-            if (typeof self.LanguageModel === 'undefined') {
-                console.log('[Chrome AI] Not available: self.LanguageModel not found');
+            if (typeof LanguageModel === 'undefined') {
+                console.log('[Chrome AI] Not available: LanguageModel not found');
                 console.log('[Chrome AI] Hint: Enable chrome://flags/#prompt-api-for-gemini-nano');
                 return false;
             }
 
             // Check availability
-            const availability = await self.LanguageModel.availability();
+            const availability = await LanguageModel.availability();
             console.log('[Chrome AI] Availability status:', availability);
 
-            // Return true if immediately available OR after-download
+            // Return true if readily available, downloadable, or downloading
             // We'll let the user trigger the download if needed
-            const isAvailable = availability === 'available' || availability === 'after-download';
+            const isAvailable = availability === 'available' || availability === 'downloadable' || availability === 'downloading';
             console.log('[Chrome AI] Is available:', isAvailable);
 
             return isAvailable;
