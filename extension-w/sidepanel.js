@@ -213,8 +213,29 @@ async function executeAgentTask() {
 
     // Check LLM status first
     const llmStatus = await chrome.runtime.sendMessage({ type: 'llm_status' });
-    if (!llmStatus.ready) {
-        addMessage('Please configure an LLM first. Click "Configure LLM" button.', 'error');
+
+    // Check if adapter is pending (needs download/initialization)
+    if (llmStatus.isPending) {
+        addMessage(`Initializing ${llmStatus.adapter} (${llmStatus.model})...`, 'system');
+        addMessage('This may take a few minutes on first use.', 'system');
+
+        // Show download progress
+        downloadProgressContainer.style.display = 'block';
+        downloadStatus.textContent = `Preparing ${llmStatus.model}...`;
+        downloadPercentage.textContent = '0%';
+        downloadProgressFill.style.width = '0%';
+
+        // The download will start automatically when we call agent_start below
+        // The progress will be shown by updateStatus() polling
+    } else if (!llmStatus.ready) {
+        // No adapter configured at all
+        if (!llmStatus.adapter) {
+            addMessage('Please configure an LLM first. Click "Configure LLM" button.', 'error');
+        } else {
+            // Adapter exists but has an error
+            addMessage(`LLM Error: ${llmStatus.error || 'Unknown error'}`, 'error');
+            addMessage('Please reconfigure your LLM or try a different adapter.', 'system');
+        }
         return;
     }
 
@@ -330,11 +351,25 @@ async function updateStatus() {
         // Update LLM badge/switcher
         const llmStatus = await chrome.runtime.sendMessage({ type: 'llm_status' });
         if (llmStatus.ready) {
+            // Adapter is ready
             const icon = ADAPTER_ICONS[llmStatus.adapter] || '🤖';
             llmSwitcherText.textContent = `${icon} ${llmStatus.adapter}`;
             llmSwitcherBtn.className = 'status-badge ready llm-switcher-btn';
             executeAgent.disabled = false;
+        } else if (llmStatus.isPending) {
+            // Adapter is configured but pending download
+            const icon = ADAPTER_ICONS[llmStatus.adapter] || '🤖';
+            const modelDisplay = llmStatus.model ? ` (${llmStatus.model})` : '';
+            llmSwitcherText.textContent = `${icon} ${llmStatus.adapter}${modelDisplay} ⏳`;
+            llmSwitcherBtn.className = 'status-badge idle llm-switcher-btn';
+            executeAgent.disabled = false;  // Allow execution (will trigger download)
+        } else if (llmStatus.error) {
+            // Adapter has error
+            llmSwitcherText.textContent = `LLM: Error`;
+            llmSwitcherBtn.className = 'status-badge error llm-switcher-btn';
+            executeAgent.disabled = true;
         } else {
+            // No adapter configured
             llmSwitcherText.textContent = 'LLM: Not configured';
             llmSwitcherBtn.className = 'status-badge idle llm-switcher-btn';
             executeAgent.disabled = true;

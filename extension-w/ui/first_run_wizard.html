@@ -242,6 +242,116 @@
         .badge.local { background: #e3f2fd; color: #1976D2; }
         .badge.fast { background: #fff3e0; color: #e65100; }
 
+        .adapter-option-body {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .model-selector {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .model-selector label {
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        .model-dropdown {
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .model-dropdown:hover {
+            border-color: #667eea;
+        }
+
+        .model-dropdown:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .download-section {
+            margin-top: 24px;
+            padding: 24px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .download-progress {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+        }
+
+        .progress-info span:first-child {
+            font-weight: 500;
+            color: #333;
+        }
+
+        .progress-info span:last-child {
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .progress-bar-bg {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .download-status-text {
+            font-size: 13px;
+            color: #666;
+            text-align: center;
+        }
+
+        .download-error {
+            padding: 16px;
+            background: #ffebee;
+            border: 1px solid #f44336;
+            border-radius: 8px;
+            color: #c62828;
+            margin-top: 16px;
+        }
+
+        .download-error-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .wizard-actions {
             padding: 24px 40px;
             background: #f8f9fa;
@@ -340,16 +450,35 @@
                 </div>
             </div>
 
-            <!-- Step 3: Complete -->
+            <!-- Step 3: Setup & Download -->
             <div id="step-3" class="wizard-page">
-                <h2>✨ All Set!</h2>
-                <p style="font-size: 16px; color: #666; margin-bottom: 24px;">
-                    Your AI assistant is ready to use.
-                </p>
                 <div id="config-summary" style="padding: 20px; background: #f8f9fa; border-radius: 8px;">
                     <!-- Populated by JS -->
                 </div>
-                <div style="margin-top: 24px; padding: 16px; background: #e3f2fd; border-radius: 8px;">
+
+                <!-- Download Progress Section (shown for WebLLM/wllama) -->
+                <div id="download-section" class="download-section" style="display: none;">
+                    <div class="download-progress">
+                        <div class="progress-info">
+                            <span id="download-model-name">Downloading model...</span>
+                            <span id="download-percentage">0%</span>
+                        </div>
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" id="wizard-progress-fill"></div>
+                        </div>
+                        <div class="download-status-text" id="download-status-text">
+                            Preparing download...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Download Error Section -->
+                <div id="download-error" style="display: none;">
+                    <!-- Error message populated by JS -->
+                </div>
+
+                <!-- Ready section (shown when download completes or no download needed) -->
+                <div id="ready-section" style="display: none; margin-top: 24px; padding: 16px; background: #e3f2fd; border-radius: 8px;">
                     <strong>Next steps:</strong>
                     <ul style="margin-top: 12px; margin-left: 20px;">
                         <li>Open the Oryn side panel</li>

@@ -15,6 +15,29 @@ let isWasmInitialized = false;
 let llmManager = null;
 let trajectoryStore = null;
 let ralphAgent = null;
+let offscreenDocumentReady = false;
+
+// Diagnostic logging to storage (for debugging when console isn't accessible)
+const diagnosticLogs = [];
+function logDiagnostic(message, data = {}) {
+    const entry = {
+        timestamp: Date.now(),
+        message,
+        data
+    };
+    diagnosticLogs.push(entry);
+    console.log('[DIAGNOSTIC]', message, data);
+
+    // Keep only last 100 entries
+    if (diagnosticLogs.length > 100) {
+        diagnosticLogs.shift();
+    }
+
+    // Write to storage
+    chrome.storage.local.set({ diagnostic_logs: diagnosticLogs }).catch(err => {
+        console.error('Failed to save diagnostic logs:', err);
+    });
+}
 
 // Agent state
 let agentState = {
@@ -25,6 +48,236 @@ let agentState = {
     history: [],
     startTime: null,
 };
+
+// Offscreen document management for LLM operations
+async function ensureOffscreenDocument() {
+    logDiagnostic('ensureOffscreenDocument() called');
+
+    // Check if offscreen document already exists
+    const existingContexts = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT'],
+    });
+
+    logDiagnostic('Found existing offscreen contexts', { count: existingContexts.length });
+
+    if (existingContexts.length > 0) {
+        logDiagnostic('Offscreen document already exists');
+        return;
+    }
+
+    // Create offscreen document
+    logDiagnostic('Creating offscreen document');
+    try {
+        await chrome.offscreen.createDocument({
+            url: 'offscreen.html',
+            reasons: ['WORKERS'], // We're using it like a worker for LLM operations
+            justification: 'Needed for WebLLM and wllama dynamic imports which require window context',
+        });
+        logDiagnostic('chrome.offscreen.createDocument() completed successfully');
+    } catch (error) {
+        logDiagnostic('Failed to create offscreen document', { error: error.message, stack: error.stack });
+        throw error;
+    }
+
+    // Wait a bit for it to initialize
+    logDiagnostic('Waiting 500ms for offscreen to initialize');
+    await new Promise(resolve => setTimeout(resolve, 500));
+    offscreenDocumentReady = true;
+    logDiagnostic('Offscreen document created and ready');
+}
+
+async function closeOffscreenDocument() {
+    const existingContexts = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT'],
+    });
+
+    if (existingContexts.length > 0) {
+        console.log('[Oryn-W] Closing offscreen document');
+        await chrome.offscreen.closeDocument();
+        offscreenDocumentReady = false;
+    }
+}
+
+// Wrapper for LLM Manager that delegates to offscreen when needed
+class OffscreenLLMProxy {
+    constructor() {
+        this.useOffscreen = false;
+        this.currentAdapter = null;
+        this.currentModel = null;
+        this.baseLLMManager = null; // For adapter detection and non-offscreen adapters
+    }
+
+    async initialize() {
+        console.log('[LLM Proxy] Initializing...');
+        // Create base LLM manager for adapter detection (but skip loading config)
+        this.baseLLMManager = new LLMManager();
+        this.baseLLMManager.skipLoadConfig = true; // Prevent auto-loading config
+        await this.baseLLMManager.initialize();
+
+        // Manually add WebLLM and wllama as available (they run in offscreen)
+        // The base manager's detection runs in service worker where WebGPU checks fail
+        const adapters = this.baseLLMManager.getAvailableAdapters();
+
+        // Add WebLLM if not already added
+        if (!adapters.find(a => a.id === 'webllm')) {
+            adapters.push({
+                id: 'webllm',
+                name: 'webllm',
+                displayName: 'WebLLM (GPU-Accelerated)',
+                description: 'Local LLM with WebGPU acceleration. No API key needed.',
+                requiresApiKey: false,
+            });
+        }
+
+        // Add wllama if not already added
+        if (!adapters.find(a => a.id === 'wllama')) {
+            adapters.push({
+                id: 'wllama',
+                name: 'wllama',
+                displayName: 'wllama (CPU-based)',
+                description: 'Local LLM running on CPU. Works everywhere.',
+                requiresApiKey: false,
+            });
+        }
+
+        this.baseLLMManager.availableAdapters = adapters;
+        console.log('[LLM Proxy] Initialized with', adapters.length, 'available adapters');
+
+        // Now load config ourselves (proxy-aware)
+        await this.loadSavedConfig();
+    }
+
+    async loadSavedConfig() {
+        try {
+            logDiagnostic('LLM Proxy: Loading saved configuration');
+            const result = await chrome.storage.sync.get(['llmConfig']);
+
+            if (!result.llmConfig || !result.llmConfig.selectedAdapter) {
+                logDiagnostic('LLM Proxy: No saved config found');
+                return;
+            }
+
+            const config = result.llmConfig;
+            logDiagnostic('LLM Proxy: Found saved config', { adapter: config.selectedAdapter, model: config.selectedModel });
+
+            // Set active adapter (proxy will route to offscreen if needed)
+            await this.setActiveAdapter(
+                config.selectedAdapter,
+                config.selectedModel,
+                config.apiKeys || {}
+            );
+
+            logDiagnostic('LLM Proxy: Successfully loaded saved configuration');
+        } catch (error) {
+            logDiagnostic('LLM Proxy: Failed to load saved config', { error: error.message, stack: error.stack });
+        }
+    }
+
+    getAvailableAdapters() {
+        if (!this.baseLLMManager) {
+            console.warn('[LLM Proxy] Base manager not initialized yet');
+            return [];
+        }
+        return this.baseLLMManager.getAvailableAdapters();
+    }
+
+    async setActiveAdapter(name, model, config = {}) {
+        logDiagnostic('LLM Proxy: setActiveAdapter called', { name, model });
+
+        // Check if this adapter needs offscreen (WebLLM, wllama)
+        this.useOffscreen = (name === 'webllm' || name === 'wllama');
+        this.currentAdapter = name;
+        this.currentModel = model;
+
+        if (this.useOffscreen) {
+            logDiagnostic('LLM Proxy: Using offscreen for adapter', { name });
+            await ensureOffscreenDocument();
+            logDiagnostic('LLM Proxy: Offscreen ensured, sending message');
+
+            // Forward to offscreen
+            const response = await chrome.runtime.sendMessage({
+                type: 'offscreen_llm_set_adapter',
+                name,
+                model,
+                config,
+            });
+
+            logDiagnostic('LLM Proxy: Got response from offscreen', { response });
+
+            if (response.error) {
+                throw new Error(response.error);
+            }
+        } else {
+            // Use normal LLM manager for adapters that don't need dynamic imports
+            console.log('[LLM Proxy] Using service worker LLM manager for', name);
+            if (!this.baseLLMManager) {
+                this.baseLLMManager = new LLMManager();
+                await this.baseLLMManager.initialize();
+            }
+            await this.baseLLMManager.setActiveAdapter(name, model, config);
+        }
+    }
+
+    async prompt(messages, options = {}) {
+        if (this.useOffscreen) {
+            console.log('[LLM Proxy] Forwarding prompt to offscreen');
+            const response = await chrome.runtime.sendMessage({
+                type: 'offscreen_llm_prompt',
+                messages,
+                options,
+            });
+
+            if (response.error) {
+                throw new Error(response.error);
+            }
+
+            return response.response;
+        } else {
+            console.log('[LLM Proxy] Using service worker LLM manager for prompt');
+            if (!this.baseLLMManager) {
+                throw new Error('LLM manager not initialized');
+            }
+            return await this.baseLLMManager.prompt(messages, options);
+        }
+    }
+
+    getStatus() {
+        if (this.useOffscreen) {
+            // For offscreen adapters, we need to query via message
+            // But getStatus is synchronous, so we return a pending status
+            // The actual status will be updated via polling
+            return {
+                ready: offscreenDocumentReady,
+                adapter: this.currentAdapter,
+                model: this.currentModel,
+                isPending: !offscreenDocumentReady,
+                isLoading: false,
+                error: null,
+            };
+        } else {
+            return this.baseLLMManager ? this.baseLLMManager.getStatus() : { ready: false };
+        }
+    }
+
+    async getStatusAsync() {
+        if (this.useOffscreen) {
+            const response = await chrome.runtime.sendMessage({
+                type: 'offscreen_llm_status',
+            });
+            return response.status;
+        } else {
+            return this.getStatus();
+        }
+    }
+
+    listAdapters() {
+        // For now, delegate to regular manager or return hardcoded list
+        if (this.baseLLMManager) {
+            return this.baseLLMManager.listAdapters();
+        }
+        return ['chrome-ai', 'webllm', 'wllama', 'openai', 'claude', 'gemini'];
+    }
+}
 
 // Initialize WASM module
 async function initWasm() {
@@ -57,13 +310,13 @@ async function initWasm() {
     }
 }
 
-// Initialize LLM manager
+// Initialize LLM manager (using proxy for offscreen support)
 async function initLLM() {
     try {
-        console.log('[Oryn-W] Initializing LLM manager...');
-        llmManager = new LLMManager();
+        console.log('[Oryn-W] Initializing LLM manager (with offscreen proxy)...');
+        llmManager = new OffscreenLLMProxy();
         await llmManager.initialize();
-        console.log('[Oryn-W] LLM manager initialized successfully');
+        console.log('[Oryn-W] LLM manager proxy initialized successfully');
 
         // Check if first run
         await checkFirstRun();
@@ -172,9 +425,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     sendResponse({ error: error.message });
                 }
             } else if (request.type === 'llm_status') {
-                // Get LLM status
-                const status = llmManager ? llmManager.getStatus() : { ready: false, error: 'LLM manager not initialized' };
-                sendResponse(status);
+                // Get LLM status (async for offscreen adapters)
+                if (!llmManager) {
+                    sendResponse({ ready: false, error: 'LLM manager not initialized' });
+                    return;
+                }
+
+                // Use async version if available (for offscreen adapters)
+                if (llmManager.getStatusAsync) {
+                    llmManager.getStatusAsync().then(status => {
+                        sendResponse(status);
+                    }).catch(error => {
+                        sendResponse({ ready: false, error: error.message });
+                    });
+                    return true; // Keep channel open for async response
+                } else {
+                    const status = llmManager.getStatus();
+                    sendResponse(status);
+                }
             } else if (request.type === 'llm_get_adapters') {
                 // Get available adapters
                 console.log('[Oryn-W] llm_get_adapters request received');
@@ -200,6 +468,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     console.error('[Oryn-W] Failed to set adapter:', error);
                     sendResponse({ error: error.message });
                 }
+            } else if (request.type === 'llm_reload_config') {
+                // Reload config from storage (called after wizard saves config)
+                if (!llmManager || !llmManager.loadSavedConfig) {
+                    sendResponse({ error: 'LLM manager not initialized' });
+                    return;
+                }
+
+                try {
+                    console.log('[Oryn-W] Reloading LLM config from storage...');
+                    await llmManager.loadSavedConfig();
+                    sendResponse({ success: true });
+                } catch (error) {
+                    console.error('[Oryn-W] Failed to reload config:', error);
+                    sendResponse({ error: error.message });
+                }
+
+            } else if (request.type === 'offscreen_status') {
+                // Status update from offscreen document (for debugging)
+                logDiagnostic('Offscreen Status: ' + request.status, request.data);
+                sendResponse({ received: true });
+
+            } else if (request.type === 'get_diagnostic_logs') {
+                // Return diagnostic logs (for testing)
+                sendResponse({ logs: diagnosticLogs });
+
             } else if (request.type === 'llm_prompt') {
                 // Send prompt to LLM
                 if (!llmManager) {
@@ -264,11 +557,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     return;
                 }
 
-                // Check if LLM is ready
+                // Check if LLM is ready or pending (pending will auto-initialize on first use)
                 const llmStatus = llmManager.getStatus();
-                if (!llmStatus.ready) {
-                    sendResponse({ error: 'LLM not configured. Please configure an LLM first.' });
+                if (!llmStatus.ready && !llmStatus.isPending) {
+                    // Only fail if there's no adapter at all
+                    const errorMsg = llmStatus.error || 'LLM not configured. Please configure an LLM first.';
+                    console.error('[Oryn-W] LLM not ready:', errorMsg);
+                    sendResponse({ error: errorMsg });
                     return;
+                }
+
+                // If pending, the first LLM call will trigger ensureInitialized() and download
+                if (llmStatus.isPending) {
+                    console.log('[Oryn-W] LLM is pending, will initialize on first use');
                 }
 
                 try {

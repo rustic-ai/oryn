@@ -34,4 +34,7 @@ e2e-results/
 **/dist/
 
 intentgym/transcripts/
-intentgym//results/
+intentgym/results/
+
+# LLM vendor bundles (built from npm packages)
+extension-w/llm/vendor/

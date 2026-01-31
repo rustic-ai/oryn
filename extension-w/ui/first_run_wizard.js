@@ -3,6 +3,9 @@
 let currentStep = 1;
 let hwProfile = null;
 let selectedAdapter = null;
+let selectedModel = null;
+let isDownloading = false;
+let downloadPollInterval = null;
 
 const ADAPTER_ICONS = {
     'chrome-ai': '⚡',
@@ -22,6 +25,19 @@ const ADAPTER_BADGES = {
     'wllama': ['free', 'local']
 };
 
+const ADAPTER_MODELS = {
+    'webllm': [
+        { id: 'Phi-3-mini-4k-instruct-q4f16_1-MLC-1k', size: '2.2GB', description: 'Balanced (recommended)', default: true },
+        { id: 'Llama-3-8B-Instruct-q4f16_1-MLC-1k', size: '4.5GB', description: 'Best quality' },
+        { id: 'gemma-2b-it-q4f16_1-MLC-1k', size: '1.5GB', description: 'Smallest, fastest' }
+    ],
+    'wllama': [
+        { id: 'tinyllama', size: '669MB', description: 'Lightweight (recommended)', default: true },
+        { id: 'phi2', size: '1.6GB', description: 'Phi-2 2.7B' },
+        { id: 'gemma-2b', size: '1.6GB', description: 'Gemma 2B' }
+    ]
+};
+
 // Initialize wizard
 async function init() {
     console.log('[Wizard] Initializing...');
@@ -32,6 +48,12 @@ async function init() {
     // Setup navigation
     document.getElementById('btn-next').addEventListener('click', nextStep);
     document.getElementById('btn-back').addEventListener('click', prevStep);
+}
+
+function chromeAIStatusText(status) {
+    if (status === 'ready') return 'Ready to use';
+    if (status === 'downloadable' || status === 'downloading') return 'Available after download';
+    return 'Not available';
 }
 
 async function runHardwareDetection() {
@@ -51,7 +73,7 @@ async function runHardwareDetection() {
                 <span style="font-size: 24px;">${hwProfile.chromeAI.available ? '✓' : '✗'}</span>
                 <div>
                     <strong>Chrome AI</strong><br>
-                    <span style="font-size: 13px;">${hwProfile.chromeAI.status === 'ready' ? 'Ready to use' : (hwProfile.chromeAI.status === 'downloadable' || hwProfile.chromeAI.status === 'downloading') ? 'Available after download' : 'Not available'}</span>
+                    <span style="font-size: 13px;">${chromeAIStatusText(hwProfile.chromeAI.status)}</span>
                 </div>
             </div>
             <div class="hw-item ${hwProfile.webgpu.available ? 'available' : 'unavailable'}">
@@ -103,14 +125,18 @@ async function nextStep() {
             alert('Please select an AI model');
             return;
         }
-        showStep(3);
-        await completeSetup();
+
+        // Save config and move to Step 3
+        await saveConfigAndProceed();
     } else if (currentStep === 3) {
         await finishWizard();
     }
 }
 
 function prevStep() {
+    if (isDownloading) {
+        return; // Prevent going back during download
+    }
     if (currentStep > 1) {
         showStep(currentStep - 1);
     }
@@ -184,6 +210,27 @@ function createAdapterOption(adapter) {
     const icon = ADAPTER_ICONS[adapter.id] || '🤖';
     const description = ADAPTER_DESCRIPTIONS[adapter.id] || adapter.description;
     const badges = ADAPTER_BADGES[adapter.id] || [];
+    const hasModels = ADAPTER_MODELS[adapter.id] && ADAPTER_MODELS[adapter.id].length > 0;
+
+    let modelSelectorHtml = '';
+    if (hasModels) {
+        const models = ADAPTER_MODELS[adapter.id];
+
+        modelSelectorHtml = `
+            <div class="adapter-option-body" style="display: none;">
+                <div class="model-selector">
+                    <label>Select Model:</label>
+                    <select class="model-dropdown">
+                        ${models.map(model => `
+                            <option value="${model.id}" ${model.default ? 'selected' : ''}>
+                                ${model.id} (${model.size}) - ${model.description}
+                            </option>
+                        `).join('')}
+                    </select>
+                </div>
+            </div>
+        `;
+    }
 
     div.innerHTML = `
         <div class="adapter-option-header">
@@ -198,56 +245,326 @@ function createAdapterOption(adapter) {
                 `<span class="badge ${b}">${b.toUpperCase()}</span>`
             ).join('')}
         </div>
+        ${modelSelectorHtml}
     `;
 
-    div.addEventListener('click', () => {
+    div.addEventListener('click', (e) => {
+        // Don't collapse if clicking inside the model dropdown
+        if (e.target.classList.contains('model-dropdown')) {
+            return;
+        }
+
         document.querySelectorAll('.adapter-option').forEach(opt => {
             opt.classList.remove('selected');
+            const body = opt.querySelector('.adapter-option-body');
+            if (body) body.style.display = 'none';
         });
+
         div.classList.add('selected');
         selectedAdapter = adapter;
+
+        // Show model selector if available
+        const body = div.querySelector('.adapter-option-body');
+        if (body) {
+            body.style.display = 'block';
+            const dropdown = div.querySelector('.model-dropdown');
+            if (dropdown) {
+                selectedModel = dropdown.value;
+            }
+        } else {
+            // For adapters without model selection (like chrome-ai)
+            selectedModel = null;
+        }
     });
+
+    // Handle model selection change
+    const dropdown = div.querySelector('.model-dropdown');
+    if (dropdown) {
+        dropdown.addEventListener('change', (e) => {
+            selectedModel = e.target.value;
+            console.log('[Wizard] Model selected:', selectedModel);
+        });
+
+        // Set initial model
+        if (hasModels) {
+            const defaultModel = ADAPTER_MODELS[adapter.id].find(m => m.default) || ADAPTER_MODELS[adapter.id][0];
+            selectedModel = defaultModel.id;
+        }
+    }
 
     return div;
 }
 
-async function completeSetup() {
-    const summaryDiv = document.getElementById('config-summary');
+// Save config to storage and move to Step 3
+async function saveConfigAndProceed() {
+    const nextBtn = document.getElementById('btn-next');
+    nextBtn.disabled = true;
+    nextBtn.textContent = 'Saving...';
 
+    try {
+        console.log('[Wizard] Saving config for adapter:', selectedAdapter.id, 'model:', selectedModel);
+
+        // Save config to storage
+        await chrome.storage.sync.set({
+            llmConfig: {
+                selectedAdapter: selectedAdapter.id,
+                selectedModel: selectedModel,
+                apiKeys: {}
+            }
+        });
+
+        console.log('[Wizard] Config saved successfully');
+
+        // Show Step 3 with config summary
+        await showSetupStep();
+        showStep(3);
+
+        // Now trigger download/setup for the adapter
+        await triggerAdapterSetup();
+
+    } catch (error) {
+        console.error('[Wizard] Failed to save config:', error);
+        nextBtn.disabled = false;
+        nextBtn.textContent = 'Next';
+        alert('Failed to save configuration: ' + error.message);
+    }
+}
+
+// Display the config summary and set up Step 3 UI
+async function showSetupStep() {
+    const summaryDiv = document.getElementById('config-summary');
     const icon = ADAPTER_ICONS[selectedAdapter.id] || '🤖';
+    const needsDownload = selectedAdapter.id === 'webllm' || selectedAdapter.id === 'wllama';
+
+    // Build model info text
+    let modelText = 'Selected as your default AI model';
+    if (selectedModel) {
+        const modelInfo = ADAPTER_MODELS[selectedAdapter.id]?.find(m => m.id === selectedModel);
+        if (modelInfo) {
+            modelText = `${selectedModel} (${modelInfo.size})`;
+        } else {
+            modelText = selectedModel;
+        }
+    }
 
     summaryDiv.innerHTML = `
         <div style="display: flex; align-items: center; gap: 12px; font-size: 18px;">
             <span style="font-size: 32px;">${icon}</span>
             <div>
                 <strong>${selectedAdapter.displayName}</strong><br>
-                <span style="font-size: 14px; color: #666;">Selected as your default AI model</span>
+                <span style="font-size: 14px; color: #666;">${modelText}</span>
             </div>
         </div>
     `;
 
-    // Configure the adapter in background
-    try {
-        let defaultModel = null;
-        if (selectedAdapter.id === 'chrome-ai') {
-            defaultModel = 'gemini-nano';
-        } else if (selectedAdapter.id === 'webllm') {
-            defaultModel = 'Phi-3-mini-4k-instruct-q4f16_1';
-        } else if (selectedAdapter.id === 'wllama') {
-            defaultModel = 'tinyllama';
+    // Show/hide download section based on adapter type
+    const downloadSection = document.getElementById('download-section');
+    const readySection = document.getElementById('ready-section');
+    const downloadError = document.getElementById('download-error');
+
+    downloadError.style.display = 'none';
+
+    if (needsDownload) {
+        // Show download progress, hide ready section
+        downloadSection.style.display = 'block';
+        readySection.style.display = 'none';
+
+        const modelInfo = ADAPTER_MODELS[selectedAdapter.id]?.find(m => m.id === selectedModel);
+        document.getElementById('download-model-name').textContent =
+            `Downloading ${selectedModel}${modelInfo ? ` (${modelInfo.size})` : ''}...`;
+        document.getElementById('download-percentage').textContent = '0%';
+        document.getElementById('wizard-progress-fill').style.width = '0%';
+        document.getElementById('download-status-text').textContent = 'Preparing download...';
+    } else {
+        // No download needed - show ready section immediately
+        downloadSection.style.display = 'none';
+        readySection.style.display = 'block';
+    }
+}
+
+// Trigger adapter setup (offscreen creation + initialization)
+async function triggerAdapterSetup() {
+    const needsDownload = selectedAdapter.id === 'webllm' || selectedAdapter.id === 'wllama';
+    const nextBtn = document.getElementById('btn-next');
+    const backBtn = document.getElementById('btn-back');
+
+    if (!needsDownload) {
+        // Chrome AI - just configure it directly
+        try {
+            await chrome.runtime.sendMessage({
+                type: 'llm_set_adapter',
+                adapter: selectedAdapter.id,
+                model: 'gemini-nano',
+                apiKey: null
+            });
+            console.log('[Wizard] Chrome AI configured');
+        } catch (error) {
+            console.error('[Wizard] Failed to configure Chrome AI:', error);
         }
 
-        await chrome.runtime.sendMessage({
-            type: 'llm_set_adapter',
-            adapter: selectedAdapter.id,
-            model: defaultModel,
-            apiKey: null
-        });
-
-        console.log('[Wizard] Adapter configured successfully');
-    } catch (error) {
-        console.error('[Wizard] Failed to configure adapter:', error);
+        // Enable launch button
+        nextBtn.disabled = false;
+        nextBtn.textContent = 'Open Oryn';
+        return;
     }
+
+    // WebLLM/wllama - needs download via offscreen
+    isDownloading = true;
+    nextBtn.disabled = true;
+    nextBtn.textContent = 'Downloading...';
+    backBtn.disabled = true;
+
+    try {
+        // Tell background to load the config and create offscreen document
+        console.log('[Wizard] Notifying background to load config and start download...');
+        const loadResponse = await chrome.runtime.sendMessage({
+            type: 'llm_reload_config'
+        });
+        console.log('[Wizard] Background config load response:', loadResponse);
+
+        if (loadResponse?.error) {
+            showDownloadError('Failed to start download: ' + loadResponse.error);
+            return;
+        }
+
+        // Start polling for progress
+        startProgressPolling();
+
+    } catch (error) {
+        console.error('[Wizard] Failed to trigger download:', error);
+        showDownloadError('Failed to start download: ' + error.message);
+    }
+}
+
+// Poll background for download progress
+function startProgressPolling() {
+    let noProgressCount = 0;
+    let lastProgress = 0;
+    let pollCount = 0;
+
+    downloadPollInterval = setInterval(async () => {
+        pollCount++;
+
+        try {
+            const response = await chrome.runtime.sendMessage({ type: 'llm_status' });
+
+            console.log('[Wizard] Status poll #' + pollCount + ':', JSON.stringify(response));
+
+            if (response.error && !response.isLoading) {
+                // Real error - download failed
+                clearInterval(downloadPollInterval);
+                showDownloadError(response.error);
+                return;
+            }
+
+            // Check for completion
+            if (response.ready && !response.isLoading) {
+                clearInterval(downloadPollInterval);
+                downloadComplete();
+                return;
+            }
+
+            // Update progress
+            const progress = response.downloadProgress || 0;
+            const statusText = getProgressMessage(progress, response.isLoading, response.isPending);
+            updateDownloadUI(progress, statusText);
+
+            // Detect stuck download
+            if (progress === lastProgress && progress > 0) {
+                noProgressCount++;
+                if (noProgressCount > 15) { // 30 seconds no progress
+                    updateDownloadUI(progress, 'Download seems slow. Please be patient...');
+                }
+            } else {
+                noProgressCount = 0;
+                lastProgress = progress;
+            }
+
+        } catch (error) {
+            console.error('[Wizard] Progress poll error:', error);
+            clearInterval(downloadPollInterval);
+            showDownloadError('Lost connection to background: ' + error.message);
+        }
+    }, 2000); // Poll every 2 seconds
+}
+
+function updateDownloadUI(percentage, statusText) {
+    const progressFill = document.getElementById('wizard-progress-fill');
+    const progressPercent = document.getElementById('download-percentage');
+    const statusTextEl = document.getElementById('download-status-text');
+
+    if (progressFill) progressFill.style.width = `${percentage}%`;
+    if (progressPercent) progressPercent.textContent = `${Math.round(percentage)}%`;
+    if (statusText && statusTextEl) statusTextEl.textContent = statusText;
+}
+
+function getProgressMessage(progress, isLoading, isPending) {
+    if (isPending) {
+        return 'Setting up offscreen environment...';
+    } else if (progress === 0 && isLoading) {
+        return 'Initializing model engine...';
+    } else if (progress > 0 && progress < 10) {
+        return 'Starting model download...';
+    } else if (progress >= 10 && progress < 50) {
+        return 'Downloading model files...';
+    } else if (progress >= 50 && progress < 90) {
+        return 'Download in progress...';
+    } else if (progress >= 90 && progress < 100) {
+        return 'Almost done...';
+    } else if (progress === 100) {
+        return 'Download complete!';
+    }
+    return 'Preparing download...';
+}
+
+function downloadComplete() {
+    console.log('[Wizard] Download completed!');
+    isDownloading = false;
+
+    // Update progress to 100%
+    updateDownloadUI(100, 'Download complete!');
+
+    // Show ready section
+    document.getElementById('ready-section').style.display = 'block';
+
+    // Enable launch button
+    const nextBtn = document.getElementById('btn-next');
+    const backBtn = document.getElementById('btn-back');
+    nextBtn.disabled = false;
+    nextBtn.textContent = 'Open Oryn';
+    backBtn.disabled = false;
+}
+
+function showDownloadError(message) {
+    console.error('[Wizard] Download error:', message);
+    isDownloading = false;
+
+    const downloadError = document.getElementById('download-error');
+    downloadError.style.display = 'block';
+    downloadError.innerHTML = `
+        <div class="download-error">
+            <div class="download-error-title">Download Failed</div>
+            <div style="margin-bottom: 12px;">${message}</div>
+            <button class="btn btn-primary" onclick="retryDownload()">Retry Download</button>
+        </div>
+    `;
+
+    // Re-enable back button so user can change adapter
+    document.getElementById('btn-back').disabled = false;
+    // Keep "Open Oryn" disabled since download failed
+    document.getElementById('btn-next').disabled = true;
+    document.getElementById('btn-next').textContent = 'Open Oryn';
+}
+
+async function retryDownload() {
+    // Clear error display
+    document.getElementById('download-error').style.display = 'none';
+
+    // Reset progress UI
+    updateDownloadUI(0, 'Retrying download...');
+
+    // Retry
+    await triggerAdapterSetup();
 }
 
 async function finishWizard() {

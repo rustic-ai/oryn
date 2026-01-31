@@ -15,18 +15,18 @@
 
 import { LLMAdapter } from './llm_adapter.js';
 
-// Dynamically import wllama from CDN
+// Dynamically import wllama from local bundle
 let Wllama = null;
 
 async function loadWllama() {
     if (!Wllama) {
         try {
-            const module = await import('https://esm.sh/@wllama/wllama@1.6.0');
+            const module = await import('./vendor/wllama.bundle.js');
             Wllama = module.Wllama;
-            console.log('[wllama] Library loaded from CDN');
+            console.log('[wllama] Library loaded from local bundle');
         } catch (error) {
             console.error('[wllama] Failed to load library:', error);
-            throw new Error('Failed to load wllama library from CDN');
+            throw new Error('Failed to load wllama library');
         }
     }
     return Wllama;
@@ -80,11 +80,15 @@ export class WllamaAdapter extends LLMAdapter {
             this.isLoading = true;
             this.downloadProgress = 0;
 
-            // Create wllama instance with multi-threading
+            // Create wllama instance with AssetsPathConfig pointing to local WASM files
             console.log('[wllama] Creating instance...');
+            const wasmBase = chrome.runtime.getURL('llm/vendor/wllama-wasm');
             this.wllama = new WllamaClass({
-                useMultiThread: true,
-                nThreads: config.nThreads || 4,
+                'single-thread/wllama.js':        `${wasmBase}/single-thread/wllama.js`,
+                'single-thread/wllama.wasm':      `${wasmBase}/single-thread/wllama.wasm`,
+                'multi-thread/wllama.js':         `${wasmBase}/multi-thread/wllama.js`,
+                'multi-thread/wllama.wasm':       `${wasmBase}/multi-thread/wllama.wasm`,
+                'multi-thread/wllama.worker.mjs': `${wasmBase}/multi-thread/wllama.worker.mjs`,
             });
 
             // Load model with progress callback

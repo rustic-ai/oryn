@@ -8,15 +8,14 @@
         "scripting",
         "tabs",
         "storage",
-        "sidePanel"
+        "sidePanel",
+        "offscreen"
     ],
     "host_permissions": [
         "<all_urls>",
         "https://api.openai.com/*",
         "https://api.anthropic.com/*",
         "https://generativelanguage.googleapis.com/*",
-        "https://esm.sh/*",
-        "https://cdn.jsdelivr.net/*",
         "https://huggingface.co/*"
     ],
     "action": {
@@ -59,6 +58,7 @@
         {
             "resources": [
                 "wasm/*",
+                "llm/vendor/wllama-wasm/*",
                 "ui/llm_selector.html",
                 "ui/llm_selector.js",
                 "ui/llm_status_widget.html",

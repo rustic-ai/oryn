@@ -18,6 +18,15 @@ export class LLMManager {
         this.adapters = new Map();
         this.activeAdapter = null;
         this.availableAdapters = [];
+        this.pendingAdapterConfig = null; // For deferred initialization
+    }
+
+    /**
+     * Check if we're in a service worker context
+     */
+    isServiceWorkerContext() {
+        return typeof ServiceWorkerGlobalScope !== 'undefined' &&
+               self instanceof ServiceWorkerGlobalScope;
     }
 
     /**
@@ -37,8 +46,12 @@ export class LLMManager {
         // Detect available adapters
         await this.detectAdapters();
 
-        // Try to load saved configuration
-        await this.loadConfig();
+        // Try to load saved configuration (unless skipLoadConfig is set)
+        if (!this.skipLoadConfig) {
+            await this.loadConfig();
+        } else {
+            console.log('[LLM Manager] Skipping loadConfig (skipLoadConfig flag set)');
+        }
 
         console.log('[LLM Manager] Initialized with', this.availableAdapters.length, 'available adapters');
     }
@@ -57,9 +70,8 @@ export class LLMManager {
         this.availableAdapters = [];
 
         for (const [name, AdapterClass] of this.adapters.entries()) {
-            console.log('[LLM Manager] Checking availability for:', name);
             const available = await AdapterClass.isAvailable();
-            console.log('[LLM Manager]', name, 'available:', available);
+            console.log('[LLM Manager]', name, available ? 'available' : 'not available');
 
             if (available) {
                 this.availableAdapters.push({
@@ -69,13 +81,10 @@ export class LLMManager {
                     description: AdapterClass.getDescription(),
                     requiresApiKey: !name.includes('chrome'),
                 });
-                console.log('[LLM Manager] Detected available adapter:', name);
-            } else {
-                console.log('[LLM Manager] Adapter not available:', name);
             }
         }
 
-        console.log('[LLM Manager] Total available adapters:', this.availableAdapters.length);
+        console.log('[LLM Manager] Detected', this.availableAdapters.length, 'available adapters');
         return this.availableAdapters;
     }
 
@@ -84,26 +93,95 @@ export class LLMManager {
      */
     async setActiveAdapter(name, model = null, config = {}) {
         if (!this.adapters.has(name)) {
-            throw new Error(`Unknown adapter: ${name}`);
+            const error = `Unknown adapter: ${name}. Available: ${Array.from(this.adapters.keys()).join(', ')}`;
+            console.error('[LLM Manager]', error);
+            throw new Error(error);
         }
 
-        console.log('[LLM Manager] Setting active adapter:', name);
+        console.log('[LLM Manager] Setting active adapter:', name, 'model:', model);
 
+        // Check if this adapter requires dynamic imports and we're in a service worker
+        const requiresDynamicImport = name === 'webllm' || name === 'wllama';
+        const inServiceWorker = this.isServiceWorkerContext();
+
+        if (requiresDynamicImport && inServiceWorker) {
+            console.log('[LLM Manager] Deferring initialization for', name, '(service worker context)');
+
+            // Save configuration for later initialization
+            this.pendingAdapterConfig = { name, model, config };
+            await this.saveConfig(name, model, config);
+
+            // Create a pending adapter stub that will initialize on first use
+            const AdapterClass = this.adapters.get(name);
+            const adapter = new AdapterClass();
+            adapter.initialized = false;
+            adapter.isLoading = false;
+            adapter.error = null;
+            adapter.model = model;
+            adapter.downloadProgress = 0;
+
+            this.activeAdapter = adapter;
+            return adapter;
+        }
         const AdapterClass = this.adapters.get(name);
         const adapter = new AdapterClass();
 
-        // Initialize the adapter
-        await adapter.initialize(model, config);
+        try {
+            // Initialize the adapter
+            await adapter.initialize(model, config);
 
-        // Set as active
-        this.activeAdapter = adapter;
+            // Set as active
+            this.activeAdapter = adapter;
+            this.pendingAdapterConfig = null;
 
-        // Save configuration
-        await this.saveConfig(name, model, config);
+            // Save configuration
+            await this.saveConfig(name, model, config);
 
-        console.log('[LLM Manager] Active adapter set:', name);
+            console.log('[LLM Manager] Active adapter set successfully:', name);
+        } catch (error) {
+            console.error('[LLM Manager] Failed to initialize adapter:', error);
+
+            // Still set the adapter but mark as error
+            adapter.error = error.message;
+            adapter.initialized = false;
+            this.activeAdapter = adapter;
+
+            throw error;
+        }
 
         return adapter;
+    }
+
+    /**
+     * Ensure adapter is initialized (lazy initialization)
+     */
+    async ensureInitialized() {
+        if (!this.activeAdapter) {
+            throw new Error('No active adapter');
+        }
+
+        // If already initialized, nothing to do
+        if (this.activeAdapter.initialized) {
+            return;
+        }
+
+        // If we have pending config, initialize now
+        if (this.pendingAdapterConfig) {
+            const { name, model, config } = this.pendingAdapterConfig;
+            console.log('[LLM Manager] Performing deferred initialization for', name, 'model:', model);
+
+            try {
+                await this.activeAdapter.initialize(model, config);
+                this.pendingAdapterConfig = null;
+                console.log('[LLM Manager] Deferred initialization complete');
+            } catch (error) {
+                console.error('[LLM Manager] Deferred initialization failed:', error);
+                this.activeAdapter.error = error.message;
+                throw error;
+            }
+        } else {
+            console.warn('[LLM Manager] Adapter not initialized and no pending config');
+        }
     }
 
     /**
@@ -121,6 +199,9 @@ export class LLMManager {
             throw new Error('No active LLM adapter. Please configure an LLM first.');
         }
 
+        // Ensure adapter is initialized (lazy initialization)
+        await this.ensureInitialized();
+
         return await this.activeAdapter.prompt(messages, options);
     }
 
@@ -132,6 +213,9 @@ export class LLMManager {
             throw new Error('No active LLM adapter. Please configure an LLM first.');
         }
 
+        // Ensure adapter is initialized (lazy initialization)
+        await this.ensureInitialized();
+
         return await this.activeAdapter.stream(messages, options, onChunk);
     }
 
@@ -139,8 +223,6 @@ export class LLMManager {
      * Get available adapters
      */
     getAvailableAdapters() {
-        console.log('[LLM Manager] getAvailableAdapters called, returning:', this.availableAdapters);
-        console.log('[LLM Manager] Adapters count:', this.availableAdapters.length);
         return this.availableAdapters;
     }
 
@@ -156,8 +238,11 @@ export class LLMManager {
             };
         }
 
-        // Get detailed status from adapter
-        const adapterStatus = this.activeAdapter.getStatus();
+        // Get detailed status from adapter (if it has getStatus method)
+        let adapterStatus = { downloadProgress: 0, isLoading: false };
+        if (typeof this.activeAdapter.getStatus === 'function') {
+            adapterStatus = this.activeAdapter.getStatus();
+        }
 
         return {
             ready: this.activeAdapter.initialized,
@@ -165,10 +250,13 @@ export class LLMManager {
             current: this.activeAdapter.name,
             model: this.activeAdapter.model,
             error: this.activeAdapter.error,
-            capabilities: this.activeAdapter.getCapabilities(),
+            capabilities: typeof this.activeAdapter.getCapabilities === 'function' ?
+                this.activeAdapter.getCapabilities() : {},
             // Include download progress for local adapters
             downloadProgress: adapterStatus.downloadProgress,
             isLoading: adapterStatus.isLoading,
+            // Include pending status
+            isPending: this.pendingAdapterConfig !== null,
         };
     }
 
@@ -181,15 +269,13 @@ export class LLMManager {
 
             // Check if first run (no config exists)
             if (!result.llmConfig || !result.llmConfig.selectedAdapter) {
-                console.log('[LLM Manager] First run detected, auto-configuring...');
-                await this.autoConfigureAdapter();
+                console.log('[LLM Manager] No saved config found (first run)');
                 return;
             }
 
             const config = result.llmConfig;
-            console.log('[LLM Manager] Loading saved configuration:', config.selectedAdapter);
+            console.log('[LLM Manager] Restoring adapter:', config.selectedAdapter, 'model:', config.selectedModel);
 
-            // Try to initialize the saved adapter
             if (config.selectedAdapter && config.selectedModel) {
                 try {
                     await this.setActiveAdapter(
@@ -197,12 +283,11 @@ export class LLMManager {
                         config.selectedModel,
                         config.apiKeys || {}
                     );
-                    console.log('[LLM Manager] Restored previous adapter:', config.selectedAdapter);
                 } catch (error) {
                     console.error('[LLM Manager] Failed to restore adapter:', error);
-                    // If restore fails, try auto-config as fallback
-                    await this.autoConfigureAdapter();
                 }
+            } else {
+                console.warn('[LLM Manager] Config missing selectedAdapter or selectedModel');
             }
         } catch (error) {
             console.error('[LLM Manager] Failed to load config:', error);

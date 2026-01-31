@@ -1,0 +1,8 @@
+{
+  "devDependencies": {
+    "@mlc-ai/web-llm": "0.2.59",
+    "@wllama/wllama": "1.6.0",
+    "esbuild": "^0.24.0",
+    "puppeteer": "^24.36.1"
+  }
+}

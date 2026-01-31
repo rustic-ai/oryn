@@ -14,9 +14,13 @@ echo "Step 0: Syncing scanner.js from source..."
 echo "Step 1: Building WASM module..."
 ./scripts/build-wasm.sh
 
-# Step 2: Verify extension files
+# Step 2: Bundle LLM libraries
+echo "Step 2: Bundling LLM libraries..."
+./scripts/bundle-llm-libs.sh
+
+# Step 3: Verify extension files
 echo ""
-echo "Step 2: Verifying extension files..."
+echo "Step 3: Verifying extension files..."
 
 REQUIRED_FILES=(
     "extension-w/manifest.json"
@@ -47,9 +51,9 @@ fi
 
 echo "All required files present ✓"
 
-# Step 3: Verify WASM files
+# Step 4: Verify WASM files
 echo ""
-echo "Step 3: Verifying WASM files..."
+echo "Step 4: Verifying WASM files..."
 
 if [ ! -f "extension-w/wasm/oryn_core_bg.wasm" ]; then
     echo "Error: WASM binary not found"
@@ -63,7 +67,7 @@ fi
 
 echo "WASM files present ✓"
 
-# Step 4: Display summary
+# Step 5: Display summary
 echo ""
 echo "========================================="
 echo "Build Complete!"

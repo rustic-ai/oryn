@@ -15,17 +15,17 @@
 
 import { LLMAdapter } from './llm_adapter.js';
 
-// Dynamically import WebLLM from CDN
+// Dynamically import WebLLM from local bundle
 let webllm = null;
 
 async function loadWebLLM() {
     if (!webllm) {
         try {
-            webllm = await import('https://esm.sh/@mlc-ai/web-llm@0.2.59');
-            console.log('[WebLLM] Library loaded from CDN');
+            webllm = await import('./vendor/webllm.bundle.js');
+            console.log('[WebLLM] Library loaded from local bundle');
         } catch (error) {
             console.error('[WebLLM] Failed to load library:', error);
-            throw new Error('Failed to load WebLLM library from CDN');
+            throw new Error('Failed to load WebLLM library');
         }
     }
     return webllm;
@@ -33,17 +33,17 @@ async function loadWebLLM() {
 
 // Model registry with sizes and descriptions
 const WEBLLM_MODELS = {
-    'Phi-3-mini-4k-instruct-q4f16_1': {
+    'Phi-3-mini-4k-instruct-q4f16_1-MLC-1k': {
         size: '2.2GB',
         description: 'Phi-3 Mini - Balanced quality and speed (recommended)',
         contextLength: 4096,
     },
-    'Llama-3-8B-Instruct-q4f16_1': {
+    'Llama-3-8B-Instruct-q4f16_1-MLC-1k': {
         size: '4.5GB',
         description: 'Llama-3 8B - Best quality, slower download',
         contextLength: 8192,
     },
-    'Gemma-2B-it-q4f16_1': {
+    'gemma-2b-it-q4f16_1-MLC-1k': {
         size: '1.5GB',
         description: 'Gemma 2B - Smallest and fastest',
         contextLength: 8192,
@@ -58,7 +58,7 @@ export class WebLLMAdapter extends LLMAdapter {
         this.isLoading = false;
     }
 
-    async initialize(model = 'Phi-3-mini-4k-instruct-q4f16_1', config = {}) {
+    async initialize(model = 'Phi-3-mini-4k-instruct-q4f16_1-MLC-1k', config = {}) {
         try {
             console.log('[WebLLM] Initializing with model:', model);
 
