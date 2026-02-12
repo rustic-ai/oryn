@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Chrome AI Availability Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .result {
+            background: #f5f5f5;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .warning {
+            color: orange;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Chrome AI Availability Test</h1>
+
+    <button onclick="testAPI()">Test Chrome AI API</button>
+    <button onclick="testCapabilities()">Test Capabilities</button>
+    <button onclick="testCreateSession()">Test Create Session</button>
+
+    <div id="output"></div>
+
+    <script>
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.textContent = message;
+            output.appendChild(div);
+        }
+
+        function clear() {
+            document.getElementById('output').innerHTML = '';
+        }
+
+        async function testAPI() {
+            clear();
+            log('Testing Chrome AI API...');
+
+            // Check current API (LanguageModel)
+            log('LanguageModel exists: ' + (!!LanguageModel),
+                LanguageModel ? 'success' : 'error');
+
+            // Note: self.ai and window.ai are deprecated/outdated APIs
+            log('Note: self.ai and window.ai are outdated - current API uses LanguageModel', 'warning');
+        }
+
+        async function testCapabilities() {
+            clear();
+            log('Testing Chrome AI availability...');
+
+            try {
+                if (!LanguageModel) {
+                    log('ERROR: LanguageModel not available', 'error');
+                    log('Enable chrome://flags/#prompt-api-for-gemini-nano', 'warning');
+                    return;
+                }
+
+                log('Calling LanguageModel.availability()...');
+                const availability = await LanguageModel.availability();
+
+                log('SUCCESS: Got availability status', 'success');
+                log('Availability: ' + availability,
+                    availability === 'available' ? 'success' : 'warning');
+
+                if (availability === 'available') {
+                    log('✓ Chrome AI is READILY AVAILABLE and ready to use!', 'success');
+                } else if (availability === 'downloadable') {
+                    log('⚠ Chrome AI available but model needs download', 'warning');
+                } else if (availability === 'downloading') {
+                    log('⚠ Chrome AI model is currently downloading', 'warning');
+                } else {
+                    log('✗ Chrome AI not available: ' + availability, 'error');
+                }
+            } catch (error) {
+                log('ERROR: ' + error.message, 'error');
+                log('Stack: ' + error.stack, 'error');
+            }
+        }
+
+        async function testCreateSession() {
+            clear();
+            log('Testing Chrome AI session creation...');
+
+            try {
+                if (!LanguageModel) {
+                    log('ERROR: LanguageModel not available', 'error');
+                    return;
+                }
+
+                log('Creating session...');
+                const session = await LanguageModel.create({
+                    temperature: 0.7
+                });
+
+                log('SUCCESS: Session created!', 'success');
+
+                log('Testing prompt...');
+                const response = await session.prompt('Say hello!');
+
+                log('SUCCESS: Got response!', 'success');
+                log('Response: ' + response);
+
+                log('Destroying session...');
+                await session.destroy();
+                log('Session destroyed');
+
+            } catch (error) {
+                log('ERROR: ' + error.message, 'error');
+                log('Stack: ' + error.stack, 'error');
+            }
+        }
+    </script>
+</body>
+
+</html>

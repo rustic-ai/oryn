@@ -31,24 +31,95 @@ async function loadWebLLM() {
     return webllm;
 }
 
-// Model registry with sizes and descriptions
-const WEBLLM_MODELS = {
-    'Phi-3-mini-4k-instruct-q4f16_1-MLC-1k': {
-        size: '2.2GB',
-        description: 'Phi-3 Mini - Balanced quality and speed (recommended)',
+// Curated model catalog with f16/f32 variant pairs.
+// When the GPU supports shader-f16, use the f16 variant (smaller, faster).
+// Otherwise fall back to the f32 variant which works on all WebGPU devices.
+const WEBLLM_MODEL_CATALOG = [
+    {
+        name: 'Phi 3 Mini',
+        provider: 'Microsoft',
+        f16: 'Phi-3-mini-4k-instruct-q4f16_1-MLC',
+        f32: 'Phi-3-mini-4k-instruct-q4f32_1-MLC',
+        sizeF16: '3.6GB',
+        sizeF32: '5.5GB',
+        contextLength: 4096,
+        default: true,
+    },
+    {
+        name: 'Llama 3.1 8B',
+        provider: 'Meta',
+        f16: 'Llama-3.1-8B-Instruct-q4f16_1-MLC',
+        f32: 'Llama-3.1-8B-Instruct-q4f32_1-MLC',
+        sizeF16: '5.0GB',
+        sizeF32: '6.1GB',
         contextLength: 4096,
     },
-    'Llama-3-8B-Instruct-q4f16_1-MLC-1k': {
-        size: '4.5GB',
-        description: 'Llama-3 8B - Best quality, slower download',
+    {
+        name: 'Gemma 2 2B',
+        provider: 'Google',
+        f16: 'gemma-2-2b-it-q4f16_1-MLC',
+        f32: 'gemma-2-2b-it-q4f32_1-MLC',
+        sizeF16: '1.9GB',
+        sizeF32: '2.5GB',
+        contextLength: 4096,
+    },
+    {
+        name: 'Gemma 2 9B',
+        provider: 'Google',
+        f16: 'gemma-2-9b-it-q4f16_1-MLC',
+        f32: 'gemma-2-9b-it-q4f32_1-MLC',
+        sizeF16: '6.4GB',
+        sizeF32: '8.4GB',
         contextLength: 8192,
     },
-    'gemma-2b-it-q4f16_1-MLC-1k': {
-        size: '1.5GB',
-        description: 'Gemma 2B - Smallest and fastest',
+    {
+        name: 'Qwen 2.5 1.5B',
+        provider: 'Alibaba',
+        f16: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
+        f32: 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC',
+        sizeF16: '1.6GB',
+        sizeF32: '1.9GB',
+        contextLength: 4096,
+    },
+    {
+        name: 'Qwen 2.5 7B',
+        provider: 'Alibaba',
+        f16: 'Qwen2.5-7B-Instruct-q4f16_1-MLC',
+        f32: 'Qwen2.5-7B-Instruct-q4f32_1-MLC',
+        sizeF16: '5.1GB',
+        sizeF32: '5.9GB',
         contextLength: 8192,
     },
-};
+    {
+        name: 'DeepSeek-R1 Qwen 7B',
+        provider: 'DeepSeek',
+        f16: 'DeepSeek-R1-Distill-Qwen-7B-q4f16_1-MLC',
+        f32: 'DeepSeek-R1-Distill-Qwen-7B-q4f32_1-MLC',
+        sizeF16: '5.1GB',
+        sizeF32: '5.9GB',
+        contextLength: 8192,
+    },
+    {
+        name: 'SmolLM2 1.7B',
+        provider: 'Hugging Face',
+        f16: 'SmolLM2-1.7B-Instruct-q4f16_1-MLC',
+        f32: 'SmolLM2-1.7B-Instruct-q4f32_1-MLC',
+        sizeF16: '1.8GB',
+        sizeF32: '2.7GB',
+        contextLength: 4096,
+    },
+];
+
+// Build a lookup map from model ID to catalog entry for quick access
+function _buildModelLookup() {
+    const map = {};
+    for (const entry of WEBLLM_MODEL_CATALOG) {
+        map[entry.f16] = { ...entry, quantization: 'f16', size: entry.sizeF16 };
+        map[entry.f32] = { ...entry, quantization: 'f32', size: entry.sizeF32 };
+    }
+    return map;
+}
+const WEBLLM_MODEL_LOOKUP = _buildModelLookup();
 
 export class WebLLMAdapter extends LLMAdapter {
     constructor() {
@@ -58,16 +129,22 @@ export class WebLLMAdapter extends LLMAdapter {
         this.isLoading = false;
     }
 
-    async initialize(model = 'Phi-3-mini-4k-instruct-q4f16_1-MLC-1k', config = {}) {
+    async initialize(model = null, config = {}) {
         try {
+            // Default to the f32 variant of the default model if no model specified
+            if (!model) {
+                const defaultEntry = WEBLLM_MODEL_CATALOG.find(m => m.default) || WEBLLM_MODEL_CATALOG[0];
+                model = defaultEntry.f32;
+            }
+
             console.log('[WebLLM] Initializing with model:', model);
 
             // Load WebLLM library
             const lib = await loadWebLLM();
 
-            // Validate model
-            if (!WEBLLM_MODELS[model]) {
-                throw new Error(`Unknown model: ${model}. Available: ${Object.keys(WEBLLM_MODELS).join(', ')}`);
+            // Validate model is in our catalog
+            if (!WEBLLM_MODEL_LOOKUP[model]) {
+                console.warn(`[WebLLM] Model ${model} not in curated catalog, proceeding anyway`);
             }
 
             this.model = model;
@@ -96,7 +173,7 @@ export class WebLLMAdapter extends LLMAdapter {
             this.error = null;
 
             console.log('[WebLLM] Initialized successfully');
-            console.log('[WebLLM] Model info:', WEBLLM_MODELS[model]);
+            console.log('[WebLLM] Model info:', WEBLLM_MODEL_LOOKUP[model] || model);
 
         } catch (error) {
             console.error('[WebLLM] Initialization failed:', error);
@@ -170,7 +247,7 @@ export class WebLLMAdapter extends LLMAdapter {
     }
 
     getCapabilities() {
-        const modelInfo = WEBLLM_MODELS[this.model] || {};
+        const modelInfo = WEBLLM_MODEL_LOOKUP[this.model] || {};
         return {
             name: this.name,
             type: 'local',
@@ -178,7 +255,7 @@ export class WebLLMAdapter extends LLMAdapter {
             streaming: true,
             local: true,
             requiresWebGPU: true,
-            models: Object.keys(WEBLLM_MODELS),
+            models: WEBLLM_MODEL_CATALOG.map(m => m.f16).concat(WEBLLM_MODEL_CATALOG.map(m => m.f32)),
         };
     }
 
@@ -209,20 +286,47 @@ export class WebLLMAdapter extends LLMAdapter {
     }
 
     /**
-     * Get model information
+     * Get model information by ID (works for both f16 and f32 variants)
      */
     static getModelInfo(modelId) {
-        return WEBLLM_MODELS[modelId] || null;
+        return WEBLLM_MODEL_LOOKUP[modelId] || null;
     }
 
     /**
-     * Get all available models
+     * Get all available models (returns f16 variants by default for backward compat)
      */
     static getAvailableModels() {
-        return Object.entries(WEBLLM_MODELS).map(([id, info]) => ({
-            id,
-            ...info,
+        return WEBLLM_MODEL_CATALOG.map(entry => ({
+            id: entry.f16,
+            size: entry.sizeF16,
+            description: `${entry.name} - ${entry.provider}`,
+            contextLength: entry.contextLength,
         }));
+    }
+
+    /**
+     * Get models appropriate for the detected hardware.
+     * Uses f16 variants when shader-f16 is supported, f32 otherwise.
+     * @param {boolean} shaderF16 - Whether the GPU supports shader-f16
+     * @returns {Array<Object>} Models with correct quantization variant
+     */
+    static getModelsForHardware(shaderF16) {
+        return WEBLLM_MODEL_CATALOG.map(entry => ({
+            id: shaderF16 ? entry.f16 : entry.f32,
+            name: entry.name,
+            provider: entry.provider,
+            size: shaderF16 ? entry.sizeF16 : entry.sizeF32,
+            quantization: shaderF16 ? 'f16' : 'f32',
+            contextLength: entry.contextLength,
+            default: entry.default || false,
+        }));
+    }
+
+    /**
+     * Get the raw model catalog (for use by wizard/UI)
+     */
+    static getModelCatalog() {
+        return WEBLLM_MODEL_CATALOG;
     }
 
     static async isAvailable() {

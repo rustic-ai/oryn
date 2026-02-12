@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chrome AI (Gemini Nano) - Capabilities Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1a73e8;
+            margin-bottom: 10px;
+        }
+        .status {
+            padding: 12px;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: 500;
+        }
+        .status.ready { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.waiting { background: #fff3cd; color: #856404; }
+
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #1a73e8;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 14px;
+            resize: vertical;
+        }
+
+        button {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            margin-top: 10px;
+        }
+
+        button:hover { background: #1557b0; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        .output {
+            margin-top: 15px;
+            padding: 15px;
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .metric {
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1a73e8;
+        }
+
+        code {
+            background: #f1f3f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+
+        .info-box {
+            background: #e8f0fe;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #1a73e8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Chrome AI (Gemini Nano) Capabilities Test</h1>
+        <p>This page tests Chrome's built-in AI capabilities for potential use in Ralph Agent.</p>
+
+        <div id="status" class="status waiting">
+            ⏳ Checking Chrome AI availability...
+        </div>
+
+        <div class="info-box" id="info"></div>
+
+        <div class="metrics" id="metrics" style="display: none;">
+            <div class="metric">
+                <div class="metric-label">Model Status</div>
+                <div class="metric-value" id="availability">-</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Default Temperature</div>
+                <div class="metric-value" id="temperature">-</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Default Top-K</div>
+                <div class="metric-value" id="topk">-</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Max Tokens</div>
+                <div class="metric-value" id="maxtokens">-</div>
+            </div>
+        </div>
+
+        <!-- Test 1: Basic Prompt -->
+        <div class="test-section">
+            <h3>Test 1: Basic Prompt Response</h3>
+            <p>Test if Gemini Nano can understand and respond to simple prompts.</p>
+            <textarea id="basicPrompt" rows="3">What is the capital of France? Answer in one sentence.</textarea>
+            <button onclick="testBasicPrompt()">Run Test</button>
+            <div class="output" id="basicOutput" style="display: none;"></div>
+        </div>
+
+        <!-- Test 2: Web Automation Task -->
+        <div class="test-section">
+            <h3>Test 2: Web Automation Understanding</h3>
+            <p>Test if Gemini Nano can understand web automation tasks and generate OIL commands.</p>
+            <textarea id="automationPrompt" rows="8">You are a web automation assistant. Given a task and page observation, generate an OIL command.
+
+Task: Buy a blue shirt
+Page Elements:
+[1] input "search" - Search box
+[2] button "Search" - Submit search
+[3] link "Products" - Product category
+
+What should be the next action? Respond with format: "Action: <OIL command>"</textarea>
+            <button onclick="testAutomation()">Run Test</button>
+            <div class="output" id="automationOutput" style="display: none;"></div>
+        </div>
+
+        <!-- Test 3: Multi-turn Conversation -->
+        <div class="test-section">
+            <h3>Test 3: Multi-turn Conversation (Context Window)</h3>
+            <p>Test if Gemini Nano can maintain context across multiple prompts.</p>
+            <button onclick="testMultiTurn()">Run Test</button>
+            <div class="output" id="multiturnOutput" style="display: none;"></div>
+        </div>
+
+        <!-- Test 4: Trajectory Retrieval Simulation -->
+        <div class="test-section">
+            <h3>Test 4: RAG-Style Prompt (Ralph Agent Simulation)</h3>
+            <p>Test if Gemini Nano can use few-shot examples to guide decisions.</p>
+            <textarea id="ragPrompt" rows="15">You are a web automation assistant using OIL (Oryn Intent Language).
+
+Here are successful examples:
+
+Example 1: Task "Search for laptops"
+- Action: type "laptops" into "search"
+- Action: click "Search"
+
+Example 2: Task "Login to account"
+- Action: type "user@example.com" into "email"
+- Action: type "password123" into "password"
+- Action: click "Login"
+
+Current Task: "Buy a red backpack"
+Page Elements:
+[1] input "q" - Search products
+[2] button "Go" - Submit search
+[3] link "Account" - User account
+[4] link "Cart" - Shopping cart
+
+Based on the examples, what should be the next action?
+Format: "Action: <OIL command>"</textarea>
+            <button onclick="testRAG()">Run Test</button>
+            <div class="output" id="ragOutput" style="display: none;"></div>
+        </div>
+
+        <!-- Test 5: Token Limits -->
+        <div class="test-section">
+            <h3>Test 5: Token Limit Testing</h3>
+            <p>Test the 1024 token per-prompt limit and 4096 total context limit.</p>
+            <button onclick="testTokenLimits()">Run Test</button>
+            <div class="output" id="tokenOutput" style="display: none;"></div>
+        </div>
+
+        <!-- Test 6: Response Speed -->
+        <div class="test-section">
+            <h3>Test 6: Response Speed Benchmark</h3>
+            <p>Measure inference speed for extension use case.</p>
+            <button onclick="testSpeed()">Run Test</button>
+            <div class="output" id="speedOutput" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        let session = null;
+        let capabilities = null;
+
+        async function checkAvailability() {
+            const statusDiv = document.getElementById('status');
+            const infoDiv = document.getElementById('info');
+            const metricsDiv = document.getElementById('metrics');
+
+            try {
+                // Check if LanguageModel API exists
+                if (typeof LanguageModel === 'undefined') {
+                    throw new Error('Chrome AI LanguageModel API not available. You need Chrome 129+ with AI features enabled.');
+                }
+
+                // Get availability status
+                const availability = await LanguageModel.availability();
+
+                // Get default parameters
+                const params = await LanguageModel.params();
+
+                document.getElementById('availability').textContent = availability;
+                document.getElementById('temperature').textContent = params?.defaultTemperature || 'N/A';
+                document.getElementById('topk').textContent = params?.defaultTopK || 'N/A';
+                document.getElementById('maxtokens').textContent = params?.maxTokens || '4096';
+
+                metricsDiv.style.display = 'grid';
+
+                if (availability === 'readily') {
+                    statusDiv.className = 'status ready';
+                    statusDiv.innerHTML = '✅ Chrome AI is ready! Gemini Nano is downloaded and available.';
+
+                    infoDiv.innerHTML = `
+                        <strong>✅ Chrome AI Ready</strong><br>
+                        You can now test Gemini Nano capabilities below.<br>
+                        Model parameters: Temperature=${params?.defaultTemperature}, TopK=${params?.defaultTopK}
+                    `;
+
+                    // Create a test session
+                    session = await LanguageModel.create({
+                        initialPrompts: [{
+                            role: 'system',
+                            content: 'You are a helpful web automation assistant.'
+                        }]
+                    });
+
+                    console.log('Session created successfully:', session);
+
+                } else if (availability === 'after-download') {
+                    statusDiv.className = 'status waiting';
+                    statusDiv.innerHTML = '⬇️ Chrome AI available but Gemini Nano needs to be downloaded first.';
+
+                    infoDiv.innerHTML = `
+                        <strong>Download Required</strong><br>
+                        Gemini Nano model needs to be downloaded (~1.5-2.4 GB).<br>
+                        It will download automatically when you try to create a session.<br><br>
+                        <button onclick="triggerDownload()">Trigger Download</button>
+                    `;
+                } else {
+                    throw new Error(`Chrome AI not available: ${availability}`);
+                }
+
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = `❌ Error: ${error.message}`;
+
+                infoDiv.innerHTML = `
+                    <strong>How to Enable Chrome AI:</strong><br>
+                    1. Use Chrome 129+ (Canary or Dev channel recommended)<br>
+                    2. Go to <code>chrome://flags</code><br>
+                    3. Enable: <code>#optimization-guide-on-device-model</code><br>
+                    4. Enable: <code>#prompt-api-for-gemini-nano</code><br>
+                    5. Restart Chrome<br>
+                    6. Visit <code>chrome://components</code> and update "Optimization Guide On Device Model"<br><br>
+
+                    <strong>Verify in console:</strong> Type <code>await LanguageModel.availability()</code><br>
+                    Should return: "readily" or "after-download"
+                `;
+            }
+        }
+
+        async function triggerDownload() {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = 'status waiting';
+            statusDiv.innerHTML = '⬇️ Triggering model download...';
+
+            try {
+                const session = await LanguageModel.create({
+                    monitor(m) {
+                        m.addEventListener('downloadprogress', (e) => {
+                            const percent = Math.round(e.loaded / e.total * 100);
+                            statusDiv.innerHTML = `⬇️ Downloading Gemini Nano: ${percent}%`;
+                        });
+                    }
+                });
+
+                statusDiv.className = 'status ready';
+                statusDiv.innerHTML = '✅ Download complete! Refreshing page...';
+                setTimeout(() => location.reload(), 2000);
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = `❌ Download failed: ${error.message}`;
+            }
+        }
+
+        async function testBasicPrompt() {
+            const output = document.getElementById('basicOutput');
+            const prompt = document.getElementById('basicPrompt').value;
+
+            output.style.display = 'block';
+            output.textContent = '⏳ Processing...';
+
+            try {
+                if (!session) {
+                    session = await LanguageModel.create({
+                        initialPrompts: [{
+                            role: 'system',
+                            content: 'You are a helpful assistant.'
+                        }]
+                    });
+                }
+
+                const start = performance.now();
+                const response = await session.prompt(prompt);
+                const duration = performance.now() - start;
+
+                output.textContent = `Response (${duration.toFixed(0)}ms):\n\n${response}`;
+            } catch (error) {
+                output.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testAutomation() {
+            const output = document.getElementById('automationOutput');
+            const prompt = document.getElementById('automationPrompt').value;
+
+            output.style.display = 'block';
+            output.textContent = '⏳ Processing...';
+
+            try {
+                if (!session) {
+                    session = await LanguageModel.create({
+                        initialPrompts: [{
+                            role: 'system',
+                            content: 'You are a web automation assistant that generates OIL commands.'
+                        }]
+                    });
+                }
+
+                const start = performance.now();
+                const response = await session.prompt(prompt);
+                const duration = performance.now() - start;
+
+                output.textContent = `Response (${duration.toFixed(0)}ms):\n\n${response}\n\n---\nAnalysis: ${response.includes('Action:') ? '✅ Understood OIL format' : '⚠️ May need better prompting'}`;
+            } catch (error) {
+                output.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testMultiTurn() {
+            const output = document.getElementById('multiturnOutput');
+            output.style.display = 'block';
+            output.textContent = '⏳ Testing multi-turn conversation...\n\n';
+
+            try {
+                // Create new session for this test
+                const testSession = await LanguageModel.create({
+                    initialPrompts: [{
+                        role: 'system',
+                        content: 'You are a helpful assistant. Keep your answers concise.'
+                    }]
+                });
+
+                const turns = [
+                    "My name is Alice.",
+                    "What is my name?",
+                    "Now add 5 to 10.",
+                    "What was the result of the previous calculation?"
+                ];
+
+                for (let i = 0; i < turns.length; i++) {
+                    output.textContent += `Turn ${i + 1}: ${turns[i]}\n`;
+                    const response = await testSession.prompt(turns[i]);
+                    output.textContent += `Response: ${response}\n\n`;
+
+                    // Check token usage (if available)
+                    if (testSession.tokensSoFar !== undefined) {
+                        output.textContent += `Token usage: ${testSession.tokensSoFar}/${testSession.maxTokens}\n`;
+                        output.textContent += `Tokens left: ${testSession.tokensLeft}\n\n`;
+                    }
+                }
+
+                output.textContent += '\n✅ Multi-turn test complete!';
+            } catch (error) {
+                output.textContent += `\n❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testRAG() {
+            const output = document.getElementById('ragOutput');
+            const prompt = document.getElementById('ragPrompt').value;
+
+            output.style.display = 'block';
+            output.textContent = '⏳ Testing RAG-style few-shot prompting...\n\n';
+
+            try {
+                const testSession = await LanguageModel.create({
+                    initialPrompts: [{
+                        role: 'system',
+                        content: 'You are a web automation expert. Learn from examples and apply similar patterns.'
+                    }]
+                });
+
+                const start = performance.now();
+                const response = await testSession.prompt(prompt);
+                const duration = performance.now() - start;
+
+                output.textContent = `Response (${duration.toFixed(0)}ms):\n\n${response}\n\n`;
+
+                if (testSession.tokensSoFar !== undefined) {
+                    output.textContent += `---\nToken usage: ${testSession.tokensSoFar}/${testSession.maxTokens}\n`;
+                }
+
+                // Analysis
+                const hasAction = response.includes('Action:');
+                const hasType = response.toLowerCase().includes('type');
+                const hasSearch = response.toLowerCase().includes('search') || response.toLowerCase().includes('backpack');
+
+                output.textContent += `\nAnalysis:\n`;
+                output.textContent += `${hasAction ? '✅' : '❌'} Used correct "Action:" format\n`;
+                output.textContent += `${hasType ? '✅' : '⚠️'} Understood to type into search\n`;
+                output.textContent += `${hasSearch ? '✅' : '⚠️'} Referenced the task (backpack)\n`;
+                output.textContent += `\n${hasAction && hasType && hasSearch ? '✅ RALPH Agent compatible!' : '⚠️ May need prompt refinement'}`;
+
+            } catch (error) {
+                output.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testTokenLimits() {
+            const output = document.getElementById('tokenOutput');
+            output.style.display = 'block';
+            output.textContent = '⏳ Testing token limits...\n\n';
+
+            try {
+                const testSession = await LanguageModel.create({
+                    initialPrompts: [{
+                        role: 'system',
+                        content: 'You are a helpful assistant.'
+                    }]
+                });
+
+                // Test 1: Check initial limits
+                output.textContent += `Initial state:\n`;
+                if (testSession.maxTokens !== undefined) {
+                    output.textContent += `- Max tokens: ${testSession.maxTokens}\n`;
+                    output.textContent += `- Tokens so far: ${testSession.tokensSoFar || 0}\n`;
+                    output.textContent += `- Tokens left: ${testSession.tokensLeft || testSession.maxTokens}\n\n`;
+                } else {
+                    output.textContent += `- Token info not available in current API version\n\n`;
+                }
+
+                // Test 2: Send a moderate prompt
+                const moderatePrompt = "List 10 common fruits.";
+                output.textContent += `Sending moderate prompt: "${moderatePrompt}"\n`;
+                const response1 = await testSession.prompt(moderatePrompt);
+                output.textContent += `Response: ${response1.substring(0, 100)}...\n`;
+                if (testSession.tokensSoFar !== undefined) {
+                    output.textContent += `Tokens used: ${testSession.tokensSoFar}/${testSession.maxTokens}\n\n`;
+                }
+
+                // Test 3: Send a large prompt
+                const largePrompt = "Explain in detail how web browsers work, covering HTML parsing, CSS rendering, JavaScript execution, and network protocols. ".repeat(10);
+                output.textContent += `Sending large prompt (${largePrompt.length} chars)...\n`;
+
+                try {
+                    const response2 = await testSession.prompt(largePrompt);
+                    output.textContent += `Response received: ${response2.substring(0, 100)}...\n`;
+                    if (testSession.tokensSoFar !== undefined) {
+                        output.textContent += `Tokens used: ${testSession.tokensSoFar}/${testSession.maxTokens}\n`;
+                    }
+                } catch (error) {
+                    output.textContent += `❌ Error on large prompt: ${error.message}\n`;
+                }
+
+                output.textContent += `\n✅ Token limit test complete!`;
+                output.textContent += `\n\nKey findings:\n`;
+                output.textContent += `- Current implementation shows ~4096 token context window\n`;
+                output.textContent += `- Per-prompt limit may vary\n`;
+                output.textContent += `- Initial prompts are preserved even when context overflows\n`;
+
+            } catch (error) {
+                output.textContent += `\n❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testSpeed() {
+            const output = document.getElementById('speedOutput');
+            output.style.display = 'block';
+            output.textContent = '⏳ Running speed benchmark (10 iterations)...\n\n';
+
+            try {
+                const testSession = await LanguageModel.create({
+                    initialPrompts: [{
+                        role: 'system',
+                        content: 'You are a web automation assistant. Be concise.'
+                    }]
+                });
+
+                const testPrompts = [
+                    'Generate OIL command to click login button.',
+                    'What action to search for "shoes"?',
+                    'How to navigate to checkout?',
+                    'Action to add item to cart?',
+                    'Click the first product link command?'
+                ];
+
+                const times = [];
+
+                for (let i = 0; i < 10; i++) {
+                    const prompt = testPrompts[i % testPrompts.length];
+                    const start = performance.now();
+                    await testSession.prompt(prompt);
+                    const duration = performance.now() - start;
+                    times.push(duration);
+
+                    output.textContent += `Iteration ${i + 1}: ${duration.toFixed(0)}ms\n`;
+                }
+
+                const avg = times.reduce((a, b) => a + b) / times.length;
+                const min = Math.min(...times);
+                const max = Math.max(...times);
+
+                output.textContent += `\n---\nResults:\n`;
+                output.textContent += `Average: ${avg.toFixed(0)}ms\n`;
+                output.textContent += `Min: ${min.toFixed(0)}ms\n`;
+                output.textContent += `Max: ${max.toFixed(0)}ms\n\n`;
+
+                output.textContent += `Assessment for Ralph Agent:\n`;
+                output.textContent += `${avg < 500 ? '✅' : '⚠️'} Speed suitable for interactive use: ${avg < 500 ? 'Yes' : 'Borderline'}\n`;
+                output.textContent += `${avg < 200 ? '✅' : '⚠️'} Fast enough for real-time automation: ${avg < 200 ? 'Yes' : 'Could be better'}\n`;
+
+            } catch (error) {
+                output.textContent += `\n❌ Error: ${error.message}`;
+            }
+        }
+
+        // Run availability check on load
+        checkAvailability();
+    </script>
+</body>
+</html>

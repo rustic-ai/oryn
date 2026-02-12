@@ -208,13 +208,10 @@ async function testAdapter(adapterName) {
     await sleep(1000);
     result.pass(`${displayName} adapter selected`);
 
-    // Select a small model to minimize download -- use the dropdown inside the selected card
+    // Use whatever model the dropdown defaults to (first/default option)
     const selectedCard = await wizardPage.$('.adapter-option.selected');
     const dropdown = selectedCard ? await selectedCard.$('.model-dropdown') : null;
     if (dropdown) {
-      const modelId = adapterName === 'webllm' ? 'gemma-2b-it-q4f16_1-MLC-1k' : 'tinyllama';
-      await dropdown.select(modelId);
-      await sleep(300);
       const selectedModel = await wizardPage.evaluate((el) => el.value, dropdown);
       result.pass(`Model selected: ${selectedModel}`);
     }

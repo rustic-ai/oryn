@@ -30,21 +30,22 @@ export class HardwareDetector {
     static async detectWebGPU() {
         try {
             if (!navigator.gpu) {
-                return { available: false, device: null };
+                return { available: false, device: null, shaderF16: false };
             }
 
             const adapter = await navigator.gpu.requestAdapter();
             if (!adapter) {
-                return { available: false, device: null };
+                return { available: false, device: null, shaderF16: false };
             }
 
             return {
                 available: true,
-                device: adapter.name || 'Unknown GPU'
+                device: adapter.name || 'Unknown GPU',
+                shaderF16: adapter.features.has('shader-f16')
             };
         } catch (error) {
             console.warn('[HardwareDetector] WebGPU detection failed:', error);
-            return { available: false, device: null };
+            return { available: false, device: null, shaderF16: false };
         }
     }
 

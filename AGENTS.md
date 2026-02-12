@@ -2,37 +2,40 @@
 
 ## Project Structure & Module Organization
 Oryn is a Rust workspace with supporting JS/Python tooling.
-- `crates/` core Rust binaries and libs: `oryn` (unified CLI), `oryn-core`, `oryn-h`, `oryn-e`, `oryn-r`, `oryn-scanner` (JS scanner + tests).
-- `extension/` browser extension for remote mode.
-- `test-harness/` Node/Express server and scenarios; `.oil` scripts live in `test-harness/scripts/`.
-- `oryn-python/` Python client library; `intentgym/` benchmark harness.
-- `docs/` specs and guides; `website/` MkDocs site.
+- `crates/`: core Rust packages (`oryn`, `oryn-engine`, `oryn-core`, `oryn-h`, `oryn-e`, `oryn-r`, `oryn-common`, `oryn-scanner`).
+- `extension/`: remote-mode browser extension assets.
+- `extension-w/`: WASM-based extension, including Jest tests in `extension-w/test/`.
+- `test-harness/`: local web scenarios and `.oil` scripts used by E2E runs.
+- `oryn-python/` and `intentgym/`: Python client and benchmark harness.
+- `scripts/`: canonical build/test automation (prefer these over ad-hoc commands).
+- `docs/`, `website/docs/`: specs and published documentation sources.
 
 ## Build, Test, and Development Commands
-- `cargo build --release -p oryn`: build unified CLI into `target/release/oryn`.
-- `./scripts/run-tests.sh`: format (rustfmt), clippy, start harness, run Rust tests.
-- `./scripts/run-e2e-tests.sh [--quick]`: Docker E2E across backend variants.
-- `cd test-harness && npm start`: run harness at `http://localhost:3000`.
-- `cd crates/oryn-scanner && npm run check`: lint/format/test JS scanner.
-- `cd oryn-python && pytest tests/test_*.py -v`: Python unit tests; `pytest tests/e2e/ -v -m oil` for Python E2E.
+- `cargo build --workspace`: build all Rust crates.
+- `cargo test --workspace`: run Rust unit/integration tests.
+- `./scripts/run-tests.sh`: full Rust validation (`fmt`, `clippy`, harness-backed tests).
+- `./scripts/run-e2e-tests.sh --quick`: quickest cross-backend smoke run (oryn-h path).
+- `./scripts/build-extension-w.sh`: sync scanner, build WASM, bundle LLM libs for `extension-w/`.
+- `cd extension-w && npm run test:all`: run extension-w unit/integration/E2E Jest suites.
+- `cd crates/oryn-scanner && npm run check`: scanner lint + format check + tests.
 
 ## Coding Style & Naming Conventions
-- Rust: `cargo fmt` enforced; clippy clean; snake_case modules; tests in `crates/*/tests/*_test.rs`.
-- JS: ESLint + Prettier in `crates/oryn-scanner`; keep 2-space indentation (Prettier).
-- Python: 4-space indentation; `oryn-python` uses ruff; `intentgym` uses black/isort/mypy/pylint.
-- `.oil` scripts use numeric prefixes (`01_static.oil`) in `test-harness/scripts/`.
+- Rust: use `cargo fmt --all` and `cargo clippy --workspace`; modules/files use `snake_case`.
+- JS: follow ESLint rules in package configs; test files use `*.test.js`.
+- Python (`oryn-python`): lint with `ruff`, line length 100, tests under `tests/`.
+- Scanner sync rule: edit `crates/oryn-scanner/src/scanner.js` only, then run `./scripts/sync-scanner.sh` (do not hand-edit `extension/scanner.js` or `extension-w/scanner.js`).
 
 ## Testing Guidelines
-- Rust E2E tests rely on the harness on port 3000; weston tests run only in CI/E2E (`ORYN_E2E=1`).
-- JS tests use Jest in `crates/oryn-scanner/tests/`.
-- Python tests use pytest; E2E requires an `oryn` binary on `PATH` or `ORYN_BINARY`.
-- E2E artifacts land in `e2e-results/`.
+- Rust tests live in crate-local `tests/` folders (example: `crates/oryn-engine/tests`).
+- Extension tests are split by scope: `test/unit`, `test/integration`, `test/e2e`.
+- For `extension-w`, maintain Jest coverage thresholds (80% lines/statements, 75% functions, 70% branches).
+- Prefer harness-driven flows for behavior changes: `test-harness/scripts/*.oil`.
 
 ## Commit & Pull Request Guidelines
-- Use conventional commit prefixes (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`) with a short, imperative summary.
-- PRs should explain what/why, link related issues, and list tests run or why they were skipped.
-- Include screenshots/GIFs for UI changes (extension, website, harness scenarios).
-
-## Configuration & Debugging
-- Enable logs with `RUST_LOG=info|debug oryn headless`.
-- Remote mode expects the browser extension to be connected to `oryn remote --port 9001`.
+- Follow Conventional Commit style seen in history: `feat: ...`, `fix: ...`, `refactor: ...`, `debug: ...`.
+- Keep commits focused by subsystem (e.g., scanner sync, extension-w, Rust engine).
+- PRs should include:
+  - concise problem/solution summary,
+  - touched paths (example: `crates/oryn-engine/src/...`),
+  - test evidence (commands + key results),
+  - screenshots/log snippets for extension UI or E2E behavior changes.

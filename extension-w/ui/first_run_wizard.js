@@ -15,7 +15,7 @@ const ADAPTER_ICONS = {
 
 const ADAPTER_DESCRIPTIONS = {
     'chrome-ai': 'Built into Chrome. Instant and private.',
-    'webllm': 'High quality local AI. Requires download (1.5-4.5GB).',
+    'webllm': 'High quality local AI. GPU-accelerated via WebGPU.',
     'wllama': 'Universal CPU-based AI. Works everywhere.'
 };
 
@@ -25,12 +25,31 @@ const ADAPTER_BADGES = {
     'wllama': ['free', 'local']
 };
 
+// WebLLM model catalog with f16/f32 pairs — mirrors webllm_adapter.js
+const WEBLLM_MODEL_CATALOG = [
+    { name: 'Phi 3 Mini', provider: 'Microsoft', f16: 'Phi-3-mini-4k-instruct-q4f16_1-MLC', f32: 'Phi-3-mini-4k-instruct-q4f32_1-MLC', sizeF16: '3.6GB', sizeF32: '5.5GB', default: true },
+    { name: 'Llama 3.1 8B', provider: 'Meta', f16: 'Llama-3.1-8B-Instruct-q4f16_1-MLC', f32: 'Llama-3.1-8B-Instruct-q4f32_1-MLC', sizeF16: '5.0GB', sizeF32: '6.1GB' },
+    { name: 'Gemma 2 2B', provider: 'Google', f16: 'gemma-2-2b-it-q4f16_1-MLC', f32: 'gemma-2-2b-it-q4f32_1-MLC', sizeF16: '1.9GB', sizeF32: '2.5GB' },
+    { name: 'Gemma 2 9B', provider: 'Google', f16: 'gemma-2-9b-it-q4f16_1-MLC', f32: 'gemma-2-9b-it-q4f32_1-MLC', sizeF16: '6.4GB', sizeF32: '8.4GB' },
+    { name: 'Qwen 2.5 1.5B', provider: 'Alibaba', f16: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', f32: 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC', sizeF16: '1.6GB', sizeF32: '1.9GB' },
+    { name: 'Qwen 2.5 7B', provider: 'Alibaba', f16: 'Qwen2.5-7B-Instruct-q4f16_1-MLC', f32: 'Qwen2.5-7B-Instruct-q4f32_1-MLC', sizeF16: '5.1GB', sizeF32: '5.9GB' },
+    { name: 'DeepSeek-R1 Qwen 7B', provider: 'DeepSeek', f16: 'DeepSeek-R1-Distill-Qwen-7B-q4f16_1-MLC', f32: 'DeepSeek-R1-Distill-Qwen-7B-q4f32_1-MLC', sizeF16: '5.1GB', sizeF32: '5.9GB' },
+    { name: 'SmolLM2 1.7B', provider: 'Hugging Face', f16: 'SmolLM2-1.7B-Instruct-q4f16_1-MLC', f32: 'SmolLM2-1.7B-Instruct-q4f32_1-MLC', sizeF16: '1.8GB', sizeF32: '2.7GB' },
+];
+
+// Build WebLLM models dynamically based on shader-f16 support
+function getWebLLMModels(shaderF16) {
+    const quant = shaderF16 ? 'f16' : 'f32';
+    return WEBLLM_MODEL_CATALOG.map(m => ({
+        id: shaderF16 ? m.f16 : m.f32,
+        size: shaderF16 ? m.sizeF16 : m.sizeF32,
+        description: `${m.name} \u00b7 ${m.provider} (${quant})`,
+        default: m.default || false,
+    }));
+}
+
 const ADAPTER_MODELS = {
-    'webllm': [
-        { id: 'Phi-3-mini-4k-instruct-q4f16_1-MLC-1k', size: '2.2GB', description: 'Balanced (recommended)', default: true },
-        { id: 'Llama-3-8B-Instruct-q4f16_1-MLC-1k', size: '4.5GB', description: 'Best quality' },
-        { id: 'gemma-2b-it-q4f16_1-MLC-1k', size: '1.5GB', description: 'Smallest, fastest' }
-    ],
+    'webllm': getWebLLMModels(false), // Default to f32; re-populated after hw detection
     'wllama': [
         { id: 'tinyllama', size: '669MB', description: 'Lightweight (recommended)', default: true },
         { id: 'phi2', size: '1.6GB', description: 'Phi-2 2.7B' },
@@ -66,6 +85,11 @@ async function runHardwareDetection() {
         hwProfile = response.profile;
 
         console.log('[Wizard] Hardware profile:', hwProfile);
+
+        // Re-populate WebLLM models based on shader-f16 support
+        const shaderF16 = hwProfile?.webgpu?.shaderF16 ?? false;
+        ADAPTER_MODELS['webllm'] = getWebLLMModels(shaderF16);
+        console.log(`[Wizard] WebLLM models set for ${shaderF16 ? 'f16' : 'f32'} quantization`);
 
         // Display results
         resultsDiv.innerHTML = `
