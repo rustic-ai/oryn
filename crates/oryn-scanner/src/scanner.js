@@ -183,7 +183,13 @@
                 const inputRoles = [
                     { role: 'search', types: ['search'], names: ['search', 'q', 'query'], keywords: ['search'] },
                     { role: 'email', types: ['email'], names: [], keywords: ['email'] },
-                    { role: 'username', types: [], names: ['username', 'user', 'login'], keywords: ['username'], autocomplete: ['username', 'nickname'] },
+                    {
+                        role: 'username',
+                        types: [],
+                        names: ['username', 'user', 'login'],
+                        keywords: ['username'],
+                        autocomplete: ['username', 'nickname']
+                    },
                     { role: 'password', types: ['password'], names: [], keywords: [], autocomplete: ['password'] },
                     { role: 'tel', types: ['tel'], names: [], keywords: ['phone'], autocomplete: ['tel'] },
                     { role: 'url', types: ['url'], names: [], keywords: ['website'], autocomplete: ['url'] }
@@ -193,7 +199,16 @@
                     if (r.types.includes(type)) return r.role;
                     if (r.autocomplete?.some((ac) => hints.autocomplete.includes(ac))) return r.role;
                     if (r.names.includes(hints.name)) return r.role;
-                    if (r.keywords.some((kw) => hints.name.includes(kw) || hints.placeholder.includes(kw) || hints.label.includes(kw) || hints.ariaLabel.includes(kw))) return r.role;
+                    if (
+                        r.keywords.some(
+                            (kw) =>
+                                hints.name.includes(kw) ||
+                                hints.placeholder.includes(kw) ||
+                                hints.label.includes(kw) ||
+                                hints.ariaLabel.includes(kw)
+                        )
+                    )
+                        return r.role;
                 }
 
                 return 'input';
@@ -214,10 +229,21 @@
             if (role === 'link') return 'link';
 
             const TAG_ROLES = {
-                h1: 'heading', h2: 'heading', h3: 'heading', h4: 'heading', h5: 'heading', h6: 'heading',
-                label: 'text', strong: 'text', b: 'text', em: 'text', span: 'text', p: 'text',
+                h1: 'heading',
+                h2: 'heading',
+                h3: 'heading',
+                h4: 'heading',
+                h5: 'heading',
+                h6: 'heading',
+                label: 'text',
+                strong: 'text',
+                b: 'text',
+                em: 'text',
+                span: 'text',
+                p: 'text',
                 li: 'listitem',
-                td: 'cell', th: 'cell'
+                td: 'cell',
+                th: 'cell'
             };
 
             return TAG_ROLES[tag] || 'generic';
@@ -393,13 +419,11 @@
 
             // For leaf divs with direct text, use textContent to preserve full context
             if (tag === 'div') {
-                const hasDivChildren = Array.from(el.children).some(child =>
-                    child.tagName.toLowerCase() === 'div'
-                );
+                const hasDivChildren = Array.from(el.children).some((child) => child.tagName.toLowerCase() === 'div');
 
                 if (!hasDivChildren) {
-                    const hasDirectText = Array.from(el.childNodes).some(node =>
-                        node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+                    const hasDirectText = Array.from(el.childNodes).some(
+                        (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
                     );
 
                     if (hasDirectText) {
@@ -412,7 +436,13 @@
             }
 
             // For all other elements, use the original logic
-            const text = el.innerText || el.textContent || el.value || el.getAttribute('placeholder') || el.getAttribute('aria-label') || '';
+            const text =
+                el.innerText ||
+                el.textContent ||
+                el.value ||
+                el.getAttribute('placeholder') ||
+                el.getAttribute('aria-label') ||
+                '';
             return text.trim().substring(0, 100);
         },
 
@@ -451,7 +481,21 @@
         },
 
         getElementAttributes: (el, dataAttrs) => {
-            const ATTR_LIST = ['href', 'src', 'placeholder', 'name', 'autocomplete', 'aria-label', 'aria-labelledby', 'aria-hidden', 'aria-disabled', 'aria-describedby', 'for', 'title', 'tabindex'];
+            const ATTR_LIST = [
+                'href',
+                'src',
+                'placeholder',
+                'name',
+                'autocomplete',
+                'aria-label',
+                'aria-labelledby',
+                'aria-hidden',
+                'aria-disabled',
+                'aria-describedby',
+                'for',
+                'title',
+                'tabindex'
+            ];
             const attrs = { ...dataAttrs };
 
             for (const attr of ATTR_LIST) {
@@ -506,7 +550,7 @@
                 }
             };
 
-            let node = walker.currentNode;
+            const node = walker.currentNode;
             // Process root if it's an element (not document/shadowRoot)
             if (node.nodeType === Node.ELEMENT_NODE && node.tagName) {
                 processElement(node);
@@ -666,7 +710,9 @@
             const maxElements = params.max_elements || 200;
             const includeHidden = params.include_hidden || false;
             const includeIframes = params.include_iframes !== false; // Default true
-            const contextNode = params.within ? ShadowUtils.querySelectorWithShadow(document.body, params.within) : document.body;
+            const contextNode = params.within
+                ? ShadowUtils.querySelectorWithShadow(document.body, params.within)
+                : document.body;
 
             if (!contextNode) return Protocol.error('Container not found', 'SELECTOR_INVALID');
             const monitorChanges = params.monitor_changes === true;
@@ -710,12 +756,12 @@
                 // Skip visibility check for leaf divs with direct text (they may have minimal dimensions)
                 let isLeafDivWithText = false;
                 if (el.tagName.toLowerCase() === 'div') {
-                    const hasDivChildren = Array.from(el.children).some(child =>
-                        child.tagName.toLowerCase() === 'div'
+                    const hasDivChildren = Array.from(el.children).some(
+                        (child) => child.tagName.toLowerCase() === 'div'
                     );
                     if (!hasDivChildren) {
-                        const hasDirectText = Array.from(el.childNodes).some(node =>
-                            node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+                        const hasDirectText = Array.from(el.childNodes).some(
+                            (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
                         );
                         isLeafDivWithText = hasDirectText;
                     }
@@ -928,12 +974,12 @@
                     // Skip visibility check for leaf divs with direct text
                     let isLeafDivWithText = false;
                     if (el.tagName.toLowerCase() === 'div') {
-                        const hasDivChildren = Array.from(el.children).some(child =>
-                            child.tagName.toLowerCase() === 'div'
+                        const hasDivChildren = Array.from(el.children).some(
+                            (child) => child.tagName.toLowerCase() === 'div'
                         );
                         if (!hasDivChildren) {
-                            const hasDirectText = Array.from(el.childNodes).some(node =>
-                                node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+                            const hasDirectText = Array.from(el.childNodes).some(
+                                (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
                             );
                             isLeafDivWithText = hasDirectText;
                         }
@@ -985,7 +1031,23 @@
         isReferenceable: (el) => {
             const tag = el.tagName.toLowerCase();
             const INTERACTIVE_TAGS = new Set(['input', 'select', 'textarea', 'button', 'a', 'img', 'table']);
-            const TEXT_ANCHOR_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'label', 'strong', 'b', 'em', 'span', 'p', 'li', 'td', 'th']);
+            const TEXT_ANCHOR_TAGS = new Set([
+                'h1',
+                'h2',
+                'h3',
+                'h4',
+                'h5',
+                'h6',
+                'label',
+                'strong',
+                'b',
+                'em',
+                'span',
+                'p',
+                'li',
+                'td',
+                'th'
+            ]);
 
             if (INTERACTIVE_TAGS.has(tag)) return true;
             if (el.getAttribute('role')) return true;
@@ -998,15 +1060,13 @@
                 if (!text || text.length === 0) return false;
 
                 // Check if this is a leaf div (no div children)
-                const hasDivChildren = Array.from(el.children).some(child =>
-                    child.tagName.toLowerCase() === 'div'
-                );
+                const hasDivChildren = Array.from(el.children).some((child) => child.tagName.toLowerCase() === 'div');
 
-                if (hasDivChildren) return false;  // Skip container divs
+                if (hasDivChildren) return false; // Skip container divs
 
                 // Check if div has direct text content (not just from nested elements)
-                const hasDirectText = Array.from(el.childNodes).some(node =>
-                    node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+                const hasDirectText = Array.from(el.childNodes).some(
+                    (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
                 );
 
                 // Include leaf divs with direct text content that are reasonably sized
@@ -1030,17 +1090,17 @@
                 while (parent) {
                     if (parent.tagName.toLowerCase() === 'div') {
                         // Check if this parent is a leaf div with direct text
-                        const hasDivChildren = Array.from(parent.children).some(child =>
-                            child.tagName.toLowerCase() === 'div'
+                        const hasDivChildren = Array.from(parent.children).some(
+                            (child) => child.tagName.toLowerCase() === 'div'
                         );
 
                         if (!hasDivChildren) {
-                            const hasDirectText = Array.from(parent.childNodes).some(node =>
-                                node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+                            const hasDirectText = Array.from(parent.childNodes).some(
+                                (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
                             );
 
                             if (hasDirectText) {
-                                return false;  // Skip child text elements inside leaf divs with direct text
+                                return false; // Skip child text elements inside leaf divs with direct text
                             }
                         }
                     }
@@ -1144,7 +1204,13 @@
             };
 
             if (params.modifiers) {
-                const MODIFIER_MAP = { shift: 'shiftKey', ctrl: 'ctrlKey', control: 'ctrlKey', alt: 'altKey', meta: 'metaKey' };
+                const MODIFIER_MAP = {
+                    shift: 'shiftKey',
+                    ctrl: 'ctrlKey',
+                    control: 'ctrlKey',
+                    alt: 'altKey',
+                    meta: 'metaKey'
+                };
                 for (const mod of params.modifiers) {
                     const key = MODIFIER_MAP[mod.toLowerCase()];
                     if (key) clickOpts[key] = true;
@@ -1312,8 +1378,6 @@
 
         check: (params, targetState) => {
             const el = Executor.getElementFromParams(params);
-            const previousState = el.checked;
-
             if (el.checked !== targetState) {
                 el.click(); // Click usually toggles
                 // If click didn't work (prevented), force it
@@ -1336,8 +1400,6 @@
                 throw { msg: 'Not a select element', code: 'INVALID_ELEMENT_TYPE' };
             }
 
-            const previousValue = el.value;
-            const previousText = el.options[el.selectedIndex]?.text || '';
             const selectedValues = [];
 
             const toArray = (val) => (val != null ? (Array.isArray(val) ? val : [val]) : null);
@@ -1371,7 +1433,10 @@
             } else if (texts) {
                 options.forEach((o) => {
                     const optText = o.text.trim().toLowerCase();
-                    selectOption(o, texts.some((t) => optText.includes(t.trim().toLowerCase())));
+                    selectOption(
+                        o,
+                        texts.some((t) => optText.includes(t.trim().toLowerCase()))
+                    );
                 });
             } else if (indexes) {
                 options.forEach((o, i) => selectOption(o, indexes.includes(i)));
@@ -1418,9 +1483,6 @@
 
             const scrollX = isWindow ? window.scrollX : target.scrollLeft;
             const scrollY = isWindow ? window.scrollY : target.scrollTop;
-            const maxX = isWindow ? document.documentElement.scrollWidth - window.innerWidth : target.scrollWidth - target.clientWidth;
-            const maxY = isWindow ? document.documentElement.scrollHeight - window.innerHeight : target.scrollHeight - target.clientHeight;
-
             return Protocol.success({
                 success: true,
                 message: 'scrolled',
@@ -1578,15 +1640,11 @@
                         if (!expression) {
                             throw { msg: 'Missing expression for custom wait', code: 'INVALID_PARAMS' };
                         }
-                        // eslint-disable-next-line no-new-func
                         return !!Function(`return (${expression})`)();
                     }
                     case 'count': {
                         if (!selector || countTarget == null) return false;
-                        const count =
-                            typeof countTarget === 'number'
-                                ? countTarget
-                                : parseInt(countTarget, 10);
+                        const count = typeof countTarget === 'number' ? countTarget : parseInt(countTarget, 10);
                         if (Number.isNaN(count)) {
                             throw { msg: 'Invalid count for wait', code: 'INVALID_PARAMS' };
                         }
@@ -1688,8 +1746,16 @@
             const scanRes = Scanner.scan({ max_elements: 500 });
 
             const CLOSE_BUTTON_TEXTS = [
-                'close', 'cancel', 'dismiss', 'ok', 'x', '×',
-                'continue', 'confirm', 'got it', 'no thanks'
+                'close',
+                'cancel',
+                'dismiss',
+                'ok',
+                'x',
+                '×',
+                'continue',
+                'confirm',
+                'got it',
+                'no thanks'
             ];
 
             // Helper: Find visible overlays/modals based on visual and semantic characteristics
@@ -1734,13 +1800,14 @@
                 // Sort by z-index (highest first), then by score
                 candidates.sort((a, b) => b.zIndex - a.zIndex || b.score - a.score);
 
-                return candidates.map(c => c.element);
+                return candidates.map((c) => c.element);
             };
 
             // Find close button within a modal element
             const findCloseButton = (modal) => {
                 // 1. Try semantic selectors first (class names and ARIA labels)
-                const semanticClose = ShadowUtils.querySelectorWithShadow(modal,
+                const semanticClose = ShadowUtils.querySelectorWithShadow(
+                    modal,
                     '.close, [aria-label*="close" i], [aria-label*="dismiss" i]'
                 );
                 if (semanticClose) return semanticClose;
@@ -1761,8 +1828,7 @@
 
                     if (hasSvg || hasCloseIcon) {
                         const btnRect = btn.getBoundingClientRect();
-                        const isTopRight = btnRect.right > modalRect.right - 100 &&
-                            btnRect.top < modalRect.top + 100;
+                        const isTopRight = btnRect.right > modalRect.right - 100 && btnRect.top < modalRect.top + 100;
                         if (isTopRight || hasSvg) return btn;
                     }
                 }
@@ -1829,13 +1895,17 @@
 
     const Extractor = {
         get_text: (params) => {
-            const el = params.selector ? ShadowUtils.querySelectorWithShadow(document.body, params.selector) : document.body;
+            const el = params.selector
+                ? ShadowUtils.querySelectorWithShadow(document.body, params.selector)
+                : document.body;
             if (!el) throw { msg: 'Element not found', code: 'ELEMENT_NOT_FOUND' };
             return Protocol.success({ text: el.innerText || el.textContent || '' });
         },
 
         get_html: (params) => {
-            const el = params.selector ? ShadowUtils.querySelectorWithShadow(document.body, params.selector) : document.documentElement;
+            const el = params.selector
+                ? ShadowUtils.querySelectorWithShadow(document.body, params.selector)
+                : document.documentElement;
             if (!el) throw { msg: 'Element not found', code: 'ELEMENT_NOT_FOUND' };
             const html = params.outer !== false ? el.outerHTML : el.innerHTML;
             return Protocol.success({ html: html || '' });
@@ -1882,7 +1952,9 @@
 
         extract: (params) => {
             const source = params.source || 'links';
-            const container = params.selector ? ShadowUtils.querySelectorWithShadow(document.body, params.selector) : document.body;
+            const container = params.selector
+                ? ShadowUtils.querySelectorWithShadow(document.body, params.selector)
+                : document.body;
             if (!container) throw { msg: 'Container not found', code: 'ELEMENT_NOT_FOUND' };
 
             let results = [];
@@ -1917,11 +1989,13 @@
                     break;
                 case 'css':
                     if (!params.selector) throw { msg: 'Selector required for CSS extraction', code: 'INVALID_PARAMS' };
-                    results = ShadowUtils.querySelectorAllWithShadow(document.documentElement, params.selector).map((el) => ({
-                        text: el.innerText,
-                        html: el.outerHTML,
-                        id: STATE.inverseMap.get(el)
-                    }));
+                    results = ShadowUtils.querySelectorAllWithShadow(document.documentElement, params.selector).map(
+                        (el) => ({
+                            text: el.innerText,
+                            html: el.outerHTML,
+                            id: STATE.inverseMap.get(el)
+                        })
+                    );
                     break;
                 case 'text':
                     // Extract text content from the container or selected element
@@ -1985,14 +2059,23 @@
                     emailField = el.id;
                 }
 
-                if ((role === 'username' || role === 'input') && !emailField &&
-                    (name.includes('user') || name.includes('login') || placeholder.includes('username') || placeholder.includes('user'))) {
+                if (
+                    (role === 'username' || role === 'input') &&
+                    !emailField &&
+                    (name.includes('user') ||
+                        name.includes('login') ||
+                        placeholder.includes('username') ||
+                        placeholder.includes('user'))
+                ) {
                     usernameField = el.id;
                 }
 
                 if (role === 'password') passwordField = el.id;
 
-                if ((Patterns.isButtonRole(role) || type === 'input') && LOGIN_BUTTON_TEXTS.some((t) => text.includes(t))) {
+                if (
+                    (Patterns.isButtonRole(role) || type === 'input') &&
+                    LOGIN_BUTTON_TEXTS.some((t) => text.includes(t))
+                ) {
                     submitButton = el.id;
                 }
 
@@ -2022,7 +2105,7 @@
                 // Calculate confidence score based on presence of login form indicators
                 // Base: 0.5 (password field required), max bonus: 0.5 from other indicators
                 const CONFIDENCE_BASE = 0.5;
-                const CONFIDENCE_HAS_IDENTITY_FIELD = 0.2;  // email or username
+                const CONFIDENCE_HAS_IDENTITY_FIELD = 0.2; // email or username
                 const CONFIDENCE_HAS_SUBMIT = 0.15;
                 const CONFIDENCE_IN_FORM = 0.15;
 
@@ -2046,11 +2129,20 @@
             for (const el of elements) {
                 const { role, type, text, placeholder, name } = Patterns.getElementProps(el);
 
-                if (role === 'search' || type === 'search' || name.includes('search') || SEARCH_NAMES.has(name) || placeholder.includes('search')) {
+                if (
+                    role === 'search' ||
+                    type === 'search' ||
+                    name.includes('search') ||
+                    SEARCH_NAMES.has(name) ||
+                    placeholder.includes('search')
+                ) {
                     searchInput = el.id;
                 }
 
-                if (Patterns.isButtonRole(role) && (text.includes('search') || text === 'go' || name.includes('search'))) {
+                if (
+                    Patterns.isButtonRole(role) &&
+                    (text.includes('search') || text === 'go' || name.includes('search'))
+                ) {
                     submitButton = el.id;
                 }
             }
@@ -2090,19 +2182,28 @@
             const result = {};
             if (prevButton) result.prev = prevButton;
             if (nextButton) result.next = nextButton;
-            if (pageNumbers.length > 0) result.pages = pageNumbers.sort((a, b) => a.page - b.page).map(p => p.id);
+            if (pageNumbers.length > 0) result.pages = pageNumbers.sort((a, b) => a.page - b.page).map((p) => p.id);
             return result;
         },
 
         detectModal: () => {
             const MODAL_SELECTORS = [
-                '[role="dialog"]', '[aria-modal="true"]', '.modal:not(.hidden)',
-                '.modal.show', '.modal.open', '[class*="modal"][class*="open"]',
-                '[class*="modal"][class*="show"]', '[class*="dialog"][class*="open"]'
+                '[role="dialog"]',
+                '[aria-modal="true"]',
+                '.modal:not(.hidden)',
+                '.modal.show',
+                '.modal.open',
+                '[class*="modal"][class*="open"]',
+                '[class*="modal"][class*="show"]',
+                '[class*="dialog"][class*="open"]'
             ];
             const CLOSE_SELECTORS = [
-                '[aria-label*="close"]', '[aria-label*="Close"]', '.close',
-                '.modal-close', '[class*="close"]', 'button:has(svg)'
+                '[aria-label*="close"]',
+                '[aria-label*="Close"]',
+                '.close',
+                '.modal-close',
+                '[class*="close"]',
+                'button:has(svg)'
             ];
             const TITLE_SELECTORS = ['.modal-title', '[class*="title"]', 'h1', 'h2', 'h3'];
 
@@ -2111,7 +2212,9 @@
                     try {
                         const el = ShadowUtils.querySelectorWithShadow(root, sel);
                         if (el && predicate(el)) return el;
-                    } catch (_e) { /* ignore */ }
+                    } catch (_e) {
+                        /* ignore */
+                    }
                 }
                 return null;
             };
@@ -2135,9 +2238,14 @@
 
         detectCookieBanner: () => {
             const BANNER_SELECTORS = [
-                '[class*="cookie"]', '[class*="consent"]', '[class*="gdpr"]',
-                '[id*="cookie"]', '[id*="consent"]', '[id*="gdpr"]',
-                '[aria-label*="cookie"]', '[aria-label*="consent"]'
+                '[class*="cookie"]',
+                '[class*="consent"]',
+                '[class*="gdpr"]',
+                '[id*="cookie"]',
+                '[id*="consent"]',
+                '[id*="gdpr"]',
+                '[aria-label*="cookie"]',
+                '[aria-label*="consent"]'
             ];
             const ACCEPT_PATTERNS = ['accept', 'agree', 'allow', 'ok', 'got it', 'i understand'];
             const REJECT_PATTERNS = ['reject', 'decline', 'deny', 'refuse', 'no thanks'];
@@ -2151,11 +2259,16 @@
                         let acceptBtn = null;
                         let rejectBtn = null;
 
-                        const buttons = ShadowUtils.querySelectorAllWithShadow(banner, 'button, a[role="button"], [class*="btn"]');
+                        const buttons = ShadowUtils.querySelectorAllWithShadow(
+                            banner,
+                            'button, a[role="button"], [class*="btn"]'
+                        );
                         for (const btn of buttons) {
                             const btnText = (btn.textContent || '').toLowerCase().trim();
-                            if (!acceptBtn && ACCEPT_PATTERNS.some((p) => btnText.includes(p))) acceptBtn = STATE.inverseMap.get(btn);
-                            if (!rejectBtn && REJECT_PATTERNS.some((p) => btnText.includes(p))) rejectBtn = STATE.inverseMap.get(btn);
+                            if (!acceptBtn && ACCEPT_PATTERNS.some((p) => btnText.includes(p)))
+                                acceptBtn = STATE.inverseMap.get(btn);
+                            if (!rejectBtn && REJECT_PATTERNS.some((p) => btnText.includes(p)))
+                                rejectBtn = STATE.inverseMap.get(btn);
                         }
 
                         if (acceptBtn || rejectBtn) {
@@ -2165,7 +2278,9 @@
                             return result;
                         }
                     }
-                } catch (_e) { /* ignore */ }
+                } catch (_e) {
+                    /* ignore */
+                }
             }
             return null;
         }

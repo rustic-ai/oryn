@@ -219,10 +219,7 @@ describe('Scanner Coverage Analysis', () => {
         const select = scan.elements.find((el) => el.attributes.id === 'select-1');
 
         await page.evaluate(async (id) => window.Oryn.process({ cmd: 'select', id: id, value: '2' }), select.id);
-        await page.evaluate(
-            async (id) => window.Oryn.process({ cmd: 'select', id: id, text: 'Option 3' }),
-            select.id
-        );
+        await page.evaluate(async (id) => window.Oryn.process({ cmd: 'select', id: id, text: 'Option 3' }), select.id);
         await page.evaluate(async (id) => window.Oryn.process({ cmd: 'select', id: id, index: 0 }), select.id);
         expect(true).toBe(true);
     });

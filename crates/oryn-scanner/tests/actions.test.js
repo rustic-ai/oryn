@@ -133,7 +133,8 @@ describe('Advanced Actions and Extraction', () => {
                 password: 'password123'
             });
             expect(result.status).toBe('ok');
-            expect(result.action).toBe('login_initiated');
+            expect(result.success).toBe(true);
+            expect(result.message).toBe('login_initiated');
 
             const userVal = await page.$eval('#user', (el) => el.value);
             const passVal = await page.$eval('#pass', (el) => el.value);
@@ -147,7 +148,8 @@ describe('Advanced Actions and Extraction', () => {
                 query: 'oryn'
             });
             expect(result.status).toBe('ok');
-            expect(result.action).toBe('search_initiated');
+            expect(result.success).toBe(true);
+            expect(result.message).toBe('search_initiated');
 
             const searchVal = await page.$eval('#q', (el) => el.value);
             expect(searchVal).toBe('oryn');
@@ -156,7 +158,8 @@ describe('Advanced Actions and Extraction', () => {
         test('accepts cookies', async () => {
             const result = await runCommand(page, { cmd: 'accept', target: 'cookies' });
             expect(result.status).toBe('ok');
-            expect(result.action).toBe('accepted');
+            expect(result.success).toBe(true);
+            expect(result.message).toBe('accepted_cookies');
         });
     });
 });

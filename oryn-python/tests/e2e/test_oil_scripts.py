@@ -5,8 +5,10 @@ verifying that the Python client can run them successfully.
 """
 
 
+import os
+
 import pytest
-from oryn import run_oil_file_sync
+from oryn import OrynClientSync, run_oil_file_sync
 
 # List of .oil scripts to test
 OIL_SCRIPTS = [
@@ -168,8 +170,9 @@ class TestOilScriptDetails:
 
 @pytest.mark.e2e
 @pytest.mark.oil
-def test_run_all_scripts_sequentially(client, scripts_dir):
+def test_run_all_scripts_sequentially(check_oryn_available, scripts_dir):
     """Run all .oil scripts in sequence."""
+    mode = os.environ.get("ORYN_MODE", "headless")
     total_commands = 0
     total_failures = 0
 
@@ -179,7 +182,9 @@ def test_run_all_scripts_sequentially(client, scripts_dir):
             print(f"SKIP: {script_name} (not found)")
             continue
 
-        results = run_oil_file_sync(client, script_path)
+        # Match Rust E2E behavior: isolate each script in a fresh backend session.
+        with OrynClientSync(mode=mode, timeout=60.0) as client:
+            results = run_oil_file_sync(client, script_path)
         failures = sum(1 for _, r in results if not is_success(r))
 
         total_commands += len(results)

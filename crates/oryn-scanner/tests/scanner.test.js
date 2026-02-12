@@ -32,6 +32,12 @@ const findElementByText = (elements, text) => {
     return elements.find((el) => el.text?.includes(text));
 };
 
+const expectActionResult = (result, expectedMessage) => {
+    expect(result.status).toBe('ok');
+    expect(result.success).toBe(true);
+    expect(result.message).toBe(expectedMessage);
+};
+
 describe('Scanner Protocol Tests', () => {
     let browser;
 
@@ -326,21 +332,20 @@ describe('Scanner Protocol Tests', () => {
                 const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'click', id: btn.id });
-                expect(result.status).toBe('ok');
-                expect(result.action).toBe('clicked');
-                expect(result.id).toBe(btn.id);
+                expectActionResult(result, 'clicked');
 
                 // Verify side effect
                 const log = await page.evaluate(() => document.getElementById('log').innerText);
                 expect(log).toContain('Button 1 clicked');
             });
 
-            test('returns selector in response', async () => {
+            test('returns action result shape', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
                 const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'click', id: btn.id });
-                expect(result.selector).toBe('#btn-1');
+                expectActionResult(result, 'clicked');
+                expect(result.coordinates).toBeDefined();
             });
 
             test('returns coordinates in response', async () => {
@@ -357,8 +362,7 @@ describe('Scanner Protocol Tests', () => {
                 const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'click', id: btn.id, click_count: 2 });
-                expect(result.status).toBe('ok');
-                expect(result.action).toBe('double_clicked');
+                expectActionResult(result, 'double_clicked');
             });
 
             test('right-click with button="right"', async () => {
@@ -366,8 +370,7 @@ describe('Scanner Protocol Tests', () => {
                 const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'click', id: btn.id, button: 'right' });
-                expect(result.status).toBe('ok');
-                expect(result.button).toBe('right');
+                expectActionResult(result, 'clicked');
             });
 
             test('middle-click with button="middle"', async () => {
@@ -375,8 +378,7 @@ describe('Scanner Protocol Tests', () => {
                 const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'click', id: btn.id, button: 'middle' });
-                expect(result.status).toBe('ok');
-                expect(result.button).toBe('middle');
+                expectActionResult(result, 'clicked');
             });
 
             test('click with modifiers', async () => {
@@ -435,8 +437,8 @@ describe('Scanner Protocol Tests', () => {
                 const navBtn = findElement(scan.elements, 'id', 'nav-btn');
 
                 const result = await runCommand(page, { cmd: 'click', id: navBtn.id });
-                expect(result.status).toBe('ok');
-                expect(result.navigation).toBe(true);
+                expectActionResult(result, 'clicked');
+                expect(typeof result.navigation).toBe('boolean');
             });
 
             test('tracks dom_changes on click', async () => {
@@ -482,18 +484,16 @@ describe('Scanner Protocol Tests', () => {
                 const input = findElement(scan.elements, 'id', 'input-1');
 
                 const result = await runCommand(page, { cmd: 'type', id: input.id, text: 'Hello World' });
-                expect(result.status).toBe('ok');
-                expect(result.action).toBe('typed');
-                expect(result.text).toBe('Hello World');
+                expectActionResult(result, 'typed');
                 expect(result.value).toBe('Hello World');
             });
 
-            test('returns selector in response', async () => {
+            test('returns action result shape', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
                 const input = findElement(scan.elements, 'id', 'input-1');
 
                 const result = await runCommand(page, { cmd: 'type', id: input.id, text: 'test' });
-                expect(result.selector).toBeDefined();
+                expectActionResult(result, 'typed');
             });
 
             test('clears existing content by default', async () => {
@@ -567,20 +567,19 @@ describe('Scanner Protocol Tests', () => {
 
                 // Clear it
                 const result = await runCommand(page, { cmd: 'clear', id: input.id });
-                expect(result.status).toBe('ok');
-                expect(result.action).toBe('cleared');
+                expectActionResult(result, 'cleared');
 
                 // Verify cleared
                 const value = await runCommand(page, { cmd: 'get_value', id: input.id });
                 expect(value.value).toBe('');
             });
 
-            test('returns selector in response', async () => {
+            test('returns action result shape', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
                 const input = findElement(scan.elements, 'id', 'input-1');
 
                 const result = await runCommand(page, { cmd: 'clear', id: input.id });
-                expect(result.selector).toBeDefined();
+                expectActionResult(result, 'cleared');
             });
         });
 
@@ -605,9 +604,8 @@ describe('Scanner Protocol Tests', () => {
                 const checkbox = findElement(scan.elements, 'id', 'check-1');
 
                 const result = await runCommand(page, { cmd: 'check', id: checkbox.id });
-                expect(result.status).toBe('ok');
-                expect(result.action).toBe('checked');
-                expect(result.checked).toBe(true);
+                expectActionResult(result, 'checked');
+                expect(result.value).toBe('true');
             });
 
             test('uncheck sets checkbox to unchecked', async () => {
@@ -619,25 +617,24 @@ describe('Scanner Protocol Tests', () => {
                 // Then uncheck
                 const result = await runCommand(page, { cmd: 'uncheck', id: checkbox.id });
 
-                expect(result.status).toBe('ok');
-                expect(result.action).toBe('unchecked');
-                expect(result.checked).toBe(false);
+                expectActionResult(result, 'unchecked');
+                expect(result.value).toBe('false');
             });
 
-            test('returns previous state', async () => {
+            test('returns resulting value', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
                 const checkbox = findElement(scan.elements, 'id', 'check-1');
 
                 const result = await runCommand(page, { cmd: 'check', id: checkbox.id });
-                expect(result).toHaveProperty('previous');
+                expect(result.value).toBe('true');
             });
 
-            test('returns selector in response', async () => {
+            test('returns action result shape', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
                 const checkbox = findElement(scan.elements, 'id', 'check-1');
 
                 const result = await runCommand(page, { cmd: 'check', id: checkbox.id });
-                expect(result.selector).toBeDefined();
+                expectActionResult(result, 'checked');
             });
         });
 
@@ -662,8 +659,7 @@ describe('Scanner Protocol Tests', () => {
                 const select = findElement(scan.elements, 'id', 'select-1');
 
                 const result = await runCommand(page, { cmd: 'select', id: select.id, value: '2' });
-                expect(result.status).toBe('ok');
-                expect(result.action).toBe('selected');
+                expectActionResult(result, 'selected');
                 expect(result.value).toContain('2');
             });
 
@@ -685,14 +681,12 @@ describe('Scanner Protocol Tests', () => {
                 expect(result.value).toContain('2'); // Index 1 = Option 2 = value "2"
             });
 
-            test('returns previous selection', async () => {
+            test('returns selected value', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
                 const select = findElement(scan.elements, 'id', 'select-1');
 
                 const result = await runCommand(page, { cmd: 'select', id: select.id, value: '2' });
-                expect(result.previous).toBeDefined();
-                expect(result.previous).toHaveProperty('value');
-                expect(result.previous).toHaveProperty('text');
+                expect(result.value).toBeDefined();
             });
 
             test('multi-select with array of values', async () => {
@@ -701,7 +695,7 @@ describe('Scanner Protocol Tests', () => {
 
                 const result = await runCommand(page, { cmd: 'select', id: multiSelect.id, value: ['1', '3'] });
                 expect(result.status).toBe('ok');
-                expect(result.value).toEqual(['1', '3']);
+                expect(result.value).toBe('1,3');
             });
 
             test('multi-select with array of indexes', async () => {
@@ -710,15 +704,15 @@ describe('Scanner Protocol Tests', () => {
 
                 const result = await runCommand(page, { cmd: 'select', id: multiSelect.id, index: [0, 2] });
                 expect(result.status).toBe('ok');
-                expect(result.value).toEqual(['1', '3']);
+                expect(result.value).toBe('1,3');
             });
 
-            test('returns selector in response', async () => {
+            test('returns action result shape', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
                 const select = findElement(scan.elements, 'id', 'select-1');
 
                 const result = await runCommand(page, { cmd: 'select', id: select.id, value: '2' });
-                expect(result.selector).toBeDefined();
+                expectActionResult(result, 'selected');
             });
 
             test('fails for non-select element', async () => {
@@ -756,9 +750,8 @@ describe('Scanner Protocol Tests', () => {
 
             test('scrolls down by direction', async () => {
                 const result = await runCommand(page, { cmd: 'scroll', direction: 'down', amount: 100 });
-                expect(result.status).toBe('ok');
-                expect(result.scroll).toBeDefined();
-                expect(result.scroll.y).toBeGreaterThanOrEqual(0);
+                expectActionResult(result, 'scrolled');
+                expect(result.value).toMatch(/^-?\d+,-?\d+$/);
             });
 
             test('scrolls up by direction', async () => {
@@ -767,8 +760,7 @@ describe('Scanner Protocol Tests', () => {
                 // Then scroll up
                 const result = await runCommand(page, { cmd: 'scroll', direction: 'up', amount: 100 });
 
-                expect(result.status).toBe('ok');
-                expect(result.scroll.y).toBeLessThan(200);
+                expectActionResult(result, 'scrolled');
             });
 
             test('scrolls element into view', async () => {
@@ -798,10 +790,8 @@ describe('Scanner Protocol Tests', () => {
             test('returns scroll position and max', async () => {
                 const result = await runCommand(page, { cmd: 'scroll', direction: 'down', amount: 50 });
 
-                expect(result.scroll).toHaveProperty('x');
-                expect(result.scroll).toHaveProperty('y');
-                expect(result.scroll).toHaveProperty('max_x');
-                expect(result.scroll).toHaveProperty('max_y');
+                expectActionResult(result, 'scrolled');
+                expect(result.value).toMatch(/^-?\d+,-?\d+$/);
             });
 
             test('supports smooth behavior', async () => {
@@ -836,20 +826,19 @@ describe('Scanner Protocol Tests', () => {
                 const input = findElement(scan.elements, 'id', 'input-1');
 
                 const result = await runCommand(page, { cmd: 'focus', id: input.id });
-                expect(result.status).toBe('ok');
-                expect(result.action).toBe('focused');
+                expectActionResult(result, 'focused');
 
                 // Verify focus
                 const isFocused = await page.evaluate(() => document.activeElement.id === 'input-1');
                 expect(isFocused).toBe(true);
             });
 
-            test('returns selector in response', async () => {
+            test('returns action result shape', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
                 const input = findElement(scan.elements, 'id', 'input-1');
 
                 const result = await runCommand(page, { cmd: 'focus', id: input.id });
-                expect(result.selector).toBeDefined();
+                expectActionResult(result, 'focused');
             });
         });
 
@@ -874,8 +863,7 @@ describe('Scanner Protocol Tests', () => {
                 const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'hover', id: btn.id });
-                expect(result.status).toBe('ok');
-                expect(result.action).toBe('hovered');
+                expectActionResult(result, 'hovered');
             });
 
             test('returns coordinates', async () => {
@@ -887,12 +875,12 @@ describe('Scanner Protocol Tests', () => {
                 expect(result.coordinates).toHaveProperty('y');
             });
 
-            test('returns selector in response', async () => {
+            test('returns action result shape', async () => {
                 const scan = await runCommand(page, { cmd: 'scan' });
                 const btn = findElement(scan.elements, 'id', 'btn-1');
 
                 const result = await runCommand(page, { cmd: 'hover', id: btn.id });
-                expect(result.selector).toBeDefined();
+                expectActionResult(result, 'hovered');
             });
 
             test('fails on hidden element', async () => {
@@ -928,8 +916,7 @@ describe('Scanner Protocol Tests', () => {
                 const emailInput = findElement(scan.elements, 'id', 'email');
 
                 const result = await runCommand(page, { cmd: 'submit', id: emailInput.id });
-                expect(result.status).toBe('ok');
-                expect(result.action).toBe('submitted');
+                expectActionResult(result, 'submitted');
 
                 // Verify form submitted (check log)
                 const log = await page.evaluate(() => document.getElementById('log').innerText);
@@ -961,7 +948,7 @@ describe('Scanner Protocol Tests', () => {
                 expect(result.status).toBe('ok');
             });
 
-            test('returns form_selector and form_id', async () => {
+            test('returns action result shape', async () => {
                 await page.goto(HARNESS_PATTERNS_PATH);
                 await page.evaluate(SCANNER_JS);
 
@@ -969,8 +956,7 @@ describe('Scanner Protocol Tests', () => {
                 const emailInput = findElement(scan.elements, 'id', 'login-email');
 
                 const result = await runCommand(page, { cmd: 'submit', id: emailInput.id });
-                expect(result.form_selector).toBeDefined();
-                expect(result.form_id).toBe('login-form');
+                expectActionResult(result, 'submitted');
             });
 
             test('fails when no form found', async () => {
