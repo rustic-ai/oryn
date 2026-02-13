@@ -116,7 +116,7 @@ def browser_action(command: str) -> str:
             - observe: Scan page and list interactive elements
             - click <target>: Click element by ID or text (e.g., 'click 5', 'click "Login"')
             - type <target> <text>: Type into input (e.g., 'type 1 "hello"', 'type email "user@test.com"')
-            - scroll [direction] [amount]: Scroll the page
+            - scroll [direction] [target] [--amount N] [--page]: Scroll the page
             - wait <condition>: Wait for condition (e.g., 'wait visible "Success"')
             - login <user> <pass>: Execute login workflow
             - search <query>: Execute search workflow
@@ -316,7 +316,7 @@ The element wasn't found. Please:
 system_instruction = """
 If you encounter cookie banners or popups, dismiss them first:
 - accept_cookies: Dismiss cookie consent
-- dismiss_popups: Close modal dialogs
+- dismiss popups: Close common modal/overlay blockers
 """
 ```
 

@@ -28,11 +28,17 @@ class CommandCoverage:
 
 
 NOTES = {
+    "Goto": "`--headers/--timeout` parse but are currently not applied in translation",
+    "Refresh": "`--hard` parses, but executor currently ignores hard/soft distinction",
     "Observe": "`minimal/positions/timeout` parsed but not used in translation",
     "Text": "`target` parsed but translator uses only `selector`",
     "Screenshot": "`target` parsed but translator sets `selector: None`",
     "Click": "`--ctrl/--shift/--alt` parsed but translator sends empty modifiers",
-    "Wait": "`wait url \"...\"` downgraded to generic `navigation` in translation",
+    "Type": "`--append/--timeout` parsed but currently not applied in translation",
+    "Scroll": "`--timeout` parsed but currently not applied in translation",
+    "Wait": "`wait url \"...\"` downgraded to generic `navigation`; `ready` maps to unsupported condition",
+    "Login": "`--no-submit/--wait/--timeout` parsed but current translation ignores these options",
+    "Search": "`--submit/--wait/--timeout` parsed but current translation ignores these options",
     "Cookies": (
         "Executor handles list/get/set/delete; `clear` is `NotImplemented`; "
         "backend `set_cookie` defaults to `NotSupported`"

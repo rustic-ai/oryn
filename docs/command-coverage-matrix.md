@@ -6,7 +6,7 @@ Generated from:
 - `crates/oryn-core/src/translator.rs`
 - `crates/oryn-engine/src/executor.rs`
 
-Generated at (UTC): `2026-02-13 07:18:02Z`
+Generated at (UTC): `2026-02-13 08:39:10Z`
 
 Regenerate:
 - `python scripts/generate-command-coverage-matrix.py`
@@ -28,10 +28,10 @@ Snapshot:
 
 | Command | Parser | Translator | Action | Executor | Note |
 |---|---|---|---|---|---|
-| Goto | implemented | implemented | `Browser::BrowserAction::Navigate` | implemented |  |
+| Goto | implemented | implemented | `Browser::BrowserAction::Navigate` | implemented | `--headers/--timeout` parse but are currently not applied in translation |
 | Back | implemented | implemented | `Browser::BrowserAction::Back` | implemented |  |
 | Forward | implemented | implemented | `Browser::BrowserAction::Forward` | implemented |  |
-| Refresh | implemented | implemented | `Browser::BrowserAction::Refresh` | implemented |  |
+| Refresh | implemented | implemented | `Browser::BrowserAction::Refresh` | implemented | `--hard` parses, but executor currently ignores hard/soft distinction |
 | Url | implemented | implemented | `Scanner::ScannerAction::Execute` | implemented |  |
 | Observe | implemented | implemented | `Scanner::ScannerAction::Scan` | implemented | `minimal/positions/timeout` parsed but not used in translation |
 | Html | implemented | implemented | `Scanner::ScannerAction::GetHtml` | implemented |  |
@@ -40,7 +40,7 @@ Snapshot:
 | Screenshot | implemented | implemented | `Browser::BrowserAction::Screenshot` | implemented | `target` parsed but translator sets `selector: None` |
 | Box | implemented | stubbed | - | - |  |
 | Click | implemented | implemented | `Scanner::ScannerAction::Click` | implemented | `--ctrl/--shift/--alt` parsed but translator sends empty modifiers |
-| Type | implemented | implemented | `Scanner::ScannerAction::Type` | implemented |  |
+| Type | implemented | implemented | `Scanner::ScannerAction::Type` | implemented | `--append/--timeout` parsed but currently not applied in translation |
 | Clear | implemented | implemented | `Scanner::ScannerAction::Clear` | implemented |  |
 | Press | implemented | implemented | `Browser::BrowserAction::Press` | implemented |  |
 | Keydown | implemented | stubbed | - | - |  |
@@ -51,9 +51,9 @@ Snapshot:
 | Uncheck | implemented | implemented | `Scanner::ScannerAction::Check` | implemented |  |
 | Hover | implemented | implemented | `Scanner::ScannerAction::Hover` | implemented |  |
 | Focus | implemented | implemented | `Scanner::ScannerAction::Focus` | implemented |  |
-| Scroll | implemented | implemented | `Scanner::ScannerAction::Scroll` | implemented |  |
+| Scroll | implemented | implemented | `Scanner::ScannerAction::Scroll` | implemented | `--timeout` parsed but currently not applied in translation |
 | Submit | implemented | implemented | `Scanner::ScannerAction::Submit` | implemented |  |
-| Wait | implemented | implemented | `Scanner::ScannerAction::Wait` | implemented | `wait url "..."` downgraded to generic `navigation` in translation |
+| Wait | implemented | implemented | `Scanner::ScannerAction::Wait` | implemented | `wait url "..."` downgraded to generic `navigation`; `ready` maps to unsupported condition |
 | Extract | implemented | implemented | `Scanner::ScannerAction::Extract` | implemented |  |
 | Cookies | implemented | implemented | `Session::SessionAction::Cookie` | partial | Executor handles list/get/set/delete; `clear` is `NotImplemented`; backend `set_cookie` defaults to `NotSupported` |
 | Storage | stubbed | stubbed | - | - |  |
@@ -63,8 +63,8 @@ Snapshot:
 | Headers | stubbed | stubbed | - | - |  |
 | Tabs | implemented | implemented | `Browser::BrowserAction::Tab` | partial | Executor handles only tab action `list` |
 | Tab | implemented | implemented | `Browser::BrowserAction::Tab` | stubbed | Translator emits `new/switch/close`; executor handles only `list` |
-| Login | implemented | implemented | `Scanner::ScannerAction::Login` | implemented |  |
-| Search | implemented | implemented | `Scanner::ScannerAction::Search` | implemented |  |
+| Login | implemented | implemented | `Scanner::ScannerAction::Login` | implemented | `--no-submit/--wait/--timeout` parsed but current translation ignores these options |
+| Search | implemented | implemented | `Scanner::ScannerAction::Search` | implemented | `--submit/--wait/--timeout` parsed but current translation ignores these options |
 | Dismiss | implemented | implemented | `Scanner::ScannerAction::Dismiss` | implemented |  |
 | AcceptCookies | implemented | implemented | `Scanner::ScannerAction::Accept` | implemented |  |
 | ScrollUntil | implemented | stubbed | - | - |  |

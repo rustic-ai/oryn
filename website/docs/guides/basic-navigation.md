@@ -24,15 +24,16 @@ You can specify the full URL:
 ok goto https://github.com/login
 ```
 
-### Relative Paths
+### URL Normalization Note
 
-After navigating to a site, you can use relative paths:
+`goto` adds `https://` when protocol is omitted:
 
 ```
 > goto example.com
-> goto /about
-ok goto https://example.com/about
+ok goto https://example.com
 ```
+
+Relative navigation like `goto /about` is not currently resolved against the active page URL in the unified translation path.
 
 ## History Navigation
 
@@ -59,12 +60,14 @@ ok forward
 ok refresh
 ```
 
-Use `refresh --hard` to clear cache:
+`refresh --hard` syntax:
 
 ```
 > refresh --hard
-ok refresh (cache cleared)
+ok refresh
 ```
+
+`--hard` is parsed, but hard/soft distinction is not currently applied by executor/backend wiring.
 
 ## Observing Pages
 
@@ -132,14 +135,7 @@ Detected UI patterns with element references.
 [5] link "Create an account"
 ```
 
-**Minimal output:**
-```
-> observe --minimal
-
-@ github.com/login
-Interactive elements: 5
-Patterns: login_form
-```
+`observe --minimal` is parsed, but output is currently close to standard `observe` unless backend/scanner behavior changes.
 
 ## Clicking Elements
 
@@ -198,7 +194,7 @@ ok click [5] (forced)
 
 ```
 > scroll down
-> scroll down 500    # 500 pixels
+> scroll down --amount 500
 > scroll up
 > scroll left
 > scroll right
@@ -207,22 +203,16 @@ ok click [5] (forced)
 ### Page Scrolling
 
 ```
-> scroll page down   # One page height
-> scroll page up
+> scroll down --page   # One page height
+> scroll up --page
 ```
 
 ### Scroll to Element
 
 ```
-> scroll to "Footer"
-ok scroll to [15]
-```
-
-### Scroll to Bottom/Top
-
-```
-> scroll bottom
-> scroll top
+> observe
+> scroll 15
+ok scroll [15]
 ```
 
 ## Getting Page Information
@@ -317,12 +307,7 @@ ok screenshot saved to ./screenshot.png
 ok screenshot saved to ./my-screenshot.png
 ```
 
-### Capture Specific Element
-
-```
-> screenshot --element 5
-ok screenshot saved to ./screenshot.png
-```
+Element-target screenshots are currently limited in unified translation. Use full-page screenshots with explicit output paths.
 
 ## Common Patterns
 
@@ -366,11 +351,11 @@ observe
 goto example.com/infinite-scroll
 observe
 
-scroll down 500
+scroll down --amount 500
 wait idle
 observe     # New elements loaded
 
-scroll down 500
+scroll down --amount 500
 wait idle
 observe     # More elements loaded
 ```

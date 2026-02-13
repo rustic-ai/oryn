@@ -8,7 +8,7 @@ Oryn is built on several key principles:
 
 1. **Intent Over Implementation** — Agents express what they want to do, not how to do it
 2. **Semantic Abstraction** — Web pages are presented as structured, labeled interactive surfaces
-3. **Universal Consistency** — The same behavior across all deployment modes
+3. **Consistency by Design** — Shared scanner/runtime model across deployment modes
 4. **Progressive Intelligence** — From atomic commands to high-level intents
 
 ## Core Components
@@ -83,7 +83,7 @@ The scanner:
 - Reports their states (required, disabled, checked)
 - Detects common patterns (login forms, search boxes, pagination)
 
-This same scanner code runs in all environments, guaranteeing consistent behavior.
+This same scanner code runs in all environments, which improves cross-mode consistency while still allowing backend-specific differences.
 
 ## Multi-Level Abstraction
 

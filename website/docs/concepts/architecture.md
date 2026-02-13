@@ -91,10 +91,11 @@ A unified Rust trait that all backends implement:
 
 ```rust
 pub trait Backend {
-    async fn navigate(&mut self, url: &str) -> Result<()>;
-    async fn execute_scanner(&mut self, cmd: ScannerCommand) -> Result<ScannerResponse>;
-    async fn screenshot(&mut self) -> Result<Vec<u8>>;
-    async fn close(&mut self) -> Result<()>;
+    async fn launch(&mut self) -> Result<(), BackendError>;
+    async fn navigate(&mut self, url: &str) -> Result<NavigationResult, BackendError>;
+    async fn execute_scanner(&mut self, cmd: ScannerAction) -> Result<ScannerProtocolResponse, BackendError>;
+    async fn screenshot(&mut self) -> Result<Vec<u8>, BackendError>;
+    async fn close(&mut self) -> Result<(), BackendError>;
 }
 ```
 
@@ -156,18 +157,18 @@ sequenceDiagram
 
     Agent->>Parser: click "Sign in"
     Parser->>Engine: ClickCommand(text="Sign in")
-    Engine->>Backend: scan()
-    Backend->>Scanner: {cmd: "scan"}
+    Engine->>Backend: observe()
+    Backend->>Scanner: {action: "scan"}
     Scanner->>Browser: Query DOM
     Browser-->>Scanner: Element data
-    Scanner-->>Backend: {ok: true, elements: [...]}
+    Scanner-->>Backend: {status: "ok", elements: [...]}
     Backend-->>Engine: Elements list
     Engine->>Engine: Resolve "Sign in" → ID 5
     Engine->>Backend: click(5)
-    Backend->>Scanner: {cmd: "click", id: 5}
+    Backend->>Scanner: {action: "click", id: 5}
     Scanner->>Browser: Click element
     Browser-->>Scanner: Success
-    Scanner-->>Backend: {ok: true}
+    Scanner-->>Backend: {status: "ok", success: true}
     Backend-->>Engine: Success
     Engine-->>Parser: ClickResult
     Parser-->>Agent: ok click [5]
@@ -183,7 +184,7 @@ sequenceDiagram
     participant Browser
 
     Agent->>Oryn: observe
-    Oryn->>Scanner: {cmd: "scan"}
+    Oryn->>Scanner: {action: "scan"}
     Scanner->>Browser: Query interactive elements
     Browser-->>Scanner: DOM elements
     Scanner->>Scanner: Classify types, roles
@@ -201,12 +202,12 @@ sequenceDiagram
 
 If HTML were parsed differently per backend, behavior would diverge. The Universal Scanner eliminates this risk by ensuring all DOM understanding happens in JavaScript.
 
-### Consistency Guarantees
+### Consistency Goals
 
 Given the same page state and the same command:
-- oryn-e, oryn-h, and oryn-r produce identical observations
-- oryn-e, oryn-h, and oryn-r execute identical actions
-- oryn-e, oryn-h, and oryn-r report identical results
+- Oryn aims for equivalent semantics across `oryn-e`, `oryn-h`, and `oryn-r`.
+- Minor backend/runtime differences can still appear (timing, browser engine quirks, feature support).
+- Treat [Command Coverage](../reference/command-coverage.md) as the implementation authority for unified CLI support.
 
 ### Separation of Concerns
 

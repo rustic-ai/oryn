@@ -181,9 +181,15 @@ cargo build --release -p oryn
 
 ### Integrations
 - **[Google ADK](integrations/google-adk.md)** — Using Oryn with Google ADK agents
+- **[IntentGym](integrations/intentgym.md)** — Benchmark harness for evaluating Oryn-based web agents
+- **[Python SDK](integrations/python-sdk.md)** — Sync/async Python client for OIL command execution
+- **[Remote Extension](integrations/remote-extension.md)** — Connect `oryn remote` to the browser extension
+- **[WASM Extension](integrations/wasm-extension.md)** — Building and running the standalone extension-w workflow
 
 ### Reference
 - **[Intent Commands](reference/intent-commands.md)** — Complete command syntax reference
+- **[Command Coverage](reference/command-coverage.md)** — Parser/translator/executor implementation status
+- **[Truth & Trust](reference/truth-and-trust.md)** — Verification workflow and source-of-truth map
 - **[Scanner Commands](reference/scanner-commands.md)** — Low-level scanner protocol
 - **[Configuration](reference/configuration.md)** — All configuration options
 - **[Error Codes](reference/error-codes.md)** — Error types and recovery
@@ -198,16 +204,14 @@ Oryn is under active development. Current status:
 | Feature | Status |
 |---------|--------|
 | Intent Language Parser | <span class="badge badge-new">Stable</span> |
-| Universal Scanner | <span class="badge badge-new">Stable</span> |
-| Headless Mode (oryn-h) | <span class="badge badge-new">Stable</span> |
-| Embedded Mode (oryn-e) | <span class="badge badge-new">Stable</span> |
-| Remote Mode (oryn-r) | <span class="badge badge-new">Stable</span> |
-| Intent Engine | <span class="badge badge-new">Stable</span> |
-| Built-in Intents (8) | <span class="badge badge-new">Stable</span> |
-| Multi-Page Flows | <span class="badge badge-new">Stable</span> |
-| Pattern Detection | <span class="badge badge-new">Stable</span> |
-| Site-Specific Packs | <span class="badge badge-experimental">Beta</span> |
-| Community Pack Repository | <span class="badge badge-deprecated">Planned</span> |
+| Universal Scanner Runtime | <span class="badge badge-new">Stable</span> |
+| Headless Mode (`oryn-h`) | <span class="badge badge-new">Stable</span> |
+| Embedded Mode (`oryn-e`) | <span class="badge badge-experimental">Partial</span> |
+| Remote Mode (`oryn-r`) | <span class="badge badge-experimental">Partial</span> |
+| Unified Command End-to-End Coverage | <span class="badge badge-experimental">Partial</span> |
+| Built-in Intent Commands in Unified CLI (`login`, `search`, `dismiss`, `accept_cookies`) | <span class="badge badge-new">Stable</span> |
+| Declarative Intent/Pack Management Commands (`intents`, `define`, `run`, ...) | <span class="badge badge-experimental">Stubbed</span> |
+| Multi-step Automation via `.oil` Scripts | <span class="badge badge-new">Stable</span> |
 
 ---
 

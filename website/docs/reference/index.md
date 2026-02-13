@@ -4,7 +4,7 @@ Complete reference documentation for Oryn.
 
 ## Overview
 
-This section contains detailed reference documentation for all Oryn commands, protocols, and configuration options.
+This section contains detailed reference documentation for Oryn commands, protocols, and configuration, including current implementation status.
 
 <div class="grid cards" markdown>
 
@@ -12,7 +12,7 @@ This section contains detailed reference documentation for all Oryn commands, pr
 
     ---
 
-    Complete reference for all Intent Language commands.
+    Current syntax and support notes for unified Intent Language commands.
 
     [:octicons-arrow-right-24: Intent Commands](intent-commands.md)
 
@@ -23,6 +23,22 @@ This section contains detailed reference documentation for all Oryn commands, pr
     Low-level scanner protocol reference.
 
     [:octicons-arrow-right-24: Scanner Commands](scanner-commands.md)
+
+-   :material-table-large:{ .lg .middle } **Command Coverage**
+
+    ---
+
+    End-to-end implementation status across parser, translator, and executor stages.
+
+    [:octicons-arrow-right-24: Command Coverage](command-coverage.md)
+
+-   :material-shield-check:{ .lg .middle } **Truth & Trust**
+
+    ---
+
+    Verification workflow and source-of-truth mapping for keeping docs aligned with implementation.
+
+    [:octicons-arrow-right-24: Truth & Trust](truth-and-trust.md)
 
 -   :material-cog:{ .lg .middle } **Configuration**
 
@@ -79,10 +95,6 @@ This section contains detailed reference documentation for all Oryn commands, pr
 | Intent | Syntax |
 |--------|--------|
 | `login` | `login <user> <pass>` |
-| `logout` | `logout` |
 | `search` | `search <query>` |
 | `accept_cookies` | `accept_cookies` |
-| `dismiss_popups` | `dismiss_popups` |
-| `fill_form` | `fill_form <data>` |
-| `submit_form` | `submit_form` |
-| `scroll_to` | `scroll_to <target>` |
+| `dismiss` | `dismiss popups` |

@@ -1,198 +1,134 @@
 # CLI Reference
 
-Complete reference for the `oryn` command-line interface.
+Current reference for the unified `oryn` CLI.
 
 ## Synopsis
 
 ```bash
-oryn <MODE> [OPTIONS]
+oryn [--file <PATH>] <mode>
 ```
 
-## Modes
+Modes:
 
-### Headless Mode
-
-```bash
-oryn headless [OPTIONS]
-```
-
-Run Oryn with a headless Chromium browser. Best for cloud automation, CI/CD, and web scraping.
-
-**Options:**
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--chrome-path <PATH>` | auto-detect | Path to Chrome/Chromium executable |
-| `--user-data-dir <DIR>` | temp | Chrome user data directory |
-| `--headless` | true | Run in headless mode (use `--no-headless` for visible browser) |
-| `--disable-gpu` | false | Disable GPU acceleration |
-| `--window-size <WxH>` | 1920x1080 | Browser window size |
-
-**Example:**
-
-```bash
-oryn headless --no-headless --window-size 1280x720
-```
-
-### Embedded Mode
-
-```bash
-oryn embedded [OPTIONS]
-```
-
-Run Oryn with WPE WebKit via WebDriver. Best for IoT devices, containers, and edge computing.
-
-**Options:**
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--driver-url <URL>` | http://localhost:8080 | WebDriver server URL |
-
-**Example:**
-
-```bash
-oryn embedded --driver-url http://localhost:9515
-```
-
-### Remote Mode
-
-```bash
-oryn remote [OPTIONS]
-```
-
-Run Oryn as a WebSocket server that connects to a browser extension. Best for user assistance, debugging, and authenticated sessions.
-
-**Options:**
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--port <PORT>` | 9001 | WebSocket server port |
-| `--host <HOST>` | 127.0.0.1 | Host to bind to |
-
-**Example:**
-
-```bash
-oryn remote --port 9001 --host 0.0.0.0
-```
+- `headless`
+- `embedded`
+- `remote`
 
 ## Global Options
 
 | Option | Description |
 |--------|-------------|
-| `--help`, `-h` | Show help message |
-| `--version`, `-V` | Show version information |
-| `--config <FILE>` | Path to configuration file |
-| `--log-level <LEVEL>` | Log level: error, warn, info, debug, trace |
+| `--file <PATH>` | Run commands from a script file instead of interactive REPL |
+| `--help`, `-h` | Show help |
+| `--version`, `-V` | Show version |
+
+## Modes
+
+### headless
+
+```bash
+oryn headless [--visible]
+```
+
+Run Oryn with Chromium via CDP.
+
+| Option | Description |
+|--------|-------------|
+| `--visible` | Launch browser with a visible window (not headless) |
+
+Examples:
+
+```bash
+oryn headless
+oryn headless --visible
+```
+
+### embedded
+
+```bash
+oryn embedded [--driver-url <URL>]
+```
+
+Run Oryn with WebDriver/COG backend.
+
+| Option | Description |
+|--------|-------------|
+| `--driver-url <URL>` | Connect to an external WebDriver endpoint |
+
+Examples:
+
+```bash
+oryn embedded
+oryn embedded --driver-url http://localhost:9515
+```
+
+### remote
+
+```bash
+oryn remote [--port <PORT>]
+```
+
+Run Oryn as a WebSocket server for the remote browser extension (`extension/`).
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--port <PORT>` | `9001` | WebSocket port |
+
+Examples:
+
+```bash
+oryn remote
+oryn remote --port 9010
+```
+
+!!! note
+    Current server binding is `127.0.0.1` with configurable port only.
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `RUST_LOG` | Set log level (e.g., `RUST_LOG=debug`) |
-| `CHROME_PATH` | Path to Chrome executable |
-| `ORYN_CONFIG` | Path to configuration file |
+| `RUST_LOG` | Rust log level |
+| `CHROME_BIN` | Custom Chromium/Chrome executable path for headless mode |
+| `ORYN_USER_DATA_DIR` | Reuse a specific Chromium profile directory |
+| `ORYN_ENABLE_NETWORK_LOG` | Enable network logging when set to `1/true/yes/on` |
 
-## REPL Commands
+## REPL and Script Mode
 
-Once Oryn is running, you enter the Intent Language REPL. See the [Intent Commands Reference](../reference/intent-commands.md) for complete command documentation.
-
-### Quick Reference
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `goto <url>` | Navigate to URL | `goto google.com` |
-| `observe` / `scan` | List interactive elements | `observe` |
-| `click <target>` | Click an element | `click 5` or `click "Login"` |
-| `type <target> <text>` | Type into input | `type 1 "hello"` |
-| `scroll [direction] [amount]` | Scroll the page | `scroll down 500` |
-| `wait <condition>` | Wait for condition | `wait visible "Success"` |
-| `login <user> <pass>` | Execute login intent | `login "me@example.com" "pass"` |
-| `search <query>` | Execute search intent | `search "rust programming"` |
-| `accept_cookies` | Dismiss cookie banner | `accept_cookies` |
-| `exit` | Exit Oryn | `exit` |
-
-## Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | General error |
-| 2 | Invalid arguments |
-| 3 | Browser launch failed |
-| 4 | Connection failed |
-
-## Configuration File
-
-Oryn can be configured via a YAML file:
-
-```yaml
-# ~/.oryn/config.yaml
-
-intent_engine:
-  default_timeout: 30s
-  step_timeout: 10s
-  max_retries: 3
-
-logging:
-  log_actions: true
-  redact_sensitive: true
-
-packs:
-  auto_load: true
-  pack_paths:
-    - ~/.oryn/packs
-```
-
-See [Configuration Reference](../reference/configuration.md) for all options.
-
-## Examples
-
-### Basic Web Scraping
+### Interactive REPL
 
 ```bash
-oryn headless << 'EOF'
-goto example.com
-observe
-click "More information..."
-observe
-extract links
-exit
-EOF
+oryn headless
 ```
 
-### Login Automation
+### File Execution
 
 ```bash
-oryn headless << 'EOF'
-goto myapp.com/login
-login "user@example.com" "password123"
-observe
-exit
-EOF
+oryn --file scripts/example.oil headless
 ```
 
-### CI/CD Testing
+`--file` executes non-empty, non-comment lines from the script.
+
+## Common Examples
+
+### Run a script in headless mode
 
 ```bash
-#!/bin/bash
-set -e
-
-# Start Oryn and run test script
-oryn headless < tests/e2e/login-test.oil
-
-echo "Test passed!"
+oryn --file test-harness/scripts/01_static.oil headless
 ```
 
-### Remote Assistance
+### Remote assistance session
 
 ```bash
-# Terminal 1: Start server
+# Terminal 1
 oryn remote --port 9001
 
-# User: Opens browser with extension and connects
-
-# Terminal 1: Now control user's browser
-> goto myapp.com
-> observe
-> click "Help"
+# Browser
+# Load extension/ and connect to localhost:9001
 ```
+
+## Related References
+
+- [Intent Commands](../reference/intent-commands.md)
+- [Backend Modes](../concepts/backend-modes.md)
+- [Troubleshooting](../guides/troubleshooting.md)

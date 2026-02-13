@@ -16,6 +16,38 @@ Oryn is designed to be integrated into AI agent systems. The CLI provides a simp
 
     [:octicons-arrow-right-24: Google ADK Integration](google-adk.md)
 
+-   :material-chart-line:{ .lg .middle } **IntentGym**
+
+    ---
+
+    Run reproducible Oryn-based benchmark evaluations for web agents.
+
+    [:octicons-arrow-right-24: IntentGym Guide](intentgym.md)
+
+-   :material-language-python:{ .lg .middle } **Python SDK**
+
+    ---
+
+    Drive Oryn from Python with sync/async pass-through clients.
+
+    [:octicons-arrow-right-24: Python SDK Guide](python-sdk.md)
+
+-   :material-connection:{ .lg .middle } **Remote Extension**
+
+    ---
+
+    Connect `oryn remote` to the browser extension in `extension/`.
+
+    [:octicons-arrow-right-24: Remote Extension Guide](remote-extension.md)
+
+-   :material-language-rust:{ .lg .middle } **WASM Extension**
+
+    ---
+
+    Build and run the standalone `extension-w/` browser extension.
+
+    [:octicons-arrow-right-24: WASM Extension Guide](wasm-extension.md)
+
 </div>
 
 ## Integration Approaches
@@ -64,6 +96,10 @@ def browser_action(command: str) -> str:
 
 | Framework | Status | Documentation |
 |-----------|--------|---------------|
+| IntentGym | Supported | [Guide](intentgym.md) |
+| Python SDK (`oryn-python`) | Supported | [Guide](python-sdk.md) |
+| Remote Extension (`extension`) | Supported | [Guide](remote-extension.md) |
+| WASM Extension (`extension-w`) | Supported | [Guide](wasm-extension.md) |
 | Google ADK | Supported | [Guide](google-adk.md) |
 | LangChain | Planned | Coming soon |
 | AutoGPT | Planned | Coming soon |

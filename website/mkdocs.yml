@@ -27,9 +27,15 @@ nav:
   - Integrations:
       - Overview: integrations/index.md
       - Google ADK: integrations/google-adk.md
+      - IntentGym: integrations/intentgym.md
+      - Python SDK: integrations/python-sdk.md
+      - Remote Extension: integrations/remote-extension.md
+      - WASM Extension: integrations/wasm-extension.md
   - Reference:
       - Overview: reference/index.md
       - Intent Commands: reference/intent-commands.md
+      - Command Coverage: reference/command-coverage.md
+      - Truth & Trust: reference/truth-and-trust.md
       - Scanner Commands: reference/scanner-commands.md
       - Configuration: reference/configuration.md
       - Error Codes: reference/error-codes.md

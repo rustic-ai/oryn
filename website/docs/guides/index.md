@@ -28,7 +28,7 @@ These guides walk you through real-world scenarios and best practices for using 
 
     ---
 
-    Define your own intent commands for repeated workflows.
+    Current status and practical alternatives for repeated workflows.
 
     [:octicons-arrow-right-24: Custom Intents](custom-intents.md)
 
@@ -94,6 +94,6 @@ Many sites show cookie banners or modals. Dismiss them first:
 ```
 goto example.com
 accept_cookies
-dismiss_popups
+dismiss popups
 observe
 ```

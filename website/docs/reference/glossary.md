@@ -27,7 +27,7 @@ The protocol used by oryn-h to communicate with Chromium browsers.
 A WPE WebKit browser used by oryn-e in embedded mode.
 
 ### Checkpoint
-A named point in a multi-step intent that allows resumption on failure.
+An engine/design concept for resumable multi-step intents. Not currently exposed as a stable unified CLI command feature.
 
 ## D
 
@@ -51,7 +51,7 @@ Classification of an element: input, button, link, select, textarea, checkbox, r
 ## F
 
 ### Flow
-A multi-page intent definition that spans multiple page navigations.
+A multi-page automation concept. In unified CLI today, the practical form is `.oil` scripts rather than declarative flow definitions.
 
 ## I
 
@@ -126,7 +126,7 @@ A command that targets elements by text or role rather than ID (e.g., `click "Si
 Referencing elements by meaning (text, role) rather than implementation (ID, selector).
 
 ### Session Intent
-An intent defined during a session using the `define` command. Session intents are lost when Oryn exits.
+An intended runtime concept for `define`-based temporary intents. In unified CLI today, `define`/session intent management is not fully wired end-to-end.
 
 ### Stale Element
 An element reference that is no longer valid because the DOM changed.

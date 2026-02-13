@@ -1,620 +1,302 @@
 # Intent Commands Reference
 
-Complete reference for all Oryn Intent Language commands.
+Current command support in the unified `oryn` CLI.
 
-## Command Syntax
+## Command Form
 
-```
+```text
 command [target] [arguments] [--options]
 ```
 
-## Navigation Commands
+## Target Forms
 
-### goto
+- Numeric ID: `click 5`
+- Text: `click "Sign in"`
+- Role-like token: `type email "user@example.com"`
+- Selector: `click css(".btn")`
+- Relational: `click "Edit" near "Item 1"`
 
-Navigate to a URL.
+## Navigation
 
-```
-goto <url> [--timeout <duration>]
-```
+### `goto`
 
-**Arguments:**
-
-| Argument | Description |
-|----------|-------------|
-| `url` | Full URL, domain, or relative path |
-
-**Options:**
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout` | 30s | Navigation timeout |
-
-**Examples:**
-
-```
-goto google.com
-goto https://github.com/login
-goto /about                      # Relative path
-goto example.com --timeout 60s
+```text
+goto <url> [--headers "<json>"] [--timeout <duration>]
 ```
 
-### back
+Note: `--headers` and `--timeout` parse but are currently not applied in unified translation.
 
-Navigate to the previous page in history.
+### `back`
 
-```
+```text
 back
 ```
 
-### forward
+### `forward`
 
-Navigate to the next page in history.
-
-```
+```text
 forward
 ```
 
-### refresh
+### `refresh`
 
-Reload the current page.
-
-```
+```text
 refresh [--hard]
 ```
 
-**Options:**
+Note: `--hard` is parsed, but current executor/backend wiring does not distinguish hard vs soft refresh.
 
-| Option | Description |
-|--------|-------------|
-| `--hard` | Clear cache before refreshing |
+### `url`
 
-### url
-
-Get the current page URL.
-
-```
+```text
 url
 ```
 
-**Response:**
+## Observation
 
-```
-https://example.com/current/path
-```
+### `observe` (alias: `scan`)
 
-## Observation Commands
-
-### observe / scan
-
-Scan the page and list interactive elements.
-
-```
-observe [--full] [--minimal] [--near <text>] [--viewport-only]
+```text
+observe [--full] [--minimal] [--viewport] [--hidden] [--positions] [--diff] [--near <text>] [--timeout <duration>]
 ```
 
-**Options:**
+Notes:
 
-| Option | Description |
-|--------|-------------|
-| `--full` | Include selectors, positions, and detailed attributes |
-| `--minimal` | Only counts, no element details |
-| `--near <text>` | Filter to elements near specific text |
-| `--viewport-only` | Only elements visible in viewport |
+- `scan` is normalized to `observe`.
+- `--minimal`, `--positions`, and `--timeout` are parsed but currently have limited/no translation effect.
 
-**Response:**
+### `html`
 
-```
-@ github.com/login "Sign in to GitHub"
-
-[1] input/email "Username or email" {required}
-[2] input/password "Password" {required}
-[3] button/submit "Sign in" {primary}
-
-# patterns
-- login_form: email=[1] password=[2] submit=[3]
+```text
+html [--selector "<css>"]
 ```
 
-### text
+### `text`
 
-Get the text content of the page or an element.
-
-```
-text [<target>]
+```text
+text [--selector "<css>"] [<target>]
 ```
 
-**Arguments:**
+Note: current translation uses selector-based extraction; target support is limited.
 
-| Argument | Description |
-|----------|-------------|
-| `target` | Optional element to get text from |
+### `title`
 
-### title
-
-Get the page title.
-
-```
+```text
 title
 ```
 
-### screenshot
+### `screenshot`
 
-Capture a screenshot.
-
-```
-screenshot [--output <path>] [--element <target>] [--format <format>]
+```text
+screenshot [--output <path>] [--format png|jpeg|webp] [--fullpage] [<target>]
 ```
 
-**Options:**
+Note: target parsing exists, but element-target capture is currently limited in translation.
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--output` | ./screenshot.png | Output file path |
-| `--element` | (full page) | Specific element to capture |
-| `--format` | png | Image format (png, jpeg, webp) |
+## Actions
 
-## Action Commands
+### `click`
 
-### click
-
-Click an element.
-
-```
-click <target> [--double] [--right] [--middle] [--force]
+```text
+click <target> [--double] [--right] [--middle] [--force] [--ctrl] [--shift] [--alt] [--timeout <duration>]
 ```
 
-**Target Types:**
+Note: `--ctrl/--shift/--alt` and `--timeout` are parsed, but currently not applied by translation/execution.
 
-| Type | Example |
-|------|---------|
-| ID | `click 5` |
-| Text | `click "Sign in"` |
-| Role | `click submit` |
-| Selector | `click css(".btn")` |
-| Relational | `click "Edit" near "Item 1"` |
+### `type`
 
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--double` | Double-click |
-| `--right` | Right-click (context menu) |
-| `--middle` | Middle-click |
-| `--force` | Click even if element is covered |
-
-### type
-
-Type text into an input element.
-
-```
-type <target> <text> [--append] [--enter] [--delay <ms>]
+```text
+type <target> "<text>" [--append] [--enter] [--delay <ms>] [--clear] [--timeout <duration>]
 ```
 
-**Arguments:**
+Note: `--append` and `--timeout` parse but are currently not applied in unified translation.
 
-| Argument | Description |
-|----------|-------------|
-| `target` | Element to type into |
-| `text` | Text to type |
+### `clear`
 
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--append` | Don't clear existing content |
-| `--enter` | Press Enter after typing |
-| `--delay` | Milliseconds between keystrokes |
-
-**Examples:**
-
-```
-type 1 "hello world"
-type email "user@test.com"
-type "Search" "oryn browser" --enter
-type 5 "more text" --append
-```
-
-### clear
-
-Clear an input field.
-
-```
+```text
 clear <target>
 ```
 
-### press
+### `press`
 
-Press a keyboard key.
-
-```
-press <key>
+```text
+press <key-or-combo>
 ```
 
-**Key Names:**
+Examples:
 
-- `Enter`, `Tab`, `Escape`, `Space`, `Backspace`, `Delete`
-- `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`
-- `Home`, `End`, `PageUp`, `PageDown`
-- `F1` through `F12`
-- `Control`, `Shift`, `Alt`, `Meta`
-
-**Combinations:**
-
-```
-press Control+A
-press Control+C
-press Shift+Tab
-press Alt+F4
+```text
+press enter
+press control+a
+press shift+tab
 ```
 
-### select
+### `select`
 
-Select an option from a dropdown.
-
-```
-select <target> <value> [--index]
+```text
+select <target> <value-or-index>
 ```
 
-**Arguments:**
+Notes:
 
-| Argument | Description |
-|----------|-------------|
-| `target` | Select element |
-| `value` | Value or text to select |
+- String argument selects by label/value semantics.
+- Numeric argument is translated as index.
 
-**Options:**
+### `check`
 
-| Option | Description |
-|--------|-------------|
-| `--index` | Select by zero-based index |
-
-**Examples:**
-
-```
-select 3 "Option 1"        # By text
-select 3 "opt1"            # By value
-select 3 --index 2         # By index (third option)
-```
-
-### check
-
-Check a checkbox.
-
-```
+```text
 check <target>
 ```
 
-### uncheck
+### `uncheck`
 
-Uncheck a checkbox.
-
-```
+```text
 uncheck <target>
 ```
 
-### hover
+### `hover`
 
-Move mouse over an element.
-
-```
+```text
 hover <target>
 ```
 
-### focus
+### `focus`
 
-Set keyboard focus to an element.
-
-```
+```text
 focus <target>
 ```
 
-### scroll
+### `scroll`
 
-Scroll the viewport or a container.
-
-```
-scroll [<direction>] [<amount>] [--to <target>]
+```text
+scroll [up|down|left|right] [<target>] [--amount <n>] [--page] [--timeout <duration>]
 ```
 
-**Directions:**
+Examples:
 
-`up`, `down`, `left`, `right`, `top`, `bottom`
-
-**Arguments:**
-
-| Argument | Description |
-|----------|-------------|
-| `direction` | Scroll direction |
-| `amount` | Pixels to scroll |
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--to` | Scroll element into view |
-
-**Examples:**
-
-```
+```text
 scroll down
-scroll down 500
-scroll up 200
-scroll top
-scroll bottom
-scroll --to "Footer"
-scroll to 15            # Scroll element [15] into view
+scroll --amount 300
+scroll down --amount 500
+scroll 12
 ```
 
-## Wait Commands
+Note: `--timeout` is parsed but currently not applied in unified translation.
 
-### wait
+### `submit`
 
-Wait for a condition.
-
-```
-wait <condition> [<target>] [--timeout <duration>]
+```text
+submit [<target>]
 ```
 
-**Conditions:**
+## Wait
 
-| Condition | Description |
-|-----------|-------------|
-| `load` | Page load complete |
-| `idle` | Network idle |
-| `visible <target>` | Element becomes visible |
-| `hidden <target>` | Element becomes hidden |
-| `exists <selector>` | Element appears in DOM |
-| `gone <selector>` | Element removed from DOM |
-| `url <pattern>` | URL matches pattern |
-| `enabled <target>` | Element becomes enabled |
+### `wait`
 
-**Examples:**
-
-```
-wait load
-wait idle
-wait visible "Success"
-wait hidden "Loading..."
-wait url "/dashboard"
-wait enabled 5 --timeout 10s
+```text
+wait load|idle|navigation [--timeout <duration>]
+wait visible <target> [--timeout <duration>]
+wait hidden <target> [--timeout <duration>]
+wait exists "<selector>" [--timeout <duration>]
+wait gone "<selector>" [--timeout <duration>]
+wait url "<pattern>" [--timeout <duration>]
+wait until "<expression>" [--timeout <duration>]
+wait items "<selector>" <count> [--timeout <duration>]
 ```
 
-## Intent Commands
+Notes:
 
-### login
+- `ready` is parsed in grammar but not currently mapped to a supported scanner wait condition.
+- `wait url "<pattern>"` currently waits for generic navigation and does not apply URL pattern matching in translation.
+- `wait enabled` is not currently part of supported grammar.
 
-Execute login workflow.
+## Extraction
 
-```
-login <username> <password> [--no-submit] [--wait <duration>]
-```
+### `extract`
 
-**Options:**
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--no-submit` | false | Fill fields but don't submit |
-| `--wait` | 10s | Wait time after submit |
-
-### logout
-
-Execute logout workflow.
-
-```
-logout
+```text
+extract links|images|tables|meta|text|css("<selector>") [--selector "<css>"] [--format json|csv|text]
 ```
 
-### search
+## Intent Commands (Current)
 
-Execute search workflow.
+### `login`
 
-```
-search <query> [--submit enter|click|auto]
-```
-
-**Options:**
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--submit` | auto | How to submit (enter, click, auto) |
-
-### accept_cookies
-
-Dismiss cookie consent banner.
-
-```
-accept_cookies [--reject]
+```text
+login "<username>" "<password>" [--no-submit] [--wait <duration>] [--timeout <duration>]
 ```
 
-**Options:**
+Note: `--no-submit`, `--wait`, and `--timeout` parse but are currently not applied in unified translation.
 
-| Option | Description |
-|--------|-------------|
-| `--reject` | Click reject instead of accept |
+### `search`
 
-### dismiss_popups
-
-Close modal dialogs and overlays.
-
-```
-dismiss_popups [--all] [--type <type>]
+```text
+search "<query>" [--submit enter|click|auto] [--wait <duration>] [--timeout <duration>]
 ```
 
-**Options:**
+Note: `--submit`, `--wait`, and `--timeout` parse but are currently not applied in unified translation.
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--all` | true | Dismiss all popups |
-| `--type` | any | Filter: modal, overlay, toast, banner |
+### `dismiss`
 
-### fill_form
-
-Fill multiple form fields.
-
-```
-fill_form <data> [--pattern <pattern>] [--partial]
+```text
+dismiss popups|modals|modal|banner|"<target>"
 ```
 
-**Arguments:**
+### `accept_cookies`
 
-| Argument | Description |
-|----------|-------------|
-| `data` | JSON object with field:value pairs |
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--pattern` | Target specific form pattern |
-| `--partial` | Allow filling only some fields |
-
-**Example:**
-
-```
-fill_form {"name": "John", "email": "john@test.com", "country": "us"}
+```text
+accept_cookies
 ```
 
-### submit_form
+## Session / Tabs / Utility
 
-Submit the current form.
+### Cookies
 
-```
-submit_form [--pattern <pattern>] [--wait <duration>]
-```
-
-### scroll_to
-
-Scroll an element into view.
-
-```
-scroll_to <target>
-```
-
-## Data Extraction Commands
-
-### extract
-
-Extract data from the page.
-
-```
-extract <type> [--selector <selector>]
-```
-
-**Types:**
-
-| Type | Description |
-|------|-------------|
-| `links` | All hyperlinks |
-| `images` | All images with src/alt |
-| `tables` | Table data |
-| `meta` | Page metadata |
-
-## Session Commands
-
-### cookies
-
-Manage cookies.
-
-```
+```text
 cookies list
 cookies get <name>
-cookies set <name> <value>
+cookies set <name> "<value>"
 cookies delete <name>
 cookies clear
 ```
 
-### storage
+Note: `cookies clear` is currently limited in executor support.
 
-Manage localStorage/sessionStorage.
+### Tabs
 
-```
-storage get <key>
-storage set <key> <value>
-storage delete <key>
-storage clear
-```
-
-## Tab Commands
-
-### tabs
-
-List open tabs.
-
-```
+```text
 tabs
+tab new <url>
+tab switch <index>
+tab close [<index>]
 ```
 
-### tab
+Note: `tabs` listing is implemented; `tab new/switch/close` are currently limited in executor support.
 
-Manage tabs.
+### PDF
 
-```
-tab new [<url>]      # Open new tab
-tab switch <id>      # Switch to tab
-tab close [<id>]     # Close tab
+```text
+pdf <path> [--format A4|Letter|...] [--landscape] [--margin <value>]
 ```
 
-## Intent Management
+Note: backend support is primarily headless mode.
 
-### intents
+### Exit
 
-List available intents.
-
-```
-intents [--session] [--builtin] [--loaded]
-```
-
-### define
-
-Define a session intent.
-
-```
-define <name>:
-  [description: "<description>"]
-  [parameters: <params>]
-  steps:
-    <steps>
-  [success: <conditions>]
-```
-
-### undefine
-
-Remove a session intent.
-
-```
-undefine <name>
-```
-
-### export
-
-Export an intent to a file.
-
-```
-export <name> --out <path>
-```
-
-## System Commands
-
-### exit
-
-Exit Oryn.
-
-```
+```text
 exit
+quit
 ```
 
-### help
+## Not Currently Available in Unified CLI
 
-Show help information.
+These appear in older docs/spec drafts but are not currently end-to-end available in the unified command path:
 
-```
-help [<command>]
-```
-
-### version
-
-Show version information.
-
-```
-version
-```
+- `logout`
+- `dismiss_popups`
+- `fill_form`
+- `submit_form`
+- `scroll_to`
+- `version`
+- `wait enabled ...`
+- intent-management commands (`intents`, `define`, `undefine`, `export`, `run`) are present in grammar/parser surface but currently incomplete/stubbed in execution.
