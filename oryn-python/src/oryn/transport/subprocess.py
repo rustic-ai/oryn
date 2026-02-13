@@ -1,6 +1,7 @@
 """Subprocess transport for communicating with oryn via stdin/stdout."""
 
 import asyncio
+from collections import deque
 import os
 from typing import Optional
 
@@ -29,6 +30,10 @@ class SubprocessTransport(Transport):
         self._connected = False
         self._reader_task: Optional[asyncio.Task] = None
         self._response_queue: asyncio.Queue[str] = asyncio.Queue()
+        self._stderr_task: Optional[asyncio.Task] = None
+        self._stderr_tail: deque[str] = deque()
+        self._stderr_tail_chars = 0
+        self._stderr_tail_limit_chars = 16_384
         self._lock = asyncio.Lock()
         self._log_file_handle = None
 
@@ -44,14 +49,13 @@ class SubprocessTransport(Transport):
         env = os.environ.copy()
         env.update(self._config.env)
 
-        # Prepare stderr redirection
+        # Prepare stderr logging (always pipe so we can drain and avoid deadlocks).
         stderr = asyncio.subprocess.PIPE
         if self._config.log_file:
             try:
-                self._log_file_handle = open(self._config.log_file, "a")
-                stderr = self._log_file_handle
+                self._log_file_handle = open(self._config.log_file, "a", encoding="utf-8")
             except Exception:
-                # Fallback to PIPE if file opening fails
+                # Keep stderr piped even if file opening fails.
                 pass
 
         try:
@@ -73,6 +77,9 @@ class SubprocessTransport(Transport):
                 self._log_file_handle = None
             raise LaunchError(f"Permission denied launching oryn: {e}")
 
+        if self._process.stderr:
+            self._stderr_task = asyncio.create_task(self._drain_stderr())
+
         # Wait for the initial prompt/ready message
         try:
             await asyncio.wait_for(
@@ -80,7 +87,14 @@ class SubprocessTransport(Transport):
                 timeout=self._config.connect_timeout,
             )
         except asyncio.TimeoutError:
+            returncode = self._process.returncode if self._process else None
+            stderr_tail = self._get_stderr_tail()
             await self._kill_process()
+            if returncode is not None:
+                raise LaunchError(
+                    f"oryn subprocess exited before ready (exit code: {returncode})",
+                    stderr=stderr_tail or None,
+                )
             raise TimeoutError("connect", self._config.connect_timeout)
 
         self._connected = True
@@ -88,7 +102,7 @@ class SubprocessTransport(Transport):
     async def _wait_for_ready(self) -> None:
         """Wait for oryn to be ready (initial output)."""
         if not self._process or not self._process.stdout:
-            return
+            raise LaunchError("oryn subprocess has no stdout pipe")
 
         # Read until we see the initial banner and prompt
         # Oryn outputs: "Backend launched. Enter commands..."
@@ -98,13 +112,30 @@ class SubprocessTransport(Transport):
             try:
                 chunk = await self._process.stdout.read(1024)
                 if not chunk:
-                    break
+                    returncode = self._process.returncode
+                    if returncode is None:
+                        await asyncio.sleep(0.01)
+                        returncode = self._process.returncode
+                    stderr_tail = self._get_stderr_tail()
+                    if returncode is not None:
+                        raise LaunchError(
+                            f"oryn subprocess exited before ready (exit code: {returncode})",
+                            stderr=stderr_tail or None,
+                        )
+                    raise LaunchError(
+                        "oryn subprocess closed stdout before becoming ready",
+                        stderr=stderr_tail or None,
+                    )
                 buffer += chunk.decode("utf-8", errors="replace")
                 # Look for the ready indicator (prompt)
-                if ">" in buffer or "launched" in buffer.lower():
+                if "\n> " in buffer or buffer.endswith("\n>") or buffer.endswith("> "):
                     break
-            except Exception:
-                break
+                if "backend launched." in buffer.lower() and "> " in buffer:
+                    break
+            except LaunchError:
+                raise
+            except Exception as e:
+                raise LaunchError(f"Failed while waiting for oryn readiness: {e}")
 
     async def send(self, command: str) -> str:
         """Send a command and receive the response.
@@ -143,6 +174,8 @@ class SubprocessTransport(Transport):
             )
             return response
         except asyncio.TimeoutError:
+            if self._process.returncode is not None:
+                raise ConnectionLostError(self._process.returncode)
             raise TimeoutError(command.split()[0] if command else "command", self._config.timeout)
 
     async def _read_response(self) -> str:
@@ -156,10 +189,12 @@ class SubprocessTransport(Transport):
                 # Read available data
                 chunk = await self._process.stdout.read(4096)
                 if not chunk:
-                    # EOF - process may have died
-                    if self._process.returncode is not None:
-                        raise ConnectionLostError(self._process.returncode)
-                    break
+                    # EOF means stdout closed - treat as lost connection.
+                    returncode = self._process.returncode
+                    if returncode is None:
+                        await asyncio.sleep(0.01)
+                        returncode = self._process.returncode
+                    raise ConnectionLostError(returncode)
 
                 buffer += chunk.decode("utf-8", errors="replace")
 
@@ -181,7 +216,8 @@ class SubprocessTransport(Transport):
                 raise
             except Exception as e:
                 # Connection issue
-                raise ConnectionLostError() from e
+                returncode = self._process.returncode if self._process else None
+                raise ConnectionLostError(returncode) from e
 
         return buffer.strip()
 
@@ -207,6 +243,13 @@ class SubprocessTransport(Transport):
 
             await self._kill_process()
 
+        if self._stderr_task:
+            try:
+                await self._stderr_task
+            except Exception:
+                pass
+            self._stderr_task = None
+
         if self._log_file_handle:
             try:
                 self._log_file_handle.close()
@@ -225,6 +268,44 @@ class SubprocessTransport(Transport):
             except Exception:
                 pass
             self._process = None
+
+    async def _drain_stderr(self) -> None:
+        """Continuously drain stderr to avoid subprocess backpressure deadlocks."""
+        if not self._process or not self._process.stderr:
+            return
+
+        while True:
+            chunk = await self._process.stderr.read(4096)
+            if not chunk:
+                break
+
+            text = chunk.decode("utf-8", errors="replace")
+            self._append_stderr_tail(text)
+
+            if self._log_file_handle:
+                try:
+                    self._log_file_handle.write(text)
+                    self._log_file_handle.flush()
+                except Exception:
+                    pass
+
+    def _append_stderr_tail(self, text: str) -> None:
+        """Append stderr output to a bounded in-memory tail."""
+        if not text:
+            return
+
+        self._stderr_tail.append(text)
+        self._stderr_tail_chars += len(text)
+
+        while self._stderr_tail and self._stderr_tail_chars > self._stderr_tail_limit_chars:
+            removed = self._stderr_tail.popleft()
+            self._stderr_tail_chars -= len(removed)
+
+    def _get_stderr_tail(self) -> str:
+        """Get recent stderr output for diagnostics."""
+        if not self._stderr_tail:
+            return ""
+        return "".join(self._stderr_tail).strip()
 
     def is_connected(self) -> bool:
         """Check if connected to oryn."""

@@ -27,6 +27,8 @@ from .oryn import OrynInterface, OrynObservation
 class BenchmarkRunner:
     """Orchestrates the benchmark run."""
 
+    RECOVERY_MAX_ATTEMPTS = 1
+
     def __init__(self, config: RunConfig):
         self.config = config
         self.results: List[TaskMetrics] = []
@@ -142,14 +144,11 @@ class BenchmarkRunner:
                 # Restart browser between tasks to prevent accumulated state issues
                 if i > 0:
                     logger.info(f"Restarting browser before task {task.task_id}...")
-                    try:
-                        self.oryn.close()
-                        time.sleep(1)
-                        self.oryn = OrynInterface(mode=self.config.oryn_mode, **self.config.oryn_options)
-                        self.oryn.connect()
-                        logger.info("✓ Browser restarted successfully")
-                    except Exception as e:
-                        logger.warning(f"⚠ Browser restart failed: {e}, continuing anyway...")
+                    if not self._restart_oryn_session(
+                        reason=f"before task {task.task_id}",
+                        attempts=self.RECOVERY_MAX_ATTEMPTS,
+                    ):
+                        logger.warning("⚠ Browser restart failed, continuing anyway...")
 
                 result = self._run_task(task)
                 self.results.append(result)
@@ -160,16 +159,12 @@ class BenchmarkRunner:
                     logger.error(f"Browser connection lost for task {task.task_id}. Attempting to recover...")
                     logger.error(f"Traceback:\n{traceback.format_exc()}")
 
-                    try:
-                        # Close and reinitialize Oryn
-                        self.oryn.close()
-                        time.sleep(1)
-                        self.oryn = OrynInterface(mode=self.config.oryn_mode, **self.config.oryn_options)
-                        self.oryn.connect()
-                        logger.info("✓ Browser connection recovered")
-
+                    if self._restart_oryn_session(
+                        reason=f"after failure in task {task.task_id}",
+                        attempts=self.RECOVERY_MAX_ATTEMPTS,
+                    ):
                         # Create a failed result for this task
-                        from ..collection.metrics import Evaluation, TaskMetrics
+                        from ..collection.metrics import TaskMetrics
                         failed_result = TaskMetrics(
                             task_id=task.task_id,
                             config=self.config,
@@ -192,9 +187,8 @@ class BenchmarkRunner:
                         logger.info(f"Skipping failed task {task.task_id}, continuing to next task...")
                         continue
 
-                    except Exception as recover_error:
-                        logger.error(f"✗ Failed to recover browser: {recover_error}")
-                        raise
+                    logger.error("✗ Failed to recover browser")
+                    raise
                 else:
                     raise
 
@@ -204,6 +198,67 @@ class BenchmarkRunner:
         """Clean up resources."""
         if hasattr(self, 'oryn'):
             self.oryn.close()
+
+    def _is_recoverable_error(self, error: Exception | str | None) -> bool:
+        if error is None:
+            return False
+
+        text = error if isinstance(error, str) else f"{type(error).__name__}: {error}"
+        lower = text.lower()
+        recoverable_markers = [
+            "timeouterror",
+            "connectionlosterror",
+            "timed out",
+            "connection lost",
+            "webdriver connection lost",
+            "webdriver session has been closed",
+        ]
+        return any(marker in lower for marker in recoverable_markers)
+
+    def _restart_oryn_session(self, reason: str, attempts: int = 1) -> bool:
+        for attempt in range(1, attempts + 1):
+            logger.warning(
+                f"Restarting Oryn session ({attempt}/{attempts}) due to: {reason}"
+            )
+
+            try:
+                self.oryn.close()
+            except Exception as close_error:
+                logger.debug(f"Ignoring close error during recovery: {close_error}")
+
+            time.sleep(0.5)
+
+            try:
+                self.oryn = OrynInterface(
+                    mode=self.config.oryn_mode, **self.config.oryn_options
+                )
+                self.oryn.connect()
+                logger.info("✓ Browser session restarted successfully")
+                return True
+            except Exception as restart_error:
+                logger.warning(f"Restart attempt failed: {restart_error}")
+
+        return False
+
+    def _make_failed_episode(self, episode_num: int, error: Exception | str) -> EpisodeMetrics:
+        message = str(error)
+        return EpisodeMetrics(
+            episode_number=episode_num,
+            success=False,
+            partial_score=0.0,
+            total_steps=0,
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_observation_tokens=0,
+            total_cost_usd=0.0,
+            total_duration_ms=0.0,
+            observation_ratio=0.0,
+            peak_context_tokens=0,
+            failed_actions=1,
+            timeout="timed out" in message.lower(),
+            error=message,
+            turns=[],
+        )
 
     def _run_task(self, task: Task) -> TaskMetrics:
         """Dispatch to single-episode or multi-episode runner based on config."""
@@ -361,7 +416,16 @@ class BenchmarkRunner:
             )
 
         # Navigate to task URL once
-        self.oryn.goto(task.start_url)
+        try:
+            self.oryn.goto(task.start_url)
+        except Exception as e:
+            if self._is_recoverable_error(e) and self._restart_oryn_session(
+                reason=f"initial navigation for task {task.task_id}",
+                attempts=self.RECOVERY_MAX_ATTEMPTS,
+            ):
+                self.oryn.goto(task.start_url)
+            else:
+                raise
 
         for episode_num in range(1, num_episodes + 1):
             logger.info(f"Episode {episode_num}/{num_episodes} starting...")
@@ -372,6 +436,7 @@ class BenchmarkRunner:
             # CRITICAL: Harness clicks START button (not agent!)
             # This gives the agent the full 10 seconds for the task
             start_clicked = False
+            pre_episode_error = None
             try:
                 # Wait briefly for page to be ready
                 time.sleep(0.2)
@@ -410,6 +475,35 @@ class BenchmarkRunner:
                 # Log the error but continue - START clicking is optional
                 logger.warning(f"  ✗ Failed to click START: {e}")
                 logger.debug(f"Traceback:\n{traceback.format_exc()}")
+                if self._is_recoverable_error(e):
+                    recovered = self._restart_oryn_session(
+                        reason=f"episode {episode_num} pre-start failure",
+                        attempts=self.RECOVERY_MAX_ATTEMPTS,
+                    )
+                    if recovered:
+                        try:
+                            self.oryn.goto(task.start_url)
+                            time.sleep(0.2)
+                        except Exception as nav_error:
+                            pre_episode_error = nav_error
+                    pre_episode_error = e
+
+            if pre_episode_error is not None:
+                episode_metrics = self._make_failed_episode(episode_num, pre_episode_error)
+                episode_results.append(episode_metrics)
+                status_icon = "✗"
+                logger.info(
+                    f"Episode {episode_num}/{num_episodes} complete: {status_icon} Failed "
+                    f"(recovery failed before episode start)"
+                )
+                if transcript:
+                    transcript.end_episode(
+                        success=False,
+                        steps=0,
+                        duration_ms=0.0,
+                        error=episode_metrics.error,
+                    )
+                continue
 
             # Reset agent for fresh episode
             self.agent.reset()
@@ -436,9 +530,26 @@ class BenchmarkRunner:
                     error=episode_metrics.error,
                 )
 
+            if self._is_recoverable_error(episode_metrics.error):
+                self._restart_oryn_session(
+                    reason=f"episode {episode_num} ended with recoverable error",
+                    attempts=self.RECOVERY_MAX_ATTEMPTS,
+                )
+
             # Reset environment for next episode
-            self.oryn.goto(task.start_url)
-            time.sleep(0.2)
+            if episode_num < num_episodes:
+                try:
+                    self.oryn.goto(task.start_url)
+                    time.sleep(0.2)
+                except Exception as e:
+                    if self._is_recoverable_error(e) and self._restart_oryn_session(
+                        reason=f"episode {episode_num} reset navigation failed",
+                        attempts=self.RECOVERY_MAX_ATTEMPTS,
+                    ):
+                        self.oryn.goto(task.start_url)
+                        time.sleep(0.2)
+                    else:
+                        raise
 
         # Aggregate results
         aggregated = self._aggregate_episode_metrics(

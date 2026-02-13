@@ -21,3 +21,8 @@ This project strictly uses **Poetry** for dependency management and execution.
     ```bash
     poetry run intentgym run --config configs/miniwob_litellm.yaml
     ```
+
+## MiniWoB Stability Notes
+
+- Default MiniWoB configs run in headless mode without `--visible` for long-run stability.
+- Use `configs/miniwob_100ep_visible_debug.yaml` only when you need a headed browser for local debugging.
