@@ -51,7 +51,7 @@
     "eslint": "^8.57.0",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
-    "puppeteer": "^21.11.0",
+    "puppeteer": "^24.37.3",
     "sinon": "^21.0.1",
     "sinon-chrome": "^3.0.1"
   }
