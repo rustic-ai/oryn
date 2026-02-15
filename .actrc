@@ -1,0 +1,2 @@
+--action-cache-path /tmp/act-cache
+-P ubuntu-latest=catthehacker/ubuntu:full-latest

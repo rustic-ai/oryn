@@ -1,0 +1,172 @@
+name: Preview Release
+
+on:
+  push:
+    tags:
+      - "preview-v*"
+  workflow_dispatch:
+    inputs:
+      preview_tag:
+        description: "Preview tag to publish (example: preview-v0.2.0-rc1)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            crates/oryn-scanner/package-lock.json
+            extension-w/package-lock.json
+
+      - name: Rust fmt
+        run: cargo fmt --all -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --workspace
+
+      - name: Scanner install
+        working-directory: crates/oryn-scanner
+        run: npm ci
+
+      - name: Scanner checks
+        working-directory: crates/oryn-scanner
+        run: npm run check
+
+      - name: Extension install
+        working-directory: extension-w
+        run: npm ci
+
+      - name: Extension lint
+        working-directory: extension-w
+        run: npm run lint
+
+      - name: Extension tests
+        working-directory: extension-w
+        run: npm run test:all
+
+      - name: Quick E2E
+        run: ./scripts/run-e2e-tests.sh --quick
+
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-validate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            e2e-results/**
+            test-harness.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  build-extension:
+    name: build-extension
+    runs-on: ubuntu-latest
+    needs: validate
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Build extension bundle
+        run: ./scripts/build-extension-w.sh
+
+      - name: Pack extension artifacts
+        run: ./scripts/pack-extension-w.sh
+
+      - name: Verify package files
+        run: |
+          ls -l dist/
+          test -n "$(ls -1 dist/oryn-w-*.zip)"
+          test -n "$(ls -1 dist/oryn-w-*.sha256)"
+          test -n "$(ls -1 dist/oryn-w-*.txt)"
+
+      - name: Upload preview package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-dist-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/oryn-w-*.zip
+            dist/oryn-w-*.sha256
+            dist/oryn-w-*.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs: build-extension
+    permissions:
+      contents: write
+    steps:
+      - name: Download preview artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: preview-dist-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist
+
+      - name: Create GitHub preview release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.preview_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/oryn-w-*.zip
+            dist/oryn-w-*.sha256
+            dist/oryn-w-*.txt

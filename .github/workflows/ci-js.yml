@@ -1,0 +1,63 @@
+name: CI JS
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scanner-check:
+    name: scanner-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: crates/oryn-scanner/package-lock.json
+
+      - name: Install scanner dependencies
+        working-directory: crates/oryn-scanner
+        run: npm ci
+
+      - name: Run scanner checks
+        working-directory: crates/oryn-scanner
+        run: npm run check
+
+  extension-test:
+    name: extension-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: extension-w/package-lock.json
+
+      - name: Install extension dependencies
+        working-directory: extension-w
+        run: npm ci
+
+      - name: Lint extension
+        working-directory: extension-w
+        run: npm run lint
+
+      - name: Run extension tests
+        working-directory: extension-w
+        run: npm run test:all
