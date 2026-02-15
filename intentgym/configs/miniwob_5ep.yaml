@@ -15,8 +15,8 @@ prompt_template: oil_instructions_v2
 oryn_mode: headless
 oryn_options:
   binary_path: ../target/release/oryn
-  cli_args: ["--visible"]
   timeout: 60.0  # Increase timeout for slow operations (default: 30s)
+  log_file: oryn_debug.log
 
 # Save detailed transcript to markdown file (default: true)
 save_transcript: true

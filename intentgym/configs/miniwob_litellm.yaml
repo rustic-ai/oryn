@@ -13,5 +13,6 @@ max_steps: 50
 prompt_template: oil_instructions_v2
 oryn_mode: headless
 oryn_options:
-  binary_path: ../target/debug/oryn
-  cli_args: ["--visible"]
+  binary_path: ../target/release/oryn
+  timeout: 60.0
+  log_file: oryn_debug.log

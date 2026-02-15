@@ -36,5 +36,11 @@ e2e-results/
 intentgym/transcripts/
 intentgym/results/
 
+# Documentation site output
+website/site/
+
 # LLM vendor bundles (built from npm packages)
 extension-w/llm/vendor/
+
+# Extension test coverage output
+extension-w/coverage/

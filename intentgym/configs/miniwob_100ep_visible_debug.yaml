@@ -1,4 +1,4 @@
-run_id: miniwob_100ep
+run_id: miniwob_100ep_visible_debug
 benchmark: miniwob
 benchmark_options:
   server_url: http://localhost:8765
@@ -15,5 +15,9 @@ prompt_template: oil_instructions_v2
 oryn_mode: headless
 oryn_options:
   binary_path: ../target/release/oryn
+  cli_args: ["--visible"]
   timeout: 60.0
   log_file: oryn_debug.log
+
+# Visible mode is for local debugging only, not benchmark CI runs.
+save_transcript: true
