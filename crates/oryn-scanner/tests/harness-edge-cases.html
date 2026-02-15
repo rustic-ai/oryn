@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Edge Cases Harness</title>
+        <style>
+            body {
+                font-family: sans-serif;
+                padding: 20px;
+            }
+            section {
+                margin: 20px 0;
+                padding: 20px;
+                border: 1px solid #ddd;
+            }
+            .hidden {
+                display: none;
+            }
+            .invisible {
+                visibility: hidden;
+            }
+            .transparent {
+                opacity: 0;
+            }
+            .zero-size {
+                width: 0;
+                height: 0;
+                overflow: hidden;
+            }
+            .covered-container {
+                position: relative;
+                width: 150px;
+                height: 50px;
+            }
+            .covered-btn {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 150px;
+                height: 50px;
+            }
+            .overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 150px;
+                height: 50px;
+                background: rgba(255, 0, 0, 0.3);
+                z-index: 10;
+            }
+            .partial-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 75px;
+                height: 50px;
+                background: rgba(0, 255, 0, 0.3);
+                z-index: 10;
+            }
+            .scrollable {
+                height: 200px;
+                overflow: auto;
+                border: 1px solid #ccc;
+            }
+            .scroll-content {
+                height: 800px;
+                padding: 10px;
+            }
+            .viewport-test {
+                margin-top: 2000px;
+            }
+            #log {
+                border: 1px solid #ccc;
+                padding: 10px;
+                height: 100px;
+                overflow: auto;
+                background: #f9f9f9;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Edge Cases Test Harness</h1>
+        <pre id="log">Log:</pre>
+
+        <!-- Visibility Edge Cases -->
+        <section id="visibility-section">
+            <h2>Visibility Edge Cases</h2>
+            <button id="visible-btn" onclick="log('visible clicked')">Visible Button</button>
+            <button id="hidden-btn" class="hidden" onclick="log('hidden clicked')">Hidden (display:none)</button>
+            <button id="invisible-btn" class="invisible" onclick="log('invisible clicked')">
+                Invisible (visibility:hidden)
+            </button>
+            <button id="transparent-btn" class="transparent" onclick="log('transparent clicked')">
+                Transparent (opacity:0)
+            </button>
+            <button id="zero-size-btn" class="zero-size" onclick="log('zero-size clicked')">Zero Size</button>
+            <div style="width: 100px; height: 20px; overflow: hidden">
+                <button id="overflow-hidden-btn" style="margin-top: 50px" onclick="log('overflow clicked')">
+                    Overflow Hidden
+                </button>
+            </div>
+        </section>
+
+        <!-- Covered Element Cases -->
+        <section id="covered-section">
+            <h2>Covered Elements</h2>
+            <div class="covered-container">
+                <button id="fully-covered-btn" class="covered-btn" onclick="log('fully covered clicked')">
+                    Fully Covered
+                </button>
+                <div class="overlay" id="full-overlay"></div>
+            </div>
+            <br /><br />
+            <div class="covered-container">
+                <button id="partially-covered-btn" class="covered-btn" onclick="log('partially covered clicked')">
+                    Partially Covered
+                </button>
+                <div class="partial-overlay" id="partial-overlay"></div>
+            </div>
+            <br /><br />
+            <div class="covered-container">
+                <button id="uncovered-btn" class="covered-btn" onclick="log('uncovered clicked')">Not Covered</button>
+            </div>
+        </section>
+
+        <!-- Disabled Elements -->
+        <section id="disabled-section">
+            <h2>Disabled Elements</h2>
+            <button id="disabled-btn" disabled onclick="log('disabled btn clicked')">Disabled Button</button>
+            <input type="text" id="disabled-input" disabled value="Disabled Input" />
+            <select id="disabled-select" disabled>
+                <option value="1">Option 1</option>
+                <option value="2">Option 2</option>
+            </select>
+            <textarea id="disabled-textarea" disabled>Disabled Textarea</textarea>
+            <input type="checkbox" id="disabled-checkbox" disabled />
+            <button id="enabled-btn" onclick="log('enabled btn clicked')">Enabled Button</button>
+        </section>
+
+        <!-- Readonly Elements -->
+        <section id="readonly-section">
+            <h2>Readonly Elements</h2>
+            <input type="text" id="readonly-input" readonly value="Readonly Input" />
+            <textarea id="readonly-textarea" readonly>Readonly Textarea</textarea>
+        </section>
+
+        <!-- Required Elements -->
+        <section id="required-section">
+            <h2>Required Elements</h2>
+            <form id="required-form">
+                <input type="text" id="required-input" required placeholder="Required field" />
+                <input type="email" id="required-email" required placeholder="Required email" />
+                <select id="required-select" required>
+                    <option value="">Select...</option>
+                    <option value="1">Option 1</option>
+                </select>
+                <button type="submit">Submit</button>
+            </form>
+        </section>
+
+        <!-- Scrollable Container -->
+        <section id="scroll-section">
+            <h2>Scrollable Container</h2>
+            <div id="scroll-container" class="scrollable">
+                <div class="scroll-content">
+                    <button id="scroll-top-btn" onclick="log('scroll top clicked')">Button at Top</button>
+                    <div style="margin-top: 300px">
+                        <button id="scroll-middle-btn" onclick="log('scroll middle clicked')">Button in Middle</button>
+                    </div>
+                    <div style="margin-top: 300px">
+                        <button id="scroll-bottom-btn" onclick="log('scroll bottom clicked')">Button at Bottom</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Contenteditable -->
+        <section id="contenteditable-section">
+            <h2>Contenteditable Elements</h2>
+            <div
+                id="editable-div"
+                contenteditable="true"
+                style="border: 1px solid #ccc; padding: 10px; min-height: 50px"
+            >
+                Edit this content
+            </div>
+            <p id="editable-p" contenteditable="true" style="border: 1px solid #ccc; padding: 5px">
+                Editable paragraph
+            </p>
+        </section>
+
+        <!-- Custom Interactive Elements -->
+        <section id="custom-section">
+            <h2>Custom Interactive Elements</h2>
+            <div
+                id="clickable-div"
+                style="cursor: pointer; padding: 10px; background: #eee"
+                onclick="log('clickable div clicked')"
+            >
+                Clickable Div (cursor: pointer)
+            </div>
+            <span id="onclick-span" onclick="log('onclick span clicked')" style="padding: 5px; background: #ddd">
+                Span with onclick
+            </span>
+            <div
+                id="role-button"
+                role="button"
+                tabindex="0"
+                onclick="log('role button clicked')"
+                style="padding: 10px; background: #ccc"
+            >
+                Div with role="button"
+            </div>
+            <div id="role-link" role="link" tabindex="0" onclick="log('role link clicked')">Div with role="link"</div>
+            <div id="role-checkbox" role="checkbox" tabindex="0" aria-checked="false" onclick="toggleAriaChecked(this)">
+                Div with role="checkbox"
+            </div>
+        </section>
+
+        <!-- Focus Testing -->
+        <section id="focus-section">
+            <h2>Focus Testing</h2>
+            <input type="text" id="focus-input-1" placeholder="Focus Input 1" />
+            <input type="text" id="focus-input-2" placeholder="Focus Input 2" />
+            <button id="focus-btn" onclick="log('focus btn clicked')">Focus Button</button>
+            <a href="#" id="focus-link">Focus Link</a>
+            <div id="focus-div" tabindex="0">Focusable Div</div>
+        </section>
+
+        <!-- Stale Element Testing -->
+        <section id="stale-section">
+            <h2>Stale Element Testing</h2>
+            <div id="stale-container">
+                <button id="stale-btn" onclick="log('stale btn clicked')">Will Be Removed</button>
+            </div>
+            <button id="remove-stale-btn" onclick="removeStaleElement()">Remove Above Button</button>
+            <button id="replace-stale-btn" onclick="replaceStaleElement()">Replace Above Button</button>
+        </section>
+
+        <!-- Dynamic Elements -->
+        <section id="dynamic-section">
+            <h2>Dynamic Elements</h2>
+            <div id="dynamic-container"></div>
+            <button id="add-element-btn" onclick="addDynamicElement()">Add Element</button>
+            <button id="add-delayed-btn" onclick="addDelayedElement()">Add Delayed Element (500ms)</button>
+        </section>
+
+        <!-- Viewport Testing (far down the page) -->
+        <div class="viewport-test">
+            <section id="viewport-section">
+                <h2>Viewport Testing (Below Fold)</h2>
+                <button id="below-fold-btn" onclick="log('below fold clicked')">Below Fold Button</button>
+                <input type="text" id="below-fold-input" placeholder="Below fold input" />
+            </section>
+        </div>
+
+        <script>
+            function log(msg) {
+                const el = document.getElementById('log');
+                el.innerText += '\n' + msg;
+                el.scrollTop = el.scrollHeight;
+            }
+
+            function toggleAriaChecked(el) {
+                const current = el.getAttribute('aria-checked') === 'true';
+                el.setAttribute('aria-checked', !current);
+                log('aria-checked toggled to: ' + !current);
+            }
+
+            function removeStaleElement() {
+                const btn = document.getElementById('stale-btn');
+                if (btn) btn.remove();
+                log('stale-btn removed');
+            }
+
+            function replaceStaleElement() {
+                const container = document.getElementById('stale-container');
+                container.innerHTML =
+                    '<button id="stale-btn-new" onclick="log(\'new stale btn clicked\')">Replacement Button</button>';
+                log('stale-btn replaced');
+            }
+
+            function addDynamicElement() {
+                const container = document.getElementById('dynamic-container');
+                const btn = document.createElement('button');
+                btn.id = 'dynamic-btn-' + Date.now();
+                btn.innerText = 'Dynamic Button';
+                btn.onclick = () => log('dynamic button clicked');
+                container.appendChild(btn);
+                log('dynamic element added');
+            }
+
+            function addDelayedElement() {
+                setTimeout(() => {
+                    const container = document.getElementById('dynamic-container');
+                    const div = document.createElement('div');
+                    div.id = 'delayed-element';
+                    div.innerText = 'Delayed Element Appeared';
+                    container.appendChild(div);
+                    log('delayed element added');
+                }, 500);
+            }
+        </script>
+    </body>
+</html>

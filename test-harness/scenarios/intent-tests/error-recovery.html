@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error Recovery & Retry - Intent Engine Test</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .test-section {
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+        }
+        .test-section h2 {
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+        }
+        .test-description {
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        .error-message {
+            color: #ef4444;
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+            display: none;
+        }
+        .error-message.visible {
+            display: block;
+        }
+        input.error, select.error, textarea.error {
+            border-color: #ef4444;
+            background: #fef2f2;
+        }
+        input.success, select.success {
+            border-color: #22c55e;
+            background: #f0fdf4;
+        }
+        .form-field {
+            margin-bottom: 1rem;
+        }
+        .field-status {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+        .retry-counter {
+            padding: 0.5rem 1rem;
+            background: #fef3c7;
+            border-radius: var(--radius);
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        .flaky-element {
+            padding: 1rem;
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            text-align: center;
+            margin: 1rem 0;
+        }
+        .flaky-element.disabled {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius);
+        }
+        .loading-overlay.visible {
+            display: flex;
+        }
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .popup-blocker {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .popup-blocker.visible {
+            display: flex;
+        }
+        .popup-content {
+            background: white;
+            padding: 2rem;
+            border-radius: var(--radius);
+            text-align: center;
+            max-width: 400px;
+        }
+        .stale-element {
+            padding: 1rem;
+            background: #f1f5f9;
+            border-radius: var(--radius);
+            margin: 1rem 0;
+        }
+        .hidden-button {
+            visibility: hidden;
+            opacity: 0;
+            transition: visibility 0s, opacity 0.5s;
+        }
+        .hidden-button.show {
+            visibility: visible;
+            opacity: 1;
+        }
+        .intercepted-click {
+            position: relative;
+        }
+        .click-interceptor {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: transparent;
+            cursor: not-allowed;
+        }
+        .click-interceptor.removed {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Test Index</a></nav>
+        <h1>Error Recovery & Retry Testing</h1>
+        <p>Test scenarios for intent engine error handling, retry mechanisms, and recovery strategies.</p>
+
+        <!-- Validation Errors -->
+        <div class="test-section">
+            <h2>1. Form Validation Errors</h2>
+            <p class="test-description">Tests retry on validation failure and field-level error handling</p>
+
+            <form id="validation-form" novalidate>
+                <div class="form-field">
+                    <label for="val-email">Email (required, must be valid)</label>
+                    <input type="email" id="val-email" name="email" placeholder="user@example.com">
+                    <div class="error-message" id="val-email-error">Please enter a valid email address</div>
+                </div>
+
+                <div class="form-field">
+                    <label for="val-password">Password (min 8 chars, 1 uppercase, 1 number)</label>
+                    <input type="password" id="val-password" name="password" placeholder="Enter password">
+                    <div class="error-message" id="val-password-error">Password must be at least 8 characters with 1 uppercase and 1 number</div>
+                </div>
+
+                <div class="form-field">
+                    <label for="val-confirm">Confirm Password (must match)</label>
+                    <input type="password" id="val-confirm" name="confirmPassword" placeholder="Confirm password">
+                    <div class="error-message" id="val-confirm-error">Passwords do not match</div>
+                </div>
+
+                <div class="form-field">
+                    <label for="val-phone">Phone (optional, US format)</label>
+                    <input type="tel" id="val-phone" name="phone" placeholder="(555) 123-4567">
+                    <div class="error-message" id="val-phone-error">Please enter a valid US phone number</div>
+                </div>
+
+                <button type="submit">Create Account</button>
+            </form>
+        </div>
+
+        <!-- Flaky Element -->
+        <div class="test-section">
+            <h2>2. Intermittent Element Availability</h2>
+            <p class="test-description">Tests retry when element becomes temporarily unavailable</p>
+
+            <div class="retry-counter">
+                Element will be available in: <span id="flaky-countdown">Ready</span>
+            </div>
+
+            <div class="flaky-element" id="flaky-button-container">
+                <button id="flaky-button" onclick="handleFlakyClick()">Click Me (Intermittent)</button>
+            </div>
+
+            <div class="button-group">
+                <button onclick="simulateFlakyBehavior()">Simulate Flaky State</button>
+            </div>
+
+            <div id="flaky-result" style="margin-top: 1rem; color: #22c55e; display: none;">
+                Button clicked successfully!
+            </div>
+        </div>
+
+        <!-- Slow Loading -->
+        <div class="test-section" style="position: relative;">
+            <h2>3. Slow Loading Elements</h2>
+            <p class="test-description">Tests wait conditions and timeout handling</p>
+
+            <button onclick="loadSlowContent()">Load Content</button>
+
+            <div id="slow-content" style="min-height: 100px; position: relative; margin-top: 1rem;">
+                <div class="loading-overlay" id="slow-loading">
+                    <div style="text-align: center;">
+                        <div class="spinner"></div>
+                        <p>Loading content...</p>
+                    </div>
+                </div>
+                <div id="slow-result" style="display: none;">
+                    <h3>Content Loaded!</h3>
+                    <p>This content took 3 seconds to load.</p>
+                    <button id="slow-action-btn">Perform Action</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Popup Blocker -->
+        <div class="test-section">
+            <h2>4. Popup Interference</h2>
+            <p class="test-description">Tests on_error handling when popup blocks action</p>
+
+            <p>When you click the button below, a popup will appear that must be dismissed first.</p>
+
+            <button id="blocked-action" onclick="attemptBlockedAction()">Perform Action (Blocked by Popup)</button>
+
+            <div id="blocked-result" style="margin-top: 1rem; display: none;">
+                Action completed after popup dismissal!
+            </div>
+        </div>
+
+        <!-- Popup Modal -->
+        <div class="popup-blocker" id="blocking-popup">
+            <div class="popup-content">
+                <h3>Wait!</h3>
+                <p>Please confirm you want to proceed.</p>
+                <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                    <button onclick="dismissPopup(false)" style="background: #64748b;">Cancel</button>
+                    <button onclick="dismissPopup(true)">Continue</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stale Element -->
+        <div class="test-section">
+            <h2>5. Stale Element Reference</h2>
+            <p class="test-description">Tests recovery when element is replaced in DOM</p>
+
+            <div class="stale-element" id="stale-container">
+                <p>Counter: <span id="stale-counter">0</span></p>
+                <button id="stale-increment" onclick="incrementStale()">Increment</button>
+                <button onclick="replaceStaleElement()">Replace Element</button>
+            </div>
+        </div>
+
+        <!-- Delayed Visibility -->
+        <div class="test-section">
+            <h2>6. Delayed Element Visibility</h2>
+            <p class="test-description">Tests waiting for element to become visible</p>
+
+            <p>Click "Show Button" to reveal the action button after 2 seconds.</p>
+
+            <button onclick="showDelayedButton()">Show Button</button>
+
+            <div style="margin-top: 1rem; min-height: 50px;">
+                <button id="delayed-action" class="hidden-button" onclick="handleDelayedAction()">
+                    Delayed Action Button
+                </button>
+            </div>
+
+            <div id="delayed-result" style="margin-top: 0.5rem; display: none; color: #22c55e;">
+                Delayed button clicked!
+            </div>
+        </div>
+
+        <!-- Click Interception -->
+        <div class="test-section">
+            <h2>7. Click Interception</h2>
+            <p class="test-description">Tests force click when element is covered by another element</p>
+
+            <p>The button below is covered by an invisible overlay. The intent engine should use force click.</p>
+
+            <div class="intercepted-click" style="display: inline-block; position: relative;">
+                <button id="intercepted-button" onclick="handleInterceptedClick()">
+                    Intercepted Button
+                </button>
+                <div class="click-interceptor" id="interceptor" title="This overlay blocks clicks"></div>
+            </div>
+
+            <button onclick="removeInterceptor()" style="margin-left: 1rem; background: #64748b;">
+                Remove Interceptor
+            </button>
+
+            <div id="intercepted-result" style="margin-top: 1rem; display: none; color: #22c55e;">
+                Force click succeeded!
+            </div>
+        </div>
+
+        <!-- Target Fallback -->
+        <div class="test-section">
+            <h2>8. Target Fallback Chain</h2>
+            <p class="test-description">Tests fallback selectors when primary target fails</p>
+
+            <p>Primary button is hidden. Engine should fall back to secondary, then tertiary target.</p>
+
+            <div id="fallback-buttons">
+                <button id="primary-target" style="display: none;">Primary (Hidden)</button>
+                <button id="secondary-target" disabled>Secondary (Disabled)</button>
+                <button id="tertiary-target" onclick="handleFallbackClick()">Tertiary (Active)</button>
+            </div>
+
+            <div id="fallback-result" style="margin-top: 1rem; display: none; color: #22c55e;">
+                Fallback target clicked!
+            </div>
+
+            <div class="button-group" style="margin-top: 1rem;">
+                <button onclick="togglePrimaryTarget()">Toggle Primary</button>
+                <button onclick="toggleSecondaryTarget()">Toggle Secondary</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Validation Form
+        document.getElementById('validation-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            let isValid = true;
+
+            // Email validation
+            const email = document.getElementById('val-email');
+            const emailError = document.getElementById('val-email-error');
+            if (!email.value || !email.value.includes('@')) {
+                email.classList.add('error');
+                email.classList.remove('success');
+                emailError.classList.add('visible');
+                isValid = false;
+            } else {
+                email.classList.remove('error');
+                email.classList.add('success');
+                emailError.classList.remove('visible');
+            }
+
+            // Password validation
+            const password = document.getElementById('val-password');
+            const passwordError = document.getElementById('val-password-error');
+            const passwordRegex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
+            if (!passwordRegex.test(password.value)) {
+                password.classList.add('error');
+                password.classList.remove('success');
+                passwordError.classList.add('visible');
+                isValid = false;
+            } else {
+                password.classList.remove('error');
+                password.classList.add('success');
+                passwordError.classList.remove('visible');
+            }
+
+            // Confirm password
+            const confirm = document.getElementById('val-confirm');
+            const confirmError = document.getElementById('val-confirm-error');
+            if (confirm.value !== password.value) {
+                confirm.classList.add('error');
+                confirm.classList.remove('success');
+                confirmError.classList.add('visible');
+                isValid = false;
+            } else {
+                confirm.classList.remove('error');
+                confirm.classList.add('success');
+                confirmError.classList.remove('visible');
+            }
+
+            // Phone validation (optional)
+            const phone = document.getElementById('val-phone');
+            const phoneError = document.getElementById('val-phone-error');
+            const phoneRegex = /^\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}$/;
+            if (phone.value && !phoneRegex.test(phone.value)) {
+                phone.classList.add('error');
+                phoneError.classList.add('visible');
+                isValid = false;
+            } else {
+                phone.classList.remove('error');
+                phoneError.classList.remove('visible');
+                if (phone.value) phone.classList.add('success');
+            }
+
+            if (isValid) {
+                alert('Form submitted successfully!');
+            }
+        });
+
+        // Flaky Element
+        let flakyTimeout = null;
+        function simulateFlakyBehavior() {
+            const container = document.getElementById('flaky-button-container');
+            const countdown = document.getElementById('flaky-countdown');
+            container.classList.add('disabled');
+            document.getElementById('flaky-result').style.display = 'none';
+
+            let seconds = 3;
+            countdown.textContent = seconds + 's';
+
+            const interval = setInterval(() => {
+                seconds--;
+                countdown.textContent = seconds > 0 ? seconds + 's' : 'Ready';
+                if (seconds <= 0) {
+                    clearInterval(interval);
+                    container.classList.remove('disabled');
+                }
+            }, 1000);
+        }
+
+        function handleFlakyClick() {
+            document.getElementById('flaky-result').style.display = 'block';
+        }
+
+        // Slow Loading
+        function loadSlowContent() {
+            const loading = document.getElementById('slow-loading');
+            const result = document.getElementById('slow-result');
+
+            loading.classList.add('visible');
+            result.style.display = 'none';
+
+            setTimeout(() => {
+                loading.classList.remove('visible');
+                result.style.display = 'block';
+            }, 3000);
+        }
+
+        // Popup Blocker
+        let pendingAction = false;
+        function attemptBlockedAction() {
+            pendingAction = true;
+            document.getElementById('blocking-popup').classList.add('visible');
+        }
+
+        function dismissPopup(proceed) {
+            document.getElementById('blocking-popup').classList.remove('visible');
+            if (proceed && pendingAction) {
+                document.getElementById('blocked-result').style.display = 'block';
+            }
+            pendingAction = false;
+        }
+
+        // Stale Element
+        let staleCounter = 0;
+        function incrementStale() {
+            staleCounter++;
+            document.getElementById('stale-counter').textContent = staleCounter;
+        }
+
+        function replaceStaleElement() {
+            const container = document.getElementById('stale-container');
+            const newHTML = `
+                <p>Counter: <span id="stale-counter">${staleCounter}</span> (Element was replaced)</p>
+                <button id="stale-increment" onclick="incrementStale()">Increment</button>
+                <button onclick="replaceStaleElement()">Replace Element</button>
+            `;
+            container.innerHTML = newHTML;
+        }
+
+        // Delayed Visibility
+        function showDelayedButton() {
+            document.getElementById('delayed-result').style.display = 'none';
+            setTimeout(() => {
+                document.getElementById('delayed-action').classList.add('show');
+            }, 2000);
+        }
+
+        function handleDelayedAction() {
+            document.getElementById('delayed-result').style.display = 'block';
+        }
+
+        // Click Interception
+        function handleInterceptedClick() {
+            document.getElementById('intercepted-result').style.display = 'block';
+        }
+
+        function removeInterceptor() {
+            document.getElementById('interceptor').classList.add('removed');
+        }
+
+        // Fallback Chain
+        function handleFallbackClick() {
+            document.getElementById('fallback-result').style.display = 'block';
+        }
+
+        function togglePrimaryTarget() {
+            const btn = document.getElementById('primary-target');
+            btn.style.display = btn.style.display === 'none' ? 'inline-block' : 'none';
+        }
+
+        function toggleSecondaryTarget() {
+            const btn = document.getElementById('secondary-target');
+            btn.disabled = !btn.disabled;
+        }
+    </script>
+</body>
+
+</html>

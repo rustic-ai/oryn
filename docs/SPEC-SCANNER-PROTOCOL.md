@@ -1,0 +1,766 @@
+# Oryn Scanner Protocol Specification
+
+## Version 1.1
+
+---
+
+## 1. Overview
+
+The Universal Scanner Protocol defines the interface between Oryn backends and the JavaScript scanner that runs inside web browsers. This protocol ensures consistent behavior across all three execution modes: Embedded (oryn-e), Headless (oryn-h), and Remote (oryn-r).
+
+### 1.1 Design Goals
+
+**Universality**
+The same protocol works identically across WebKit, Chromium, and browser extensions. Backend implementation details are abstracted away; agents experience consistent behavior regardless of which binary they connect to.
+
+**Completeness**
+The protocol handles all element types, user actions, and edge cases that agents encounter in real-world web automation. From standard forms to dynamic SPAs, the scanner provides comprehensive coverage.
+
+**Efficiency**
+Data transfer is minimized through selective scanning, incremental updates, and configurable verbosity. The protocol respects both network bandwidth and agent context windows.
+
+**Debuggability**
+Clear error messages, predictable structure, and explicit state representation make troubleshooting straightforward for both humans and agents.
+
+### 1.2 Architecture
+
+The architecture follows a clean separation of concerns:
+
+**Backend Layer**
+Each Oryn binary (oryn-e, oryn-h, oryn-r) implements browser communication using the appropriate protocol for its environment:
+- oryn-e (Embedded): WebDriver over HTTP
+- oryn-h (Headless): Chrome DevTools Protocol over WebSocket
+- oryn-r (Remote): Custom protocol over WebSocket to browser extension
+
+**Scanner Layer**
+A single JavaScript implementation runs inside all browser contexts. Backends inject this same script regardless of their underlying browser engine. The scanner understands a JSON command vocabulary and returns JSON responses.
+
+**Protocol Layer**
+The JSON message format is identical across all transport mechanisms. Backends translate between their native communication methods and the standardized scanner protocol.
+
+### 1.3 Transport Methods
+
+| Binary | Browser Engine | Protocol | Transport |
+|--------|----------------|----------|-----------|
+| oryn-e | WPE WebKit (COG) | WebDriver | HTTP |
+| oryn-h | Chromium | CDP | WebSocket |
+| oryn-r | User's Browser | Custom | WebSocket |
+
+All transports use the same JSON message format. The scanner implementation is byte-for-byte identical across all contexts.
+
+---
+
+## 2. Message Format
+
+### 2.1 Request Structure
+
+All requests contain a command identifier and command-specific parameters:
+
+**Required Fields**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `cmd` | string | Command name |
+
+**Command-Specific Fields**
+Additional fields depend on the command being invoked.
+
+### 2.2 Response Structure
+
+All responses share a common structure:
+
+**Required Fields**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ok` | boolean | True if command succeeded |
+
+**Conditional Fields**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `error` | string | Error message (when ok=false) |
+| `code` | string | Error code for programmatic handling |
+| `data` | object | Command-specific response data |
+| `timing` | object | Execution timing information |
+
+### 2.3 Error Codes
+
+| Code | Description | Recovery Strategy |
+|------|-------------|-------------------|
+| `ELEMENT_NOT_FOUND` | Element ID doesn't exist in element map | Run `scan` to refresh |
+| `ELEMENT_STALE` | Element was removed from DOM | Run `scan` to refresh |
+| `ELEMENT_NOT_VISIBLE` | Element exists but not visible | Scroll or wait |
+| `ELEMENT_DISABLED` | Element is disabled | Wait for enabled state |
+| `ELEMENT_NOT_INTERACTABLE` | Cannot interact (covered, etc.) | Use `force` option |
+| `SELECTOR_INVALID` | CSS selector syntax error | Fix selector |
+| `TIMEOUT` | Operation timed out | Increase timeout or verify condition |
+| `NAVIGATION_ERROR` | Page navigation failed or timed out | Check URL/network |
+| `SCRIPT_ERROR` | JavaScript execution error | Check script syntax |
+| `UNKNOWN_COMMAND` | Command not recognized | Check command name |
+| `INVALID_REQUEST` | Missing or malformed command | Check request format |
+| `INVALID_ELEMENT_TYPE` | Element type doesn't match command | Use correct element |
+| `OPTION_NOT_FOUND` | Select option not found | Check value/text/index |
+| `FRAME_NOT_FOUND` | Frame selector doesn't match any frame | Check frame selector |
+| `DIALOG_NOT_PRESENT` | No dialog to handle | Wait for dialog or check state |
+| `INTERNAL_ERROR` | Unexpected internal error | Report bug |
+
+---
+
+## 3. Command Reference
+
+### 3.1 scan
+
+Scan the page and return all interactive elements.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `max_elements` | number | 200 | Maximum elements to return |
+| `include_hidden` | boolean | false | Include hidden elements |
+| `near` | string | null | Filter by proximity to text |
+| `within` | string | null | Limit to container selector |
+| `viewport_only` | boolean | false | Only visible in viewport |
+| `include_positions` | boolean | false | Include bounding box coordinates |
+
+**Response Data**
+
+The response includes:
+
+**Page Information**
+- URL and title
+- Viewport dimensions
+- Scroll position and maximum scroll
+- Document ready state
+
+**Element List**
+Each element includes:
+- Numeric ID for targeting
+- Type classification (input, button, link, select, etc.)
+- Role classification (email, password, submit, search, etc.)
+- Tag name
+- Accessible text (truncated to reasonable length)
+- Unique CSS selector
+- XPath expression
+- Bounding rectangle coordinates (when `include_positions` is true)
+- Relevant attributes
+- Current state (visible, enabled, focused, value, checked)
+- Modifier flags (required, disabled, primary, etc.)
+
+**Detected Patterns**
+Recognized UI patterns with element ID references:
+- Login forms (email, password, submit, remember fields)
+- Search forms (input, submit button)
+- Pagination (prev, next, page numbers)
+- Modal dialogs (container, close button, title)
+- Cookie banners (container, accept, reject buttons)
+
+**Metadata**
+- Total elements scanned
+- Interactive elements found
+- Scan execution time
+
+### 3.2 click
+
+Click an element by ID or selector.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | null | Element ID to click (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
+| `button` | string | "left" | Mouse button (left, right, middle) |
+| `click_count` | number | 1 | Number of clicks (2 for double-click) |
+| `modifiers` | array | [] | Modifier keys (Control, Shift, Alt) |
+| `offset` | object | center | Click offset from element center |
+| `force` | boolean | false | Click even if covered |
+| `scroll_into_view` | boolean | true | Scroll element into view first |
+
+**Response Data**
+- Action performed
+- Target element ID and selector
+- Click coordinates
+- Whether navigation was triggered
+- DOM changes detected (elements added/removed/modified)
+
+### 3.3 type
+
+Type text into an element by ID or selector.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | null | Element ID (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
+| `text` | string | required | Text to type |
+| `clear` | boolean | true | Clear existing content first |
+| `delay` | number | 0 | Milliseconds between keystrokes |
+
+**Response Data**
+- Action performed
+- Target element ID
+- Text typed
+- Final input value
+
+### 3.4 clear
+
+Clear an input element's value by ID or selector.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | null | Element ID (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
+
+### 3.5 check / uncheck
+
+Set checkbox or radio button state by ID or selector.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | null | Element ID (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
+
+**Response Data**
+- Final checked state
+
+### 3.6 select
+
+Select an option in a dropdown by ID or selector.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | null | Element ID (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
+| `value` | string | null | Value attribute to select |
+| `text` | string | null | Visible text to select |
+| `index` | number | null | Zero-based index to select |
+
+Only one of value, text, or index should be provided.
+
+**Response Data**
+- Selected value
+- Selected text
+- Previous selection
+
+### 3.7 scroll
+
+Scroll the viewport or container.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `direction` | string | null | Direction (up, down, left, right) |
+| `amount` | number | null | Pixels to scroll |
+| `element` | number | null | Element ID to scroll into view |
+| `container` | string | null | Container selector to scroll |
+| `behavior` | string | "instant" | Scroll behavior (instant, smooth) |
+
+**Response Data**
+- New scroll position
+- Maximum scroll position
+
+### 3.8 focus
+
+Set keyboard focus to an element by ID or selector.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | null | Element ID (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
+
+### 3.9 hover
+
+Move mouse over an element by ID or selector.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | null | Element ID (optional if `selector` provided) |
+| `selector` | string | null | CSS selector alternative to `id` |
+
+### 3.10 submit
+
+Submit a form by ID or selector.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | null | Form or element within form |
+| `selector` | string | null | CSS selector alternative to `id` |
+
+If no ID provided, submits the form containing the currently focused element.
+
+### 3.11 get_value
+
+Get the current value of an input element.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | required | Element ID |
+
+**Response Data**
+- Current value (string, boolean for checkboxes, array for multi-select)
+
+### 3.12 get_text
+
+Get text content of an element.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `selector` | string | required | CSS selector |
+
+**Response Data**
+- Text content
+
+### 3.13 get_html
+
+Get HTML content of an element or page.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `selector` | string | null | CSS selector (null for entire page) |
+| `outer` | boolean | true | Include outer element HTML |
+
+**Response Data**
+- HTML content
+
+### 3.14 get_bounds
+
+Get bounding box of an element.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | required | Element ID |
+
+**Response Data**
+- `x`: Left position
+- `y`: Top position  
+- `width`: Element width
+- `height`: Element height
+- `visible`: Whether element is visible
+- `in_viewport`: Whether element is in current viewport (inside, partial, outside)
+
+### 3.15 exists
+
+Check if an element exists in the DOM.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `selector` | string | required | CSS selector |
+
+**Response Data**
+- Boolean existence flag
+
+### 3.16 wait_for
+
+Wait for a condition to be true.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `condition` | string | required | Condition type |
+| `selector` | string | null | CSS selector (for element conditions) |
+| `id` | number | null | Element ID (alternative to selector) |
+| `text` | string | null | Visible text match (alternative to selector) |
+| `expression` | string | null | JavaScript expression (for `custom` condition) |
+| `count` | number | null | Target element count (for `count` condition) |
+| `timeout` | number | 30000 | Maximum wait time in milliseconds |
+
+Condition types:
+- `visible` — Element becomes visible
+- `hidden` — Element becomes hidden
+- `exists` — Element appears in DOM
+- `gone` — Element removed from DOM
+- `enabled` — Element becomes enabled
+- `disabled` — Element becomes disabled
+- `navigation` — URL changes (for detecting page navigation)
+- `custom` — Custom JavaScript expression evaluates to truthy
+- `count` — Element count matches or exceeds target
+
+**Response Data**
+- Whether condition was met
+- Time waited
+- For `navigation` condition: previous and current URL
+- For `custom` condition: final expression result
+
+### 3.17 execute
+
+Execute arbitrary JavaScript.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `script` | string | required | JavaScript code |
+| `args` | array | [] | Arguments passed to script |
+
+**Response Data**
+- Script return value
+
+### 3.18 highlight
+
+Highlight an element visually.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `id` | number | required | Element ID to highlight |
+| `color` | string | "red" | Highlight color |
+| `duration` | number | 3000 | Duration in milliseconds (0 for permanent) |
+
+**Response Data**
+- Success confirmation
+
+### 3.19 highlight_clear
+
+Remove all highlights.
+
+**Request Parameters**
+None.
+
+### 3.20 get_frames
+
+List all frames in the page.
+
+**Request Parameters**
+None.
+
+**Response Data**
+- Array of frame information:
+  - `id`: Frame identifier
+  - `name`: Frame name attribute
+  - `src`: Frame source URL
+  - `selector`: CSS selector to frame element
+  - `nested_level`: Depth of nesting (0 for top-level frames)
+
+### 3.21 switch_frame
+
+Switch scanner context to a frame.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `selector` | string | null | CSS selector for iframe |
+| `id` | number | null | Element ID of iframe |
+| `name` | string | null | Frame name |
+| `main` | boolean | false | Switch to main frame |
+| `parent` | boolean | false | Switch to parent frame |
+
+Only one of selector, id, name, main, or parent should be provided.
+
+**Response Data**
+- Current frame information after switch
+
+### 3.22 extract
+
+Extract structured data from the page.
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `type` | string | required | Extraction type |
+| `selector` | string | null | CSS selector (for `css` type) |
+
+Extraction types:
+- `links` — All hyperlinks with href and text
+- `images` — All images with src and alt
+- `tables` — Table data as arrays
+- `meta` — Page metadata (title, description, keywords, etc.)
+- `css` — Elements matching custom selector
+
+**Response Data**
+- Extracted data in appropriate format for type
+
+### 3.23 get_console
+
+Get console messages (requires backend integration).
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `level` | string | null | Filter by level (log, warn, error, info) |
+| `filter` | string | null | Filter by content |
+| `limit` | number | 50 | Maximum messages to return |
+| `clear` | boolean | false | Clear buffer after retrieval |
+
+**Response Data**
+- Array of console messages:
+  - `level`: Message level
+  - `text`: Message content
+  - `timestamp`: When message was logged
+  - `source`: Source file and line (if available)
+
+**Note**: This command requires cooperation from the backend to capture console output. The scanner sets up listeners, but the backend must store and manage the message buffer.
+
+### 3.24 get_errors
+
+Get JavaScript errors (requires backend integration).
+
+**Request Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | number | 20 | Maximum errors to return |
+| `clear` | boolean | false | Clear buffer after retrieval |
+
+**Response Data**
+- Array of error objects:
+  - `message`: Error message
+  - `source`: Source file
+  - `line`: Line number
+  - `column`: Column number
+  - `stack`: Stack trace (if available)
+  - `timestamp`: When error occurred
+
+### 3.25 version
+
+Get scanner protocol version.
+
+**Response Data**
+- Protocol version string
+- Scanner implementation version
+- Supported features list
+
+---
+
+## 4. Element Classification
+
+### 4.1 Element Types
+
+| Type | Description |
+|------|-------------|
+| `input` | Text input, email, password, tel, url, number, etc. |
+| `button` | Button elements and input type=button/submit |
+| `link` | Anchor elements with href |
+| `select` | Dropdown/select elements |
+| `textarea` | Multi-line text input |
+| `checkbox` | Checkbox inputs |
+| `radio` | Radio button inputs |
+| `generic` | Other interactive elements (contenteditable, custom widgets) |
+
+### 4.2 Element Roles
+
+Roles are inferred from type attributes, autocomplete hints, labels, placeholders, and context:
+
+| Role | Detection Signals |
+|------|-------------------|
+| `email` | type=email, autocomplete=email, label/placeholder contains "email" |
+| `password` | type=password, autocomplete=*password |
+| `search` | type=search, role=search, label contains "search" |
+| `tel` | type=tel, autocomplete=tel |
+| `url` | type=url, label contains "website/url" |
+| `username` | autocomplete=username, label contains "username" |
+| `submit` | type=submit, button in form context |
+| `primary` | Primary action button (visual prominence, form submit) |
+| `generic` | No specific role detected |
+
+### 4.3 Element Modifiers
+
+| Modifier | Meaning |
+|----------|---------|
+| `required` | Field is required |
+| `disabled` | Element is disabled |
+| `readonly` | Input is read-only |
+| `hidden` | Element is hidden (include_hidden=true) |
+| `primary` | Primary/prominent action |
+| `checked` | Checkbox/radio is checked |
+| `unchecked` | Checkbox/radio is unchecked |
+| `focused` | Element has keyboard focus |
+
+---
+
+## 5. Pattern Detection
+
+The scanner automatically identifies common UI patterns and provides structured references to their component elements.
+
+### 5.1 Login Form Pattern
+
+Detected when page contains:
+- Email/username input field
+- Password input field
+- Submit button
+
+Returns references to all identified elements plus the form container selector.
+
+### 5.2 Search Form Pattern
+
+Detected when page contains:
+- Search-type input or search-labeled field
+- Optional submit/search button
+
+### 5.3 Pagination Pattern
+
+Detected when page contains:
+- Previous/next navigation links
+- Numbered page links
+
+Returns references to prev, next, and page number elements.
+
+### 5.4 Modal Dialog Pattern
+
+Detected when page contains:
+- Element with role=dialog or aria-modal=true
+- Common modal CSS classes
+- Close/dismiss button within container
+
+Returns container selector, close button reference, and modal title if present.
+
+### 5.5 Cookie Banner Pattern
+
+Detected when page contains:
+- Element with cookie/consent/GDPR-related classes or IDs
+- Accept/agree button
+- Optional reject/decline button
+
+---
+
+## 6. Element Map Lifecycle
+
+### 6.1 Map Creation
+
+When `scan` is called:
+1. Previous element map is cleared
+2. DOM is traversed for interactive elements
+3. New IDs are assigned sequentially
+4. Element references are stored for subsequent commands
+
+### 6.2 Map Usage
+
+When action commands are called:
+1. Element ID is looked up in the map
+2. If found, action is executed on the stored reference
+3. If not found, `ELEMENT_NOT_FOUND` error is returned
+
+### 6.3 Map Staleness
+
+The element map becomes stale when:
+- Page navigation occurs
+- DOM is modified by JavaScript
+- AJAX updates content
+
+Agents should re-scan after:
+- Navigation commands
+- Actions that trigger page changes
+- Before critical interactions
+- When `ELEMENT_STALE` errors occur
+
+### 6.4 Best Practices
+
+- Always scan before starting a new task on a page
+- Re-scan after navigation
+- Re-scan after actions that modify content
+- Don't cache element IDs across page loads
+- Use pattern detection to verify expected UI is present
+
+---
+
+## 7. Iframe Handling
+
+### 7.1 Same-Origin Iframes
+
+The scanner can access content within same-origin iframes through the contentDocument interface. Elements within accessible iframes are included in scan results with their iframe context noted.
+
+### 7.2 Cross-Origin Iframes
+
+Browser security prevents accessing cross-origin iframe content. For cross-origin iframes:
+- The iframe element itself is reported
+- Content within cannot be scanned
+- Navigation to the iframe URL directly may be required
+- Backend-level iframe handling (WebDriver/CDP frame switching) is an alternative
+
+### 7.3 Frame Context Switching
+
+The `switch_frame` and `get_frames` commands enable explicit frame context management:
+
+1. Use `get_frames` to discover available frames
+2. Use `switch_frame` to change scanner context
+3. Subsequent commands operate within the selected frame
+4. Use `switch_frame` with `main: true` to return to main document
+
+---
+
+## 8. Backend-Specific Features
+
+Some scanner commands require backend cooperation for full functionality:
+
+### 8.1 Console/Error Capture
+
+The scanner can set up event listeners for console messages and errors, but:
+- **oryn-h**: Backend uses CDP's `Runtime.consoleAPICalled` and `Runtime.exceptionThrown`
+- **oryn-e**: Limited support via WebDriver logs
+- **oryn-r**: Extension can intercept via content script
+
+### 8.2 Highlighting
+
+Visual highlighting is purely scanner-side (CSS injection) and works across all backends.
+
+### 8.3 Frame Switching
+
+- **oryn-h**: CDP's `Page.frameTree` and context isolation
+- **oryn-e**: WebDriver's `switchTo().frame()`
+- **oryn-r**: Extension content script injection per frame
+
+---
+
+## 9. Versioning
+
+### 9.1 Protocol Version
+
+The protocol uses semantic versioning:
+- Major version: Breaking changes to existing commands
+- Minor version: New commands or optional fields
+- Patch version: Bug fixes and clarifications
+
+Backends should check protocol version on connection and handle version mismatches gracefully.
+
+### 9.2 Feature Detection
+
+The `version` command returns a list of supported features, allowing backends to adapt to scanner capabilities and handle partial implementations.
+
+### 9.3 Feature List (v1.1)
+
+| Feature | Description | Since |
+|---------|-------------|-------|
+| `core` | Basic scan, click, type, select | 1.0 |
+| `patterns` | UI pattern detection | 1.0 |
+| `wait` | Wait conditions | 1.0 |
+| `extract` | Data extraction | 1.0 |
+| `bounds` | Element bounding boxes | 1.1 |
+| `frames` | Frame navigation | 1.1 |
+| `highlight` | Visual highlighting | 1.1 |
+| `console` | Console capture | 1.1 |
+| `custom_wait` | Custom JS wait conditions | 1.1 |
+
+---
+
+*Document Version: 1.1*  
+*Last Updated: January 2026*

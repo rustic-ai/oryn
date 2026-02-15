@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modals & Dialogs - Oryn</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #333;
+            color: white;
+            padding: 1rem;
+            border-radius: var(--radius);
+            display: none;
+            box-shadow: var(--shadow);
+            z-index: 1000;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Index</a></nav>
+        <h1>Modals & Dialogs</h1>
+        <p>Testing overlay detection, focus trapping, and asynchronous UI changes.</p>
+
+        <div class="grid">
+            <div class="card">
+                <h3>Basic Modal</h3>
+                <p>Simple HTML/CSS overlay.</p>
+                <button onclick="toggleModal('basic-modal', true)">Open Modal</button>
+            </div>
+
+            <div class="card">
+                <h3>Cookie Banner</h3>
+                <p>Persistent footer notification.</p>
+                <button onclick="toggleModal('cookie-banner', true)">Show Banner</button>
+            </div>
+
+            <div class="card">
+                <h3>Toast Notification</h3>
+                <p>Auto-dismissing message.</p>
+                <button onclick="showToast()">Show Toast</button>
+            </div>
+        </div>
+
+        <!-- Basic Modal -->
+        <div id="basic-modal" class="modal-overlay">
+            <div class="modal-content">
+                <h2>Modal Title</h2>
+                <p>This is a standard modal dialog. It should trap focus and be detectable as a separate layer.</p>
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem; justify-content: flex-end;">
+                    <button onclick="toggleModal('basic-modal', false)"
+                        style="background: #e2e8f0; color: #1e293b;">Cancel</button>
+                    <button onclick="toggleModal('basic-modal', false)">Confirm</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cookie Banner -->
+        <div id="cookie-banner"
+            style="position: fixed; bottom: 0; left: 0; right: 0; background: #1e293b; color: white; padding: 1.5rem; display: none; z-index: 900;">
+            <div
+                style="max-width: 800px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;">
+                <p style="margin: 0;">We use cookies to improve your experience on our site.</p>
+                <div style="display: flex; gap: 1rem;">
+                    <button onclick="toggleModal('cookie-banner', false)"
+                        style="background: transparent; border: 1px solid white;">Decline</button>
+                    <button onclick="toggleModal('cookie-banner', false)">Accept All</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast -->
+        <div id="toast" class="toast">
+            Action completed successfully!
+        </div>
+    </div>
+
+    <script>
+        function toggleModal(id, show) {
+            document.getElementById(id).style.display = show ? (id === 'cookie-banner' ? 'block' : 'flex') : 'none';
+        }
+
+        function showToast() {
+            const toast = document.getElementById('toast');
+            toast.style.display = 'block';
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 3000);
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,42 @@
+goto "http://localhost:3000/edge/iframes.html"
+observe
+# Note: implementation of cross-frame selection varies by backend
+# but the script serves as a test case for target resolution.
+
+goto "http://localhost:3000/edge/shadow-dom.html"
+observe  # Should discover 40+ elements including shadow DOM content
+
+# Test CSS selector targeting in shadow DOM
+click css(#open-btn)
+observe
+
+# Test form inputs in shadow DOM with CSS selectors
+type css(#shadow-input) "test input"
+observe
+
+type css(#name-input) "John Doe"
+type css(#email-input) "john@example.com"
+click css(#country-select)
+type css(#message-textarea) "This is a test message"
+observe
+
+# Test modal in shadow DOM
+click css(#show-modal-btn)
+observe
+click css(#close-modal-btn)
+observe
+
+# Test nested shadow DOM button
+click css(#nested-btn)
+observe
+
+# Test extraction from shadow DOM (should find links, images, tables in shadow roots)
+extract links
+extract images
+extract tables
+
+goto "http://localhost:3000/edge/accessibility.html"
+observe
+click "Search"
+click "Settings"
+click css([role="button"])

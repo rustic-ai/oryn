@@ -1,0 +1,33 @@
+# E-commerce flow test
+# Tests: catalog browsing, cart management, and checkout
+
+# Step 1: Browse the catalog
+goto "http://localhost:3000/shop/catalog.html"
+observe
+wait visible "Laptop"
+observe
+
+# Step 2: Filter by category and add to cart
+select "Filter by Category:" "Electronics"
+wait visible "Laptop"
+observe
+click "Add to Cart"
+
+# Step 3: Navigate to cart (using goto for reliable page transition)
+goto "http://localhost:3000/shop/cart.html"
+wait visible css(#cart-summary)
+observe
+
+# Step 4: Proceed to checkout
+goto "http://localhost:3000/forms/checkout.html"
+observe
+
+# Step 5: Fill checkout form
+type "Full Name" "Alice Smith"
+type "Address" "123 Main St"
+type "City" "San Francisco"
+type "ZIP Code" "94102"
+type "Card Number" "4111111111111111"
+type "Expiry Date" "12/25"
+type "CVV" "123"
+click "Place Order"

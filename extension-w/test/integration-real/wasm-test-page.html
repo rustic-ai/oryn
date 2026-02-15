@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>WASM Module Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test {
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #ccc;
+        }
+        .test.pass {
+            border-color: green;
+            background: #e8f5e9;
+        }
+        .test.fail {
+            border-color: red;
+            background: #ffebee;
+        }
+        .summary {
+            margin-top: 30px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 5px;
+        }
+        .error {
+            color: red;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real WASM Module Tests</h1>
+    <div id="results"></div>
+    <div class="summary" id="summary"></div>
+
+    <script type="module">
+        import init, { OrynCore } from '../wasm/oryn_core.js';
+
+        const results = document.getElementById('results');
+        const summary = document.getElementById('summary');
+        let passCount = 0;
+        let failCount = 0;
+
+        function log(name, success, message = '') {
+            const div = document.createElement('div');
+            div.className = `test ${success ? 'pass' : 'fail'}`;
+            div.innerHTML = `<strong>${success ? '✓' : '✗'} ${name}</strong>${message ? `<br><span class="error">${message}</span>` : ''}`;
+            results.appendChild(div);
+
+            if (success) passCount++;
+            else failCount++;
+        }
+
+        async function runTests() {
+            try {
+                // Test 1: WASM Initialization
+                try {
+                    await init();
+                    log('WASM Initialization', true);
+                } catch (e) {
+                    log('WASM Initialization', false, e.message);
+                    return;
+                }
+
+                // Test 2: OrynCore Creation
+                let core;
+                try {
+                    core = new OrynCore();
+                    log('OrynCore Creation', true);
+                } catch (e) {
+                    log('OrynCore Creation', false, e.message);
+                    return;
+                }
+
+                // Test 3: Version Check
+                try {
+                    const version = OrynCore.getVersion();
+                    const validVersion = /^\d+\.\d+\.\d+$/.test(version);
+                    log('Version Check', validVersion, validVersion ? `Version: ${version}` : `Invalid version: ${version}`);
+                } catch (e) {
+                    log('Version Check', false, e.message);
+                }
+
+                // Test 4: Command Without Scan (should fail)
+                try {
+                    core.processCommand('observe');
+                    log('Command Without Scan', false, 'Should have thrown error');
+                } catch (e) {
+                    const hasExpectedError = e.message.toLowerCase().includes('scan');
+                    log('Command Without Scan', hasExpectedError, `Correctly threw: ${e.message}`);
+                }
+
+                // Test 5: Update Scan
+                const scan = {
+                    page: {
+                        url: 'https://example.com',
+                        title: 'Test',
+                        viewport: { width: 1920, height: 1080 },
+                        scroll: { x: 0, y: 0 }
+                    },
+                    elements: [{
+                        id: 1,
+                        selector: '#submit',
+                        element_type: 'button',
+                        text: 'Submit',
+                        attributes: {},
+                        rect: { x: 0, y: 0, width: 100, height: 30 },
+                        label: null,
+                        placeholder: null,
+                        value: null,
+                        checked: null,
+                        href: null
+                    }],
+                    stats: { total: 1, scanned: 1 },
+                    patterns: null,
+                    changes: null,
+                    available_intents: null
+                };
+
+                try {
+                    core.updateScan(JSON.stringify(scan));
+                    log('Update Scan', true);
+                } catch (e) {
+                    log('Update Scan', false, e.message);
+                    return;
+                }
+
+                // Test 6: Process 'observe' Command
+                try {
+                    const result = core.processCommand('observe');
+                    const parsed = JSON.parse(result);
+                    const hasResolved = 'Resolved' in parsed;
+                    log('Process Observe Command', hasResolved, hasResolved ? JSON.stringify(parsed, null, 2) : 'Missing Resolved field');
+                } catch (e) {
+                    log('Process Observe Command', false, e.message);
+                }
+
+                // Test 7: Process 'goto' Command
+                try {
+                    const result = core.processCommand('goto "https://test.com"');
+                    const parsed = JSON.parse(result);
+                    const hasNavigate = parsed.Resolved?.Browser?.Navigate;
+                    log('Process Goto Command', !!hasNavigate, hasNavigate ? `URL: ${hasNavigate.url}` : 'Missing Navigate action');
+                } catch (e) {
+                    log('Process Goto Command', false, e.message);
+                }
+
+                // Test 8: Process 'click' Command
+                try {
+                    const result = core.processCommand('click "Submit"');
+                    const parsed = JSON.parse(result);
+                    const hasClick = parsed.Resolved?.Scanner?.Click;
+                    log('Process Click Command', !!hasClick, hasClick ? JSON.stringify(hasClick, null, 2) : 'Missing Click action');
+                } catch (e) {
+                    log('Process Click Command', false, e.message);
+                }
+
+                // Test 9: Invalid Command
+                try {
+                    core.processCommand('invalid syntax here');
+                    log('Invalid Command Handling', false, 'Should have thrown error');
+                } catch (e) {
+                    log('Invalid Command Handling', true, `Correctly threw: ${e.message}`);
+                }
+
+                // Test 10: Performance Test
+                try {
+                    const start = performance.now();
+                    for (let i = 0; i < 100; i++) {
+                        core.processCommand('observe');
+                    }
+                    const duration = performance.now() - start;
+                    const avgTime = duration / 100;
+                    const isFast = avgTime < 5;
+                    log('Performance Test', isFast, `100 commands in ${duration.toFixed(2)}ms (avg: ${avgTime.toFixed(2)}ms per command)`);
+                } catch (e) {
+                    log('Performance Test', false, e.message);
+                }
+
+            } catch (e) {
+                log('Unexpected Error', false, e.message + '\n' + e.stack);
+            }
+
+            // Show summary
+            const total = passCount + failCount;
+            summary.innerHTML = `
+                <h2>Test Summary</h2>
+                <p><strong>Total:</strong> ${total} tests</p>
+                <p><strong>Passed:</strong> ${passCount} (${((passCount / total) * 100).toFixed(1)}%)</p>
+                <p><strong>Failed:</strong> ${failCount}</p>
+                <p><strong>Status:</strong> ${failCount === 0 ? '✅ All tests passed!' : '❌ Some tests failed'}</p>
+            `;
+        }
+
+        // Run tests when page loads
+        runTests();
+    </script>
+</body>
+</html>

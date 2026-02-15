@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskFlow - React SPA with Shadow DOM</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; }
+        #root { min-height: 100vh; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Web Component: App Header with Shadow DOM
+        class AppHeader extends HTMLElement {
+            connectedCallback() {
+                const shadow = this.attachShadow({ mode: 'open' });
+                shadow.innerHTML = `
+                    <style>
+                        :host { display: block; }
+                        .header {
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            color: white;
+                            padding: 1.5rem 2rem;
+                            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                        }
+                        .header-content {
+                            max-width: 1200px;
+                            margin: 0 auto;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                        }
+                        h1 { font-size: 1.75rem; font-weight: 600; }
+                        .user-info {
+                            display: flex;
+                            align-items: center;
+                            gap: 1rem;
+                        }
+                        .avatar {
+                            width: 40px;
+                            height: 40px;
+                            border-radius: 50%;
+                            background: rgba(255,255,255,0.2);
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-weight: 600;
+                        }
+                        button {
+                            background: rgba(255,255,255,0.2);
+                            border: none;
+                            color: white;
+                            padding: 0.5rem 1rem;
+                            border-radius: 6px;
+                            cursor: pointer;
+                            font-size: 0.9rem;
+                            transition: background 0.2s;
+                        }
+                        button:hover { background: rgba(255,255,255,0.3); }
+                    </style>
+                    <header class="header">
+                        <div class="header-content">
+                            <h1>📋 TaskFlow</h1>
+                            <div class="user-info">
+                                <div class="avatar">JD</div>
+                                <button id="logout-btn">Sign Out</button>
+                            </div>
+                        </div>
+                    </header>
+                `;
+
+                shadow.getElementById('logout-btn').onclick = () => {
+                    alert('Logout clicked');
+                };
+            }
+        }
+        customElements.define('app-header', AppHeader);
+
+        // Web Component: Stats Card with Shadow DOM
+        class StatsCard extends HTMLElement {
+            static get observedAttributes() { return ['label', 'value', 'color']; }
+
+            connectedCallback() {
+                this.attachShadow({ mode: 'open' });
+                this.render();
+            }
+
+            attributeChangedCallback() {
+                this.render();
+            }
+
+            render() {
+                const label = this.getAttribute('label') || '';
+                const value = this.getAttribute('value') || '0';
+                const color = this.getAttribute('color') || '#667eea';
+
+                this.shadowRoot.innerHTML = `
+                    <style>
+                        :host { display: block; }
+                        .card {
+                            background: white;
+                            border-radius: 12px;
+                            padding: 1.5rem;
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                            border-left: 4px solid ${color};
+                        }
+                        .label {
+                            color: #666;
+                            font-size: 0.875rem;
+                            margin-bottom: 0.5rem;
+                            text-transform: uppercase;
+                            letter-spacing: 0.5px;
+                        }
+                        .value {
+                            color: #111;
+                            font-size: 2rem;
+                            font-weight: 700;
+                        }
+                    </style>
+                    <div class="card">
+                        <div class="label">${label}</div>
+                        <div class="value">${value}</div>
+                    </div>
+                `;
+            }
+        }
+        customElements.define('stats-card', StatsCard);
+
+        // Web Component: Task Item with Shadow DOM
+        class TaskItem extends HTMLElement {
+            static get observedAttributes() { return ['task-id', 'title', 'completed', 'priority']; }
+
+            connectedCallback() {
+                this.attachShadow({ mode: 'open' });
+                this.render();
+            }
+
+            attributeChangedCallback() {
+                if (this.shadowRoot) this.render();
+            }
+
+            render() {
+                const taskId = this.getAttribute('task-id');
+                const title = this.getAttribute('title') || '';
+                const completed = this.getAttribute('completed') === 'true';
+                const priority = this.getAttribute('priority') || 'medium';
+
+                const priorityColors = {
+                    high: '#ef4444',
+                    medium: '#f59e0b',
+                    low: '#10b981'
+                };
+
+                this.shadowRoot.innerHTML = `
+                    <style>
+                        :host { display: block; margin-bottom: 0.75rem; }
+                        .task {
+                            background: white;
+                            border-radius: 8px;
+                            padding: 1rem;
+                            display: flex;
+                            align-items: center;
+                            gap: 1rem;
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                            transition: transform 0.2s, box-shadow 0.2s;
+                        }
+                        .task:hover {
+                            transform: translateY(-2px);
+                            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+                        }
+                        .task.completed {
+                            opacity: 0.6;
+                        }
+                        .checkbox {
+                            width: 24px;
+                            height: 24px;
+                            cursor: pointer;
+                        }
+                        .task-content {
+                            flex: 1;
+                            display: flex;
+                            align-items: center;
+                            gap: 0.75rem;
+                        }
+                        .title {
+                            flex: 1;
+                            font-size: 1rem;
+                            color: #111;
+                            text-decoration: ${completed ? 'line-through' : 'none'};
+                        }
+                        .priority-badge {
+                            padding: 0.25rem 0.75rem;
+                            border-radius: 12px;
+                            font-size: 0.75rem;
+                            font-weight: 600;
+                            color: white;
+                            background: ${priorityColors[priority]};
+                        }
+                        .actions {
+                            display: flex;
+                            gap: 0.5rem;
+                        }
+                        button {
+                            background: #f3f4f6;
+                            border: none;
+                            padding: 0.5rem 0.75rem;
+                            border-radius: 6px;
+                            cursor: pointer;
+                            font-size: 0.875rem;
+                            transition: background 0.2s;
+                        }
+                        button:hover { background: #e5e7eb; }
+                        .delete-btn {
+                            background: #fee2e2;
+                            color: #dc2626;
+                        }
+                        .delete-btn:hover { background: #fecaca; }
+                    </style>
+                    <div class="task ${completed ? 'completed' : ''}">
+                        <input type="checkbox" class="checkbox" ${completed ? 'checked' : ''} id="cb-${taskId}">
+                        <div class="task-content">
+                            <span class="title">${title}</span>
+                            <span class="priority-badge">${priority}</span>
+                        </div>
+                        <div class="actions">
+                            <button class="edit-btn" id="edit-${taskId}">Edit</button>
+                            <button class="delete-btn" id="delete-${taskId}">Delete</button>
+                        </div>
+                    </div>
+                `;
+
+                // Event handlers
+                const checkbox = this.shadowRoot.getElementById(`cb-${taskId}`);
+                checkbox.onchange = () => {
+                    this.dispatchEvent(new CustomEvent('toggle', {
+                        detail: { id: parseInt(taskId), completed: checkbox.checked },
+                        bubbles: true,
+                        composed: true
+                    }));
+                };
+
+                const deleteBtn = this.shadowRoot.getElementById(`delete-${taskId}`);
+                deleteBtn.onclick = () => {
+                    this.dispatchEvent(new CustomEvent('delete', {
+                        detail: { id: parseInt(taskId) },
+                        bubbles: true,
+                        composed: true
+                    }));
+                };
+
+                const editBtn = this.shadowRoot.getElementById(`edit-${taskId}`);
+                editBtn.onclick = () => {
+                    this.dispatchEvent(new CustomEvent('edit', {
+                        detail: { id: parseInt(taskId) },
+                        bubbles: true,
+                        composed: true
+                    }));
+                };
+            }
+        }
+        customElements.define('task-item', TaskItem);
+
+        // Web Component: Add Task Form with Shadow DOM
+        class AddTaskForm extends HTMLElement {
+            connectedCallback() {
+                const shadow = this.attachShadow({ mode: 'open' });
+                shadow.innerHTML = `
+                    <style>
+                        :host { display: block; margin-bottom: 2rem; }
+                        .form-card {
+                            background: white;
+                            border-radius: 12px;
+                            padding: 1.5rem;
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                        }
+                        .form-title {
+                            font-size: 1.25rem;
+                            font-weight: 600;
+                            margin-bottom: 1rem;
+                            color: #111;
+                        }
+                        .form-group {
+                            margin-bottom: 1rem;
+                        }
+                        label {
+                            display: block;
+                            margin-bottom: 0.5rem;
+                            color: #374151;
+                            font-weight: 500;
+                            font-size: 0.875rem;
+                        }
+                        input, select {
+                            width: 100%;
+                            padding: 0.75rem;
+                            border: 1px solid #d1d5db;
+                            border-radius: 8px;
+                            font-size: 1rem;
+                            transition: border-color 0.2s;
+                        }
+                        input:focus, select:focus {
+                            outline: none;
+                            border-color: #667eea;
+                        }
+                        .form-actions {
+                            display: flex;
+                            gap: 0.75rem;
+                        }
+                        button {
+                            flex: 1;
+                            padding: 0.75rem;
+                            border: none;
+                            border-radius: 8px;
+                            font-size: 1rem;
+                            font-weight: 600;
+                            cursor: pointer;
+                            transition: all 0.2s;
+                        }
+                        .add-btn {
+                            background: #667eea;
+                            color: white;
+                        }
+                        .add-btn:hover {
+                            background: #5568d3;
+                            transform: translateY(-1px);
+                            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+                        }
+                        .cancel-btn {
+                            background: #f3f4f6;
+                            color: #374151;
+                        }
+                        .cancel-btn:hover {
+                            background: #e5e7eb;
+                        }
+                    </style>
+                    <div class="form-card">
+                        <h2 class="form-title">Add New Task</h2>
+                        <form id="task-form">
+                            <div class="form-group">
+                                <label for="task-title">Task Title</label>
+                                <input type="text" id="task-title" placeholder="Enter task title..." required>
+                            </div>
+                            <div class="form-group">
+                                <label for="task-priority">Priority</label>
+                                <select id="task-priority">
+                                    <option value="low">Low</option>
+                                    <option value="medium" selected>Medium</option>
+                                    <option value="high">High</option>
+                                </select>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="add-btn">Add Task</button>
+                                <button type="button" class="cancel-btn" id="cancel-btn">Clear</button>
+                            </div>
+                        </form>
+                    </div>
+                `;
+
+                const form = shadow.getElementById('task-form');
+                const titleInput = shadow.getElementById('task-title');
+                const prioritySelect = shadow.getElementById('task-priority');
+                const cancelBtn = shadow.getElementById('cancel-btn');
+
+                form.onsubmit = (e) => {
+                    e.preventDefault();
+                    this.dispatchEvent(new CustomEvent('add-task', {
+                        detail: {
+                            title: titleInput.value,
+                            priority: prioritySelect.value
+                        },
+                        bubbles: true,
+                        composed: true
+                    }));
+                    form.reset();
+                };
+
+                cancelBtn.onclick = () => {
+                    form.reset();
+                };
+            }
+        }
+        customElements.define('add-task-form', AddTaskForm);
+
+        // Web Component: Filter Controls with Shadow DOM
+        class FilterControls extends HTMLElement {
+            connectedCallback() {
+                const shadow = this.attachShadow({ mode: 'open' });
+                shadow.innerHTML = `
+                    <style>
+                        :host { display: block; margin-bottom: 1.5rem; }
+                        .controls {
+                            background: white;
+                            border-radius: 12px;
+                            padding: 1rem;
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                            display: flex;
+                            gap: 1rem;
+                            flex-wrap: wrap;
+                            align-items: center;
+                        }
+                        .control-group {
+                            display: flex;
+                            align-items: center;
+                            gap: 0.5rem;
+                        }
+                        label {
+                            font-weight: 500;
+                            color: #374151;
+                            font-size: 0.875rem;
+                        }
+                        select, input {
+                            padding: 0.5rem 0.75rem;
+                            border: 1px solid #d1d5db;
+                            border-radius: 6px;
+                            font-size: 0.875rem;
+                        }
+                        .btn-group {
+                            display: flex;
+                            gap: 0.5rem;
+                            margin-left: auto;
+                        }
+                        button {
+                            padding: 0.5rem 1rem;
+                            border: 1px solid #d1d5db;
+                            border-radius: 6px;
+                            background: white;
+                            cursor: pointer;
+                            font-size: 0.875rem;
+                            transition: all 0.2s;
+                        }
+                        button:hover {
+                            background: #f9fafb;
+                            border-color: #667eea;
+                        }
+                        button.active {
+                            background: #667eea;
+                            color: white;
+                            border-color: #667eea;
+                        }
+                    </style>
+                    <div class="controls">
+                        <div class="control-group">
+                            <label for="priority-filter">Filter:</label>
+                            <select id="priority-filter">
+                                <option value="all">All Priorities</option>
+                                <option value="high">High Priority</option>
+                                <option value="medium">Medium Priority</option>
+                                <option value="low">Low Priority</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label for="search-input">Search:</label>
+                            <input type="text" id="search-input" placeholder="Search tasks...">
+                        </div>
+                        <div class="btn-group">
+                            <button id="all-btn" class="active">All</button>
+                            <button id="active-btn">Active</button>
+                            <button id="completed-btn">Completed</button>
+                        </div>
+                    </div>
+                `;
+
+                const priorityFilter = shadow.getElementById('priority-filter');
+                const searchInput = shadow.getElementById('search-input');
+                const allBtn = shadow.getElementById('all-btn');
+                const activeBtn = shadow.getElementById('active-btn');
+                const completedBtn = shadow.getElementById('completed-btn');
+
+                const buttons = [allBtn, activeBtn, completedBtn];
+
+                const emitFilterChange = () => {
+                    const activeFilter = buttons.find(b => b.classList.contains('active')).id.replace('-btn', '');
+                    this.dispatchEvent(new CustomEvent('filter-change', {
+                        detail: {
+                            status: activeFilter,
+                            priority: priorityFilter.value,
+                            search: searchInput.value
+                        },
+                        bubbles: true,
+                        composed: true
+                    }));
+                };
+
+                buttons.forEach(btn => {
+                    btn.onclick = () => {
+                        buttons.forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        emitFilterChange();
+                    };
+                });
+
+                priorityFilter.onchange = emitFilterChange;
+                searchInput.oninput = emitFilterChange;
+            }
+        }
+        customElements.define('filter-controls', FilterControls);
+
+        // Main React App Component
+        function App() {
+            const [tasks, setTasks] = useState([
+                { id: 1, title: 'Review pull requests', completed: false, priority: 'high' },
+                { id: 2, title: 'Update documentation', completed: true, priority: 'medium' },
+                { id: 3, title: 'Write unit tests', completed: false, priority: 'high' },
+                { id: 4, title: 'Refactor authentication module', completed: false, priority: 'medium' },
+                { id: 5, title: 'Fix CSS styling issues', completed: true, priority: 'low' },
+            ]);
+            const [filter, setFilter] = useState({ status: 'all', priority: 'all', search: '' });
+            const [nextId, setNextId] = useState(6);
+
+            const containerRef = useRef(null);
+
+            useEffect(() => {
+                const container = containerRef.current;
+
+                const handleAddTask = (e) => {
+                    const { title, priority } = e.detail;
+                    setTasks(prev => [...prev, {
+                        id: nextId,
+                        title,
+                        priority,
+                        completed: false
+                    }]);
+                    setNextId(prev => prev + 1);
+                };
+
+                const handleToggle = (e) => {
+                    const { id, completed } = e.detail;
+                    setTasks(prev => prev.map(t =>
+                        t.id === id ? { ...t, completed } : t
+                    ));
+                };
+
+                const handleDelete = (e) => {
+                    const { id } = e.detail;
+                    setTasks(prev => prev.filter(t => t.id !== id));
+                };
+
+                const handleFilterChange = (e) => {
+                    setFilter(e.detail);
+                };
+
+                container.addEventListener('add-task', handleAddTask);
+                container.addEventListener('toggle', handleToggle);
+                container.addEventListener('delete', handleDelete);
+                container.addEventListener('filter-change', handleFilterChange);
+
+                return () => {
+                    container.removeEventListener('add-task', handleAddTask);
+                    container.removeEventListener('toggle', handleToggle);
+                    container.removeEventListener('delete', handleDelete);
+                    container.removeEventListener('filter-change', handleFilterChange);
+                };
+            }, [nextId]);
+
+            // Filter tasks
+            const filteredTasks = tasks.filter(task => {
+                if (filter.status === 'active' && task.completed) return false;
+                if (filter.status === 'completed' && !task.completed) return false;
+                if (filter.priority !== 'all' && task.priority !== filter.priority) return false;
+                if (filter.search && !task.title.toLowerCase().includes(filter.search.toLowerCase())) return false;
+                return true;
+            });
+
+            // Calculate stats
+            const totalTasks = tasks.length;
+            const completedTasks = tasks.filter(t => t.completed).length;
+            const activeTasks = totalTasks - completedTasks;
+            const highPriorityTasks = tasks.filter(t => t.priority === 'high' && !t.completed).length;
+
+            return (
+                <div ref={containerRef}>
+                    <app-header></app-header>
+
+                    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
+                        {/* Stats Dashboard */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+                            <stats-card label="Total Tasks" value={totalTasks} color="#667eea"></stats-card>
+                            <stats-card label="Active" value={activeTasks} color="#10b981"></stats-card>
+                            <stats-card label="Completed" value={completedTasks} color="#8b5cf6"></stats-card>
+                            <stats-card label="High Priority" value={highPriorityTasks} color="#ef4444"></stats-card>
+                        </div>
+
+                        {/* Add Task Form */}
+                        <add-task-form></add-task-form>
+
+                        {/* Filter Controls */}
+                        <filter-controls></filter-controls>
+
+                        {/* Task List */}
+                        <div>
+                            <h2 style={{ fontSize: '1.5rem', fontWeight: '600', marginBottom: '1rem', color: '#111' }}>
+                                Tasks ({filteredTasks.length})
+                            </h2>
+                            {filteredTasks.length === 0 ? (
+                                <div style={{
+                                    background: 'white',
+                                    borderRadius: '12px',
+                                    padding: '3rem',
+                                    textAlign: 'center',
+                                    color: '#6b7280'
+                                }}>
+                                    No tasks found. {filter.status !== 'all' || filter.priority !== 'all' || filter.search ? 'Try adjusting your filters.' : 'Add your first task above!'}
+                                </div>
+                            ) : (
+                                filteredTasks.map(task => (
+                                    <task-item
+                                        key={task.id}
+                                        task-id={task.id}
+                                        title={task.title}
+                                        completed={task.completed.toString()}
+                                        priority={task.priority}
+                                    ></task-item>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Render the app
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

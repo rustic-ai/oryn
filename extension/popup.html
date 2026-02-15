@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Oryn Settings</title>
+    <style>
+        body {
+            width: 300px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+            padding: 15px;
+            background-color: #f5f5f5;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #333;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+        }
+
+        .status-badge {
+            margin-left: auto;
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            background: #e0e0e0;
+            color: #666;
+        }
+
+        .status-connected-local {
+            background: #E3F2FD;
+            color: #1976D2;
+        }
+
+        .status-connected-remote {
+            background: #E8F5E9;
+            color: #388E3C;
+        }
+
+        .status-disconnected {
+            background: #FFEBEE;
+            color: #D32F2F;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #2196F3;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            flex: 1;
+            padding: 8px 0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        #btn-connect {
+            background-color: #2196F3;
+            color: white;
+        }
+
+        #btn-connect:hover {
+            background-color: #1976D2;
+        }
+
+        #btn-disconnect {
+            background-color: #e0e0e0;
+            color: #333;
+        }
+
+        #btn-disconnect:hover {
+            background-color: #d0d0d0;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .links {
+            margin-top: 15px;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+            font-size: 12px;
+        }
+
+        .links a {
+            color: #666;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .links a:hover {
+            color: #333;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>
+        Oryn Agent
+        <span id="status-badge" class="status-badge">Disconnected</span>
+    </h2>
+
+    <div class="form-group">
+        <label for="ws-url">WebSocket URL</label>
+        <input type="text" id="ws-url" placeholder="ws://127.0.0.1:9001" value="ws://127.0.0.1:9001">
+    </div>
+
+    <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
+        <input type="checkbox" id="auto-connect">
+        <label for="auto-connect" style="margin-bottom: 0; cursor: pointer;">Auto Connect</label>
+    </div>
+
+    <div class="actions">
+        <button id="btn-connect">Connect</button>
+        <button id="btn-disconnect" class="hidden">Disconnect</button>
+    </div>
+
+    <div class="links">
+        <a id="btn-logs">Open Sidepanel & Logs</a>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,125 @@
+# Popup Detection Test Suite
+# Tests comprehensive popup/modal detection using characteristics-based approach
+
+goto "http://localhost:3000/modals/popup-detection.html"
+observe
+
+# =============================================================================
+# Test 1: Standard Modal (Common Classes)
+# =============================================================================
+# Uses: .modal-overlay, .modal-content, .close
+# Should work with both pattern detection AND characteristics-based
+
+click "Show Standard Modal"
+wait visible css(#modal-standard.show)
+observe
+
+dismiss "popup"
+wait visible css(#standard-result.visible)
+observe
+
+# =============================================================================
+# Test 2: Custom Class Names
+# =============================================================================
+# Uses: .overlay-wrapper, .dialog-box (no "modal" keyword)
+# Tests that detection works without standard class names
+
+click "Show Custom Modal"
+wait visible css(#modal-custom.active)
+observe
+
+dismiss "popup"
+wait visible css(#custom-result.visible)
+observe
+
+# =============================================================================
+# Test 3: No Semantic Classes (Pure Characteristics)
+# =============================================================================
+# Uses: .xyz123, .abc456 (completely non-semantic)
+# This is the CRITICAL test - detection must rely purely on:
+# - position: fixed
+# - z-index: 3000
+# - coverage: 100%
+# Should achieve score: 2 (position) + 2 (z-index) + 2 (coverage) = 6
+
+click "Show Characteristics Modal"
+wait visible css(#modal-characteristics.visible)
+observe
+
+dismiss "popup"
+wait visible css(#characteristics-result.visible)
+observe
+
+# =============================================================================
+# Test 4: Semantic Attributes Only
+# =============================================================================
+# Uses: role="dialog", aria-modal="true" with generic classes
+# Should score high due to semantic attributes:
+# - position: +2, z-index: +2, coverage: +2, role: +3, aria-modal: +3 = 12
+
+click "Show Semantic Modal"
+wait visible css(#modal-semantic.open)
+observe
+
+dismiss "popup"
+wait visible css(#semantic-result.visible)
+observe
+
+# =============================================================================
+# Test 5: Icon Close Button
+# =============================================================================
+# Close button uses SVG icon instead of text
+# Tests icon button detection (SVG + top-right positioning)
+
+click "Show Modal with Icon Button"
+wait visible css(#modal-icon.show)
+observe
+
+dismiss "popup"
+wait visible css(#icon-result.visible)
+observe
+
+# =============================================================================
+# Test 6: Low Z-Index (Below Threshold)
+# =============================================================================
+# Z-index: 50 (below 100 threshold)
+# Should still work due to other characteristics:
+# - position: +2, z-index: +0, coverage: +2, classes: +1 = 5 (above threshold of 4)
+
+click "Show Low Z-Index Modal"
+wait visible css(#modal-lowz.show)
+observe
+
+dismiss "popup"
+wait visible css(#lowz-result.visible)
+observe
+
+# =============================================================================
+# Test 7: Small Coverage Popup
+# =============================================================================
+# Small popup (200x100px, less than 30% viewport)
+# Should still work due to other characteristics:
+# - position: +2, z-index: +2, coverage: +0, classes: +1 = 5 (above threshold)
+
+click "Show Small Popup"
+wait visible css(#popup-small.show)
+observe
+
+dismiss "popup"
+wait visible css(#small-result.visible)
+observe
+
+# =============================================================================
+# Test 8: Shadow DOM Modal
+# =============================================================================
+# Modal rendered inside Shadow DOM
+# Uses: role="dialog", aria-modal="true" in shadow DOM
+# Tests ShadowUtils.querySelectorAllWithShadow integration
+
+click "Show Shadow DOM Modal"
+# Shadow DOM modal appears immediately
+observe
+
+dismiss "popup"
+wait visible css(#shadow-result.visible)
+observe

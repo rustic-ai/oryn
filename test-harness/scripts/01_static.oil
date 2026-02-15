@@ -1,0 +1,7 @@
+goto "http://localhost:3000/static/article.html"
+observe
+extract text --selector "article"
+back
+goto "http://localhost:3000/static/table.html"
+observe
+extract tables

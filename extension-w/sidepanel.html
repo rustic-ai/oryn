@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Oryn-W</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            padding: 0;
+            margin: 0;
+            background-color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .header {
+            padding: 12px 16px;
+            background: #fff;
+            border-bottom: 1px solid #e0e0e0;
+            flex-shrink: 0;
+        }
+
+        .header-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #212121;
+            margin: 0 0 8px 0;
+        }
+
+        .status-badges {
+            display: flex;
+            gap: 8px;
+        }
+
+        .status-badge {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+
+        .status-badge.ready {
+            background: #E8F5E9;
+            color: #2E7D32;
+        }
+
+        .status-badge.error {
+            background: #FFEBEE;
+            color: #C62828;
+        }
+
+        .status-badge.idle {
+            background: #E0E0E0;
+            color: #616161;
+        }
+
+        .llm-switcher-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        .llm-switcher-btn {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding-right: 8px;
+        }
+
+        .llm-switcher-btn:hover {
+            background: rgba(33, 150, 243, 0.1);
+        }
+
+        .dropdown-arrow {
+            font-size: 10px;
+            opacity: 0.7;
+            transition: transform 0.2s;
+        }
+
+        .llm-switcher-btn.open .dropdown-arrow {
+            transform: rotate(180deg);
+        }
+
+        .switcher-menu {
+            position: absolute;
+            top: calc(100% + 4px);
+            right: 0;
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+            min-width: 220px;
+            max-height: 400px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .switcher-item {
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-bottom: 1px solid #f5f5f5;
+        }
+
+        .switcher-item:last-child {
+            border-bottom: none;
+        }
+
+        .switcher-item:hover {
+            background: #f8f9ff;
+        }
+
+        .switcher-item.active {
+            background: #e8f0ff;
+            font-weight: 600;
+        }
+
+        .switcher-item.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .switcher-item.disabled:hover {
+            background: white;
+        }
+
+        .switcher-item.config {
+            border-top: 2px solid #e0e0e0;
+            color: #2196F3;
+            font-weight: 500;
+        }
+
+        .switcher-icon {
+            font-size: 18px;
+            width: 24px;
+            text-align: center;
+        }
+
+        .switcher-name {
+            flex: 1;
+            font-size: 13px;
+        }
+
+        .switcher-check {
+            color: #4CAF50;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .switcher-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            background: #ff9800;
+            color: white;
+            border-radius: 3px;
+            font-weight: 500;
+        }
+
+        .download-progress {
+            margin: 12px 0;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .progress-bar-bg {
+            width: 100%;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 14px;
+            line-height: 1.4;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .message-user {
+            align-self: flex-end;
+            background: #2196F3;
+            color: white;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .message-system {
+            align-self: flex-start;
+            background: white;
+            color: #212121;
+            border: 1px solid #E0E0E0;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+        }
+
+        .message-error {
+            align-self: flex-start;
+            background: #FFEBEE;
+            color: #C62828;
+            border: 1px solid #FFCDD2;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+        }
+
+        .message-success {
+            align-self: flex-start;
+            background: #E8F5E9;
+            color: #2E7D32;
+            border: 1px solid #C8E6C9;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+        }
+
+        .message-time {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+
+        .input-container {
+            padding: 12px 16px;
+            background: #fff;
+            border-top: 1px solid #e0e0e0;
+            flex-shrink: 0;
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        #command-input {
+            flex: 1;
+            padding: 10px 12px;
+            border: 1px solid #E0E0E0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            resize: none;
+            max-height: 120px;
+            min-height: 40px;
+        }
+
+        #command-input:focus {
+            outline: none;
+            border-color: #2196F3;
+        }
+
+        #command-input:disabled {
+            background: #f5f5f5;
+            color: #9e9e9e;
+        }
+
+        #btn-execute {
+            padding: 10px 20px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        #btn-execute:hover:not(:disabled) {
+            background: #1976D2;
+        }
+
+        #btn-execute:disabled {
+            background: #BDBDBD;
+            cursor: not-allowed;
+        }
+
+        #btn-clear {
+            padding: 6px 12px;
+            background: #fff;
+            color: #757575;
+            border: 1px solid #E0E0E0;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-left: auto;
+        }
+
+        #btn-clear:hover {
+            background: #f5f5f5;
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #9e9e9e;
+            text-align: center;
+            padding: 32px;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .empty-state-title {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .empty-state-subtitle {
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .example-command {
+            font-family: 'Consolas', 'Monaco', monospace;
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        /* Mode Selector */
+        .mode-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .mode-btn {
+            flex: 1;
+            padding: 8px 16px;
+            background: #fff;
+            color: #757575;
+            border: 1px solid #E0E0E0;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .mode-btn:hover {
+            background: #f5f5f5;
+        }
+
+        .mode-btn.active {
+            background: #2196F3;
+            color: white;
+            border-color: #2196F3;
+        }
+
+        /* Agent Input Section */
+        #agent-input-section {
+            display: none;
+        }
+
+        #agent-input-section label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 6px;
+            color: #424242;
+        }
+
+        #agent-task {
+            width: 100%;
+            min-height: 80px;
+            padding: 10px 12px;
+            border: 1px solid #E0E0E0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            resize: vertical;
+            margin-bottom: 12px;
+        }
+
+        #agent-task:focus {
+            outline: none;
+            border-color: #2196F3;
+        }
+
+        #execute-agent {
+            width: 100%;
+            padding: 12px 20px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        #execute-agent:hover:not(:disabled) {
+            background: #45a049;
+        }
+
+        #execute-agent:disabled {
+            background: #BDBDBD;
+            cursor: not-allowed;
+        }
+
+        /* Agent Iterations */
+        .agent-iteration {
+            margin: 12px 0;
+            padding: 12px;
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            border-radius: 4px;
+        }
+
+        .iteration-header {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .thought {
+            font-style: italic;
+            color: #666;
+            margin: 4px 0;
+            font-size: 13px;
+        }
+
+        .command {
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: #333;
+            margin: 4px 0;
+            font-size: 13px;
+            background: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .result-success {
+            color: #28a745;
+            margin: 4px 0;
+            font-size: 12px;
+        }
+
+        .result-failed {
+            color: #dc3545;
+            margin: 4px 0;
+            font-size: 12px;
+        }
+
+        /* Agent Status */
+        .agent-status {
+            padding: 8px 12px;
+            background: #FFF3CD;
+            border: 1px solid #FFE082;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            display: none;
+        }
+
+        .agent-status.active {
+            display: block;
+        }
+
+        /* LLM Config Button */
+        #btn-config-llm {
+            padding: 6px 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        #btn-config-llm:hover {
+            background: #5568d3;
+        }
+
+        /* Page Warning */
+        .page-warning {
+            margin: 16px;
+            padding: 16px;
+            background: #FFF3CD;
+            border: 2px solid #FFC107;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .page-warning strong {
+            display: block;
+            margin-bottom: 8px;
+            color: #856404;
+        }
+
+        .page-warning em {
+            display: block;
+            margin-top: 8px;
+            color: #666;
+            font-size: 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <h1 class="header-title">Oryn-W</h1>
+            <div style="display: flex; gap: 8px;">
+                <button id="btn-config-llm">Configure LLM</button>
+                <button id="btn-clear">Clear History</button>
+            </div>
+        </div>
+        <div class="status-badges">
+            <span id="wasm-badge" class="status-badge idle">WASM: Loading...</span>
+            <span id="scan-badge" class="status-badge idle">Scan: Not loaded</span>
+
+            <!-- Quick Switcher -->
+            <div class="llm-switcher-wrapper">
+                <button id="llm-switcher-btn" class="status-badge idle llm-switcher-btn">
+                    <span id="llm-switcher-text">LLM: Not configured</span>
+                    <span class="dropdown-arrow">▾</span>
+                </button>
+                <div id="llm-switcher-menu" class="switcher-menu" style="display: none;">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Download Progress Indicator -->
+        <div id="download-progress-container" class="download-progress" style="display: none;">
+            <div class="progress-info">
+                <span id="download-status">Downloading model...</span>
+                <span id="download-percentage">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="download-progress-fill"></div>
+            </div>
+        </div>
+
+        <div class="mode-selector">
+            <button id="oil-mode-btn" class="mode-btn active">OIL Mode</button>
+            <button id="agent-mode-btn" class="mode-btn">Agent Mode</button>
+        </div>
+    </div>
+
+    <div class="chat-container" id="chat-container">
+        <div class="empty-state" id="empty-state">
+            <div class="empty-state-icon">💬</div>
+            <div class="empty-state-title">Welcome to Oryn-W</div>
+            <div class="empty-state-subtitle">
+                Enter commands below to interact with the page.<br>
+                Try: <span class="example-command">goto google.com</span> or <span class="example-command">observe</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="input-container">
+        <!-- OIL Mode Input -->
+        <div id="oil-input-section" class="input-wrapper">
+            <textarea
+                id="command-input"
+                placeholder="Enter command (e.g., goto google.com)"
+                rows="1"
+            ></textarea>
+            <button id="btn-execute">Execute</button>
+        </div>
+
+        <!-- Agent Mode Input -->
+        <div id="agent-input-section">
+            <div class="agent-status" id="agent-status">
+                Executing task...
+            </div>
+            <label for="agent-task">Task Description:</label>
+            <textarea
+                id="agent-task"
+                placeholder="Describe what you want to do (e.g., 'Search for blue backpacks and add the first one to cart')"
+                rows="3"
+            ></textarea>
+            <button id="execute-agent">Start Agent</button>
+        </div>
+    </div>
+
+    <script src="sidepanel.js"></script>
+</body>
+
+</html>

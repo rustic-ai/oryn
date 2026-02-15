@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Scanner Harness</title>
+        <style>
+            .hidden {
+                display: none;
+            }
+            .obscured {
+                opacity: 0;
+            }
+            #log {
+                border: 1px solid #ccc;
+                padding: 10px;
+                height: 200px;
+                overflow: auto;
+                background: #f0f0f0;
+            }
+            section {
+                margin: 20px 0;
+                border-bottom: 1px solid #eee;
+                padding-bottom: 20px;
+            }
+            .covered-container {
+                position: relative;
+                width: 120px;
+                height: 40px;
+            }
+            .covered-btn {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 40px;
+            }
+            .overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 40px;
+                background: rgba(255, 0, 0, 0.3);
+                z-index: 10;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Scanner Test Harness</h1>
+
+        <div id="controls">
+            <button onclick="runScan()">Scan Page</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+
+        <pre id="log">Log output...</pre>
+
+        <section id="basics">
+            <h2>Basic Elements</h2>
+            <button id="btn-1" onclick="log('Button 1 clicked')">Click Me</button>
+            <input type="text" id="input-1" placeholder="Type here..." onchange="log('Input changed: ' + this.value)" />
+            <a href="#" id="link-1">Test Link</a>
+        </section>
+
+        <section id="forms">
+            <h2>Form Pattern</h2>
+            <form
+                onsubmit="
+                    event.preventDefault();
+                    log('Form submitted');
+                "
+            >
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" autocomplete="email" />
+
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" />
+
+                <input type="checkbox" id="check-1" onchange="log('Checked: ' + this.checked)" />
+                <label for="check-1">Remember me</label>
+
+                <button type="submit">Login</button>
+            </form>
+        </section>
+
+        <section id="visibility">
+            <h2>Visibility Tests</h2>
+            <button class="hidden">Hidden Element</button>
+            <button class="obscured">Obscured Element</button>
+            <button style="visibility: hidden">Visibility Hidden</button>
+        </section>
+
+        <section id="selects">
+            <h2>Selection</h2>
+            <select id="select-1" onchange="log('Selected: ' + this.value)">
+                <option value="1">Option 1</option>
+                <option value="2">Option 2</option>
+                <option value="3">Option 3</option>
+            </select>
+        </section>
+
+        <section id="primary-buttons">
+            <h2>Primary Button Tests</h2>
+            <button id="btn-primary-class" class="btn-primary">Primary Class Button</button>
+            <button id="btn-cta" class="cta">CTA Button</button>
+            <button id="btn-continue">Continue</button>
+            <button id="btn-save">Save</button>
+            <div id="div-button" role="button" tabindex="0" onclick="log('Div button clicked')">Clickable Div</div>
+            <div id="div-primary" role="button" tabindex="0" class="primary">Primary Div</div>
+        </section>
+
+        <section id="aria-labels">
+            <h2>ARIA Label Tests</h2>
+            <span id="username-label">Username</span>
+            <input type="text" id="username-input" aria-labelledby="username-label" />
+            <span id="search-label">Search Query</span>
+            <input type="search" id="search-input" aria-labelledby="search-label" />
+        </section>
+
+        <section id="attributes-test">
+            <h2>Extended Attributes Tests</h2>
+            <button
+                id="attr-btn"
+                title="Button Title"
+                class="test-class"
+                tabindex="1"
+                data-testid="test-btn-id"
+                aria-hidden="false"
+                aria-disabled="false"
+            >
+                Attribute Button
+            </button>
+            <div id="hidden-attr" aria-hidden="true">Aria Hidden</div>
+            <button data-testid="unique-test-id">Data Test ID Only</button>
+        </section>
+
+        <section id="near-test">
+            <h2>Near Test</h2>
+            <div>
+                <span>Label For Button</span>
+                <button id="near-btn">Near Button</button>
+            </div>
+            <div>
+                <span>Far Away Label</span>
+            </div>
+            <button id="far-btn" style="margin-top: 500px">Far Button</button>
+        </section>
+
+        <section id="multi-select-test">
+            <h2>Multi Select</h2>
+            <select id="multi-select" multiple>
+                <option value="1">Option 1</option>
+                <option value="2">Option 2</option>
+                <option value="3">Option 3</option>
+            </select>
+        </section>
+
+        <section id="nav-test">
+            <h2>Navigation Test</h2>
+            <button id="nav-btn" onclick="window.location.hash = '#new-hash'">Nav Button</button>
+        </section>
+
+        <section id="iframe-test">
+            <h2>Iframe Tests</h2>
+            <iframe
+                id="same-origin-iframe"
+                srcdoc="
+            <!DOCTYPE html>
+            <html>
+            <body>
+                <button id='iframe-btn'>Iframe Button</button>
+                <input type='text' id='iframe-input' placeholder='Iframe Input' />
+                <a href='#' id='iframe-link'>Iframe Link</a>
+            </body>
+            </html>
+        "
+                style="width: 300px; height: 100px; border: 1px solid #ccc"
+            ></iframe>
+        </section>
+
+        <section id="single-submit-form">
+            <h2>Single Submit Form</h2>
+            <form id="single-submit">
+                <input type="text" id="single-form-input" placeholder="Input" />
+                <button type="submit" id="single-submit-btn">Submit Only</button>
+            </form>
+        </section>
+
+        <section id="covered-elements">
+            <h2>Covered Element Test</h2>
+            <div class="covered-container">
+                <button id="covered-btn" class="covered-btn" onclick="log('Covered button clicked')">Covered</button>
+                <div class="overlay" id="overlay"></div>
+            </div>
+        </section>
+
+        <section id="disabled-elements">
+            <h2>Disabled Elements</h2>
+            <button id="disabled-btn" disabled onclick="log('Disabled button clicked')">Disabled Button</button>
+            <input type="text" id="disabled-input" disabled value="Disabled Input" />
+            <select id="disabled-select" disabled>
+                <option value="1">Option 1</option>
+            </select>
+        </section>
+
+        <section id="many-elements">
+            <h2>Many Elements (for max_elements test)</h2>
+            <button id="many-1">Btn 1</button>
+            <button id="many-2">Btn 2</button>
+            <button id="many-3">Btn 3</button>
+            <button id="many-4">Btn 4</button>
+            <button id="many-5">Btn 5</button>
+            <button id="many-6">Btn 6</button>
+            <button id="many-7">Btn 7</button>
+            <button id="many-8">Btn 8</button>
+            <button id="many-9">Btn 9</button>
+            <button id="many-10">Btn 10</button>
+            <input type="text" id="many-input-1" />
+            <input type="text" id="many-input-2" />
+            <input type="text" id="many-input-3" />
+            <input type="text" id="many-input-4" />
+            <input type="text" id="many-input-5" />
+        </section>
+
+        <script>
+            function log(msg) {
+                const logEl = document.getElementById('log');
+                logEl.innerText += `\n${msg}`;
+                logEl.scrollTop = logEl.scrollHeight;
+            }
+            function clearLog() {
+                document.getElementById('log').innerText = 'Log cleared.';
+            }
+
+            async function runScan() {
+                if (!window.Oryn) {
+                    alert('Scanner JS not loaded! Paste it in console or include it.');
+                    return;
+                }
+                const result = await window.Oryn.process({ cmd: 'scan' });
+                console.log(result);
+                log(`Scan complete. Found ${result.data.elements.length} elements.`);
+            }
+        </script>
+    </body>
+</html>

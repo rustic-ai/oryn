@@ -1,0 +1,22 @@
+run_id: miniwob_5ep
+benchmark: miniwob
+benchmark_options:
+  server_url: http://localhost:8765
+  episodes_per_task: 5
+llm_provider: litellm
+llm_model: vertex_ai/gemini-2.5-flash-lite
+
+llm_options:
+  temperature: 1.0
+agent_type: react
+agent_options: {}
+max_steps: 50
+prompt_template: oil_instructions_v2
+oryn_mode: headless
+oryn_options:
+  binary_path: ../target/release/oryn
+  timeout: 60.0  # Increase timeout for slow operations (default: 30s)
+  log_file: oryn_debug.log
+
+# Save detailed transcript to markdown file (default: true)
+save_transcript: true

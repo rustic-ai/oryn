@@ -1,0 +1,87 @@
+site_name: Oryn Documentation
+site_description: The Browser Designed for AI Agents - Semantic intent language for web automation
+site_url: https://oryn.dev
+repo_url: https://github.com/dragonscale/oryn
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Overview: getting-started/index.md
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quickstart.md
+      - CLI Reference: getting-started/cli-reference.md
+  - Concepts:
+      - Overview: concepts/index.md
+      - Architecture: concepts/architecture.md
+      - Intent Language: concepts/intent-language.md
+      - Scanner Protocol: concepts/scanner-protocol.md
+      - Intent Engine: concepts/intent-engine.md
+      - Backend Modes: concepts/backend-modes.md
+  - Guides:
+      - Overview: guides/index.md
+      - Basic Navigation: guides/basic-navigation.md
+      - Form Interactions: guides/form-interactions.md
+      - Custom Intents: guides/custom-intents.md
+      - Multi-Page Flows: guides/multi-page-flows.md
+      - Troubleshooting: guides/troubleshooting.md
+  - IntentGym: integrations/intentgym.md
+  - WASM Extension:
+      - Overview: integrations/wasm-extension.md
+      - Features and Functionality: integrations/extension-w/features.md
+      - Architecture: integrations/extension-w/architecture.md
+      - Setup and Build: integrations/extension-w/setup-build.md
+      - Usage: integrations/extension-w/usage.md
+      - Testing: integrations/extension-w/testing.md
+      - Packaging and Preview Release: integrations/extension-w/packaging-release.md
+      - Troubleshooting: integrations/extension-w/troubleshooting.md
+  - Integrations:
+      - Overview: integrations/index.md
+      - Google ADK: integrations/google-adk.md
+      - Python SDK: integrations/python-sdk.md
+      - Remote Extension: integrations/remote-extension.md
+  - Reference:
+      - Overview: reference/index.md
+      - Intent Commands: reference/intent-commands.md
+      - Command Coverage: reference/command-coverage.md
+      - Truth & Trust: reference/truth-and-trust.md
+      - Scanner Commands: reference/scanner-commands.md
+      - Configuration: reference/configuration.md
+      - Error Codes: reference/error-codes.md
+      - Glossary: reference/glossary.md
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  # favicon: assets/images/favicon.png
+  # logo: assets/images/logo.svg
+  primary: custom
+
+extra_css:
+  - assets/stylesheets/theme.css
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
+  - assets/javascripts/mermaid-init.js
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_div_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true

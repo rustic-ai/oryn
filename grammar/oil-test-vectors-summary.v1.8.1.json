@@ -1,0 +1,353 @@
+{
+  "metadata": {
+    "title": "OIL Test Vectors Summary",
+    "version": "1.8.1",
+    "date": "2026-01",
+    "vector_file": "oil-test-vectors.v1.8.1.full.yaml",
+    "grammar_file": "OIL.v1.8.1.canonical.fixed.abnf",
+    "conformance_document": "SPEC-OIL-COMPLIANCE.v1.8.1.polished.md",
+    "notes": [
+      "Generated from oil-test-vectors.v1.8.1.full.yaml"
+    ]
+  },
+  "totals": {
+    "suites": 24,
+    "vectors": 343,
+    "ok": 329,
+    "error": 14,
+    "by_command": {
+      "click": 34,
+      "goto": 24,
+      "wait": 19,
+      "observe": 17,
+      "type": 17,
+      "scroll": 12,
+      "press": 11,
+      "extract": 9,
+      "intercept": 9,
+      "screenshot": 9,
+      "console": 7,
+      "dialog": 7,
+      "session": 7,
+      "state": 7,
+      "storage": 7,
+      "cookies": 6,
+      "dismiss": 6,
+      "headers": 6,
+      "requests": 6,
+      "tab": 6,
+      "highlight": 5,
+      "learn": 5,
+      "media": 5,
+      "pdf": 5,
+      "refresh": 5,
+      "back": 4,
+      "errors": 4,
+      "frame": 4,
+      "login": 4,
+      "record": 4,
+      "search": 4,
+      "trace": 4,
+      "device": 3,
+      "intents": 3,
+      "keyup": 3,
+      "pack": 3,
+      "run": 3,
+      "select": 3,
+      "text": 3,
+      "accept_cookies": 2,
+      "box": 2,
+      "check": 2,
+      "clear": 2,
+      "empty": 2,
+      "exit": 2,
+      "export": 2,
+      "forward": 2,
+      "help": 2,
+      "hover": 2,
+      "html": 2,
+      "keydown": 2,
+      "submit": 2,
+      "url": 2,
+      "viewport": 2,
+      "comment": 1,
+      "define": 1,
+      "devices": 1,
+      "flurble": 1,
+      "focus": 1,
+      "frames": 1,
+      "keys": 1,
+      "packs": 1,
+      "sessions": 1,
+      "tabs": 1,
+      "title": 1,
+      "uncheck": 1,
+      "undefine": 1
+    }
+  },
+  "suites": {
+    "navigation": {
+      "vectors": 25,
+      "ok": 25,
+      "error": 0,
+      "by_command": {
+        "goto": 15,
+        "back": 2,
+        "forward": 2,
+        "refresh": 4,
+        "url": 2
+      }
+    },
+    "observation": {
+      "vectors": 26,
+      "ok": 25,
+      "error": 1,
+      "by_command": {
+        "observe": 11,
+        "html": 2,
+        "text": 3,
+        "title": 1,
+        "screenshot": 9
+      }
+    },
+    "action": {
+      "vectors": 55,
+      "ok": 53,
+      "error": 2,
+      "by_command": {
+        "click": 17,
+        "type": 9,
+        "clear": 2,
+        "press": 9,
+        "select": 3,
+        "check": 2,
+        "uncheck": 1,
+        "hover": 2,
+        "focus": 1,
+        "scroll": 7,
+        "submit": 2
+      }
+    },
+    "wait": {
+      "vectors": 11,
+      "ok": 11,
+      "error": 0,
+      "by_command": {
+        "wait": 11
+      }
+    },
+    "extraction": {
+      "vectors": 9,
+      "ok": 9,
+      "error": 0,
+      "by_command": {
+        "extract": 9
+      }
+    },
+    "session": {
+      "vectors": 13,
+      "ok": 12,
+      "error": 1,
+      "by_command": {
+        "cookies": 6,
+        "storage": 7
+      }
+    },
+    "tabs": {
+      "vectors": 7,
+      "ok": 7,
+      "error": 0,
+      "by_command": {
+        "tabs": 1,
+        "tab": 6
+      }
+    },
+    "intent": {
+      "vectors": 19,
+      "ok": 19,
+      "error": 0,
+      "by_command": {
+        "login": 4,
+        "search": 4,
+        "dismiss": 6,
+        "accept_cookies": 2,
+        "scroll": 3
+      }
+    },
+    "pack_management": {
+      "vectors": 13,
+      "ok": 13,
+      "error": 0,
+      "by_command": {
+        "packs": 1,
+        "pack": 2,
+        "intents": 3,
+        "define": 1,
+        "undefine": 1,
+        "export": 2,
+        "run": 3
+      }
+    },
+    "utility": {
+      "vectors": 13,
+      "ok": 13,
+      "error": 0,
+      "by_command": {
+        "pdf": 4,
+        "learn": 5,
+        "exit": 2,
+        "help": 2
+      }
+    },
+    "relational": {
+      "vectors": 8,
+      "ok": 8,
+      "error": 0,
+      "by_command": {
+        "click": 7,
+        "type": 1
+      }
+    },
+    "normalization": {
+      "vectors": 10,
+      "ok": 10,
+      "error": 0,
+      "by_command": {
+        "goto": 2,
+        "observe": 3,
+        "click": 3,
+        "type": 1,
+        "refresh": 1
+      }
+    },
+    "comments": {
+      "vectors": 6,
+      "ok": 6,
+      "error": 0,
+      "by_command": {
+        "comment": 1,
+        "back": 2,
+        "observe": 1,
+        "empty": 2
+      }
+    },
+    "errors": {
+      "vectors": 10,
+      "ok": 0,
+      "error": 10,
+      "by_command": {
+        "flurble": 1,
+        "goto": 1,
+        "click": 3,
+        "type": 2,
+        "wait": 1,
+        "scroll": 1,
+        "press": 1
+      }
+    },
+    "edge_cases": {
+      "vectors": 15,
+      "ok": 15,
+      "error": 0,
+      "by_command": {
+        "goto": 1,
+        "click": 4,
+        "type": 4,
+        "wait": 2,
+        "scroll": 1,
+        "pdf": 1,
+        "pack": 1,
+        "press": 1
+      }
+    },
+    "multiline": {
+      "vectors": 3,
+      "ok": 3,
+      "error": 0,
+      "by_command": {
+        "goto": 3
+      }
+    },
+    "session_management": {
+      "vectors": 21,
+      "ok": 21,
+      "error": 0,
+      "by_command": {
+        "sessions": 1,
+        "session": 7,
+        "state": 7,
+        "headers": 6
+      }
+    },
+    "network": {
+      "vectors": 15,
+      "ok": 15,
+      "error": 0,
+      "by_command": {
+        "intercept": 9,
+        "requests": 6
+      }
+    },
+    "console_errors": {
+      "vectors": 11,
+      "ok": 11,
+      "error": 0,
+      "by_command": {
+        "console": 7,
+        "errors": 4
+      }
+    },
+    "frames": {
+      "vectors": 5,
+      "ok": 5,
+      "error": 0,
+      "by_command": {
+        "frames": 1,
+        "frame": 4
+      }
+    },
+    "dialogs": {
+      "vectors": 7,
+      "ok": 7,
+      "error": 0,
+      "by_command": {
+        "dialog": 7
+      }
+    },
+    "viewport_device": {
+      "vectors": 11,
+      "ok": 11,
+      "error": 0,
+      "by_command": {
+        "viewport": 2,
+        "device": 3,
+        "devices": 1,
+        "media": 5
+      }
+    },
+    "recording": {
+      "vectors": 13,
+      "ok": 13,
+      "error": 0,
+      "by_command": {
+        "trace": 4,
+        "record": 4,
+        "highlight": 5
+      }
+    },
+    "v181_enhancements": {
+      "vectors": 17,
+      "ok": 17,
+      "error": 0,
+      "by_command": {
+        "keydown": 2,
+        "keyup": 3,
+        "keys": 1,
+        "box": 2,
+        "wait": 5,
+        "observe": 2,
+        "goto": 2
+      }
+    }
+  }
+}

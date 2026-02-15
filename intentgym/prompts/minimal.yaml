@@ -1,0 +1,8 @@
+name: minimal
+version: "1.0"
+system: |
+  You control a web browser via Oryn Intent Language.
+  Commands: goto, observe, click, type, select, scroll, wait, back
+  Respond with only the next command.
+observation_format: "${observation}"
+action_format: "Command: "

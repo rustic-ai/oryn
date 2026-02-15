@@ -1,0 +1,139 @@
+version: '3.8'
+
+# E2E Test Environment for Oryn
+# Runs test harness and backend variants for Docker-based testing
+#
+# Usage:
+#   docker-compose -f docker/docker-compose.test-env.yml up -d test-harness
+#   docker-compose -f docker/docker-compose.test-env.yml run --rm oryn-h-test
+#
+# For comprehensive testing including remote mode, use:
+#   ./scripts/run-e2e-tests.sh
+
+services:
+  # ============================================================================
+  # Test Harness - Web server with test scenarios
+  # ============================================================================
+  test-harness:
+    build:
+      context: ../test-harness
+      dockerfile: Dockerfile
+    image: oryn-test-harness:latest
+    container_name: e2e-test-harness
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+    networks:
+      - oryn-e2e-net
+
+  # ============================================================================
+  # oryn-h: Chromium Headless Backend
+  # ============================================================================
+  oryn-h-test:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.oryn-h
+    image: oryn-h:latest
+    container_name: e2e-oryn-h
+    depends_on:
+      test-harness:
+        condition: service_healthy
+    environment:
+      - CHROME_BIN=/usr/bin/chromium
+      - TEST_HARNESS_URL=http://test-harness:3000
+    volumes:
+      - ../test-harness/scripts:/scripts:ro
+      - /dev/shm:/dev/shm
+    shm_size: 2gb
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      - oryn-e2e-net
+    command: >
+      sh -c "
+        for script in /scripts/*.oil; do
+          echo '=== Running:' \$script '===';
+          /usr/local/bin/oryn-h --file \$script || exit 1;
+        done;
+        echo '=== All oryn-h tests passed ===';
+      "
+
+  # ============================================================================
+  # oryn-e-debian: WPE WebKit on Debian
+  # ============================================================================
+  oryn-e-debian-test:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.oryn-e.debian
+    image: oryn-e:debian
+    container_name: e2e-oryn-e-debian
+    depends_on:
+      test-harness:
+        condition: service_healthy
+    environment:
+      - XDG_RUNTIME_DIR=/run/user/1000
+      - COG_PLATFORM_NAME=headless
+      - TEST_HARNESS_URL=http://test-harness:3000
+    volumes:
+      - ../test-harness/scripts:/scripts:ro
+      - /dev/shm:/dev/shm
+    shm_size: 1gb
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - SYS_ADMIN
+    networks:
+      - oryn-e2e-net
+    command: >
+      sh -c "
+        for script in /scripts/*.oil; do
+          echo '=== Running:' \$script '===';
+          /usr/local/bin/oryn-e --file \$script || exit 1;
+        done;
+        echo '=== All oryn-e-debian tests passed ===';
+      "
+
+  # ============================================================================
+  # oryn-e-weston: WPE WebKit with Weston Compositor
+  # ============================================================================
+  oryn-e-weston-test:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.oryn-e.weston
+    image: oryn-e:weston
+    container_name: e2e-oryn-e-weston
+    depends_on:
+      test-harness:
+        condition: service_healthy
+    environment:
+      - TEST_HARNESS_URL=http://test-harness:3000
+      - ORYN_E2E=1
+    volumes:
+      - ../test-harness/scripts:/scripts:ro
+      - /dev/shm:/dev/shm
+    shm_size: 1gb
+    privileged: true
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      - oryn-e2e-net
+    command: >
+      sh -c "
+        # Start weston in background
+        weston --backend=headless --shell=desktop &
+        sleep 3;
+        export WAYLAND_DISPLAY=wayland-0;
+        for script in /scripts/*.oil; do
+          echo '=== Running:' \$script '===';
+          /usr/local/bin/oryn-e --file \$script || exit 1;
+        done;
+        echo '=== All oryn-e-weston tests passed ===';
+      "
+
+networks:
+  oryn-e2e-net:
+    driver: bridge

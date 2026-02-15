@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadow DOM - Oryn Edge Cases</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .card { margin-top: 1rem; margin-bottom: 1rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; clear: both; }
+        .hidden { display: none; }
+        body { padding-bottom: 2rem; }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Index</a></nav>
+        <h1>Shadow DOM Comprehensive Tests</h1>
+        <p>Testing discovery and interaction with elements inside Shadow Roots.</p>
+
+        <!-- Test 1: Closed Shadow Root -->
+        <div id="closed-shadow-host" class="card"></div>
+
+        <!-- Test 2: Open Shadow Root with Interactive Elements -->
+        <div id="open-shadow-host" class="card"></div>
+
+        <!-- Test 3: Nested Shadow Roots -->
+        <div id="nested-shadow-host" class="card"></div>
+
+        <!-- Test 4: Shadow DOM with Form Elements -->
+        <div id="form-shadow-host" class="card"></div>
+
+        <!-- Test 5: Shadow DOM with Extraction Targets (links, images, tables) -->
+        <div id="extraction-shadow-host" class="card"></div>
+
+        <!-- Test 6: Shadow DOM with Modal/Dialog -->
+        <div id="modal-shadow-host" class="card"></div>
+
+        <!-- Test 7: Shadow DOM inside iframe (created dynamically) -->
+        <div id="iframe-container" class="card"></div>
+
+        <!-- Test 8: iframe inside Shadow DOM -->
+        <div id="shadow-with-iframe-host" class="card"></div>
+    </div>
+
+    <script>
+        // Test 1: Closed Shadow Root (should NOT be accessible)
+        const closedHost = document.getElementById('closed-shadow-host');
+        const closedShadow = closedHost.attachShadow({ mode: 'closed' });
+        closedShadow.innerHTML = `
+            <style>
+                .inner { padding: 1rem; background: #fee2e2; border-radius: 4px; }
+                button { background: #ef4444; color: white; border: none; padding: 0.5rem; cursor: pointer; }
+            </style>
+            <div class="inner">
+                <h3>Closed Shadow Root</h3>
+                <p>This content is hidden from shadowRoot access.</p>
+                <button id="secret-btn">Secret Action</button>
+            </div>
+        `;
+
+        // Test 2: Open Shadow Root with Interactive Elements
+        const openHost = document.getElementById('open-shadow-host');
+        const openShadow = openHost.attachShadow({ mode: 'open' });
+        openShadow.innerHTML = `
+            <style>
+                .inner { padding: 1rem; background: #dcfce7; border-radius: 4px; }
+                button { background: #22c55e; color: white; border: none; padding: 0.5rem; cursor: pointer; }
+                input { margin: 0.5rem 0; padding: 0.5rem; }
+            </style>
+            <div class="inner">
+                <h3>Open Shadow Root</h3>
+                <p>Shadow Content Ready</p>
+                <input id="shadow-input" type="text" placeholder="Type here">
+                <button id="open-btn">Open Action</button>
+            </div>
+        `;
+        openShadow.getElementById('open-btn').onclick = () => {
+            const input = openShadow.getElementById('shadow-input');
+            input.value = 'Button clicked!';
+        };
+
+        // Test 3: Nested Shadow Roots
+        const nestedHost = document.getElementById('nested-shadow-host');
+        const nestedShadow = nestedHost.attachShadow({ mode: 'open' });
+        nestedShadow.innerHTML = `
+            <style>
+                .outer { padding: 1rem; background: #dbeafe; border-radius: 4px; }
+            </style>
+            <div class="outer">
+                <h3>Nested Shadow Test</h3>
+                <p>Outer shadow root</p>
+                <div id="inner-shadow-host"></div>
+            </div>
+        `;
+        const innerShadowHost = nestedShadow.getElementById('inner-shadow-host');
+        const innerShadow = innerShadowHost.attachShadow({ mode: 'open' });
+        innerShadow.innerHTML = `
+            <style>
+                .inner { padding: 1rem; background: #fef3c7; border-radius: 4px; margin-top: 0.5rem; }
+                button { background: #f59e0b; color: white; border: none; padding: 0.5rem; cursor: pointer; }
+            </style>
+            <div class="inner">
+                <p>Nested Shadow Content</p>
+                <button id="nested-btn">Nested Action</button>
+            </div>
+        `;
+        innerShadow.getElementById('nested-btn').onclick = () => {
+            alert('Nested shadow button clicked!');
+        };
+
+        // Test 4: Shadow DOM with Form Elements
+        const formHost = document.getElementById('form-shadow-host');
+        const formShadow = formHost.attachShadow({ mode: 'open' });
+        formShadow.innerHTML = `
+            <style>
+                .form-inner { padding: 1rem; background: #f3e8ff; border-radius: 4px; }
+                label { display: block; margin: 0.5rem 0 0.2rem; }
+                input, select, textarea { width: 100%; padding: 0.5rem; margin-bottom: 0.5rem; }
+                button { background: #8b5cf6; color: white; border: none; padding: 0.5rem 1rem; cursor: pointer; }
+            </style>
+            <div class="form-inner">
+                <h3>Shadow Form</h3>
+                <form id="shadow-form">
+                    <label for="name-input">Name</label>
+                    <input id="name-input" type="text" placeholder="Enter name">
+
+                    <label for="email-input">Email</label>
+                    <input id="email-input" type="email" placeholder="Enter email">
+
+                    <label for="country-select">Country</label>
+                    <select id="country-select">
+                        <option value="">Select...</option>
+                        <option value="us">United States</option>
+                        <option value="uk">United Kingdom</option>
+                    </select>
+
+                    <label for="message-textarea">Message</label>
+                    <textarea id="message-textarea" rows="3" placeholder="Enter message"></textarea>
+
+                    <button type="submit">Submit Form</button>
+                </form>
+            </div>
+        `;
+        formShadow.getElementById('shadow-form').onsubmit = (e) => {
+            e.preventDefault();
+            alert('Shadow form submitted!');
+        };
+
+        // Test 5: Shadow DOM with Extraction Targets
+        const extractionHost = document.getElementById('extraction-shadow-host');
+        const extractionShadow = extractionHost.attachShadow({ mode: 'open' });
+        extractionShadow.innerHTML = `
+            <style>
+                .extract-inner { padding: 1rem; background: #fce7f3; border-radius: 4px; }
+                table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+                th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+                th { background: #ec4899; color: white; }
+                img { max-width: 100px; margin: 0.5rem; }
+            </style>
+            <div class="extract-inner">
+                <h3>Extraction Test</h3>
+                <a href="/shadow-link-1" id="shadow-link-1">Shadow Link 1</a>
+                <a href="/shadow-link-2" id="shadow-link-2">Shadow Link 2</a>
+
+                <div>
+                    <img src="/images/shadow-img-1.png" alt="Shadow Image 1">
+                    <img src="/images/shadow-img-2.png" alt="Shadow Image 2">
+                </div>
+
+                <table id="shadow-table">
+                    <thead>
+                        <tr><th>Name</th><th>Value</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Row 1</td><td>Data 1</td></tr>
+                        <tr><td>Row 2</td><td>Data 2</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        // Test 6: Shadow DOM with Modal/Dialog
+        const modalHost = document.getElementById('modal-shadow-host');
+        const modalShadow = modalHost.attachShadow({ mode: 'open' });
+        modalShadow.innerHTML = `
+            <style>
+                .modal-inner { padding: 1rem; background: #fef9c3; border-radius: 4px; }
+                .modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                         background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 1000; }
+                .modal.open { display: block; }
+                .overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999; }
+                .overlay.open { display: block; }
+                button { background: #eab308; color: white; border: none; padding: 0.5rem 1rem; cursor: pointer; margin: 0.5rem; }
+                .close { background: #dc2626; }
+            </style>
+            <div class="modal-inner">
+                <h3>Shadow Modal Test</h3>
+                <button id="show-modal-btn">Show Modal</button>
+                <div class="overlay" id="overlay"></div>
+                <div class="modal" id="shadow-modal" role="dialog">
+                    <h4>Shadow Modal</h4>
+                    <p>This is a modal inside shadow DOM</p>
+                    <button class="close" id="close-modal-btn" aria-label="Close modal">Close</button>
+                </div>
+            </div>
+        `;
+        const modal = modalShadow.getElementById('shadow-modal');
+        const overlay = modalShadow.getElementById('overlay');
+        modalShadow.getElementById('show-modal-btn').onclick = () => {
+            modal.classList.add('open');
+            overlay.classList.add('open');
+        };
+        modalShadow.getElementById('close-modal-btn').onclick = () => {
+            modal.classList.remove('open');
+            overlay.classList.remove('open');
+        };
+
+        // Test 7: Shadow DOM inside iframe
+        const iframeContainer = document.getElementById('iframe-container');
+        iframeContainer.innerHTML = `
+            <h3>iframe with Shadow DOM</h3>
+            <iframe id="shadow-iframe" style="width: 100%; height: 200px; border: 1px solid #ddd;"></iframe>
+        `;
+        const iframe = document.getElementById('shadow-iframe');
+        iframe.onload = () => {
+            const iframeDoc = iframe.contentDocument;
+            iframeDoc.body.innerHTML = '<div id="iframe-shadow-host"></div>';
+            const iframeShadowHost = iframeDoc.getElementById('iframe-shadow-host');
+            const iframeShadow = iframeShadowHost.attachShadow({ mode: 'open' });
+            iframeShadow.innerHTML = `
+                <style>
+                    .iframe-shadow { padding: 1rem; background: #e0e7ff; border-radius: 4px; }
+                    button { background: #6366f1; color: white; border: none; padding: 0.5rem; cursor: pointer; }
+                </style>
+                <div class="iframe-shadow">
+                    <p>Shadow DOM inside iframe</p>
+                    <button id="iframe-shadow-btn">iframe Shadow Action</button>
+                </div>
+            `;
+        };
+        iframe.src = 'about:blank';
+
+        // Test 8: iframe inside Shadow DOM
+        const shadowWithIframeHost = document.getElementById('shadow-with-iframe-host');
+        const shadowWithIframe = shadowWithIframeHost.attachShadow({ mode: 'open' });
+        shadowWithIframe.innerHTML = `
+            <style>
+                .shadow-iframe-inner { padding: 1rem; background: #fbcfe8; border-radius: 4px; }
+                iframe { width: 100%; height: 150px; border: 1px solid #ddd; margin-top: 0.5rem; }
+            </style>
+            <div class="shadow-iframe-inner">
+                <h3>Shadow DOM with iframe</h3>
+                <p>iframe inside shadow root</p>
+                <iframe id="inner-iframe" src="about:blank"></iframe>
+            </div>
+        `;
+        const innerIframe = shadowWithIframe.getElementById('inner-iframe');
+        innerIframe.onload = () => {
+            const innerDoc = innerIframe.contentDocument;
+            innerDoc.body.innerHTML = `
+                <div style="padding: 1rem; background: #fef3c7;">
+                    <p>Content inside iframe within shadow DOM</p>
+                    <button onclick="alert('iframe in shadow clicked!')">Click Me</button>
+                </div>
+            `;
+        };
+    </script>
+</body>
+
+</html>

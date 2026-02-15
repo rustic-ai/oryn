@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # Embedded backend - WPE WebKit on Alpine (~50MB footprint)
+  # Note: Alpine WPE support is experimental; use oryn-e-debian for reliability
+  oryn-e:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.oryn-e
+    image: oryn-e:latest
+    container_name: oryn-e
+    environment:
+      - XDG_RUNTIME_DIR=/run/user/1000
+      - COG_PLATFORM_NAME=headless
+    volumes:
+      - /dev/shm:/dev/shm
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - SYS_ADMIN
+    stdin_open: true
+    tty: true
+
+  # Embedded backend - WPE WebKit on Debian (recommended, ~80MB footprint)
+  oryn-e-debian:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.oryn-e.debian
+    image: oryn-e:debian
+    container_name: oryn-e-debian
+    environment:
+      - XDG_RUNTIME_DIR=/run/user/1000
+      - COG_PLATFORM_NAME=headless
+    volumes:
+      - /dev/shm:/dev/shm
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - SYS_ADMIN
+    stdin_open: true
+    tty: true
+
+  # Embedded backend - WPE WebKit with Weston headless compositor
+  # Uses weston --backend=headless as the Wayland compositor
+  oryn-e-weston:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.oryn-e.weston
+    image: oryn-e:weston
+    container_name: oryn-e-weston
+    privileged: true
+    volumes:
+      - /dev/shm:/dev/shm
+    shm_size: 1gb
+    security_opt:
+      - seccomp:unconfined
+    stdin_open: true
+    tty: true
+
+  # Headless backend - Chromium (full compatibility)
+  oryn-h:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.oryn-h
+    image: oryn-h:latest
+    container_name: oryn-h
+    environment:
+      - CHROME_BIN=/usr/bin/chromium-browser
+    volumes:
+      - /dev/shm:/dev/shm
+    shm_size: 2gb
+    security_opt:
+      - seccomp:unconfined
+    stdin_open: true
+    tty: true

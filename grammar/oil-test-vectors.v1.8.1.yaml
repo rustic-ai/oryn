@@ -1,0 +1,2801 @@
+# =============================================================================
+# OIL (Oryn Intent Language) Test Vectors
+# =============================================================================
+#
+# Version: 1.8.1
+# Date: January 2026
+#
+# Normative references:
+# - Grammar: OIL.v1.8.1.canonical.fixed.abnf
+# - Compliance: SPEC-OIL-COMPLIANCE.v1.8.1.polished.md
+#
+# Notes:
+# - `canonical` is Phase-1 output and MUST parse under the canonical ABNF grammar.
+# - Trailing comments are permitted only with whitespace before `#`.
+# - JSON payloads in canonical text MUST be quoted strings.
+#
+# =============================================================================
+
+navigation:
+  metadata:
+    description: Tests for goto, back, forward, refresh, url commands
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: goto-simple-domain
+    raw: goto example.com
+    canonical: goto example.com
+    ast:
+      command: GoTo
+      url: https://example.com
+    comment: null
+  - id: goto-full-url
+    raw: goto https://example.com/path
+    canonical: goto https://example.com/path
+    ast:
+      command: GoTo
+      url: https://example.com/path
+    comment: null
+  - id: goto-localhost-http-inference
+    raw: goto localhost:8080
+    canonical: goto localhost:8080
+    ast:
+      command: GoTo
+      url: http://localhost:8080
+    comment: null
+  - id: goto-127-http-inference
+    raw: goto 127.0.0.1:3000/api
+    canonical: goto 127.0.0.1:3000/api
+    ast:
+      command: GoTo
+      url: http://127.0.0.1:3000/api
+    comment: null
+  - id: goto-with-query-params
+    raw: goto example.com/search?q=test&page=1
+    canonical: goto example.com/search?q=test&page=1
+    ast:
+      command: GoTo
+      url: https://example.com/search?q=test&page=1
+    comment: null
+  - id: goto-with-fragment
+    raw: goto example.com#section
+    canonical: goto example.com#section
+    ast:
+      command: GoTo
+      url: https://example.com#section
+    comment: null
+  - id: goto-fragment-and-comment
+    raw: 'goto example.com#section #navigate to section'
+    canonical: 'goto example.com#section #navigate to section'
+    ast:
+      command: GoTo
+      url: https://example.com#section
+    comment: navigate to section
+  - id: goto-no-fragment-with-comment
+    raw: 'goto example.com #visit homepage'
+    canonical: 'goto example.com #visit homepage'
+    ast:
+      command: GoTo
+      url: https://example.com
+    comment: visit homepage
+  - id: goto-complex-url-with-fragment
+    raw: goto docs.example.com/api/v2#authentication
+    canonical: goto docs.example.com/api/v2#authentication
+    ast:
+      command: GoTo
+      url: https://docs.example.com/api/v2#authentication
+    comment: null
+  - id: goto-multiple-hashes-in-url
+    raw: goto example.com/path#section#subsection
+    canonical: goto example.com/path#section#subsection
+    ast:
+      command: GoTo
+      url: https://example.com/path#section#subsection
+    comment: null
+  - id: goto-multiple-hashes-with-comment
+    raw: 'goto example.com#a#b #note'
+    canonical: 'goto example.com#a#b #note'
+    ast:
+      command: GoTo
+      url: https://example.com#a#b
+    comment: note
+  - id: goto-quoted-url
+    raw: goto "https://example.com/path with spaces"
+    canonical: goto "https://example.com/path with spaces"
+    ast:
+      command: GoTo
+      url: https://example.com/path with spaces
+    comment: null
+  - id: goto-alias-navigate
+    raw: navigate example.com
+    canonical: goto example.com
+    ast:
+      command: GoTo
+      url: https://example.com
+    comment: null
+  - id: goto-alias-nav
+    raw: nav example.com
+    canonical: goto example.com
+    ast:
+      command: GoTo
+      url: https://example.com
+    comment: null
+  - id: goto-alias-go-to
+    raw: go to example.com
+    canonical: goto example.com
+    ast:
+      command: GoTo
+      url: https://example.com
+    comment: null
+  - id: back-simple
+    raw: back
+    canonical: back
+    ast:
+      command: Back
+    comment: null
+  - id: back-with-comment
+    raw: 'back #return to previous page'
+    canonical: 'back #return to previous page'
+    ast:
+      command: Back
+    comment: return to previous page
+  - id: forward-simple
+    raw: forward
+    canonical: forward
+    ast:
+      command: Forward
+    comment: null
+  - id: forward-with-comment
+    raw: 'forward #go to next page'
+    canonical: 'forward #go to next page'
+    ast:
+      command: Forward
+    comment: go to next page
+  - id: refresh-simple
+    raw: refresh
+    canonical: refresh
+    ast:
+      command: Refresh
+      hard: false
+    comment: null
+  - id: refresh-hard
+    raw: refresh --hard
+    canonical: refresh --hard
+    ast:
+      command: Refresh
+      hard: true
+    comment: null
+  - id: refresh-hard-repeated
+    raw: refresh --hard --hard
+    canonical: refresh --hard --hard
+    ast:
+      command: Refresh
+      hard: true
+    comment: null
+  - id: refresh-with-comment
+    raw: 'refresh --hard #force reload'
+    canonical: 'refresh --hard #force reload'
+    ast:
+      command: Refresh
+      hard: true
+    comment: force reload
+  - id: url-simple
+    raw: url
+    canonical: url
+    ast:
+      command: Url
+    comment: null
+  - id: url-with-comment
+    raw: 'url #get current url'
+    canonical: 'url #get current url'
+    ast:
+      command: Url
+    comment: get current url
+observation:
+  metadata:
+    description: Tests for observe, html, text, title, screenshot commands
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: observe-simple
+    raw: observe
+    canonical: observe
+    ast:
+      command: Observe
+      verbosity: default
+    comment: null
+  - id: observe-alias-scan
+    raw: scan
+    canonical: observe
+    ast:
+      command: Observe
+      verbosity: default
+    comment: null
+  - id: observe-full
+    raw: observe --full
+    canonical: observe --full
+    ast:
+      command: Observe
+      verbosity: full
+    comment: null
+  - id: observe-minimal
+    raw: observe --minimal
+    canonical: observe --minimal
+    ast:
+      command: Observe
+      verbosity: minimal
+    comment: null
+  - id: observe-viewport
+    raw: observe --viewport
+    canonical: observe --viewport
+    ast:
+      command: Observe
+      viewport_only: true
+    comment: null
+  - id: observe-hidden
+    raw: observe --hidden
+    canonical: observe --hidden
+    ast:
+      command: Observe
+      include_hidden: true
+    comment: null
+  - id: observe-near
+    raw: observe --near "Login"
+    canonical: observe --near "Login"
+    ast:
+      command: Observe
+      near: Login
+    comment: null
+  - id: observe-timeout
+    raw: observe --timeout 5s
+    canonical: observe --timeout 5s
+    ast:
+      command: Observe
+      timeout: 5s
+    comment: null
+  - id: observe-combined-options
+    raw: observe --viewport --hidden --near "Submit" --timeout 10s
+    canonical: observe --viewport --hidden --near "Submit" --timeout 10s
+    ast:
+      command: Observe
+      viewport_only: true
+      include_hidden: true
+      near: Submit
+      timeout: 10s
+    comment: null
+  - id: observe-full-minimal-conflict
+    raw: observe --full --minimal
+    canonical: observe --full --minimal
+    error:
+      phase: semantic
+      code: CONFLICTING_OPTIONS
+      message: Cannot specify both --full and --minimal
+      hint: Use either --full or --minimal, not both
+  - id: observe-with-comment
+    raw: 'observe --full #get detailed view'
+    canonical: 'observe --full #get detailed view'
+    ast:
+      command: Observe
+      verbosity: full
+    comment: get detailed view
+  - id: html-simple
+    raw: html
+    canonical: html
+    ast:
+      command: Html
+    comment: null
+  - id: html-selector
+    raw: html --selector "article.content"
+    canonical: html --selector "article.content"
+    ast:
+      command: Html
+      selector: article.content
+    comment: null
+  - id: text-simple
+    raw: text
+    canonical: text
+    ast:
+      command: Text
+    comment: null
+  - id: text-selector
+    raw: text --selector "main p"
+    canonical: text --selector "main p"
+    ast:
+      command: Text
+      selector: main p
+    comment: null
+  - id: text-target-id
+    raw: text 5
+    canonical: text 5
+    ast:
+      command: Text
+      target:
+        Id: 5
+    comment: null
+  - id: title-simple
+    raw: title
+    canonical: title
+    ast:
+      command: Title
+    comment: null
+  - id: screenshot-simple
+    raw: screenshot
+    canonical: screenshot
+    ast:
+      command: Screenshot
+    comment: null
+  - id: screenshot-output
+    raw: screenshot --output /tmp/screen.png
+    canonical: screenshot --output /tmp/screen.png
+    ast:
+      command: Screenshot
+      output: /tmp/screen.png
+    comment: null
+  - id: screenshot-output-with-hash-in-path
+    raw: screenshot --output /tmp/shot#1.png
+    canonical: screenshot --output /tmp/shot#1.png
+    ast:
+      command: Screenshot
+      output: /tmp/shot#1.png
+    comment: null
+  - id: screenshot-output-hash-path-and-comment
+    raw: 'screenshot --output /tmp/shot#1.png #save screenshot'
+    canonical: 'screenshot --output /tmp/shot#1.png #save screenshot'
+    ast:
+      command: Screenshot
+      output: /tmp/shot#1.png
+    comment: save screenshot
+  - id: screenshot-format-png
+    raw: screenshot --format png
+    canonical: screenshot --format png
+    ast:
+      command: Screenshot
+      format: png
+    comment: null
+  - id: screenshot-format-jpeg
+    raw: screenshot --format jpeg
+    canonical: screenshot --format jpeg
+    ast:
+      command: Screenshot
+      format: jpeg
+    comment: null
+  - id: screenshot-fullpage
+    raw: screenshot --fullpage
+    canonical: screenshot --fullpage
+    ast:
+      command: Screenshot
+      fullpage: true
+    comment: null
+  - id: screenshot-target
+    raw: screenshot 5
+    canonical: screenshot 5
+    ast:
+      command: Screenshot
+      target:
+        Id: 5
+    comment: null
+  - id: screenshot-combined
+    raw: screenshot --output /tmp/test.png --format png --fullpage
+    canonical: screenshot --output /tmp/test.png --format png --fullpage
+    ast:
+      command: Screenshot
+      output: /tmp/test.png
+      format: png
+      fullpage: true
+    comment: null
+action:
+  metadata:
+    description: Tests for click, type, clear, press, select, check, uncheck, hover, focus, scroll, submit
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: click-id
+    raw: click 5
+    canonical: click 5
+    ast:
+      command: Click
+      target:
+        Id: 5
+    comment: null
+  - id: click-id-with-comment
+    raw: 'click 5 #submit button'
+    canonical: 'click 5 #submit button'
+    ast:
+      command: Click
+      target:
+        Id: 5
+    comment: submit button
+  - id: click-id-no-space-before-hash-error
+    raw: click 5#comment
+    error:
+      phase: parsing
+      code: UNEXPECTED_INPUT
+      position: 7
+      found: '#comment'
+      hint: 'Add space before ''#'' for comment: click 5 #comment'
+  - id: click-text-target
+    raw: click "Sign In"
+    canonical: click "Sign In"
+    ast:
+      command: Click
+      target:
+        Text: Sign In
+    comment: null
+  - id: click-text-with-hash-inside
+    raw: click "Button#1"
+    canonical: click "Button#1"
+    ast:
+      command: Click
+      target:
+        Text: Button#1
+    comment: null
+  - id: click-text-with-hash-and-comment
+    raw: 'click "Button#1" #primary action'
+    canonical: 'click "Button#1" #primary action'
+    ast:
+      command: Click
+      target:
+        Text: Button#1
+    comment: primary action
+  - id: click-role-email
+    raw: click email
+    canonical: click email
+    ast:
+      command: Click
+      target:
+        Role: email
+    comment: null
+  - id: click-role-submit
+    raw: click submit
+    canonical: click submit
+    ast:
+      command: Click
+      target:
+        Role: submit
+    comment: null
+  - id: click-css-selector
+    raw: click css(".btn-primary")
+    canonical: click css(".btn-primary")
+    ast:
+      command: Click
+      target:
+        Css: .btn-primary
+    comment: null
+  - id: click-xpath-selector
+    raw: click xpath("//button[@type='submit']")
+    canonical: click xpath("//button[@type='submit']")
+    ast:
+      command: Click
+      target:
+        XPath: //button[@type='submit']
+    comment: null
+  - id: click-double
+    raw: click 5 --double
+    canonical: click 5 --double
+    ast:
+      command: Click
+      target:
+        Id: 5
+      double: true
+    comment: null
+  - id: click-right
+    raw: click 5 --right
+    canonical: click 5 --right
+    ast:
+      command: Click
+      target:
+        Id: 5
+      button: right
+    comment: null
+  - id: click-middle
+    raw: click 5 --middle
+    canonical: click 5 --middle
+    ast:
+      command: Click
+      target:
+        Id: 5
+      button: middle
+    comment: null
+  - id: click-force
+    raw: click 5 --force
+    canonical: click 5 --force
+    ast:
+      command: Click
+      target:
+        Id: 5
+      force: true
+    comment: null
+  - id: click-timeout
+    raw: click 5 --timeout 10s
+    canonical: click 5 --timeout 10s
+    ast:
+      command: Click
+      target:
+        Id: 5
+      timeout: 10s
+    comment: null
+  - id: click-button-last-wins
+    raw: click 5 --right --middle
+    canonical: click 5 --right --middle
+    ast:
+      command: Click
+      target:
+        Id: 5
+      button: middle
+    comment: null
+  - id: click-timeout-last-wins
+    raw: click 5 --timeout 5s --timeout 10s
+    canonical: click 5 --timeout 5s --timeout 10s
+    ast:
+      command: Click
+      target:
+        Id: 5
+      timeout: 10s
+    comment: null
+  - id: type-basic
+    raw: type 3 "hello world"
+    canonical: type 3 "hello world"
+    ast:
+      command: Type
+      target:
+        Id: 3
+      text: hello world
+    comment: null
+  - id: type-text-target
+    raw: type "Email" "user@example.com"
+    canonical: type "Email" "user@example.com"
+    ast:
+      command: Type
+      target:
+        Text: Email
+      text: user@example.com
+    comment: null
+  - id: type-role-target
+    raw: type email "user@example.com"
+    canonical: type email "user@example.com"
+    ast:
+      command: Type
+      target:
+        Role: email
+      text: user@example.com
+    comment: null
+  - id: type-append
+    raw: type 3 "additional text" --append
+    canonical: type 3 "additional text" --append
+    ast:
+      command: Type
+      target:
+        Id: 3
+      text: additional text
+      append: true
+    comment: null
+  - id: type-enter
+    raw: type 3 "search query" --enter
+    canonical: type 3 "search query" --enter
+    ast:
+      command: Type
+      target:
+        Id: 3
+      text: search query
+      enter: true
+    comment: null
+  - id: type-delay
+    raw: type 3 "slow typing" --delay 50
+    canonical: type 3 "slow typing" --delay 50
+    ast:
+      command: Type
+      target:
+        Id: 3
+      text: slow typing
+      delay: 50
+    comment: null
+  - id: type-clear
+    raw: type 3 "new value" --clear
+    canonical: type 3 "new value" --clear
+    ast:
+      command: Type
+      target:
+        Id: 3
+      text: new value
+      clear: true
+    comment: null
+  - id: type-combined-options
+    raw: type 3 "text" --clear --enter --timeout 5s
+    canonical: type 3 "text" --clear --enter --timeout 5s
+    ast:
+      command: Type
+      target:
+        Id: 3
+      text: text
+      clear: true
+      enter: true
+      timeout: 5s
+    comment: null
+  - id: type-id-no-space-error
+    raw: type 3#x "hello"
+    error:
+      phase: parsing
+      code: UNEXPECTED_INPUT
+      position: 6
+      found: '#x'
+      hint: Add space before '#' for comment
+  - id: clear-basic
+    raw: clear 5
+    canonical: clear 5
+    ast:
+      command: Clear
+      target:
+        Id: 5
+    comment: null
+  - id: clear-text-target
+    raw: clear "Search"
+    canonical: clear "Search"
+    ast:
+      command: Clear
+      target:
+        Text: Search
+    comment: null
+  - id: press-enter
+    raw: press enter
+    canonical: press enter
+    ast:
+      command: Press
+      key: enter
+    comment: null
+  - id: press-enter-mixed-case-normalization
+    raw: press Enter
+    canonical: press enter
+    ast:
+      command: Press
+      key: enter
+    comment: null
+  - id: press-tab
+    raw: press tab
+    canonical: press tab
+    ast:
+      command: Press
+      key: tab
+    comment: null
+  - id: press-escape
+    raw: press escape
+    canonical: press escape
+    ast:
+      command: Press
+      key: escape
+    comment: null
+  - id: press-space
+    raw: press space
+    canonical: press space
+    ast:
+      command: Press
+      key: space
+    comment: null
+  - id: press-arrow-keys
+    raw: press arrowdown
+    canonical: press arrowdown
+    ast:
+      command: Press
+      key: arrowdown
+    comment: null
+  - id: press-function-key
+    raw: press f5
+    canonical: press f5
+    ast:
+      command: Press
+      key: f5
+    comment: null
+  - id: press-key-combo-ctrl-a
+    raw: press control+a
+    canonical: press control+a
+    ast:
+      command: Press
+      key: control+a
+    comment: null
+  - id: press-key-combo-ctrl-shift-s
+    raw: press control+shift+s
+    canonical: press control+shift+s
+    ast:
+      command: Press
+      key: control+shift+s
+    comment: null
+  - id: press-key-combo-normalization
+    raw: press Control + Shift + A
+    canonical: press control+shift+a
+    ast:
+      command: Press
+      key: control+shift+a
+    comment: null
+  - id: select-by-value
+    raw: select 5 "option1"
+    canonical: select 5 "option1"
+    ast:
+      command: Select
+      target:
+        Id: 5
+      value: option1
+    comment: null
+  - id: select-by-index
+    raw: select 5 2
+    canonical: select 5 2
+    ast:
+      command: Select
+      target:
+        Id: 5
+      index: 2
+    comment: null
+  - id: select-text-target
+    raw: select "Country" "United States"
+    canonical: select "Country" "United States"
+    ast:
+      command: Select
+      target:
+        Text: Country
+      value: United States
+    comment: null
+  - id: check-basic
+    raw: check 7
+    canonical: check 7
+    ast:
+      command: Check
+      target:
+        Id: 7
+    comment: null
+  - id: check-text-target
+    raw: check "Remember me"
+    canonical: check "Remember me"
+    ast:
+      command: Check
+      target:
+        Text: Remember me
+    comment: null
+  - id: uncheck-basic
+    raw: uncheck 7
+    canonical: uncheck 7
+    ast:
+      command: Uncheck
+      target:
+        Id: 7
+    comment: null
+  - id: hover-basic
+    raw: hover 5
+    canonical: hover 5
+    ast:
+      command: Hover
+      target:
+        Id: 5
+    comment: null
+  - id: hover-text-target
+    raw: hover "Menu"
+    canonical: hover "Menu"
+    ast:
+      command: Hover
+      target:
+        Text: Menu
+    comment: null
+  - id: focus-basic
+    raw: focus 3
+    canonical: focus 3
+    ast:
+      command: Focus
+      target:
+        Id: 3
+    comment: null
+  - id: scroll-simple
+    raw: scroll
+    canonical: scroll
+    ast:
+      command: Scroll
+    comment: null
+  - id: scroll-down
+    raw: scroll down
+    canonical: scroll down
+    ast:
+      command: Scroll
+      direction: down
+    comment: null
+  - id: scroll-up
+    raw: scroll up
+    canonical: scroll up
+    ast:
+      command: Scroll
+      direction: up
+    comment: null
+  - id: scroll-amount
+    raw: scroll down --amount 500
+    canonical: scroll down --amount 500
+    ast:
+      command: Scroll
+      direction: down
+      amount: 500
+    comment: null
+  - id: scroll-page
+    raw: scroll down --page
+    canonical: scroll down --page
+    ast:
+      command: Scroll
+      direction: down
+      page: true
+    comment: null
+  - id: scroll-to-element
+    raw: scroll 10
+    canonical: scroll 10
+    ast:
+      command: Scroll
+      target:
+        Id: 10
+    comment: null
+  - id: scroll-to-text
+    raw: scroll "Footer"
+    canonical: scroll "Footer"
+    ast:
+      command: Scroll
+      target:
+        Text: Footer
+    comment: null
+  - id: submit-simple
+    raw: submit
+    canonical: submit
+    ast:
+      command: Submit
+    comment: null
+  - id: submit-target
+    raw: submit 5
+    canonical: submit 5
+    ast:
+      command: Submit
+      target:
+        Id: 5
+    comment: null
+wait:
+  metadata:
+    description: Tests for wait command with various conditions
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: wait-load
+    raw: wait load
+    canonical: wait load
+    ast:
+      command: Wait
+      condition: load
+    comment: null
+  - id: wait-idle
+    raw: wait idle
+    canonical: wait idle
+    ast:
+      command: Wait
+      condition: idle
+    comment: null
+  - id: wait-navigation
+    raw: wait navigation
+    canonical: wait navigation
+    ast:
+      command: Wait
+      condition: navigation
+    comment: null
+  - id: wait-visible-id
+    raw: wait visible 5
+    canonical: wait visible 5
+    ast:
+      command: Wait
+      condition: visible
+      target:
+        Id: 5
+    comment: null
+  - id: wait-visible-text
+    raw: wait visible "Success"
+    canonical: wait visible "Success"
+    ast:
+      command: Wait
+      condition: visible
+      target:
+        Text: Success
+    comment: null
+  - id: wait-hidden
+    raw: wait hidden 5
+    canonical: wait hidden 5
+    ast:
+      command: Wait
+      condition: hidden
+      target:
+        Id: 5
+    comment: null
+  - id: wait-exists
+    raw: wait exists ".modal"
+    canonical: wait exists ".modal"
+    ast:
+      command: Wait
+      condition: exists
+      selector: .modal
+    comment: null
+  - id: wait-gone
+    raw: wait gone ".loading-spinner"
+    canonical: wait gone ".loading-spinner"
+    ast:
+      command: Wait
+      condition: gone
+      selector: .loading-spinner
+    comment: null
+  - id: wait-url
+    raw: wait url "/dashboard"
+    canonical: wait url "/dashboard"
+    ast:
+      command: Wait
+      condition: url
+      pattern: /dashboard
+    comment: null
+  - id: wait-timeout
+    raw: wait visible 5 --timeout 30s
+    canonical: wait visible 5 --timeout 30s
+    ast:
+      command: Wait
+      condition: visible
+      target:
+        Id: 5
+      timeout: 30s
+    comment: null
+  - id: wait-timeout-ms
+    raw: wait load --timeout 500ms
+    canonical: wait load --timeout 500ms
+    ast:
+      command: Wait
+      condition: load
+      timeout: 500ms
+    comment: null
+extraction:
+  metadata:
+    description: Tests for extract command
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: extract-links
+    raw: extract links
+    canonical: extract links
+    ast:
+      command: Extract
+      what: links
+    comment: null
+  - id: extract-images
+    raw: extract images
+    canonical: extract images
+    ast:
+      command: Extract
+      what: images
+    comment: null
+  - id: extract-tables
+    raw: extract tables
+    canonical: extract tables
+    ast:
+      command: Extract
+      what: tables
+    comment: null
+  - id: extract-meta
+    raw: extract meta
+    canonical: extract meta
+    ast:
+      command: Extract
+      what: meta
+    comment: null
+  - id: extract-text
+    raw: extract text
+    canonical: extract text
+    ast:
+      command: Extract
+      what: text
+    comment: null
+  - id: extract-css
+    raw: extract css(".product-price")
+    canonical: extract css(".product-price")
+    ast:
+      command: Extract
+      what:
+        css: .product-price
+    comment: null
+  - id: extract-selector-option
+    raw: extract links --selector "nav"
+    canonical: extract links --selector "nav"
+    ast:
+      command: Extract
+      what: links
+      selector: nav
+    comment: null
+  - id: extract-format-json
+    raw: extract tables --format json
+    canonical: extract tables --format json
+    ast:
+      command: Extract
+      what: tables
+      format: json
+    comment: null
+  - id: extract-format-csv
+    raw: extract tables --format csv
+    canonical: extract tables --format csv
+    ast:
+      command: Extract
+      what: tables
+      format: csv
+    comment: null
+session:
+  metadata:
+    description: Tests for cookies and storage commands
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: cookies-list
+    raw: cookies list
+    canonical: cookies list
+    ast:
+      command: Cookies
+      action: list
+    comment: null
+  - id: cookies-get
+    raw: cookies get session_id
+    canonical: cookies get session_id
+    ast:
+      command: Cookies
+      action: get
+      name: session_id
+    comment: null
+  - id: cookies-get-quoted
+    raw: cookies get "session-token"
+    canonical: cookies get "session-token"
+    ast:
+      command: Cookies
+      action: get
+      name: session-token
+    comment: null
+  - id: cookies-set
+    raw: cookies set theme "dark"
+    canonical: cookies set theme "dark"
+    ast:
+      command: Cookies
+      action: set
+      name: theme
+      value: dark
+  - id: cookies-set-flexible-unquoted
+    raw: cookies set theme dark
+    canonical: cookies set theme "dark"
+    ast:
+      command: Cookies
+      action: set
+      name: theme
+      value: dark
+    comment: null
+  - id: cookies-set-flexible-unquoted-value-mixed
+    raw: cookies set theme DarkMode
+    canonical: cookies set theme "DarkMode" # normalization should quote, but value case? String content preserved.
+    ast:
+      command: Cookies
+      action: set
+      name: theme
+      value: DarkMode
+    comment: null
+  - id: cookies-delete
+    raw: cookies delete tracking_id
+    canonical: cookies delete tracking_id
+    ast:
+      command: Cookies
+      action: delete
+      name: tracking_id
+    comment: null
+  - id: cookies-clear
+    raw: cookies clear
+    canonical: cookies clear
+    ast:
+      command: Cookies
+      action: clear
+    comment: null
+  - id: storage-list-local
+    raw: storage list --local
+    canonical: storage list --local
+    ast:
+      command: Storage
+      action: list
+      type: local
+    comment: null
+  - id: storage-list-session
+    raw: storage list --session
+    canonical: storage list --session
+    ast:
+      command: Storage
+      action: list
+      type: session
+    comment: null
+  - id: storage-get
+    raw: storage get user_prefs --local
+    canonical: storage get user_prefs --local
+    ast:
+      command: Storage
+      action: get
+      name: user_prefs
+      type: local
+    comment: null
+  - id: storage-set
+    raw: storage set theme "dark" --local
+    canonical: storage set theme "dark" --local
+    ast:
+      command: Storage
+      action: set
+      name: theme
+      value: dark
+      type: local
+    comment: null
+  - id: storage-delete
+    raw: storage delete cache_key --session
+    canonical: storage delete cache_key --session
+    ast:
+      command: Storage
+      action: delete
+      name: cache_key
+      type: session
+    comment: null
+  - id: storage-clear
+    raw: storage clear --local
+    canonical: storage clear --local
+    ast:
+      command: Storage
+      action: clear
+      type: local
+    comment: null
+  - id: storage-type-conflict
+    raw: storage list --local --session
+    canonical: storage list --local --session
+    error:
+      phase: semantic
+      code: CONFLICTING_OPTIONS
+      message: Cannot specify both --local and --session
+      hint: Use either --local or --session, not both
+tabs:
+  metadata:
+    description: Tests for tabs and tab commands
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: tabs-list
+    raw: tabs
+    canonical: tabs
+    ast:
+      command: Tabs
+    comment: null
+  - id: tab-new
+    raw: tab new example.com
+    canonical: tab new example.com
+    ast:
+      command: Tab
+      action: new
+      url: https://example.com
+    comment: null
+  - id: tab-new-with-fragment
+    raw: tab new docs.example.com#api
+    canonical: tab new docs.example.com#api
+    ast:
+      command: Tab
+      action: new
+      url: https://docs.example.com#api
+    comment: null
+  - id: tab-new-with-fragment-and-comment
+    raw: 'tab new docs.example.com#api #open api docs'
+    canonical: 'tab new docs.example.com#api #open api docs'
+    ast:
+      command: Tab
+      action: new
+      url: https://docs.example.com#api
+    comment: open api docs
+  - id: tab-switch
+    raw: tab switch 2
+    canonical: tab switch 2
+    ast:
+      command: Tab
+      action: switch
+      tab_id: 2
+    comment: null
+  - id: tab-close
+    raw: tab close
+    canonical: tab close
+    ast:
+      command: Tab
+      action: close
+    comment: null
+  - id: tab-close-specific
+    raw: tab close 3
+    canonical: tab close 3
+    ast:
+      command: Tab
+      action: close
+      tab_id: 3
+    comment: null
+intent:
+  metadata:
+    description: Tests for high-level intent commands
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: login-basic
+    raw: login "user@example.com" "password123"
+    canonical: login "user@example.com" "password123"
+    ast:
+      command: Login
+      username: user@example.com
+      password: password123
+    comment: null
+  - id: login-no-submit
+    raw: login "user" "pass" --no-submit
+    canonical: login "user" "pass" --no-submit
+    ast:
+      command: Login
+      username: user
+      password: pass
+      no_submit: true
+    comment: null
+  - id: login-wait
+    raw: login "user" "pass" --wait 15s
+    canonical: login "user" "pass" --wait 15s
+    ast:
+      command: Login
+      username: user
+      password: pass
+      wait: 15s
+    comment: null
+  - id: login-timeout
+    raw: login "user" "pass" --timeout 30s
+    canonical: login "user" "pass" --timeout 30s
+    ast:
+      command: Login
+      username: user
+      password: pass
+      timeout: 30s
+    comment: null
+  - id: search-basic
+    raw: search "rust programming"
+    canonical: search "rust programming"
+    ast:
+      command: Search
+      query: rust programming
+    comment: null
+  - id: search-submit-enter
+    raw: search "query" --submit enter
+    canonical: search "query" --submit enter
+    ast:
+      command: Search
+      query: query
+      submit: enter
+    comment: null
+  - id: search-submit-click
+    raw: search "query" --submit click
+    canonical: search "query" --submit click
+    ast:
+      command: Search
+      query: query
+      submit: click
+    comment: null
+  - id: search-wait
+    raw: search "query" --wait 5s
+    canonical: search "query" --wait 5s
+    ast:
+      command: Search
+      query: query
+      wait: 5s
+    comment: null
+  - id: dismiss-popups
+    raw: dismiss popups
+    canonical: dismiss popups
+    ast:
+      command: Dismiss
+      what: popups
+    comment: null
+  - id: dismiss-modals
+    raw: dismiss modals
+    canonical: dismiss modals
+    ast:
+      command: Dismiss
+      what: modals
+    comment: null
+  - id: dismiss-modal
+    raw: dismiss modal
+    canonical: dismiss modal
+    ast:
+      command: Dismiss
+      what: modal
+    comment: null
+  - id: dismiss-banner
+    raw: dismiss banner
+    canonical: dismiss banner
+    ast:
+      command: Dismiss
+      what: banner
+    comment: null
+  - id: dismiss-identifier
+    raw: dismiss newsletter_popup
+    canonical: dismiss newsletter_popup
+    ast:
+      command: Dismiss
+      what: newsletter_popup
+    comment: null
+  - id: dismiss-quoted
+    raw: dismiss "Cookie Consent"
+    canonical: dismiss "Cookie Consent"
+    ast:
+      command: Dismiss
+      what: Cookie Consent
+    comment: null
+  - id: accept-cookies-basic
+    raw: accept_cookies
+    canonical: accept_cookies
+    ast:
+      command: AcceptCookies
+    comment: null
+  - id: accept-cookies-alias
+    raw: accept cookies
+    canonical: accept_cookies
+    ast:
+      command: AcceptCookies
+    comment: null
+  - id: scroll-until-text
+    raw: scroll until "Load more"
+    canonical: scroll until "Load more"
+    ast:
+      command: ScrollUntil
+      target:
+        Text: Load more
+    comment: null
+  - id: scroll-until-id
+    raw: scroll until 20
+    canonical: scroll until 20
+    ast:
+      command: ScrollUntil
+      target:
+        Id: 20
+    comment: null
+  - id: scroll-until-timeout
+    raw: scroll until "Footer" --timeout 30s
+    canonical: scroll until "Footer" --timeout 30s
+    ast:
+      command: ScrollUntil
+      target:
+        Text: Footer
+      timeout: 30s
+    comment: null
+pack_management:
+  metadata:
+    description: Tests for packs, intents, define, run commands
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: packs-list
+    raw: packs
+    canonical: packs
+    ast:
+      command: Packs
+    comment: null
+  - id: pack-load
+    raw: pack load github
+    canonical: pack load github
+    ast:
+      command: Pack
+      action: load
+      name: github
+    comment: null
+  - id: pack-unload
+    raw: pack unload amazon
+    canonical: pack unload amazon
+    ast:
+      command: Pack
+      action: unload
+      name: amazon
+    comment: null
+  - id: intents-list
+    raw: intents
+    canonical: intents
+    ast:
+      command: Intents
+    comment: null
+  - id: intents-session
+    raw: intents --session
+    canonical: intents --session
+    ast:
+      command: Intents
+      session: true
+    comment: null
+  - id: intents-session-repeated
+    raw: intents --session --session
+    canonical: intents --session --session
+    ast:
+      command: Intents
+      session: true
+    comment: null
+  - id: define-intent
+    raw: 'define add_to_wishlist:'
+    canonical: 'define add_to_wishlist:'
+    ast:
+      command: Define
+      name: add_to_wishlist
+    comment: null
+  - id: undefine-intent
+    raw: undefine add_to_wishlist
+    canonical: undefine add_to_wishlist
+    ast:
+      command: Undefine
+      name: add_to_wishlist
+    comment: null
+  - id: export-intent
+    raw: export my_intent
+    canonical: export my_intent
+    ast:
+      command: Export
+      name: my_intent
+    comment: null
+  - id: export-intent-out
+    raw: export my_intent --out ~/.oryn/intents/my_intent.yaml
+    canonical: export my_intent --out ~/.oryn/intents/my_intent.yaml
+    ast:
+      command: Export
+      name: my_intent
+      out: ~/.oryn/intents/my_intent.yaml
+    comment: null
+  - id: run-intent-basic
+    raw: run checkout
+    canonical: run checkout
+    ast:
+      command: Run
+      name: checkout
+    comment: null
+  - id: run-intent-string-param
+    raw: run review --rating "5" --text "Great product!"
+    canonical: run review --rating "5" --text "Great product!"
+    ast:
+      command: Run
+      name: review
+      params:
+        rating: '5'
+        text: Great product!
+    comment: null
+  - id: run-intent-number-param
+    raw: run add_to_cart --quantity 3
+    canonical: run add_to_cart --quantity 3
+    ast:
+      command: Run
+      name: add_to_cart
+      params:
+        quantity: 3
+    comment: null
+utility:
+  metadata:
+    description: Tests for pdf, learn, exit, help commands
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: pdf-basic
+    raw: pdf /tmp/output.pdf
+    canonical: pdf /tmp/output.pdf
+    ast:
+      command: Pdf
+      path: /tmp/output.pdf
+    comment: null
+  - id: pdf-path-with-hash
+    raw: pdf /tmp/issue#123.pdf
+    canonical: pdf /tmp/issue#123.pdf
+    ast:
+      command: Pdf
+      path: /tmp/issue#123.pdf
+    comment: null
+  - id: pdf-path-hash-and-comment
+    raw: 'pdf /tmp/file#1.pdf #save as pdf'
+    canonical: 'pdf /tmp/file#1.pdf #save as pdf'
+    ast:
+      command: Pdf
+      path: /tmp/file#1.pdf
+    comment: save as pdf
+  - id: pdf-quoted-path
+    raw: pdf "/tmp/my document.pdf"
+    canonical: pdf "/tmp/my document.pdf"
+    ast:
+      command: Pdf
+      path: /tmp/my document.pdf
+    comment: null
+  - id: learn-status
+    raw: learn status
+    canonical: learn status
+    ast:
+      command: Learn
+      action: status
+    comment: null
+  - id: learn-save
+    raw: learn save my_workflow
+    canonical: learn save my_workflow
+    ast:
+      command: Learn
+      action: save
+      name: my_workflow
+    comment: null
+  - id: learn-discard
+    raw: learn discard
+    canonical: learn discard
+    ast:
+      command: Learn
+      action: discard
+    comment: null
+  - id: learn-discard-named
+    raw: learn discard old_workflow
+    canonical: learn discard old_workflow
+    ast:
+      command: Learn
+      action: discard
+      name: old_workflow
+    comment: null
+  - id: learn-show
+    raw: learn show
+    canonical: learn show
+    ast:
+      command: Learn
+      action: show
+    comment: null
+  - id: exit-basic
+    raw: exit
+    canonical: exit
+    ast:
+      command: Exit
+    comment: null
+  - id: exit-alias-quit
+    raw: quit
+    canonical: exit
+    ast:
+      command: Exit
+    comment: null
+  - id: help-basic
+    raw: help
+    canonical: help
+    ast:
+      command: Help
+    comment: null
+  - id: help-topic
+    raw: help click
+    canonical: help click
+    ast:
+      command: Help
+      topic: click
+    comment: null
+relational:
+  metadata:
+    description: Tests for relational target syntax
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: near-text-targets
+    raw: click "Add" near "Product"
+    canonical: click "Add" near "Product"
+    ast:
+      command: Click
+      target:
+        Relational:
+          base:
+            Text: Add
+          relation: near
+          reference:
+            Text: Product
+    comment: null
+  - id: inside-text-targets
+    raw: click "Submit" inside "Login Form"
+    canonical: click "Submit" inside "Login Form"
+    ast:
+      command: Click
+      target:
+        Relational:
+          base:
+            Text: Submit
+          relation: inside
+          reference:
+            Text: Login Form
+    comment: null
+  - id: after-text-targets
+    raw: click "Next" after "Page 1"
+    canonical: click "Next" after "Page 1"
+    ast:
+      command: Click
+      target:
+        Relational:
+          base:
+            Text: Next
+          relation: after
+          reference:
+            Text: Page 1
+    comment: null
+  - id: before-text-targets
+    raw: click "Back" before "Submit"
+    canonical: click "Back" before "Submit"
+    ast:
+      command: Click
+      target:
+        Relational:
+          base:
+            Text: Back
+          relation: before
+          reference:
+            Text: Submit
+    comment: null
+  - id: contains-text-targets
+    raw: click "Row" contains "Delete"
+    canonical: click "Row" contains "Delete"
+    ast:
+      command: Click
+      target:
+        Relational:
+          base:
+            Text: Row
+          relation: contains
+          reference:
+            Text: Delete
+    comment: null
+  - id: chained-right-associative
+    raw: click "Add" near "Product" inside "Modal"
+    canonical: click "Add" near "Product" inside "Modal"
+    ast:
+      command: Click
+      target:
+        Relational:
+          base:
+            Text: Add
+          relation: near
+          reference:
+            Relational:
+              base:
+                Text: Product
+              relation: inside
+              reference:
+                Text: Modal
+    comment: null
+  - id: mixed-target-types-relational
+    raw: click 5 near "Label"
+    canonical: click 5 near "Label"
+    ast:
+      command: Click
+      target:
+        Relational:
+          base:
+            Id: 5
+          relation: near
+          reference:
+            Text: Label
+    comment: null
+  - id: role-relational
+    raw: type email "test@example.com" inside "Registration"
+    canonical: type email inside "Registration" "test@example.com"
+    ast:
+      command: Type
+      target:
+        Relational:
+          base:
+            Role: email
+          relation: inside
+          reference:
+            Text: Registration
+      text: test@example.com
+    comment: null
+normalization:
+  metadata:
+    description: Tests for Phase 1 normalization
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: case-folding-command
+    raw: GOTO example.com
+    canonical: goto example.com
+    ast:
+      command: GoTo
+      url: https://example.com
+    comment: null
+  - id: case-folding-mixed
+    raw: GoTo Example.COM
+    canonical: goto Example.COM
+    ast:
+      command: GoTo
+      url: https://Example.COM
+    comment: null
+  - id: case-folding-options
+    raw: observe --FULL
+    canonical: observe --full
+    ast:
+      command: Observe
+      verbosity: full
+    comment: null
+  - id: quote-single-to-double
+    raw: click 'Sign In'
+    canonical: click "Sign In"
+    ast:
+      command: Click
+      target:
+        Text: Sign In
+    comment: null
+  - id: quote-preserve-content
+    raw: type 3 "Hello \"World\""
+    canonical: type 3 "Hello \"World\""
+    ast:
+      command: Type
+      target:
+        Id: 3
+      text: Hello "World"
+    comment: null
+  - id: whitespace-multiple-spaces
+    raw: click    5
+    canonical: click 5
+    ast:
+      command: Click
+      target:
+        Id: 5
+    comment: null
+  - id: whitespace-leading-trailing
+    raw: '  observe  '
+    canonical: observe
+    ast:
+      command: Observe
+    comment: null
+  - id: whitespace-tabs
+    raw: "click\t5"
+    canonical: click 5
+    ast:
+      command: Click
+      target:
+        Id: 5
+    comment: null
+  - id: option-single-dash
+    raw: refresh -hard
+    canonical: refresh --hard
+    ast:
+      command: Refresh
+      hard: true
+    comment: null
+  - id: option-bare
+    raw: observe full
+    canonical: observe --full
+    ast:
+      command: Observe
+      verbosity: full
+    comment: null
+comments:
+  metadata:
+    description: Tests for comment handling
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: comment-only-line
+    raw: '#this is a comment'
+    canonical: '#this is a comment'
+    ast: null
+    comment: this is a comment
+  - id: comment-after-command
+    raw: 'back #return to previous'
+    canonical: 'back #return to previous'
+    ast:
+      command: Back
+    comment: return to previous
+  - id: comment-preserves-content
+    raw: 'observe #check   multiple   spaces'
+    canonical: 'observe #check   multiple   spaces'
+    ast:
+      command: Observe
+    comment: check   multiple   spaces
+  - id: comment-with-hash-inside
+    raw: 'back #check issue #123'
+    canonical: 'back #check issue #123'
+    ast:
+      command: Back
+    comment: 'check issue #123'
+  - id: empty-line
+    raw: ''
+    canonical: ''
+    ast: null
+    comment: null
+  - id: whitespace-only-line
+    raw: '   '
+    canonical: ''
+    ast: null
+    comment: null
+errors:
+  metadata:
+    description: Tests for error handling
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: unknown-command
+    raw: flurble 123
+    error:
+      phase: parsing
+      code: UNKNOWN_COMMAND
+      message: Unknown command 'flurble'
+      hint: Did you mean 'observe'?
+  - id: missing-required-argument
+    raw: goto
+    error:
+      phase: parsing
+      code: MISSING_ARGUMENT
+      message: goto requires a URL argument
+      hint: 'Usage: goto <url>'
+  - id: missing-target
+    raw: click
+    error:
+      phase: parsing
+      code: MISSING_ARGUMENT
+      message: click requires a target argument
+      hint: 'Usage: click <target> [options]'
+  - id: missing-type-text
+    raw: type 5
+    error:
+      phase: parsing
+      code: MISSING_ARGUMENT
+      message: type requires text argument
+      hint: 'Usage: type <target> "<text>"'
+  - id: invalid-duration
+    raw: wait load --timeout 5x
+    error:
+      phase: parsing
+      code: INVALID_VALUE
+      message: Invalid duration '5x'
+      hint: 'Duration must be like: 500ms, 5s, 1m'
+  - id: invalid-number
+    raw: scroll down --amount abc
+    error:
+      phase: parsing
+      code: INVALID_VALUE
+      message: Expected number, found 'abc'
+  - id: unterminated-string
+    raw: click "Sign In
+    error:
+      phase: parsing
+      code: UNTERMINATED_STRING
+      message: Unterminated string starting at position 6
+      hint: 'Add closing quote: click "Sign In"'
+  - id: invalid-key-combo
+    raw: press ctrl++
+    error:
+      phase: parsing
+      code: INVALID_VALUE
+      message: Invalid key combination 'ctrl++'
+  - id: hash-in-target-id
+    raw: click 5#x
+    error:
+      phase: parsing
+      code: UNEXPECTED_INPUT
+      position: 7
+      found: '#x'
+      hint: 'Add space before ''#'' for comment: click 5 #x'
+  - id: hash-in-type-target
+    raw: type 3#note "hello"
+    error:
+      phase: parsing
+      code: UNEXPECTED_INPUT
+      position: 6
+      found: '#note'
+      hint: Add space before '#' for comment
+edge_cases:
+  metadata:
+    description: Tests for edge cases and boundary conditions
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: url-with-all-special-chars
+    raw: goto example.com/path?a=1&b=2%20space#frag
+    canonical: goto example.com/path?a=1&b=2%20space#frag
+    ast:
+      command: GoTo
+      url: https://example.com/path?a=1&b=2%20space#frag
+    comment: null
+  - id: target-id-zero
+    raw: click 0
+    canonical: click 0
+    ast:
+      command: Click
+      target:
+        Id: 0
+    comment: null
+  - id: target-id-large
+    raw: click 99999
+    canonical: click 99999
+    ast:
+      command: Click
+      target:
+        Id: 99999
+    comment: null
+  - id: empty-string-value
+    raw: type 5 ""
+    canonical: type 5 ""
+    ast:
+      command: Type
+      target:
+        Id: 5
+      text: ''
+    comment: null
+  - id: string-with-newline-escape
+    raw: type 5 "line1\nline2"
+    canonical: type 5 "line1\nline2"
+    ast:
+      command: Type
+      target:
+        Id: 5
+      text: |-
+        line1
+        line2
+    comment: null
+  - id: string-with-tab-escape
+    raw: type 5 "col1\tcol2"
+    canonical: type 5 "col1\tcol2"
+    ast:
+      command: Type
+      target:
+        Id: 5
+      text: "col1\tcol2"
+    comment: null
+  - id: duration-milliseconds
+    raw: wait load --timeout 100ms
+    canonical: wait load --timeout 100ms
+    ast:
+      command: Wait
+      condition: load
+      timeout: 100ms
+    comment: null
+  - id: duration-minutes
+    raw: wait visible 5 --timeout 2m
+    canonical: wait visible 5 --timeout 2m
+    ast:
+      command: Wait
+      condition: visible
+      target:
+        Id: 5
+      timeout: 2m
+    comment: null
+  - id: negative-number
+    raw: scroll down --amount -100
+    canonical: scroll down --amount -100
+    ast:
+      command: Scroll
+      direction: down
+      amount: -100
+    comment: null
+  - id: decimal-number
+    raw: type 5 "test" --delay 0.5
+    canonical: type 5 "test" --delay 0.5
+    ast:
+      command: Type
+      target:
+        Id: 5
+      text: test
+      delay: 0.5
+    comment: null
+  - id: path-windows-style
+    raw: pdf "C:\\Users\\test\\doc.pdf"
+    canonical: pdf "C:\\Users\\test\\doc.pdf"
+    ast:
+      command: Pdf
+      path: C:\Users\test\doc.pdf
+    comment: null
+  - id: identifier-with-underscore-hyphen
+    raw: pack load my_github-pack
+    canonical: pack load my_github-pack
+    ast:
+      command: Pack
+      action: load
+      name: my_github-pack
+    comment: null
+  - id: all-modifier-keys
+    raw: press control+alt+shift+meta+a
+    canonical: press control+alt+shift+meta+a
+    ast:
+      command: Press
+      key: control+alt+shift+meta+a
+    comment: null
+  - id: css-selector-complex
+    raw: click css("div.container > ul li:nth-child(2) a.link")
+    canonical: click css("div.container > ul li:nth-child(2) a.link")
+    ast:
+      command: Click
+      target:
+        Css: div.container > ul li:nth-child(2) a.link
+    comment: null
+  - id: xpath-with-quotes
+    raw: click xpath("//button[contains(@class, 'primary')]")
+    canonical: click xpath("//button[contains(@class, 'primary')]")
+    ast:
+      command: Click
+      target:
+        XPath: //button[contains(@class, 'primary')]
+    comment: null
+multiline:
+  metadata:
+    description: Tests for multi-line input processing
+    version: 1.8.1
+    date: 2026-01
+  vectors:
+  - id: multiple-commands
+    raw: |
+      goto example.com
+      observe
+      click 5
+    canonical: |-
+      goto example.com
+      observe
+      click 5
+    ast:
+    - command: GoTo
+      url: https://example.com
+    - command: Observe
+    - command: Click
+      target:
+        Id: 5
+  - id: commands-with-comments
+    raw: |
+      goto example.com #navigate
+      #this is a comment line
+      observe #scan page
+      click 5 #submit
+    canonical: |-
+      goto example.com #navigate
+      #this is a comment line
+      observe #scan page
+      click 5 #submit
+    ast:
+    - command: GoTo
+      url: https://example.com
+    - null
+    - command: Observe
+    - command: Click
+      target:
+        Id: 5
+    comments:
+    - navigate
+    - this is a comment line
+    - scan page
+    - submit
+  - id: blank-lines-mixed
+    raw: |
+      goto example.com
+
+      observe
+
+
+      click 5
+    canonical: |-
+      goto example.com
+      observe
+      click 5
+    ast:
+    - command: GoTo
+      url: https://example.com
+    - null
+    - command: Observe
+    - null
+    - null
+    - command: Click
+      target:
+        Id: 5
+session_management:
+  metadata:
+    version: 1.8.1
+    date: 2026-01
+    title: Session management v1.8.1
+  vectors:
+  - id: sessions-list
+    raw: sessions
+    canonical: sessions
+    ast:
+      command: Sessions
+  - id: session-current
+    raw: session
+    canonical: session
+    ast:
+      command: Session
+      action: current
+  - id: session-switch
+    raw: session work
+    canonical: session work
+    ast:
+      command: Session
+      action:
+        switch: work
+  - id: session-new-default
+    raw: session new work
+    canonical: session new work
+    ast:
+      command: Session
+      action:
+        new:
+          name: work
+  - id: session-new-mode
+    raw: session new remote1 --mode remote
+    canonical: session new remote1 --mode remote
+    ast:
+      command: Session
+      action:
+        new:
+          name: remote1
+          mode: remote
+  - id: session-close
+    raw: session close work
+    canonical: session close work
+    ast:
+      command: Session
+      action:
+        close: work
+  - id: state-save
+    raw: state save /tmp/state.json
+    canonical: state save /tmp/state.json
+    ast:
+      command: State
+      action:
+        save:
+          path: /tmp/state.json
+  - id: state-save-cookies-only
+    raw: state save /tmp/state.json --cookies-only
+    canonical: state save /tmp/state.json --cookies-only
+    ast:
+      command: State
+      action:
+        save:
+          path: /tmp/state.json
+          cookies_only: true
+  - id: state-save-domain
+    raw: state save /tmp/state.json --domain "example.com"
+    canonical: state save /tmp/state.json --domain "example.com"
+    ast:
+      command: State
+      action:
+        save:
+          path: /tmp/state.json
+          domain: example.com
+  - id: state-save-include-session
+    raw: state save /tmp/state.json --include-session
+    canonical: state save /tmp/state.json --include-session
+    ast:
+      command: State
+      action:
+        save:
+          path: /tmp/state.json
+          include_session: true
+  - id: state-load
+    raw: state load /tmp/state.json
+    canonical: state load /tmp/state.json
+    ast:
+      command: State
+      action:
+        load:
+          path: /tmp/state.json
+  - id: state-load-merge
+    raw: state load /tmp/state.json --merge
+    canonical: state load /tmp/state.json --merge
+    ast:
+      command: State
+      action:
+        load:
+          path: /tmp/state.json
+          merge: true
+  - id: headers-view
+    raw: headers
+    canonical: headers
+    ast:
+      command: Headers
+      action: view
+  - id: headers-set-global
+    raw: 'headers set {"Authorization": "Bearer token"}'
+    canonical: 'headers set "{\"Authorization\": \"Bearer token\"}"'
+    ast:
+      command: Headers
+      action:
+        set_global: '{"Authorization": "Bearer token"}'
+  - id: headers-set-domain
+    raw: 'headers set "example.com" "{\"X-Test\": \"1\"}"'
+    canonical: 'headers set "example.com" "{\"X-Test\": \"1\"}"'
+    ast:
+      command: Headers
+      action:
+        set_domain:
+          domain: example.com
+          headers: '{"X-Test":"1"}'
+  - id: headers-clear-all
+    raw: headers clear
+    canonical: headers clear
+    ast:
+      command: Headers
+      action: clear_all
+  - id: headers-clear-domain
+    raw: headers clear "example.com"
+    canonical: headers clear "example.com"
+    ast:
+      command: Headers
+      action:
+        clear_domain: example.com
+  - id: session-new-embedded
+    raw: session new emb --mode embedded
+    canonical: session new emb --mode embedded
+    ast:
+      command: Session
+      action:
+        new:
+          name: emb
+          mode: embedded
+  - id: session-new-headless
+    raw: session new h1 --mode headless
+    canonical: session new h1 --mode headless
+    ast:
+      command: Session
+      action:
+        new:
+          name: h1
+          mode: headless
+  - id: state-load-cookies-only
+    raw: state load /tmp/state.json --cookies-only
+    canonical: state load /tmp/state.json --cookies-only
+    ast:
+      command: State
+      action:
+        load:
+          path: /tmp/state.json
+          cookies_only: true
+  - id: headers-set-global-with-comment
+    raw: 'headers set {"Authorization": "Bearer token"}  # auth'
+    canonical: 'headers set "{\"Authorization\": \"Bearer token\"}" # auth'
+    ast:
+      command: Headers
+      action:
+        set_global: '{"Authorization": "Bearer token"}'
+    comment: '# auth'
+network:
+  metadata:
+    version: 1.8.1
+    date: 2026-01
+    title: Network interception v1.8.1
+  vectors:
+  - id: intercept-rule
+    raw: intercept "*/api/*"
+    canonical: intercept "*/api/*"
+    ast:
+      command: Intercept
+      pattern: '*/api/*'
+  - id: intercept-block
+    raw: intercept "*/api/*" --block
+    canonical: intercept "*/api/*" --block
+    ast:
+      command: Intercept
+      pattern: '*/api/*'
+      block: true
+  - id: intercept-respond-json
+    raw: intercept "*/api/*" --respond {"name":"Test"}
+    canonical: intercept "*/api/*" --respond "{\"name\":\"Test\"}"
+    ast:
+      command: Intercept
+      pattern: '*/api/*'
+      respond: '{"name":"Test"}'
+  - id: intercept-respond-file
+    raw: intercept "*/api/*" --respond-file /tmp/resp.json
+    canonical: intercept "*/api/*" --respond-file /tmp/resp.json
+    ast:
+      command: Intercept
+      pattern: '*/api/*'
+      respond_file: /tmp/resp.json
+  - id: intercept-status
+    raw: intercept "*/api/*" --status 418
+    canonical: intercept "*/api/*" --status 418
+    ast:
+      command: Intercept
+      pattern: '*/api/*'
+      status: 418
+  - id: intercept-clear-all
+    raw: intercept clear
+    canonical: intercept clear
+    ast:
+      command: Intercept
+      action: clear_all
+  - id: intercept-clear-pattern
+    raw: intercept clear "*/api/*"
+    canonical: intercept clear "*/api/*"
+    ast:
+      command: Intercept
+      action:
+        clear: '*/api/*'
+  - id: requests-default
+    raw: requests
+    canonical: requests
+    ast:
+      command: Requests
+  - id: requests-last
+    raw: requests --last 25
+    canonical: requests --last 25
+    ast:
+      command: Requests
+      last: 25
+  - id: requests-filter
+    raw: requests --filter "/api/"
+    canonical: requests --filter "/api/"
+    ast:
+      command: Requests
+      filter: /api/
+  - id: requests-method
+    raw: requests --method GET
+    canonical: requests --method GET
+    ast:
+      command: Requests
+      method: GET
+  - id: intercept-respond-json-status
+    raw: intercept "*/api/*" --respond {"name":"Test"} --status 200
+    canonical: intercept "*/api/*" --respond "{\"name\":\"Test\"}" --status 200
+    ast:
+      command: Intercept
+      pattern: '*/api/*'
+      respond: '{"name":"Test"}'
+      status: 200
+  - id: intercept-multi
+    raw: intercept "*/api/*" --block --status 403
+    canonical: intercept "*/api/*" --block --status 403
+    ast:
+      command: Intercept
+      pattern: '*/api/*'
+      block: true
+      status: 403
+  - id: requests-multi
+    raw: requests --method GET --filter "/api/" --last 10
+    canonical: requests --method GET --filter "/api/" --last 10
+    ast:
+      command: Requests
+      method: GET
+      filter: /api/
+      last: 10
+  - id: requests-method-post
+    raw: requests --method POST
+    canonical: requests --method POST
+    ast:
+      command: Requests
+      method: POST
+console_errors:
+  metadata:
+    version: 1.8.1
+    date: 2026-01
+    title: Console and errors v1.8.1
+  vectors:
+  - id: console-view
+    raw: console
+    canonical: console
+    ast:
+      command: Console
+  - id: console-clear
+    raw: console clear
+    canonical: console clear
+    ast:
+      command: Console
+      action: clear
+  - id: console-level
+    raw: console --level error
+    canonical: console --level error
+    ast:
+      command: Console
+      level: error
+  - id: console-filter
+    raw: console --filter "TypeError"
+    canonical: console --filter "TypeError"
+    ast:
+      command: Console
+      filter: TypeError
+  - id: console-last
+    raw: console --last 50
+    canonical: console --last 50
+    ast:
+      command: Console
+      last: 50
+  - id: console-multi
+    raw: console --level warn --filter "Deprecation" --last 10
+    canonical: console --level warn --filter "Deprecation" --last 10
+    ast:
+      command: Console
+      level: warn
+      filter: Deprecation
+      last: 10
+  - id: errors-view
+    raw: errors
+    canonical: errors
+    ast:
+      command: Errors
+  - id: errors-clear
+    raw: errors clear
+    canonical: errors clear
+    ast:
+      command: Errors
+      action: clear
+  - id: errors-last
+    raw: errors --last 20
+    canonical: errors --last 20
+    ast:
+      command: Errors
+      last: 20
+  - id: console-level-info
+    raw: console --level info
+    canonical: console --level info
+    ast:
+      command: Console
+      level: info
+  - id: errors-last-1
+    raw: errors --last 1
+    canonical: errors --last 1
+    ast:
+      command: Errors
+      last: 1
+frames:
+  metadata:
+    version: 1.8.1
+    date: 2026-01
+    title: Frames v1.8.1
+  vectors:
+  - id: frames-list
+    raw: frames
+    canonical: frames
+    ast:
+      command: Frames
+  - id: frame-main
+    raw: frame main
+    canonical: frame main
+    ast:
+      command: Frame
+      target: main
+  - id: frame-parent
+    raw: frame parent
+    canonical: frame parent
+    ast:
+      command: Frame
+      target: parent
+  - id: frame-id
+    raw: frame 5
+    canonical: frame 5
+    ast:
+      command: Frame
+      target: 5
+  - id: frame-relational
+    raw: frame "Modal" near "Checkout"
+    canonical: frame "Modal" near "Checkout"
+    ast:
+      command: Frame
+      target:
+        chain:
+        - Modal
+        - near: Checkout
+dialogs:
+  metadata:
+    version: 1.8.1
+    date: 2026-01
+    title: Dialogs v1.8.1
+  vectors:
+  - id: dialog-accept
+    raw: dialog accept
+    canonical: dialog accept
+    ast:
+      command: Dialog
+      action: accept
+  - id: dialog-accept-text
+    raw: dialog accept "OK"
+    canonical: dialog accept "OK"
+    ast:
+      command: Dialog
+      action:
+        accept: OK
+  - id: dialog-dismiss
+    raw: dialog dismiss
+    canonical: dialog dismiss
+    ast:
+      command: Dialog
+      action: dismiss
+  - id: dialog-auto-accept
+    raw: dialog auto accept
+    canonical: dialog auto accept
+    ast:
+      command: Dialog
+      action:
+        auto: accept
+  - id: dialog-auto-dismiss
+    raw: dialog auto dismiss
+    canonical: dialog auto dismiss
+    ast:
+      command: Dialog
+      action:
+        auto: dismiss
+  - id: dialog-auto-off
+    raw: dialog auto off
+    canonical: dialog auto off
+    ast:
+      command: Dialog
+      action:
+        auto: 'off'
+  - id: dialog-accept-comment
+    raw: 'dialog accept # ok'
+    canonical: 'dialog accept # ok'
+    ast:
+      command: Dialog
+      action: accept
+    comment: '# ok'
+viewport_device:
+  metadata:
+    version: 1.8.1
+    date: 2026-01
+    title: Viewport/device/media v1.8.1
+  vectors:
+  - id: viewport-size
+    raw: viewport 1280 720
+    canonical: viewport 1280 720
+    ast:
+      command: Viewport
+      width: 1280
+      height: 720
+  - id: device-set
+    raw: device "iPhone 14"
+    canonical: device "iPhone 14"
+    ast:
+      command: Device
+      action:
+        set: iPhone 14
+  - id: device-reset
+    raw: device reset
+    canonical: device reset
+    ast:
+      command: Device
+      action: reset
+  - id: devices
+    raw: devices
+    canonical: devices
+    ast:
+      command: Devices
+  - id: media-reset
+    raw: media reset
+    canonical: media reset
+    ast:
+      command: Media
+      action: reset
+  - id: media-color-scheme
+    raw: media color-scheme dark
+    canonical: media color-scheme dark
+    ast:
+      command: Media
+      feature: color-scheme
+      value: dark
+  - id: media-reduced-motion
+    raw: media reduced-motion reduce
+    canonical: media reduced-motion reduce
+    ast:
+      command: Media
+      feature: reduced-motion
+      value: reduce
+  - id: viewport-large
+    raw: viewport 1920 1080
+    canonical: viewport 1920 1080
+    ast:
+      command: Viewport
+      width: 1920
+      height: 1080
+  - id: device-set-bare
+    raw: device iPhone 14
+    canonical: device "iPhone 14"
+    ast:
+      command: Device
+      action:
+        set: iPhone 14
+  - id: media-color-scheme-light
+    raw: media color-scheme light
+    canonical: media color-scheme light
+    ast:
+      command: Media
+      feature: color-scheme
+      value: light
+  - id: media-reduced-motion-np
+    raw: media reduced-motion no-preference
+    canonical: media reduced-motion no-preference
+    ast:
+      command: Media
+      feature: reduced-motion
+      value: no-preference
+recording:
+  metadata:
+    version: 1.8.1
+    date: 2026-01
+    title: Trace/record/highlight v1.8.1
+  vectors:
+  - id: trace-start
+    raw: trace start
+    canonical: trace start
+    ast:
+      command: Trace
+      action: start
+  - id: trace-start-path
+    raw: trace start /tmp/trace.zip
+    canonical: trace start /tmp/trace.zip
+    ast:
+      command: Trace
+      action:
+        start: /tmp/trace.zip
+  - id: trace-stop
+    raw: trace stop
+    canonical: trace stop
+    ast:
+      command: Trace
+      action: stop
+  - id: record-start
+    raw: record start /tmp/video.webm
+    canonical: record start /tmp/video.webm
+    ast:
+      command: Record
+      action:
+        start: /tmp/video.webm
+  - id: record-start-quality
+    raw: record start /tmp/video.webm --quality high
+    canonical: record start /tmp/video.webm --quality high
+    ast:
+      command: Record
+      action:
+        start: /tmp/video.webm
+        quality: high
+  - id: record-stop
+    raw: record stop
+    canonical: record stop
+    ast:
+      command: Record
+      action: stop
+  - id: highlight-clear
+    raw: highlight clear
+    canonical: highlight clear
+    ast:
+      command: Highlight
+      action: clear
+  - id: highlight-target
+    raw: highlight "Login"
+    canonical: highlight "Login"
+    ast:
+      command: Highlight
+      target: Login
+  - id: highlight-duration
+    raw: highlight "Login" --duration 2s
+    canonical: highlight "Login" --duration 2s
+    ast:
+      command: Highlight
+      target: Login
+      duration: 2s
+  - id: highlight-color
+    raw: highlight "Login" --color "red"
+    canonical: highlight "Login" --color "red"
+    ast:
+      command: Highlight
+      target: Login
+      color: red
+  - id: trace-stop-path
+    raw: trace stop /tmp/trace.zip
+    canonical: trace stop /tmp/trace.zip
+    ast:
+      command: Trace
+      action:
+        stop: /tmp/trace.zip
+  - id: highlight-both-opts
+    raw: highlight "Login" --duration 2s --color "red"
+    canonical: highlight "Login" --duration 2s --color "red"
+    ast:
+      command: Highlight
+      target: Login
+      duration: 2s
+      color: red
+  - id: record-start-low
+    raw: record start /tmp/video.webm --quality low
+    canonical: record start /tmp/video.webm --quality low
+    ast:
+      command: Record
+      action:
+        start: /tmp/video.webm
+        quality: low
+v181_enhancements:
+  metadata:
+    version: 1.8.1
+    date: 2026-01
+    title: Misc v1.8.1 enhancements
+  vectors:
+  - id: keydown
+    raw: keydown enter
+    canonical: keydown enter
+    ast:
+      command: KeyDown
+      key: enter
+  - id: keyup
+    raw: keyup escape
+    canonical: keyup escape
+    ast:
+      command: KeyUp
+      key: escape
+  - id: keyup-all
+    raw: keyup all
+    canonical: keyup all
+    ast:
+      command: KeyUp
+      key: all
+  - id: keys
+    raw: keys
+    canonical: keys
+    ast:
+      command: Keys
+  - id: box-id
+    raw: box 5
+    canonical: box 5
+    ast:
+      command: Box
+      target: 5
+  - id: wait-ready
+    raw: wait ready --timeout 5s
+    canonical: wait ready --timeout 5s
+    ast:
+      command: Wait
+      condition: ready
+      timeout: 5s
+  - id: wait-until
+    raw: wait until "document.readyState === \"complete\"" --timeout 10s
+    canonical: wait until "document.readyState === \"complete\"" --timeout 10s
+    ast:
+      command: Wait
+      condition:
+        until: document.readyState === "complete"
+      timeout: 10s
+  - id: wait-items
+    raw: wait items "a.result" 10 --timeout 15s
+    canonical: wait items "a.result" 10 --timeout 15s
+    ast:
+      command: Wait
+      condition:
+        items:
+          selector: a.result
+          count: 10
+      timeout: 15s
+  - id: observe-positions
+    raw: observe --positions
+    canonical: observe --positions
+    ast:
+      command: Observe
+      positions: true
+  - id: goto-headers
+    raw: 'goto api.example.com --headers {"Authorization": "Bearer token"}'
+    canonical: 'goto api.example.com --headers "{\"Authorization\": \"Bearer token\"}"'
+    ast:
+      command: GoTo
+      url: https://api.example.com
+      headers: '{"Authorization": "Bearer token"}'
+  - id: keydown-arrowdown
+    raw: keydown arrowdown
+    canonical: keydown arrowdown
+    ast:
+      command: KeyDown
+      key: arrowdown
+  - id: keyup-enter
+    raw: keyup enter
+    canonical: keyup enter
+    ast:
+      command: KeyUp
+      key: enter
+  - id: box-text
+    raw: box "Login"
+    canonical: box "Login"
+    ast:
+      command: Box
+      target: Login
+  - id: wait-ready-no-timeout
+    raw: wait ready
+    canonical: wait ready
+    ast:
+      command: Wait
+      condition: ready
+  - id: wait-items-no-timeout
+    raw: wait items "a.result" 10
+    canonical: wait items "a.result" 10
+    ast:
+      command: Wait
+      condition:
+        items:
+          selector: a.result
+          count: 10
+  - id: observe-positions-full
+    raw: observe --positions --full
+    canonical: observe --positions --full
+    ast:
+      command: Observe
+      positions: true
+      full: true
+  - id: goto-headers-timeout
+    raw: 'goto api.example.com --headers {"Authorization": "Bearer token"} --timeout 5s'
+    canonical: 'goto api.example.com --headers "{\"Authorization\": \"Bearer token\"}" --timeout 5s'
+    ast:
+      command: GoTo
+      url: https://api.example.com
+      headers: '{"Authorization": "Bearer token"}'
+      timeout: 5s

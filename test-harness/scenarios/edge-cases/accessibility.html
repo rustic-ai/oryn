@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accessibility - Oryn Edge Cases</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .icon-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 0.5rem;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Index</a></nav>
+        <h1>Accessibility & Semantic Discovery</h1>
+        <p>Testing how well the scanner identifies elements with ARIA attributes vs text content.</p>
+
+        <section style="margin-top: 2rem;">
+            <h2>Icon Buttons (No Text)</h2>
+            <div style="display: flex; gap: 1rem;">
+                <button class="icon-btn" aria-label="Close" title="Close Panel">X</button>
+                <button class="icon-btn" aria-label="Search">🔍</button>
+                <button class="icon-btn" aria-label="Settings">⚙️</button>
+            </div>
+        </section>
+
+        <section style="margin-top: 2rem;">
+            <h2>Custom Roles</h2>
+            <div role="button" tabindex="0" class="card" style="text-align: center; cursor: pointer;"
+                onclick="alert('Div clicked!')">
+                I am a div with role="button"
+            </div>
+
+            <div role="progressbar" aria-valuenow="70" aria-valuemin="0" aria-valuemax="100"
+                style="height: 10px; background: #eee; border-radius: 5px; margin-top: 2rem;">
+                <div style="width: 70%; height: 100%; background: orange; border-radius: 5px;"></div>
+            </div>
+            <p>Processing: 70% complete</p>
+        </section>
+
+        <section style="margin-top: 2rem;">
+            <h2>Landmarks</h2>
+            <header role="banner" style="background: #f1f5f9; padding: 1rem; margin-bottom: 1rem;">Header Landmark
+            </header>
+            <main role="main">Main Content Area</main>
+            <footer role="contentinfo" style="background: #f1f5f9; padding: 1rem; margin-top: 1rem;">Footer Landmark
+            </footer>
+        </section>
+    </div>
+</body>
+
+</html>

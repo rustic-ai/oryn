@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tabs & Accordion - Oryn Navigation</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid var(--border);
+            margin-bottom: 1rem;
+        }
+
+        .tab {
+            padding: 0.75rem 1.5rem;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            font-weight: 500;
+        }
+
+        .tab.active {
+            border-bottom-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .tab-panel {
+            display: none;
+            padding: 1rem 0;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        .accordion-item {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 0.5rem;
+        }
+
+        .accordion-header {
+            padding: 1rem;
+            background: #f1f5f9;
+            cursor: pointer;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .accordion-content {
+            padding: 1rem;
+            display: none;
+        }
+
+        .accordion-item.open .accordion-content {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Index</a></nav>
+        <h1>Tabs & Accordions</h1>
+
+        <section style="margin-bottom: 3rem;">
+            <h2>Tabs</h2>
+            <div class="tabs">
+                <div class="tab active" data-target="tab1">Features</div>
+                <div class="tab" data-target="tab2">Specs</div>
+                <div class="tab" data-target="tab3">Reviews</div>
+            </div>
+            <div id="tab1" class="tab-panel active">
+                <p>Highlighting the core features of the product.</p>
+                <ul>
+                    <li>Feature A: High performance</li>
+                    <li>Feature B: Reliability</li>
+                </ul>
+            </div>
+            <div id="tab2" class="tab-panel">
+                <p>Technical specifications and requirements.</p>
+            </div>
+            <div id="tab3" class="tab-panel">
+                <p>Customer reviews and testimonials.</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>Accordion (FAQ)</h2>
+            <div class="accordion-item">
+                <div class="accordion-header">What is Oryn? <span>+</span></div>
+                <div class="accordion-content">It is a browser automation framework.</div>
+            </div>
+            <div class="accordion-item">
+                <div class="accordion-header">How do I run the tests? <span>+</span></div>
+                <div class="accordion-content">Use the test-harness provided here.</div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // Tab logic
+        document.querySelectorAll('.tab').forEach(t => {
+            t.onclick = () => {
+                document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+                document.querySelectorAll('.tab-panel').forEach(x => x.classList.remove('active'));
+
+                t.classList.add('active');
+                document.getElementById(t.dataset.target).classList.add('active');
+            };
+        });
+
+        // Accordion logic
+        document.querySelectorAll('.accordion-header').forEach(h => {
+            h.onclick = () => {
+                const item = h.parentElement;
+                item.classList.toggle('open');
+                h.querySelector('span').innerText = item.classList.contains('open') ? '-' : '+';
+            };
+        });
+    </script>
+</body>
+
+</html>

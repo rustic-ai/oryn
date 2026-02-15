@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopping Cart - Oryn Shop</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/shop/catalog.html">&larr; Back to Catalog</a></nav>
+        <h1>Your Shopping Cart</h1>
+
+        <div id="cart-content">
+            <p>Your cart is empty.</p>
+        </div>
+
+        <div id="cart-summary"
+            style="margin-top: 2rem; border-top: 2px solid var(--border); padding-top: 1rem; display: none;">
+            <h3>Total: $<span id="total-price">0.00</span></h3>
+            <button onclick="window.location.href='/forms/checkout.html'" style="margin-top: 1rem; width: 100%;">Proceed
+                to Checkout</button>
+        </div>
+    </div>
+
+    <script>
+        async function loadCart() {
+            const res = await fetch('/shop/api/cart');
+            const cart = await res.json();
+            const content = document.getElementById('cart-content');
+            const summary = document.getElementById('cart-summary');
+
+            if (cart.length === 0) {
+                content.innerHTML = '<p>Your cart is empty.</p>';
+                summary.style.display = 'none';
+                return;
+            }
+
+            content.innerHTML = '';
+            let total = 0;
+            cart.forEach((item, index) => {
+                total += item.price * item.quantity;
+                const div = document.createElement('div');
+                div.style.display = 'flex';
+                div.style.justifyContent = 'space-between';
+                div.style.alignItems = 'center';
+                div.style.padding = '1rem 0';
+                div.style.borderBottom = '1px solid var(--border)';
+                div.innerHTML = `
+                    <div>
+                        <strong>${item.name}</strong><br>
+                        <small>$${item.price} x ${item.quantity}</small>
+                    </div>
+                    <button onclick="removeFromCart(${item.id})" style="background: #ef4444; font-size: 0.8rem;">Remove</button>
+                `;
+                content.appendChild(div);
+            });
+
+            document.getElementById('total-price').innerText = total.toFixed(2);
+            summary.style.display = 'block';
+        }
+
+        async function removeFromCart(id) {
+            await fetch(`/shop/api/cart/${id}`, { method: 'DELETE' });
+            loadCart();
+        }
+
+        loadCart();
+    </script>
+</body>
+
+</html>

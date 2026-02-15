@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shipping Address - Multi-Page Flow Test</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .progress-indicator {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2rem;
+            padding: 1rem 0;
+            border-bottom: 2px solid var(--border);
+        }
+        .progress-step {
+            flex: 1;
+            text-align: center;
+        }
+        .progress-step.active {
+            color: var(--primary);
+            font-weight: bold;
+        }
+        .progress-step.completed {
+            color: #22c55e;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin: 1rem 0;
+        }
+        .checkbox-row input {
+            width: auto;
+            margin: 0;
+        }
+        .shipping-options {
+            margin: 1.5rem 0;
+        }
+        .shipping-option {
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            border: 2px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+        }
+        .shipping-option:hover {
+            border-color: var(--primary);
+        }
+        .shipping-option.selected {
+            border-color: var(--primary);
+            background: #eff6ff;
+        }
+        .shipping-option input {
+            width: auto;
+            margin: 0 1rem 0 0;
+        }
+        .error-message {
+            color: #ef4444;
+            font-size: 0.875rem;
+            margin-top: -0.5rem;
+            margin-bottom: 0.5rem;
+            display: none;
+        }
+        input.error {
+            border-color: #ef4444;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/intent-tests/flow-cart.html">&larr; Back to Cart</a></nav>
+        <h1>Shipping Address</h1>
+
+        <div class="progress-indicator">
+            <div class="progress-step completed">1. Cart</div>
+            <div class="progress-step active">2. Shipping</div>
+            <div class="progress-step">3. Payment</div>
+            <div class="progress-step">4. Confirmation</div>
+        </div>
+
+        <form id="shipping-form" novalidate>
+            <div class="form-row">
+                <div>
+                    <label for="first-name">First Name</label>
+                    <input type="text" id="first-name" name="firstName" required aria-required="true">
+                    <div class="error-message" id="first-name-error">First name is required</div>
+                </div>
+                <div>
+                    <label for="last-name">Last Name</label>
+                    <input type="text" id="last-name" name="lastName" required aria-required="true">
+                    <div class="error-message" id="last-name-error">Last name is required</div>
+                </div>
+            </div>
+
+            <label for="email">Email Address</label>
+            <input type="email" id="email" name="email" required aria-required="true" role="textbox">
+            <div class="error-message" id="email-error">Please enter a valid email address</div>
+
+            <label for="phone">Phone Number</label>
+            <input type="tel" id="phone" name="phone" placeholder="(555) 123-4567">
+
+            <label for="address-line1">Address Line 1</label>
+            <input type="text" id="address-line1" name="addressLine1" required aria-required="true">
+            <div class="error-message" id="address-line1-error">Address is required</div>
+
+            <label for="address-line2">Address Line 2 (Optional)</label>
+            <input type="text" id="address-line2" name="addressLine2" placeholder="Apt, Suite, Unit, etc.">
+
+            <div class="form-row">
+                <div>
+                    <label for="city">City</label>
+                    <input type="text" id="city" name="city" required aria-required="true">
+                    <div class="error-message" id="city-error">City is required</div>
+                </div>
+                <div>
+                    <label for="state">State</label>
+                    <select id="state" name="state" required aria-required="true">
+                        <option value="">Select state...</option>
+                        <option value="CA">California</option>
+                        <option value="NY">New York</option>
+                        <option value="TX">Texas</option>
+                        <option value="FL">Florida</option>
+                        <option value="WA">Washington</option>
+                    </select>
+                    <div class="error-message" id="state-error">Please select a state</div>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div>
+                    <label for="zip">ZIP Code</label>
+                    <input type="text" id="zip" name="zip" required aria-required="true" pattern="[0-9]{5}">
+                    <div class="error-message" id="zip-error">Please enter a valid 5-digit ZIP code</div>
+                </div>
+                <div>
+                    <label for="country">Country</label>
+                    <select id="country" name="country" required>
+                        <option value="US" selected>United States</option>
+                        <option value="CA">Canada</option>
+                    </select>
+                </div>
+            </div>
+
+            <h2>Shipping Method</h2>
+            <div class="shipping-options" role="radiogroup" aria-label="Shipping method">
+                <label class="shipping-option selected">
+                    <input type="radio" name="shippingMethod" value="standard" checked>
+                    <div>
+                        <strong>Standard Shipping</strong>
+                        <p style="margin: 0; color: var(--text-muted);">5-7 business days - Free</p>
+                    </div>
+                </label>
+                <label class="shipping-option">
+                    <input type="radio" name="shippingMethod" value="express">
+                    <div>
+                        <strong>Express Shipping</strong>
+                        <p style="margin: 0; color: var(--text-muted);">2-3 business days - $9.99</p>
+                    </div>
+                </label>
+                <label class="shipping-option">
+                    <input type="radio" name="shippingMethod" value="overnight">
+                    <div>
+                        <strong>Overnight Shipping</strong>
+                        <p style="margin: 0; color: var(--text-muted);">Next business day - $24.99</p>
+                    </div>
+                </label>
+            </div>
+
+            <div class="checkbox-row">
+                <input type="checkbox" id="save-address" name="saveAddress">
+                <label for="save-address" style="margin: 0; font-weight: normal;">Save this address for future orders</label>
+            </div>
+
+            <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                <button type="button" onclick="window.location.href='/intent-tests/flow-cart.html'" style="flex: 1; background: #64748b;">
+                    Back to Cart
+                </button>
+                <button type="submit" style="flex: 2;">
+                    Continue to Payment
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        // Shipping option selection styling
+        document.querySelectorAll('.shipping-option').forEach(option => {
+            option.addEventListener('click', () => {
+                document.querySelectorAll('.shipping-option').forEach(o => o.classList.remove('selected'));
+                option.classList.add('selected');
+            });
+        });
+
+        // Form validation
+        document.getElementById('shipping-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            let isValid = true;
+            const requiredFields = ['first-name', 'last-name', 'email', 'address-line1', 'city', 'state', 'zip'];
+
+            requiredFields.forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                const errorEl = document.getElementById(`${fieldId}-error`);
+
+                if (!field.value.trim()) {
+                    field.classList.add('error');
+                    if (errorEl) errorEl.style.display = 'block';
+                    isValid = false;
+                } else {
+                    field.classList.remove('error');
+                    if (errorEl) errorEl.style.display = 'none';
+                }
+            });
+
+            // Email validation
+            const email = document.getElementById('email');
+            if (email.value && !email.value.includes('@')) {
+                email.classList.add('error');
+                document.getElementById('email-error').style.display = 'block';
+                isValid = false;
+            }
+
+            // ZIP validation
+            const zip = document.getElementById('zip');
+            if (zip.value && !/^\d{5}$/.test(zip.value)) {
+                zip.classList.add('error');
+                document.getElementById('zip-error').style.display = 'block';
+                isValid = false;
+            }
+
+            if (isValid) {
+                // Save shipping data
+                const formData = new FormData(e.target);
+                const shippingData = Object.fromEntries(formData.entries());
+                sessionStorage.setItem('checkoutShipping', JSON.stringify(shippingData));
+
+                window.location.href = '/intent-tests/flow-payment.html';
+            }
+        });
+    </script>
+</body>
+
+</html>

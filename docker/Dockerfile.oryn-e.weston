@@ -1,0 +1,144 @@
+# oryn-e: Embedded browser backend using WPE WebKit + COG + Weston Headless
+# Alpine-based image with weston headless compositor
+#
+# This tests COG running as a Wayland client inside weston's headless backend,
+# which provides a more complete Wayland environment than COG's native headless.
+
+# ============================================================================
+# Stage 1: Build the Rust binary
+# ============================================================================
+FROM rust:1-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache \
+    musl-dev \
+    pkgconfig \
+    openssl-dev \
+    openssl-libs-static
+
+WORKDIR /build
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+# Build release binary with static linking
+RUN cargo build --release --package oryn-e \
+    && strip /build/target/release/oryn-e
+
+# ============================================================================
+# Stage 2: Runtime image with Weston + COG
+# ============================================================================
+FROM alpine:3.21
+
+LABEL org.opencontainers.image.title="oryn-e-weston"
+LABEL org.opencontainers.image.description="Oryn embedded browser with Weston headless compositor"
+
+# Install weston headless + COG browser
+# mesa-gles required - WPE uses OpenGL ES for rendering
+RUN apk add --no-cache \
+    weston \
+    weston-backend-headless \
+    weston-shell-desktop \
+    cog \
+    fontconfig \
+    ttf-liberation \
+    ca-certificates \
+    tini \
+    dbus \
+    dbus-x11 \
+    adwaita-icon-theme \
+    bubblewrap \
+    xdg-dbus-proxy \
+    mesa-gles \
+    # Cleanup
+    && rm -rf /usr/share/man/* \
+    && rm -rf /var/cache/apk/*
+
+# Create non-root user
+RUN adduser -D -u 1000 oryn
+
+# Set up runtime directories
+RUN mkdir -p /run/user/1000 \
+    && chown oryn:oryn /run/user/1000 \
+    && chmod 700 /run/user/1000 \
+    && mkdir -p /tmp/.X11-unix
+
+# Copy binary from builder
+COPY --from=builder /build/target/release/oryn-e /usr/local/bin/oryn-e
+
+# Create entrypoint script inline (docker/ is in .dockerignore)
+RUN cat > /usr/local/bin/weston-entrypoint.sh << 'ENTRYPOINT_EOF'
+#!/bin/sh
+# weston-entrypoint.sh - Start weston headless, then run command
+set -e
+
+XDG_RUNTIME_DIR=/run/user/1000
+
+# Ensure runtime dir exists with correct permissions
+mkdir -p "$XDG_RUNTIME_DIR"
+chown 1000:1000 "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+
+echo "[weston] Starting weston headless compositor..."
+
+# Start weston as oryn user (UID 1000)
+su -s /bin/sh oryn -c "
+    export XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR
+    export HOME=/home/oryn
+
+    weston \
+        --backend=headless \
+        --shell=desktop \
+        --width=1920 \
+        --height=1080 \
+        --no-config \
+        2>&1 &
+" &
+
+# Wait for any wayland socket to appear
+echo "[weston] Waiting for Wayland socket..."
+TIMEOUT=10
+ELAPSED=0
+SOCKET=""
+while [ -z "$SOCKET" ]; do
+    sleep 0.5
+    ELAPSED=$((ELAPSED + 1))
+    # Find any wayland socket
+    SOCKET=$(find "$XDG_RUNTIME_DIR" -name 'wayland-*' -type s 2>/dev/null | head -1)
+    if [ $ELAPSED -ge $((TIMEOUT * 2)) ]; then
+        echo "[weston] ERROR: Weston failed to start within ${TIMEOUT}s"
+        ls -la "$XDG_RUNTIME_DIR" 2>/dev/null || true
+        exit 1
+    fi
+done
+
+# Extract display name from socket path
+WAYLAND_DISPLAY=$(basename "$SOCKET")
+echo "[weston] Ready, WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+
+# Use wayland/fdo backend, not COG native headless
+unset COG_PLATFORM_NAME
+
+# Run command as oryn user
+echo "[weston] Executing as oryn: $@"
+exec su -s /bin/sh oryn -c "
+    export XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR
+    export WAYLAND_DISPLAY=$WAYLAND_DISPLAY
+    export HOME=/home/oryn
+    $*
+"
+ENTRYPOINT_EOF
+
+RUN chmod +x /usr/local/bin/weston-entrypoint.sh
+
+# Environment for weston headless
+ENV XDG_RUNTIME_DIR=/run/user/1000
+ENV WAYLAND_DISPLAY=wayland-0
+ENV HOME=/home/oryn
+
+# Don't switch user - entrypoint handles permissions
+WORKDIR /home/oryn
+
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/weston-entrypoint.sh"]
+CMD ["oryn-e", "--help"]

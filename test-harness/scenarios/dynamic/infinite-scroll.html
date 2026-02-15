@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infinite Scroll - Oryn</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .item {
+            background: white;
+            padding: 2rem;
+            margin-bottom: 1rem;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+
+        #loading {
+            text-align: center;
+            padding: 1rem;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/">&larr; Back to Index</a></nav>
+        <h1>Infinite Scroll</h1>
+        <p>Scroll down to load more items dynamically.</p>
+
+        <div id="content">
+            <!-- Initial items -->
+            <div class="item">Item 1</div>
+            <div class="item">Item 2</div>
+            <div class="item">Item 3</div>
+            <div class="item">Item 4</div>
+            <div class="item">Item 5</div>
+        </div>
+
+        <div id="loading">Loading more items...</div>
+    </div>
+
+    <script>
+        let itemCount = 5;
+        let isThrottled = false;
+
+        window.onscroll = () => {
+            if (isThrottled) return;
+
+            if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 100) {
+                loadMore();
+            }
+        };
+
+        function loadMore() {
+            isThrottled = true;
+            const loading = document.getElementById('loading');
+            loading.style.display = 'block';
+
+            setTimeout(() => {
+                const content = document.getElementById('content');
+                for (let i = 0; i < 3; i++) {
+                    itemCount++;
+                    const div = document.createElement('div');
+                    div.className = 'item';
+                    div.innerText = 'Item ' + itemCount;
+                    content.appendChild(div);
+                }
+                loading.style.display = 'none';
+                isThrottled = false;
+            }, 800);
+        }
+    </script>
+</body>
+
+</html>

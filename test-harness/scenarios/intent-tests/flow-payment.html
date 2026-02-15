@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment - Multi-Page Flow Test</title>
+    <link rel="stylesheet" href="/shared/styles.css">
+    <style>
+        .progress-indicator {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2rem;
+            padding: 1rem 0;
+            border-bottom: 2px solid var(--border);
+        }
+        .progress-step {
+            flex: 1;
+            text-align: center;
+        }
+        .progress-step.active {
+            color: var(--primary);
+            font-weight: bold;
+        }
+        .progress-step.completed {
+            color: #22c55e;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        .payment-methods {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .payment-method {
+            flex: 1;
+            padding: 1rem;
+            border: 2px solid var(--border);
+            border-radius: var(--radius);
+            text-align: center;
+            cursor: pointer;
+        }
+        .payment-method.selected {
+            border-color: var(--primary);
+            background: #eff6ff;
+        }
+        .payment-method input {
+            display: none;
+        }
+        .card-icons {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            font-size: 1.5rem;
+        }
+        .order-summary {
+            background: #f1f5f9;
+            padding: 1.5rem;
+            border-radius: var(--radius);
+            margin-bottom: 1.5rem;
+        }
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+        .summary-row.total {
+            font-size: 1.25rem;
+            font-weight: bold;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+        .security-notice {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 1rem;
+            background: #f0fdf4;
+            border: 1px solid #86efac;
+            border-radius: var(--radius);
+            margin-bottom: 1.5rem;
+            color: #166534;
+        }
+        .error-message {
+            color: #ef4444;
+            font-size: 0.875rem;
+            margin-top: -0.5rem;
+            margin-bottom: 0.5rem;
+            display: none;
+        }
+        input.error {
+            border-color: #ef4444;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <nav><a href="/intent-tests/flow-shipping.html">&larr; Back to Shipping</a></nav>
+        <h1>Payment</h1>
+
+        <div class="progress-indicator">
+            <div class="progress-step completed">1. Cart</div>
+            <div class="progress-step completed">2. Shipping</div>
+            <div class="progress-step active">3. Payment</div>
+            <div class="progress-step">4. Confirmation</div>
+        </div>
+
+        <div class="order-summary">
+            <h3 style="margin-bottom: 1rem;">Order Summary</h3>
+            <div class="summary-row">
+                <span>Subtotal:</span>
+                <span id="summary-subtotal">$329.97</span>
+            </div>
+            <div class="summary-row">
+                <span>Shipping:</span>
+                <span id="summary-shipping">Free</span>
+            </div>
+            <div class="summary-row">
+                <span>Discount:</span>
+                <span id="summary-discount">-$0.00</span>
+            </div>
+            <div class="summary-row">
+                <span>Tax:</span>
+                <span id="summary-tax">$26.40</span>
+            </div>
+            <div class="summary-row total">
+                <span>Total:</span>
+                <span id="summary-total">$356.37</span>
+            </div>
+        </div>
+
+        <div class="security-notice">
+            <span>&#128274;</span>
+            <span>Your payment information is encrypted and secure.</span>
+        </div>
+
+        <form id="payment-form" novalidate>
+            <h2>Payment Method</h2>
+            <div class="payment-methods" role="radiogroup" aria-label="Payment method">
+                <label class="payment-method selected">
+                    <input type="radio" name="paymentMethod" value="card" checked>
+                    <strong>Credit Card</strong>
+                    <div class="card-icons">
+                        <span title="Visa">&#128179;</span>
+                        <span title="Mastercard">&#128179;</span>
+                    </div>
+                </label>
+                <label class="payment-method">
+                    <input type="radio" name="paymentMethod" value="paypal">
+                    <strong>PayPal</strong>
+                    <div class="card-icons">
+                        <span>&#128176;</span>
+                    </div>
+                </label>
+            </div>
+
+            <div id="card-details">
+                <label for="card-name">Name on Card</label>
+                <input type="text" id="card-name" name="cardName" required autocomplete="cc-name" aria-required="true">
+                <div class="error-message" id="card-name-error">Please enter the name on your card</div>
+
+                <label for="card-number">Card Number</label>
+                <input type="text" id="card-number" name="cardNumber" required autocomplete="cc-number"
+                       placeholder="1234 5678 9012 3456" maxlength="19" aria-required="true"
+                       role="textbox" aria-label="Credit card number">
+                <div class="error-message" id="card-number-error">Please enter a valid card number</div>
+
+                <div class="form-row">
+                    <div>
+                        <label for="expiry">Expiry Date</label>
+                        <input type="text" id="expiry" name="expiry" required autocomplete="cc-exp"
+                               placeholder="MM/YY" maxlength="5" aria-required="true">
+                        <div class="error-message" id="expiry-error">Please enter expiry date (MM/YY)</div>
+                    </div>
+                    <div>
+                        <label for="cvv">CVV</label>
+                        <input type="text" id="cvv" name="cvv" required autocomplete="cc-csc"
+                               placeholder="123" maxlength="4" aria-required="true"
+                               aria-describedby="cvv-help">
+                        <div class="error-message" id="cvv-error">Please enter your CVV</div>
+                        <small id="cvv-help" style="color: var(--text-muted);">3 or 4 digit code on back of card</small>
+                    </div>
+                </div>
+            </div>
+
+            <div id="paypal-details" style="display: none; text-align: center; padding: 2rem;">
+                <p>You will be redirected to PayPal to complete your payment.</p>
+            </div>
+
+            <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                <button type="button" onclick="window.location.href='/intent-tests/flow-shipping.html'" style="flex: 1; background: #64748b;">
+                    Back
+                </button>
+                <button type="submit" id="submit-btn" style="flex: 2;">
+                    Place Order
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        // Load cart data
+        const cartData = JSON.parse(sessionStorage.getItem('checkoutCart') || '{}');
+        const shippingData = JSON.parse(sessionStorage.getItem('checkoutShipping') || '{}');
+
+        // Calculate shipping cost
+        const shippingCosts = {
+            'standard': 0,
+            'express': 9.99,
+            'overnight': 24.99
+        };
+        const shippingCost = shippingCosts[shippingData.shippingMethod] || 0;
+
+        // Update summary
+        if (cartData.subtotal) {
+            const subtotal = cartData.subtotal;
+            const discount = cartData.discountAmount || 0;
+            const tax = (subtotal - discount) * 0.08;
+            const total = subtotal - discount + shippingCost + tax;
+
+            document.getElementById('summary-subtotal').textContent = '$' + subtotal.toFixed(2);
+            document.getElementById('summary-shipping').textContent = shippingCost === 0 ? 'Free' : '$' + shippingCost.toFixed(2);
+            document.getElementById('summary-discount').textContent = '-$' + discount.toFixed(2);
+            document.getElementById('summary-tax').textContent = '$' + tax.toFixed(2);
+            document.getElementById('summary-total').textContent = '$' + total.toFixed(2);
+
+            sessionStorage.setItem('checkoutTotal', total.toFixed(2));
+        }
+
+        // Payment method selection
+        document.querySelectorAll('.payment-method').forEach(method => {
+            method.addEventListener('click', () => {
+                document.querySelectorAll('.payment-method').forEach(m => m.classList.remove('selected'));
+                method.classList.add('selected');
+
+                const value = method.querySelector('input').value;
+                document.getElementById('card-details').style.display = value === 'card' ? 'block' : 'none';
+                document.getElementById('paypal-details').style.display = value === 'paypal' ? 'block' : 'none';
+            });
+        });
+
+        // Card number formatting
+        document.getElementById('card-number').addEventListener('input', (e) => {
+            let value = e.target.value.replace(/\D/g, '');
+            value = value.replace(/(\d{4})/g, '$1 ').trim();
+            e.target.value = value;
+        });
+
+        // Expiry formatting
+        document.getElementById('expiry').addEventListener('input', (e) => {
+            let value = e.target.value.replace(/\D/g, '');
+            if (value.length >= 2) {
+                value = value.substring(0, 2) + '/' + value.substring(2);
+            }
+            e.target.value = value;
+        });
+
+        // Form validation and submission
+        document.getElementById('payment-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            const paymentMethod = document.querySelector('input[name="paymentMethod"]:checked').value;
+
+            if (paymentMethod === 'card') {
+                let isValid = true;
+                const fields = ['card-name', 'card-number', 'expiry', 'cvv'];
+
+                fields.forEach(fieldId => {
+                    const field = document.getElementById(fieldId);
+                    const errorEl = document.getElementById(`${fieldId}-error`);
+
+                    if (!field.value.trim()) {
+                        field.classList.add('error');
+                        if (errorEl) errorEl.style.display = 'block';
+                        isValid = false;
+                    } else {
+                        field.classList.remove('error');
+                        if (errorEl) errorEl.style.display = 'none';
+                    }
+                });
+
+                // Card number validation
+                const cardNumber = document.getElementById('card-number').value.replace(/\s/g, '');
+                if (cardNumber.length < 13) {
+                    document.getElementById('card-number').classList.add('error');
+                    document.getElementById('card-number-error').style.display = 'block';
+                    isValid = false;
+                }
+
+                if (!isValid) return;
+            }
+
+            // Generate order ID
+            const orderId = 'ORD-' + Date.now().toString(36).toUpperCase();
+            sessionStorage.setItem('checkoutOrderId', orderId);
+
+            // Save payment data (masked)
+            const formData = new FormData(e.target);
+            const paymentData = {
+                method: paymentMethod,
+                cardLast4: paymentMethod === 'card' ? document.getElementById('card-number').value.slice(-4) : null
+            };
+            sessionStorage.setItem('checkoutPayment', JSON.stringify(paymentData));
+
+            window.location.href = '/intent-tests/flow-confirmation.html';
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,35 @@
+# Build artifacts
+target/
+!target/release/oryn
+*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Node modules (scanner has pre-bundled JS)
+**/node_modules/
+
+# Documentation
+docs/
+*.md
+!crates/
+!oryn-python/README.md
+
+# Docker (allow python-e2e)
+docker/
+!docker/python-e2e/
+
+# Test artifacts
+*.log
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db

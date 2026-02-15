@@ -1,0 +1,140 @@
+# Intent Engine Built-in Intent Tests
+# Tests: login, search, accept_cookies, dismiss_popups, fill_form, submit_form
+
+# =============================================================================
+# Test 1: Cookie Consent - accept_cookies intent
+# =============================================================================
+goto "http://localhost:3000/intent-tests/cookie-consent.html"
+observe
+
+# Verify cookie banner is visible
+# The intent engine should detect cookie_banner pattern
+# accept_cookies intent should find and click "Accept All"
+click "Accept All"
+
+# Verify banner is dismissed
+wait hidden css(.cookie-banner)
+observe
+
+# Reset and test reject flow
+click "Reset Consent"
+wait visible css(.cookie-banner)
+# Use CSS selector for Reject All button in the cookie banner (not the modal)
+click css(.cookie-banner .reject-all)
+wait hidden css(.cookie-banner)
+
+# =============================================================================
+# Test 2: Login Form - login intent
+# =============================================================================
+goto "http://localhost:3000/forms/login.html"
+observe
+
+# login intent should:
+# 1. Detect login_form pattern (email + password + submit)
+# 2. Type credentials into appropriate fields
+# 3. Click submit button
+type "Email Address" "user@example.com"
+type "Password" "SecurePass123"
+check "Remember me"
+click "Sign In"
+
+# Handle success modal
+wait visible css(.modal-content)
+dismiss "modal"
+
+# =============================================================================
+# Test 3: Search - search intent
+# =============================================================================
+goto "http://localhost:3000/intent-tests/search-page.html"
+observe
+
+# search intent should:
+# 1. Find search input (role=searchbox or type=search)
+# 2. Type query
+# 3. Submit via Enter or button click
+# Note: The search input has aria-label="Search" but so does the button
+# Use the input placeholder text for targeting
+type "products, articles" "wireless mouse"
+submit
+
+# Wait for results (500ms delay in search)
+wait visible css(.search-result)
+observe
+
+# Test filtering - click Products filter chip
+click "Products"
+observe
+
+# =============================================================================
+# Test 4: Fill Form - fill_form intent
+# =============================================================================
+goto "http://localhost:3000/forms/registration.html"
+observe
+
+# fill_form intent should fill multiple fields from data object
+# Testing individual field types:
+type "First Name" "Jane"
+type "Last Name" "Smith"
+type "Email Address" "jane.smith@example.com"
+select css(#role) "designer"
+click "Create Account"
+
+# =============================================================================
+# Test 5: Dismiss Popups - dismiss_popups intent
+# =============================================================================
+goto "http://localhost:3000/modals/basic.html"
+observe
+
+# Test modal dismissal
+click "Open Modal"
+wait visible css(#basic-modal)
+observe
+
+# dismiss_popups should find close/dismiss button
+click "Cancel"
+wait hidden css(#basic-modal)
+
+# Test toast notification
+click "Show Toast"
+wait visible css(#toast)
+observe
+
+# =============================================================================
+# Test 6: Survey Form with Multiple Field Types
+# =============================================================================
+goto "http://localhost:3000/forms/survey.html"
+observe
+
+# Test checkbox selection
+check "JavaScript"
+check "Python"
+check "Rust"
+
+# Test radio button selection
+click "Senior (5+ years)"
+
+# Submit form
+click "Submit Survey"
+observe
+
+# =============================================================================
+# Test 7: Role-Based Login Form Targeting
+# =============================================================================
+goto "http://localhost:3000/intent-tests/roles-targeting.html"
+observe
+
+# Test targeting by ARIA roles
+# email field has role="textbox"
+# password field has type="password"
+# submit button has role="button"
+type "Email" "test@roles.com"
+type "Password" "RoleTest123"
+check "Remember me"
+click "Sign In"
+
+# =============================================================================
+# Test 8: Search with ARIA Roles
+# =============================================================================
+# Test targeting searchbox role
+type css(input[role="searchbox"]) "aria search query"
+click css(button[aria-label="Submit search"])

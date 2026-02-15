@@ -1,0 +1,37 @@
+name: CI E2E Quick
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-quick:
+    name: e2e-quick
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run quick E2E suite
+        run: ./scripts/run-e2e-tests.sh --quick
+
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-quick-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            e2e-results/**
+            test-harness.log
+          if-no-files-found: ignore
+          retention-days: 14

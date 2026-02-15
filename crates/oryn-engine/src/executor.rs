@@ -1,0 +1,375 @@
+//! Shared command execution pipeline for all Oryn backends.
+//!
+//! This module provides a `CommandExecutor` that handles the full command pipeline:
+//! input → process (parse+resolve+translate) → execute → format
+//!
+//! All Oryn binaries (oryn-h, oryn-e, oryn-r) should use this shared executor.
+
+use crate::backend::Backend;
+use crate::resolution::ResolutionEngine;
+use oryn_common::formatter::format_response;
+use oryn_common::protocol::{
+    Action, BrowserAction, Cookie, ScanRequest, ScanResult, ScannerAction, ScannerData,
+    ScannerProtocolResponse, SessionAction,
+};
+use oryn_core::{
+    normalize, parse,
+    parser::ParseError,
+    translator::{self, TranslationError},
+};
+
+#[derive(Debug, thiserror::Error)]
+pub enum ExecutorError {
+    #[error("Parse error: {0}")]
+    Parse(#[from] ParseError),
+
+    #[error("Resolution error: {0}")]
+    Resolution(#[from] crate::resolution::result::ResolutionError),
+
+    #[error("Translation error: {0}")]
+    Translation(#[from] TranslationError),
+
+    #[error("No scan context. Run 'observe' first to enable semantic targeting.")]
+    NoScanContext,
+
+    #[error("Backend error: {0}")]
+    Backend(#[from] oryn_common::error::backend_error::BackendError),
+
+    #[error("Scanner error: {0}")]
+    Scanner(String),
+
+    #[error("Navigation error: {0}")]
+    Navigation(String),
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
+}
+
+/// Result of executing a command.
+pub struct ExecutionResult {
+    /// Formatted output string for display.
+    pub output: String,
+    /// Whether execution was successful.
+    pub success: bool,
+}
+
+pub struct CommandExecutor {
+    last_scan: Option<ScanResult>,
+}
+
+impl Default for CommandExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CommandExecutor {
+    pub fn new() -> Self {
+        Self { last_scan: None }
+    }
+
+    pub fn get_last_scan(&self) -> Option<&ScanResult> {
+        self.last_scan.as_ref()
+    }
+
+    fn check_scanner_error(resp: &ScannerProtocolResponse) -> Result<(), ExecutorError> {
+        if let ScannerProtocolResponse::Error { code, message, .. } = resp {
+            Err(ExecutorError::Scanner(format!("{}: {}", code, message)))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Enhance resolution errors with fuzzy matching suggestions.
+    /// When an element cannot be found, this searches for similar elements
+    /// and provides helpful suggestions to the user.
+    fn enhance_resolution_error(
+        &self,
+        err: crate::resolution::result::ResolutionError,
+    ) -> ExecutorError {
+        use oryn_common::resolver::find_similar_elements;
+
+        let Some(scan) = &self.last_scan else {
+            return ExecutorError::Resolution(err);
+        };
+
+        let similar = find_similar_elements(&err.target, &scan.elements, 3);
+
+        if similar.is_empty() {
+            return ExecutorError::Scanner(format!(
+                "{}\n\nHint: Run 'observe' to see available elements",
+                err
+            ));
+        }
+
+        let suggestions: String = similar
+            .iter()
+            .map(|(id, text, score)| format!("  [{}] {:?} ({:.0}% match)", id, text, score * 100.0))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let first_id = similar[0].0;
+        ExecutorError::Scanner(format!(
+            "{}\n\nSimilar elements:\n{}\n\nHint: Try 'click {}' or run 'observe' to refresh",
+            err, suggestions, first_id
+        ))
+    }
+
+    fn cookie_with_defaults(
+        name: String,
+        value: String,
+        domain: Option<String>,
+        expires: Option<f64>,
+    ) -> Cookie {
+        Cookie {
+            name,
+            value,
+            domain,
+            path: Some("/".into()),
+            expires,
+            http_only: None,
+            secure: None,
+        }
+    }
+
+    /// Execute a line of input.
+    pub async fn execute_line<B: Backend + ?Sized>(
+        &mut self,
+        backend: &mut B,
+        line: &str,
+    ) -> Result<ExecutionResult, ExecutorError> {
+        // 1. Parse
+        let normalized = normalize(line);
+        let script = parse(&normalized)?;
+
+        // 2. Resolve + Translate + Execute each command
+        let mut outputs = Vec::new();
+        for script_line in script.lines {
+            if let Some(cmd) = script_line.command {
+                let cmd_clone = cmd.clone();
+
+                // Try to resolve the command
+                let resolved_cmd = match self.resolve_command(cmd, backend).await {
+                    Ok(c) => c,
+                    Err(ExecutorError::Resolution(_)) | Err(ExecutorError::NoScanContext) => {
+                        // If resolution fails, try with fresh scan
+                        let req = ScannerAction::Scan(ScanRequest::default());
+                        let resp = backend.execute_scanner(req).await?;
+
+                        Self::check_scanner_error(&resp)?;
+
+                        self.update_from_response(&resp);
+
+                        // Retry resolution
+                        match self.resolve_command(cmd_clone, backend).await {
+                            Ok(c) => c,
+                            Err(ExecutorError::Resolution(err)) => {
+                                // Enhance error with fuzzy matching
+                                return Err(self.enhance_resolution_error(err));
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    Err(e) => return Err(e),
+                };
+
+                // Translate the resolved command to an action
+                let action = translator::translate(&resolved_cmd)?;
+
+                // Execute the action
+                let output = self.execute_action(backend, action).await?;
+                outputs.push(output);
+            }
+        }
+
+        Ok(ExecutionResult {
+            output: outputs.join("\n"),
+            success: true,
+        })
+    }
+
+    /// Resolve a command using the sophisticated resolution engine.
+    async fn resolve_command<B: Backend + ?Sized>(
+        &self,
+        cmd: oryn_core::ast::Command,
+        backend: &mut B,
+    ) -> Result<oryn_core::ast::Command, ExecutorError> {
+        if let Some(scan) = &self.last_scan {
+            ResolutionEngine::resolve(cmd, scan, backend)
+                .await
+                .map_err(ExecutorError::Resolution)
+        } else {
+            // No scan context, return command as-is (for commands that don't need resolution)
+            Ok(cmd)
+        }
+    }
+
+    async fn execute_action<B: Backend + ?Sized>(
+        &mut self,
+        backend: &mut B,
+        action: Action,
+    ) -> Result<String, ExecutorError> {
+        match action {
+            // Scanner Actions -> execute_scanner
+            Action::Scanner(sa) => {
+                let resp = backend.execute_scanner(sa).await?;
+
+                Self::check_scanner_error(&resp)?;
+
+                self.update_from_response(&resp);
+                Ok(format_response(&resp))
+            }
+
+            // Browser Actions -> backend methods
+            Action::Browser(ba) => self.execute_browser_action(backend, ba).await,
+
+            // Session Actions -> backend methods
+            Action::Session(sa) => self.execute_session_action(backend, sa).await,
+
+            // Meta Actions -> Not supported yet
+            Action::Meta(ma) => Err(ExecutorError::NotImplemented(format!(
+                "Meta action: {:?}",
+                ma
+            ))),
+        }
+    }
+
+    async fn execute_browser_action<B: Backend + ?Sized>(
+        &mut self,
+        backend: &mut B,
+        action: BrowserAction,
+    ) -> Result<String, ExecutorError> {
+        match action {
+            BrowserAction::Navigate(req) => {
+                let res = backend
+                    .navigate(&req.url)
+                    .await
+                    .map_err(|e| ExecutorError::Navigation(e.to_string()))?;
+                Ok(format!("Navigated to {}", res.url))
+            }
+            BrowserAction::Back(_) => {
+                let res = backend.go_back().await?;
+                Ok(format!("Navigated back to {}", res.url))
+            }
+            BrowserAction::Forward(_) => {
+                let res = backend.go_forward().await?;
+                Ok(format!("Navigated forward to {}", res.url))
+            }
+            BrowserAction::Refresh(_) => {
+                let res = backend.refresh().await?;
+                Ok(format!("Refreshed: {}", res.url))
+            }
+            BrowserAction::Screenshot(req) => {
+                let data = backend.screenshot().await?;
+                let output_path = req.output.unwrap_or_else(|| "screenshot.png".to_string());
+                std::fs::write(&output_path, &data)?;
+                Ok(format!(
+                    "Screenshot saved to {} ({} bytes)",
+                    output_path,
+                    data.len()
+                ))
+            }
+            BrowserAction::Pdf(req) => {
+                let data = backend.pdf().await?;
+                std::fs::write(&req.path, &data)?;
+                Ok(format!("PDF saved to {} ({} bytes)", req.path, data.len()))
+            }
+            BrowserAction::Press(req) => {
+                backend.press_key(&req.key, &req.modifiers).await?;
+                if req.modifiers.is_empty() {
+                    Ok(format!("Pressed {}", req.key))
+                } else {
+                    Ok(format!("Pressed {}+{:?}", req.key, req.modifiers))
+                }
+            }
+            BrowserAction::Tab(req) => match req.action.as_str() {
+                "list" => {
+                    let tabs = backend.get_tabs().await?;
+                    if tabs.is_empty() {
+                        Ok("No tabs".into())
+                    } else {
+                        let titles: Vec<String> = tabs.iter().map(|t| t.title.clone()).collect();
+                        Ok(format!("Tabs: {}", titles.join(", ")))
+                    }
+                }
+                _ => Err(ExecutorError::NotImplemented(format!(
+                    "Tab action: {}",
+                    req.action
+                ))),
+            },
+            // Frame, Dialog -> NotSupported
+            _ => Err(ExecutorError::NotImplemented(format!(
+                "Browser action: {:?}",
+                action
+            ))),
+        }
+    }
+
+    async fn execute_session_action<B: Backend + ?Sized>(
+        &mut self,
+        backend: &mut B,
+        action: SessionAction,
+    ) -> Result<String, ExecutorError> {
+        match action {
+            SessionAction::Cookie(req) => match req.action.as_str() {
+                "list" => {
+                    let cookies = backend.get_cookies().await?;
+                    if cookies.is_empty() {
+                        Ok("No cookies".into())
+                    } else {
+                        let names: Vec<String> = cookies.iter().map(|c| c.name.clone()).collect();
+                        Ok(format!("Cookies: {}", names.join(", ")))
+                    }
+                }
+                "get" => {
+                    let name = req.name.unwrap_or_default();
+                    let cookies = backend.get_cookies().await?;
+                    match cookies.into_iter().find(|c| c.name == name) {
+                        Some(c) => Ok(format!("Cookie: {}={}", c.name, c.value)),
+                        None => Ok(format!("Cookie {} not found", name)),
+                    }
+                }
+                "set" => {
+                    let c = Self::cookie_with_defaults(
+                        req.name.unwrap_or_default(),
+                        req.value.unwrap_or_default(),
+                        req.domain,
+                        None,
+                    );
+                    backend.set_cookie(c).await?;
+                    Ok("Cookie set".into())
+                }
+                "delete" => {
+                    let name = req.name.unwrap_or_default();
+                    let c = Self::cookie_with_defaults(
+                        name.clone(),
+                        String::new(),
+                        req.domain,
+                        Some(0.0),
+                    );
+                    backend.set_cookie(c).await?;
+                    Ok(format!("Cookie {} deleted", name))
+                }
+                _ => Err(ExecutorError::NotImplemented(format!(
+                    "Cookie action: {}",
+                    req.action
+                ))),
+            },
+            _ => Err(ExecutorError::NotImplemented(format!(
+                "Session action: {:?}",
+                action
+            ))),
+        }
+    }
+
+    fn update_from_response(&mut self, resp: &ScannerProtocolResponse) {
+        if let ScannerProtocolResponse::Ok { data, .. } = resp
+            && let ScannerData::Scan(result) = data.as_ref()
+        {
+            self.last_scan = Some(*result.clone());
+        }
+    }
+}

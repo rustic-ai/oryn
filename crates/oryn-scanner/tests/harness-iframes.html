@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Iframe Test Harness</title>
+        <style>
+            body {
+                font-family: sans-serif;
+                padding: 20px;
+            }
+            section {
+                margin: 20px 0;
+                padding: 20px;
+                border: 1px solid #ddd;
+            }
+            iframe {
+                border: 2px solid #999;
+                margin: 10px 0;
+            }
+            #log {
+                border: 1px solid #ccc;
+                padding: 10px;
+                height: 100px;
+                overflow: auto;
+                background: #f9f9f9;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Iframe Test Harness</h1>
+        <pre id="log">Log:</pre>
+
+        <!-- Main page elements -->
+        <section id="main-section">
+            <h2>Main Page Elements</h2>
+            <button id="main-btn" onclick="log('main btn clicked')">Main Page Button</button>
+            <input type="text" id="main-input" placeholder="Main page input" />
+        </section>
+
+        <!-- Same-origin iframe with srcdoc -->
+        <section id="srcdoc-iframe-section">
+            <h2>Same-Origin Iframe (srcdoc)</h2>
+            <iframe
+                id="srcdoc-iframe"
+                width="400"
+                height="250"
+                srcdoc="<!DOCTYPE html><html><head><title>Srcdoc Iframe</title></head><body><h3>Srcdoc Iframe Content</h3><button id='iframe-btn-1'>Iframe Button 1</button><input type='text' id='iframe-input-1' placeholder='Iframe input 1' /><a href='#' id='iframe-link-1'>Iframe Link 1</a><select id='iframe-select-1'><option value='a'>Option A</option><option value='b'>Option B</option></select><form id='iframe-form'><input type='email' id='iframe-email' placeholder='Email' /><input type='password' id='iframe-password' placeholder='Password' /><button type='submit'>Submit</button></form></body></html>"
+            ></iframe>
+        </section>
+
+        <!-- Multiple same-origin iframes -->
+        <section id="multiple-iframes-section">
+            <h2>Multiple Iframes</h2>
+            <iframe
+                id="iframe-a"
+                width="200"
+                height="100"
+                srcdoc="<!DOCTYPE html><html><body><button id='btn-a'>Button A</button><input type='text' id='input-a' placeholder='Input A' /></body></html>"
+            ></iframe>
+
+            <iframe
+                id="iframe-b"
+                width="200"
+                height="100"
+                srcdoc="<!DOCTYPE html><html><body><button id='btn-b'>Button B</button><input type='text' id='input-b' placeholder='Input B' /></body></html>"
+            ></iframe>
+        </section>
+
+        <!-- Nested iframe -->
+        <section id="nested-iframe-section">
+            <h2>Nested Iframe</h2>
+            <iframe
+                id="outer-iframe"
+                width="300"
+                height="200"
+                srcdoc="<!DOCTYPE html><html><body><h4>Outer Iframe</h4><button id='outer-btn'>Outer Button</button><iframe id='inner-iframe' width='150' height='80' srcdoc='<!DOCTYPE html><html><body><h5>Inner Iframe</h5><button id=inner-btn>Inner Button</button></body></html>'></iframe></body></html>"
+            ></iframe>
+        </section>
+
+        <!-- Hidden iframe -->
+        <section id="hidden-iframe-section">
+            <h2>Hidden Iframe</h2>
+            <iframe
+                id="hidden-iframe"
+                width="200"
+                height="100"
+                style="display: none"
+                srcdoc="<!DOCTYPE html><html><body><button id='hidden-iframe-btn'>Hidden Iframe Button</button></body></html>"
+            ></iframe>
+            <p>The iframe above is hidden (display: none)</p>
+        </section>
+
+        <!-- Zero-size iframe -->
+        <section id="zero-iframe-section">
+            <h2>Zero-Size Iframe</h2>
+            <iframe
+                id="zero-iframe"
+                width="0"
+                height="0"
+                srcdoc="<!DOCTYPE html><html><body><button id='zero-iframe-btn'>Zero Iframe Button</button></body></html>"
+            ></iframe>
+            <p>The iframe above has zero dimensions</p>
+        </section>
+
+        <!-- Cross-origin iframe (simulated with sandbox) -->
+        <section id="cross-origin-section">
+            <h2>Cross-Origin Iframe (Simulated)</h2>
+            <p>Note: True cross-origin iframes require a different domain. This section documents expected behavior.</p>
+            <iframe
+                id="sandboxed-iframe"
+                width="200"
+                height="100"
+                sandbox="allow-scripts"
+                srcdoc="<!DOCTYPE html><html><body><button id='sandboxed-btn'>Sandboxed Button</button></body></html>"
+            ></iframe>
+        </section>
+
+        <script>
+            function log(msg) {
+                const el = document.getElementById('log');
+                el.innerText += '\n' + msg;
+                el.scrollTop = el.scrollHeight;
+            }
+        </script>
+    </body>
+</html>

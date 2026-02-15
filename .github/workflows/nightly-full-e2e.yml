@@ -1,0 +1,45 @@
+name: Nightly Full E2E
+
+on:
+  schedule:
+    - cron: "0 6 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-e2e:
+    name: full-e2e (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - oryn-h
+          - oryn-e-debian
+          - oryn-e-alpine
+          - oryn-e-weston
+          - oryn-r
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run full E2E variant
+        run: ./scripts/run-e2e-tests.sh ${{ matrix.variant }}
+
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-e2e-${{ matrix.variant }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            e2e-results/**
+            test-harness.log
+          if-no-files-found: ignore
+          retention-days: 14

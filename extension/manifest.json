@@ -1,0 +1,57 @@
+{
+    "manifest_version": 3,
+    "name": "Oryn Agent",
+    "version": "0.1.0",
+    "description": "Browser automation agent for Oryn",
+    "permissions": [
+        "activeTab",
+        "scripting",
+        "tabs",
+        "alarms",
+        "storage",
+        "sidePanel"
+    ],
+    "host_permissions": [
+        "<all_urls>",
+        "http://127.0.0.1/*",
+        "http://localhost/*",
+        "ws://*:*",
+        "wss://*:*"
+    ],
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "icons/icon-128.svg",
+            "48": "icons/icon-128.svg",
+            "128": "icons/icon-128.svg"
+        }
+    },
+    "icons": {
+        "16": "icons/icon-128.svg",
+        "48": "icons/icon-128.svg",
+        "128": "icons/icon-128.svg"
+    },
+    "side_panel": {
+        "default_path": "sidepanel.html"
+    },
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; object-src 'self'; connect-src * ws: wss: http: https: data:;"
+    },
+    "background": {
+        "service_worker": "background.js",
+        "type": "module"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "suppress_alerts.js",
+                "scanner.js",
+                "content.js"
+            ],
+            "run_at": "document_start"
+        }
+    ]
+}
