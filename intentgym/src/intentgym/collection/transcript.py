@@ -1,4 +1,5 @@
 """Transcript logger for LLM <> Agent <> Oryn communication."""
+
 import time
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +31,9 @@ class TranscriptLogger:
         """Initialize the transcript file with header."""
         with open(self.filename, "w") as f:
             f.write(f"# Transcript: {self.run_id} - {self.task_id}\n\n")
-            f.write(f"**Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write(
+                f"**Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            )
             f.write("---\n\n")
 
     def start_episode(self, episode_num: int, total_episodes: int, task_intent: str):
@@ -93,7 +96,9 @@ class TranscriptLogger:
                 f.write(f"**Parsed Action**: `{action.command}`  \n")
                 if action.reasoning:
                     f.write(f"**Reasoning**: {action.reasoning}  \n")
-                f.write(f"**Tokens**: {llm_response.input_tokens} in / {llm_response.output_tokens} out  \n")
+                f.write(
+                    f"**Tokens**: {llm_response.input_tokens} in / {llm_response.output_tokens} out  \n"
+                )
                 f.write(f"**Cost**: ${llm_response.cost_usd:.6f}  \n")
                 f.write(f"**Latency**: {llm_response.latency_ms:.0f}ms  \n\n")
 
@@ -121,7 +126,9 @@ class TranscriptLogger:
 
             f.write("---\n\n")
 
-    def end_episode(self, success: bool, steps: int, duration_ms: float, error: Optional[str] = None):
+    def end_episode(
+        self, success: bool, steps: int, duration_ms: float, error: Optional[str] = None
+    ):
         """Log episode completion."""
         with open(self.filename, "a") as f:
             status = "✅ **SUCCESS**" if success else "❌ **FAILED**"

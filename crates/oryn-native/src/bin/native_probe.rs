@@ -31,7 +31,7 @@ async fn main() {
 }
 
 async fn measure(page_count: usize) -> Measurement {
-    let browser = Browser::new();
+    let browser = Browser::in_process_probe();
     let context = browser.new_context();
     let create_started = Instant::now();
     let pages: Vec<_> = (0..page_count).map(|_| context.new_page()).collect();

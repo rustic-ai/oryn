@@ -43,11 +43,13 @@ def cli():
 @cli.command()
 @click.option("--config", required=True, type=Path, help="Path to run configuration")
 @click.option("--subset", default="all", help="Task subset to run")
-@click.option("--oryn-log-file", default=None, help="File to redirect oryn browser logs to")
+@click.option(
+    "--oryn-log-file", default=None, help="File to redirect oryn browser logs to"
+)
 @click.option(
     "--oryn-opt",
     multiple=True,
-    help="Override oryn options (can be repeated). Format: key=value"
+    help="Override oryn options (can be repeated). Format: key=value",
 )
 def run(config, subset, oryn_log_file, oryn_opt):
     """Run benchmark using configuration file."""
@@ -61,14 +63,16 @@ def run(config, subset, oryn_log_file, oryn_opt):
         # Parse and apply --oryn-opt overrides
         for opt in oryn_opt:
             if "=" not in opt:
-                console.print(f"[yellow]Warning: Skipping invalid --oryn-opt format: {opt} (expected key=value)[/yellow]")
+                console.print(
+                    f"[yellow]Warning: Skipping invalid --oryn-opt format: {opt} (expected key=value)[/yellow]"
+                )
                 continue
 
             key, value = opt.split("=", 1)
             parsed_value = _parse_value(value)
             run_config.oryn_options[key] = parsed_value
             console.print(f"[dim]Setting oryn option: {key}={parsed_value}[/dim]")
-            
+
         console.print(f"[green]Loaded config for run_id: {run_config.run_id}[/green]")
 
         runner = BenchmarkRunner(run_config)
@@ -126,7 +130,9 @@ def download(benchmark):
 
 @cli.command()
 @click.argument("run_id")
-@click.option("--episodes", is_flag=True, help="Show per-episode details (for multi-episode runs)")
+@click.option(
+    "--episodes", is_flag=True, help="Show per-episode details (for multi-episode runs)"
+)
 def inspect(run_id, episodes):
     """Inspect a specific run."""
     output_dir = Path("results")
@@ -152,9 +158,7 @@ def inspect(run_id, episodes):
         )
         console.print(f"Total Cost: ${data['summary']['total_cost_usd']:.4f}")
         console.print(f"Total Episodes: {data['summary']['total_episodes']}")
-        console.print(
-            f"Episodes Succeeded: {data['summary']['episodes_succeeded']}"
-        )
+        console.print(f"Episodes Succeeded: {data['summary']['episodes_succeeded']}")
 
         # Task-level summary
         table = Table(title="Task Summary")
@@ -213,9 +217,7 @@ def inspect(run_id, episodes):
                     console.print(ep_table)
     else:
         # Single-episode run (original behavior)
-        console.print(
-            f"Success Rate: {data['summary']['success_rate'] * 100:.1f}%"
-        )
+        console.print(f"Success Rate: {data['summary']['success_rate'] * 100:.1f}%")
         console.print(f"Total Cost: ${data['summary']['total_cost_usd']:.4f}")
 
         table = Table(title="Task Breakdown")

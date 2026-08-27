@@ -2,13 +2,13 @@
 
 from types import SimpleNamespace
 
+from intentgym.core.oryn import OrynInterface
 from scripts.run_g2_model_panel import (
     EXPECTED_QWEN_DIGEST,
     PRIOR_INVALID_HOSTED_SPEND_USD,
     _aggregate,
     _config,
 )
-from intentgym.core.oryn import OrynInterface
 
 
 def _args(**overrides):
@@ -114,10 +114,7 @@ def test_prior_invalid_spend_is_included_in_cumulative_cap():
         "2026-08-26T00:00:00Z",
     )
 
-    assert (
-        result["panel"]["prior_invalid_hosted_spend_usd"]
-        == PRIOR_INVALID_HOSTED_SPEND_USD
-    )
+    assert result["panel"]["prior_hosted_spend_usd"] == PRIOR_INVALID_HOSTED_SPEND_USD
     assert (
         result["panel"]["cumulative_hosted_spend_usd"] > PRIOR_INVALID_HOSTED_SPEND_USD
     )

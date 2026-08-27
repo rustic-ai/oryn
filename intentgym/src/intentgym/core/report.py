@@ -45,7 +45,9 @@ class BenchmarkReport:
             )
 
             # Mean task-level success rate
-            task_success_rates = [r.success_rate for r in results if r.success_rate is not None]
+            task_success_rates = [
+                r.success_rate for r in results if r.success_rate is not None
+            ]
             mean_task_success_rate = (
                 sum(task_success_rates) / len(task_success_rates)
                 if task_success_rates
@@ -64,7 +66,9 @@ class BenchmarkReport:
                 sum(r.mean_cost_per_episode or 0 for r in results) / total_tasks
             )
             mean_duration_per_episode = (
-                sum(r.mean_duration_per_episode or 0 for r in results) / total_tasks / 1000.0
+                sum(r.mean_duration_per_episode or 0 for r in results)
+                / total_tasks
+                / 1000.0
             )
 
             total_timeouts = sum(r.timeout_count for r in results)
@@ -165,11 +169,11 @@ class BenchmarkReport:
             table.add_row("Total Episodes", str(s["total_episodes"]))
             table.add_row("Episodes Succeeded", str(s["episodes_succeeded"]))
             table.add_row("Overall Success Rate", f"{s['overall_success_rate']:.1%}")
-            table.add_row("Mean Task Success Rate", f"{s['mean_task_success_rate']:.1%}")
-            table.add_row("Mean Steps/Episode", f"{s['mean_steps_per_episode']:.1f}")
             table.add_row(
-                "Mean Cost/Episode", f"${s['mean_cost_per_episode']:.4f}"
+                "Mean Task Success Rate", f"{s['mean_task_success_rate']:.1%}"
             )
+            table.add_row("Mean Steps/Episode", f"{s['mean_steps_per_episode']:.1f}")
+            table.add_row("Mean Cost/Episode", f"${s['mean_cost_per_episode']:.4f}")
             table.add_row(
                 "Mean Duration/Episode", f"{s['mean_duration_per_episode_s']:.2f}s"
             )

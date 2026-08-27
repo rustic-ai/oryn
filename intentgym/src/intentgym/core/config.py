@@ -10,7 +10,9 @@ class BenchmarkConfig:
     name: str
     data_dir: Optional[str] = None
     server_url: Optional[str] = None
-    episodes_per_task: int = 1  # Number of episodes to run per task (for multi-episode benchmarks)
+    episodes_per_task: int = (
+        1  # Number of episodes to run per task (for multi-episode benchmarks)
+    )
     options: Dict[str, Any] = field(default_factory=dict)
 
 

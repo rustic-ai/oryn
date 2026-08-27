@@ -96,15 +96,24 @@ def _run_fingerprint(
 ) -> dict[str, Any]:
     runtime = json.loads(
         subprocess.check_output(
-            [str(args.oryn_binary), "native", "--runtime-info"], text=True
+            [
+                str(args.oryn_binary),
+                "native",
+                "--runtime-info",
+                "--allow-loopback",
+            ],
+            text=True,
         )
     )
     if "native" in domains and (
         runtime.get("native_v8") is not True
         or runtime.get("build_profile") != "release"
+        or runtime.get("execution_mode") != "sandboxed_worker"
+        or runtime.get("sandboxed") is not True
+        or runtime.get("worker_protocol_version") != 2
     ):
         raise RuntimeError(
-            "deterministic native evidence requires the release V8 binary"
+            "deterministic native evidence requires the signed release V8 worker"
         )
     with urllib.request.urlopen(
         args.miniwob_url.rstrip("/") + "/.well-known/oryn-g2-fixture.json",
@@ -125,6 +134,9 @@ def _run_fingerprint(
             "bytes": args.oryn_binary.stat().st_size,
             "runtime": runtime,
         },
+        "source_tree_sha256": subprocess.check_output(
+            [str(args.repo_root / "scripts/source-tree-hash.sh")], text=True
+        ).strip(),
         "miniwob": fixture,
         "chromium_version": chromium_version,
         "oracle": {
@@ -693,7 +705,9 @@ def main() -> int:
     parser.add_argument("--seed", choices=SEEDS, type=int, action="append")
     parser.add_argument("--command-timeout", type=float, default=120.0)
     parser.add_argument(
-        "--output", type=Path, default=repo_root / "artifacts/g2r/deterministic"
+        "--output",
+        type=Path,
+        default=repo_root / "artifacts/g2r-g5a-v4/deterministic",
     )
     args = parser.parse_args()
 
@@ -772,8 +786,8 @@ def main() -> int:
         item["first_divergence"] is None for item in differential
     )
     aggregate = {
-        "schema_version": 3,
-        "run_id": "g2r-deterministic-v1",
+        "schema_version": 4,
+        "run_id": "g2r-g5a-deterministic-v4",
         "fingerprint": fingerprint,
         "started_at": started_at,
         "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

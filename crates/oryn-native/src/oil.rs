@@ -7,7 +7,7 @@ use oryn_common::{
     resolver::{ResolutionStrategy, ResolverContext, Target as ResolverTarget, resolve_target},
 };
 use oryn_core::ast::{Command, ExtractWhat, Target, TargetAtomic, WaitCondition};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::runtime::{
     ContentKind, LifecycleState, NativeAction, NavigationResult, PageHandle, RuntimeError,
@@ -20,7 +20,7 @@ pub struct NativeOilSession {
     delta_cursor: oryn_common::v2::Revision,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NativeOilOutput {
     Observation {

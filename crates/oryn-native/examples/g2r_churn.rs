@@ -33,12 +33,26 @@ struct RecoveryCase {
 struct Evidence {
     schema_version: u8,
     suite: &'static str,
+    runtime: oryn_native::RuntimeBuildInfo,
     cases: Vec<ChurnCase>,
     reference_survival: Ratio,
     invalidation: Ratio,
     false_preservation: Ratio,
     recovery_cases: Vec<RecoveryCase>,
     recovery: Ratio,
+    worker_replacement: WorkerReplacement,
+    status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkerReplacement {
+    infinite_loop_terminated: bool,
+    parent_survived: bool,
+    blank_generation_started: bool,
+    old_reference_invalidated: bool,
+    replacement_generation: u64,
+    termination_latency_ms: f64,
+    restart_to_blank_ms: f64,
     status: &'static str,
 }
 
@@ -79,6 +93,7 @@ fn invalidation_case(id: &'static str, invalidated: bool) -> ChurnCase {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let runtime = oryn_native::production_runtime_build_info()?;
     let page = Browser::new().new_context().new_page();
     let mut cases = Vec::new();
 
@@ -282,6 +297,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     ];
 
+    page.load_html(
+        "https://example.test/worker-limit",
+        "<button>Pre-crash target</button>",
+    )
+    .await?;
+    let before_limit = page.observe().await?;
+    let pre_crash_target = target(&before_limit, "Pre-crash target");
+    let termination_started = std::time::Instant::now();
+    let infinite_loop_terminated = matches!(
+        page.evaluate("for(;;){}").await,
+        Err(RuntimeError::WorkerLimitExceeded { .. } | RuntimeError::WorkerCrashed(_))
+    );
+    let termination_latency_ms = termination_started.elapsed().as_secs_f64() * 1_000.0;
+    let restart_started = std::time::Instant::now();
+    let blank = page.observe().await?;
+    let restart_to_blank_ms = restart_started.elapsed().as_secs_f64() * 1_000.0;
+    let parent_survived = infinite_loop_terminated;
+    let blank_generation_started = blank.page.document_generation
+        > before_limit.page.document_generation
+        && blank.nodes.is_empty();
+    let old_reference_invalidated = old_ref_is_invalidated(&page, pre_crash_target).await;
+    let worker_replacement_passed = infinite_loop_terminated
+        && parent_survived
+        && blank_generation_started
+        && old_reference_invalidated;
+    let worker_replacement = WorkerReplacement {
+        infinite_loop_terminated,
+        parent_survived,
+        blank_generation_started,
+        old_reference_invalidated,
+        replacement_generation: blank.page.document_generation,
+        termination_latency_ms,
+        restart_to_blank_ms,
+        status: if worker_replacement_passed {
+            "passed"
+        } else {
+            "failed"
+        },
+    };
+
     let invalidations = cases
         .iter()
         .filter(|case| case.expectation == "invalidated")
@@ -296,21 +351,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .count();
     let passed = cases.iter().all(|case| case.passed)
         && recovery_attempts == recovery_cases.len()
-        && successful_recoveries == recovery_attempts;
+        && successful_recoveries == recovery_attempts
+        && worker_replacement_passed;
     let ratio = |numerator: usize, denominator: usize| Ratio {
         numerator,
         denominator,
         value: (denominator > 0).then(|| numerator as f64 / denominator as f64),
     };
     let evidence = Evidence {
-        schema_version: 3,
+        schema_version: 4,
         suite: "g2r-semantic-reference-churn",
+        runtime,
         cases,
         reference_survival: ratio(usize::from(survived), 1),
         invalidation: ratio(invalidation_numerator, invalidation_denominator),
         false_preservation: ratio(false_preservations, invalidation_denominator + 1),
         recovery_cases,
         recovery: ratio(successful_recoveries, recovery_attempts),
+        worker_replacement,
         status: if passed { "passed" } else { "failed" },
     };
     println!("{}", serde_json::to_string_pretty(&evidence)?);

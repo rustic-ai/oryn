@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import plistlib
 import re
 import statistics
 import subprocess
@@ -40,7 +41,9 @@ HOSTED_MODEL = "gpt-5.6-terra"
 LOCAL_MODEL = "qwen3:4b"
 LOCAL_MAX_OUTPUT_TOKENS = 256
 HOSTED_CAP_USD = 100.0
-PRIOR_INVALID_HOSTED_SPEND_USD = 3.190558
+# Backwards-compatible symbol used by tests and downstream imports. For schema
+# v4 it means all hosted spend accumulated before this G5A-bound rerun.
+PRIOR_INVALID_HOSTED_SPEND_USD = 5.209632
 HOSTED_INPUT_COST_PER_MILLION = 2.0
 HOSTED_OUTPUT_COST_PER_MILLION = 12.0
 EXPECTED_QWEN_DIGEST = (
@@ -136,6 +139,21 @@ def _deterministic_causal(
         "cells_sha256": _files_hash(paths),
         "recall": _ratio(observed_expected, expected),
         "precision": _ratio(observed_expected, observed),
+        "ledger": [
+            {
+                "cell_id": cell["cell_id"],
+                "expected_effects": int(
+                    (cell.get("causal") or {}).get("expected_effects") or 0
+                ),
+                "observed_expected_effects": int(
+                    (cell.get("causal") or {}).get("observed_expected_effects") or 0
+                ),
+                "observed_effects": int(
+                    (cell.get("causal") or {}).get("observed_effects") or 0
+                ),
+            }
+            for cell in cells
+        ],
     }
 
 
@@ -153,6 +171,101 @@ def _harness_hash(repo_root: Path) -> str:
         digest.update(path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+def _source_tree_hash(repo_root: Path) -> str:
+    return subprocess.check_output(
+        [str(repo_root / "scripts/source-tree-hash.sh")], text=True
+    ).strip()
+
+
+def _codesign_value(details: str, name: str) -> str:
+    prefix = f"{name}="
+    return next(
+        (
+            line.removeprefix(prefix)
+            for line in details.splitlines()
+            if line.startswith(prefix)
+        ),
+        "",
+    )
+
+
+def _worker_bundle_fingerprint(
+    args: argparse.Namespace, runtime: dict[str, Any], source_tree_sha256: str
+) -> dict[str, Any]:
+    configured = os.environ.get("ORYN_PAGE_WORKER")
+    worker = (
+        Path(configured)
+        if configured
+        else args.oryn_binary.parent
+        / "OrynPageWorker.app/Contents/MacOS/oryn-page-worker"
+    )
+    if not worker.is_file():
+        raise RuntimeError(f"signed page worker is missing: {worker}")
+    subprocess.run(
+        ["/usr/bin/codesign", "--verify", "--strict", "--verbose=2", str(worker)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    details_process = subprocess.run(
+        ["/usr/bin/codesign", "-dvvv", str(worker)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    details = details_process.stderr
+    entitlements_process = subprocess.run(
+        ["/usr/bin/codesign", "-d", "--entitlements", ":-", str(worker)],
+        check=True,
+        capture_output=True,
+    )
+    entitlements = plistlib.loads(entitlements_process.stdout)
+    expected_entitlements = {
+        "com.apple.security.app-sandbox": True,
+        "com.apple.security.cs.allow-jit": True,
+    }
+    if entitlements != expected_entitlements:
+        raise RuntimeError(
+            f"worker entitlements are not the exact G5A set: {sorted(entitlements)}"
+        )
+    app = worker.parents[2]
+    manifest_path = app / "Contents/Resources/worker-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("source_tree_sha256") != source_tree_sha256:
+        raise RuntimeError("signed worker manifest does not match the source tree")
+    if manifest.get("protocol_version") != 2:
+        raise RuntimeError("signed worker manifest does not require protocol v2")
+    worker_sha256 = _sha256(worker)
+    if runtime.get("worker_binary_sha256") != worker_sha256:
+        raise RuntimeError("worker handshake hash differs from the signed artifact")
+    if runtime.get("worker_bundle_id") != "ai.rustic.oryn.page-worker":
+        raise RuntimeError("worker bundle identifier changed")
+    if runtime.get("worker_team_id") != "5HVA9VFF8K":
+        raise RuntimeError("worker Team ID changed")
+    if (
+        runtime.get("worker_signing_cert_sha1")
+        != "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90"
+    ):
+        raise RuntimeError("worker signing certificate changed")
+    return {
+        "path": str(worker),
+        "sha256": worker_sha256,
+        "bytes": worker.stat().st_size,
+        "bundle_id": _codesign_value(details, "Identifier"),
+        "team_id": _codesign_value(details, "TeamIdentifier"),
+        "signing_cert_sha1": runtime.get("worker_signing_cert_sha1"),
+        "cdhash": _codesign_value(details, "CDHash"),
+        "hardened_runtime": "flags=0x10000(runtime)" in details,
+        "signature_details_sha256": hashlib.sha256(details.encode()).hexdigest(),
+        "entitlements": expected_entitlements,
+        "entitlements_sha256": hashlib.sha256(
+            plistlib.dumps(expected_entitlements, sort_keys=True)
+        ).hexdigest(),
+        "manifest_sha256": _sha256(manifest_path),
+        "manifest": manifest,
+    }
 
 
 def _parse_json_lines(output: str) -> list[dict[str, Any]]:
@@ -217,6 +330,13 @@ def _runtime_smoke(binary: Path, fixture: Path) -> dict[str, Any]:
 
 
 def _preflight(args: argparse.Namespace) -> dict[str, Any]:
+    if (
+        float(getattr(args, "prior_hosted_spend", PRIOR_INVALID_HOSTED_SPEND_USD))
+        != PRIOR_INVALID_HOSTED_SPEND_USD
+    ):
+        raise RuntimeError(
+            f"schema-v4 budget accounting must start at USD {PRIOR_INVALID_HOSTED_SPEND_USD:.6f}"
+        )
     if not os.environ.get("AZURE_OPENAI_API_KEY"):
         raise RuntimeError(
             "AZURE_OPENAI_API_KEY is required and must remain environment-only"
@@ -238,7 +358,13 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
 
     runtime = json.loads(
         subprocess.check_output(
-            [str(args.oryn_binary), "native", "--runtime-info"], text=True
+            [
+                str(args.oryn_binary),
+                "native",
+                "--runtime-info",
+                "--allow-loopback",
+            ],
+            text=True,
         )
     )
     if runtime.get("native_v8") is not True or not runtime.get("v8_version"):
@@ -247,6 +373,13 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         raise RuntimeError(
             "G2R model evidence requires the release-profile Oryn binary"
         )
+    if (
+        runtime.get("execution_mode") != "sandboxed_worker"
+        or runtime.get("sandboxed") is not True
+        or runtime.get("sandbox_state") != "app_sandbox"
+        or runtime.get("worker_protocol_version") != 2
+    ):
+        raise RuntimeError("G5A evidence requires the verified macOS sandbox worker")
     smoke = _runtime_smoke(
         args.oryn_binary,
         args.repo_root / "benchmarks/conformance/g2r-v8-mutation.html",
@@ -282,8 +415,9 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     deterministic = json.loads(args.deterministic_evidence.read_text(encoding="utf-8"))
-    if deterministic.get("schema_version") != 3:
-        raise RuntimeError("deterministic evidence is not schema v3")
+    schema_version = int(getattr(args, "schema_version", 4))
+    if deterministic.get("schema_version") != schema_version:
+        raise RuntimeError(f"deterministic evidence is not schema v{schema_version}")
     if deterministic.get("native") != {"completed": 24, "passed": 24}:
         raise RuntimeError(
             "deterministic native 24/24 must pass before any model request"
@@ -312,13 +446,17 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         )
     if deterministic_binary.get("runtime") != runtime:
         raise RuntimeError("deterministic runtime metadata does not match preflight")
+    if schema_version >= 4 and deterministic_fingerprint.get(
+        "source_tree_sha256"
+    ) != _source_tree_hash(args.repo_root):
+        raise RuntimeError("deterministic evidence used a different source tree")
     if deterministic_fingerprint.get("miniwob") != fixture:
         raise RuntimeError("deterministic evidence used a different MiniWoB fixture")
 
     churn = json.loads(args.churn_evidence.read_text(encoding="utf-8"))
-    if churn.get("schema_version") != 3 or churn.get("status") != "passed":
+    if churn.get("schema_version") != schema_version or churn.get("status") != "passed":
         raise RuntimeError(
-            "controlled churn/recovery evidence is not passing schema v3"
+            f"controlled churn/recovery evidence is not passing schema v{schema_version}"
         )
     if churn.get("false_preservation", {}).get("numerator") != 0:
         raise RuntimeError(
@@ -334,6 +472,10 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
     status = subprocess.check_output(
         ["git", "status", "--porcelain"], cwd=args.repo_root, text=True
     )
+    if schema_version >= 4 and status.strip():
+        raise RuntimeError("schema-v4 release evidence requires a clean source tree")
+    source_tree_sha256 = _source_tree_hash(args.repo_root)
+    worker_bundle = _worker_bundle_fingerprint(args, runtime, source_tree_sha256)
     chrome_version = subprocess.check_output(
         [str(args.chrome_binary), "--version"], text=True
     ).strip()
@@ -342,6 +484,7 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
     fingerprint = {
         "source_commit": commit,
         "source_dirty": bool(status.strip()),
+        "source_tree_sha256": source_tree_sha256,
         "harness_sha256": _harness_hash(args.repo_root),
         "deterministic_evidence_sha256": _sha256(args.deterministic_evidence),
         "deterministic_cells_sha256": deterministic_causal["cells_sha256"],
@@ -352,6 +495,14 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
             "runtime": runtime,
             "mutation_smoke": smoke,
         },
+        "worker_bundle": worker_bundle,
+        "policy": {
+            "digest": runtime.get("policy_digest"),
+            "network_mode": "benchmark_loopback",
+            "parent_owned_cookies": True,
+            "decoded_response_limit_bytes": 16 * 1024 * 1024,
+        },
+        "limits": runtime.get("limits"),
         "miniwob": fixture,
         "chromium_version": chrome_version,
         "models": {
@@ -633,6 +784,36 @@ def _classifications_explained(cells: list[dict[str, Any]]) -> bool:
     return True
 
 
+def _compact_cell_ledger(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ledger = []
+    for index, cell in enumerate(cells):
+        turns = cell.get("turns") or []
+        ledger.append(
+            {
+                "cell_id": cell.get("cell_id", f"cell-{index}"),
+                "fingerprint_sha256": cell.get("fingerprint_sha256"),
+                "completed": bool(cell.get("completed")),
+                "task_id": cell.get("task_id"),
+                "seed": cell.get("seed"),
+                "domain": cell.get("domain"),
+                "model": cell.get("model"),
+                "success": bool(cell.get("success")),
+                "total_cost_usd": float(cell.get("total_cost_usd") or 0.0),
+                "observation_sufficient": _observation_sufficient(cell),
+                "classifications_explained": _classifications_explained([cell]),
+                "action_latency_ms": [
+                    float(turn.get("oryn_action_latency_ms") or 0.0) for turn in turns
+                ],
+                "observation_utf8_bytes": [
+                    int(turn["observation_bytes"])
+                    for turn in turns
+                    if turn.get("observation_bytes")
+                ],
+            }
+        )
+    return ledger
+
+
 def _aggregate(
     args: argparse.Namespace,
     preflight: dict[str, Any],
@@ -648,7 +829,10 @@ def _aggregate(
         ),
         6,
     )
-    cumulative_cost = round(PRIOR_INVALID_HOSTED_SPEND_USD + new_hosted_cost, 6)
+    prior_hosted_spend = float(
+        getattr(args, "prior_hosted_spend", PRIOR_INVALID_HOSTED_SPEND_USD)
+    )
+    cumulative_cost = round(prior_hosted_spend + new_hosted_cost, 6)
     azure_native = [
         cell
         for cell in completed
@@ -661,6 +845,31 @@ def _aggregate(
     panel_complete = len(completed) == 96
     criteria = {
         "panel_complete": panel_complete,
+        "source_tree_clean_and_bound": preflight["fingerprint"].get("source_dirty")
+        is False
+        and bool(preflight["fingerprint"].get("source_tree_sha256")),
+        "sandboxed_worker_verified": (
+            ((preflight["fingerprint"].get("binary") or {}).get("runtime") or {}).get(
+                "execution_mode"
+            )
+            == "sandboxed_worker"
+            and (
+                (preflight["fingerprint"].get("binary") or {}).get("runtime") or {}
+            ).get("sandboxed")
+            is True
+            and (
+                (preflight["fingerprint"].get("binary") or {}).get("runtime") or {}
+            ).get("worker_protocol_version")
+            == 2
+        ),
+        "worker_limits_match_manifest": preflight["fingerprint"].get("limits")
+        == (preflight["fingerprint"].get("worker_bundle") or {})
+        .get("manifest", {})
+        .get("limits"),
+        "worker_replacement_passed": preflight["churn"]
+        .get("worker_replacement", {})
+        .get("status")
+        == "passed",
         "native_deterministic_24_of_24": deterministic.get("native")
         == {"completed": 24, "passed": 24},
         "chromium_deterministic_24_of_24": deterministic.get("chromium")
@@ -696,8 +905,8 @@ def _aggregate(
     passed = all(criteria.values())
     reason_codes = [name for name, value in criteria.items() if not value]
     return {
-        "schema_version": 3,
-        "run_id": "g2r-model-panel-v3",
+        "schema_version": int(getattr(args, "schema_version", 4)),
+        "run_id": "g2r-g5a-model-panel-v4",
         "started_at": started_at,
         "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "fingerprint": preflight["fingerprint"],
@@ -711,7 +920,7 @@ def _aggregate(
         "panel": {
             "expected_runs": 96,
             "completed_runs": len(completed),
-            "prior_invalid_hosted_spend_usd": PRIOR_INVALID_HOSTED_SPEND_USD,
+            "prior_hosted_spend_usd": prior_hosted_spend,
             "new_hosted_spend_usd": new_hosted_cost,
             "cumulative_hosted_spend_usd": cumulative_cost,
             "hosted_cost_cap_usd": HOSTED_CAP_USD,
@@ -726,6 +935,8 @@ def _aggregate(
             "local_model_max_output_tokens": LOCAL_MAX_OUTPUT_TOKENS,
         },
         "metrics": metrics,
+        "cell_ledger": _compact_cell_ledger(completed),
+        "causal_ledger": preflight["deterministic_causal"].get("ledger", []),
         "criteria": criteria,
         "outcome": {
             "panel_complete": panel_complete,
@@ -790,23 +1001,29 @@ def main() -> int:
     )
     parser.add_argument("--command-timeout", type=float, default=120.0)
     parser.add_argument("--task-timeout", type=int, default=600)
+    parser.add_argument("--schema-version", type=int, choices=(4,), default=4)
+    parser.add_argument(
+        "--prior-hosted-spend",
+        type=float,
+        default=PRIOR_INVALID_HOSTED_SPEND_USD,
+    )
     parser.add_argument(
         "--deterministic-evidence",
         type=Path,
-        default=repo_root / "artifacts/g2r/deterministic/aggregate.json",
+        default=repo_root / "artifacts/g2r-g5a-v4/deterministic/aggregate.json",
     )
     parser.add_argument(
         "--churn-evidence",
         type=Path,
-        default=repo_root / "benchmarks/evidence/g2r-churn.json",
+        default=repo_root / "artifacts/g2r-g5a-v4/g2r-churn.json",
     )
     parser.add_argument(
-        "--output", type=Path, default=repo_root / "artifacts/g2r/model-panel-v3"
+        "--output", type=Path, default=repo_root / "artifacts/g2r-g5a-v4/model-panel"
     )
     parser.add_argument(
         "--evidence",
         type=Path,
-        default=repo_root / "benchmarks/evidence/g2-model-panel.json",
+        default=repo_root / "artifacts/g2r-g5a-v4/g2-model-panel-v4.json",
     )
     parser.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args()
@@ -848,9 +1065,7 @@ def main() -> int:
                         continue
 
                 remaining = (
-                    HOSTED_CAP_USD
-                    - PRIOR_INVALID_HOSTED_SPEND_USD
-                    - _hosted_spend(cells)
+                    HOSTED_CAP_USD - args.prior_hosted_spend - _hosted_spend(cells)
                 )
                 if model_kind == "hosted" and remaining <= 0:
                     _write_json(

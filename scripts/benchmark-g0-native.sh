@@ -8,7 +8,7 @@ pages="${PAGES:-20}"
 mkdir -p "$output_dir"
 
 cd "$repo_root"
-cargo build --release --locked -p oryn-native --bin oryn-native-probe
+cargo build --release --locked -p oryn-native --features in-process-probe --bin oryn-native-probe
 binary="$repo_root/target/release/oryn-native-probe"
 
 for _ in $(seq 1 5); do "$binary" 1 "$pages" >/dev/null; done

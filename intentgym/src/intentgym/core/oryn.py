@@ -8,17 +8,17 @@ The interface uses Intent Language pass-through - commands are sent as
 strings directly to the oryn backend.
 """
 
-import time
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any, List, Literal, Optional
 
 # Try to import the real oryn client, fall back to mock if not available
 try:
+    from oryn import BinaryNotFoundError, ConnectionLostError
     from oryn import OrynClientSync as _OrynClientSync
     from oryn import OrynObservation as _RealObservation
     from oryn import OrynResult as _RealResult
-    from oryn import BinaryNotFoundError, ConnectionLostError
 
     _HAS_ORYN = True
 except ImportError:

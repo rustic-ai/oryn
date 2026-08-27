@@ -6,7 +6,7 @@ poetry="$repo_root/artifacts/tools/poetry/bin/poetry"
 
 cd "$repo_root/intentgym"
 if [[ -d "$repo_root/artifacts/g2r/model-panel-v3/turns" ]]; then
-  "$poetry" run python scripts/validate_g2r_evidence.py
+  "$poetry" run python scripts/validate_g2r_evidence.py --allow-historical-source
 else
   evidence="$repo_root/benchmarks/evidence/g2-model-panel.json"
   jq -e '

@@ -1,11 +1,11 @@
-import sys
 import os
+import sys
 
 try:
     import oryn
 
     print(f"Oryn package found: {oryn.__file__}")
-    from oryn import OrynClientSync, BinaryNotFoundError
+    from oryn import BinaryNotFoundError, OrynClientSync
 except ImportError as e:
     print(f"Failed to import oryn: {e}")
     sys.exit(1)

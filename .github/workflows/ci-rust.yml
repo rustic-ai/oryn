@@ -1,10 +1,9 @@
-name: CI Rust
+name: CI Rust and Native Proof
 
 on:
   pull_request:
   push:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
   contents: read
@@ -13,100 +12,137 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  fmt:
-    name: fmt
+  rust:
+    name: rust-${{ matrix.check }}
     runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [fmt, clippy, test]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+      - name: Activate pinned Rust toolchain
+        run: rustup show active-toolchain
 
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-
-      - name: Check formatting
+      - name: Formatting
+        if: matrix.check == 'fmt'
         run: cargo fmt --all -- --check
 
-  clippy:
-    name: clippy
+      - name: Strict all-feature Clippy
+        if: matrix.check == 'clippy'
+        run: |
+          cargo clippy --workspace --locked --all-targets -- -D warnings
+          cargo clippy --workspace --locked --all-targets --all-features -- -D warnings
+
+      - name: Default and all-feature tests
+        if: matrix.check == 'test'
+        run: |
+          cargo test --workspace --locked
+          cargo test --workspace --locked --all-features
+          cargo test -p oryn-native --locked --features v8-host
+
+      - name: Explicit no-V8 probe tests
+        if: matrix.check == 'test'
+        run: |
+          cargo test -p oryn-native --locked --no-default-features
+          cargo build -p oryn --locked --no-default-features --features in-process-probe
+          if cargo build -p oryn-native --locked --no-default-features --bin oryn-page-worker; then
+            echo "page worker built without its required V8 feature" >&2
+            exit 1
+          fi
+
+  python:
+    name: python-sdk-intentgym
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          components: clippy
+          python-version: "3.12"
 
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+      - name: Install pinned Poetry
+        run: pipx install poetry==2.1.4
 
-      - name: Run clippy
-        run: cargo clippy --workspace --locked -- -D warnings
+      - name: Validate Python SDK
+        working-directory: oryn-python
+        run: |
+          poetry install --no-interaction
+          poetry run ruff check .
+          poetry run ruff format --check .
+          poetry run pytest -q
 
-  test:
-    name: test
+      - name: Validate IntentGym
+        working-directory: intentgym
+        run: |
+          poetry install --no-interaction
+          poetry run black --check src tests scripts
+          poetry run isort --check-only src tests scripts
+          poetry run pytest -q
+
+  evidence:
+    name: evidence-and-contracts
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run tests
-        run: cargo test --workspace --locked
+      - name: Validate corpus and evidence
+        run: |
+          jq empty benchmarks/schema/result.schema.json
+          jq empty benchmarks/schema/result-v2.schema.json
+          jq empty benchmarks/schema/result-v3.schema.json
+          jq empty benchmarks/schema/result-v4.schema.json
+          ./scripts/check-scanner-sync.sh
+          ./scripts/validate-benchmark-corpus.sh
+          ./scripts/validate-g1-manifest.sh
+          ./scripts/validate-g2-controlled.sh
+          ./scripts/validate-g2-model-panel.sh
+          ./scripts/validate-g2r-v4.sh --allow-historical
 
   native-proof:
     name: native-proof-macos-arm64
     runs-on: macos-14
+    timeout-minutes: 120
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      - name: Require ARM64 and pinned Rust
+        run: |
+          test "$(uname -m)" = arm64
+          rustup show active-toolchain
 
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+      - name: Build production parent and V8 worker
+        run: |
+          cargo build --release --locked -p oryn
+          cargo build --release --locked -p oryn-native --features v8-host --bin oryn-page-worker
 
-      - name: Validate benchmark corpus
-        run: ./scripts/validate-benchmark-corpus.sh
+      - name: Verify worker has functional V8
+        run: target/release/oryn-page-worker --runtime-info | jq -e '.native_v8 == true and (.v8_version | length > 0) and .build_profile == "release"'
 
-      - name: Validate G1 conformance manifest
-        run: bash ./scripts/validate-g1-manifest.sh
+      - name: Reject unsigned worker in production
+        run: |
+          if ORYN_PAGE_WORKER="$PWD/target/release/oryn-page-worker" target/release/oryn native --runtime-info; then
+            echo "production accepted an unsigned worker" >&2
+            exit 1
+          fi
 
-      - name: Validate controlled G2 evidence
-        run: ./scripts/validate-g2-controlled.sh
+      - name: Verify explicit no-V8 probe
+        run: |
+          cargo build --release --locked -p oryn --no-default-features --features in-process-probe --target-dir target/no-v8-probe
+          target/no-v8-probe/release/oryn native --runtime-info --in-process-probe | jq -e '.native_v8 == false and .execution_mode == "in_process_probe"'
 
-      - name: Validate G2 model panel evidence
-        run: ./scripts/validate-g2-model-panel.sh
-
-      - name: Build production Oryn with default native V8
-        run: cargo build --release -p oryn --locked
-
-      - name: Reject missing V8 metadata in production Oryn
-        run: target/release/oryn native --runtime-info | jq -e '.native_v8 == true and (.v8_version | length > 0) and .build_profile == "release"'
-
-      - name: Build explicitly named no-V8 probe
-        run: cargo build --release -p oryn --locked --no-default-features --target-dir target/no-v8-probe
-
-      - name: Verify no-V8 probe identifies itself
-        run: target/no-v8-probe/release/oryn native --runtime-info | jq -e '.native_v8 == false and .v8_version == null'
-
-      - name: Test native raw-V8 feature
+      - name: Run native protocol and broker tests
         run: cargo test -p oryn-native --locked --features v8-host
-
-      - name: Lint native raw-V8 feature
-        run: cargo clippy -p oryn-native --locked --features v8-host --all-targets -- -D warnings

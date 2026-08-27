@@ -62,9 +62,11 @@ class BenchmarkRunner:
             return AnthropicProvider(model=model, **options)
         if provider == "mock":
             from .llm import MockLLMProvider
+
             return MockLLMProvider(model=model, **options)
         if provider == "litellm":
             from .llm import LiteLLMProvider
+
             return LiteLLMProvider(model=model, **options)
 
         raise ValueError(f"Unknown LLM provider: {provider}")
@@ -78,12 +80,15 @@ class BenchmarkRunner:
             return MockBenchmark()
         if name == "miniwob":
             from ..benchmarks.miniwob import MiniWoBLoader
+
             return MiniWoBLoader(**options)
         if name == "webshop":
             from ..benchmarks.webshop import WebShopLoader
+
             return WebShopLoader(**options)
         if name == "webarena":
             from ..benchmarks.webarena import WebArenaLoader
+
             return WebArenaLoader(**options)
 
         raise ValueError(f"Unknown benchmark: {name}")
@@ -115,20 +120,25 @@ class BenchmarkRunner:
             return ReActAgent(llm=self.llm, prompt=prompt, **options)
         if agent_type == "plan_act":
             from intentgym.agents.plan_act import PlanActAgent
+
             return PlanActAgent(llm=self.llm, prompt=prompt, **options)
         if agent_type == "reflexion":
             from intentgym.agents.reflexion import ReflexionAgent
+
             return ReflexionAgent(llm=self.llm, prompt=prompt, **options)
         if agent_type == "ralph":
             from intentgym.agents.ralph import RALPHAgent
+
             return RALPHAgent(llm=self.llm, prompt=prompt, **options)
 
         # Framework adapters
         if agent_type == "swarm":
             from intentgym.adapters.swarm import SwarmAdapter
+
             return AdapterWrapperAgent(SwarmAdapter(**options))
         if agent_type == "adk":
             from intentgym.adapters.adk import GoogleADKAdapter
+
             return AdapterWrapperAgent(GoogleADKAdapter(**options))
 
         raise ValueError(f"Unknown agent type: {agent_type}")
@@ -155,8 +165,12 @@ class BenchmarkRunner:
 
             except Exception as e:
                 # If browser crashed/hung, try to recover
-                if "TimeoutError" in str(type(e).__name__) or "ConnectionLostError" in str(e):
-                    logger.error(f"Browser connection lost for task {task.task_id}. Attempting to recover...")
+                if "TimeoutError" in str(
+                    type(e).__name__
+                ) or "ConnectionLostError" in str(e):
+                    logger.error(
+                        f"Browser connection lost for task {task.task_id}. Attempting to recover..."
+                    )
                     logger.error(f"Traceback:\n{traceback.format_exc()}")
 
                     if self._restart_oryn_session(
@@ -165,6 +179,7 @@ class BenchmarkRunner:
                     ):
                         # Create a failed result for this task
                         from ..collection.metrics import TaskMetrics
+
                         failed_result = TaskMetrics(
                             task_id=task.task_id,
                             config=self.config,
@@ -184,7 +199,9 @@ class BenchmarkRunner:
                         self.results.append(failed_result)
 
                         # Continue to next task
-                        logger.info(f"Skipping failed task {task.task_id}, continuing to next task...")
+                        logger.info(
+                            f"Skipping failed task {task.task_id}, continuing to next task..."
+                        )
                         continue
 
                     logger.error("✗ Failed to recover browser")
@@ -196,7 +213,7 @@ class BenchmarkRunner:
 
     def close(self):
         """Clean up resources."""
-        if hasattr(self, 'oryn'):
+        if hasattr(self, "oryn"):
             self.oryn.close()
 
     def _is_recoverable_error(self, error: Exception | str | None) -> bool:
@@ -240,7 +257,9 @@ class BenchmarkRunner:
 
         return False
 
-    def _make_failed_episode(self, episode_num: int, error: Exception | str) -> EpisodeMetrics:
+    def _make_failed_episode(
+        self, episode_num: int, error: Exception | str
+    ) -> EpisodeMetrics:
         message = str(error)
         return EpisodeMetrics(
             episode_number=episode_num,
@@ -309,7 +328,9 @@ class BenchmarkRunner:
 
                 # Log turn summary
                 status = "✓" if result.success else "✗"
-                error_msg = f" ({result.error})" if not result.success and result.error else ""
+                error_msg = (
+                    f" ({result.error})" if not result.success and result.error else ""
+                )
                 logger.info(
                     f"  Turn {state.step_count + 1}: {action.command[:50]} → {status}{error_msg}"
                 )
@@ -329,7 +350,9 @@ class BenchmarkRunner:
                         llm_response=self.agent.last_llm_response,
                         action=action,
                         result=result,
-                        system_prompt=self.agent.prompt.system if state.step_count == 0 else None,
+                        system_prompt=(
+                            self.agent.prompt.system if state.step_count == 0 else None
+                        ),
                     )
 
                 self.agent.update(state, action, result)
@@ -365,7 +388,9 @@ class BenchmarkRunner:
             logger.error(f"Traceback:\n{traceback.format_exc()}")
             from ..collection.metrics import Evaluation
 
-            task_metrics = collector.finish_task(Evaluation(success=False, error=str(e)))
+            task_metrics = collector.finish_task(
+                Evaluation(success=False, error=str(e))
+            )
             if transcript:
                 transcript.end_episode(
                     success=False,
@@ -446,30 +471,40 @@ class BenchmarkRunner:
 
                 # Check if timer is already running (START already clicked or no START button)
                 if "/ " in obs.raw and ("sec" in obs.raw or "second" in obs.raw):
-                    logger.info(f"  ✓ Timer already running (START clicked or task started)")
+                    logger.info(
+                        f"  ✓ Timer already running (START clicked or task started)"
+                    )
                     start_clicked = True
                 else:
                     # Look for START button in the observation
                     # It's usually a div with text "START"
-                    for line in obs.raw.split('\n'):
-                        if 'START' in line and line.strip().endswith('"START"'):
+                    for line in obs.raw.split("\n"):
+                        if "START" in line and line.strip().endswith('"START"'):
                             # Extract element ID from line like: [9] div/generic "START"
-                            match = re.match(r'\[(\d+)\]', line.strip())
+                            match = re.match(r"\[(\d+)\]", line.strip())
                             if match:
                                 element_id = match.group(1)
-                                logger.info(f"  Clicking START button (element {element_id})...")
+                                logger.info(
+                                    f"  Clicking START button (element {element_id})..."
+                                )
                                 result = self.oryn.execute(f"click {element_id}")
                                 if result.success:
                                     start_clicked = True
                                     logger.info(f"  ✓ START clicked successfully")
-                                    time.sleep(0.1)  # Brief pause for task initialization
+                                    time.sleep(
+                                        0.1
+                                    )  # Brief pause for task initialization
                                 else:
-                                    logger.warning(f"  ✗ START click failed: {result.error}")
+                                    logger.warning(
+                                        f"  ✗ START click failed: {result.error}"
+                                    )
                                 break
 
                     if not start_clicked:
                         # START button not found - check if task needs it
-                        logger.debug(f"  No START button found (task may not require one)")
+                        logger.debug(
+                            f"  No START button found (task may not require one)"
+                        )
 
             except Exception as e:
                 # Log the error but continue - START clicking is optional
@@ -489,7 +524,9 @@ class BenchmarkRunner:
                     pre_episode_error = e
 
             if pre_episode_error is not None:
-                episode_metrics = self._make_failed_episode(episode_num, pre_episode_error)
+                episode_metrics = self._make_failed_episode(
+                    episode_num, pre_episode_error
+                )
                 episode_results.append(episode_metrics)
                 status_icon = "✗"
                 logger.info(
@@ -573,7 +610,10 @@ class BenchmarkRunner:
         return aggregated
 
     def _run_single_episode(
-        self, task: Task, episode_num: int, transcript: Optional[TranscriptLogger] = None
+        self,
+        task: Task,
+        episode_num: int,
+        transcript: Optional[TranscriptLogger] = None,
     ) -> EpisodeMetrics:
         """Run a single episode and return episode-level metrics."""
         collector = MetricsCollector(
@@ -604,7 +644,9 @@ class BenchmarkRunner:
 
                 # Log turn summary
                 status = "✓" if result.success else "✗"
-                error_msg = f" ({result.error})" if not result.success and result.error else ""
+                error_msg = (
+                    f" ({result.error})" if not result.success and result.error else ""
+                )
                 logger.info(
                     f"  Turn {state.step_count + 1}: {action.command[:50]} → {status}{error_msg}"
                 )
@@ -624,7 +666,9 @@ class BenchmarkRunner:
                         llm_response=self.agent.last_llm_response,
                         action=action,
                         result=result,
-                        system_prompt=self.agent.prompt.system if state.step_count == 0 else None,
+                        system_prompt=(
+                            self.agent.prompt.system if state.step_count == 0 else None
+                        ),
                     )
 
                 self.agent.update(state, action, result)
@@ -656,7 +700,9 @@ class BenchmarkRunner:
         timeout = False
         if evaluation.raw_reward is not None:
             # Precise detection: MiniWoB uses -1.0 for timeouts
-            timeout = evaluation.raw_reward == -1.0 and task_metrics.total_duration_ms >= 9000
+            timeout = (
+                evaluation.raw_reward == -1.0 and task_metrics.total_duration_ms >= 9000
+            )
         else:
             # Fallback heuristic for evaluations without raw_reward
             timeout = (
@@ -732,9 +778,11 @@ class BenchmarkRunner:
             config=config,
             # Single-episode fields (aggregated)
             success=episodes_succeeded > 0,
-            partial_score=statistics.mean([ep.partial_score for ep in episodes])
-            if episodes
-            else 0.0,
+            partial_score=(
+                statistics.mean([ep.partial_score for ep in episodes])
+                if episodes
+                else 0.0
+            ),
             total_steps=total_steps,
             total_input_tokens=total_input_tokens,
             total_output_tokens=total_output_tokens,
@@ -742,7 +790,9 @@ class BenchmarkRunner:
             total_cost_usd=total_cost,
             total_duration_ms=total_duration,
             observation_ratio=obs_ratio,
-            peak_context_tokens=max((ep.peak_context_tokens for ep in episodes), default=0),
+            peak_context_tokens=max(
+                (ep.peak_context_tokens for ep in episodes), default=0
+            ),
             failed_actions=sum(ep.failed_actions for ep in episodes),
             turns=[],  # Empty for multi-episode (turns are in episodes)
             # Multi-episode fields

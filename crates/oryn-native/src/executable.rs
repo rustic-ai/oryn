@@ -45,12 +45,24 @@ impl ExecutableDocument {
         broker: Option<SharedNetworkBroker>,
         base_url: Option<Url>,
     ) -> Result<Self, HostError> {
+        Self::load_with_limits(html, resources, broker, base_url, 256 * 1024 * 1024)
+    }
+
+    pub fn load_with_limits(
+        html: &str,
+        resources: &BTreeMap<String, String>,
+        broker: Option<SharedNetworkBroker>,
+        base_url: Option<Url>,
+        max_heap_bytes: usize,
+    ) -> Result<Self, HostError> {
         let document = parse(html);
         let initial = serde_json::to_string(&JsNode::from_dom(&document.dom, document.document)?)
             .map_err(|error| HostError::Execution(error.to_string()))?;
         let mut host = match (broker, base_url.clone()) {
-            (Some(broker), Some(base_url)) => RawV8Host::new_with_network(broker, base_url),
-            _ => RawV8Host::new(),
+            (Some(broker), Some(base_url)) => {
+                RawV8Host::new_with_network_and_heap_limit(broker, base_url, max_heap_bytes)
+            }
+            _ => RawV8Host::new_with_heap_limit(max_heap_bytes),
         };
         host.execute(DOM_BOOTSTRAP)?;
         host.execute(&format!("__oryn_install({initial})"))?;
@@ -114,9 +126,11 @@ impl ExecutableDocument {
                     .and_then(|src| resources.get(src))
                     .map(String::as_str)
                     .unwrap_or(source.as_str());
-                if let Err(error) = host.execute_module(resource_name, module_source, resources) {
-                    diagnostics.push(script_failure("module", &error));
-                }
+                capture_script_result(
+                    host.execute_module(resource_name, module_source, resources),
+                    "module",
+                    &mut diagnostics,
+                )?;
                 continue;
             }
             if let Some(script_type) = attributes.get("type")
@@ -134,25 +148,29 @@ impl ExecutableDocument {
                     "Babel.transform({source},{{presets:['react']}}).code"
                 )) {
                     Ok(transformed) => {
-                        if let Err(error) = host.execute(&transformed) {
-                            diagnostics.push(script_failure("babel", &error));
-                        }
+                        capture_script_result(
+                            host.execute(&transformed),
+                            "babel",
+                            &mut diagnostics,
+                        )?;
                     }
-                    Err(error) => diagnostics.push(script_failure("babel", &error)),
+                    Err(error) => {
+                        capture_script_result(Err(error), "babel", &mut diagnostics)?;
+                    }
                 }
             } else if let Some(src) = attributes.get("src") {
                 match resources.get(src) {
                     Some(source) => {
-                        if let Err(error) = host.execute(source) {
-                            diagnostics.push(script_failure("classic_external", &error));
-                        }
+                        capture_script_result(
+                            host.execute(source),
+                            "classic_external",
+                            &mut diagnostics,
+                        )?;
                     }
                     None => diagnostics.push(unsupported("html.script.external.unavailable")),
                 }
             } else {
-                if let Err(error) = host.execute(&source) {
-                    diagnostics.push(script_failure("classic_inline", &error));
-                }
+                capture_script_result(host.execute(&source), "classic_inline", &mut diagnostics)?;
             }
         }
         host.execute("__oryn_install_inline_handlers()")?;
@@ -408,6 +426,21 @@ fn script_failure(script_class: &str, error: &HostError) -> CapabilityDiagnostic
         detail: Some(format!(
             "page-authored script failed without aborting navigation: {error}"
         )),
+    }
+}
+
+fn capture_script_result(
+    result: Result<(), HostError>,
+    script_class: &str,
+    diagnostics: &mut Vec<CapabilityDiagnostic>,
+) -> Result<(), HostError> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error @ HostError::LimitExceeded { .. }) => Err(error),
+        Err(error) => {
+            diagnostics.push(script_failure(script_class, &error));
+            Ok(())
+        }
     }
 }
 

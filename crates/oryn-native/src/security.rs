@@ -1,6 +1,8 @@
 use std::net::IpAddr;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkPolicy {
     pub allow_loopback: bool,
     pub allow_private_networks: bool,
@@ -49,8 +51,28 @@ pub enum PolicyDenied {
 
 fn is_private(address: IpAddr) -> bool {
     match address {
-        IpAddr::V4(address) => address.is_private() || address.is_link_local(),
-        IpAddr::V6(address) => address.is_unique_local() || address.is_unicast_link_local(),
+        IpAddr::V4(address) => {
+            let octets = address.octets();
+            address.is_private()
+                || address.is_link_local()
+                || address.is_unspecified()
+                || address.is_broadcast()
+                || address.is_documentation()
+                || address.is_multicast()
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+                || octets[0] >= 240
+        }
+        IpAddr::V6(address) => {
+            address.is_unique_local()
+                || address.is_unicast_link_local()
+                || address.is_unspecified()
+                || address.is_multicast()
+                || address.segments()[0..2] == [0x2001, 0x0db8]
+                || address
+                    .to_ipv4_mapped()
+                    .is_some_and(|mapped| is_private(IpAddr::V4(mapped)))
+        }
     }
 }
 
@@ -74,6 +96,14 @@ mod tests {
         assert_eq!(
             policy.check_scheme("file"),
             Err(PolicyDenied::Scheme("file".into()))
+        );
+        assert_eq!(
+            policy.check_ip(IpAddr::V4(Ipv4Addr::new(100, 64, 0, 1))),
+            Err(PolicyDenied::PrivateNetwork)
+        );
+        assert_eq!(
+            policy.check_ip(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1))),
+            Err(PolicyDenied::PrivateNetwork)
         );
     }
 }

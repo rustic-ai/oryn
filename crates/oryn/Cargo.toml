@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["native-v8"]
+default = []
 native-v8 = ["oryn-native/v8-host"]
+in-process-probe = ["oryn-native/in-process-probe"]
 
 [dependencies]
 oryn-engine = { path = "../oryn-engine" }

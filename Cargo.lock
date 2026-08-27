@@ -2355,14 +2355,17 @@ dependencies = [
 name = "oryn-native"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "deno_core",
  "html5ever",
+ "libc",
  "markup5ever",
  "oryn-common",
  "oryn-core",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "thiserror 2.0.17",
  "tokio",

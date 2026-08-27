@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
     time::Duration,
 };
 
@@ -21,16 +21,18 @@ use crate::semantic::{
 };
 use crate::trace::{TraceEvent, TraceEventKind, TraceLog};
 use crate::{
-    network::{NetworkBroker, NetworkRequest, PolicyBroker, RustlsTransport, SharedNetworkBroker},
+    network::{NetworkRequest, PolicyBroker, RustlsTransport, SharedNetworkBroker},
     security::NetworkPolicy,
 };
 
 static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_PAGE_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_WORKER_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone)]
 pub struct Browser {
     config: BrowserConfig,
+    worker_process: bool,
 }
 
 #[derive(Clone)]
@@ -38,20 +40,107 @@ pub struct BrowserContext {
     id: u64,
     config: BrowserConfig,
     broker: Option<SharedNetworkBroker>,
+    worker_process: bool,
+    options: ContextOptions,
+    #[cfg(unix)]
+    parent_cookies: Option<std::sync::Arc<reqwest::cookie::Jar>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct PageHandle {
     id: u64,
-    sender: mpsc::Sender<PageCommand>,
+    sender: Option<mpsc::Sender<PageCommand>>,
+    #[cfg(unix)]
+    worker: Option<std::sync::Arc<WorkerPage>>,
 }
 
-#[derive(Debug, Clone)]
+#[cfg(unix)]
+struct WorkerPage {
+    client: std::sync::Mutex<Option<crate::worker_client::WorkerClient>>,
+    config: BrowserConfig,
+    options: ContextOptions,
+    parent_cookies: std::sync::Arc<reqwest::cookie::Jar>,
+    pending: AtomicUsize,
+}
+
+#[cfg(unix)]
+struct PendingWorkerRequest<'a>(&'a AtomicUsize);
+
+#[cfg(unix)]
+impl Drop for PendingWorkerRequest<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Release);
+    }
+}
+
+#[cfg(unix)]
+impl std::fmt::Debug for WorkerPage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("WorkerPage").finish_non_exhaustive()
+    }
+}
+
+#[cfg(unix)]
+impl WorkerPage {
+    fn enter_queue(&self) -> Result<PendingWorkerRequest<'_>, RuntimeError> {
+        let capacity = self.config.worker_queue_capacity.clamp(1, 32);
+        self.pending
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
+                (pending < capacity).then_some(pending + 1)
+            })
+            .map_err(|_| RuntimeError::WorkerLimitExceeded {
+                resource: "command queue".into(),
+            })?;
+        Ok(PendingWorkerRequest(&self.pending))
+    }
+
+    fn request(
+        &self,
+        request: crate::worker::WorkerRequest,
+    ) -> Result<crate::worker::WorkerResponse, RuntimeError> {
+        let _pending = self.enter_queue()?;
+        let mut client = self
+            .client
+            .lock()
+            .map_err(|_| RuntimeError::WorkerCrashed("worker client lock poisoned".into()))?;
+        if client.is_none() {
+            let mut config = self.config.clone();
+            config.document_generation_base =
+                NEXT_WORKER_GENERATION.fetch_add(1, Ordering::Relaxed) << 32;
+            *client = Some(crate::worker_client::WorkerClient::spawn(
+                &config,
+                &self.options,
+                self.parent_cookies.clone(),
+            )?);
+        }
+        let result = client
+            .as_mut()
+            .expect("worker initialized")
+            .request(request);
+        if matches!(
+            result,
+            Err(RuntimeError::WorkerCrashed(_)
+                | RuntimeError::WorkerLimitExceeded { .. }
+                | RuntimeError::ProtocolViolation(_))
+        ) {
+            *client = None;
+        }
+        result
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserConfig {
     pub worker_queue_capacity: usize,
     pub request_timeout: Duration,
     pub max_response_bytes: usize,
     pub max_redirects: usize,
+    pub max_v8_heap_bytes: usize,
+    pub max_worker_rss_bytes: usize,
+    pub max_ipc_frame_bytes: usize,
+    pub command_timeout: Duration,
+    pub navigation_timeout: Duration,
+    pub document_generation_base: u64,
 }
 
 impl Default for BrowserConfig {
@@ -61,11 +150,17 @@ impl Default for BrowserConfig {
             request_timeout: Duration::from_secs(30),
             max_response_bytes: 16 * 1024 * 1024,
             max_redirects: 10,
+            max_v8_heap_bytes: 256 * 1024 * 1024,
+            max_worker_rss_bytes: 512 * 1024 * 1024,
+            max_ipc_frame_bytes: 24 * 1024 * 1024,
+            command_timeout: Duration::from_secs(10),
+            navigation_timeout: Duration::from_secs(30),
+            document_generation_base: 0,
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextOptions {
     /// Context-owned cookies and storage are discarded when the context closes.
     pub ephemeral: bool,
@@ -112,7 +207,7 @@ pub struct NavigationResult {
     pub lifecycle: Vec<LifecycleState>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WaitPredicate {
     Lifecycle(LifecycleState),
     UrlContains(String),
@@ -122,7 +217,7 @@ pub enum WaitPredicate {
     SelectorHidden(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContentKind {
     Html,
     Text,
@@ -195,7 +290,26 @@ impl Browser {
     }
 
     pub fn with_config(config: BrowserConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            worker_process: uses_worker_process(),
+        }
+    }
+
+    /// In-process construction is crate-private: only the page worker owns a
+    /// production V8/DOM runtime.
+    pub(crate) fn in_process_with_config(config: BrowserConfig) -> Self {
+        Self {
+            config,
+            worker_process: false,
+        }
+    }
+
+    /// Explicitly named compatibility probe. This is omitted from production
+    /// builds unless the caller opts into the probe feature.
+    #[cfg(feature = "in-process-probe")]
+    pub fn in_process_probe() -> Self {
+        Self::in_process_with_config(BrowserConfig::default())
     }
 
     pub fn new_context(&self) -> BrowserContext {
@@ -203,6 +317,16 @@ impl Browser {
     }
 
     pub fn new_context_with_options(&self, options: ContextOptions) -> BrowserContext {
+        if self.worker_process {
+            return BrowserContext {
+                id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
+                config: self.config.clone(),
+                broker: None,
+                worker_process: true,
+                options,
+                parent_cookies: Some(std::sync::Arc::new(reqwest::cookie::Jar::default())),
+            };
+        }
         let timeout = self.config.request_timeout;
         let max_response_bytes = self.config.max_response_bytes;
         let network_policy = options.network_policy.clone();
@@ -219,8 +343,34 @@ impl Browser {
             id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
             config: self.config.clone(),
             broker,
+            worker_process: false,
+            options,
+            #[cfg(unix)]
+            parent_cookies: None,
         }
     }
+
+    /// Construct an in-process context around a broker supplied by the
+    /// privileged parent. This is used only inside `oryn-page-worker`.
+    pub fn new_context_with_broker(
+        &self,
+        options: ContextOptions,
+        broker: SharedNetworkBroker,
+    ) -> BrowserContext {
+        BrowserContext {
+            id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
+            config: self.config.clone(),
+            broker: Some(broker),
+            worker_process: false,
+            options,
+            #[cfg(unix)]
+            parent_cookies: None,
+        }
+    }
+}
+
+pub fn uses_worker_process() -> bool {
+    cfg!(unix) && !cfg!(test) && !cfg!(feature = "in-process-probe")
 }
 
 impl Default for Browser {
@@ -235,6 +385,24 @@ impl BrowserContext {
     }
 
     pub fn new_page(&self) -> PageHandle {
+        #[cfg(unix)]
+        if self.worker_process {
+            return PageHandle {
+                id: NEXT_PAGE_ID.fetch_add(1, Ordering::Relaxed),
+                sender: None,
+                worker: Some(std::sync::Arc::new(WorkerPage {
+                    client: std::sync::Mutex::new(None),
+                    config: self.config.clone(),
+                    options: self.options.clone(),
+                    parent_cookies: self
+                        .parent_cookies
+                        .as_ref()
+                        .expect("worker context owns a cookie jar")
+                        .clone(),
+                    pending: AtomicUsize::new(0),
+                })),
+            };
+        }
         let (sender, mut receiver) = mpsc::channel(self.config.worker_queue_capacity);
         let id = NEXT_PAGE_ID.fetch_add(1, Ordering::Relaxed);
         let config = self.config.clone();
@@ -308,7 +476,12 @@ impl BrowserContext {
                 }
             }
         });
-        PageHandle { id, sender }
+        PageHandle {
+            id,
+            sender: Some(sender),
+            #[cfg(unix)]
+            worker: None,
+        }
     }
 }
 
@@ -317,46 +490,82 @@ impl PageHandle {
         self.id
     }
 
+    fn local_sender(&self) -> Result<&mpsc::Sender<PageCommand>, RuntimeError> {
+        self.sender.as_ref().ok_or(RuntimeError::Closed)
+    }
+
+    #[cfg(unix)]
+    fn worker_request(
+        &self,
+        request: crate::worker::WorkerRequest,
+    ) -> Option<Result<crate::worker::WorkerResponse, RuntimeError>> {
+        self.worker.as_ref().map(|worker| worker.request(request))
+    }
+
     pub async fn load_html(
         &self,
         url: impl Into<String>,
         html: impl Into<String>,
     ) -> Result<Revision, RuntimeError> {
+        let url = url.into();
+        let html = html.into();
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::LoadHtml {
+            url: url.clone(),
+            html: html.clone(),
+        }) {
+            return match response? {
+                crate::worker::WorkerResponse::Loaded { revision } => Ok(revision),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(PageCommand::LoadHtml {
-                url: url.into(),
-                html: html.into(),
-                reply,
-            })
+        self.local_sender()?
+            .send(PageCommand::LoadHtml { url, html, reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
         response.await.map_err(|_| RuntimeError::Closed)?
     }
 
     pub async fn goto(&self, url: impl Into<String>) -> Result<NavigationResult, RuntimeError> {
+        let url = url.into();
+        #[cfg(unix)]
+        if let Some(response) =
+            self.worker_request(crate::worker::WorkerRequest::Goto { url: url.clone() })
+        {
+            return worker_navigation(response?);
+        }
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(PageCommand::Goto {
-                url: url.into(),
-                reply,
-            })
+        self.local_sender()?
+            .send(PageCommand::Goto { url, reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
         response.await.map_err(|_| RuntimeError::Closed)?
     }
 
     pub async fn back(&self) -> Result<NavigationResult, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Back) {
+            return worker_navigation(response?);
+        }
         self.navigation_command(|reply| PageCommand::Back { reply })
             .await
     }
 
     pub async fn forward(&self) -> Result<NavigationResult, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Forward) {
+            return worker_navigation(response?);
+        }
         self.navigation_command(|reply| PageCommand::Forward { reply })
             .await
     }
 
     pub async fn refresh(&self) -> Result<NavigationResult, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Refresh) {
+            return worker_navigation(response?);
+        }
         self.navigation_command(|reply| PageCommand::Refresh { reply })
             .await
     }
@@ -366,7 +575,7 @@ impl PageHandle {
         command: impl FnOnce(oneshot::Sender<Result<NavigationResult, RuntimeError>>) -> PageCommand,
     ) -> Result<NavigationResult, RuntimeError> {
         let (reply, response) = oneshot::channel();
-        self.sender
+        self.local_sender()?
             .send(command(reply))
             .await
             .map_err(|_| RuntimeError::Closed)?;
@@ -374,8 +583,17 @@ impl PageHandle {
     }
 
     pub async fn wait_for(&self, predicate: WaitPredicate) -> Result<(), RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::WaitFor {
+            predicate: predicate.clone(),
+        }) {
+            return match response? {
+                crate::worker::WorkerResponse::Satisfied => Ok(()),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
         let (reply, response) = oneshot::channel();
-        self.sender
+        self.local_sender()?
             .send(PageCommand::WaitFor { predicate, reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
@@ -383,20 +601,34 @@ impl PageHandle {
     }
 
     pub async fn evaluate(&self, source: impl Into<String>) -> Result<String, RuntimeError> {
+        let source = source.into();
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Evaluate {
+            source: source.clone(),
+        }) {
+            return match response? {
+                crate::worker::WorkerResponse::Value { value } => Ok(value),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(PageCommand::Evaluate {
-                source: source.into(),
-                reply,
-            })
+        self.local_sender()?
+            .send(PageCommand::Evaluate { source, reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
         response.await.map_err(|_| RuntimeError::Closed)?
     }
 
     pub async fn capabilities(&self) -> Result<Vec<CapabilityDiagnostic>, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Capabilities) {
+            return match response? {
+                crate::worker::WorkerResponse::Capabilities { capabilities } => Ok(capabilities),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
         let (reply, response) = oneshot::channel();
-        self.sender
+        self.local_sender()?
             .send(PageCommand::Capabilities { reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
@@ -408,10 +640,21 @@ impl PageHandle {
         selector: impl Into<String>,
         action: SemanticAction,
     ) -> Result<SemanticRef, RuntimeError> {
+        let selector = selector.into();
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::ResolveSelector {
+            selector: selector.clone(),
+            action,
+        }) {
+            return match response? {
+                crate::worker::WorkerResponse::SemanticRef { semantic_ref } => Ok(semantic_ref),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
         let (reply, response) = oneshot::channel();
-        self.sender
+        self.local_sender()?
             .send(PageCommand::ResolveSelector {
-                selector: selector.into(),
+                selector,
                 action,
                 reply,
             })
@@ -425,8 +668,18 @@ impl PageHandle {
         kind: ContentKind,
         selector: Option<String>,
     ) -> Result<serde_json::Value, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Extract {
+            kind,
+            selector: selector.clone(),
+        }) {
+            return match response? {
+                crate::worker::WorkerResponse::Structured { value } => Ok(value),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
         let (reply, response) = oneshot::channel();
-        self.sender
+        self.local_sender()?
             .send(PageCommand::Extract {
                 kind,
                 selector,
@@ -445,8 +698,17 @@ impl PageHandle {
         &self,
         profile: ProjectionProfile,
     ) -> Result<Observation, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Observe {
+            profile: Some(profile),
+        }) {
+            return match response? {
+                crate::worker::WorkerResponse::Observation { observation } => Ok(observation),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
         let (reply, response) = oneshot::channel();
-        self.sender
+        self.local_sender()?
             .send(PageCommand::Observe { profile, reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
@@ -454,8 +716,17 @@ impl PageHandle {
     }
 
     pub async fn observe_delta(&self, from: Revision) -> Result<ObservationDelta, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) =
+            self.worker_request(crate::worker::WorkerRequest::ObserveDelta { from })
+        {
+            return match response? {
+                crate::worker::WorkerResponse::Delta { delta } => Ok(delta),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
         let (reply, response) = oneshot::channel();
-        self.sender
+        self.local_sender()?
             .send(PageCommand::ObserveDelta { from, reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
@@ -463,8 +734,15 @@ impl PageHandle {
     }
 
     pub async fn trace(&self) -> Result<Vec<TraceEvent>, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Trace) {
+            return match response? {
+                crate::worker::WorkerResponse::Trace { events } => Ok(events),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
         let (reply, response) = oneshot::channel();
-        self.sender
+        self.local_sender()?
             .send(PageCommand::Trace { reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
@@ -472,8 +750,21 @@ impl PageHandle {
     }
 
     pub async fn execute(&self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Execute {
+            action: crate::worker::NativeActionRequest {
+                target: action.target,
+                action: action.action,
+                value: action.value.clone(),
+            },
+        }) {
+            return match response? {
+                crate::worker::WorkerResponse::Action { result } => Ok(result),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
         let (reply, response) = oneshot::channel();
-        self.sender
+        self.local_sender()?
             .send(PageCommand::Execute { action, reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
@@ -481,14 +772,36 @@ impl PageHandle {
     }
 
     pub async fn close(&self) -> Result<(), RuntimeError> {
-        self.sender
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Close) {
+            return match response? {
+                crate::worker::WorkerResponse::Closed => Ok(()),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        self.local_sender()?
             .send(PageCommand::Close)
             .await
             .map_err(|_| RuntimeError::Closed)
     }
 }
 
-#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+#[cfg(unix)]
+fn worker_navigation(
+    response: crate::worker::WorkerResponse,
+) -> Result<NavigationResult, RuntimeError> {
+    match response {
+        crate::worker::WorkerResponse::Navigated { navigation } => Ok(navigation),
+        response => Err(unexpected_worker_response(response)),
+    }
+}
+
+#[cfg(unix)]
+fn unexpected_worker_response(response: crate::worker::WorkerResponse) -> RuntimeError {
+    RuntimeError::ProtocolViolation(format!("unexpected worker response: {response:?}"))
+}
+
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RuntimeError {
     #[error("page runtime is closed")]
     Closed,
@@ -512,6 +825,24 @@ pub enum RuntimeError {
     WaitUnsatisfied(String),
     #[error("JavaScript evaluation requires the v8-host feature")]
     EvaluationUnavailable,
+    #[error("sandboxed native worker is unavailable: {0}")]
+    SandboxUnavailable(String),
+    #[error("sandboxed native worker crashed: {0}")]
+    WorkerCrashed(String),
+    #[error("sandboxed native worker exceeded {resource} limit")]
+    WorkerLimitExceeded { resource: String },
+    #[error("sandboxed native worker protocol violation: {0}")]
+    ProtocolViolation(String),
+}
+
+#[cfg(feature = "v8-host")]
+fn map_host_error(error: crate::host::HostError) -> RuntimeError {
+    match error {
+        crate::host::HostError::LimitExceeded { resource } => {
+            RuntimeError::WorkerLimitExceeded { resource }
+        }
+        error => RuntimeError::Script(error.to_string()),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -547,10 +878,11 @@ enum HistoryUpdate {
 
 impl PageState {
     fn new(config: BrowserConfig, broker: Option<SharedNetworkBroker>) -> Self {
+        let document_generation = config.document_generation_base;
         Self {
             config,
             url: String::new(),
-            document_generation: 0,
+            document_generation,
             revision: 0,
             next_action_id: 0,
             document: None,
@@ -591,13 +923,14 @@ impl PageState {
             let mut resources = resources.clone();
             resources.insert("oryn:local-storage".into(), storage.0);
             resources.insert("oryn:session-storage".into(), storage.1);
-            let executable = crate::executable::ExecutableDocument::load_with_environment(
+            let executable = crate::executable::ExecutableDocument::load_with_limits(
                 html,
                 &resources,
                 self.broker.clone(),
                 Url::parse(&self.url).ok(),
+                self.config.max_v8_heap_bytes,
             )
-            .map_err(|error| RuntimeError::Script(error.to_string()))?;
+            .map_err(map_host_error)?;
             for diagnostic in &executable.diagnostics {
                 self.trace.push(
                     Revision(self.revision),
@@ -697,6 +1030,7 @@ impl PageState {
                         "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8".into(),
                     )],
                     body: Vec::new(),
+                    resolved_addrs: Vec::new(),
                 })
                 .map_err(|error| {
                     self.trace.push(
@@ -933,6 +1267,7 @@ impl PageState {
                     url: url.to_string(),
                     headers: vec![("accept".into(), accept.into())],
                     body: Vec::new(),
+                    resolved_addrs: Vec::new(),
                 })
                 .map_err(|error| RuntimeError::Network(error.to_string()))?;
             self.trace.push(
@@ -997,9 +1332,7 @@ impl PageState {
         }
         #[cfg(feature = "v8-host")]
         if let Some(executable) = self.executable.as_mut() {
-            executable
-                .drain_tasks()
-                .map_err(|error| RuntimeError::Script(error.to_string()))?;
+            executable.drain_tasks().map_err(map_host_error)?;
             self.document = Some(executable.document.clone());
         }
         self.wait_satisfied(predicate)
@@ -1056,9 +1389,7 @@ impl PageState {
                 .executable
                 .as_mut()
                 .ok_or(RuntimeError::EvaluationUnavailable)?;
-            let value = executable
-                .evaluate(source)
-                .map_err(|error| RuntimeError::Script(error.to_string()))?;
+            let value = executable.evaluate(source).map_err(map_host_error)?;
             self.document = Some(executable.document.clone());
             Ok(value)
         }
@@ -1235,7 +1566,11 @@ impl PageState {
 
     fn observation(&self, profile: ProjectionProfile) -> Observation {
         let Some(document) = &self.document else {
-            let mut observation = empty_observation("about:blank".into(), String::new(), 0);
+            let mut observation = empty_observation(
+                "about:blank".into(),
+                String::new(),
+                self.document_generation,
+            );
             observation.profile = profile;
             return observation;
         };
@@ -1470,7 +1805,7 @@ impl PageState {
             .ok_or(RuntimeError::StaleSemanticRef)?;
         executable
             .apply_action(node_id, action.action, action.value.as_deref())
-            .map_err(|error| RuntimeError::Script(error.to_string()))?;
+            .map_err(map_host_error)?;
         let console_entries = executable.take_console_entries().unwrap_or_default();
         let pending_navigation = executable.location().ok().filter(|location| {
             location != &self.url && Url::parse(location).ok() != Url::parse(&self.url).ok()

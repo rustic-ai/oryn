@@ -1,0 +1,429 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oryn.dev/schemas/benchmark-result-v4.json",
+  "title": "Oryn G2R/G5A sandbox-bound benchmark result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "started_at",
+    "updated_at",
+    "fingerprint",
+    "corpus",
+    "deterministic",
+    "panel",
+    "metrics",
+    "cell_ledger",
+    "causal_ledger",
+    "criteria",
+    "outcome"
+  ],
+  "properties": {
+    "schema_version": { "const": 4 },
+    "run_id": { "const": "g2r-g5a-model-panel-v4" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "fingerprint": {
+      "type": "object",
+      "required": [
+        "source_commit",
+        "source_dirty",
+        "source_tree_sha256",
+        "harness_sha256",
+        "deterministic_evidence_sha256",
+        "deterministic_cells_sha256",
+        "churn_evidence_sha256",
+        "binary",
+        "worker_bundle",
+        "policy",
+        "limits",
+        "miniwob",
+        "chromium_version",
+        "models",
+        "sha256"
+      ],
+      "properties": {
+        "source_commit": { "$ref": "#/$defs/sha1" },
+        "source_dirty": { "const": false },
+        "source_tree_sha256": { "$ref": "#/$defs/sha256" },
+        "harness_sha256": { "$ref": "#/$defs/sha256" },
+        "deterministic_evidence_sha256": { "$ref": "#/$defs/sha256" },
+        "deterministic_cells_sha256": { "$ref": "#/$defs/sha256" },
+        "churn_evidence_sha256": { "$ref": "#/$defs/sha256" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "chromium_version": { "type": "string", "minLength": 1 },
+        "binary": { "$ref": "#/$defs/parentBinary" },
+        "worker_bundle": { "$ref": "#/$defs/workerBundle" },
+        "policy": {
+          "type": "object",
+          "required": [
+            "digest",
+            "network_mode",
+            "parent_owned_cookies",
+            "decoded_response_limit_bytes"
+          ],
+          "properties": {
+            "digest": { "$ref": "#/$defs/sha256" },
+            "network_mode": { "const": "benchmark_loopback" },
+            "parent_owned_cookies": { "const": true },
+            "decoded_response_limit_bytes": { "const": 16777216 }
+          }
+        },
+        "limits": { "$ref": "#/$defs/limits" },
+        "miniwob": {
+          "type": "object",
+          "required": [
+            "kind",
+            "allowed_seeds",
+            "source_commit",
+            "content_sha256",
+            "source_modified",
+            "injection"
+          ],
+          "properties": {
+            "kind": { "const": "oryn_g2_seeded_miniwob" },
+            "allowed_seeds": { "const": [17, 42, 73] },
+            "source_commit": { "$ref": "#/$defs/sha1" },
+            "content_sha256": { "$ref": "#/$defs/sha256" },
+            "source_modified": { "const": false },
+            "injection": { "const": "after_core_before_load" }
+          }
+        },
+        "models": {
+          "type": "object",
+          "required": [
+            "hosted_provider",
+            "hosted_deployment",
+            "local_model",
+            "local_model_digest"
+          ],
+          "properties": {
+            "hosted_provider": { "const": "azure_openai" },
+            "hosted_deployment": { "const": "gpt-5.6-terra" },
+            "local_model": { "const": "qwen3:4b" },
+            "local_model_digest": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    },
+    "corpus": {
+      "type": "object",
+      "required": ["name", "revision", "entries", "published_entries"],
+      "properties": {
+        "name": { "const": "oryn-g2r-native-proof" },
+        "revision": { "type": "string", "minLength": 1 },
+        "entries": { "const": 30 },
+        "published_entries": { "const": 30 }
+      }
+    },
+    "deterministic": {
+      "type": "object",
+      "required": ["native", "chromium", "differential"],
+      "properties": {
+        "native": { "$ref": "#/$defs/deterministicDomain" },
+        "chromium": { "$ref": "#/$defs/deterministicDomain" },
+        "differential": { "type": "array", "maxItems": 24 }
+      }
+    },
+    "panel": {
+      "type": "object",
+      "required": [
+        "expected_runs",
+        "completed_runs",
+        "prior_hosted_spend_usd",
+        "new_hosted_spend_usd",
+        "cumulative_hosted_spend_usd",
+        "hosted_cost_cap_usd",
+        "hosted_provider",
+        "hosted_model",
+        "azure_native_completed",
+        "azure_native_passed",
+        "local_model",
+        "local_model_digest",
+        "local_model_max_output_tokens"
+      ],
+      "properties": {
+        "expected_runs": { "const": 96 },
+        "completed_runs": { "type": "integer", "minimum": 0, "maximum": 96 },
+        "prior_hosted_spend_usd": { "const": 5.209632 },
+        "new_hosted_spend_usd": { "type": "number", "minimum": 0 },
+        "cumulative_hosted_spend_usd": { "type": "number", "minimum": 5.209632, "maximum": 100 },
+        "hosted_cost_cap_usd": { "const": 100.0 },
+        "hosted_provider": { "const": "azure_openai" },
+        "hosted_model": { "const": "gpt-5.6-terra" },
+        "azure_native_completed": { "type": "integer", "minimum": 0, "maximum": 24 },
+        "azure_native_passed": { "type": "integer", "minimum": 0, "maximum": 24 },
+        "local_model": { "const": "qwen3:4b" },
+        "local_model_digest": { "$ref": "#/$defs/sha256" },
+        "local_model_max_output_tokens": { "const": 256 }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "task_success",
+        "observation_sufficiency",
+        "recovery",
+        "reference_survival",
+        "false_reference_preservation",
+        "causal_recall",
+        "causal_precision",
+        "action_latency_ms",
+        "observation_utf8_bytes"
+      ],
+      "properties": {
+        "task_success": { "$ref": "#/$defs/ratio" },
+        "observation_sufficiency": { "$ref": "#/$defs/ratio" },
+        "recovery": { "$ref": "#/$defs/ratio" },
+        "reference_survival": { "$ref": "#/$defs/ratio" },
+        "false_reference_preservation": { "$ref": "#/$defs/ratio" },
+        "causal_recall": { "$ref": "#/$defs/ratio" },
+        "causal_precision": { "$ref": "#/$defs/ratio" },
+        "action_latency_ms": { "$ref": "#/$defs/distribution" },
+        "observation_utf8_bytes": { "$ref": "#/$defs/distribution" }
+      }
+    },
+    "cell_ledger": {
+      "type": "array",
+      "maxItems": 96,
+      "items": { "$ref": "#/$defs/cellLedger" }
+    },
+    "causal_ledger": {
+      "type": "array",
+      "maxItems": 24,
+      "items": { "$ref": "#/$defs/causalLedger" }
+    },
+    "criteria": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" }
+    },
+    "outcome": {
+      "type": "object",
+      "required": ["panel_complete", "status", "reason_codes", "diagnostics"],
+      "properties": {
+        "panel_complete": { "type": "boolean" },
+        "status": { "enum": ["passed", "failed"] },
+        "reason_codes": { "type": "array", "items": { "type": "string" } },
+        "diagnostics": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "sha1": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "runtime": {
+      "type": "object",
+      "required": [
+        "contract_version",
+        "native_v8",
+        "v8_version",
+        "build_profile",
+        "capabilities",
+        "execution_mode",
+        "sandboxed",
+        "worker_protocol_version",
+        "worker_binary_sha256",
+        "worker_bundle_id",
+        "worker_team_id",
+        "worker_signing_cert_sha1",
+        "policy_digest",
+        "sandbox_state",
+        "limits"
+      ],
+      "properties": {
+        "contract_version": { "type": "integer", "minimum": 2 },
+        "native_v8": { "const": true },
+        "v8_version": { "type": "string", "minLength": 1 },
+        "build_profile": { "const": "release" },
+        "capabilities": {
+          "type": "array",
+          "contains": { "const": "v8_javascript" }
+        },
+        "execution_mode": { "const": "sandboxed_worker" },
+        "sandboxed": { "const": true },
+        "worker_protocol_version": { "const": 2 },
+        "worker_binary_sha256": { "$ref": "#/$defs/sha256" },
+        "worker_bundle_id": { "const": "ai.rustic.oryn.page-worker" },
+        "worker_team_id": { "const": "5HVA9VFF8K" },
+        "worker_signing_cert_sha1": { "const": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90" },
+        "policy_digest": { "$ref": "#/$defs/sha256" },
+        "sandbox_state": { "const": "app_sandbox" },
+        "limits": { "$ref": "#/$defs/limits" }
+      }
+    },
+    "parentBinary": {
+      "type": "object",
+      "required": ["sha256", "bytes", "runtime", "mutation_smoke"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "runtime": { "$ref": "#/$defs/runtime" },
+        "mutation_smoke": {
+          "type": "object",
+          "required": ["status", "revision_before", "revision_after", "effect_kinds"],
+          "properties": {
+            "status": { "const": "passed" },
+            "revision_before": { "type": "integer", "minimum": 0 },
+            "revision_after": { "type": "integer", "minimum": 1 },
+            "effect_kinds": {
+              "type": "array",
+              "contains": { "const": "dom_mutation" }
+            }
+          }
+        }
+      }
+    },
+    "workerBundle": {
+      "type": "object",
+      "required": [
+        "sha256",
+        "bytes",
+        "bundle_id",
+        "team_id",
+        "signing_cert_sha1",
+        "cdhash",
+        "hardened_runtime",
+        "signature_details_sha256",
+        "entitlements",
+        "entitlements_sha256",
+        "manifest_sha256",
+        "manifest"
+      ],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "bundle_id": { "const": "ai.rustic.oryn.page-worker" },
+        "team_id": { "const": "5HVA9VFF8K" },
+        "signing_cert_sha1": { "const": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90" },
+        "cdhash": { "type": "string", "minLength": 20 },
+        "hardened_runtime": { "const": true },
+        "signature_details_sha256": { "$ref": "#/$defs/sha256" },
+        "entitlements": {
+          "const": {
+            "com.apple.security.app-sandbox": true,
+            "com.apple.security.cs.allow-jit": true
+          }
+        },
+        "entitlements_sha256": { "$ref": "#/$defs/sha256" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "manifest": {
+          "type": "object",
+          "required": [
+            "schema_version",
+            "bundle_id",
+            "team_id",
+            "signing_cert_sha1",
+            "protocol_version",
+            "v8_version",
+            "worker_build_sha256",
+            "worker_build_bytes",
+            "entitlement_sha256",
+            "policy_sha256",
+            "source_tree_sha256",
+            "limits"
+          ]
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "v8_heap_bytes",
+        "worker_rss_bytes",
+        "ipc_frame_bytes",
+        "command_wall_ms",
+        "navigation_wall_ms",
+        "queue_capacity"
+      ],
+      "properties": {
+        "v8_heap_bytes": { "const": 268435456 },
+        "worker_rss_bytes": { "const": 536870912 },
+        "ipc_frame_bytes": { "const": 25165824 },
+        "command_wall_ms": { "const": 10000 },
+        "navigation_wall_ms": { "const": 30000 },
+        "queue_capacity": { "const": 32 }
+      }
+    },
+    "deterministicDomain": {
+      "type": "object",
+      "required": ["completed", "passed"],
+      "properties": {
+        "completed": { "type": "integer", "minimum": 0, "maximum": 24 },
+        "passed": { "type": "integer", "minimum": 0, "maximum": 24 }
+      }
+    },
+    "ratio": {
+      "type": "object",
+      "required": ["numerator", "denominator", "value"],
+      "properties": {
+        "numerator": { "type": "integer", "minimum": 0 },
+        "denominator": { "type": "integer", "minimum": 0 },
+        "value": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+      }
+    },
+    "distribution": {
+      "type": "object",
+      "required": ["p50", "p95", "samples"],
+      "properties": {
+        "p50": { "type": ["number", "null"], "minimum": 0 },
+        "p95": { "type": ["number", "null"], "minimum": 0 },
+        "samples": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "cellLedger": {
+      "type": "object",
+      "required": [
+        "cell_id",
+        "fingerprint_sha256",
+        "completed",
+        "task_id",
+        "seed",
+        "domain",
+        "model",
+        "success",
+        "total_cost_usd",
+        "observation_sufficient",
+        "classifications_explained",
+        "action_latency_ms",
+        "observation_utf8_bytes"
+      ],
+      "properties": {
+        "cell_id": { "type": "string", "minLength": 1 },
+        "fingerprint_sha256": { "$ref": "#/$defs/sha256" },
+        "completed": { "const": true },
+        "task_id": { "type": "string", "minLength": 1 },
+        "seed": { "enum": [17, 42, 73] },
+        "domain": { "enum": ["native", "chromium"] },
+        "model": { "enum": ["hosted", "local"] },
+        "success": { "type": "boolean" },
+        "total_cost_usd": { "type": "number", "minimum": 0 },
+        "observation_sufficient": { "type": "boolean" },
+        "classifications_explained": { "type": "boolean" },
+        "action_latency_ms": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0 }
+        },
+        "observation_utf8_bytes": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "causalLedger": {
+      "type": "object",
+      "required": [
+        "cell_id",
+        "expected_effects",
+        "observed_expected_effects",
+        "observed_effects"
+      ],
+      "properties": {
+        "cell_id": { "type": "string", "minLength": 1 },
+        "expected_effects": { "type": "integer", "minimum": 0 },
+        "observed_expected_effects": { "type": "integer", "minimum": 0 },
+        "observed_effects": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

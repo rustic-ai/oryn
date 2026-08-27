@@ -43,6 +43,10 @@ enum Mode {
         /// Print machine-readable native runtime build information and exit
         #[arg(long)]
         runtime_info: bool,
+        /// Report the explicitly named in-process probe rather than launching
+        /// the production worker boundary
+        #[arg(long, requires = "runtime_info")]
+        in_process_probe: bool,
         /// Local HTML document to load before executing OIL
         #[arg(long, conflicts_with = "url")]
         html: Option<String>,
@@ -69,6 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Mode::Native {
         runtime_info,
+        in_process_probe,
         html,
         url,
         allow_loopback,
@@ -76,10 +81,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } = &args.mode
     {
         if *runtime_info {
-            println!(
-                "{}",
-                serde_json::to_string(&oryn_native::runtime_build_info())?
-            );
+            let runtime_info = if *in_process_probe {
+                if !cfg!(feature = "in-process-probe") {
+                    return Err(
+                        "--in-process-probe requires the explicit in-process-probe build feature"
+                            .into(),
+                    );
+                }
+                oryn_native::runtime_build_info()
+            } else {
+                let options = if *allow_loopback {
+                    ContextOptions::loopback_test()
+                } else {
+                    ContextOptions::default()
+                };
+                oryn_native::production_runtime_build_info_with_options(options)?
+            };
+            println!("{}", serde_json::to_string(&runtime_info)?);
             return Ok(());
         }
         return run_native(
@@ -156,7 +174,7 @@ async fn run_native(
     evaluate: Option<&str>,
     oil_path: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::Write;
+    use std::io::{IsTerminal, Write};
 
     use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -184,11 +202,16 @@ async fn run_native(
         let input = std::fs::read_to_string(oil_path)?;
         print_native_outputs(session.execute(&input).await?)?;
     } else {
-        eprintln!("Native document loaded. Enter OIL; type 'exit' or 'quit' to close.");
+        let interactive = std::io::stdin().is_terminal();
+        if interactive {
+            eprintln!("Native document loaded. Enter OIL; type 'exit' or 'quit' to close.");
+        }
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         loop {
-            print!("> ");
-            std::io::stdout().flush()?;
+            if interactive {
+                print!("> ");
+                std::io::stdout().flush()?;
+            }
             let Some(line) = lines.next_line().await? else {
                 break;
             };

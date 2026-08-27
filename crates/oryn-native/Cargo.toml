@@ -9,6 +9,7 @@ description = "Native browser runtime for Oryn"
 default = []
 v8-host = ["dep:v8"]
 deno-host = ["dep:deno_core"]
+in-process-probe = []
 
 [dependencies]
 oryn-common = { path = "../oryn-common" }
@@ -22,6 +23,9 @@ markup5ever = "0.39"
 url = "2"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "gzip", "brotli", "deflate", "cookies"] }
 sha2 = "0.10"
+sha1 = "0.10"
+base64 = "0.22"
+libc = "0.2"
 # Keep the raw host on deno_core's exact V8 revision so G0 compares host
 # layers rather than different JavaScript engines.
 v8 = { version = "150.4", optional = true }
@@ -40,7 +44,9 @@ required-features = ["deno-host"]
 [[bin]]
 name = "oryn-page-worker"
 path = "src/bin/page_worker.rs"
+required-features = ["v8-host"]
 
 [[bin]]
 name = "oryn-native-probe"
 path = "src/bin/native_probe.rs"
+required-features = ["in-process-probe"]

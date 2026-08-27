@@ -21,6 +21,8 @@ pub enum HostError {
     Disabled,
     #[error("JavaScript execution failed: {0}")]
     Execution(String),
+    #[error("JavaScript exceeded the configured {resource} limit")]
+    LimitExceeded { resource: String },
 }
 
 pub struct DisabledHost;
@@ -43,19 +45,64 @@ impl JavaScriptHost for DisabledHost {
 
 #[cfg(feature = "v8-host")]
 mod raw_v8 {
-    use std::{collections::BTreeMap, sync::Once};
+    use std::{
+        collections::BTreeMap,
+        sync::{
+            Arc, Once,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        },
+        time::Duration,
+    };
 
     use serde::Serialize;
     use url::Url;
 
     use super::{HostError, HostKind, JavaScriptHost};
-    use crate::network::{NetworkBroker, NetworkRequest, SharedNetworkBroker};
+    use crate::network::{NetworkRequest, SharedNetworkBroker};
 
     static INITIALIZE_V8: Once = Once::new();
 
     pub struct RawV8Host {
         isolate: v8::OwnedIsolate,
         context: v8::Global<v8::Context>,
+        execution_wall_limit: Duration,
+    }
+
+    struct ExecutionDeadline {
+        cancel: Option<mpsc::Sender<()>>,
+        expired: Arc<AtomicBool>,
+    }
+
+    impl ExecutionDeadline {
+        fn arm(isolate: &v8::OwnedIsolate, limit: Duration) -> Self {
+            let handle = isolate.thread_safe_handle();
+            let (sender, receiver) = mpsc::channel();
+            let expired = Arc::new(AtomicBool::new(false));
+            let thread_expired = expired.clone();
+            std::thread::spawn(move || {
+                if receiver.recv_timeout(limit).is_err() {
+                    thread_expired.store(true, Ordering::Release);
+                    handle.terminate_execution();
+                }
+            });
+            Self {
+                cancel: Some(sender),
+                expired,
+            }
+        }
+
+        fn expired(&self) -> bool {
+            self.expired.load(Ordering::Acquire)
+        }
+    }
+
+    impl Drop for ExecutionDeadline {
+        fn drop(&mut self) {
+            if let Some(sender) = self.cancel.take() {
+                let _ = sender.send(());
+            }
+        }
     }
 
     #[derive(Clone)]
@@ -77,20 +124,40 @@ mod raw_v8 {
 
     impl RawV8Host {
         pub fn new() -> Self {
-            Self::create(None)
+            Self::create(None, 256 * 1024 * 1024)
         }
 
         pub fn new_with_network(broker: SharedNetworkBroker, base_url: Url) -> Self {
-            Self::create(Some(FetchState { broker, base_url }))
+            Self::create(Some(FetchState { broker, base_url }), 256 * 1024 * 1024)
         }
 
-        fn create(fetch_state: Option<FetchState>) -> Self {
+        pub fn new_with_network_and_heap_limit(
+            broker: SharedNetworkBroker,
+            base_url: Url,
+            max_heap_bytes: usize,
+        ) -> Self {
+            Self::create(Some(FetchState { broker, base_url }), max_heap_bytes)
+        }
+
+        pub fn new_with_heap_limit(max_heap_bytes: usize) -> Self {
+            Self::create(None, max_heap_bytes)
+        }
+
+        #[cfg(test)]
+        pub fn new_with_wall_limit(execution_wall_limit: Duration) -> Self {
+            let mut host = Self::create(None, 256 * 1024 * 1024);
+            host.execution_wall_limit = execution_wall_limit;
+            host
+        }
+
+        fn create(fetch_state: Option<FetchState>, max_heap_bytes: usize) -> Self {
             INITIALIZE_V8.call_once(|| {
                 let platform = v8::new_default_platform(0, false).make_shared();
                 v8::V8::initialize_platform(platform);
                 v8::V8::initialize();
             });
-            let mut isolate = v8::Isolate::new(v8::CreateParams::default());
+            let mut isolate =
+                v8::Isolate::new(v8::CreateParams::default().heap_limits(0, max_heap_bytes));
             if let Some(fetch_state) = fetch_state {
                 isolate.set_slot(fetch_state);
             }
@@ -109,7 +176,11 @@ mod raw_v8 {
                 }
                 v8::Global::new(scope, context)
             };
-            Self { isolate, context }
+            Self {
+                isolate,
+                context,
+                execution_wall_limit: Duration::from_millis(9_500),
+            }
         }
 
         pub fn execute_module(
@@ -118,6 +189,7 @@ mod raw_v8 {
             source: &str,
             dependencies: &BTreeMap<String, String>,
         ) -> Result<(), HostError> {
+            let _deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
             self.isolate.set_slot(ModuleSources(dependencies.clone()));
             v8::scope!(let handle_scope, &mut self.isolate);
             let context = v8::Local::new(handle_scope, &self.context);
@@ -131,10 +203,22 @@ mod raw_v8 {
             if !instantiated {
                 return Err(HostError::Execution("module linking failed".into()));
             }
-            module
-                .evaluate(scope)
-                .ok_or_else(|| HostError::Execution("module evaluation failed".into()))?;
+            if module.evaluate(scope).is_none() {
+                if _deadline.expired() || scope.is_execution_terminating() {
+                    scope.cancel_terminate_execution();
+                    return Err(HostError::LimitExceeded {
+                        resource: "wall time".into(),
+                    });
+                }
+                return Err(HostError::Execution("module evaluation failed".into()));
+            }
             scope.perform_microtask_checkpoint();
+            if _deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
             Ok(())
         }
     }
@@ -193,6 +277,7 @@ mod raw_v8 {
                         url: url.to_string(),
                         headers: request_headers.clone(),
                         body: body.clone(),
+                        resolved_addrs: Vec::new(),
                     })
                     .map_err(|error| error.to_string())?;
                 if (300..400).contains(&response.status) {
@@ -310,6 +395,7 @@ mod raw_v8 {
         }
 
         fn execute(&mut self, source: &str) -> Result<(), HostError> {
+            let _deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
             v8::scope!(let handle_scope, &mut self.isolate);
             let context = v8::Local::new(handle_scope, &self.context);
             let scope = &mut v8::ContextScope::new(handle_scope, context);
@@ -326,6 +412,12 @@ mod raw_v8 {
                 return Err(HostError::Execution(detail));
             };
             if script.run(scope).is_none() {
+                if _deadline.expired() || scope.is_execution_terminating() {
+                    scope.cancel_terminate_execution();
+                    return Err(HostError::LimitExceeded {
+                        resource: "wall time".into(),
+                    });
+                }
                 let detail = scope
                     .stack_trace()
                     .or_else(|| scope.exception())
@@ -335,10 +427,17 @@ mod raw_v8 {
                 return Err(HostError::Execution(detail));
             }
             scope.perform_microtask_checkpoint();
+            if _deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
             Ok(())
         }
 
         fn evaluate_string(&mut self, source: &str) -> Result<String, HostError> {
+            let _deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
             v8::scope!(let handle_scope, &mut self.isolate);
             let context = v8::Local::new(handle_scope, &self.context);
             let scope = &mut v8::ContextScope::new(handle_scope, context);
@@ -346,9 +445,16 @@ mod raw_v8 {
                 .ok_or_else(|| HostError::Execution("source allocation failed".into()))?;
             let script = v8::Script::compile(scope, source, None)
                 .ok_or_else(|| HostError::Execution("compilation failed".into()))?;
-            let value = script
-                .run(scope)
-                .ok_or_else(|| HostError::Execution("execution failed".into()))?;
+            let value = match script.run(scope) {
+                Some(value) => value,
+                None if _deadline.expired() || scope.is_execution_terminating() => {
+                    scope.cancel_terminate_execution();
+                    return Err(HostError::LimitExceeded {
+                        resource: "wall time".into(),
+                    });
+                }
+                None => return Err(HostError::Execution("execution failed".into())),
+            };
             let value = value
                 .to_string(scope)
                 .ok_or_else(|| HostError::Execution("result is not string-convertible".into()))?;
@@ -363,6 +469,24 @@ mod raw_v8 {
 
 #[cfg(feature = "v8-host")]
 pub use raw_v8::RawV8Host;
+
+#[cfg(all(test, feature = "v8-host"))]
+mod tests {
+    use std::time::Duration;
+
+    use super::{HostError, JavaScriptHost, RawV8Host};
+
+    #[test]
+    fn v8_watchdog_terminates_execution_before_process_replacement() {
+        let mut host = RawV8Host::new_with_wall_limit(Duration::from_millis(25));
+        let result = host.evaluate_string("for(;;){}");
+        assert!(
+            matches!(result, Err(HostError::LimitExceeded { .. })),
+            "{result:?}"
+        );
+        assert_eq!(host.evaluate_string("1 + 1").unwrap(), "2");
+    }
+}
 
 #[cfg(feature = "deno-host")]
 mod deno {

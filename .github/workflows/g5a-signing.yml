@@ -1,0 +1,105 @@
+name: G5A Signed Sandbox
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g5a-signing-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  signed-sandbox:
+    name: signed-sandbox-macos-arm64
+    runs-on: macos-14
+    timeout-minutes: 150
+    environment: g5a-signing
+    env:
+      ORYN_APPLE_TEAM_ID: 5HVA9VFF8K
+      ORYN_CODESIGN_IDENTITY: 9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Require ARM64 and pinned Rust
+        run: |
+          test "$(uname -m)" = arm64
+          rustup show active-toolchain | grep -F '1.98.0'
+
+      - name: Import protected development identity
+        env:
+          P12_BASE64: ${{ secrets.ORYN_APPLE_DEVELOPMENT_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.ORYN_APPLE_DEVELOPMENT_P12_PASSWORD }}
+        run: |
+          test -n "$P12_BASE64"
+          test -n "$P12_PASSWORD"
+          keychain="$RUNNER_TEMP/oryn-g5a.keychain-db"
+          certificate="$RUNNER_TEMP/oryn-g5a.p12"
+          password="$(openssl rand -hex 24)"
+          printf '%s' "$P12_BASE64" | /usr/bin/base64 -D >"$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          echo "ORYN_SIGNING_KEYCHAIN=$keychain" >>"$GITHUB_ENV"
+          echo "ORYN_SIGNING_CERTIFICATE=$certificate" >>"$GITHUB_ENV"
+
+      - name: Build, sign, and exercise sandbox boundary
+        run: ./scripts/build-sandboxed-worker.sh
+
+      - name: Reject altered and invalid worker variants
+        run: ./scripts/test-worker-rejections.sh
+
+      - name: Run protocol, broker, and worker-client suites
+        run: |
+          mkdir -p artifacts/g2r-g5a-v4
+          cargo test --locked -p oryn-native --features v8-host
+          ORYN_PAGE_WORKER="$PWD/target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker" \
+            cargo run --release --locked -p oryn-native --example g5a_worker_integration
+          ORYN_PAGE_WORKER="$PWD/target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker" \
+            cargo run --release --locked -p oryn-native --example g2r_churn \
+            >artifacts/g2r-g5a-v4/g2r-churn.json
+
+      - name: Capture production size, startup, RSS, and restart evidence
+        run: ./scripts/benchmark-g5a-production.sh
+
+      - name: Validate signed evidence
+        run: |
+          jq -e '
+            .schema_version == 4 and
+            .runtime.execution_mode == "sandboxed_worker" and
+            .runtime.sandboxed == true and
+            .runtime.worker_team_id == "5HVA9VFF8K" and
+            .runtime.worker_protocol_version == 2 and
+            .outcome.status == "passed"
+          ' artifacts/g2r-g5a-v4/production/result.json >/dev/null
+          jq -e '
+            .schema_version == 4 and
+            .false_preservation.numerator == 0 and
+            .worker_replacement.status == "passed" and
+            .status == "passed"
+          ' artifacts/g2r-g5a-v4/g2r-churn.json >/dev/null
+
+      - name: Upload content-addressed sandbox evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: g5a-signed-${{ github.sha }}-${{ github.run_attempt }}
+          path: artifacts/g2r-g5a-v4
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Delete temporary signing material
+        if: always()
+        run: |
+          if [[ -n "${ORYN_SIGNING_KEYCHAIN:-}" ]]; then
+            security delete-keychain "$ORYN_SIGNING_KEYCHAIN" || true
+          fi
+          if [[ -n "${ORYN_SIGNING_CERTIFICATE:-}" ]]; then
+            rm -f "$ORYN_SIGNING_CERTIFICATE"
+          fi

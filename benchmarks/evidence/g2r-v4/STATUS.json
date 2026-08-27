@@ -1,0 +1,22 @@
+{
+  "schema_version": 4,
+  "gate": "G2R_G5A",
+  "status": "open",
+  "current_result": null,
+  "historical_evidence": {
+    "schema_version": 3,
+    "path": "benchmarks/evidence/g2-model-panel.json",
+    "committed_by": "a41a231d076378026b9e1827f686e9ac8af44ae0",
+    "generated_source_commit": "a66a6680eaf6ec3ae161b6c35eb3b224b9c63c59",
+    "status": "passed",
+    "cumulative_hosted_spend_usd": 5.209632
+  },
+  "blocking_checks": [
+    "protected_g5a_signing_workflow",
+    "signed_native_and_chromium_deterministic_24_of_24",
+    "worker_limit_and_replacement_suite",
+    "complete_96_cell_model_panel",
+    "schema_v4_ledger_recomputation"
+  ],
+  "note": "Schema-v4 evidence is published only by the protected manual release workflow after every blocking criterion passes."
+}

@@ -68,7 +68,7 @@ does not imply that later browser-conformance work is complete.
   paint, and Encoding Standard behavior beyond the advertised UTF-8 subset
   remain explicitly unavailable.
 
-## G2R — complete
+## G2R — historical schema-v3 pass; schema-v4 revalidation open
 
 - Existing OIL syntax drives native observations and click/type/clear/check,
   select, hover, focus, and targeted submit actions.
@@ -103,10 +103,13 @@ does not imply that later browser-conformance work is complete.
   spent `$1.993578` before independent validation found that Chromium observation
   byte counts were zero; that attempt is also invalid and the cumulative prior
   spend charged to the replacement run is therefore `$3.190558`.
-- Production `oryn` now enables `native-v8` by default. Machine-readable runtime
-  metadata and a scripted DOM-mutation preflight reject no-V8 or debug binaries
-  before any hosted request. Resume keys include the complete binary, fixture,
-  Chromium, deployment, and local-model fingerprint.
+- G2R originally enabled `native-v8` in the monolithic production binary.
+  G5A supersedes that packaging: the default `oryn` parent is now deliberately
+  built without V8, while the required worker is built with `v8-host`.
+  Machine-readable runtime metadata and a scripted DOM-mutation preflight still
+  reject a no-V8 or debug worker before any hosted request. Resume keys include
+  the complete parent, worker, fixture, Chromium, deployment, and local-model
+  fingerprint.
 - A benchmark-only server injects deterministic `Math.seedrandom` initialization
   after pinned `core.js` without changing MiniWoB files on disk. All eight native
   fixtures now bootstrap without unexpected script diagnostics, including D3,
@@ -141,11 +144,47 @@ does not imply that later browser-conformance work is complete.
   `benchmarks/evidence/g2r-production-macos-arm64.json`.
 - Formatting, strict all-feature Clippy, all-feature Rust workspace tests,
   Python SDK tests, IntentGym tests, G1/G2/corpus validators, and schema-v3 raw
-  evidence recomputation pass. G2R is closed.
+  evidence recomputation passed at commit a41a231. That result remains
+  historical and is not reusable for the G5A worker bundle.
+
+## G5A — implemented, release evidence pending
+
+- Public native callers now use a protocol-v2 page worker on macOS. V8, the
+  DOM, OIL, semantic state, and traces live in the worker; networking, DNS,
+  cookies, policy, limits, signatures, and secrets remain parent-owned.
+- Production fails closed for a missing, unsigned, ad-hoc-signed, altered,
+  debug, incorrectly entitled, wrong-Team-ID, or wrong-certificate worker.
+  There is no macOS in-process fallback. The named in-process-probe feature is
+  excluded from production artifacts.
+- OrynPageWorker.app is signed with hardened runtime and exactly App Sandbox
+  plus allow-jit. It has no direct network, filesystem, DYLD, unsigned-memory,
+  or library-validation exception.
+- The parent clears the worker environment, verifies a nonce handshake and
+  signed manifest, caps IPC at 24 MiB, decoded responses at 16 MiB, pending
+  work at 32 commands, V8 heap at 256 MiB, RSS at 512 MiB, commands at 10
+  seconds, and navigation at 30 seconds.
+- Worker replacement creates a blank high-order document generation. The
+  limit/churn suite measures restart latency and proves that all old semantic
+  references are invalid.
+- Pull-request CI pins Rust 1.98.0 and every GitHub Action to a commit SHA.
+  Unsigned production-worker rejection runs without signing secrets. Protected
+  g5a-signing and g2r-release environments own the P12 and model secrets.
+- Schema v4 binds the source-tree hash, parent and final signed-worker hashes,
+  signature/certificate/entitlement/manifest fingerprints, policy, limits,
+  fixtures, Chromium, Azure deployment, and Qwen digest. Compact 96-cell and
+  24-cell causal ledgers are sufficient to recompute the aggregate; raw turns
+  and traces remain uploaded, ignored artifacts.
+- The current machine-readable state is
+  benchmarks/evidence/g2r-v4/STATUS.json: G2R/G5A remains open until the
+  protected signed workflow and manual 96-cell release workflow publish and
+  validate schema-v4 evidence. Budget accounting begins at $5.209632.
+- The security boundary and deferred items are documented in
+  docs/oryn2/G5A_SECURITY.md.
 
 ## Next tracks
 
-- G3 compatibility and G5 security now proceed in parallel. G3 owns
+- After schema-v4 G2R/G5A evidence closes, G3 compatibility and later G5
+  security increments proceed in parallel. G3 owns
   context-scoped storage, XHR/WebSocket/streams, the complete framework corpus,
   page groups/popups/opener, and controlled OAuth/SSO. G5 owns the V8-enabled
   sandbox worker, threat model, policy engine, secret handles, network
