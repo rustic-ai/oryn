@@ -3,6 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 output_dir="${1:-$repo_root/artifacts/g3-v1/production-gate}"
+if [[ "$output_dir" != /* ]]; then
+  output_dir="$repo_root/$output_dir"
+fi
 parent="$repo_root/target/release/oryn"
 worker="$repo_root/target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker"
 miniwob_checkout="${ORYN_MINIWOB_CHECKOUT:-$repo_root/artifacts/deps/miniwob-plusplus}"
