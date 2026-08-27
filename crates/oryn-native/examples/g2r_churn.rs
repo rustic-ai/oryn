@@ -1,4 +1,4 @@
-use oryn_common::v2::{Effect, ProjectionProfile, SemanticAction, SemanticRef};
+use oryn_common::v3::{Effect, ProjectionProfile, SemanticAction, SemanticRef};
 use oryn_native::{
     Browser,
     runtime::{NativeAction, RuntimeError},
@@ -56,7 +56,7 @@ struct WorkerReplacement {
     status: &'static str,
 }
 
-fn target(observation: &oryn_common::v2::Observation, name: &str) -> SemanticRef {
+fn target(observation: &oryn_common::v3::Observation, name: &str) -> SemanticRef {
     observation
         .nodes
         .iter()
@@ -94,7 +94,9 @@ fn invalidation_case(id: &'static str, invalidated: bool) -> ChurnCase {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = oryn_native::production_runtime_build_info()?;
-    let page = Browser::new().new_context().new_page();
+    let browser = Browser::new();
+    let context = browser.new_context();
+    let page = context.new_page();
     let mut cases = Vec::new();
 
     page.load_html(

@@ -1,0 +1,2 @@
+import {h,hydrate} from 'preact';import {useState} from 'preact/hooks';
+function App(){const [count,setCount]=useState(0),[query,setQuery]=useState('');return <main data-framework="preact"><h1>Preact ready</h1><label>Search<input aria-label="Search" value={query} onInput={event=>setQuery(event.target.value)}/></label><button onClick={()=>{setCount(count+1);localStorage.setItem('preact-count',String(count+1));}}>Add item</button><output>Items: {count}</output><a href="?route=details">Route</a></main>};hydrate(<App/>,document.getElementById('app'));

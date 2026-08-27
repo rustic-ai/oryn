@@ -1,4 +1,4 @@
-use oryn_common::v2::{ActionId, Revision};
+use oryn_common::v3::{ActionId, Revision};
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::LifecycleState;
@@ -54,6 +54,40 @@ pub enum TraceEventKind {
     },
     WorkerTerminated {
         reason: String,
+    },
+    PageCreated {
+        page_id: u64,
+        opener_page_id: Option<u64>,
+    },
+    PageActivated {
+        page_id: u64,
+    },
+    PageClosed {
+        page_id: u64,
+    },
+    OpenerMessage {
+        source_page_id: u64,
+        target_page_id: u64,
+        origin: String,
+    },
+    StorageChanged {
+        area: String,
+        origin: String,
+        key: Option<String>,
+    },
+    XhrStateChanged {
+        url: String,
+        ready_state: u8,
+    },
+    StreamChunk {
+        direction: String,
+        bytes: usize,
+    },
+    WebSocketFrame {
+        socket_id: u64,
+        direction: String,
+        frame_type: String,
+        bytes: usize,
     },
 }
 

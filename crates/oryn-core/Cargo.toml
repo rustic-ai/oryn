@@ -21,6 +21,13 @@ name = "oryn_core"
 path = "src/lib.rs"
 crate-type = ["lib", "cdylib"]
 
+# Binaryen bundled by wasm-pack does not yet accept the bulk-memory output
+# produced by the pinned Rust 1.98 toolchain. The release artifact remains
+# optimized by rustc; keep wasm-pack from failing after it has generated the
+# valid extension module.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 serde-wasm-bindgen = "0.6"

@@ -110,7 +110,7 @@ def _run_fingerprint(
         or runtime.get("build_profile") != "release"
         or runtime.get("execution_mode") != "sandboxed_worker"
         or runtime.get("sandboxed") is not True
-        or runtime.get("worker_protocol_version") != 2
+        or runtime.get("worker_protocol_version") != 3
     ):
         raise RuntimeError(
             "deterministic native evidence requires the signed release V8 worker"

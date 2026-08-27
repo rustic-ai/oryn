@@ -7,6 +7,7 @@
 
 const puppeteer = require('puppeteer');
 const path = require('path');
+const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
 const EXTENSION_PATH = path.resolve(__dirname, '../..');
 const FIXTURES_DIR = path.resolve(__dirname, '../fixtures');
@@ -100,7 +101,7 @@ describe('Command Execution E2E', () => {
   describe('Static Page Tests', () => {
     test('should process observe command', async () => {
       await page.goto(`file://${FIXTURES_DIR}/static-page.html`);
-      await page.waitForTimeout(500);
+      await delay(500);
 
       const result = await executeOilCommand('observe');
       expect(result.error).toBeUndefined();
@@ -110,7 +111,7 @@ describe('Command Execution E2E', () => {
 
     test('should process click command', async () => {
       await page.goto(`file://${FIXTURES_DIR}/static-page.html`);
-      await page.waitForTimeout(500);
+      await delay(500);
 
       const result = await executeOilCommand('click "Submit"');
       expect(result.error).toBeUndefined();
@@ -122,7 +123,7 @@ describe('Command Execution E2E', () => {
   describe('Form Interaction Tests', () => {
     test('should process type command', async () => {
       await page.goto(`file://${FIXTURES_DIR}/form-page.html`);
-      await page.waitForTimeout(500);
+      await delay(500);
 
       const result = await executeOilCommand('type "Email" "test@example.com"');
       expect(result.error).toBeUndefined();
@@ -133,7 +134,7 @@ describe('Command Execution E2E', () => {
 
     test('should process form commands', async () => {
       await page.goto(`file://${FIXTURES_DIR}/form-page.html`);
-      await page.waitForTimeout(500);
+      await delay(500);
 
       // Process type commands
       let result = await executeOilCommand('type "Email" "user@test.com"');
@@ -153,7 +154,7 @@ describe('Command Execution E2E', () => {
   describe('Navigation Tests', () => {
     test('should process goto command', async () => {
       await page.goto(`file://${FIXTURES_DIR}/static-page.html`);
-      await page.waitForTimeout(500);
+      await delay(500);
 
       const result = await executeOilCommand('goto "https://example.com"');
       expect(result.error).toBeUndefined();
@@ -167,7 +168,7 @@ describe('Command Execution E2E', () => {
   describe('Error Handling', () => {
     test('should handle invalid commands gracefully', async () => {
       await page.goto(`file://${FIXTURES_DIR}/static-page.html`);
-      await page.waitForTimeout(500);
+      await delay(500);
 
       const result = await executeOilCommand('invalid command syntax');
       // Invalid commands might parse if grammar is flexible, but won't have meaningful targets
@@ -178,7 +179,7 @@ describe('Command Execution E2E', () => {
 
     test('should handle empty commands', async () => {
       await page.goto(`file://${FIXTURES_DIR}/static-page.html`);
-      await page.waitForTimeout(500);
+      await delay(500);
 
       const result = await executeOilCommand('');
       // Empty commands should return error
@@ -193,7 +194,7 @@ describe('Command Execution E2E', () => {
   describe('Status Checking', () => {
     test('should return WASM initialization status', async () => {
       await page.goto(`file://${FIXTURES_DIR}/static-page.html`);
-      await page.waitForTimeout(500);
+      await delay(500);
 
       const status = await backgroundPage.evaluate(() => {
         return {
@@ -211,7 +212,7 @@ describe('Command Execution E2E', () => {
   describe('Scan Management', () => {
     test('should update scan and process commands', async () => {
       await page.goto(`file://${FIXTURES_DIR}/static-page.html`);
-      await page.waitForTimeout(500);
+      await delay(500);
 
       // Process observe command
       const result = await executeOilCommand('observe');

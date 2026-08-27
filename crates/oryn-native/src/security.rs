@@ -14,7 +14,7 @@ impl Default for NetworkPolicy {
         Self {
             allow_loopback: false,
             allow_private_networks: false,
-            allowed_schemes: vec!["http".into(), "https".into()],
+            allowed_schemes: vec!["http".into(), "https".into(), "ws".into(), "wss".into()],
         }
     }
 }

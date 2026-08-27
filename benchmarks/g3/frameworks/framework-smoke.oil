@@ -1,0 +1,4 @@
+observe
+click "Add item"
+observe
+trace stop

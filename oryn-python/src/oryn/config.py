@@ -33,6 +33,9 @@ class OrynConfig:
         """Generate CLI arguments for oryn binary."""
         args = [self.mode]
 
+        if self.mode == "native":
+            args.append("--sdk-repl")
+
         if self.mode == "embedded" and self.driver_url:
             args.extend(["--driver-url", self.driver_url])
         elif self.mode == "remote":

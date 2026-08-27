@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "locked": true,
+  "upstream": {
+    "project": "web-platform-tests/wpt",
+    "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+  },
+  "mode": "curated behavior vectors; unsupported assertions remain capability diagnostics and are not counted as passes",
+  "subsets": [
+    {"category":"xhr","sources":["xhr/open-method-case-insensitive.htm","xhr/response-json.htm","xhr/abort-during-done.htm"],"native_tests":["runtime::tests::asynchronous_xhr_reports_states_headers_and_json","runtime::tests::cross_origin_credentials_obey_cookie_and_cors_rules","runtime::tests::xhr_abort_and_timeout_are_observable","runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported"]},
+    {"category":"fetch_streams","sources":["fetch/api/basic/request-upload.any.js","fetch/api/abort/general.any.js","streams/piping/pipe-through.any.js"],"native_tests":["runtime::tests::fetch_preserves_binary_request_bytes_and_abort_prevents_dispatch","runtime::tests::response_body_streams_in_bounded_parent_owned_chunks","runtime::tests::streams_expose_cancellation_and_bounded_writer_readiness","runtime::tests::web_crypto_file_and_stream_subset_is_executable"]},
+    {"category":"websocket","sources":["websockets/interfaces/WebSocket/send/006.html","websockets/interfaces/WebSocket/close/close-basic.html"],"native_tests":["runtime::tests::parent_brokered_websocket_delivers_text_binary_and_close_frames"]},
+    {"category":"storage","sources":["webstorage/storage_local_window_open.window.js","webstorage/storage_session_window_open.window.js","webstorage/event_local_storagearea.window.js"],"native_tests":["runtime::tests::page_group_shares_local_storage_clones_session_and_rejects_foreign_refs","runtime::tests::popup_opener_post_message_and_storage_events_are_context_scoped","storage::tests::storage_quotas_are_origin_scoped_and_failed_writes_are_atomic"]},
+    {"category":"indexeddb","sources":["IndexedDB/idbobjectstore_getAll.tentative.any.js","IndexedDB/idbcursor_continue_objectstore.any.js","IndexedDB/structured-clone.any.js"],"native_tests":["runtime::tests::indexed_db_upgrade_transaction_and_cursor_subset_is_executable","runtime::tests::indexed_db_structured_clone_roundtrips_binary_blob_and_file","storage::tests::indexed_db_batches_are_atomic_and_enforce_add"]},
+    {"category":"file_fetch","sources":["FileAPI/blob/Blob-array-buffer.any.js","FileAPI/file/File-constructor.any.js","fetch/api/headers/headers-basic.any.js"],"native_tests":["runtime::tests::file_formdata_request_response_and_headers_are_executable","runtime::tests::web_crypto_file_and_stream_subset_is_executable"]},
+    {"category":"dom_events","sources":["dom/ranges/Range-cloneContents.html","dom/traversal/TreeWalker.html","dom/events/Event-dispatch-redispatch.html"],"native_tests":["executable::tests::range_selection_traversal_and_contenteditable_are_available","executable::tests::event_handlers_mutate_the_oryn_owned_dom"]},
+    {"category":"shadow_custom_elements","sources":["shadow-dom/DocumentOrShadowRoot-prototype-elementFromPoint.html","custom-elements/CustomElementRegistry-define.html"],"native_tests":["executable::tests::open_shadow_roots_are_semantic_and_closed_roots_are_isolated"]},
+    {"category":"url_encoding","sources":["url/urlsearchparams-constructor.any.js","encoding/api-basics.any.js"],"native_tests":["executable::tests::wpt_pinned_supported_url_and_encoding_vectors"]}
+  ]
+}

@@ -1,0 +1,1 @@
+{"name":"g3-nuxt","version":"1.0.0","private":true,"type":"module","scripts":{"build":"nuxt generate"},"dependencies":{"nuxt":"4.5.2","vue":"3.5.42"},"devDependencies":{}}

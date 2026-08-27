@@ -7,6 +7,7 @@
 
 const puppeteer = require('puppeteer');
 const path = require('path');
+const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
 const EXTENSION_PATH = path.resolve(__dirname, '../..');
 const TEST_PAGE_URL = 'file://' + path.resolve(__dirname, '../fixtures/static-page.html');
@@ -59,7 +60,7 @@ describe('Extension Loading E2E', () => {
     await page.goto('chrome://extensions');
 
     // Wait for extensions page to load
-    await page.waitForTimeout(1000);
+    await delay(1000);
 
     // Extension should be visible (this is a basic check)
     const title = await page.title();
@@ -69,7 +70,7 @@ describe('Extension Loading E2E', () => {
   test('should initialize WASM module', async () => {
     // Navigate to test page
     await page.goto(TEST_PAGE_URL);
-    await page.waitForTimeout(500);
+    await delay(500);
 
     // Check WASM initialization via backgroundPage
     const wasmStatus = await backgroundPage.evaluate(() => {
@@ -88,7 +89,7 @@ describe('Extension Loading E2E', () => {
   // Skip: Chrome security restrictions prevent content scripts on file:// URLs
   test.skip('should inject content scripts', async () => {
     await page.goto(TEST_PAGE_URL);
-    await page.waitForTimeout(500);
+    await delay(500);
 
     // Check if scanner.js is injected (exports as window.Oryn.Scanner)
     const scannerLoaded = await page.evaluate(() => {

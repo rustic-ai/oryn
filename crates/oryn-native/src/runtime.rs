@@ -1,19 +1,31 @@
 use std::{
     collections::BTreeMap,
-    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
-use oryn_common::v2::{
+#[cfg(feature = "v8-host")]
+use std::collections::BTreeSet;
+
+use oryn_common::v3::{
     ActionId, ActionResult, CONTRACT_VERSION, CapabilityDiagnostic, Effect, ExecutionDomain,
-    Observation, ObservationDelta, ObservationSource, PageInfo, ProjectionProfile, Revision,
-    SemanticAction, SemanticRef, SupportLevel,
+    Observation, ObservationDelta, ObservationSource, PageDescriptor, PageId, PageInfo,
+    PageLifecycleEvent, PagePredicate, PageStatus, ProjectionProfile, Revision, SemanticAction,
+    SemanticRef, SupportLevel,
 };
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "v8-host")]
 use sha2::{Digest, Sha256};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
 use url::Url;
+
+#[cfg(all(unix, feature = "v8-host"))]
+use crate::context_service::SharedContextClient;
+#[cfg(unix)]
+use crate::context_service::{ContextEvent, ContextEventRecord};
 
 use crate::html::{ParsedDocument, parse};
 use crate::semantic::{
@@ -23,6 +35,7 @@ use crate::trace::{TraceEvent, TraceEventKind, TraceLog};
 use crate::{
     network::{NetworkRequest, PolicyBroker, RustlsTransport, SharedNetworkBroker},
     security::NetworkPolicy,
+    storage::{PersistentProfile, SharedContextStore, StorageLimits},
 };
 
 static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -37,18 +50,33 @@ pub struct Browser {
 
 #[derive(Clone)]
 pub struct BrowserContext {
+    inner: Arc<BrowserContextInner>,
+}
+
+struct BrowserContextInner {
     id: u64,
     config: BrowserConfig,
     broker: Option<SharedNetworkBroker>,
     worker_process: bool,
     options: ContextOptions,
+    group: ContextGroup,
+    store: SharedContextStore,
+    persistent_profile: Option<PersistentProfile>,
     #[cfg(unix)]
-    parent_cookies: Option<std::sync::Arc<reqwest::cookie::Jar>>,
+    context_events: Mutex<Vec<ContextEventRecord>>,
+    #[cfg(unix)]
+    next_context_event_id: AtomicU64,
+    #[cfg(unix)]
+    parent_cookies: Option<std::sync::Arc<dyn reqwest::cookie::CookieStore>>,
+    #[cfg(all(unix, feature = "v8-host"))]
+    context_client: Option<crate::context_service::SharedContextClient>,
 }
 
 #[derive(Debug, Clone)]
 pub struct PageHandle {
     id: u64,
+    opener_page_id: Option<PageId>,
+    context: Weak<BrowserContextInner>,
     sender: Option<mpsc::Sender<PageCommand>>,
     #[cfg(unix)]
     worker: Option<std::sync::Arc<WorkerPage>>,
@@ -56,11 +84,289 @@ pub struct PageHandle {
 
 #[cfg(unix)]
 struct WorkerPage {
+    page_id: PageId,
+    opener_page_id: Option<PageId>,
+    context: Weak<BrowserContextInner>,
     client: std::sync::Mutex<Option<crate::worker_client::WorkerClient>>,
     config: BrowserConfig,
     options: ContextOptions,
-    parent_cookies: std::sync::Arc<reqwest::cookie::Jar>,
+    parent_cookies: std::sync::Arc<dyn reqwest::cookie::CookieStore>,
     pending: AtomicUsize,
+}
+
+#[derive(Debug, Clone)]
+struct PageRecord {
+    handle: PageHandle,
+    descriptor: PageDescriptor,
+}
+
+#[derive(Debug)]
+struct ContextGroup {
+    pages: Mutex<BTreeMap<PageId, PageRecord>>,
+    active: Mutex<Option<PageId>>,
+    events: Mutex<Vec<PageLifecycleEvent>>,
+    notify: Notify,
+}
+
+impl ContextGroup {
+    fn new() -> Self {
+        Self {
+            pages: Mutex::new(BTreeMap::new()),
+            active: Mutex::new(None),
+            events: Mutex::new(Vec::new()),
+            notify: Notify::new(),
+        }
+    }
+
+    fn register(
+        &self,
+        handle: PageHandle,
+        opener_page_id: Option<PageId>,
+        activate: bool,
+        attention_required: bool,
+        document_generation: u64,
+    ) {
+        let page_id = PageId(handle.id);
+        if activate {
+            *self.active.lock().expect("active page lock") = Some(page_id);
+        }
+        let descriptor = PageDescriptor {
+            page: PageInfo {
+                page_id,
+                opener_page_id,
+                url: "about:blank".into(),
+                title: String::new(),
+                document_generation,
+            },
+            active: activate,
+            status: if attention_required {
+                PageStatus::AttentionRequired
+            } else {
+                PageStatus::Open
+            },
+            revision: Revision(0),
+        };
+        let mut pages = self.pages.lock().expect("page group lock");
+        if activate {
+            for record in pages.values_mut() {
+                record.descriptor.active = false;
+            }
+        }
+        pages.insert(
+            page_id,
+            PageRecord {
+                handle,
+                descriptor: descriptor.clone(),
+            },
+        );
+        drop(pages);
+        self.push_event(PageLifecycleEvent::Opened { page: descriptor });
+    }
+
+    fn push_event(&self, event: PageLifecycleEvent) {
+        self.events.lock().expect("page event lock").push(event);
+        self.notify.notify_waiters();
+    }
+
+    fn descriptors(&self) -> Vec<PageDescriptor> {
+        self.pages
+            .lock()
+            .expect("page group lock")
+            .values()
+            .map(|record| record.descriptor.clone())
+            .collect()
+    }
+
+    fn handle(&self, page_id: PageId) -> Option<PageHandle> {
+        self.pages
+            .lock()
+            .expect("page group lock")
+            .get(&page_id)
+            .filter(|record| {
+                !matches!(
+                    record.descriptor.status,
+                    PageStatus::Closed | PageStatus::Crashed
+                )
+            })
+            .map(|record| record.handle.clone())
+    }
+
+    fn activate(&self, page_id: PageId) -> Result<PageHandle, RuntimeError> {
+        let mut pages = self.pages.lock().expect("page group lock");
+        let handle = pages
+            .get(&page_id)
+            .filter(|record| {
+                !matches!(
+                    record.descriptor.status,
+                    PageStatus::Closed | PageStatus::Crashed
+                )
+            })
+            .map(|record| record.handle.clone())
+            .ok_or(RuntimeError::PageNotFound(page_id))?;
+        for record in pages.values_mut() {
+            record.descriptor.active = record.descriptor.page.page_id == page_id;
+            if record.descriptor.active && record.descriptor.status == PageStatus::AttentionRequired
+            {
+                record.descriptor.status = PageStatus::Open;
+            }
+        }
+        *self.active.lock().expect("active page lock") = Some(page_id);
+        drop(pages);
+        self.push_event(PageLifecycleEvent::Activated { page_id });
+        Ok(handle)
+    }
+
+    fn update_observation(&self, observation: &Observation) {
+        if let Some(record) = self
+            .pages
+            .lock()
+            .expect("page group lock")
+            .get_mut(&observation.page.page_id)
+        {
+            record.descriptor.page = observation.page.clone();
+            record.descriptor.revision = observation.revision;
+        }
+    }
+
+    fn update_navigation(&self, navigation: &NavigationResult) {
+        if let Some(record) = self
+            .pages
+            .lock()
+            .expect("page group lock")
+            .get_mut(&navigation.page_id)
+        {
+            record.descriptor.page.url = navigation.final_url.clone();
+            record.descriptor.page.title = navigation.title.clone();
+            record.descriptor.page.document_generation = navigation.document_generation;
+            record.descriptor.revision = navigation.revision;
+        }
+        self.push_event(PageLifecycleEvent::Navigated {
+            page_id: navigation.page_id,
+            url: navigation.final_url.clone(),
+            document_generation: navigation.document_generation,
+        });
+    }
+
+    fn update_loaded(&self, page: PageInfo, revision: Revision) {
+        let page_id = page.page_id;
+        if let Some(record) = self
+            .pages
+            .lock()
+            .expect("page group lock")
+            .get_mut(&page_id)
+        {
+            record.descriptor.page = page.clone();
+            record.descriptor.revision = revision;
+        }
+        self.push_event(PageLifecycleEvent::Navigated {
+            page_id,
+            url: page.url,
+            document_generation: page.document_generation,
+        });
+    }
+
+    fn update_revision(&self, page_id: PageId, revision: Revision) {
+        if let Some(record) = self
+            .pages
+            .lock()
+            .expect("page group lock")
+            .get_mut(&page_id)
+        {
+            record.descriptor.revision = revision;
+        }
+    }
+
+    fn close(&self, page_id: PageId) {
+        let mut pages = self.pages.lock().expect("page group lock");
+        if let Some(record) = pages.get_mut(&page_id) {
+            record.descriptor.status = PageStatus::Closed;
+            record.descriptor.active = false;
+        }
+        let should_replace_active = self
+            .active
+            .lock()
+            .expect("active page lock")
+            .is_some_and(|active| active == page_id);
+        if should_replace_active {
+            let replacement = pages
+                .values_mut()
+                .find(|record| record.descriptor.status == PageStatus::Open)
+                .map(|record| {
+                    record.descriptor.active = true;
+                    record.descriptor.page.page_id
+                });
+            *self.active.lock().expect("active page lock") = replacement;
+        }
+        drop(pages);
+        self.push_event(PageLifecycleEvent::Closed { page_id });
+    }
+
+    fn crash(&self, page_id: PageId, detail: String) {
+        if let Some(record) = self
+            .pages
+            .lock()
+            .expect("page group lock")
+            .get_mut(&page_id)
+        {
+            record.descriptor.status = PageStatus::Crashed;
+            record.descriptor.active = false;
+            record.descriptor.page.document_generation =
+                record.descriptor.page.document_generation.saturating_add(1);
+        }
+        self.push_event(PageLifecycleEvent::Crashed { page_id, detail });
+    }
+
+    #[cfg(unix)]
+    fn worker_started(&self, page_id: PageId, document_generation: u64) {
+        let active_page = *self.active.lock().expect("active page lock");
+        let mut pages = self.pages.lock().expect("page group lock");
+        let Some(record) = pages.get_mut(&page_id) else {
+            return;
+        };
+        let replaced = record.descriptor.status == PageStatus::Crashed;
+        record.descriptor.status = PageStatus::Open;
+        record.descriptor.active = active_page == Some(page_id);
+        record.descriptor.page.url = "about:blank".into();
+        record.descriptor.page.title.clear();
+        record.descriptor.page.document_generation = document_generation;
+        record.descriptor.revision = Revision(0);
+        drop(pages);
+        if replaced {
+            self.push_event(PageLifecycleEvent::Navigated {
+                page_id,
+                url: "about:blank".into(),
+                document_generation,
+            });
+        }
+    }
+
+    fn matching_page(&self, predicate: &PagePredicate) -> Option<PageHandle> {
+        self.pages
+            .lock()
+            .expect("page group lock")
+            .values()
+            .find(|record| {
+                !matches!(
+                    record.descriptor.status,
+                    PageStatus::Closed | PageStatus::Crashed
+                ) && page_matches(&record.descriptor, predicate)
+            })
+            .map(|record| record.handle.clone())
+    }
+}
+
+fn page_matches(page: &PageDescriptor, predicate: &PagePredicate) -> bool {
+    match predicate {
+        PagePredicate::Any => true,
+        PagePredicate::Id { page_id } => page.page.page_id == *page_id,
+        PagePredicate::Origin { origin } => Url::parse(&page.page.url)
+            .ok()
+            .map(|url| url.origin().ascii_serialization())
+            .is_some_and(|value| value == *origin),
+        PagePredicate::UrlContains { value } => page.page.url.contains(value),
+        PagePredicate::TitleContains { value } => page.page.title.contains(value),
+        PagePredicate::Opener { page_id } => page.page.opener_page_id == Some(*page_id),
+    }
 }
 
 #[cfg(unix)]
@@ -107,11 +413,24 @@ impl WorkerPage {
             let mut config = self.config.clone();
             config.document_generation_base =
                 NEXT_WORKER_GENERATION.fetch_add(1, Ordering::Relaxed) << 32;
+            let context_owner = self
+                .context
+                .upgrade()
+                .map(|inner| BrowserContext { inner })
+                .ok_or(RuntimeError::Closed)?;
             *client = Some(crate::worker_client::WorkerClient::spawn(
                 &config,
                 &self.options,
                 self.parent_cookies.clone(),
+                self.page_id,
+                self.opener_page_id,
+                context_owner,
             )?);
+            if let Some(context) = self.context.upgrade() {
+                context
+                    .group
+                    .worker_started(self.page_id, config.document_generation_base);
+            }
         }
         let result = client
             .as_mut()
@@ -141,6 +460,7 @@ pub struct BrowserConfig {
     pub command_timeout: Duration,
     pub navigation_timeout: Duration,
     pub document_generation_base: u64,
+    pub storage_limits: StorageLimits,
 }
 
 impl Default for BrowserConfig {
@@ -156,6 +476,7 @@ impl Default for BrowserConfig {
             command_timeout: Duration::from_secs(10),
             navigation_timeout: Duration::from_secs(30),
             document_generation_base: 0,
+            storage_limits: StorageLimits::default(),
         }
     }
 }
@@ -165,6 +486,13 @@ pub struct ContextOptions {
     /// Context-owned cookies and storage are discarded when the context closes.
     pub ephemeral: bool,
     pub network_policy: NetworkPolicy,
+    /// Whether page-authored scripts and `_blank` navigations may create popups.
+    #[serde(default = "default_allow_popups")]
+    pub allow_popups: bool,
+}
+
+const fn default_allow_popups() -> bool {
+    true
 }
 
 impl Default for ContextOptions {
@@ -172,6 +500,7 @@ impl Default for ContextOptions {
         Self {
             ephemeral: true,
             network_policy: NetworkPolicy::default(),
+            allow_popups: true,
         }
     }
 }
@@ -185,7 +514,13 @@ impl ContextOptions {
         Self {
             ephemeral: true,
             network_policy,
+            allow_popups: true,
         }
+    }
+
+    pub fn with_popups(mut self, allow_popups: bool) -> Self {
+        self.allow_popups = allow_popups;
+        self
     }
 }
 
@@ -200,9 +535,13 @@ pub enum LifecycleState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NavigationResult {
+    pub page_id: PageId,
     pub requested_url: String,
     pub final_url: String,
+    #[serde(default)]
+    pub title: String,
     pub status: u16,
+    pub document_generation: u64,
     pub revision: Revision,
     pub lifecycle: Vec<LifecycleState>,
 }
@@ -230,7 +569,7 @@ enum PageCommand {
     LoadHtml {
         url: String,
         html: String,
-        reply: oneshot::Sender<Result<Revision, RuntimeError>>,
+        reply: oneshot::Sender<Result<(Revision, PageInfo), RuntimeError>>,
     },
     Goto {
         url: String,
@@ -317,21 +656,57 @@ impl Browser {
     }
 
     pub fn new_context_with_options(&self, options: ContextOptions) -> BrowserContext {
+        let store = SharedContextStore::memory(self.config.storage_limits);
+        self.new_context_with_store(options, store, None)
+    }
+
+    pub fn new_persistent_context(
+        &self,
+        mut options: ContextOptions,
+        profile: PersistentProfile,
+    ) -> BrowserContext {
+        options.ephemeral = false;
+        let store = SharedContextStore::persistent(&profile, self.config.storage_limits);
+        self.new_context_with_store(options, store, Some(profile))
+    }
+
+    fn new_context_with_store(
+        &self,
+        options: ContextOptions,
+        store: SharedContextStore,
+        persistent_profile: Option<PersistentProfile>,
+    ) -> BrowserContext {
+        let context_cookies: Arc<dyn reqwest::cookie::CookieStore> = persistent_profile
+            .as_ref()
+            .map(PersistentProfile::cookie_store)
+            .unwrap_or_else(|| Arc::new(reqwest::cookie::Jar::default()));
         if self.worker_process {
             return BrowserContext {
-                id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
-                config: self.config.clone(),
-                broker: None,
-                worker_process: true,
-                options,
-                parent_cookies: Some(std::sync::Arc::new(reqwest::cookie::Jar::default())),
+                inner: Arc::new(BrowserContextInner {
+                    id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
+                    config: self.config.clone(),
+                    broker: None,
+                    worker_process: true,
+                    options,
+                    group: ContextGroup::new(),
+                    store,
+                    persistent_profile,
+                    #[cfg(unix)]
+                    context_events: Mutex::new(Vec::new()),
+                    #[cfg(unix)]
+                    next_context_event_id: AtomicU64::new(1),
+                    parent_cookies: Some(context_cookies),
+                    #[cfg(all(unix, feature = "v8-host"))]
+                    context_client: None,
+                }),
             };
         }
         let timeout = self.config.request_timeout;
         let max_response_bytes = self.config.max_response_bytes;
         let network_policy = options.network_policy.clone();
+        let transport_cookies = context_cookies.clone();
         let broker = std::thread::spawn(move || {
-            RustlsTransport::new(timeout, max_response_bytes)
+            RustlsTransport::with_cookie_store(timeout, max_response_bytes, transport_cookies)
                 .ok()
                 .map(|transport| {
                     SharedNetworkBroker::new(PolicyBroker::new(network_policy, transport))
@@ -340,13 +715,24 @@ impl Browser {
         .join()
         .unwrap_or(None);
         BrowserContext {
-            id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
-            config: self.config.clone(),
-            broker,
-            worker_process: false,
-            options,
-            #[cfg(unix)]
-            parent_cookies: None,
+            inner: Arc::new(BrowserContextInner {
+                id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
+                config: self.config.clone(),
+                broker,
+                worker_process: false,
+                options,
+                group: ContextGroup::new(),
+                store,
+                persistent_profile,
+                #[cfg(unix)]
+                context_events: Mutex::new(Vec::new()),
+                #[cfg(unix)]
+                next_context_event_id: AtomicU64::new(1),
+                #[cfg(unix)]
+                parent_cookies: Some(context_cookies),
+                #[cfg(all(unix, feature = "v8-host"))]
+                context_client: None,
+            }),
         }
     }
 
@@ -358,13 +744,49 @@ impl Browser {
         broker: SharedNetworkBroker,
     ) -> BrowserContext {
         BrowserContext {
-            id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
-            config: self.config.clone(),
-            broker: Some(broker),
-            worker_process: false,
-            options,
-            #[cfg(unix)]
-            parent_cookies: None,
+            inner: Arc::new(BrowserContextInner {
+                id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
+                config: self.config.clone(),
+                broker: Some(broker),
+                worker_process: false,
+                options,
+                group: ContextGroup::new(),
+                store: SharedContextStore::memory(self.config.storage_limits),
+                persistent_profile: None,
+                #[cfg(unix)]
+                context_events: Mutex::new(Vec::new()),
+                #[cfg(unix)]
+                next_context_event_id: AtomicU64::new(1),
+                #[cfg(unix)]
+                parent_cookies: None,
+                #[cfg(all(unix, feature = "v8-host"))]
+                context_client: None,
+            }),
+        }
+    }
+
+    #[cfg(all(unix, feature = "v8-host"))]
+    pub fn new_context_with_broker_and_services(
+        &self,
+        options: ContextOptions,
+        broker: SharedNetworkBroker,
+        context_client: crate::context_service::SharedContextClient,
+    ) -> BrowserContext {
+        BrowserContext {
+            inner: Arc::new(BrowserContextInner {
+                id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
+                config: self.config.clone(),
+                broker: Some(broker),
+                worker_process: false,
+                options,
+                group: ContextGroup::new(),
+                store: SharedContextStore::memory(self.config.storage_limits),
+                persistent_profile: None,
+                context_events: Mutex::new(Vec::new()),
+                next_context_event_id: AtomicU64::new(1),
+                parent_cookies: None,
+                context_client: Some(context_client),
+            }),
         }
     }
 }
@@ -381,20 +803,259 @@ impl Default for Browser {
 
 impl BrowserContext {
     pub fn id(&self) -> u64 {
-        self.id
+        self.inner.id
+    }
+
+    pub(crate) fn network_policy(&self) -> &NetworkPolicy {
+        &self.inner.options.network_policy
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn shared_network_broker(&self) -> Option<SharedNetworkBroker> {
+        self.inner.broker.clone()
+    }
+
+    pub(crate) fn popups_allowed(&self) -> bool {
+        self.inner.options.allow_popups
+    }
+
+    pub(crate) fn request_timeout(&self) -> Duration {
+        self.inner.config.request_timeout
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn cookie_header(&self, url: &Url) -> Option<String> {
+        self.inner
+            .parent_cookies
+            .as_ref()
+            .and_then(|cookies| reqwest::cookie::CookieStore::cookies(cookies.as_ref(), url))
+            .and_then(|value| value.to_str().ok().map(str::to_string))
+    }
+
+    pub fn persistent_profile_path(&self) -> Option<&std::path::Path> {
+        self.inner
+            .persistent_profile
+            .as_ref()
+            .map(PersistentProfile::path)
+    }
+
+    pub(crate) fn context_store(&self) -> SharedContextStore {
+        self.inner.store.clone()
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn push_context_event(&self, event: ContextEvent) {
+        let event_id = self
+            .inner
+            .next_context_event_id
+            .fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .context_events
+            .lock()
+            .expect("context event lock")
+            .push(ContextEventRecord { event_id, event });
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn poll_context_events(
+        &self,
+        page_id: PageId,
+        after_event_id: u64,
+        max_events: usize,
+    ) -> Result<Vec<ContextEventRecord>, RuntimeError> {
+        let page_origin = self.page_origin(page_id)?;
+        Ok(self
+            .inner
+            .context_events
+            .lock()
+            .expect("context event lock")
+            .iter()
+            .filter(|record| record.event_id > after_event_id)
+            .filter(|record| match &record.event {
+                ContextEvent::Storage {
+                    source_page_id,
+                    change,
+                } => {
+                    *source_page_id != page_id
+                        && change.scope.origin == page_origin
+                        && (change.area == crate::storage::StorageArea::Local
+                            || change.scope.top_level_page_id == page_id)
+                }
+                ContextEvent::Message { target_page_id, .. } => *target_page_id == page_id,
+                ContextEvent::PageLifecycle { .. } => true,
+            })
+            .take(max_events)
+            .cloned()
+            .collect())
+    }
+
+    pub(crate) fn page_origin(&self, page_id: PageId) -> Result<String, RuntimeError> {
+        let descriptor = self
+            .pages()
+            .into_iter()
+            .find(|page| page.page.page_id == page_id)
+            .ok_or(RuntimeError::PageNotFound(page_id))?;
+        if descriptor.page.url == "about:blank"
+            && let Some(opener) = descriptor.page.opener_page_id
+        {
+            return self.page_origin(opener);
+        }
+        Url::parse(&descriptor.page.url)
+            .map(|url| url.origin().ascii_serialization())
+            .map_err(|error| {
+                RuntimeError::ContextService(format!("page has no valid origin: {error}"))
+            })
+    }
+
+    pub(crate) fn validate_page_url(
+        &self,
+        source_page_id: PageId,
+        target: &str,
+    ) -> Result<(), RuntimeError> {
+        let url = self.resolve_page_url(source_page_id, target)?;
+        if !matches!(url.scheme(), "http" | "https" | "about") {
+            return Err(RuntimeError::ContextService(format!(
+                "page navigation scheme {:?} is not permitted",
+                url.scheme()
+            )));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_page_commit_url(
+        &self,
+        source_page_id: PageId,
+        target: &str,
+    ) -> Result<(), RuntimeError> {
+        let url = self.resolve_page_url(source_page_id, target)?;
+        if !matches!(url.scheme(), "http" | "https" | "about" | "fixture") {
+            return Err(RuntimeError::ContextService(format!(
+                "page commit scheme {:?} is not permitted",
+                url.scheme()
+            )));
+        }
+        Ok(())
+    }
+
+    fn resolve_page_url(&self, source_page_id: PageId, target: &str) -> Result<Url, RuntimeError> {
+        let source = self
+            .pages()
+            .into_iter()
+            .find(|page| page.page.page_id == source_page_id)
+            .ok_or(RuntimeError::PageNotFound(source_page_id))?;
+        Url::parse(target)
+            .or_else(|_| Url::parse(&source.page.url)?.join(target))
+            .map_err(|error| RuntimeError::ContextService(error.to_string()))
+    }
+
+    pub(crate) fn may_script_close(&self, source: PageId, target: PageId) -> bool {
+        source == target
+            || self
+                .pages()
+                .into_iter()
+                .find(|page| page.page.page_id == target)
+                .is_some_and(|page| page.page.opener_page_id == Some(source))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn commit_page_url(&self, page_id: PageId, url: String) -> Result<(), RuntimeError> {
+        let mut pages = self.inner.group.pages.lock().expect("page group lock");
+        let page = pages
+            .get_mut(&page_id)
+            .ok_or(RuntimeError::PageNotFound(page_id))?;
+        page.descriptor.page.url = url;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn queue_script_navigation(
+        &self,
+        page_id: PageId,
+        url: String,
+    ) -> Result<(), RuntimeError> {
+        let page = self
+            .inner
+            .group
+            .handle(page_id)
+            .ok_or(RuntimeError::PageNotFound(page_id))?;
+        std::thread::spawn(move || {
+            if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                let _ = runtime.block_on(page.goto(url));
+            }
+        });
+        Ok(())
     }
 
     pub fn new_page(&self) -> PageHandle {
+        let id = PageId(NEXT_PAGE_ID.fetch_add(1, Ordering::Relaxed));
+        self.create_page(id, None, true, false)
+    }
+
+    pub(crate) fn new_page_with_identity(
+        &self,
+        page_id: PageId,
+        opener_page_id: Option<PageId>,
+    ) -> PageHandle {
+        self.create_page(page_id, opener_page_id, true, false)
+    }
+
+    pub(crate) fn new_popup(
+        &self,
+        opener_page_id: PageId,
+        initial_url: Option<String>,
+    ) -> PageHandle {
+        let page_id = PageId(NEXT_PAGE_ID.fetch_add(1, Ordering::Relaxed));
+        let page = self.create_page(page_id, Some(opener_page_id), false, true);
         #[cfg(unix)]
-        if self.worker_process {
-            return PageHandle {
-                id: NEXT_PAGE_ID.fetch_add(1, Ordering::Relaxed),
+        if let Some(descriptor) = self
+            .pages()
+            .into_iter()
+            .find(|descriptor| descriptor.page.page_id == page_id)
+        {
+            self.push_context_event(ContextEvent::PageLifecycle {
+                event: PageLifecycleEvent::Opened { page: descriptor },
+            });
+        }
+        if let Some(url) = initial_url {
+            let page = page.clone();
+            std::thread::spawn(move || {
+                if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    let _ = runtime.block_on(page.goto(url));
+                }
+            });
+        }
+        page
+    }
+
+    fn create_page(
+        &self,
+        page_id: PageId,
+        opener_page_id: Option<PageId>,
+        activate: bool,
+        attention_required: bool,
+    ) -> PageHandle {
+        #[cfg(unix)]
+        if self.inner.worker_process {
+            let handle = PageHandle {
+                id: page_id.0,
+                opener_page_id,
+                context: Arc::downgrade(&self.inner),
                 sender: None,
                 worker: Some(std::sync::Arc::new(WorkerPage {
+                    page_id,
+                    opener_page_id,
+                    context: Arc::downgrade(&self.inner),
                     client: std::sync::Mutex::new(None),
-                    config: self.config.clone(),
-                    options: self.options.clone(),
+                    config: self.inner.config.clone(),
+                    options: self.inner.options.clone(),
                     parent_cookies: self
+                        .inner
                         .parent_cookies
                         .as_ref()
                         .expect("worker context owns a cookie jar")
@@ -402,13 +1063,36 @@ impl BrowserContext {
                     pending: AtomicUsize::new(0),
                 })),
             };
+            self.inner.group.register(
+                handle.clone(),
+                opener_page_id,
+                activate,
+                attention_required,
+                self.inner.config.document_generation_base,
+            );
+            return handle;
         }
-        let (sender, mut receiver) = mpsc::channel(self.config.worker_queue_capacity);
-        let id = NEXT_PAGE_ID.fetch_add(1, Ordering::Relaxed);
-        let config = self.config.clone();
-        let broker = self.broker.clone();
+        let (sender, mut receiver) = mpsc::channel(self.inner.config.worker_queue_capacity);
+        let config = self.inner.config.clone();
+        let broker = self.inner.broker.clone();
+        #[cfg(all(unix, feature = "v8-host"))]
+        let context_client = self.inner.context_client.clone().or_else(|| {
+            Some(SharedContextClient::direct(
+                BrowserContext {
+                    inner: self.inner.clone(),
+                },
+                page_id,
+            ))
+        });
         std::thread::spawn(move || {
-            let mut state = PageState::new(config, broker);
+            let mut state = PageState::new(
+                page_id,
+                opener_page_id,
+                config,
+                broker,
+                #[cfg(all(unix, feature = "v8-host"))]
+                context_client,
+            );
             while let Some(command) = receiver.blocking_recv() {
                 match command {
                     PageCommand::LoadHtml { url, html, reply } => {
@@ -423,7 +1107,8 @@ impl BrowserContext {
                             let _ = reply.send(Err(error));
                             continue;
                         }
-                        let _ = reply.send(Ok(Revision(state.revision)));
+                        let observation = state.observation(ProjectionProfile::Compact);
+                        let _ = reply.send(Ok((Revision(state.revision), observation.page)));
                     }
                     PageCommand::Goto { url, reply } => {
                         let _ = reply.send(state.navigate(url, HistoryUpdate::Push));
@@ -476,18 +1161,91 @@ impl BrowserContext {
                 }
             }
         });
-        PageHandle {
-            id,
+        let handle = PageHandle {
+            id: page_id.0,
+            opener_page_id,
+            context: Arc::downgrade(&self.inner),
             sender: Some(sender),
             #[cfg(unix)]
             worker: None,
-        }
+        };
+        self.inner.group.register(
+            handle.clone(),
+            opener_page_id,
+            activate,
+            attention_required,
+            self.inner.config.document_generation_base,
+        );
+        handle
+    }
+
+    pub fn pages(&self) -> Vec<PageDescriptor> {
+        self.inner.group.descriptors()
+    }
+
+    pub fn page_events(&self) -> Vec<PageLifecycleEvent> {
+        self.inner
+            .group
+            .events
+            .lock()
+            .expect("page event lock")
+            .clone()
+    }
+
+    pub fn active_page(&self) -> Option<PageHandle> {
+        let page_id = *self.inner.group.active.lock().expect("active page lock");
+        page_id.and_then(|page_id| self.inner.group.handle(page_id))
+    }
+
+    pub fn activate_page(&self, page_id: PageId) -> Result<PageHandle, RuntimeError> {
+        let page = self.inner.group.activate(page_id)?;
+        #[cfg(unix)]
+        self.push_context_event(ContextEvent::PageLifecycle {
+            event: PageLifecycleEvent::Activated { page_id },
+        });
+        Ok(page)
+    }
+
+    pub async fn wait_for_page(
+        &self,
+        predicate: PagePredicate,
+        wait: Duration,
+    ) -> Result<PageHandle, RuntimeError> {
+        let future = async {
+            loop {
+                let notified = self.inner.group.notify.notified();
+                if let Some(page) = self.inner.group.matching_page(&predicate) {
+                    return page;
+                }
+                notified.await;
+            }
+        };
+        tokio::time::timeout(wait, future)
+            .await
+            .map_err(|_| RuntimeError::PageWaitTimeout)
+    }
+
+    pub async fn close_page(&self, page_id: PageId) -> Result<(), RuntimeError> {
+        let page = self
+            .inner
+            .group
+            .handle(page_id)
+            .ok_or(RuntimeError::PageNotFound(page_id))?;
+        page.close().await
     }
 }
 
 impl PageHandle {
     pub fn id(&self) -> u64 {
         self.id
+    }
+
+    pub fn page_id(&self) -> PageId {
+        PageId(self.id)
+    }
+
+    pub fn opener_page_id(&self) -> Option<PageId> {
+        self.opener_page_id
     }
 
     fn local_sender(&self) -> Result<&mpsc::Sender<PageCommand>, RuntimeError> {
@@ -499,7 +1257,24 @@ impl PageHandle {
         &self,
         request: crate::worker::WorkerRequest,
     ) -> Option<Result<crate::worker::WorkerResponse, RuntimeError>> {
-        self.worker.as_ref().map(|worker| worker.request(request))
+        self.worker.as_ref().map(|worker| {
+            let result = worker.request(request);
+            if let Err(
+                RuntimeError::WorkerCrashed(detail) | RuntimeError::ProtocolViolation(detail),
+            ) = &result
+            {
+                if let Some(context) = self.context.upgrade() {
+                    context.group.crash(self.page_id(), detail.clone());
+                }
+            } else if let Err(RuntimeError::WorkerLimitExceeded { resource }) = &result
+                && let Some(context) = self.context.upgrade()
+            {
+                context
+                    .group
+                    .crash(self.page_id(), format!("worker exceeded {resource} limit"));
+            }
+            result
+        })
     }
 
     pub async fn load_html(
@@ -515,16 +1290,29 @@ impl PageHandle {
             html: html.clone(),
         }) {
             return match response? {
-                crate::worker::WorkerResponse::Loaded { revision } => Ok(revision),
+                crate::worker::WorkerResponse::Loaded { revision, page } => {
+                    if let Some(context) = self.context.upgrade() {
+                        context.group.update_loaded(page, revision);
+                    }
+                    Ok(revision)
+                }
                 response => Err(unexpected_worker_response(response)),
             };
         }
         let (reply, response) = oneshot::channel();
         self.local_sender()?
-            .send(PageCommand::LoadHtml { url, html, reply })
+            .send(PageCommand::LoadHtml {
+                url: url.clone(),
+                html,
+                reply,
+            })
             .await
             .map_err(|_| RuntimeError::Closed)?;
-        response.await.map_err(|_| RuntimeError::Closed)?
+        let (revision, page) = response.await.map_err(|_| RuntimeError::Closed)??;
+        if let Some(context) = self.context.upgrade() {
+            context.group.update_loaded(page, revision);
+        }
+        Ok(revision)
     }
 
     pub async fn goto(&self, url: impl Into<String>) -> Result<NavigationResult, RuntimeError> {
@@ -533,20 +1321,26 @@ impl PageHandle {
         if let Some(response) =
             self.worker_request(crate::worker::WorkerRequest::Goto { url: url.clone() })
         {
-            return worker_navigation(response?);
+            let navigation = worker_navigation(response?)?;
+            self.record_navigation(&navigation);
+            return Ok(navigation);
         }
         let (reply, response) = oneshot::channel();
         self.local_sender()?
             .send(PageCommand::Goto { url, reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
-        response.await.map_err(|_| RuntimeError::Closed)?
+        let navigation = response.await.map_err(|_| RuntimeError::Closed)??;
+        self.record_navigation(&navigation);
+        Ok(navigation)
     }
 
     pub async fn back(&self) -> Result<NavigationResult, RuntimeError> {
         #[cfg(unix)]
         if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Back) {
-            return worker_navigation(response?);
+            let navigation = worker_navigation(response?)?;
+            self.record_navigation(&navigation);
+            return Ok(navigation);
         }
         self.navigation_command(|reply| PageCommand::Back { reply })
             .await
@@ -555,7 +1349,9 @@ impl PageHandle {
     pub async fn forward(&self) -> Result<NavigationResult, RuntimeError> {
         #[cfg(unix)]
         if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Forward) {
-            return worker_navigation(response?);
+            let navigation = worker_navigation(response?)?;
+            self.record_navigation(&navigation);
+            return Ok(navigation);
         }
         self.navigation_command(|reply| PageCommand::Forward { reply })
             .await
@@ -564,7 +1360,9 @@ impl PageHandle {
     pub async fn refresh(&self) -> Result<NavigationResult, RuntimeError> {
         #[cfg(unix)]
         if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Refresh) {
-            return worker_navigation(response?);
+            let navigation = worker_navigation(response?)?;
+            self.record_navigation(&navigation);
+            return Ok(navigation);
         }
         self.navigation_command(|reply| PageCommand::Refresh { reply })
             .await
@@ -579,7 +1377,15 @@ impl PageHandle {
             .send(command(reply))
             .await
             .map_err(|_| RuntimeError::Closed)?;
-        response.await.map_err(|_| RuntimeError::Closed)?
+        let navigation = response.await.map_err(|_| RuntimeError::Closed)??;
+        self.record_navigation(&navigation);
+        Ok(navigation)
+    }
+
+    fn record_navigation(&self, navigation: &NavigationResult) {
+        if let Some(context) = self.context.upgrade() {
+            context.group.update_navigation(navigation);
+        }
     }
 
     pub async fn wait_for(&self, predicate: WaitPredicate) -> Result<(), RuntimeError> {
@@ -703,7 +1509,12 @@ impl PageHandle {
             profile: Some(profile),
         }) {
             return match response? {
-                crate::worker::WorkerResponse::Observation { observation } => Ok(observation),
+                crate::worker::WorkerResponse::Observation { observation } => {
+                    if let Some(context) = self.context.upgrade() {
+                        context.group.update_observation(&observation);
+                    }
+                    Ok(observation)
+                }
                 response => Err(unexpected_worker_response(response)),
             };
         }
@@ -712,7 +1523,11 @@ impl PageHandle {
             .send(PageCommand::Observe { profile, reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
-        response.await.map_err(|_| RuntimeError::Closed)
+        let observation = response.await.map_err(|_| RuntimeError::Closed)?;
+        if let Some(context) = self.context.upgrade() {
+            context.group.update_observation(&observation);
+        }
+        Ok(observation)
     }
 
     pub async fn observe_delta(&self, from: Revision) -> Result<ObservationDelta, RuntimeError> {
@@ -759,7 +1574,24 @@ impl PageHandle {
             },
         }) {
             return match response? {
-                crate::worker::WorkerResponse::Action { result } => Ok(result),
+                crate::worker::WorkerResponse::Action { result } => {
+                    if let Some(context) = self.context.upgrade() {
+                        context
+                            .group
+                            .update_revision(self.page_id(), result.revision_after);
+                        if result.effects.iter().any(|effect| {
+                            matches!(effect, Effect::PageClosed { page_id } if *page_id == self.page_id())
+                        }) {
+                            context.group.close(self.page_id());
+                            BrowserContext { inner: context.clone() }.push_context_event(ContextEvent::PageLifecycle {
+                                event: PageLifecycleEvent::Closed {
+                                    page_id: self.page_id(),
+                                },
+                            });
+                        }
+                    }
+                    Ok(result)
+                }
                 response => Err(unexpected_worker_response(response)),
             };
         }
@@ -768,21 +1600,60 @@ impl PageHandle {
             .send(PageCommand::Execute { action, reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
-        response.await.map_err(|_| RuntimeError::Closed)?
+        let result = response.await.map_err(|_| RuntimeError::Closed)??;
+        if let Some(context) = self.context.upgrade() {
+            context
+                .group
+                .update_revision(self.page_id(), result.revision_after);
+            #[cfg(unix)]
+            if result.effects.iter().any(|effect| {
+                matches!(effect, Effect::PageClosed { page_id } if *page_id == self.page_id())
+            }) {
+                context.group.close(self.page_id());
+                BrowserContext { inner: context.clone() }.push_context_event(ContextEvent::PageLifecycle {
+                    event: PageLifecycleEvent::Closed {
+                        page_id: self.page_id(),
+                    },
+                });
+            }
+        }
+        Ok(result)
     }
 
     pub async fn close(&self) -> Result<(), RuntimeError> {
         #[cfg(unix)]
         if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Close) {
             return match response? {
-                crate::worker::WorkerResponse::Closed => Ok(()),
+                crate::worker::WorkerResponse::Closed => {
+                    if let Some(context) = self.context.upgrade() {
+                        context.group.close(self.page_id());
+                        BrowserContext { inner: context }.push_context_event(
+                            ContextEvent::PageLifecycle {
+                                event: PageLifecycleEvent::Closed {
+                                    page_id: self.page_id(),
+                                },
+                            },
+                        );
+                    }
+                    Ok(())
+                }
                 response => Err(unexpected_worker_response(response)),
             };
         }
         self.local_sender()?
             .send(PageCommand::Close)
             .await
-            .map_err(|_| RuntimeError::Closed)
+            .map_err(|_| RuntimeError::Closed)?;
+        if let Some(context) = self.context.upgrade() {
+            context.group.close(self.page_id());
+            #[cfg(unix)]
+            BrowserContext { inner: context }.push_context_event(ContextEvent::PageLifecycle {
+                event: PageLifecycleEvent::Closed {
+                    page_id: self.page_id(),
+                },
+            });
+        }
+        Ok(())
     }
 }
 
@@ -805,6 +1676,12 @@ fn unexpected_worker_response(response: crate::worker::WorkerResponse) -> Runtim
 pub enum RuntimeError {
     #[error("page runtime is closed")]
     Closed,
+    #[error("page {0:?} is not open in this browser context")]
+    PageNotFound(PageId),
+    #[error("timed out waiting for a matching page")]
+    PageWaitTimeout,
+    #[error("semantic reference belongs to page {actual:?}, expected {expected:?}")]
+    WrongPage { expected: PageId, actual: PageId },
     #[error("semantic reference belongs to document generation {actual}, expected {expected}")]
     WrongDocumentGeneration { expected: u64, actual: u64 },
     #[error("semantic reference is stale or unknown")]
@@ -817,6 +1694,8 @@ pub enum RuntimeError {
     UnknownRevision(Revision),
     #[error("native script realm failed: {0}")]
     Script(String),
+    #[error("browser context service failed: {0}")]
+    ContextService(String),
     #[error("network navigation failed: {0}")]
     Network(String),
     #[error("navigation history has no entry in that direction")]
@@ -853,6 +1732,8 @@ pub struct NativeAction {
 }
 
 struct PageState {
+    page_id: PageId,
+    opener_page_id: Option<PageId>,
     config: BrowserConfig,
     url: String,
     document_generation: u64,
@@ -861,11 +1742,13 @@ struct PageState {
     document: Option<ParsedDocument>,
     #[cfg(feature = "v8-host")]
     executable: Option<crate::executable::ExecutableDocument>,
-    snapshots: BTreeMap<u64, Vec<oryn_common::v2::SemanticNodeView>>,
+    snapshots: BTreeMap<u64, Vec<oryn_common::v3::SemanticNodeView>>,
     trace: TraceLog,
     history: Vec<String>,
     history_index: Option<usize>,
     broker: Option<SharedNetworkBroker>,
+    #[cfg(all(unix, feature = "v8-host"))]
+    context_client: Option<crate::context_service::SharedContextClient>,
     #[cfg(feature = "v8-host")]
     resource_cache: BTreeMap<String, String>,
 }
@@ -874,12 +1757,23 @@ struct PageState {
 enum HistoryUpdate {
     Push,
     Preserve,
+    Reload,
 }
 
 impl PageState {
-    fn new(config: BrowserConfig, broker: Option<SharedNetworkBroker>) -> Self {
+    fn new(
+        page_id: PageId,
+        opener_page_id: Option<PageId>,
+        config: BrowserConfig,
+        broker: Option<SharedNetworkBroker>,
+        #[cfg(all(unix, feature = "v8-host"))] context_client: Option<
+            crate::context_service::SharedContextClient,
+        >,
+    ) -> Self {
         let document_generation = config.document_generation_base;
         Self {
+            page_id,
+            opener_page_id,
             config,
             url: String::new(),
             document_generation,
@@ -893,6 +1787,8 @@ impl PageState {
             history: Vec::new(),
             history_index: None,
             broker,
+            #[cfg(all(unix, feature = "v8-host"))]
+            context_client,
             #[cfg(feature = "v8-host")]
             resource_cache: BTreeMap::new(),
         }
@@ -923,6 +1819,28 @@ impl PageState {
             let mut resources = resources.clone();
             resources.insert("oryn:local-storage".into(), storage.0);
             resources.insert("oryn:session-storage".into(), storage.1);
+            #[cfg(unix)]
+            let executable = match self.context_client.clone() {
+                Some(context_client) => {
+                    crate::executable::ExecutableDocument::load_with_context_and_limits(
+                        html,
+                        &resources,
+                        self.broker.clone(),
+                        Url::parse(&self.url).ok(),
+                        self.config.max_v8_heap_bytes,
+                        (context_client, self.page_id, self.opener_page_id),
+                    )
+                }
+                None => crate::executable::ExecutableDocument::load_with_limits(
+                    html,
+                    &resources,
+                    self.broker.clone(),
+                    Url::parse(&self.url).ok(),
+                    self.config.max_v8_heap_bytes,
+                ),
+            }
+            .map_err(map_host_error)?;
+            #[cfg(not(unix))]
             let executable = crate::executable::ExecutableDocument::load_with_limits(
                 html,
                 &resources,
@@ -943,18 +1861,29 @@ impl PageState {
             }
             self.document = Some(executable.document.clone());
             self.executable = Some(executable);
-            if let Some(executable) = self.executable.as_mut()
-                && let Ok(entries) = executable.take_console_entries()
-            {
-                for entry in entries {
-                    self.trace.push(
-                        Revision(self.revision),
-                        None,
-                        TraceEventKind::Console {
-                            level: entry.level,
-                            message: entry.message,
-                        },
-                    );
+            let (console_entries, context_entries) = self
+                .executable
+                .as_mut()
+                .map(|executable| {
+                    (
+                        executable.take_console_entries().unwrap_or_default(),
+                        executable.take_context_trace_entries().unwrap_or_default(),
+                    )
+                })
+                .unwrap_or_default();
+            for entry in console_entries {
+                self.trace.push(
+                    Revision(self.revision),
+                    None,
+                    TraceEventKind::Console {
+                        level: entry.level,
+                        message: entry.message,
+                    },
+                );
+            }
+            for entry in context_entries {
+                if let Some(kind) = context_trace_kind(entry) {
+                    self.trace.push(Revision(self.revision), None, kind);
                 }
             }
         }
@@ -1006,6 +1935,64 @@ impl PageState {
                 url: requested_url.clone(),
             },
         );
+        if !matches!(history_update, HistoryUpdate::Reload)
+            && self.document.is_some()
+            && same_document_url(&self.url, current.as_str())
+        {
+            self.url = current.to_string();
+            if matches!(history_update, HistoryUpdate::Push) {
+                if let Some(index) = self.history_index {
+                    self.history.truncate(index + 1);
+                }
+                self.history.push(self.url.clone());
+                self.history_index = Some(self.history.len() - 1);
+            }
+            self.record_snapshot();
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::NavigationCommitted {
+                    url: self.url.clone(),
+                },
+            );
+            return Ok(NavigationResult {
+                page_id: self.page_id,
+                requested_url,
+                final_url: self.url.clone(),
+                title: self
+                    .document
+                    .as_ref()
+                    .map(document_title)
+                    .unwrap_or_default(),
+                status: 200,
+                document_generation: self.document_generation,
+                revision: Revision(self.revision),
+                lifecycle: vec![LifecycleState::Commit],
+            });
+        }
+        if current.as_str() == "about:blank" {
+            self.load_document(
+                current.to_string(),
+                "<!doctype html>",
+                matches!(history_update, HistoryUpdate::Push),
+                &BTreeMap::new(),
+            )?;
+            return Ok(NavigationResult {
+                page_id: self.page_id,
+                requested_url,
+                final_url: self.url.clone(),
+                title: String::new(),
+                status: 200,
+                document_generation: self.document_generation,
+                revision: Revision(self.revision),
+                lifecycle: vec![
+                    LifecycleState::Commit,
+                    LifecycleState::DomContentLoaded,
+                    LifecycleState::Load,
+                    LifecycleState::NetworkIdle,
+                ],
+            });
+        }
         let (status, body) = loop {
             self.trace.push(
                 Revision(self.revision),
@@ -1030,6 +2017,7 @@ impl PageState {
                         "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8".into(),
                     )],
                     body: Vec::new(),
+                    credentials: true,
                     resolved_addrs: Vec::new(),
                 })
                 .map_err(|error| {
@@ -1082,9 +2070,16 @@ impl PageState {
             &resources,
         )?;
         Ok(NavigationResult {
+            page_id: self.page_id,
             requested_url,
             final_url: self.url.clone(),
+            title: self
+                .document
+                .as_ref()
+                .map(document_title)
+                .unwrap_or_default(),
             status,
+            document_generation: self.document_generation,
             revision: Revision(self.revision),
             lifecycle: vec![
                 LifecycleState::Commit,
@@ -1165,27 +2160,105 @@ impl PageState {
         html: &str,
     ) -> Result<BTreeMap<String, String>, RuntimeError> {
         let parsed = parse(html);
-        let sources = parsed
+        let mut import_map: BTreeMap<String, String> = BTreeMap::new();
+        let mut sources = parsed
             .dom
             .iter()
             .filter_map(|(_, node)| match &node.kind {
                 crate::dom::NodeKind::Element { name }
                     if matches!(name.local.as_ref(), "script" | "iframe") =>
                 {
-                    node.attributes
-                        .get("src")
-                        .cloned()
-                        .map(|source| (source, name.local.as_ref() == "iframe"))
+                    node.attributes.get("src").cloned().map(|source| {
+                        (
+                            source,
+                            name.local.as_ref() == "iframe",
+                            name.local.as_ref() == "script"
+                                && node.attributes.get("type").map(String::as_str)
+                                    == Some("module"),
+                        )
+                    })
                 }
                 _ => None,
             })
             .collect::<Vec<_>>();
+        for (id, node) in parsed.dom.iter() {
+            let crate::dom::NodeKind::Element { name } = &node.kind else {
+                continue;
+            };
+            if name.local.as_ref() == "script" && !node.attributes.contains_key("src") {
+                let source = parsed.dom.text_content(id).unwrap_or_default();
+                if node.attributes.get("type").map(String::as_str) == Some("importmap")
+                    && let Ok(value) = serde_json::from_str::<serde_json::Value>(&source)
+                    && let Some(imports) =
+                        value.get("imports").and_then(serde_json::Value::as_object)
+                {
+                    for (specifier, target) in imports {
+                        if let Some(target) = target.as_str() {
+                            import_map.insert(specifier.clone(), target.to_string());
+                        }
+                    }
+                }
+                sources.extend(
+                    module_specifiers(&source)
+                        .into_iter()
+                        .map(|specifier| (specifier, false, true)),
+                );
+            }
+            if name.local.as_ref() == "link"
+                && node.attributes.get("rel").is_some_and(|value| {
+                    value.split_whitespace().any(|token| {
+                        matches!(
+                            token.to_ascii_lowercase().as_str(),
+                            "modulepreload" | "preload" | "prefetch"
+                        )
+                    })
+                })
+                && node
+                    .attributes
+                    .get("as")
+                    .is_none_or(|value| value.eq_ignore_ascii_case("script"))
+                && let Some(href) = node.attributes.get("href")
+            {
+                let relation = node.attributes.get("rel").map(String::as_str).unwrap_or("");
+                let module = relation.split_whitespace().any(|token| {
+                    matches!(
+                        token.to_ascii_lowercase().as_str(),
+                        "modulepreload" | "prefetch"
+                    )
+                });
+                sources.push((href.clone(), false, module));
+            }
+        }
+        // html5ever deliberately treats some script data forms differently
+        // from ordinary text nodes. Parse import-map script bodies from the
+        // original response as well so aliases remain available to every
+        // preloaded module, including Nuxt's generated `#entry` imports.
+        let import_map_scripts = regex::Regex::new(
+            r#"(?is)<script\b[^>]*\btype\s*=\s*[\"'](?:importmap|application/importmap\+json)[\"'][^>]*>(.*?)</script>"#,
+        )
+        .expect("valid import-map expression");
+        for captures in import_map_scripts.captures_iter(html) {
+            let Some(source) = captures.get(1).map(|capture| capture.as_str()) else {
+                continue;
+            };
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(source) else {
+                continue;
+            };
+            let Some(imports) = value.get("imports").and_then(serde_json::Value::as_object) else {
+                continue;
+            };
+            for (specifier, target) in imports {
+                if let Some(target) = target.as_str() {
+                    import_map.insert(specifier.clone(), target.to_string());
+                }
+            }
+        }
         let mut resources = BTreeMap::new();
         let mut pending = sources
             .into_iter()
-            .map(|(source, frame)| (base_url.clone(), source, frame))
+            .map(|(source, frame, module)| (base_url.clone(), source, frame, module))
             .collect::<Vec<_>>();
-        while let Some((parent, source, frame)) = pending.pop() {
+        while let Some((parent, source, frame, module)) = pending.pop() {
             if resources.contains_key(&source) {
                 continue;
             }
@@ -1218,12 +2291,20 @@ impl PageState {
                 self.resource_cache.insert(cache_key, body.clone());
                 body
             };
-            for dependency in module_specifiers(&body) {
-                if !resources.contains_key(&dependency) {
-                    pending.push((absolute.clone(), dependency, false));
+            if module {
+                for dependency in module_specifiers(&body) {
+                    let dependency = import_map.get(&dependency).cloned().unwrap_or(dependency);
+                    if !resources.contains_key(&dependency) {
+                        pending.push((absolute.clone(), dependency, false, true));
+                    }
                 }
             }
             resources.insert(source, body);
+        }
+        for (specifier, target) in import_map {
+            if resources.contains_key(&target) {
+                resources.insert(format!("oryn:module-alias:{specifier}"), target);
+            }
         }
         Ok(resources)
     }
@@ -1267,6 +2348,7 @@ impl PageState {
                     url: url.to_string(),
                     headers: vec![("accept".into(), accept.into())],
                     body: Vec::new(),
+                    credentials: true,
                     resolved_addrs: Vec::new(),
                 })
                 .map_err(|error| RuntimeError::Network(error.to_string()))?;
@@ -1323,7 +2405,7 @@ impl PageState {
         if self.url.is_empty() {
             return Err(RuntimeError::HistoryBoundary);
         }
-        self.navigate(self.url.clone(), HistoryUpdate::Preserve)
+        self.navigate(self.url.clone(), HistoryUpdate::Reload)
     }
 
     fn wait_for(&mut self, predicate: &WaitPredicate) -> Result<(), RuntimeError> {
@@ -1355,10 +2437,16 @@ impl PageState {
             WaitPredicate::SelectorVisible(selector) => {
                 self.document.as_ref().is_some_and(|document| {
                     selector_nodes(document, selector).any(|id| {
-                        project_element(&document.dom, id, self.document_generation, id.slot + 1)
-                            .is_some_and(|node| {
-                                node.states.contains(&oryn_common::v2::NodeState::Visible)
-                            })
+                        project_element(
+                            &document.dom,
+                            id,
+                            self.page_id,
+                            self.document_generation,
+                            id.slot + 1,
+                        )
+                        .is_some_and(|node| {
+                            node.states.contains(&oryn_common::v3::NodeState::Visible)
+                        })
                     })
                 })
             }
@@ -1370,11 +2458,12 @@ impl PageState {
                             project_element(
                                 &document.dom,
                                 id,
+                                self.page_id,
                                 self.document_generation,
                                 id.slot + 1,
                             )
                             .is_some_and(|node| {
-                                node.states.contains(&oryn_common::v2::NodeState::Hidden)
+                                node.states.contains(&oryn_common::v3::NodeState::Hidden)
                             })
                         })
                 })
@@ -1391,6 +2480,23 @@ impl PageState {
                 .ok_or(RuntimeError::EvaluationUnavailable)?;
             let value = executable.evaluate(source).map_err(map_host_error)?;
             self.document = Some(executable.document.clone());
+            let console_entries = executable.take_console_entries().unwrap_or_default();
+            let context_entries = executable.take_context_trace_entries().unwrap_or_default();
+            for entry in console_entries {
+                self.trace.push(
+                    Revision(self.revision),
+                    None,
+                    TraceEventKind::Console {
+                        level: entry.level,
+                        message: entry.message,
+                    },
+                );
+            }
+            for entry in context_entries {
+                if let Some(kind) = context_trace_kind(entry) {
+                    self.trace.push(Revision(self.revision), None, kind);
+                }
+            }
             Ok(value)
         }
         #[cfg(not(feature = "v8-host"))]
@@ -1419,6 +2525,34 @@ impl PageState {
                 .map(|executable| executable.diagnostics.clone())
                 .unwrap_or_default();
             capabilities.push(layout);
+            capabilities.extend([
+                unsupported_capability(
+                    "cross_origin_dom",
+                    "cross-origin frame contents remain opaque",
+                ),
+                unsupported_capability(
+                    "service_worker_and_cache_api",
+                    "service workers and Cache API are outside G3",
+                ),
+                unsupported_capability(
+                    "webrtc_and_media",
+                    "WebRTC and media capture are outside G3",
+                ),
+                unsupported_capability(
+                    "xhr.synchronous_main_thread",
+                    "synchronous main-thread XHR is intentionally unsupported",
+                ),
+                CapabilityDiagnostic {
+                    capability: "indexeddb.advanced".into(),
+                    support: SupportLevel::Partial,
+                    alternatives: vec![ExecutionDomain::Chromium, ExecutionDomain::Webkit],
+                    handoff_lossy: true,
+                    detail: Some(
+                        "compound keys, multi-entry indexes, key-range intervals, and durability controls are outside the G3 subset"
+                            .into(),
+                    ),
+                },
+            ]);
             capabilities
         }
         #[cfg(not(feature = "v8-host"))]
@@ -1454,7 +2588,13 @@ impl PageState {
             .ok_or(RuntimeError::StaleSemanticRef)?;
         selector_nodes(document, selector)
             .filter_map(|id| {
-                project_element(&document.dom, id, self.document_generation, id.slot + 1)
+                project_element(
+                    &document.dom,
+                    id,
+                    self.page_id,
+                    self.document_generation,
+                    id.slot + 1,
+                )
             })
             .find(|node| node.actions.contains(&action))
             .map(|node| node.semantic_ref)
@@ -1567,6 +2707,8 @@ impl PageState {
     fn observation(&self, profile: ProjectionProfile) -> Observation {
         let Some(document) = &self.document else {
             let mut observation = empty_observation(
+                self.page_id,
+                self.opener_page_id,
                 "about:blank".into(),
                 String::new(),
                 self.document_generation,
@@ -1577,6 +2719,8 @@ impl PageState {
         Observation {
             contract_version: CONTRACT_VERSION,
             page: PageInfo {
+                page_id: self.page_id,
+                opener_page_id: self.opener_page_id,
                 url: self.url.clone(),
                 title: document_title(document),
                 document_generation: self.document_generation,
@@ -1586,9 +2730,9 @@ impl PageState {
             source: ObservationSource::NativeDom,
             nodes: match profile {
                 ProjectionProfile::Full => {
-                    project_document_full(&document.dom, self.document_generation)
+                    project_document_full(&document.dom, self.page_id, self.document_generation)
                 }
-                _ => project_document(&document.dom, self.document_generation),
+                _ => project_document(&document.dom, self.page_id, self.document_generation),
             },
             capabilities: self.capabilities(),
             diagnostics: document.errors.clone(),
@@ -1600,7 +2744,7 @@ impl PageState {
         let nodes = self
             .document
             .as_ref()
-            .map(|document| project_document(&document.dom, self.document_generation))
+            .map(|document| project_document(&document.dom, self.page_id, self.document_generation))
             .unwrap_or_default();
         self.snapshots.insert(self.revision, nodes);
     }
@@ -1626,6 +2770,7 @@ impl PageState {
             .collect();
         Ok(ObservationDelta {
             contract_version: CONTRACT_VERSION,
+            page_id: self.page_id,
             from_revision: from,
             to_revision: Revision(self.revision),
             upserted: current
@@ -1642,6 +2787,12 @@ impl PageState {
     }
 
     fn execute(&mut self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
+        if action.target.page_id != self.page_id {
+            return Err(RuntimeError::WrongPage {
+                expected: self.page_id,
+                actual: action.target.page_id,
+            });
+        }
         if action.target.document_generation != self.document_generation {
             return Err(RuntimeError::WrongDocumentGeneration {
                 expected: self.document_generation,
@@ -1725,6 +2876,7 @@ impl PageState {
             project_element(
                 &document.dom,
                 node_id,
+                self.page_id,
                 self.document_generation,
                 node_id.slot + 1,
             )
@@ -1751,10 +2903,12 @@ impl PageState {
         let result = ActionResult {
             contract_version: CONTRACT_VERSION,
             action_id: ActionId(self.next_action_id),
+            page_id: self.page_id,
             revision_before,
             revision_after: Revision(self.revision),
             delta: Some(ObservationDelta {
                 contract_version: CONTRACT_VERSION,
+                page_id: self.page_id,
                 from_revision: revision_before,
                 to_revision: Revision(self.revision),
                 upserted,
@@ -1807,6 +2961,7 @@ impl PageState {
             .apply_action(node_id, action.action, action.value.as_deref())
             .map_err(map_host_error)?;
         let console_entries = executable.take_console_entries().unwrap_or_default();
+        let context_entries = executable.take_context_trace_entries().unwrap_or_default();
         let pending_navigation = executable.location().ok().filter(|location| {
             location != &self.url && Url::parse(location).ok() != Url::parse(&self.url).ok()
         });
@@ -1833,6 +2988,7 @@ impl PageState {
             .collect::<BTreeMap<_, _>>();
         let delta = ObservationDelta {
             contract_version: CONTRACT_VERSION,
+            page_id: self.page_id,
             from_revision: revision_before,
             to_revision: Revision(self.revision),
             upserted: after
@@ -1869,6 +3025,7 @@ impl PageState {
         let mut result = ActionResult {
             contract_version: CONTRACT_VERSION,
             action_id: ActionId(self.next_action_id),
+            page_id: self.page_id,
             revision_before,
             revision_after: Revision(self.revision),
             delta: Some(delta),
@@ -1894,6 +3051,15 @@ impl PageState {
                 },
             );
         }
+        for entry in context_entries {
+            if let Some(effect) = context_trace_effect(&entry) {
+                result.effects.push(effect);
+            }
+            if let Some(kind) = context_trace_kind(entry) {
+                self.trace
+                    .push(Revision(self.revision), Some(result.action_id), kind);
+            }
+        }
         if result
             .delta
             .as_ref()
@@ -1914,6 +3080,150 @@ impl PageState {
             result.effects.push(Effect::Navigation { url: location });
         }
         Ok(result)
+    }
+}
+
+#[cfg(feature = "v8-host")]
+fn context_trace_effect(entry: &crate::executable::ContextTraceEntry) -> Option<Effect> {
+    let detail = &entry.detail;
+    let page_id = |key: &str| {
+        detail
+            .get(key)
+            .and_then(serde_json::Value::as_u64)
+            .map(PageId)
+    };
+    let string = |key: &str| {
+        detail
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    match entry.kind.as_str() {
+        "page_created" => Some(Effect::PageOpened {
+            page_id: page_id("page_id")?,
+            opener_page_id: page_id("opener_page_id"),
+            url: string("url"),
+        }),
+        "page_activated" => Some(Effect::PageActivated {
+            page_id: page_id("page_id")?,
+        }),
+        "page_closed" => Some(Effect::PageClosed {
+            page_id: page_id("page_id")?,
+        }),
+        "opener_message" => Some(Effect::Message {
+            source_page_id: page_id("source_page_id")?,
+            target_page_id: page_id("target_page_id")?,
+            origin: string("origin"),
+        }),
+        "storage_changed" => Some(Effect::Storage {
+            area: string("area"),
+            origin: string("origin"),
+            operation: if detail.get("key").is_some_and(serde_json::Value::is_null) {
+                "clear".into()
+            } else {
+                "set_or_remove".into()
+            },
+        }),
+        "request_started" => Some(Effect::Request {
+            method: string("method"),
+            url: string("url"),
+        }),
+        "response_received" => Some(Effect::Response {
+            url: string("url"),
+            status: detail
+                .get("status")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or_default() as u16,
+        }),
+        "web_socket_frame" => Some(Effect::WebSocket {
+            operation: format!("{}_{}", string("direction"), string("frame_type")),
+            url: string("url"),
+        }),
+        "capability_failure" => Some(Effect::Capability {
+            diagnostic: unsupported_capability(&string("capability"), &string("detail")),
+        }),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "v8-host")]
+fn context_trace_kind(entry: crate::executable::ContextTraceEntry) -> Option<TraceEventKind> {
+    let detail = entry.detail;
+    let number = |key: &str| detail.get(key).and_then(serde_json::Value::as_u64);
+    let string = |key: &str| {
+        detail
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    match entry.kind.as_str() {
+        "page_created" => Some(TraceEventKind::PageCreated {
+            page_id: number("page_id")?,
+            opener_page_id: number("opener_page_id"),
+        }),
+        "page_activated" => Some(TraceEventKind::PageActivated {
+            page_id: number("page_id")?,
+        }),
+        "page_closed" => Some(TraceEventKind::PageClosed {
+            page_id: number("page_id")?,
+        }),
+        "opener_message" => Some(TraceEventKind::OpenerMessage {
+            source_page_id: number("source_page_id")?,
+            target_page_id: number("target_page_id")?,
+            origin: string("origin"),
+        }),
+        "storage_changed" => Some(TraceEventKind::StorageChanged {
+            area: string("area"),
+            origin: string("origin"),
+            key: detail
+                .get("key")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+        }),
+        "request_started" => Some(TraceEventKind::RequestStarted {
+            method: string("method"),
+            url: string("url"),
+        }),
+        "response_received" => Some(TraceEventKind::ResponseReceived {
+            url: string("url"),
+            status: number("status")? as u16,
+            bytes: number("bytes")? as usize,
+        }),
+        "xhr_state_changed" => Some(TraceEventKind::XhrStateChanged {
+            url: string("url"),
+            ready_state: number("ready_state")? as u8,
+        }),
+        "stream_chunk" => Some(TraceEventKind::StreamChunk {
+            direction: string("direction"),
+            bytes: number("bytes")? as usize,
+        }),
+        "web_socket_frame" => Some(TraceEventKind::WebSocketFrame {
+            socket_id: number("socket_id")?,
+            direction: string("direction"),
+            frame_type: string("frame_type"),
+            bytes: number("bytes")? as usize,
+        }),
+        "capability_failure" => Some(TraceEventKind::PolicyDenied {
+            capability: string("capability"),
+        }),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "v8-host")]
+fn unsupported_capability(capability: &str, detail: &str) -> CapabilityDiagnostic {
+    CapabilityDiagnostic {
+        capability: capability.into(),
+        support: SupportLevel::Unsupported,
+        alternatives: vec![
+            ExecutionDomain::Chromium,
+            ExecutionDomain::Webkit,
+            ExecutionDomain::UserBrowser,
+        ],
+        handoff_lossy: true,
+        detail: Some(detail.into()),
     }
 }
 
@@ -2100,31 +3410,100 @@ fn escape_html(value: &str) -> String {
         .replace('"', "&quot;")
 }
 
+fn same_document_url(left: &str, right: &str) -> bool {
+    let (Ok(mut left), Ok(mut right)) = (Url::parse(left), Url::parse(right)) else {
+        return false;
+    };
+    left.set_fragment(None);
+    right.set_fragment(None);
+    left == right
+}
+
 #[cfg(feature = "v8-host")]
 fn module_specifiers(source: &str) -> Vec<String> {
-    source
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            if !line.starts_with("import ") && !line.starts_with("export ") {
-                return None;
-            }
-            let candidate = line
-                .split_once(" from ")
-                .map(|(_, value)| value)
-                .or_else(|| line.strip_prefix("import "))?;
-            let candidate = candidate.trim().trim_end_matches(';').trim();
-            let quote = candidate.chars().next()?;
-            matches!(quote, '\'' | '\"').then(|| {
-                candidate[1..]
-                    .split(quote)
-                    .next()
-                    .unwrap_or_default()
-                    .to_string()
-            })
+    static MODULE_SPECIFIER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let pattern = MODULE_SPECIFIER.get_or_init(|| {
+        regex::Regex::new(
+            r#"(?m)(?:\bimport|\bexport)[^;\n]*?\bfrom\s*["']([^"']+)["']|\bimport\s*(?:\(\s*)?["']([^"']+)["']"#,
+        )
+        .expect("valid module-specifier pattern")
+    });
+    let source = strip_javascript_comments(source);
+    pattern
+        .captures_iter(&source)
+        .filter_map(|captures| captures.get(1).or_else(|| captures.get(2)))
+        .map(|value| value.as_str().to_string())
+        .filter(|specifier| {
+            specifier.starts_with('.')
+                || specifier.starts_with('/')
+                || specifier.starts_with('#')
+                || Url::parse(specifier).is_ok()
         })
-        .filter(|specifier| !specifier.is_empty())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .collect()
+}
+
+#[cfg(feature = "v8-host")]
+fn strip_javascript_comments(source: &str) -> String {
+    let chars = source.chars().collect::<Vec<_>>();
+    let mut output = String::with_capacity(source.len());
+    let mut index = 0;
+    let mut quote = None;
+    let mut block_comment = false;
+    while index < chars.len() {
+        let current = chars[index];
+        let next = chars.get(index + 1).copied();
+        if block_comment {
+            if current == '*' && next == Some('/') {
+                block_comment = false;
+                output.push(' ');
+                output.push(' ');
+                index += 2;
+            } else {
+                output.push(if current == '\n' { '\n' } else { ' ' });
+                index += 1;
+            }
+            continue;
+        }
+        if let Some(delimiter) = quote {
+            output.push(current);
+            if current == '\\'
+                && let Some(next) = next
+            {
+                output.push(next);
+                index += 2;
+                continue;
+            }
+            if current == delimiter {
+                quote = None;
+            }
+            index += 1;
+            continue;
+        }
+        if matches!(current, '\'' | '"' | '`') {
+            quote = Some(current);
+            output.push(current);
+            index += 1;
+        } else if current == '/' && next == Some('*') {
+            block_comment = true;
+            output.push(' ');
+            output.push(' ');
+            index += 2;
+        } else if current == '/' && next == Some('/') {
+            output.push(' ');
+            output.push(' ');
+            index += 2;
+            while index < chars.len() && chars[index] != '\n' {
+                output.push(' ');
+                index += 1;
+            }
+        } else {
+            output.push(current);
+            index += 1;
+        }
+    }
+    output
 }
 
 #[cfg(feature = "v8-host")]
@@ -2175,7 +3554,7 @@ mod tests {
         net::TcpListener,
     };
 
-    use oryn_common::v2::{ExecutionDomain, ObservationSource};
+    use oryn_common::v3::{ExecutionDomain, ObservationSource};
 
     use super::*;
 
@@ -2271,6 +3650,76 @@ mod tests {
                 .ends_with("/two")
         );
         server.join().expect("fixture server");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn about_blank_is_internal_and_history_safe() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html("about:blank", "<!doctype html>")
+            .await
+            .expect("load initial blank document");
+        page.load_html("https://example.test/next", "<title>Next</title>")
+            .await
+            .expect("load next document");
+
+        let back = page.back().await.expect("return to about:blank");
+        assert_eq!(back.final_url, "about:blank");
+        assert_eq!(back.status, 200);
+        assert_eq!(back.lifecycle.last(), Some(&LifecycleState::NetworkIdle));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn internal_fixture_urls_may_commit_but_cannot_escape_as_navigation() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        let fixture = "fixture:///tmp/oryn-g3-smoke.html";
+
+        context
+            .validate_page_commit_url(page.page_id(), fixture)
+            .expect("synthetic fixture document may commit its own URL");
+        assert!(context.validate_page_url(page.page_id(), fixture).is_err());
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn fragment_activation_preserves_the_live_document() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/app",
+            r##"<a id=route href="#users" onclick="document.querySelector('#view').textContent='Users'">Users</a><output id=view>Dashboard</output>"##,
+        )
+        .await
+        .expect("load app");
+        let before = page.observe().await.expect("observe app");
+        let target = before
+            .nodes
+            .iter()
+            .find(|node| node.name == "Users")
+            .expect("route link")
+            .semantic_ref;
+
+        page.execute(NativeAction {
+            target,
+            action: SemanticAction::Click,
+            value: None,
+        })
+        .await
+        .expect("activate fragment route");
+        let after = page.observe().await.expect("observe routed app");
+
+        assert_eq!(
+            after.page.document_generation,
+            before.page.document_generation
+        );
+        assert_eq!(after.page.url, "https://example.test/app#users");
+        assert!(
+            page.extract(ContentKind::Text, None)
+                .await
+                .expect("extract routed text")
+                .as_str()
+                .is_some_and(|text| text.contains("Users"))
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -2486,7 +3935,7 @@ mod tests {
                     .and_then(|line| line.split_whitespace().nth(1))
                     .unwrap_or("/");
                 let body = if path == "/frame" {
-                    "<title>Child</title><button id=frame-action>Frame action</button>"
+                    "<title>Child</title><button id=frame-action onclick=\"this.textContent='Clicked in child'\">Pending</button><script>globalThis.frameRealmMarker='isolated';document.querySelector('#frame-action').textContent='Frame action'</script>"
                 } else {
                     "<iframe src=/frame></iframe><iframe src=https://cross-origin.invalid/frame></iframe>"
                 };
@@ -2512,6 +3961,37 @@ mod tests {
             capability.capability == "html.frame.cross_origin"
                 && capability.support == SupportLevel::Unsupported
         }));
+        assert_eq!(
+            page.evaluate("typeof frameRealmMarker")
+                .await
+                .expect("top-level realm remains isolated"),
+            "undefined"
+        );
+        assert_eq!(
+            page.evaluate("document.querySelector('iframe').contentDocument.querySelector('#frame-action').textContent")
+                .await
+                .expect("same-origin frame DOM is accessible"),
+            "Frame action"
+        );
+        let frame_action = observation
+            .nodes
+            .iter()
+            .find(|node| node.name == "Frame action")
+            .expect("frame action target")
+            .semantic_ref;
+        page.execute(NativeAction {
+            target: frame_action,
+            action: SemanticAction::Click,
+            value: None,
+        })
+        .await
+        .expect("execute inside isolated frame realm");
+        assert_eq!(
+            page.evaluate("document.querySelector('iframe').contentDocument.querySelector('#frame-action').textContent")
+                .await
+                .expect("updated same-origin frame DOM is reflected"),
+            "Clicked in child"
+        );
         server.join().expect("fixture server");
     }
 
@@ -2568,6 +4048,7 @@ mod tests {
         let error = page
             .execute(NativeAction {
                 target: SemanticRef {
+                    page_id: input.semantic_ref.page_id,
                     document_generation: 0,
                     node: input.semantic_ref.node,
                 },
@@ -2607,5 +4088,857 @@ mod tests {
         .expect("click through page actor");
         let after = page.observe().await.expect("observe mutation");
         assert!(after.nodes.iter().any(|node| node.name == "Items: 1"));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn page_group_shares_local_storage_clones_session_and_rejects_foreign_refs() {
+        let context = Browser::new().new_context();
+        let opener = context.new_page();
+        opener
+            .load_html(
+                "https://app.example.test/start",
+                r#"<button id=open>Open</button><script>
+                  localStorage.setItem('shared','from-opener');
+                  sessionStorage.setItem('session','initial');
+                  document.querySelector('#open').onclick=()=>window.open('https://app.example.test/callback');
+                </script>"#,
+            )
+            .await
+            .expect("load opener");
+        opener
+            .evaluate("String(window.open('https://app.example.test/callback').__orynPageId)")
+            .await
+            .expect("open popup");
+        let popup = context
+            .wait_for_page(
+                PagePredicate::Opener {
+                    page_id: opener.page_id(),
+                },
+                Duration::from_secs(1),
+            )
+            .await
+            .expect("popup");
+        let popup = context
+            .activate_page(popup.page_id())
+            .expect("activate popup");
+        popup
+            .load_html(
+                "https://app.example.test/callback",
+                r#"<output id=result></output><script>
+                  document.querySelector('#result').textContent=localStorage.getItem('shared')+'|'+sessionStorage.getItem('session');
+                  sessionStorage.setItem('session','popup-only');
+                </script>"#,
+            )
+            .await
+            .expect("load popup");
+        assert_eq!(
+            popup
+                .evaluate("document.querySelector('#result').textContent")
+                .await
+                .expect("read popup storage"),
+            "from-opener|initial"
+        );
+        assert_eq!(
+            opener
+                .evaluate("sessionStorage.getItem('session')")
+                .await
+                .expect("read opener session"),
+            "initial"
+        );
+
+        let foreign = opener
+            .observe()
+            .await
+            .expect("observe opener")
+            .nodes
+            .into_iter()
+            .find(|node| node.name == "Open")
+            .expect("button")
+            .semantic_ref;
+        let error = popup
+            .execute(NativeAction {
+                target: foreign,
+                action: SemanticAction::Click,
+                value: None,
+            })
+            .await
+            .expect_err("foreign page reference must fail");
+        assert!(matches!(error, RuntimeError::WrongPage { .. }));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn web_crypto_file_and_stream_subset_is_executable() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://app.example.test/apis",
+            r#"<output id=result>pending</output><script>
+              const file=new File(['hello'],'hello.txt',{type:'text/plain',lastModified:7});
+              const transform=new TransformStream({transform(chunk,controller){controller.enqueue(chunk.toUpperCase());}});
+              const chunks=[];
+              const sink=new WritableStream({write(chunk){chunks.push(chunk);}});
+              new ReadableStream({start(controller){controller.enqueue('oryn');controller.close();}}).pipeThrough(transform).pipeTo(sink).then(async()=>{
+                const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('abc')));
+                const uuid=crypto.randomUUID();
+                document.querySelector('#result').textContent=(await file.text())+'|'+chunks.join('')+'|'+digest.length+'|'+uuid.length;
+              });
+            </script>"#,
+        )
+        .await
+        .expect("load API fixture");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("read API result"),
+            "hello|ORYN|32|36"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn streams_expose_cancellation_and_bounded_writer_readiness() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://app.example.test/stream-control",
+            r#"<output id=result>pending</output><script>
+              let cancelled='';
+              const readable=new ReadableStream({cancel(reason){cancelled=reason;}});
+              const writer=new WritableStream({write(){}}).getWriter();
+              Promise.all([readable.cancel('stop'),writer.ready]).then(()=>{
+                document.querySelector('#result').textContent=cancelled+'|'+writer.desiredSize+'|ready';
+              });
+            </script>"#,
+        )
+        .await
+        .expect("load controlled stream fixture");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("read stream control result"),
+            "stop|1|ready"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn indexed_db_upgrade_transaction_and_cursor_subset_is_executable() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://app.example.test/idb",
+            r#"<output id=result>pending</output><script>
+              const open=indexedDB.open('app',1);
+              open.onupgradeneeded=event=>event.target.result.createObjectStore('items',{keyPath:'id'}).createIndex('by-name','name',{unique:true});
+              open.onsuccess=event=>{
+                const db=event.target.result;
+                const write=db.transaction('items','readwrite').objectStore('items').put({id:7,name:'oryn'});
+                write.onsuccess=()=>{
+                  const request=db.transaction('items').objectStore('items').index('by-name').get('oryn');
+                  request.onsuccess=()=>document.querySelector('#result').textContent=request.result.id+'|'+request.result.name;
+                };
+              };
+            </script>"#,
+        )
+        .await
+        .expect("load IndexedDB fixture");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("read IndexedDB result"),
+            "7|oryn"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn parent_brokered_websocket_delivers_text_binary_and_close_frames() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind WebSocket fixture");
+        let address = listener.local_addr().expect("fixture address");
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept WebSocket");
+            let mut socket = tungstenite::accept(stream).expect("upgrade WebSocket");
+            let text = socket.read().expect("read text WebSocket frame");
+            assert_eq!(text.into_text().expect("text frame"), "hello");
+            socket
+                .send(tungstenite::Message::Text("hello".into()))
+                .expect("echo text WebSocket frame");
+            let binary = socket.read().expect("read binary WebSocket frame");
+            assert_eq!(binary.into_data().as_ref(), &[0, 255, 7]);
+            socket
+                .send(tungstenite::Message::Binary(vec![7, 255, 0].into()))
+                .expect("echo binary WebSocket frame");
+            socket
+                .close(Some(tungstenite::protocol::CloseFrame {
+                    code: tungstenite::protocol::frame::coding::CloseCode::Library(4001),
+                    reason: "fixture-complete".into(),
+                }))
+                .expect("close WebSocket fixture");
+        });
+        let context = Browser::new().new_context_with_options(ContextOptions::loopback_test());
+        let page = context.new_page();
+        page.load_html(
+            format!("http://{address}/fixture"),
+            &format!(
+                r#"<output id=result>pending</output><script>
+                  const socket=new WebSocket('ws://{address}/socket');socket.binaryType='arraybuffer';
+                  const events=[];
+                  socket.onopen=()=>socket.send('hello');
+                  socket.onmessage=event=>{{
+                    if(typeof event.data==='string'){{events.push(event.data);socket.send(new Uint8Array([0,255,7]));}}
+                    else events.push([...new Uint8Array(event.data)].join(','));
+                  }};
+                  socket.onclose=event=>document.querySelector('#result').textContent=events.join('|')+'|'+event.code+'|'+event.reason;
+                </script>"#
+            ),
+        )
+        .await
+        .expect("load WebSocket fixture");
+        let result = page
+            .evaluate("__oryn_drain(true);__oryn_drain(true);document.querySelector('#result').textContent")
+            .await
+            .expect("read WebSocket result");
+        assert_eq!(result, "hello|7,255,0|4001|fixture-complete");
+        server.join().expect("WebSocket fixture server");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn popup_opener_post_message_and_storage_events_are_context_scoped() {
+        let context = Browser::new().new_context();
+        let opener = context.new_page();
+        opener
+            .load_html(
+                "https://app.example.test/start",
+                "<script>globalThis.storageEvents=0;addEventListener('storage',()=>storageEvents++);globalThis.child=window.open()</script>",
+            )
+            .await
+            .expect("load opener");
+        let popup = context
+            .wait_for_page(
+                PagePredicate::Opener {
+                    page_id: opener.page_id(),
+                },
+                Duration::from_secs(1),
+            )
+            .await
+            .expect("popup");
+        popup
+            .load_html(
+                "https://app.example.test/popup",
+                r#"<output id=result>pending</output><script>
+                  addEventListener('message',event=>document.querySelector('#result').textContent=event.origin+'|'+event.data);
+                  addEventListener('storage',event=>document.querySelector('#result').setAttribute('data-storage',event.key+'|'+event.newValue));
+                </script>"#,
+            )
+            .await
+            .expect("load popup");
+        assert_eq!(
+            opener
+                .evaluate("child.focus();String(child.closed)")
+                .await
+                .expect("focus popup through opener proxy"),
+            "false"
+        );
+        assert_eq!(
+            context.active_page().expect("focused popup").page_id(),
+            popup.page_id()
+        );
+        opener
+            .evaluate("let rejected=false;try{child.postMessage('blocked','https://wrong.example.test')}catch(_error){rejected=true}if(!rejected)throw new Error('wrong target origin was accepted');child.postMessage('code','https://app.example.test');localStorage.setItem('token','ready');'sent'")
+            .await
+            .expect("send opener effects");
+        assert_eq!(
+            popup
+                .evaluate("__oryn_drain(false);document.querySelector('#result').textContent+'|'+document.querySelector('#result').getAttribute('data-storage')")
+                .await
+                .expect("poll popup context events"),
+            "https://app.example.test|code|token|ready"
+        );
+        assert_eq!(
+            opener
+                .evaluate("__oryn_drain(false);String(storageEvents)")
+                .await
+                .expect("poll source page storage events"),
+            "0",
+            "storage events must not be delivered back to their source realm"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn popup_policy_denial_returns_null_without_creating_a_page() {
+        let context =
+            Browser::new().new_context_with_options(ContextOptions::default().with_popups(false));
+        let page = context.new_page();
+        page.load_html(
+            "https://app.example.test/recovery",
+            r#"<button id=open>Open popup</button><output id=result>ready</output><script>
+              document.querySelector('#open').onclick=()=>document.querySelector('#result').textContent=window.open('/authorize')===null?'denied':'opened';
+            </script>"#,
+        )
+        .await
+        .expect("load denial fixture");
+        let target = page
+            .observe()
+            .await
+            .expect("observe denial fixture")
+            .nodes
+            .into_iter()
+            .find(|node| node.name == "Open popup")
+            .expect("popup button")
+            .semantic_ref;
+        let result = page
+            .execute(NativeAction {
+                target,
+                action: SemanticAction::Click,
+                value: None,
+            })
+            .await
+            .expect("execute denied popup");
+
+        assert_eq!(context.pages().len(), 1);
+        assert!(result.effects.iter().any(|effect| {
+            matches!(effect, Effect::Capability { diagnostic } if diagnostic.capability == "popup.open")
+        }));
+        assert_eq!(
+            page.extract(ContentKind::Text, Some("#result".into()))
+                .await
+                .expect("read denial result"),
+            serde_json::json!("denied")
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn target_blank_links_and_forms_create_opener_scoped_pages() {
+        let context = Browser::new().new_context();
+        let opener = context.new_page();
+        opener
+            .load_html(
+                "https://app.example.test/start",
+                r#"<a href='/link-target' target='_blank'>Open link</a>
+                <form action='/form-target' target='_blank'><button>Open form</button></form>"#,
+            )
+            .await
+            .expect("load target fixture");
+        let observation = opener.observe().await.expect("observe target fixture");
+        for name in ["Open link", "Open form"] {
+            let target = observation
+                .nodes
+                .iter()
+                .find(|node| {
+                    node.name == name
+                        && node.actions.contains(&SemanticAction::Click)
+                        && matches!(node.role.as_str(), "link" | "button")
+                })
+                .expect("target control")
+                .semantic_ref;
+            opener
+                .execute(NativeAction {
+                    target,
+                    action: SemanticAction::Click,
+                    value: None,
+                })
+                .await
+                .expect("open target page");
+        }
+        let popups = context
+            .pages()
+            .into_iter()
+            .filter(|page| page.page.opener_page_id == Some(opener.page_id()))
+            .collect::<Vec<_>>();
+        assert_eq!(popups.len(), 2);
+        assert!(
+            popups
+                .iter()
+                .all(|page| page.status == PageStatus::AttentionRequired)
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn asynchronous_xhr_reports_states_headers_and_json() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind XHR fixture");
+        let address = listener.local_addr().expect("fixture address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept XHR");
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request).expect("read XHR");
+            let body = r#"{"name":"oryn"}"#;
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-G3: yes\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .expect("write XHR response");
+        });
+        let context = Browser::new().new_context_with_options(ContextOptions::loopback_test());
+        let page = context.new_page();
+        page.load_html(
+            format!("http://{address}/app"),
+            r#"<output id=result>pending</output><script>
+              const states=[];const xhr=new XMLHttpRequest();xhr.responseType='json';
+              xhr.onreadystatechange=()=>states.push(xhr.readyState);
+              xhr.onload=()=>document.querySelector('#result').textContent=xhr.response.name+'|'+xhr.getResponseHeader('x-g3')+'|'+states.join(',');
+              xhr.open('GET','/api');xhr.send();
+            </script>"#,
+        )
+        .await
+        .expect("load XHR fixture");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("read XHR result"),
+            "oryn|yes|1,2,3,4"
+        );
+        server.join().expect("XHR fixture server");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn xhr_sync_main_thread_is_truthfully_unsupported() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://app.example.test/xhr-sync",
+            r#"<output id=result>pending</output><script>
+              try { const xhr=new XMLHttpRequest();xhr.open('GET','/api',false); }
+              catch(error) { document.querySelector('#result').textContent=String(error.message); }
+            </script>"#,
+        )
+        .await
+        .expect("load synchronous XHR diagnostic fixture");
+        assert_eq!(
+            page.evaluate("document.querySelector('#result').textContent")
+                .await
+                .expect("read synchronous XHR diagnostic"),
+            "synchronous main-thread XHR is unsupported"
+        );
+        assert!(page.trace().await.expect("XHR trace").iter().any(|entry| {
+            matches!(
+                &entry.kind,
+                TraceEventKind::PolicyDenied { capability }
+                    if capability == "xhr.synchronous_main_thread"
+            )
+        }));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn xhr_abort_and_timeout_are_observable() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind XHR timeout fixture");
+        let address = listener.local_addr().expect("XHR timeout fixture address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept timed XHR");
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request).expect("read timed XHR");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            stream
+                .write_all(fixture_response("late").as_bytes())
+                .expect("write timed XHR response");
+        });
+        let page = Browser::new()
+            .new_context_with_options(ContextOptions::loopback_test())
+            .new_page();
+        page.load_html(
+            format!("http://{address}/app"),
+            &format!(
+                r#"<output id=result>pending</output><script>
+                  const result=document.querySelector('#result');
+                  const aborted=new XMLHttpRequest();
+                  aborted.onabort=()=>result.textContent='abort';
+                  aborted.open('GET','http://{address}/must-not-dispatch');aborted.send();aborted.abort();
+                  const timed=new XMLHttpRequest();timed.timeout=1;
+                  timed.ontimeout=()=>result.textContent+='|timeout';
+                  timed.open('GET','http://{address}/slow');timed.send();
+                </script>"#
+            ),
+        )
+        .await
+        .expect("load XHR abort and timeout fixture");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("read XHR abort/timeout result"),
+            "abort|timeout"
+        );
+        server.join().expect("XHR timeout fixture server");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn file_formdata_request_response_and_headers_are_executable() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://app.example.test/file-fetch",
+            r#"<form id=form><input name=name value=oryn><input name=enabled type=checkbox value=yes checked></form><output id=result>pending</output><script>
+              const headers=new Headers({'X-G3':'one'});headers.append('x-g3','two');
+              const form=new FormData(document.querySelector('#form'));
+              form.append('upload',new Blob(['payload'],{type:'text/plain'}),'proof.txt');
+              const request=new Request('/submit',{method:'POST',headers,body:form});
+              const response=Response.json({accepted:true},{status:201,headers:{'X-Result':'ready'}});
+              const file=new File(['hello'],'hello.txt',{type:'text/plain',lastModified:7});
+              Promise.all([response.json(),file.text()]).then(([body,text])=>{
+                document.querySelector('#result').textContent=[request.method,request.headers.get('x-g3'),request.body.get('name'),request.body.get('enabled'),request.body.get('upload').name,response.status,response.headers.get('x-result'),body.accepted,file.name,file.type,file.lastModified,text].join('|');
+              });
+            </script>"#,
+        )
+        .await
+        .expect("load file/fetch primitives fixture");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("read file/fetch primitives result"),
+            "POST|one, two|oryn|yes|proof.txt|201|ready|true|hello.txt|text/plain|7|hello"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn fetch_preserves_binary_request_bytes_and_abort_prevents_dispatch() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind byte fixture");
+        let address = listener.local_addr().expect("fixture address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept binary fetch");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            let (header_end, content_length) = loop {
+                let length = stream.read(&mut buffer).expect("read binary fetch");
+                assert_ne!(length, 0, "request closed before headers");
+                request.extend_from_slice(&buffer[..length]);
+                if let Some(index) = request.windows(4).position(|item| item == b"\r\n\r\n") {
+                    let header_end = index + 4;
+                    let headers = String::from_utf8_lossy(&request[..header_end]);
+                    let content_length = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.split_once(':').and_then(|(name, value)| {
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse::<usize>().ok())
+                                    .flatten()
+                            })
+                        })
+                        .unwrap_or(0);
+                    break (header_end, content_length);
+                }
+            };
+            while request.len() < header_end + content_length {
+                let length = stream.read(&mut buffer).expect("read binary body");
+                assert_ne!(length, 0, "request closed before body");
+                request.extend_from_slice(&buffer[..length]);
+            }
+            assert_eq!(
+                &request[header_end..header_end + content_length],
+                &[0, 255, 1]
+            );
+            stream
+                .write_all(fixture_response("ok").as_bytes())
+                .expect("write byte response");
+        });
+        let page = Browser::new()
+            .new_context_with_options(ContextOptions::loopback_test())
+            .new_page();
+        page.load_html(
+            format!("http://{address}/app"),
+            &format!(
+                r#"<output id=result>pending</output><script>
+                  fetch('http://{address}/bytes',{{method:'POST',body:new Uint8Array([0,255,1])}})
+                    .then(response=>response.text()).then(value=>document.querySelector('#result').textContent=value);
+                </script>"#
+            ),
+        )
+        .await
+        .expect("load binary fetch fixture");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("read binary fetch result"),
+            "ok"
+        );
+        server.join().expect("binary fixture server");
+
+        page.load_html(
+            "https://app.example.test/abort",
+            r#"<output id=result>pending</output><script>
+              const controller=new AbortController();
+              fetch('https://network-must-not-run.invalid/',{signal:controller.signal})
+                .then(()=>document.querySelector('#result').textContent='wrong')
+                .catch(()=>document.querySelector('#result').textContent='aborted');
+              controller.abort(new Error('cancelled'));
+            </script>"#,
+        )
+        .await
+        .expect("load abort fixture");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("read aborted fetch result"),
+            "aborted"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn response_body_streams_in_bounded_parent_owned_chunks() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind stream fixture");
+        let address = listener.local_addr().expect("stream fixture address");
+        let body = vec![b'x'; 150_000];
+        let server_body = body.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept stream request");
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request).expect("read stream request");
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                server_body.len()
+            )
+            .expect("write stream headers");
+            stream.write_all(&server_body).expect("write stream body");
+        });
+        let page = Browser::new()
+            .new_context_with_options(ContextOptions::loopback_test())
+            .new_page();
+        page.load_html(
+            format!("http://{address}/app"),
+            format!(
+                r#"<output id=result>pending</output><script>
+                  fetch('http://{address}/stream').then(async response=>{{
+                    const reader=response.body.getReader();let chunks=0,total=0;
+                    for(;;){{const item=await reader.read();if(item.done)break;chunks++;total+=item.value.length;}}
+                    document.querySelector('#result').textContent=chunks+':'+total;
+                  }});
+                </script>"#
+            ),
+        )
+        .await
+        .expect("load stream fixture");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("read stream result"),
+            "3:150000"
+        );
+        let trace = page.trace().await.expect("stream trace");
+        assert!(trace.iter().any(|entry| matches!(
+            entry.kind,
+            TraceEventKind::RequestStarted { ref url, .. } if url.ends_with("/stream")
+        )));
+        assert_eq!(
+            trace
+                .iter()
+                .filter(|entry| matches!(entry.kind, TraceEventKind::StreamChunk { .. }))
+                .count(),
+            3
+        );
+        server.join().expect("stream fixture server");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn cross_origin_credentials_obey_cookie_and_cors_rules() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind CORS fixture");
+        let address = listener.local_addr().expect("CORS fixture address");
+        let reserved = TcpListener::bind("127.0.0.1:0").expect("reserve page origin");
+        let page_origin = format!("http://{}", reserved.local_addr().unwrap());
+        drop(reserved);
+        let expected_origin = page_origin.clone();
+        let server = std::thread::spawn(move || {
+            for _ in 0..4 {
+                let (mut stream, _) = listener.accept().expect("accept CORS request");
+                let mut request = [0_u8; 4096];
+                let length = stream.read(&mut request).expect("read CORS request");
+                let request = String::from_utf8_lossy(&request[..length]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let cookie = request
+                    .lines()
+                    .find_map(|line| {
+                        line.split_once(':').and_then(|(name, value)| {
+                            name.eq_ignore_ascii_case("cookie")
+                                .then(|| value.trim().to_string())
+                        })
+                    })
+                    .unwrap_or_else(|| "none".into());
+                let allowed_origin = if path == "/wild" {
+                    "*"
+                } else {
+                    expected_origin.as_str()
+                };
+                let set_cookie = if path == "/set" {
+                    "Set-Cookie: session=ready; Path=/; HttpOnly\r\n"
+                } else {
+                    ""
+                };
+                let body = cookie;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: {allowed_origin}\r\nAccess-Control-Allow-Credentials: true\r\n{set_cookie}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("write CORS response");
+            }
+        });
+        let page = Browser::new()
+            .new_context_with_options(ContextOptions::loopback_test())
+            .new_page();
+        page.load_html(
+            format!("{page_origin}/app"),
+            &format!(
+                r#"<output id=result>pending</output><script>
+                  fetch('http://{address}/set',{{credentials:'include'}})
+                    .then(()=>fetch('http://{address}/omit',{{credentials:'omit'}})).then(response=>response.text())
+                    .then(omit=>fetch('http://{address}/include',{{credentials:'include'}}).then(response=>response.text()).then(include=>[omit,include]))
+                    .then(values=>fetch('http://{address}/wild',{{credentials:'include'}}).then(()=>{{throw new Error('wildcard accepted')}}).catch(()=>values))
+                    .then(values=>document.querySelector('#result').textContent=values.join('|'));
+                </script>"#
+            ),
+        )
+        .await
+        .expect("load credential fixture");
+        let result = page
+            .evaluate("__oryn_drain(true);__oryn_drain(true);__oryn_drain(true);document.querySelector('#result').textContent")
+            .await
+            .expect("read credential result");
+        assert_eq!(result, "none|session=ready");
+        server.join().expect("CORS fixture server");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn indexed_db_structured_clone_roundtrips_binary_blob_and_file() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://app.example.test/clone",
+            r#"<output id=result>pending</output><script>
+              const open=indexedDB.open('clone',1);
+              open.onupgradeneeded=event=>event.target.result.createObjectStore('items',{keyPath:'id'});
+              open.onsuccess=event=>{
+                const db=event.target.result;
+                const value={id:1,bytes:new Uint16Array([513,1027]),blob:new Blob(['blob']),file:new File(['file'],'proof.txt',{lastModified:7})};
+                const put=db.transaction('items','readwrite').objectStore('items').put(value);
+                put.onsuccess=()=>{
+                  const get=db.transaction('items').objectStore('items').get(1);
+                  get.onsuccess=async()=>{
+                    const item=get.result;
+                    document.querySelector('#result').textContent=[item.bytes.constructor.name,item.bytes[0],item.bytes[1],await item.blob.text(),item.file.name,item.file.lastModified,await item.file.text()].join('|');
+                  };
+                };
+              };
+            </script>"#,
+        )
+        .await
+        .expect("load structured clone fixture");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("read structured clone result"),
+            "Uint16Array|513|1027|blob|proof.txt|7|file"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn page_close_does_not_invalidate_an_unrelated_page_reference() {
+        let context = Browser::new().new_context();
+        let first = context.new_page();
+        let second = context.new_page();
+        first
+            .load_html("https://one.example.test", "<button>First</button>")
+            .await
+            .expect("load first page");
+        second
+            .load_html("https://two.example.test", "<button>Second</button>")
+            .await
+            .expect("load second page");
+        let target = second
+            .observe()
+            .await
+            .expect("observe second")
+            .nodes
+            .into_iter()
+            .find(|node| node.name == "Second")
+            .expect("second button")
+            .semantic_ref;
+        context
+            .activate_page(first.page_id())
+            .expect("activate first");
+        context
+            .close_page(first.page_id())
+            .await
+            .expect("close first");
+        let result = second
+            .execute(NativeAction {
+                target,
+                action: SemanticAction::Click,
+                value: None,
+            })
+            .await
+            .expect("unrelated reference survives");
+        assert_eq!(result.page_id, second.page_id());
+        assert_eq!(
+            context.active_page().expect("replacement active").page_id(),
+            second.page_id()
+        );
+        assert!(context.page_events().iter().any(|event| {
+            matches!(event, PageLifecycleEvent::Closed { page_id } if *page_id == first.page_id())
+        }));
+    }
+
+    #[cfg(all(unix, feature = "in-process-probe"))]
+    #[test]
+    fn worker_replacement_reopens_a_blank_generation_without_touching_other_pages() {
+        let context = Browser::in_process_probe().new_context();
+        let replaced = context.new_page();
+        let unrelated = context.new_page();
+        context
+            .activate_page(replaced.page_id())
+            .expect("activate replaced page");
+        context
+            .inner
+            .group
+            .crash(replaced.page_id(), "fixture crash".into());
+
+        let replacement_generation = 7_u64 << 32;
+        context
+            .inner
+            .group
+            .worker_started(replaced.page_id(), replacement_generation);
+        let pages = context.pages();
+        let replaced_descriptor = pages
+            .iter()
+            .find(|page| page.page.page_id == replaced.page_id())
+            .expect("replaced descriptor");
+        let unrelated_descriptor = pages
+            .iter()
+            .find(|page| page.page.page_id == unrelated.page_id())
+            .expect("unrelated descriptor");
+
+        assert_eq!(replaced_descriptor.status, PageStatus::Open);
+        assert!(replaced_descriptor.active);
+        assert_eq!(replaced_descriptor.page.url, "about:blank");
+        assert_eq!(
+            replaced_descriptor.page.document_generation,
+            replacement_generation
+        );
+        assert_eq!(unrelated_descriptor.status, PageStatus::Open);
+        assert_eq!(unrelated_descriptor.page.document_generation, 0);
+        assert!(context.page_events().iter().any(|event| {
+            matches!(event, PageLifecycleEvent::Crashed { page_id, .. } if *page_id == replaced.page_id())
+        }));
+        assert!(context.page_events().iter().any(|event| {
+            matches!(event, PageLifecycleEvent::Navigated { page_id, url, document_generation }
+                if *page_id == replaced.page_id()
+                    && url == "about:blank"
+                    && *document_generation == replacement_generation)
+        }));
     }
 }

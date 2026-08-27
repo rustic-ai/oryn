@@ -34,6 +34,15 @@ e2e-results/
 artifacts/
 *.whl
 **/dist/
+benchmarks/g3/frameworks/**/.next/
+benchmarks/g3/frameworks/**/.nuxt/
+benchmarks/g3/frameworks/**/.output/
+benchmarks/g3/frameworks/**/.angular/
+benchmarks/g3/frameworks/**/.svelte-kit/
+benchmarks/g3/frameworks/**/ssr-dist/
+benchmarks/g3/frameworks/**/out/
+benchmarks/g3/frameworks/**/build/
+benchmarks/g3/frameworks/apps/nuxt/dist
 
 intentgym/transcripts/
 intentgym/results/

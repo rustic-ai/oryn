@@ -44,7 +44,7 @@ class TestOrynConfig:
         """Test native mode reuses the standard subprocess transport."""
         config = OrynConfig(mode="native", cli_args=["--allow-loopback"])
 
-        assert config.get_cli_args() == ["native", "--allow-loopback"]
+        assert config.get_cli_args() == ["native", "--sdk-repl", "--allow-loopback"]
 
     def test_get_cli_args_embedded(self):
         """Test CLI args for embedded mode."""

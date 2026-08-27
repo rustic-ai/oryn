@@ -3,9 +3,13 @@ use std::{
     time::Duration,
 };
 
-use oryn_common::v2::{Observation, ObservationDelta, ProjectionProfile, Revision, SemanticRef};
+use oryn_common::v3::{
+    Observation, ObservationDelta, PageId, PageInfo, ProjectionProfile, Revision, SemanticRef,
+};
 use serde::{Deserialize, Serialize};
 
+#[cfg(unix)]
+use crate::context_service::SharedContextClient;
 use crate::{
     Browser, BrowserConfig, ContentKind, ContextOptions, NavigationResult, PageHandle,
     WaitPredicate,
@@ -14,7 +18,7 @@ use crate::{
     runtime::NativeAction,
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 2;
+pub const WORKER_PROTOCOL_VERSION: u32 = 3;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -59,6 +63,7 @@ impl WorkerLimits {
             command_timeout: Duration::from_millis(self.command_wall_ms.min(10_000)),
             navigation_timeout: Duration::from_millis(self.navigation_wall_ms.min(30_000)),
             document_generation_base: 0,
+            storage_limits: crate::storage::StorageLimits::default(),
         }
     }
 }
@@ -87,6 +92,8 @@ pub enum WorkerRequest {
         nonce: String,
         limits: WorkerLimits,
         context: ContextOptions,
+        page_id: PageId,
+        opener_page_id: Option<PageId>,
         document_generation_base: u64,
     },
     Ping,
@@ -109,7 +116,7 @@ pub enum WorkerRequest {
     Capabilities,
     ResolveSelector {
         selector: String,
-        action: oryn_common::v2::SemanticAction,
+        action: oryn_common::v3::SemanticAction,
     },
     Extract {
         kind: ContentKind,
@@ -135,7 +142,7 @@ pub enum WorkerRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NativeActionRequest {
     pub target: SemanticRef,
-    pub action: oryn_common::v2::SemanticAction,
+    pub action: oryn_common::v3::SemanticAction,
     pub value: Option<String>,
 }
 
@@ -157,6 +164,7 @@ pub enum WorkerResponse {
     },
     Loaded {
         revision: Revision,
+        page: PageInfo,
     },
     Navigated {
         navigation: NavigationResult,
@@ -168,7 +176,7 @@ pub enum WorkerResponse {
         delta: ObservationDelta,
     },
     Action {
-        result: oryn_common::v2::ActionResult,
+        result: oryn_common::v3::ActionResult,
     },
     Oil {
         outputs: Vec<NativeOilOutput>,
@@ -177,7 +185,7 @@ pub enum WorkerResponse {
         events: Vec<crate::trace::TraceEvent>,
     },
     Capabilities {
-        capabilities: Vec<oryn_common::v2::CapabilityDiagnostic>,
+        capabilities: Vec<oryn_common::v3::CapabilityDiagnostic>,
     },
     SemanticRef {
         semantic_ref: SemanticRef,
@@ -209,11 +217,28 @@ impl PageSession {
         config: BrowserConfig,
         context: ContextOptions,
         broker: Option<SharedNetworkBroker>,
+        #[cfg(unix)] context_client: Option<SharedContextClient>,
+        page_id: PageId,
+        opener_page_id: Option<PageId>,
     ) -> Self {
         let browser = Browser::in_process_with_config(config);
+        #[cfg(all(unix, not(feature = "v8-host")))]
+        let _ = &context_client;
         let page = match broker {
-            Some(broker) => browser.new_context_with_broker(context, broker).new_page(),
-            None => browser.new_context_with_options(context).new_page(),
+            #[cfg(all(unix, feature = "v8-host"))]
+            Some(broker) if context_client.is_some() => browser
+                .new_context_with_broker_and_services(
+                    context,
+                    broker,
+                    context_client.expect("checked context client"),
+                )
+                .new_page_with_identity(page_id, opener_page_id),
+            Some(broker) => browser
+                .new_context_with_broker(context, broker)
+                .new_page_with_identity(page_id, opener_page_id),
+            None => browser
+                .new_context_with_options(context)
+                .new_page_with_identity(page_id, opener_page_id),
         };
         let oil = NativeOilSession::new(page.clone());
         Self { page, oil }
@@ -221,13 +246,22 @@ impl PageSession {
 }
 
 pub async fn serve<R: BufRead, W: Write>(reader: R, writer: W) -> std::io::Result<()> {
-    serve_with_broker(reader, writer, None).await
+    serve_with_services(reader, writer, None, None).await
 }
 
 pub async fn serve_with_broker<R: BufRead, W: Write>(
+    reader: R,
+    writer: W,
+    broker: Option<SharedNetworkBroker>,
+) -> std::io::Result<()> {
+    serve_with_services(reader, writer, broker, None).await
+}
+
+pub async fn serve_with_services<R: BufRead, W: Write>(
     mut reader: R,
     mut writer: W,
     broker: Option<SharedNetworkBroker>,
+    #[cfg(unix)] context_client: Option<SharedContextClient>,
 ) -> std::io::Result<()> {
     let mut session: Option<PageSession> = None;
     let mut active_session_id: Option<u64> = None;
@@ -285,7 +319,14 @@ pub async fn serve_with_broker<R: BufRead, W: Write>(
                 if matches!(&envelope.command, WorkerRequest::Initialize { .. }) {
                     active_session_id = Some(envelope.session_id);
                 }
-                dispatch(&mut session, broker.clone(), envelope.command).await
+                dispatch(
+                    &mut session,
+                    broker.clone(),
+                    #[cfg(unix)]
+                    context_client.clone(),
+                    envelope.command,
+                )
+                .await
             };
             let exiting = matches!(response, WorkerResponse::Exiting);
             let response = WorkerEnvelope {
@@ -312,7 +353,7 @@ pub async fn serve_with_broker<R: BufRead, W: Write>(
             Ok(WorkerRequest::Exit) => WorkerResponse::Exiting,
             Ok(_) => WorkerResponse::Error {
                 error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
-                    "page commands require worker protocol v2 initialization".into(),
+                    "page commands require worker protocol v3 initialization".into(),
                 )),
             },
             Err(error) => WorkerResponse::Error {
@@ -342,12 +383,15 @@ fn write_legacy(writer: &mut impl Write, response: &WorkerResponse) -> std::io::
 async fn dispatch(
     session: &mut Option<PageSession>,
     broker: Option<SharedNetworkBroker>,
+    #[cfg(unix)] context_client: Option<SharedContextClient>,
     request: WorkerRequest,
 ) -> WorkerResponse {
     if let WorkerRequest::Initialize {
         nonce,
         limits,
         context,
+        page_id,
+        opener_page_id,
         document_generation_base,
     } = request
     {
@@ -355,7 +399,15 @@ async fn dispatch(
         let effective = WorkerLimits::from(&limits.browser_config());
         let mut config = effective.browser_config();
         config.document_generation_base = document_generation_base;
-        *session = Some(PageSession::new(config, context, broker));
+        *session = Some(PageSession::new(
+            config,
+            context,
+            broker,
+            #[cfg(unix)]
+            context_client,
+            page_id,
+            opener_page_id,
+        ));
         return WorkerResponse::Ready {
             nonce,
             protocol_version: WORKER_PROTOCOL_VERSION,
@@ -392,7 +444,13 @@ async fn dispatch(
         WorkerRequest::Forward => navigation(session.page.forward().await),
         WorkerRequest::Refresh => navigation(session.page.refresh().await),
         WorkerRequest::LoadHtml { url, html } => match session.page.load_html(url, html).await {
-            Ok(revision) => WorkerResponse::Loaded { revision },
+            Ok(revision) => match session.page.observe().await {
+                Ok(observation) => WorkerResponse::Loaded {
+                    revision,
+                    page: observation.page,
+                },
+                Err(value) => error(value),
+            },
             Err(value) => error(value),
         },
         WorkerRequest::WaitFor { predicate } => match session.page.wait_for(predicate).await {
@@ -518,12 +576,14 @@ mod tests {
     use super::*;
 
     #[tokio::test(flavor = "current_thread")]
-    async fn serves_initialized_page_requests_over_v2_json_lines() {
+    async fn serves_initialized_page_requests_over_v3_json_lines() {
         let requests = vec![
             WorkerRequest::Initialize {
                 nonce: "test-nonce".into(),
                 limits: WorkerLimits::default(),
                 context: ContextOptions::default(),
+                page_id: PageId(7),
+                opener_page_id: None,
                 document_generation_base: 0,
             },
             WorkerRequest::LoadHtml {
@@ -594,7 +654,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn rejects_duplicate_unmatched_and_reinitialized_v2_messages() {
+    async fn rejects_duplicate_unmatched_and_reinitialized_v3_messages() {
         let commands = [
             (
                 9,
@@ -603,6 +663,8 @@ mod tests {
                     nonce: "nonce".into(),
                     limits: WorkerLimits::default(),
                     context: ContextOptions::default(),
+                    page_id: PageId(7),
+                    opener_page_id: None,
                     document_generation_base: 0,
                 },
             ),
@@ -615,6 +677,8 @@ mod tests {
                     nonce: "again".into(),
                     limits: WorkerLimits::default(),
                     context: ContextOptions::default(),
+                    page_id: PageId(7),
+                    opener_page_id: None,
                     document_generation_base: 0,
                 },
             ),

@@ -4,6 +4,7 @@ pub mod formatter;
 pub mod protocol;
 pub mod resolver;
 pub mod v2;
+pub mod v3;
 
 pub mod intent {
     pub mod define_parser;

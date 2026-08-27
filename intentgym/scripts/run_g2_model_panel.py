@@ -235,7 +235,7 @@ def _worker_bundle_fingerprint(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("source_tree_sha256") != source_tree_sha256:
         raise RuntimeError("signed worker manifest does not match the source tree")
-    if manifest.get("protocol_version") != 2:
+    if manifest.get("protocol_version") != 3:
         raise RuntimeError("signed worker manifest does not require protocol v2")
     worker_sha256 = _sha256(worker)
     if runtime.get("worker_binary_sha256") != worker_sha256:
@@ -377,7 +377,7 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         runtime.get("execution_mode") != "sandboxed_worker"
         or runtime.get("sandboxed") is not True
         or runtime.get("sandbox_state") != "app_sandbox"
-        or runtime.get("worker_protocol_version") != 2
+        or runtime.get("worker_protocol_version") != 3
     ):
         raise RuntimeError("G5A evidence requires the verified macOS sandbox worker")
     smoke = _runtime_smoke(

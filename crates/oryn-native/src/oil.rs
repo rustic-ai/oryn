@@ -1,6 +1,9 @@
-use oryn_common::v2::{
+use std::{collections::BTreeMap, time::Duration};
+
+use oryn_common::v3::{
     ActionResult, CapabilityDiagnostic, ExecutionDomain, Observation, ObservationDelta,
-    ProjectionProfile, SemanticAction, SemanticRef, SupportLevel,
+    PageDescriptor, PageId, PagePredicate, ProjectionProfile, SemanticAction, SemanticRef,
+    SupportLevel,
 };
 use oryn_common::{
     protocol::{Element, ElementState, Rect},
@@ -10,14 +13,22 @@ use oryn_core::ast::{Command, ExtractWhat, Target, TargetAtomic, WaitCondition};
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::{
-    ContentKind, LifecycleState, NativeAction, NavigationResult, PageHandle, RuntimeError,
-    WaitPredicate,
+    BrowserContext, ContentKind, LifecycleState, NativeAction, NavigationResult, PageHandle,
+    RuntimeError, WaitPredicate,
 };
 
 pub struct NativeOilSession {
     page: PageHandle,
     last_observation: Option<Observation>,
-    delta_cursor: oryn_common::v2::Revision,
+    delta_cursor: oryn_common::v3::Revision,
+}
+
+/// Parent-side OIL session for a complete browser context. Page-local OIL
+/// state remains isolated per page while page selection and lifecycle are
+/// coordinated outside sandboxed workers.
+pub struct NativeContextOilSession {
+    context: BrowserContext,
+    sessions: BTreeMap<PageId, NativeOilSession>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +55,12 @@ pub enum NativeOilOutput {
     Trace {
         events: Vec<crate::trace::TraceEvent>,
     },
+    Pages {
+        pages: Vec<PageDescriptor>,
+    },
+    Page {
+        page: PageDescriptor,
+    },
     Unsupported {
         diagnostic: CapabilityDiagnostic,
     },
@@ -60,8 +77,182 @@ pub enum NativeOilError {
     TargetNotFound(Target),
     #[error("semantic target did not resolve: {target:?}: {detail}")]
     TargetResolution { target: Target, detail: String },
+    #[error("invalid page command: {0}")]
+    PageCommand(String),
     #[error(transparent)]
     Runtime(#[from] RuntimeError),
+}
+
+impl NativeContextOilSession {
+    pub fn new(context: BrowserContext) -> Self {
+        Self {
+            context,
+            sessions: BTreeMap::new(),
+        }
+    }
+
+    pub async fn execute(&mut self, input: &str) -> Result<Vec<NativeOilOutput>, NativeOilError> {
+        let mut outputs = Vec::new();
+        for line in input.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if line == "pages" || line.starts_with("page ") {
+                outputs.push(self.execute_page_command(line).await?);
+                continue;
+            }
+            let page = self.context.active_page().ok_or_else(|| {
+                NativeOilError::PageCommand("browser context has no active page".into())
+            })?;
+            let page_id = page.page_id();
+            let session = self
+                .sessions
+                .entry(page_id)
+                .or_insert_with(|| NativeOilSession::new(page));
+            outputs.extend(session.execute(line).await?);
+        }
+        Ok(outputs)
+    }
+
+    async fn execute_page_command(
+        &mut self,
+        input: &str,
+    ) -> Result<NativeOilOutput, NativeOilError> {
+        let tokens = page_tokens(input)?;
+        match tokens.as_slice() {
+            [command] if command == "pages" => Ok(NativeOilOutput::Pages {
+                pages: self.context.pages(),
+            }),
+            [page, command] if page == "page" && command == "list" => Ok(NativeOilOutput::Pages {
+                pages: self.context.pages(),
+            }),
+            [page, command] if page == "page" && command == "current" => {
+                let active = self.context.active_page().ok_or_else(|| {
+                    NativeOilError::PageCommand("browser context has no active page".into())
+                })?;
+                Ok(NativeOilOutput::Page {
+                    page: self.descriptor(active.page_id())?,
+                })
+            }
+            [page, command, id] if page == "page" && command == "activate" => {
+                let page_id = parse_page_id(id)?;
+                self.context.activate_page(page_id)?;
+                Ok(NativeOilOutput::Page {
+                    page: self.descriptor(page_id)?,
+                })
+            }
+            [page, command] if page == "page" && command == "close" => {
+                let active = self.context.active_page().ok_or_else(|| {
+                    NativeOilError::PageCommand("browser context has no active page".into())
+                })?;
+                let page_id = active.page_id();
+                self.context.close_page(page_id).await?;
+                self.sessions.remove(&page_id);
+                Ok(NativeOilOutput::Page {
+                    page: self.descriptor(page_id)?,
+                })
+            }
+            [page, command, id] if page == "page" && command == "close" => {
+                let page_id = parse_page_id(id)?;
+                self.context.close_page(page_id).await?;
+                self.sessions.remove(&page_id);
+                Ok(NativeOilOutput::Page {
+                    page: self.descriptor(page_id)?,
+                })
+            }
+            [page, command, field, value] if page == "page" && command == "wait" => {
+                let predicate = match field.as_str() {
+                    "origin" => PagePredicate::Origin {
+                        origin: value.clone(),
+                    },
+                    "url" => PagePredicate::UrlContains {
+                        value: value.clone(),
+                    },
+                    "title" => PagePredicate::TitleContains {
+                        value: value.clone(),
+                    },
+                    "opener" => PagePredicate::Opener {
+                        page_id: parse_page_id(value)?,
+                    },
+                    _ => {
+                        return Err(NativeOilError::PageCommand(format!(
+                            "unknown page predicate {field:?}"
+                        )));
+                    }
+                };
+                let handle = self
+                    .context
+                    .wait_for_page(predicate, Duration::from_secs(30))
+                    .await?;
+                Ok(NativeOilOutput::Page {
+                    page: self.descriptor(handle.page_id())?,
+                })
+            }
+            _ => Err(NativeOilError::PageCommand(format!(
+                "unsupported syntax: {input}"
+            ))),
+        }
+    }
+
+    fn descriptor(&self, page_id: PageId) -> Result<PageDescriptor, NativeOilError> {
+        self.context
+            .pages()
+            .into_iter()
+            .find(|page| page.page.page_id == page_id)
+            .ok_or_else(|| NativeOilError::PageCommand(format!("unknown page {}", page_id.0)))
+    }
+}
+
+fn parse_page_id(value: &str) -> Result<PageId, NativeOilError> {
+    value
+        .parse::<u64>()
+        .map(PageId)
+        .map_err(|_| NativeOilError::PageCommand(format!("invalid page id {value:?}")))
+}
+
+fn page_tokens(input: &str) -> Result<Vec<String>, NativeOilError> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    for character in input.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+            continue;
+        }
+        if character == '\\' && quote.is_some() {
+            escaped = true;
+            continue;
+        }
+        if let Some(expected) = quote {
+            if character == expected {
+                quote = None;
+            } else {
+                current.push(character);
+            }
+            continue;
+        }
+        if matches!(character, '\'' | '"') {
+            quote = Some(character);
+        } else if character.is_whitespace() {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+        } else {
+            current.push(character);
+        }
+    }
+    if quote.is_some() {
+        return Err(NativeOilError::PageCommand(
+            "unterminated quote in page command".into(),
+        ));
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    Ok(tokens)
 }
 
 impl NativeOilSession {
@@ -69,7 +260,7 @@ impl NativeOilSession {
         Self {
             page,
             last_observation: None,
-            delta_cursor: oryn_common::v2::Revision(0),
+            delta_cursor: oryn_common::v3::Revision(0),
         }
     }
 
@@ -436,8 +627,8 @@ impl NativeOilSession {
                 }
             });
             let visible = found.is_some_and(|node| {
-                node.states.contains(&oryn_common::v2::NodeState::Visible)
-                    && !node.states.contains(&oryn_common::v2::NodeState::Hidden)
+                node.states.contains(&oryn_common::v3::NodeState::Visible)
+                    && !node.states.contains(&oryn_common::v3::NodeState::Hidden)
             });
             self.last_observation = Some(observation);
             if visible == expected_visible {
@@ -531,12 +722,12 @@ impl NativeOilSession {
                     attributes,
                     state: ElementState {
                         visible: true,
-                        disabled: node.states.contains(&oryn_common::v2::NodeState::Disabled),
-                        checked: node.states.contains(&oryn_common::v2::NodeState::Checked),
-                        selected: node.states.contains(&oryn_common::v2::NodeState::Selected),
-                        required: node.states.contains(&oryn_common::v2::NodeState::Required),
-                        readonly: node.states.contains(&oryn_common::v2::NodeState::Readonly),
-                        expanded: node.states.contains(&oryn_common::v2::NodeState::Expanded),
+                        disabled: node.states.contains(&oryn_common::v3::NodeState::Disabled),
+                        checked: node.states.contains(&oryn_common::v3::NodeState::Checked),
+                        selected: node.states.contains(&oryn_common::v3::NodeState::Selected),
+                        required: node.states.contains(&oryn_common::v3::NodeState::Required),
+                        readonly: node.states.contains(&oryn_common::v3::NodeState::Readonly),
+                        expanded: node.states.contains(&oryn_common::v3::NodeState::Expanded),
                         value: node.value.clone(),
                         ..Default::default()
                     },
@@ -584,7 +775,7 @@ impl NativeOilSession {
     }
 }
 
-fn target_matches_node(target: &Target, node: &oryn_common::v2::SemanticNodeView) -> bool {
+fn target_matches_node(target: &Target, node: &oryn_common::v3::SemanticNodeView) -> bool {
     match &target.atomic {
         TargetAtomic::Id(alias) => node.alias as usize == *alias,
         TargetAtomic::Text(text) => node
@@ -602,7 +793,7 @@ fn semantic_geometry(observation: &Observation) -> std::collections::BTreeMap<Se
         .iter()
         .map(|node| (node.semantic_ref, node))
         .collect::<std::collections::BTreeMap<_, _>>();
-    let depth = |node: &oryn_common::v2::SemanticNodeView| {
+    let depth = |node: &oryn_common::v3::SemanticNodeView| {
         let mut depth = 0_u32;
         let mut parent = node.parent;
         while let Some(reference) = parent.and_then(|reference| by_ref.get(&reference).copied()) {
@@ -781,7 +972,7 @@ mod tests {
         };
         assert!(matches!(
             result.effects.first(),
-            Some(oryn_common::v2::Effect::Event { event_type, .. }) if event_type == "mouseover"
+            Some(oryn_common::v3::Effect::Event { event_type, .. }) if event_type == "mouseover"
         ));
 
         let outputs = session

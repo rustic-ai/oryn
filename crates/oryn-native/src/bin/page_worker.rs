@@ -28,17 +28,28 @@ async fn async_main() -> std::io::Result<()> {
         return Ok(());
     }
     #[cfg(unix)]
-    if let Some(fd) = broker_fd()? {
+    if let Some(fd) = inherited_fd("--broker-fd")? {
         // SAFETY: the parent duplicates one end of a fresh Unix socketpair to
         // this descriptor immediately before exec and transfers ownership.
         let stream = unsafe { UnixStream::from_raw_fd(fd) };
         let broker = oryn_native::network::SharedNetworkBroker::new(
             oryn_native::network::IpcNetworkBroker::new(stream),
         );
-        return oryn_native::worker::serve_with_broker(
+        let context = if let Some(context_fd) = inherited_fd("--context-fd")? {
+            // SAFETY: the descriptor is the context-service socket transferred
+            // by the verified parent at exec time.
+            let stream = unsafe { UnixStream::from_raw_fd(context_fd) };
+            Some(oryn_native::context_service::SharedContextClient::new(
+                oryn_native::context_service::IpcContextClient::new(stream),
+            ))
+        } else {
+            None
+        };
+        return oryn_native::worker::serve_with_services(
             BufReader::new(stdin().lock()),
             stdout().lock(),
             Some(broker),
+            context,
         )
         .await;
     }
@@ -91,12 +102,15 @@ fn security_probe(path: &str) -> std::io::Result<()> {
 }
 
 #[cfg(unix)]
-fn broker_fd() -> std::io::Result<Option<std::os::fd::RawFd>> {
+fn inherited_fd(name: &str) -> std::io::Result<Option<std::os::fd::RawFd>> {
     let mut args = std::env::args().skip(1);
     while let Some(argument) = args.next() {
-        if argument == "--broker-fd" {
+        if argument == name {
             let value = args.next().ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidInput, "missing broker fd")
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("missing {name} value"),
+                )
             })?;
             return value.parse().map(Some).map_err(|error| {
                 std::io::Error::new(

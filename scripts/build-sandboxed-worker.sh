@@ -68,7 +68,7 @@ jq -n \
     bundle_id: $bundle_id,
     team_id: $team_id,
     signing_cert_sha1: $signing_cert_sha1,
-    protocol_version: 2,
+    protocol_version: 3,
     v8_version: $v8_version,
     worker_build_sha256: $worker_build_sha256,
     worker_build_bytes: $worker_build_bytes,
@@ -176,7 +176,7 @@ if ! jq -e '
   .execution_mode == "sandboxed_worker" and
   .sandboxed == true and
   .sandbox_state == "app_sandbox" and
-  .worker_protocol_version == 2 and
+  .worker_protocol_version == 3 and
   .worker_bundle_id == "ai.rustic.oryn.page-worker" and
   .worker_team_id == "5HVA9VFF8K"
 ' <<<"$runtime_report" >/dev/null; then

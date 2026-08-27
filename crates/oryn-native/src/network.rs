@@ -23,8 +23,14 @@ pub struct NetworkRequest {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+    #[serde(default = "default_credentials")]
+    pub credentials: bool,
     #[serde(default, skip_serializing, skip_deserializing)]
     pub resolved_addrs: Vec<SocketAddr>,
+}
+
+const fn default_credentials() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +43,33 @@ pub struct NetworkResponse {
 
 pub trait NetworkBroker: Send {
     fn send(&mut self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError>;
+}
+
+#[derive(Clone)]
+pub struct SharedCookieStore(Arc<dyn reqwest::cookie::CookieStore>);
+
+impl SharedCookieStore {
+    pub fn new(store: Arc<dyn reqwest::cookie::CookieStore>) -> Self {
+        Self(store)
+    }
+
+    pub fn memory() -> Self {
+        Self(Arc::new(reqwest::cookie::Jar::default()))
+    }
+}
+
+impl reqwest::cookie::CookieStore for SharedCookieStore {
+    fn set_cookies(
+        &self,
+        cookie_headers: &mut dyn Iterator<Item = &reqwest::header::HeaderValue>,
+        url: &Url,
+    ) {
+        self.0.set_cookies(cookie_headers, url);
+    }
+
+    fn cookies(&self, url: &Url) -> Option<reqwest::header::HeaderValue> {
+        self.0.cookies(url)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -94,6 +127,14 @@ impl Drop for SharedNetworkBroker {
     }
 }
 
+impl NetworkBroker for SharedNetworkBroker {
+    fn send(&mut self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+        self.lock()
+            .map_err(|_| NetworkError::Transport("network broker lock poisoned".into()))?
+            .send(request)
+    }
+}
+
 impl<B> PolicyBroker<B> {
     pub fn new(policy: NetworkPolicy, inner: B) -> Self {
         Self { policy, inner }
@@ -102,54 +143,58 @@ impl<B> PolicyBroker<B> {
     fn authorize(&self, request: &NetworkRequest) -> Result<Vec<SocketAddr>, NetworkError> {
         let url = Url::parse(&request.url)
             .map_err(|error| NetworkError::InvalidUrl(error.to_string()))?;
-        self.policy.check_scheme(url.scheme())?;
-        let mut vetted = Vec::new();
-        if let Some(host) = url.host_str() {
-            if (host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost"))
-                && !self.policy.allow_loopback
-            {
-                return Err(NetworkError::Policy(PolicyDenied::Loopback));
-            }
-            if let Ok(address) = host.parse::<IpAddr>() {
-                self.policy.check_ip(address)?;
-                let port = url.port_or_known_default().ok_or_else(|| {
-                    NetworkError::InvalidUrl("URL has no explicit or scheme-default port".into())
-                })?;
-                vetted.push(SocketAddr::new(address, port));
-            } else {
-                let port = url.port_or_known_default().ok_or_else(|| {
-                    NetworkError::InvalidUrl("URL has no explicit or scheme-default port".into())
-                })?;
-                let addresses =
-                    (host, port)
-                        .to_socket_addrs()
-                        .map_err(|error| NetworkError::Resolution {
-                            host: host.to_string(),
-                            detail: error.to_string(),
-                        })?;
-                let mut resolved = false;
-                for address in addresses {
-                    resolved = true;
-                    self.policy.check_ip(address.ip())?;
-                    vetted.push(address);
-                }
-                if !resolved {
-                    return Err(NetworkError::Resolution {
+        resolve_and_authorize(&self.policy, &url)
+    }
+}
+
+pub(crate) fn resolve_and_authorize(
+    policy: &NetworkPolicy,
+    url: &Url,
+) -> Result<Vec<SocketAddr>, NetworkError> {
+    policy.check_scheme(url.scheme())?;
+    let mut vetted = Vec::new();
+    if let Some(host) = url.host_str() {
+        if (host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost"))
+            && !policy.allow_loopback
+        {
+            return Err(NetworkError::Policy(PolicyDenied::Loopback));
+        }
+        let port = url.port_or_known_default().ok_or_else(|| {
+            NetworkError::InvalidUrl("URL has no explicit or scheme-default port".into())
+        })?;
+        if let Ok(address) = host.parse::<IpAddr>() {
+            policy.check_ip(address)?;
+            vetted.push(SocketAddr::new(address, port));
+        } else {
+            let addresses =
+                (host, port)
+                    .to_socket_addrs()
+                    .map_err(|error| NetworkError::Resolution {
                         host: host.to_string(),
-                        detail: "resolver returned no addresses".into(),
-                    });
-                }
+                        detail: error.to_string(),
+                    })?;
+            let mut resolved = false;
+            for address in addresses {
+                resolved = true;
+                policy.check_ip(address.ip())?;
+                vetted.push(address);
+            }
+            if !resolved {
+                return Err(NetworkError::Resolution {
+                    host: host.to_string(),
+                    detail: "resolver returned no addresses".into(),
+                });
             }
         }
-        Ok(vetted)
     }
+    Ok(vetted)
 }
 
 /// A single-request rustls transport. Redirects are intentionally disabled so
 /// callers can send every hop back through `PolicyBroker`.
 pub struct RustlsTransport {
     timeout: Duration,
-    cookies: Arc<reqwest::cookie::Jar>,
+    cookies: Arc<SharedCookieStore>,
     max_response_bytes: usize,
 }
 
@@ -167,9 +212,17 @@ impl RustlsTransport {
         max_response_bytes: usize,
         cookies: Arc<reqwest::cookie::Jar>,
     ) -> Result<Self, NetworkError> {
+        Self::with_cookie_store(timeout, max_response_bytes, cookies)
+    }
+
+    pub fn with_cookie_store(
+        timeout: Duration,
+        max_response_bytes: usize,
+        cookies: Arc<dyn reqwest::cookie::CookieStore>,
+    ) -> Result<Self, NetworkError> {
         Ok(Self {
             timeout,
-            cookies,
+            cookies: Arc::new(SharedCookieStore::new(cookies)),
             max_response_bytes,
         })
     }
@@ -184,8 +237,10 @@ impl NetworkBroker for RustlsTransport {
         let mut client = reqwest::blocking::Client::builder()
             .timeout(self.timeout)
             .redirect(reqwest::redirect::Policy::none())
-            .no_proxy()
-            .cookie_provider(self.cookies.clone());
+            .no_proxy();
+        if request.credentials {
+            client = client.cookie_provider(self.cookies.clone());
+        }
         if let Some(host) = url.host_str()
             && !request.resolved_addrs.is_empty()
         {
@@ -273,6 +328,8 @@ struct EncodedNetworkRequest {
     url: String,
     headers: Vec<(String, String)>,
     body_base64: String,
+    #[serde(default = "default_credentials")]
+    credentials: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -306,6 +363,7 @@ impl NetworkBroker for IpcNetworkBroker {
                 url: request.url,
                 headers: request.headers,
                 body_base64: BASE64.encode(request.body),
+                credentials: request.credentials,
             },
         };
         serde_json::to_writer(&mut self.stream, &envelope)
@@ -411,6 +469,7 @@ pub fn serve_ipc_broker(
                                     url: request.url,
                                     headers: sanitize_worker_headers(request.headers),
                                     body,
+                                    credentials: request.credentials,
                                     resolved_addrs: Vec::new(),
                                 })
                                 .map_err(|error| error.to_string())
@@ -465,7 +524,7 @@ pub fn serve_ipc_broker(
     }
 }
 
-fn sanitize_worker_headers(headers: Vec<(String, String)>) -> Vec<(String, String)> {
+pub(crate) fn sanitize_worker_headers(headers: Vec<(String, String)>) -> Vec<(String, String)> {
     const ALLOWED: &[&str] = &[
         "accept",
         "accept-language",
@@ -487,7 +546,9 @@ fn sanitize_worker_headers(headers: Vec<(String, String)>) -> Vec<(String, Strin
         .collect()
 }
 
-fn sanitize_parent_response_headers(headers: Vec<(String, String)>) -> Vec<(String, String)> {
+pub(crate) fn sanitize_parent_response_headers(
+    headers: Vec<(String, String)>,
+) -> Vec<(String, String)> {
     const DENIED: &[&str] = &[
         "set-cookie",
         "set-cookie2",
@@ -555,6 +616,7 @@ mod tests {
             url: url.into(),
             headers: Vec::new(),
             body: Vec::new(),
+            credentials: true,
             resolved_addrs: Vec::new(),
         }
     }
@@ -688,6 +750,7 @@ mod tests {
                 url: "https://example.test/".into(),
                 headers: Vec::new(),
                 body_base64: String::new(),
+                credentials: true,
             },
         };
         for attempt in 0..2 {

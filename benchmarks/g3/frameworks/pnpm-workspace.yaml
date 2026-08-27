@@ -1,0 +1,23 @@
+packages:
+  - apps/*
+allowBuilds:
+  '@parcel/watcher': true
+  esbuild: true
+  lmdb: true
+  msgpackr-extract: true
+minimumReleaseAgeExclude:
+  - '@angular/common@22.1.4'
+  - '@angular/compiler-cli@22.1.4'
+  - '@angular/compiler@22.1.4'
+  - '@angular/core@22.1.4'
+  - '@angular/platform-browser@22.1.4'
+  - '@vue/compiler-core@3.5.42'
+  - '@vue/compiler-dom@3.5.42'
+  - '@vue/compiler-sfc@3.5.42'
+  - '@vue/compiler-ssr@3.5.42'
+  - '@vue/reactivity@3.5.42'
+  - '@vue/runtime-core@3.5.42'
+  - '@vue/runtime-dom@3.5.42'
+  - '@vue/server-renderer@3.5.42'
+  - '@vue/shared@3.5.42'
+  - vue@3.5.42

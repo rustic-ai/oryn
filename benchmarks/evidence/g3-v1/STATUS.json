@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "gate": "G3",
+  "status": "open",
+  "current_result": null,
+  "blocking_checks": [
+    "clean_tracked_source_fingerprint",
+    "post_commit_exact_bundle_evidence_publication"
+  ],
+  "implementation_state": "locally_validated",
+  "local_validation": {
+    "signed_production_boundary": "passed",
+    "required_manifest_cases": "43/43",
+    "truthful_deferred_cases": "5/5",
+    "frameworks": {"native": "8/8", "chromium": "8/8"},
+    "oauth": {"native": "5/5", "chromium": "5/5"},
+    "controlled_oil": "12/12",
+    "native_miniwob": "24/24",
+    "false_semantic_reference_preservations": 0,
+    "software_regressions": "passed",
+    "production_benchmarks": "passed"
+  },
+  "note": "The implementation passes local validation, but G3 remains open until the source is committed, the exact clean-tree bundle is rebuilt, and g3-result-v1 is published from recomputable raw evidence."
+}

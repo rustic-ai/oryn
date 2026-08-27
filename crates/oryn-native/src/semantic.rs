@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
-use oryn_common::v2::{
-    CONTRACT_VERSION, ExecutionDomain, NodeState, Observation, ObservationSource, PageInfo,
+use oryn_common::v3::{
+    CONTRACT_VERSION, ExecutionDomain, NodeState, Observation, ObservationSource, PageId, PageInfo,
     ProjectionProfile, Provenance, Revision, SemanticAction, SemanticNodeView, SemanticRef,
 };
 
@@ -17,6 +17,7 @@ pub fn unpack_node_ref(node: u64) -> NodeId {
 pub fn project_element(
     dom: &DomArena,
     id: NodeId,
+    page_id: PageId,
     document_generation: u64,
     alias: u32,
 ) -> Option<SemanticNodeView> {
@@ -27,6 +28,7 @@ pub fn project_element(
     let local_name = name.local.as_ref();
     let parent = dom.ancestors(id).ok()?.into_iter().find_map(|ancestor| {
         matches!(dom.get(ancestor).ok()?.kind, NodeKind::Element { .. }).then_some(SemanticRef {
+            page_id,
             document_generation,
             node: (u64::from(ancestor.generation) << 32) | u64::from(ancestor.slot),
         })
@@ -193,6 +195,7 @@ pub fn project_element(
         });
     Some(SemanticNodeView {
         semantic_ref: SemanticRef {
+            page_id,
             document_generation,
             node: (u64::from(id.generation) << 32) | u64::from(id.slot),
         },
@@ -218,16 +221,25 @@ pub fn project_element(
     })
 }
 
-pub fn project_document(dom: &DomArena, document_generation: u64) -> Vec<SemanticNodeView> {
+pub fn project_document(
+    dom: &DomArena,
+    page_id: PageId,
+    document_generation: u64,
+) -> Vec<SemanticNodeView> {
     dom.iter()
         .filter_map(|(id, _)| {
             let alias = id.slot.checked_add(1)?;
-            project_element(dom, id, document_generation, alias).filter(is_compact_semantic)
+            project_element(dom, id, page_id, document_generation, alias)
+                .filter(is_compact_semantic)
         })
         .collect()
 }
 
-pub fn project_document_full(dom: &DomArena, document_generation: u64) -> Vec<SemanticNodeView> {
+pub fn project_document_full(
+    dom: &DomArena,
+    page_id: PageId,
+    document_generation: u64,
+) -> Vec<SemanticNodeView> {
     dom.iter()
         .filter_map(|(id, node)| {
             let NodeKind::Element { name } = &node.kind else {
@@ -240,7 +252,7 @@ pub fn project_document_full(dom: &DomArena, document_generation: u64) -> Vec<Se
                 return None;
             }
             let alias = id.slot.checked_add(1)?;
-            project_element(dom, id, document_generation, alias)
+            project_element(dom, id, page_id, document_generation, alias)
         })
         .collect()
 }
@@ -437,10 +449,18 @@ fn matches_simple_selector(node: &crate::dom::Node, selector: &str) -> bool {
     })
 }
 
-pub fn empty_observation(url: String, title: String, document_generation: u64) -> Observation {
+pub fn empty_observation(
+    page_id: PageId,
+    opener_page_id: Option<PageId>,
+    url: String,
+    title: String,
+    document_generation: u64,
+) -> Observation {
     Observation {
         contract_version: CONTRACT_VERSION,
         page: PageInfo {
+            page_id,
+            opener_page_id,
             url,
             title,
             document_generation,

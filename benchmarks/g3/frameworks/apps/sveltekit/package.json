@@ -1,0 +1,1 @@
+{"name":"g3-sveltekit","version":"1.0.0","private":true,"type":"module","scripts":{"build":"vite build"},"dependencies":{"@sveltejs/adapter-static":"3.0.10","@sveltejs/kit":"2.70.3","@sveltejs/vite-plugin-svelte":"7.3.0","svelte":"5.56.10","vite":"8.2.2"},"devDependencies":{}}

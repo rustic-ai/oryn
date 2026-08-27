@@ -173,7 +173,7 @@ jq -n \
         if $runtime.execution_mode == "sandboxed_worker"
           and $runtime.sandboxed
           and $runtime.native_v8
-          and $runtime.worker_protocol_version == 2
+          and $runtime.worker_protocol_version == 3
           and $worker_rss_bytes <= $runtime.limits.worker_rss_bytes
         then "passed"
         else "failed"

@@ -1,0 +1,19 @@
+<script setup>
+const count = ref(0)
+const query = ref('')
+
+function add() {
+  count.value += 1
+  localStorage.setItem('nuxt-count', String(count.value))
+}
+</script>
+
+<template>
+  <main data-framework="nuxt">
+    <h1>Nuxt ready</h1>
+    <label>Search<input v-model="query" aria-label="Search"></label>
+    <button @click="add">Add item</button>
+    <output>Items: {{ count }}</output>
+    <NuxtLink to="/details">Route</NuxtLink>
+  </main>
+</template>

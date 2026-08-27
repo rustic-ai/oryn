@@ -1,0 +1,9 @@
+{
+  "name": "oryn-g3-framework-corpus",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "build": "pnpm --recursive --workspace-concurrency=1 run build"
+  }
+}

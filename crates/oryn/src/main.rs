@@ -4,7 +4,7 @@ use oryn_engine::backend::Backend;
 use oryn_engine::cli::{self, FileErrorMode, FileOptions, OutputHandlers, ReplOptions};
 use oryn_engine::executor::CommandExecutor;
 use oryn_h::backend::HeadlessBackend;
-use oryn_native::{Browser, ContextOptions, oil::NativeOilSession};
+use oryn_native::{Browser, ContextOptions, oil::NativeContextOilSession};
 use oryn_r::backend::RemoteBackend;
 
 #[derive(Parser)]
@@ -59,6 +59,9 @@ enum Mode {
         /// Evaluate JavaScript after loading and print its string result
         #[arg(long)]
         evaluate: Option<String>,
+        /// Emit REPL prompts even when stdin is a pipe (Python SDK transport)
+        #[arg(long, hide = true)]
+        sdk_repl: bool,
     },
 }
 
@@ -78,6 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         url,
         allow_loopback,
         evaluate,
+        sdk_repl,
     } = &args.mode
     {
         if *runtime_info {
@@ -106,6 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             *allow_loopback,
             evaluate.as_deref(),
             args.file.as_deref(),
+            *sdk_repl,
         )
         .await;
     }
@@ -173,6 +178,7 @@ async fn run_native(
     allow_loopback: bool,
     evaluate: Option<&str>,
     oil_path: Option<&str>,
+    sdk_repl: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use std::io::{IsTerminal, Write};
 
@@ -183,7 +189,8 @@ async fn run_native(
     } else {
         ContextOptions::default()
     };
-    let page = Browser::new().new_context_with_options(options).new_page();
+    let context = Browser::new().new_context_with_options(options);
+    let page = context.new_page();
     if let Some(html_path) = html_path {
         let html = std::fs::read_to_string(html_path)?;
         page.load_html(format!("fixture://{html_path}"), html)
@@ -196,13 +203,13 @@ async fn run_native(
     if let Some(source) = evaluate {
         println!("{}", page.evaluate(source).await?);
     }
-    let mut session = NativeOilSession::new(page.clone());
+    let mut session = NativeContextOilSession::new(context.clone());
 
     if let Some(oil_path) = oil_path {
         let input = std::fs::read_to_string(oil_path)?;
         print_native_outputs(session.execute(&input).await?)?;
     } else {
-        let interactive = std::io::stdin().is_terminal();
+        let interactive = std::io::stdin().is_terminal() || sdk_repl;
         if interactive {
             eprintln!("Native document loaded. Enter OIL; type 'exit' or 'quit' to close.");
         }
@@ -225,7 +232,11 @@ async fn run_native(
         }
     }
 
-    page.close().await?;
+    for descriptor in context.pages() {
+        if !matches!(descriptor.status, oryn_native::PageStatus::Closed) {
+            let _ = context.close_page(descriptor.page.page_id).await;
+        }
+    }
     Ok(())
 }
 

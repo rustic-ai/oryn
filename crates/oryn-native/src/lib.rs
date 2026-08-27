@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(unix)]
+pub mod context_service;
 pub mod dom;
 pub mod event_loop;
 #[cfg(feature = "v8-host")]
@@ -17,15 +19,18 @@ pub mod oil;
 pub mod runtime;
 pub mod security;
 pub mod semantic;
+pub mod storage;
 pub mod trace;
 pub mod worker;
 #[cfg(unix)]
 pub mod worker_client;
 
+pub use oryn_common::v3::{PageDescriptor, PageId, PageLifecycleEvent, PagePredicate, PageStatus};
 pub use runtime::{
     Browser, BrowserConfig, BrowserContext, ContentKind, ContextOptions, LifecycleState,
     NavigationResult, PageHandle, WaitPredicate,
 };
+pub use storage::{PersistentProfile, StorageLimits};
 
 /// Machine-readable fingerprint for callers that must prove they launched the
 /// production native runtime rather than the deliberately small no-V8 probe.
@@ -54,7 +59,7 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
         "html5ever".into(),
         "rustls_network_broker".into(),
         "oil".into(),
-        "semantic_v2".into(),
+        "semantic_v3".into(),
     ];
     #[cfg(feature = "v8-host")]
     let capabilities = {
@@ -64,7 +69,7 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
     };
 
     RuntimeBuildInfo {
-        contract_version: oryn_common::v2::CONTRACT_VERSION,
+        contract_version: oryn_common::v3::CONTRACT_VERSION,
         native_v8: cfg!(feature = "v8-host"),
         #[cfg(feature = "v8-host")]
         v8_version: Some(v8::V8::get_version().into()),

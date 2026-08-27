@@ -12,12 +12,14 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use oryn_common::v3::PageId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    BrowserConfig, ContextOptions, RuntimeBuildInfo,
-    network::{PolicyBroker, RustlsTransport, serve_ipc_broker},
+    BrowserConfig, BrowserContext, ContextOptions, RuntimeBuildInfo,
+    context_service::{ParentContextService, serve_context_service},
+    network::{PolicyBroker, RustlsTransport, SharedNetworkBroker, serve_ipc_broker},
     runtime::RuntimeError,
     worker::{
         HostEnvelope, WORKER_PROTOCOL_VERSION, WorkerEnvelope, WorkerLimits, WorkerRequest,
@@ -26,6 +28,7 @@ use crate::{
 };
 
 const BROKER_FD: RawFd = 3;
+const CONTEXT_FD: RawFd = 4;
 const EXPECTED_BUNDLE_ID: &str = "ai.rustic.oryn.page-worker";
 const EXPECTED_TEAM_ID: &str = "5HVA9VFF8K";
 const EXPECTED_SIGNING_CERT_SHA1: &str = "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90";
@@ -77,7 +80,10 @@ impl WorkerClient {
     pub fn spawn(
         config: &BrowserConfig,
         context: &ContextOptions,
-        parent_cookies: std::sync::Arc<reqwest::cookie::Jar>,
+        parent_cookies: std::sync::Arc<dyn reqwest::cookie::CookieStore>,
+        page_id: PageId,
+        opener_page_id: Option<PageId>,
+        context_owner: BrowserContext,
     ) -> Result<Self, RuntimeError> {
         let worker_path = discover_worker()?;
         let verification = if requires_trusted_worker() {
@@ -92,11 +98,16 @@ impl WorkerClient {
 
         let (parent_broker, child_broker) = UnixStream::pair()
             .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
+        let (parent_context, child_context) = UnixStream::pair()
+            .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
         let child_fd = child_broker.as_raw_fd();
+        let child_context_fd = child_context.as_raw_fd();
         let mut command = Command::new(launch_path);
         command
             .arg("--broker-fd")
             .arg(BROKER_FD.to_string())
+            .arg("--context-fd")
+            .arg(CONTEXT_FD.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -108,6 +119,9 @@ impl WorkerClient {
                 if libc::dup2(child_fd, BROKER_FD) == -1 {
                     return Err(std::io::Error::last_os_error());
                 }
+                if libc::dup2(child_context_fd, CONTEXT_FD) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
                 Ok(())
             });
         }
@@ -115,22 +129,34 @@ impl WorkerClient {
             .spawn()
             .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
         drop(child_broker);
+        drop(child_context);
 
-        let transport = RustlsTransport::with_cookie_jar(
+        let transport = RustlsTransport::with_cookie_store(
             config.request_timeout,
             config.max_response_bytes.min(16 * 1024 * 1024),
             parent_cookies,
         )
         .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
         let policy = context.network_policy.clone();
+        let parent_network = SharedNetworkBroker::new(PolicyBroker::new(policy, transport));
+        let broker_network = parent_network.clone();
         let frame_limit = config.max_ipc_frame_bytes;
         std::thread::Builder::new()
             .name("oryn-worker-network-broker".into())
             .spawn(move || {
-                let _ = serve_ipc_broker(
-                    parent_broker,
-                    PolicyBroker::new(policy, transport),
-                    frame_limit,
+                let _ = serve_ipc_broker(parent_broker, broker_network, frame_limit);
+            })
+            .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
+        std::thread::Builder::new()
+            .name("oryn-worker-context-service".into())
+            .spawn(move || {
+                let _ = serve_context_service(
+                    parent_context,
+                    ParentContextService::new_with_network(
+                        context_owner,
+                        page_id,
+                        Some(parent_network),
+                    ),
                 );
             })
             .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
@@ -163,6 +189,8 @@ impl WorkerClient {
                 nonce: nonce.clone(),
                 limits: limits.clone(),
                 context: context.clone(),
+                page_id,
+                opener_page_id,
                 document_generation_base: config.document_generation_base,
             },
             config.command_timeout,
@@ -461,6 +489,10 @@ pub fn runtime_report(
         config,
         context,
         std::sync::Arc::new(reqwest::cookie::Jar::default()),
+        PageId::LEGACY,
+        None,
+        crate::Browser::in_process_with_config(config.clone())
+            .new_context_with_options(context.clone()),
     )?;
     let mut runtime = client.runtime().clone();
     runtime.execution_mode = if client.verification().is_some() {
