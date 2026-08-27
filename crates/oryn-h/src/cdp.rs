@@ -141,12 +141,11 @@ impl CdpClient {
             .await
             .map_err(|e| format!("Error awaiting handler: {}", e))?;
 
-        if self.cleanup_user_data_dir {
-            if let Some(dir) = &self.user_data_dir {
-                if let Err(e) = std::fs::remove_dir_all(dir) {
-                    tracing::debug!("Failed to clean up user-data-dir {}: {}", dir.display(), e);
-                }
-            }
+        if self.cleanup_user_data_dir
+            && let Some(dir) = &self.user_data_dir
+            && let Err(e) = std::fs::remove_dir_all(dir)
+        {
+            tracing::debug!("Failed to clean up user-data-dir {}: {}", dir.display(), e);
         }
 
         Ok(())

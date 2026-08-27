@@ -1,0 +1,20 @@
+run_id: miniwob_qwen3_4b
+benchmark: miniwob
+benchmark_options:
+  server_url: http://127.0.0.1:8765
+llm_provider: litellm
+llm_model: ollama/qwen3:4b
+llm_options:
+  api_base: http://127.0.0.1:11434
+  temperature: 1.0
+  max_tokens: 256
+  think: false
+agent_type: react
+agent_options: {}
+max_steps: 10
+prompt_template: oil_standard
+oryn_mode: native
+oryn_options:
+  binary_path: ../target/release/oryn
+  cli_args: ["--allow-loopback"]
+  timeout: 60.0

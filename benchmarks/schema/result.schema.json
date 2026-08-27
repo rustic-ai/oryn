@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oryn.dev/schemas/benchmark-result-v1.json",
+  "title": "Oryn Benchmark Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "commit",
+    "started_at",
+    "environment",
+    "runtime",
+    "corpus",
+    "measurements",
+    "outcome"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "arch", "cpu", "memory_bytes", "toolchain"],
+      "properties": {
+        "os": { "type": "string" },
+        "arch": { "type": "string" },
+        "cpu": { "type": "string" },
+        "memory_bytes": { "type": "integer", "minimum": 1 },
+        "toolchain": { "type": "string" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "profile"],
+      "properties": {
+        "domain": { "enum": ["native", "chromium", "webkit", "user_browser"] },
+        "profile": { "type": "string" },
+        "host": { "type": ["string", "null"] },
+        "sandboxed": { "type": "boolean" }
+      }
+    },
+    "corpus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "revision", "task_id", "seed"],
+      "properties": {
+        "name": { "type": "string" },
+        "revision": { "type": "string" },
+        "task_id": { "type": "string" },
+        "seed": { "type": "integer" },
+        "model_provider": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] },
+        "model_revision": { "type": ["string", "null"] }
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": { "type": "number" },
+      "properties": {
+        "wall_time_ms": { "type": "number", "minimum": 0 },
+        "startup_ms": { "type": "number", "minimum": 0 },
+        "rss_bytes": { "type": "number", "minimum": 0 },
+        "observation_bytes": { "type": "number", "minimum": 0 },
+        "observation_update_ms": { "type": "number", "minimum": 0 },
+        "input_tokens": { "type": "number", "minimum": 0 },
+        "output_tokens": { "type": "number", "minimum": 0 },
+        "cost_usd": { "type": "number", "minimum": 0 }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "execution_domain", "effects", "diagnostics"],
+      "properties": {
+        "status": { "enum": ["passed", "failed", "unsupported", "unavailable"] },
+        "execution_domain": { "enum": ["native", "chromium", "webkit", "user_browser"] },
+        "effects": { "type": "array", "items": { "type": "string" } },
+        "diagnostics": { "type": "array", "items": { "type": "string" } },
+        "error_code": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

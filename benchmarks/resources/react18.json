@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "resources": [
+    {
+      "fixture_url": "https://unpkg.com/react@18/umd/react.production.min.js",
+      "resolved_url": "https://unpkg.com/react@18.3.1/umd/react.production.min.js",
+      "sha256": "d949f1c3687aedadcedac85261865f29b17cd273997e7f6b2bfc53b2f9d4c4dd"
+    },
+    {
+      "fixture_url": "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
+      "resolved_url": "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js",
+      "sha256": "35f4f974f4b2bcd44da73963347f8952e341f83909e4498227d4e26b98f66f0d"
+    },
+    {
+      "fixture_url": "https://unpkg.com/@babel/standalone/babel.min.js",
+      "resolved_url": "https://unpkg.com/@babel/standalone@7.28.3/babel.min.js",
+      "sha256": "5c69309d4426c6d981f49291527eec59331a69c2c677eaf96fd10f81f015443f"
+    }
+  ]
+}

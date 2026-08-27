@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "a66a6680eaf6ec3ae161b6c35eb3b224b9c63c59",
+  "captured_on": "2026-08-25",
+  "environment": {
+    "os": "macOS 26.6.2",
+    "arch": "arm64",
+    "cpu": "Apple M2 Max",
+    "memory_bytes": 34359738368,
+    "rust": "1.98.0"
+  },
+  "suites": [
+    { "name": "rust-workspace", "passed": 149, "failed": 0, "skipped": 6 },
+    { "name": "scanner", "passed": 213, "failed": 0, "skipped": 0 },
+    { "name": "extension-unit-integration", "passed": 80, "failed": 0, "skipped": 0 },
+    {
+      "name": "extension-headed-e2e",
+      "passed": 0,
+      "failed": 12,
+      "skipped": 1,
+      "known_failure": "Installed Chrome did not expose the unpacked extension background service worker to Puppeteer"
+    },
+    { "name": "python-sdk", "passed": 17, "failed": 0, "skipped": 19 },
+    { "name": "intentgym", "passed": 2, "failed": 0, "skipped": 0 }
+  ]
+}

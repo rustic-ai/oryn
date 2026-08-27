@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "gate": "G2-controlled-native",
+  "commit": "a66a6680eaf6ec3ae161b6c35eb3b224b9c63c59",
+  "recorded_at": "2026-08-26T07:45:00Z",
+  "execution_domain": "native",
+  "summary": {
+    "required_tasks": 18,
+    "passed_tasks": 18,
+    "failed_tasks": 0,
+    "false_semantic_reference_preservations": 0,
+    "status": "passed"
+  },
+  "harness": [
+    { "id": "harness-static", "source": "test-harness/scripts/01_static.oil", "status": "passed" },
+    { "id": "harness-forms", "source": "test-harness/scripts/02_forms.oil", "status": "passed" },
+    { "id": "harness-ecommerce", "source": "test-harness/scripts/03_ecommerce.oil", "status": "passed" },
+    { "id": "harness-interactivity", "source": "test-harness/scripts/04_interactivity.oil", "status": "passed" },
+    { "id": "harness-dynamic", "source": "test-harness/scripts/05_dynamic.oil", "status": "passed" },
+    { "id": "harness-edge-cases", "source": "test-harness/scripts/06_edge_cases.oil", "status": "passed" },
+    { "id": "harness-intents", "source": "test-harness/scripts/07_intents_builtin.oil", "status": "passed" },
+    { "id": "harness-multipage", "source": "test-harness/scripts/08_multipage_flows.oil", "status": "passed" },
+    { "id": "harness-resolution", "source": "test-harness/scripts/09_target_resolution.oil", "status": "passed" },
+    { "id": "harness-react", "source": "test-harness/scripts/10_react_spa.oil", "status": "passed" },
+    { "id": "harness-angular", "source": "test-harness/scripts/11_angular_spa.oil", "status": "passed" },
+    { "id": "harness-popup", "source": "test-harness/scripts/12_popup_detection.oil", "status": "passed" }
+  ],
+  "framework": [
+    { "id": "framework-react-churn", "assertion": "test-harness/scripts/10_react_spa.oil", "status": "passed" },
+    { "id": "framework-angular-churn", "assertion": "test-harness/scripts/11_angular_spa.oil", "status": "passed" },
+    { "id": "framework-vue-churn", "assertion": "oryn-native executable Vue fixture test", "status": "passed" },
+    { "id": "framework-svelte-churn", "assertion": "oryn-native executable Svelte fixture test", "status": "passed" },
+    { "id": "framework-shadow-dom", "assertion": "open traversal and closed isolation test plus 06_edge_cases.oil", "status": "passed" },
+    { "id": "framework-same-origin-iframe", "assertion": "same-origin semantic projection and cross-origin diagnostic test", "status": "passed" }
+  ],
+  "reference_churn": {
+    "test": "oryn-native executable structural_churn_never_preserves_a_removed_node_identity",
+    "consequential_false_preservations": 0,
+    "status": "passed"
+  },
+  "validation": {
+    "rust_workspace": "passed",
+    "rust_native_v8": "passed",
+    "strict_clippy_default_and_v8": "passed",
+    "g1_manifest": "passed",
+    "corpus_manifest": "passed"
+  }
+}

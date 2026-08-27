@@ -1,0 +1,83 @@
+{
+  "schema_version": 3,
+  "suite": "g2r-semantic-reference-churn",
+  "cases": [
+    {
+      "id": "removed_node",
+      "expectation": "invalidated",
+      "observed": "invalidated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "replaced_node",
+      "expectation": "invalidated",
+      "observed": "invalidated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "frame_replaced",
+      "expectation": "invalidated",
+      "observed": "invalidated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "closed_shadow_boundary",
+      "expectation": "isolated",
+      "observed": "isolated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "navigation_generation",
+      "expectation": "invalidated",
+      "observed": "invalidated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "unrelated_mutation_survival",
+      "expectation": "preserved",
+      "observed": "preserved",
+      "passed": true,
+      "false_preservation": false
+    }
+  ],
+  "reference_survival": {
+    "numerator": 1,
+    "denominator": 1,
+    "value": 1.0
+  },
+  "invalidation": {
+    "numerator": 4,
+    "denominator": 4,
+    "value": 1.0
+  },
+  "false_preservation": {
+    "numerator": 0,
+    "denominator": 5,
+    "value": 0.0
+  },
+  "recovery_cases": [
+    {
+      "id": "stale_reference_recovery",
+      "trigger": "stale_reference",
+      "attempted": true,
+      "recovered": true
+    },
+    {
+      "id": "no_progress_recovery",
+      "trigger": "event_only_no_progress",
+      "attempted": true,
+      "recovered": true
+    }
+  ],
+  "recovery": {
+    "numerator": 2,
+    "denominator": 2,
+    "value": 1.0
+  },
+  "status": "passed"
+}

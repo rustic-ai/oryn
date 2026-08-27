@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "gate": "G1",
+  "status": "passed",
+  "captured_at": "2026-08-26T08:45:41Z",
+  "source_commit": "a66a6680eaf6ec3ae161b6c35eb3b224b9c63c59",
+  "manifest": {
+    "path": "benchmarks/conformance/g1-manifest-v1.json",
+    "required_cases": 17,
+    "passed_cases": 17
+  },
+  "upstream_subsets": [
+    {
+      "project": "web-platform-tests/wpt",
+      "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+      "sources": [
+        "url/urlsearchparams-constructor.any.js",
+        "encoding/api-basics.any.js"
+      ],
+      "supported_vectors": [
+        "URLSearchParams basic construction",
+        "URLSearchParams leading question mark",
+        "URLSearchParams plus decoding",
+        "TextEncoder empty default input",
+        "UTF-8 encode/decode round trip"
+      ],
+      "native_test": "executable::tests::wpt_pinned_supported_url_and_encoding_vectors",
+      "status": "passed"
+    },
+    {
+      "project": "html5lib/html5lib-tests",
+      "revision": "224991ec10db04f056a89eed8b0bd8695fd2950e",
+      "source": "tokenizer/test1.test",
+      "supported_vectors": [
+        "mixed-case doctype",
+        "duplicate attribute keeps first value",
+        "implicit paragraph close",
+        "unfinished comment recovery"
+      ],
+      "native_test": "html::tests::html5lib_pinned_tokenizer_and_tree_vectors",
+      "status": "passed"
+    }
+  ],
+  "differential": {
+    "fixture": "test-harness/scenarios/static/article.html",
+    "native_domain": "native",
+    "oracle_domain": "chromium",
+    "oracle": "Google Chrome 152.0.7977.65",
+    "supported_assertions": {
+      "final_url": "passed",
+      "title": "passed",
+      "named_link": "passed",
+      "heading_names": "passed",
+      "normalized_article_text": "passed"
+    },
+    "status": "passed",
+    "diagnostics": [
+      "Chromium scanner exposes additional text/listitem nodes outside the compact native projection",
+      "chromiumoxide 0.5 emitted non-fatal CDP deserialization warnings against Chrome 152"
+    ]
+  },
+  "unsupported": [
+    "rendered layout",
+    "paint",
+    "rendered geometry",
+    "full Encoding Standard beyond the advertised UTF-8 subset"
+  ],
+  "raw_artifacts": [
+    "artifacts/wpt-urlsearchparams-constructor.any.js",
+    "artifacts/wpt-textdecoder-fatal.any.js"
+  ]
+}

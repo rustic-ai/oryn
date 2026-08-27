@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Svelte-style compiled counter</title>
+</head>
+<body>
+  <main>
+    <h1>Cart</h1>
+    <output id="count" aria-live="polite">Items: 0</output>
+    <button id="decrement" disabled>Remove item</button>
+    <button id="increment">Add item</button>
+  </main>
+  <script>
+    let count = 0;
+    const output = document.querySelector('#count');
+    const decrement = document.querySelector('#decrement');
+    function update() {
+      output.textContent = `Items: ${count}`;
+      decrement.disabled = count === 0;
+    }
+    document.querySelector('#increment').addEventListener('click', () => {
+      count += 1;
+      update();
+    });
+    decrement.addEventListener('click', () => {
+      count -= 1;
+      update();
+    });
+  </script>
+</body>
+</html>

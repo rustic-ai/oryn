@@ -1,0 +1,5 @@
+goto "http://127.0.0.1:3000/spa/react-tasks.html"
+observe
+type css(#task-title) "Implement shadow DOM tests"
+submit css(#task-form)
+observe

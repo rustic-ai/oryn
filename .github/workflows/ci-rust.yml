@@ -48,7 +48,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --locked -- -D warnings
 
   test:
     name: test
@@ -64,4 +64,49 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
+
+  native-proof:
+    name: native-proof-macos-arm64
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Validate benchmark corpus
+        run: ./scripts/validate-benchmark-corpus.sh
+
+      - name: Validate G1 conformance manifest
+        run: bash ./scripts/validate-g1-manifest.sh
+
+      - name: Validate controlled G2 evidence
+        run: ./scripts/validate-g2-controlled.sh
+
+      - name: Validate G2 model panel evidence
+        run: ./scripts/validate-g2-model-panel.sh
+
+      - name: Build production Oryn with default native V8
+        run: cargo build --release -p oryn --locked
+
+      - name: Reject missing V8 metadata in production Oryn
+        run: target/release/oryn native --runtime-info | jq -e '.native_v8 == true and (.v8_version | length > 0) and .build_profile == "release"'
+
+      - name: Build explicitly named no-V8 probe
+        run: cargo build --release -p oryn --locked --no-default-features --target-dir target/no-v8-probe
+
+      - name: Verify no-V8 probe identifies itself
+        run: target/no-v8-probe/release/oryn native --runtime-info | jq -e '.native_v8 == false and .v8_version == null'
+
+      - name: Test native raw-V8 feature
+        run: cargo test -p oryn-native --locked --features v8-host
+
+      - name: Lint native raw-V8 feature
+        run: cargo clippy -p oryn-native --locked --features v8-host --all-targets -- -D warnings

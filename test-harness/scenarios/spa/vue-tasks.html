@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Vue-style reactive task list</title>
+</head>
+<body>
+  <main id="app">
+    <h1>Tasks</h1>
+    <label>New task <input id="task" autocomplete="off"></label>
+    <button id="add">Add task</button>
+    <ul id="tasks"><li><button>Complete Write benchmark</button></li></ul>
+  </main>
+  <script>
+    const state = { tasks: ['Write benchmark'] };
+    const input = document.querySelector('#task');
+    document.querySelector('#add').addEventListener('click', () => {
+      if (!input.value.trim()) return;
+      state.tasks.push(input.value.trim());
+      const item = document.createElement('li');
+      const button = document.createElement('button');
+      button.textContent = `Complete ${input.value.trim()}`;
+      button.addEventListener('click', () => item.remove());
+      item.append(button);
+      document.querySelector('#tasks').append(item);
+      input.value = '';
+    });
+  </script>
+</body>
+</html>

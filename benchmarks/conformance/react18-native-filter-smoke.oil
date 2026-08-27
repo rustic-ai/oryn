@@ -1,0 +1,4 @@
+goto "http://127.0.0.1:3000/spa/react-tasks.html"
+observe
+click css(#active-btn)
+observe

@@ -210,7 +210,7 @@ wait_condition = _{
 // =============================================================================
 
 extraction_cmd = { "extract" ~ WSP+ ~ extract_what ~ (WSP+ ~ extract_opt)* }
-extract_what = _{ "links" | "images" | "tables" | "meta" | "text" | extract_css }
+extract_what = { "links" | "images" | "tables" | "meta" | "text" | extract_css }
 extract_css = { "css" ~ WSP* ~ "(" ~ WSP* ~ string_value ~ WSP* ~ ")" }
 
 extract_opt = _{ selector_opt | ("--format" ~ WSP+ ~ output_format) }

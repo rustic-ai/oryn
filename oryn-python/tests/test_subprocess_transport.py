@@ -3,7 +3,6 @@
 import textwrap
 
 import pytest
-
 from oryn.config import OrynConfig
 from oryn.errors import ConnectionLostError, LaunchError, TimeoutError
 from oryn.transport.subprocess import SubprocessTransport

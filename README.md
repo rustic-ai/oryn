@@ -28,6 +28,26 @@ oryn embedded --driver-url http://localhost:8080
 oryn remote --port 9001
 ```
 
+The Oryn2 native runtime is under gated implementation. It reuses the existing
+OIL parser and evaluation assets while replacing the browser dependency with an
+Oryn-owned DOM, semantic loop, and raw-V8 host. See the
+[implementation status](docs/oryn2/IMPLEMENTATION_STATUS.md) for exactly what is
+available today.
+
+```bash
+# Current native proof: load a local fixture, then enter OIL interactively
+oryn native --html test-harness/scenarios/spa/svelte-tasks.html
+
+# Or execute an OIL file against the fixture
+oryn --file path/to/script.oil native --html path/to/document.html
+
+# Verify the production runtime fingerprint (native V8 is enabled by default)
+oryn native --runtime-info
+
+# Build the deliberately non-production no-V8 probe only when measuring it
+cargo build --release -p oryn --no-default-features --target-dir target/no-v8-probe
+```
+
 See the [User Guide](docs/USER_GUIDE.md) for full usage instructions.
 
 ## Quick Example
@@ -129,6 +149,8 @@ oryn/
 ├── crates/
 │   ├── oryn-core/          # Shared protocol and types
 │   ├── oryn-scanner/       # Universal JavaScript scanner
+│   ├── oryn-native/        # Oryn2 native runtime proof
+│   ├── oryn-webidl/        # Oryn2 WebIDL parser/generator spine
 │   ├── oryn-e/             # Embedded mode binary
 │   ├── oryn-h/             # Headless mode binary
 │   └── oryn-r/             # Remote mode binary
@@ -144,7 +166,10 @@ oryn/
 
 ### Universal Scanner
 
-A single JavaScript implementation runs inside all browser contexts—WebKit, Chromium, and browser extensions. This guarantees behavioral consistency. The Rust layer never parses HTML directly; it only processes scanner JSON responses.
+A single JavaScript implementation runs inside the compatibility browser
+contexts—WebKit, Chromium, and browser extensions. Oryn2 native mode instead
+parses HTML into its Rust-owned DOM and produces v2 semantic observations
+directly; it does not duplicate or inject the compatibility scanner.
 
 ### Intent Language
 
@@ -173,7 +198,10 @@ All binaries implement the same interface. Agents can switch modes without chang
 - WebSocket connection to server
 
 ## License
-[MIT](https://choosealicense.com/licenses/mit/)
+
+Existing Oryn code is available under the [MIT License](LICENSE-MIT). New
+Oryn2-owned components may opt into `MIT OR Apache-2.0`; those components
+declare that choice in their package metadata.
 
 ## Contributing
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.

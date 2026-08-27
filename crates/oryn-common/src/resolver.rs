@@ -107,6 +107,17 @@ impl ResolverContext {
         }
     }
 
+    /// Build a resolver context from another browser-domain projection.
+    ///
+    /// Native Oryn uses this adapter to reuse the established target scoring
+    /// and relation engine without fabricating a scanner response.
+    pub fn from_elements(url: impl Into<String>, elements: Vec<Element>) -> Self {
+        Self {
+            elements,
+            url: url.into(),
+        }
+    }
+
     /// Create an empty context (for testing or when no scan has been performed).
     pub fn empty() -> Self {
         Self {
@@ -401,7 +412,7 @@ fn resolve_near(
         })
         .collect();
 
-    scored.sort_by(|a, b| b.1.cmp(&a.1));
+    scored.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     select_match(
         &scored,
@@ -737,9 +748,10 @@ fn apply_command_preferences(
                 ResolutionStrategy::PreferInput => {
                     // For type command: prefer input/textarea/select elements
                     match elem.element_type.as_str() {
-                        "input" | "textarea" | "select" => 50,
-                        "button" | "a" => -30,
-                        _ => 0,
+                        "input" | "textarea" | "select" | "textbox" | "searchbox" | "combobox" => {
+                            50
+                        }
+                        _ => -10_000,
                     }
                 }
                 ResolutionStrategy::PreferClickable => {
@@ -747,6 +759,7 @@ fn apply_command_preferences(
                     match elem.element_type.as_str() {
                         "button" => 50,
                         "a" => 45,
+                        "label" => 35,
                         "input" => {
                             // Submit/button inputs are clickable
                             if let Some(input_type) = elem.attributes.get("type") {
@@ -758,8 +771,8 @@ fn apply_command_preferences(
                                 -30
                             }
                         }
-                        "textarea" => -30,
-                        _ => 0,
+                        "checkbox" | "radio" | "tab" | "menuitem" | "treeitem" => 40,
+                        _ => -10_000,
                     }
                 }
                 ResolutionStrategy::PreferCheckable => {
@@ -770,14 +783,17 @@ fn apply_command_preferences(
                             _ => -20,
                         }
                     } else if elem
-                        .attributes
-                        .get("role")
-                        .map(|r| r == "checkbox")
-                        .unwrap_or(false)
+                        .role
+                        .as_deref()
+                        .is_some_and(|role| matches!(role, "checkbox" | "radio"))
+                        || elem
+                            .attributes
+                            .get("role")
+                            .is_some_and(|role| matches!(role.as_str(), "checkbox" | "radio"))
                     {
                         50
                     } else {
-                        0
+                        -10_000
                     }
                 }
                 _ => 0,
@@ -812,7 +828,7 @@ fn select_match(
     }
 
     // Sort by score descending
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     match strategy {
         ResolutionStrategy::Unique => {

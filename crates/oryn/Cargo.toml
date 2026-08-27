@@ -3,11 +3,16 @@ name = "oryn"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["native-v8"]
+native-v8 = ["oryn-native/v8-host"]
+
 [dependencies]
 oryn-engine = { path = "../oryn-engine" }
 oryn-h = { path = "../oryn-h" }
 oryn-e = { path = "../oryn-e" }
 oryn-r = { path = "../oryn-r" }
+oryn-native = { path = "../oryn-native" }
 
 tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive"] }

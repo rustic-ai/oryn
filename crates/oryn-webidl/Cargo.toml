@@ -1,0 +1,9 @@
+[package]
+name = "oryn-webidl"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Narrow, testable WebIDL compiler for Oryn browser bindings"
+
+[dependencies]
+thiserror = "2"

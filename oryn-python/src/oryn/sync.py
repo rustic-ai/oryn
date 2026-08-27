@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 from .client import OrynClient
 
 if TYPE_CHECKING:
-    from .types import OrynObservation
+    from .types import OrynObservation, OrynResult
 
 
 class OrynClientSync:
@@ -28,7 +28,7 @@ class OrynClientSync:
 
     def __init__(
         self,
-        mode: Literal["headless", "embedded", "remote"] = "headless",
+        mode: Literal["native", "headless", "embedded", "remote"] = "headless",
         *,
         binary_path: str | None = None,
         timeout: float = 30.0,
@@ -42,7 +42,7 @@ class OrynClientSync:
         """Initialize OrynClientSync.
 
         Args:
-            mode: Browser mode - 'headless', 'embedded', or 'remote'
+            mode: Browser mode - 'native', 'headless', 'embedded', or 'remote'
             binary_path: Explicit path to oryn binary (optional)
             timeout: Default command timeout in seconds
             connect_timeout: Timeout for initial connection in seconds
@@ -123,6 +123,10 @@ class OrynClientSync:
             The raw string response from Oryn.
         """
         return self._run(self._client.execute(command))
+
+    def execute_typed(self, command: str) -> "OrynResult":
+        """Execute OIL and decode a structured result when native mode is active."""
+        return self._run(self._client.execute_typed(command))
 
     def observe(self) -> "OrynObservation":
         """Get structured observation of current page.

@@ -1,0 +1,325 @@
+{
+  "schema_version": 3,
+  "run_id": "g2r-model-panel-v3",
+  "started_at": "2026-08-27T01:17:40.166687Z",
+  "updated_at": "2026-08-27T02:29:23.854833Z",
+  "fingerprint": {
+    "source_commit": "a66a6680eaf6ec3ae161b6c35eb3b224b9c63c59",
+    "source_dirty": true,
+    "harness_sha256": "ba773c897217548ee5da66580c42aa8bbfffd5e46f04ecde9d367697a7d22fef",
+    "deterministic_evidence_sha256": "23ffd8ccd994967e575085a5c82fcdd53d47cd852d7bd9bec91789aceb415d6f",
+    "deterministic_cells_sha256": "89b518194c57066ad81c4411b36a665d01a24402dbfb0925e46d678ad9a51147",
+    "churn_evidence_sha256": "a115e3d7d2db299e8f7eaaad10999de337dc934bbc2b6f8458c6e51de723921b",
+    "binary": {
+      "sha256": "cd102f04529a5fdefe9dde3cc5bac9df7984460569c6002fe1e2503d5c224e0b",
+      "bytes": 46556752,
+      "runtime": {
+        "contract_version": 2,
+        "native_v8": true,
+        "v8_version": "15.0.245.2-rusty",
+        "build_profile": "release",
+        "capabilities": [
+          "native_dom",
+          "html5ever",
+          "rustls_network_broker",
+          "oil",
+          "semantic_v2",
+          "v8_javascript"
+        ]
+      },
+      "mutation_smoke": {
+        "status": "passed",
+        "revision_before": 1,
+        "revision_after": 2,
+        "effect_kinds": [
+          "dom_mutation",
+          "event"
+        ]
+      }
+    },
+    "miniwob": {
+      "allowed_seeds": [
+        17,
+        42,
+        73
+      ],
+      "content_sha256": "7bac5e8f28c40b8a44b3c915f98b26a8d3c494ecc1634e3d43839ed13598e386",
+      "injection": "after_core_before_load",
+      "kind": "oryn_g2_seeded_miniwob",
+      "source_commit": "33c3b4ddef8c6eb67c57a29663d844b1eda7e614",
+      "source_modified": false
+    },
+    "chromium_version": "Google Chrome 152.0.7977.65",
+    "models": {
+      "hosted_provider": "azure_openai",
+      "hosted_deployment": "gpt-5.6-terra",
+      "local_model": "qwen3:4b",
+      "local_model_digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7"
+    },
+    "sha256": "d107ae522f7dc9c12f1c969338d716d4f47212bb01fe1c09fae9ef8e279864f1"
+  },
+  "corpus": {
+    "name": "oryn-g2r-native-proof",
+    "revision": "2026-08-26",
+    "entries": 30,
+    "published_entries": 30
+  },
+  "deterministic": {
+    "schema_version": 3,
+    "run_id": "g2r-deterministic-v1",
+    "fingerprint": {
+      "source_commit": "a66a6680eaf6ec3ae161b6c35eb3b224b9c63c59",
+      "binary": {
+        "sha256": "cd102f04529a5fdefe9dde3cc5bac9df7984460569c6002fe1e2503d5c224e0b",
+        "bytes": 46556752,
+        "runtime": {
+          "contract_version": 2,
+          "native_v8": true,
+          "v8_version": "15.0.245.2-rusty",
+          "build_profile": "release",
+          "capabilities": [
+            "native_dom",
+            "html5ever",
+            "rustls_network_broker",
+            "oil",
+            "semantic_v2",
+            "v8_javascript"
+          ]
+        }
+      },
+      "miniwob": {
+        "allowed_seeds": [
+          17,
+          42,
+          73
+        ],
+        "content_sha256": "7bac5e8f28c40b8a44b3c915f98b26a8d3c494ecc1634e3d43839ed13598e386",
+        "injection": "after_core_before_load",
+        "kind": "oryn_g2_seeded_miniwob",
+        "source_commit": "33c3b4ddef8c6eb67c57a29663d844b1eda7e614",
+        "source_modified": false
+      },
+      "chromium_version": "Google Chrome 152.0.7977.65",
+      "oracle": {
+        "id": "oil_deterministic_oracle_v1",
+        "sha256": "307450929253cb0698c847d171f004c66e91c83635c6056a4afbdf8566038b4a"
+      },
+      "sha256": "5a7187e4b0dd334024de7bb08db293ecb85d41a1330ab27873c22d0fdbbe8f79"
+    },
+    "started_at": "2026-08-26T23:48:37.323204Z",
+    "completed_at": "2026-08-26T23:49:27.711971Z",
+    "cells": 48,
+    "native": {
+      "completed": 24,
+      "passed": 24
+    },
+    "chromium": {
+      "completed": 24,
+      "passed": 24
+    },
+    "differential": [
+      {
+        "task_id": "click-button",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-button",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-button",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-link",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-link",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-link",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-option",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-option",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-option",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "enter-text",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "enter-text",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "enter-text",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "focus-text",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "focus-text",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "focus-text",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "choose-date",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "choose-date",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "choose-date",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "login-user",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "login-user",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "login-user",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "search-engine",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "search-engine",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "search-engine",
+        "seed": 73,
+        "first_divergence": null
+      }
+    ],
+    "outcome": {
+      "status": "passed"
+    }
+  },
+  "panel": {
+    "expected_runs": 96,
+    "completed_runs": 96,
+    "prior_invalid_hosted_spend_usd": 3.190558,
+    "new_hosted_spend_usd": 2.019074,
+    "cumulative_hosted_spend_usd": 5.209632,
+    "hosted_cost_cap_usd": 100.0,
+    "hosted_provider": "azure_openai",
+    "hosted_model": "gpt-5.6-terra",
+    "azure_native_completed": 24,
+    "azure_native_passed": 22,
+    "local_model": "qwen3:4b",
+    "local_model_digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+    "local_model_max_output_tokens": 256
+  },
+  "metrics": {
+    "task_success": {
+      "numerator": 38,
+      "denominator": 96,
+      "value": 0.3958333333333333
+    },
+    "observation_sufficiency": {
+      "numerator": 17,
+      "denominator": 96,
+      "value": 0.17708333333333334
+    },
+    "recovery": {
+      "numerator": 2,
+      "denominator": 2,
+      "value": 1.0
+    },
+    "reference_survival": {
+      "numerator": 1,
+      "denominator": 1,
+      "value": 1.0
+    },
+    "false_reference_preservation": {
+      "numerator": 0,
+      "denominator": 5,
+      "value": 0.0
+    },
+    "causal_recall": {
+      "numerator": 99,
+      "denominator": 99,
+      "value": 1.0
+    },
+    "causal_precision": {
+      "numerator": 99,
+      "denominator": 198,
+      "value": 0.5
+    },
+    "action_latency_ms": {
+      "p50": 2.9180049896240234,
+      "p95": 53.56192588806152,
+      "samples": 846
+    },
+    "observation_utf8_bytes": {
+      "p50": 1336.0,
+      "p95": 2245,
+      "samples": 750
+    }
+  },
+  "criteria": {
+    "panel_complete": true,
+    "native_deterministic_24_of_24": true,
+    "chromium_deterministic_24_of_24": true,
+    "deterministic_zero_divergences": true,
+    "azure_native_at_least_15_of_24": true,
+    "budget_with_prior_spend_within_cap": true,
+    "zero_false_reference_preservation": true,
+    "semantic_metrics_measured": true,
+    "all_action_classifications_explained": true
+  },
+  "outcome": {
+    "panel_complete": true,
+    "status": "passed",
+    "reason_codes": [],
+    "diagnostics": []
+  }
+}

@@ -32,6 +32,22 @@ class TurnMetrics:
     action_command: str
     action_success: bool
     action_error: Optional[str] = None
+    observation_bytes: int = 0
+    observation_revision: Optional[int] = None
+    document_generation: Optional[int] = None
+    observation_capabilities: List[Any] = field(default_factory=list)
+    observation_diagnostics: List[str] = field(default_factory=list)
+    action_classification: str = "failed"
+    action_accepted: bool = False
+    action_effects: List[Any] = field(default_factory=list)
+    action_delta: Optional[Any] = None
+    action_diagnostics: List[str] = field(default_factory=list)
+    revision_before: Optional[int] = None
+    revision_after: Optional[int] = None
+    observation_raw: Optional[str] = None
+    observation_elements: List[Any] = field(default_factory=list)
+    trace_slice: List[Any] = field(default_factory=list)
+    failure_domain_reason_code: Optional[str] = None
 
 
 @dataclass
@@ -62,7 +78,9 @@ class Evaluation:
     criteria_met: dict = field(default_factory=dict)
     error: Optional[str] = None
     episode_done: bool = False  # For episodic environments like MiniWoB++
-    raw_reward: Optional[float] = None  # Raw reward before clamping (for timeout detection)
+    raw_reward: Optional[float] = (
+        None  # Raw reward before clamping (for timeout detection)
+    )
 
 
 @dataclass
@@ -144,6 +162,34 @@ class MetricsCollector:
             action_command=action.command,
             action_success=result.success if result else True,
             action_error=result.error if result and not result.success else None,
+            observation_bytes=observation.byte_count if observation else 0,
+            observation_revision=observation.revision if observation else None,
+            document_generation=(
+                observation.document_generation if observation else None
+            ),
+            observation_capabilities=(
+                [vars(item) for item in observation.capabilities] if observation else []
+            ),
+            observation_diagnostics=observation.diagnostics if observation else [],
+            action_classification=result.classification if result else "failed",
+            action_accepted=result.accepted if result else False,
+            action_effects=[vars(item) for item in result.effects] if result else [],
+            action_delta=(vars(result.delta) if result and result.delta else None),
+            action_diagnostics=result.diagnostics if result else [],
+            revision_before=result.revision_before if result else None,
+            revision_after=result.revision_after if result else None,
+            observation_raw=observation.raw if observation else None,
+            observation_elements=(list(observation.elements) if observation else []),
+            trace_slice=list(result.trace_slice) if result else [],
+            failure_domain_reason_code=(
+                None
+                if not result or result.success
+                else (
+                    "capability_unsupported"
+                    if result.classification == "unsupported"
+                    else "oil_action_failed"
+                )
+            ),
         )
         self.turns.append(turn)
 

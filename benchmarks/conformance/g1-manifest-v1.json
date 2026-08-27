@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "gate": "G1",
+  "execution_domain": "native",
+  "cases": [
+    { "id": "html5-tree-construction", "category": "html", "required": true, "status": "passed" },
+    { "id": "classic-inline-order", "category": "scripts", "required": true, "status": "passed" },
+    { "id": "classic-external-order-cache", "category": "scripts", "required": true, "status": "passed" },
+    { "id": "module-graph-link-evaluate", "category": "modules", "required": true, "status": "passed" },
+    { "id": "events-propagation-default-prevention", "category": "events", "required": true, "status": "passed" },
+    { "id": "forms-controls-submit-validation", "category": "forms", "required": true, "status": "passed" },
+    { "id": "promise-fetch-cors-bodies", "category": "fetch", "required": true, "status": "passed" },
+    { "id": "url-and-search-params", "category": "url", "required": true, "status": "passed" },
+    { "id": "utf8-text-encoder-decoder", "category": "encoding", "required": true, "status": "passed" },
+    { "id": "gzip-deflate-brotli-limits", "category": "compression", "required": true, "status": "passed" },
+    { "id": "ephemeral-cookie-context", "category": "cookies", "required": true, "status": "passed" },
+    { "id": "commit-domcontentloaded-load-networkidle", "category": "lifecycle", "required": true, "status": "passed" },
+    { "id": "open-shadow-traversal-closed-isolation", "category": "shadow_dom", "required": true, "status": "passed" },
+    { "id": "same-origin-frame-realm-isolation", "category": "frames", "required": true, "status": "passed" },
+    { "id": "cross-origin-frame-diagnostic", "category": "frames", "required": true, "status": "passed" },
+    { "id": "real-react18-babel-render", "category": "framework", "required": true, "status": "passed" },
+    { "id": "rendered-layout-paint-unavailable", "category": "capabilities", "required": true, "status": "passed" }
+  ]
+}

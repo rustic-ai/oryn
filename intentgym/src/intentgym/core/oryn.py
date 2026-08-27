@@ -9,6 +9,7 @@ strings directly to the oryn backend.
 """
 
 import time
+import json
 from dataclasses import dataclass, field
 from typing import Any, List, Literal, Optional
 
@@ -41,6 +42,13 @@ class OrynObservation:
     available_intents: List[str] = field(default_factory=list)
     token_count: int = 0
     latency_ms: float = 0.0
+    contract_version: Optional[int] = None
+    revision: Optional[int] = None
+    document_generation: Optional[int] = None
+    capabilities: List[Any] = field(default_factory=list)
+    diagnostics: List[str] = field(default_factory=list)
+    byte_count: int = 0
+    execution_domain: Optional[str] = None
 
     @classmethod
     def from_real(cls, obs: "_RealObservation") -> "OrynObservation":
@@ -69,6 +77,13 @@ class OrynObservation:
             available_intents=intents,
             token_count=obs.token_count,
             latency_ms=obs.latency_ms,
+            contract_version=obs.contract_version,
+            revision=obs.revision,
+            document_generation=obs.document_generation,
+            capabilities=obs.capabilities,
+            diagnostics=obs.diagnostics,
+            byte_count=obs.byte_count,
+            execution_domain=obs.execution_domain,
         )
 
 
@@ -81,6 +96,15 @@ class OrynResult:
     changes: List[str] = field(default_factory=list)
     error: Optional[str] = None
     latency_ms: float = 0.0
+    accepted: bool = False
+    classification: str = "failed"
+    effects: List[Any] = field(default_factory=list)
+    delta: Optional[Any] = None
+    diagnostics: List[str] = field(default_factory=list)
+    revision_before: Optional[int] = None
+    revision_after: Optional[int] = None
+    execution_domain: Optional[str] = None
+    trace_slice: List[Any] = field(default_factory=list)
 
     @classmethod
     def from_real(cls, result: "_RealResult") -> "OrynResult":
@@ -91,6 +115,14 @@ class OrynResult:
             changes=result.changes,
             error=result.error,
             latency_ms=result.latency_ms,
+            accepted=result.accepted,
+            classification=result.classification,
+            effects=result.effects,
+            delta=result.delta,
+            diagnostics=result.diagnostics,
+            revision_before=result.revision_before,
+            revision_after=result.revision_after,
+            execution_domain=result.execution_domain,
         )
 
 
@@ -104,14 +136,14 @@ class OrynInterface:
     Commands are passed through as Intent Language strings.
 
     Args:
-        mode: Browser mode - 'headless', 'embedded', or 'remote'
+        mode: Browser mode - 'native', 'headless', 'embedded', or 'remote'
         use_mock: Force mock mode even if oryn is available
         **options: Additional options passed to the oryn client
     """
 
     def __init__(
         self,
-        mode: Literal["headless", "embedded", "remote"] = "headless",
+        mode: Literal["native", "headless", "embedded", "remote"] = "headless",
         use_mock: bool = False,
         **options,
     ):
@@ -120,6 +152,7 @@ class OrynInterface:
         self._use_mock = use_mock or not _HAS_ORYN
         self._client: Optional["_OrynClientSync"] = None
         self._mock_state = {"url": "about:blank", "title": "Blank"}
+        self._native_trace_cursor = 0
 
         # Try to initialize real client
         if not self._use_mock:
@@ -134,6 +167,7 @@ class OrynInterface:
         """Connect to the oryn backend."""
         if self._client:
             self._client.connect()
+            self._native_trace_cursor = 0
 
     def close(self) -> None:
         """Close the connection."""
@@ -162,7 +196,10 @@ class OrynInterface:
         start = time.time()
         real_obs = self._client.observe(**options)
         # Check for fatal backend errors in the raw response
-        if real_obs.raw and ("webdriver connection lost" in real_obs.raw or "WebDriver session has been closed" in real_obs.raw):
+        if real_obs.raw and (
+            "webdriver connection lost" in real_obs.raw
+            or "WebDriver session has been closed" in real_obs.raw
+        ):
             raise ConnectionLostError(None)
 
         obs = OrynObservation.from_real(real_obs)
@@ -193,26 +230,63 @@ class OrynInterface:
 
         start = time.time()
 
-        # _client.execute returns a raw string (or OrynResult if configured?)
-        # Current oryn-python returns str.
-        real_result = self._client.execute(command)
+        real_result = (
+            self._client.execute_typed(command)
+            if self.mode == "native"
+            else self._client.execute(command)
+        )
 
         # Check for fatal backend errors in the response string
         if isinstance(real_result, str):
-            if "webdriver connection lost" in real_result or "WebDriver session has been closed" in real_result:
+            if (
+                "webdriver connection lost" in real_result
+                or "WebDriver session has been closed" in real_result
+            ):
                 raise ConnectionLostError(None)
 
         duration = (time.time() - start) * 1000
 
         # If real_result is string, wrap it
         if isinstance(real_result, str):
-            success = not real_result.strip().lower().startswith("error")
-            return OrynResult(success=success, raw=real_result, latency_ms=duration)
+            success = bool(real_result) and not real_result.strip().lower().startswith(
+                "error"
+            )
+            return OrynResult(
+                success=success,
+                accepted=success,
+                raw=real_result,
+                error=None if success else (real_result or "empty backend response"),
+                classification="event_only" if success else "failed",
+                latency_ms=duration,
+            )
 
         # If it returned an object (future compatibility or if I change client)
         result = OrynResult.from_real(real_result)
         result.latency_ms = duration
+        if self.mode == "native" and not command.strip().lower().startswith("trace"):
+            try:
+                result.trace_slice = self._take_native_trace_slice()
+            except Exception as error:
+                result.diagnostics.append(f"trace_capture_failed: {error}")
         return result
+
+    def _take_native_trace_slice(self) -> List[Any]:
+        """Read the existing OIL trace stream and return only new events."""
+        raw = self._client.execute("trace stop")
+        events: List[Any] = []
+        for line in raw.splitlines():
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and payload.get("kind") == "trace":
+                events = list(payload.get("events") or [])
+                break
+        if len(events) < self._native_trace_cursor:
+            self._native_trace_cursor = 0
+        sliced = events[self._native_trace_cursor :]
+        self._native_trace_cursor = len(events)
+        return sliced
 
     # Convenience methods
     def goto(self, url: str) -> OrynResult:

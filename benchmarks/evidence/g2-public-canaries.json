@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "gate": "G2",
+  "suite": "public_canaries",
+  "captured_at": "2026-08-26T08:40:32Z",
+  "source_commit": "a66a6680eaf6ec3ae161b6c35eb3b224b9c63c59",
+  "execution_domain": "native",
+  "policy": "read_only",
+  "results": [
+    {
+      "task_id": "canary-wikipedia-search",
+      "requested_url": "https://www.wikipedia.org/",
+      "final_url": "https://www.wikipedia.org/",
+      "availability": "challenged",
+      "correctness": "failed",
+      "title": "",
+      "semantic_nodes": 0,
+      "diagnostics": ["Unexpected token", "empty semantic observation"]
+    },
+    {
+      "task_id": "canary-mdn-search",
+      "requested_url": "https://developer.mozilla.org/",
+      "final_url": "https://developer.mozilla.org/en-US/",
+      "availability": "available",
+      "correctness": "passed",
+      "title": "MDN Web Docs",
+      "semantic_nodes": 117,
+      "diagnostics": ["module linking reported as a non-fatal partial capability"]
+    },
+    {
+      "task_id": "canary-crates-search",
+      "requested_url": "https://crates.io/",
+      "final_url": "https://crates.io/",
+      "availability": "challenged",
+      "correctness": "failed",
+      "title": "",
+      "semantic_nodes": 0,
+      "diagnostics": ["Unexpected token", "empty semantic observation"]
+    },
+    {
+      "task_id": "canary-github-public-search",
+      "requested_url": "https://github.com/rustic-ai/oryn",
+      "final_url": null,
+      "availability": "unavailable",
+      "correctness": "not_evaluated",
+      "title": null,
+      "semantic_nodes": null,
+      "diagnostics": ["navigation exceeded the 90 second public-canary budget"]
+    }
+  ],
+  "summary": {
+    "published": 4,
+    "available": 1,
+    "challenged": 2,
+    "unavailable": 1,
+    "correctness_passed": 1,
+    "correctness_failed": 2,
+    "correctness_not_evaluated": 1
+  }
+}

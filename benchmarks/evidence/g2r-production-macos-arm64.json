@@ -1,0 +1,48 @@
+{
+  "schema_version": 3,
+  "run_id": "g2r-production-20260827T023131Z",
+  "captured_at": "2026-08-27T02:31:31Z",
+  "source_commit": "a66a6680eaf6ec3ae161b6c35eb3b224b9c63c59",
+  "environment": {
+    "os": "26.6.2",
+    "arch": "arm64",
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)"
+  },
+  "binary": {
+    "path": "target/release/oryn",
+    "sha256": "cd102f04529a5fdefe9dde3cc5bac9df7984460569c6002fe1e2503d5c224e0b",
+    "installed_bytes": 46556752,
+    "compressed_bytes": 17837843,
+    "runtime": {
+      "contract_version": 2,
+      "native_v8": true,
+      "v8_version": "15.0.245.2-rusty",
+      "build_profile": "release",
+      "capabilities": [
+        "native_dom",
+        "html5ever",
+        "rustls_network_broker",
+        "oil",
+        "semantic_v2",
+        "v8_javascript"
+      ]
+    }
+  },
+  "measurements": {
+    "samples": 30,
+    "startup_to_mutation_protocol_p50_ms": 10,
+    "startup_to_mutation_protocol_p95_ms": 10,
+    "peak_rss_bytes": 23805952
+  },
+  "mutation_smoke": {
+    "observed_changed_state": true,
+    "effect_kinds": [
+      "dom_mutation",
+      "event"
+    ]
+  },
+  "outcome": {
+    "status": "passed",
+    "diagnostics": []
+  }
+}

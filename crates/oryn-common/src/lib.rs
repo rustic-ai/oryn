@@ -3,6 +3,7 @@ pub mod error_mapping;
 pub mod formatter;
 pub mod protocol;
 pub mod resolver;
+pub mod v2;
 
 pub mod intent {
     pub mod define_parser;

@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oryn.dev/schemas/benchmark-result-v2.json",
+  "title": "Oryn Aggregate Semantic Benchmark Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "commit",
+    "started_at",
+    "corpus",
+    "panel",
+    "metrics",
+    "outcome"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "corpus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "revision", "entries", "published_entries"],
+      "properties": {
+        "name": { "type": "string" },
+        "revision": { "type": "string" },
+        "entries": { "const": 30 },
+        "published_entries": { "type": "integer", "minimum": 0, "maximum": 30 }
+      }
+    },
+    "panel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected_runs",
+        "completed_runs",
+        "hosted_cost_usd",
+        "hosted_cost_cap_usd",
+        "hosted_provider"
+      ],
+      "properties": {
+        "expected_runs": { "const": 96 },
+        "completed_runs": { "type": "integer", "minimum": 0, "maximum": 96 },
+        "hosted_cost_usd": { "type": "number", "minimum": 0, "maximum": 100 },
+        "hosted_cost_cap_usd": { "const": 100 },
+        "hosted_provider": { "enum": ["openai", "azure_openai"] },
+        "hosted_model": { "type": "string", "minLength": 1 },
+        "local_model": { "const": "qwen3:4b" },
+        "local_model_digest": { "type": ["string", "null"] },
+        "local_model_max_output_tokens": { "const": 256 }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_success_rate",
+        "observation_sufficiency_rate",
+        "recovery_rate",
+        "reference_survival_rate",
+        "false_reference_preservations",
+        "action_latency_ms_p50",
+        "observation_bytes_p50"
+      ],
+      "properties": {
+        "task_success_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "observation_sufficiency_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recovery_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reference_survival_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "false_reference_preservations": { "type": "integer", "minimum": 0 },
+        "action_latency_ms_p50": { "type": "number", "minimum": 0 },
+        "action_latency_ms_p95": { "type": "number", "minimum": 0 },
+        "observation_bytes_p50": { "type": "number", "minimum": 0 },
+        "observation_bytes_p95": { "type": "number", "minimum": 0 }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason_codes", "diagnostics"],
+      "properties": {
+        "status": { "enum": ["passed", "failed", "incomplete"] },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "native_success",
+              "compatibility_success",
+              "panel_complete",
+              "capability_unsupported",
+              "policy_denied",
+              "public_unavailable",
+              "public_challenged",
+              "action_failed",
+              "assertion_failed",
+              "budget_ceiling",
+              "model_unavailable",
+              "model_digest_mismatch"
+            ]
+          }
+        },
+        "diagnostics": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

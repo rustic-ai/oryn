@@ -31,6 +31,7 @@ docker/test-report.md
 unified-test-results.md
 
 e2e-results/
+artifacts/
 *.whl
 **/dist/
 

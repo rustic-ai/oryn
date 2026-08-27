@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "name": "oryn-g2-native-proof",
+  "revision": "2026-08-25",
+  "tasks": [
+    { "id": "harness-static", "class": "harness", "source": "test-harness/scripts/01_static.oil", "required": true },
+    { "id": "harness-forms", "class": "harness", "source": "test-harness/scripts/02_forms.oil", "required": true },
+    { "id": "harness-ecommerce", "class": "harness", "source": "test-harness/scripts/03_ecommerce.oil", "required": true },
+    { "id": "harness-interactivity", "class": "harness", "source": "test-harness/scripts/04_interactivity.oil", "required": true },
+    { "id": "harness-dynamic", "class": "harness", "source": "test-harness/scripts/05_dynamic.oil", "required": true },
+    { "id": "harness-edge-cases", "class": "harness", "source": "test-harness/scripts/06_edge_cases.oil", "required": true },
+    { "id": "harness-intents", "class": "harness", "source": "test-harness/scripts/07_intents_builtin.oil", "required": true },
+    { "id": "harness-multipage", "class": "harness", "source": "test-harness/scripts/08_multipage_flows.oil", "required": true },
+    { "id": "harness-resolution", "class": "harness", "source": "test-harness/scripts/09_target_resolution.oil", "required": true },
+    { "id": "harness-react", "class": "harness", "source": "test-harness/scripts/10_react_spa.oil", "required": true },
+    { "id": "harness-angular", "class": "harness", "source": "test-harness/scripts/11_angular_spa.oil", "required": true },
+    { "id": "harness-popup", "class": "harness", "source": "test-harness/scripts/12_popup_detection.oil", "required": true },
+
+    { "id": "miniwob-click-button", "class": "miniwob", "source": "click-button", "required": false },
+    { "id": "miniwob-click-link", "class": "miniwob", "source": "click-link", "required": false },
+    { "id": "miniwob-click-option", "class": "miniwob", "source": "click-option", "required": false },
+    { "id": "miniwob-enter-text", "class": "miniwob", "source": "enter-text", "required": false },
+    { "id": "miniwob-focus-text", "class": "miniwob", "source": "focus-text", "required": false },
+    { "id": "miniwob-choose-date", "class": "miniwob", "source": "choose-date", "required": false },
+    { "id": "miniwob-login-user", "class": "miniwob", "source": "login-user", "required": false },
+    { "id": "miniwob-search-engine", "class": "miniwob", "source": "search-engine", "required": false },
+
+    { "id": "framework-react-churn", "class": "framework", "source": "test-harness/scenarios/spa/react-tasks.html", "required": true },
+    { "id": "framework-angular-churn", "class": "framework", "source": "test-harness/scenarios/spa/angular-shop.html", "required": true },
+    { "id": "framework-vue-churn", "class": "framework", "source": "test-harness/scenarios/spa/vue-tasks.html", "required": true },
+    { "id": "framework-svelte-churn", "class": "framework", "source": "test-harness/scenarios/spa/svelte-tasks.html", "required": true },
+    { "id": "framework-shadow-dom", "class": "framework", "source": "test-harness/scenarios/edge-cases/shadow-dom.html", "required": true },
+    { "id": "framework-same-origin-iframe", "class": "framework", "source": "test-harness/scenarios/edge-cases/iframes.html", "required": true },
+
+    { "id": "canary-wikipedia-search", "class": "public_canary", "source": "https://www.wikipedia.org/", "required": false, "policy": "read_only" },
+    { "id": "canary-mdn-search", "class": "public_canary", "source": "https://developer.mozilla.org/", "required": false, "policy": "read_only" },
+    { "id": "canary-crates-search", "class": "public_canary", "source": "https://crates.io/", "required": false, "policy": "read_only" },
+    { "id": "canary-github-public-search", "class": "public_canary", "source": "https://github.com/rustic-ai/oryn", "required": false, "policy": "read_only" }
+  ]
+}

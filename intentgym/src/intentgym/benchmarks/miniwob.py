@@ -10,8 +10,14 @@ class MiniWoBLoader(Benchmark):
     MiniWoB++: Reinforcement Learning on Web Interfaces.
     """
 
-    def __init__(self, server_url: str = "http://localhost:8765", **options):
+    def __init__(
+        self,
+        server_url: str = "http://localhost:8765",
+        seed: int | None = None,
+        **options,
+    ):
         self.server_url = server_url
+        self.seed = seed
         self.options = options
 
         # Standard MiniWoB tasks
@@ -47,7 +53,10 @@ class MiniWoBLoader(Benchmark):
             Task(
                 task_id=name,
                 intent=self._get_intent(name),
-                start_url=f"{self.server_url}/miniwob/{name}.html",
+                start_url=(
+                    f"{self.server_url}/miniwob/{name}.html"
+                    + (f"?oryn_seed={self.seed}" if self.seed is not None else "")
+                ),
                 success_criteria={"env_success": True},
                 max_steps=10,
                 category="miniwob",
@@ -67,12 +76,13 @@ class MiniWoBLoader(Benchmark):
         try:
             # Get page text which includes the reward display
             # MiniWoB shows: "Last reward: X.XX" where X.XX is the reward
-            result = oryn.execute('text')
-            text_content = result.raw.strip()
+            result = oryn.execute("text")
+            text_content = self._response_value(result.raw)
 
             # Parse reward from "Last reward: X.XX" line
             import re
-            reward_match = re.search(r'Last reward:\s*([-\d.]+)', text_content)
+
+            reward_match = re.search(r"Last reward:\s*([-\d.]+)", text_content)
 
             if reward_match:
                 reward_text = reward_match.group(1)
@@ -104,6 +114,18 @@ class MiniWoBLoader(Benchmark):
             partial_score = 0.0
             raw_reward = None
 
+        if oryn.mode == "native":
+            try:
+                trace = oryn.execute("trace stop")
+                trace_reward = self._trace_raw_reward(trace.raw)
+                if trace_reward is not None:
+                    raw_reward = trace_reward
+                    episode_done = True
+                    success = trace_reward > 0
+                    partial_score = max(0.0, trace_reward)
+            except Exception:
+                pass
+
         return Evaluation(
             success=success,
             partial_score=partial_score,
@@ -111,6 +133,48 @@ class MiniWoBLoader(Benchmark):
             episode_done=episode_done,
             raw_reward=raw_reward,
         )
+
+    @staticmethod
+    def _response_value(raw: str) -> str:
+        import json
+
+        for line in raw.splitlines():
+            if line.startswith("Value: "):
+                try:
+                    payload = json.loads(line.removeprefix("Value: "))
+                except json.JSONDecodeError:
+                    pass
+                else:
+                    if isinstance(payload, dict) and "text" in payload:
+                        return str(payload["text"])
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and "value" in payload:
+                return str(payload["value"])
+        return raw.strip()
+
+    @staticmethod
+    def _trace_raw_reward(raw: str) -> float | None:
+        import json
+        import re
+
+        for line in raw.splitlines():
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            for event in reversed(payload.get("events") or []):
+                kind = event.get("kind") or {}
+                if kind.get("kind") != "console":
+                    continue
+                match = re.search(
+                    r"\(raw:\s*(-?\d+(?:\.\d+)?)\)", str(kind.get("message", ""))
+                )
+                if match:
+                    return float(match.group(1))
+        return None
 
     def _get_intent(self, name: str) -> str:
         # Map task names to natural language intents

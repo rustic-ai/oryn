@@ -9,4 +9,13 @@ members = [
     "crates/oryn-h",
     "crates/oryn-r",
     "crates/oryn",
+    "crates/oryn-native",
+    "crates/oryn-webidl",
 ]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

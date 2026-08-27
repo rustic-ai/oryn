@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oryn.dev/schemas/benchmark-result-v3.json",
+  "title": "Oryn G2R Fingerprinted Semantic Benchmark Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "started_at",
+    "updated_at",
+    "fingerprint",
+    "corpus",
+    "deterministic",
+    "panel",
+    "metrics",
+    "criteria",
+    "outcome"
+  ],
+  "properties": {
+    "schema_version": { "const": 3 },
+    "run_id": { "const": "g2r-model-panel-v3" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "fingerprint": {
+      "type": "object",
+      "required": [
+        "source_commit",
+        "source_dirty",
+        "harness_sha256",
+        "deterministic_evidence_sha256",
+        "deterministic_cells_sha256",
+        "churn_evidence_sha256",
+        "binary",
+        "miniwob",
+        "chromium_version",
+        "models",
+        "sha256"
+      ],
+      "properties": {
+        "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "source_dirty": { "type": "boolean" },
+        "harness_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "deterministic_evidence_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "deterministic_cells_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "churn_evidence_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "chromium_version": { "type": "string", "minLength": 1 },
+        "binary": {
+          "type": "object",
+          "required": ["sha256", "bytes", "runtime", "mutation_smoke"],
+          "properties": {
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "bytes": { "type": "integer", "minimum": 1 },
+            "runtime": {
+              "type": "object",
+              "required": [
+                "contract_version",
+                "native_v8",
+                "v8_version",
+                "build_profile",
+                "capabilities"
+              ],
+              "properties": {
+                "contract_version": { "type": "integer", "minimum": 2 },
+                "native_v8": { "const": true },
+                "v8_version": { "type": "string", "minLength": 1 },
+                "build_profile": { "const": "release" },
+                "capabilities": {
+                  "type": "array",
+                  "contains": { "const": "v8_javascript" }
+                }
+              }
+            },
+            "mutation_smoke": {
+              "type": "object",
+              "required": ["status", "revision_before", "revision_after", "effect_kinds"],
+              "properties": {
+                "status": { "const": "passed" },
+                "revision_before": { "type": "integer", "minimum": 0 },
+                "revision_after": { "type": "integer", "minimum": 1 },
+                "effect_kinds": {
+                  "type": "array",
+                  "contains": { "const": "dom_mutation" }
+                }
+              }
+            }
+          }
+        },
+        "miniwob": {
+          "type": "object",
+          "required": [
+            "kind",
+            "allowed_seeds",
+            "source_commit",
+            "content_sha256",
+            "source_modified",
+            "injection"
+          ],
+          "properties": {
+            "kind": { "const": "oryn_g2_seeded_miniwob" },
+            "allowed_seeds": { "const": [17, 42, 73] },
+            "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "source_modified": { "const": false },
+            "injection": { "const": "after_core_before_load" }
+          }
+        },
+        "models": {
+          "type": "object",
+          "required": [
+            "hosted_provider",
+            "hosted_deployment",
+            "local_model",
+            "local_model_digest"
+          ],
+          "properties": {
+            "hosted_provider": { "const": "azure_openai" },
+            "hosted_deployment": { "const": "gpt-5.6-terra" },
+            "local_model": { "const": "qwen3:4b" },
+            "local_model_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        }
+      }
+    },
+    "corpus": {
+      "type": "object",
+      "required": ["name", "revision", "entries", "published_entries"],
+      "properties": {
+        "name": { "const": "oryn-g2r-native-proof" },
+        "revision": { "type": "string" },
+        "entries": { "const": 30 },
+        "published_entries": { "type": "integer", "minimum": 0, "maximum": 30 }
+      }
+    },
+    "deterministic": {
+      "type": "object",
+      "required": ["native", "chromium"],
+      "properties": {
+        "native": { "$ref": "#/$defs/deterministicDomain" },
+        "chromium": { "$ref": "#/$defs/deterministicDomain" }
+      }
+    },
+    "panel": {
+      "type": "object",
+      "required": [
+        "expected_runs",
+        "completed_runs",
+        "prior_invalid_hosted_spend_usd",
+        "new_hosted_spend_usd",
+        "cumulative_hosted_spend_usd",
+        "hosted_cost_cap_usd",
+        "hosted_provider",
+        "hosted_model",
+        "azure_native_completed",
+        "azure_native_passed",
+        "local_model",
+        "local_model_digest",
+        "local_model_max_output_tokens"
+      ],
+      "properties": {
+        "expected_runs": { "const": 96 },
+        "completed_runs": { "type": "integer", "minimum": 0, "maximum": 96 },
+        "prior_invalid_hosted_spend_usd": { "const": 3.190558 },
+        "new_hosted_spend_usd": { "type": "number", "minimum": 0 },
+        "cumulative_hosted_spend_usd": { "type": "number", "minimum": 3.190558 },
+        "hosted_cost_cap_usd": { "const": 100.0 },
+        "hosted_provider": { "const": "azure_openai" },
+        "hosted_model": { "const": "gpt-5.6-terra" },
+        "azure_native_completed": { "type": "integer", "minimum": 0, "maximum": 24 },
+        "azure_native_passed": { "type": "integer", "minimum": 0, "maximum": 24 },
+        "local_model": { "const": "qwen3:4b" },
+        "local_model_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "local_model_max_output_tokens": { "const": 256 }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "task_success",
+        "observation_sufficiency",
+        "recovery",
+        "reference_survival",
+        "false_reference_preservation",
+        "causal_recall",
+        "causal_precision",
+        "action_latency_ms",
+        "observation_utf8_bytes"
+      ],
+      "properties": {
+        "task_success": { "$ref": "#/$defs/ratio" },
+        "observation_sufficiency": { "$ref": "#/$defs/ratio" },
+        "recovery": { "$ref": "#/$defs/ratio" },
+        "reference_survival": { "$ref": "#/$defs/ratio" },
+        "false_reference_preservation": { "$ref": "#/$defs/ratio" },
+        "causal_recall": { "$ref": "#/$defs/ratio" },
+        "causal_precision": { "$ref": "#/$defs/ratio" },
+        "action_latency_ms": { "$ref": "#/$defs/distribution" },
+        "observation_utf8_bytes": { "$ref": "#/$defs/distribution" }
+      }
+    },
+    "criteria": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" }
+    },
+    "outcome": {
+      "type": "object",
+      "required": ["panel_complete", "status", "reason_codes", "diagnostics"],
+      "properties": {
+        "panel_complete": { "type": "boolean" },
+        "status": { "enum": ["passed", "failed"] },
+        "reason_codes": { "type": "array", "items": { "type": "string" } },
+        "diagnostics": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "deterministicDomain": {
+      "type": "object",
+      "required": ["completed", "passed"],
+      "properties": {
+        "completed": { "type": "integer", "minimum": 0, "maximum": 24 },
+        "passed": { "type": "integer", "minimum": 0, "maximum": 24 }
+      }
+    },
+    "ratio": {
+      "type": "object",
+      "required": ["numerator", "denominator", "value"],
+      "properties": {
+        "numerator": { "type": "integer", "minimum": 0 },
+        "denominator": { "type": "integer", "minimum": 0 },
+        "value": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+      }
+    },
+    "distribution": {
+      "type": "object",
+      "required": ["p50", "p95", "samples"],
+      "properties": {
+        "p50": { "type": ["number", "null"], "minimum": 0 },
+        "p95": { "type": ["number", "null"], "minimum": 0 },
+        "samples": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

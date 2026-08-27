@@ -28,7 +28,7 @@ class _FakeOryn:
         if self.fail_first_observe and self.observe_calls == 1:
             raise RuntimeError("Operation 'scan' timed out after 60s")
         return OrynObservation(
-            raw='timer: 10 / 10 sec remaining',
+            raw="timer: 10 / 10 sec remaining",
             url="http://localhost:8765/miniwob/click-button.html",
             title="Click Button Task",
         )

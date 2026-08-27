@@ -1,8 +1,8 @@
 """Subprocess transport for communicating with oryn via stdin/stdout."""
 
 import asyncio
-from collections import deque
 import os
+from collections import deque
 from typing import Optional
 
 from ..config import OrynConfig

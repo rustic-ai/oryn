@@ -235,13 +235,15 @@ fn parse_refresh(pair: Pair<Rule>) -> Result<RefreshCmd, ParseError> {
 }
 
 fn parse_observe(pair: Pair<Rule>) -> Result<ObserveCmd, ParseError> {
+    let raw = pair.as_str();
+    let has_flag = |flag: &str| raw.split_ascii_whitespace().any(|token| token == flag);
     let mut cmd = ObserveCmd {
-        full: false,
-        minimal: false,
-        viewport: false,
-        hidden: false,
-        positions: false,
-        diff: false,
+        full: has_flag("--full"),
+        minimal: has_flag("--minimal"),
+        viewport: has_flag("--viewport"),
+        hidden: has_flag("--hidden"),
+        positions: has_flag("--positions"),
+        diff: has_flag("--diff"),
         near: None,
         timeout: None,
     };
@@ -325,14 +327,16 @@ fn parse_box(pair: Pair<Rule>) -> Result<BoxCmd, ParseError> {
 // --- Action Parsers ---
 
 fn parse_click(pair: Pair<Rule>) -> Result<ClickCmd, ParseError> {
+    let raw = pair.as_str();
+    let has_flag = |flag: &str| raw.split_ascii_whitespace().any(|token| token == flag);
     let mut target = None;
-    let mut double = false;
-    let mut right = false;
-    let mut middle = false;
-    let mut force = false;
-    let mut ctrl = false;
-    let mut shift = false;
-    let mut alt = false;
+    let mut double = has_flag("--double");
+    let mut right = has_flag("--right");
+    let mut middle = has_flag("--middle");
+    let mut force = has_flag("--force");
+    let mut ctrl = has_flag("--ctrl");
+    let mut shift = has_flag("--shift");
+    let mut alt = has_flag("--alt");
     let mut timeout = None;
 
     for inner in pair.into_inner() {
@@ -575,6 +579,24 @@ fn parse_extract(pair: Pair<Rule>) -> Result<ExtractCmd, ParseError> {
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
+            Rule::extract_what => {
+                let nested = inner.clone().into_inner().next();
+                if nested
+                    .as_ref()
+                    .is_some_and(|css| css.as_rule() == Rule::extract_css)
+                {
+                    let css = nested.expect("checked extract css");
+                    what = ExtractWhat::Css(parse_string(css.into_inner().next().unwrap()));
+                } else {
+                    what = match inner.as_str() {
+                        "links" => ExtractWhat::Links,
+                        "images" => ExtractWhat::Images,
+                        "tables" => ExtractWhat::Tables,
+                        "meta" => ExtractWhat::Meta,
+                        _ => ExtractWhat::Text,
+                    };
+                }
+            }
             Rule::extract_css => {
                 what = ExtractWhat::Css(parse_string(inner.into_inner().next().unwrap()));
             }
@@ -1167,5 +1189,36 @@ mod comment_validation_tests {
     #[test]
     fn test_accepts_full_line_comment() {
         assert!(parse("#this is a comment").is_ok());
+    }
+
+    #[test]
+    fn observe_boolean_flags_survive_silent_grammar_rules() {
+        let script = parse("observe --full --minimal --viewport --hidden --positions --diff")
+            .expect("parse observe flags");
+        let Some(Command::Observe(command)) = &script.lines[0].command else {
+            panic!("expected observe command")
+        };
+        assert!(command.full);
+        assert!(command.minimal);
+        assert!(command.viewport);
+        assert!(command.hidden);
+        assert!(command.positions);
+        assert!(command.diff);
+    }
+
+    #[test]
+    fn click_boolean_flags_survive_silent_grammar_rules() {
+        let script = parse("click 7 --double --right --middle --force --ctrl --shift --alt")
+            .expect("parse click flags");
+        let Some(Command::Click(command)) = &script.lines[0].command else {
+            panic!("expected click command")
+        };
+        assert!(command.double);
+        assert!(command.right);
+        assert!(command.middle);
+        assert!(command.force);
+        assert!(command.ctrl);
+        assert!(command.shift);
+        assert!(command.alt);
     }
 }

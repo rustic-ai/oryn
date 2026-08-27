@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "gate": "G0",
+  "status": "passed",
+  "captured_at": "2026-08-27T02:34:28Z",
+  "source_commit": "a66a6680eaf6ec3ae161b6c35eb3b224b9c63c59",
+  "environment": {
+    "os": "macOS 26.6.2",
+    "arch": "arm64",
+    "cpu": "Apple M2 Max",
+    "memory_bytes": 34359738368,
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)"
+  },
+  "sandbox": {
+    "bundle_identifier": "ai.rustic.oryn.page-worker",
+    "signing_identity_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "signing_identity": "Apple Development: Rohit Rai (HH58U486S8)",
+    "team_identifier": "5HVA9VFF8K",
+    "worker_sha256": "1a5b60d0206714423310b87a34c38d07b8471624a940979a6e37be55c2c92fe2",
+    "trusted_chain": true,
+    "signature_verified": true,
+    "designated_requirement_verified": true,
+    "app_sandbox": true,
+    "launch_succeeded": true,
+    "protocol": {
+      "version": 1,
+      "ping": "pong",
+      "exit": "exiting"
+    }
+  },
+  "host_selection": {
+    "selected": "raw_v8",
+    "samples": 30,
+    "iterations_per_sample": 100,
+    "raw_v8": {
+      "startup_p50_ms": 1.201333,
+      "startup_p95_ms": 1.319625,
+      "execution_p50_ms": 0.109166,
+      "execution_p95_ms": 0.126458,
+      "installed_bytes": 40709536
+    },
+    "deno_core": {
+      "startup_p50_ms": 4.149084,
+      "startup_p95_ms": 4.348292,
+      "execution_p50_ms": 0.069208,
+      "execution_p95_ms": 0.075292,
+      "installed_bytes": 42608160
+    }
+  },
+  "native": {
+    "samples": 30,
+    "concurrent_pages": 20,
+    "page_creation_p50_ms": 0.179,
+    "load_observe_p50_ms": 0.368333,
+    "observation_bytes": 19420,
+    "peak_rss_bytes": 4587520,
+    "installed_bytes": 2380416,
+    "compressed_bytes": 1276884,
+    "signed_worker_installed_bytes": 3408864,
+    "signed_worker_compressed_bytes": 1753327
+  },
+  "raw_artifacts": [
+    "artifacts/g0-hosts/raw-v8.jsonl",
+    "artifacts/g0-hosts/deno-core.jsonl",
+    "artifacts/g0-native-final/result.json"
+  ]
+}

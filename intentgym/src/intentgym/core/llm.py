@@ -1,3 +1,4 @@
+import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -36,34 +37,66 @@ class LLMProvider(ABC):
 
 
 class OpenAIProvider(LLMProvider):
-    """OpenAI API provider."""
+    """OpenAI Responses API provider with a cumulative hard cost ceiling."""
 
-    def __init__(self, model: str = "gpt-4-turbo", **options):
+    def __init__(self, model: str | None = None, **options):
         import openai
 
-        self.client = openai.OpenAI()
-        self.model = model
+        azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
+        azure_api_key = os.environ.get("AZURE_OPENAI_API_KEY")
+        base_url = os.environ.get("OPENAI_BASE_URL")
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if azure_endpoint:
+            base_url = base_url or f"{azure_endpoint.rstrip('/')}/openai/v1"
+            api_key = azure_api_key or api_key
+
+        client_options = {}
+        if base_url:
+            client_options["base_url"] = base_url.rstrip("/")
+        if api_key:
+            client_options["api_key"] = api_key
+        self.client = openai.OpenAI(**client_options)
+        self.model = model or os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-5.6-terra")
+        self.budget_usd = float(options.pop("budget_usd", 100.0))
+        self.input_cost_per_million = float(options.pop("input_cost_per_million", 1.25))
+        self.output_cost_per_million = float(
+            options.pop("output_cost_per_million", 10.0)
+        )
+        self.spent_usd = 0.0
         self.options = options
 
     def complete(self, messages: List[Dict[str, str]]) -> LLMResponse:
         start = time.time()
-        # Convert simple list[dict] to Iterable[ChatCompletionMessageParam]
-        # We assume the dicts are compatible structure
         typed_messages: Any = messages
+        estimated_input = sum(
+            self.count_tokens(item.get("content", "")) for item in messages
+        )
+        maximum_output = int(self.options.get("max_output_tokens", 4096))
+        reserved_cost = self._cost(estimated_input, maximum_output)
+        if self.spent_usd + reserved_cost > self.budget_usd:
+            raise RuntimeError(
+                "hosted model budget ceiling would be exceeded before request: "
+                f"spent=${self.spent_usd:.6f}, reserve=${reserved_cost:.6f}, "
+                f"cap=${self.budget_usd:.2f}"
+            )
 
-        response = self.client.chat.completions.create(
-            model=self.model, messages=typed_messages, **self.options
+        response = self.client.responses.create(
+            model=self.model, input=typed_messages, **self.options
         )
         duration = (time.time() - start) * 1000
 
         usage = response.usage
-        input_tokens = usage.prompt_tokens if usage else 0
-        output_tokens = usage.completion_tokens if usage else 0
+        input_tokens = usage.input_tokens if usage else 0
+        output_tokens = usage.output_tokens if usage else 0
 
-        # Simple cost estimation (replace with actual pricing table later)
-        cost = (input_tokens * 10.0 + output_tokens * 30.0) / 1_000_000
+        cost = self._cost(input_tokens, output_tokens)
+        self.spent_usd += cost
+        if self.spent_usd > self.budget_usd:
+            raise RuntimeError(
+                f"hosted model budget ceiling exceeded: ${self.spent_usd:.6f}"
+            )
 
-        content = response.choices[0].message.content or ""
+        content = response.output_text or ""
 
         return LLMResponse(
             content=content,
@@ -77,8 +110,16 @@ class OpenAIProvider(LLMProvider):
         # Simplified estimation for now
         return len(text) // 4
 
+    def _cost(self, input_tokens: int, output_tokens: int) -> float:
+        return (
+            input_tokens * self.input_cost_per_million
+            + output_tokens * self.output_cost_per_million
+        ) / 1_000_000
+
     @property
     def context_limit(self) -> int:
+        if self.model.startswith("gpt-5.6"):
+            return 1_050_000
         return 128000
 
 
@@ -203,13 +244,15 @@ class LiteLLMProvider(LLMProvider):
                 # Check if choices array is empty (API failure or rate limiting)
                 if not response.choices or len(response.choices) == 0:
                     error_msg = "LLM API returned empty choices array"
-                    if hasattr(response, 'error'):
+                    if hasattr(response, "error"):
                         error_msg += f": {response.error}"
 
                     # If this is rate limiting, wait and retry
                     if attempt < max_retries - 1:
                         wait_time = (attempt + 1) * 2  # 2s, 4s, 6s
-                        print(f"Warning: {error_msg}. Retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                        print(
+                            f"Warning: {error_msg}. Retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})"
+                        )
                         time.sleep(wait_time)
                         continue
                     else:
@@ -222,7 +265,9 @@ class LiteLLMProvider(LLMProvider):
                 last_error = e
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 2
-                    print(f"Warning: LLM API error: {e}. Retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    print(
+                        f"Warning: LLM API error: {e}. Retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})"
+                    )
                     time.sleep(wait_time)
                 else:
                     raise
