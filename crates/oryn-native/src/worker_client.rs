@@ -33,6 +33,7 @@ const EXPECTED_BUNDLE_ID: &str = "ai.rustic.oryn.page-worker";
 const EXPECTED_TEAM_ID: &str = "5HVA9VFF8K";
 const EXPECTED_SIGNING_CERT_SHA1: &str = "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90";
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_CERTIFICATE_DIRECTORY_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkerVerification {
@@ -738,16 +739,7 @@ fn sha256_file(path: &Path) -> Result<String, RuntimeError> {
 fn signing_certificate_sha1(path: &Path) -> Result<String, RuntimeError> {
     use sha1::{Digest, Sha1};
 
-    let directory = std::env::temp_dir().join(format!(
-        "oryn-worker-cert-{}-{}",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    ));
-    fs::create_dir(&directory)
-        .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
+    let directory = create_certificate_directory()?;
     let prefix = directory.join("certificate-");
     let extraction = Command::new("/usr/bin/codesign")
         .arg("-d")
@@ -786,6 +778,28 @@ fn signing_certificate_sha1(path: &Path) -> Result<String, RuntimeError> {
         ));
     }
     Ok(format!("{:X}", Sha1::digest(leaf)))
+}
+
+fn create_certificate_directory() -> Result<PathBuf, RuntimeError> {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    for _ in 0..16 {
+        let sequence = NEXT_CERTIFICATE_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir().join(format!(
+            "oryn-worker-cert-{}-{nanos}-{sequence}",
+            std::process::id()
+        ));
+        match fs::create_dir(&directory) {
+            Ok(()) => return Ok(directory),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(RuntimeError::SandboxUnavailable(error.to_string())),
+        }
+    }
+    Err(RuntimeError::SandboxUnavailable(
+        "unable to allocate a unique certificate-verification directory".into(),
+    ))
 }
 
 fn handshake_nonce(session_id: u64) -> String {
@@ -849,5 +863,27 @@ mod tests {
             PathBuf::from("/tmp/OrynPageWorker.app")
         );
         assert!(containing_app(Path::new("/tmp/oryn-page-worker")).is_err());
+    }
+
+    #[test]
+    fn certificate_verification_directories_are_unique_under_concurrency() {
+        let threads = (0..32)
+            .map(|_| std::thread::spawn(create_certificate_directory))
+            .collect::<Vec<_>>();
+        let mut directories = threads
+            .into_iter()
+            .map(|thread| {
+                thread
+                    .join()
+                    .expect("join allocator")
+                    .expect("allocate directory")
+            })
+            .collect::<Vec<_>>();
+        directories.sort();
+        directories.dedup();
+        assert_eq!(directories.len(), 32);
+        for directory in directories {
+            fs::remove_dir(directory).expect("remove certificate directory");
+        }
     }
 }
