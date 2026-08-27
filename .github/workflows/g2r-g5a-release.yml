@@ -21,6 +21,7 @@ jobs:
       ORYN_CODESIGN_IDENTITY: 9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90
       AZURE_OPENAI_DEPLOYMENT: gpt-5.6-terra
       ORYN_QWEN3_DIGEST: 359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7
+      ORYN_OLLAMA_URL: http://127.0.0.1:11434
     steps:
       - name: Checkout exact source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -92,6 +93,24 @@ jobs:
           done
           exit 1
 
+      - name: Start digest-pinned runner-local Ollama
+        run: |
+          brew install ollama
+          ollama serve >"$RUNNER_TEMP/oryn-ollama.log" 2>&1 &
+          echo "ORYN_OLLAMA_PID=$!" >>"$GITHUB_ENV"
+          for _ in $(seq 1 120); do
+            curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null && break
+            sleep 0.5
+          done
+          curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null
+          ollama pull qwen3:4b
+          actual_digest="$(
+            curl --fail --silent http://127.0.0.1:11434/api/tags |
+              jq -r '.models[] | select(.name == "qwen3:4b" or .model == "qwen3:4b") | .digest' |
+              head -n 1
+          )"
+          test "$actual_digest" = "$ORYN_QWEN3_DIGEST"
+
       - name: Run deterministic native and Chromium 24/24
         env:
           ORYN_PAGE_WORKER: ${{ github.workspace }}/target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker
@@ -120,7 +139,6 @@ jobs:
           ORYN_PAGE_WORKER: ${{ github.workspace }}/target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
-          ORYN_OLLAMA_URL: ${{ vars.ORYN_OLLAMA_URL }}
         run: |
           test -n "$AZURE_OPENAI_API_KEY"
           test -n "$AZURE_OPENAI_ENDPOINT"
@@ -168,6 +186,9 @@ jobs:
         run: |
           if [[ -n "${ORYN_MINIWOB_PID:-}" ]]; then
             kill "$ORYN_MINIWOB_PID" || true
+          fi
+          if [[ -n "${ORYN_OLLAMA_PID:-}" ]]; then
+            kill "$ORYN_OLLAMA_PID" || true
           fi
           if [[ -n "${ORYN_SIGNING_KEYCHAIN:-}" ]]; then
             security delete-keychain "$ORYN_SIGNING_KEYCHAIN" || true
