@@ -97,7 +97,7 @@ def main() -> int:
     artifact_ledger = []
     artifacts: dict[str, dict[str, Any]] = {}
     for path in sorted(item for item in artifact_root.rglob("*") if item.is_file()):
-        if path.stat().st_size == 0:
+        if path.resolve() == output:
             continue
         relative = path.relative_to(artifact_root).as_posix()
         artifact = {

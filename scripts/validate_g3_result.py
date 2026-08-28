@@ -89,7 +89,8 @@ def raw_artifact(
     matches = [
         artifact for artifact in artifacts.values() if artifact["path"] == relative
     ]
-    require(len(matches) == 1, f"raw artifact is not uniquely ledgered: {relative}")
+    require(bool(matches), f"raw artifact is not ledgered: {relative}")
+    require(len(matches) == 1, f"raw artifact is ledgered more than once: {relative}")
     path = artifact_root / relative
     require(path.is_file(), f"raw artifact is missing: {path}")
     return path
