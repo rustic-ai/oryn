@@ -147,6 +147,45 @@ does not imply that later browser-conformance work is complete.
   evidence recomputation passed at commit a41a231. That result remains
   historical and is not reusable for the G5A worker bundle.
 
+## G3 — complete
+
+- Contract v3 adds page-scoped semantic references, `PageId`, page descriptors,
+  lifecycle events, predicates, and compatibility adapters. `BrowserContext`
+  owns the PageGroup registry, active page, opener relationships, cookies,
+  storage, policy, and page-event history; parent-side OIL can list, wait for,
+  activate, and close pages without crossing worker boundaries.
+- Top-level pages use independent sandbox workers. Popups, `_blank` links,
+  targeted forms, opener state, focus/close, and origin-checked `postMessage`
+  are implemented. Foreign-page, closed-page, navigation, frame-replacement,
+  and worker-replacement references fail explicitly while unrelated page
+  references remain valid.
+- Context-owned ephemeral storage and explicit `redb` persistent profiles cover
+  partitioned local/session storage, cookies, storage events, quotas, and the
+  required IndexedDB transaction, store, index, cursor, and structured-clone
+  subset. Persistent restart and context-isolation regressions pass.
+- The parent-brokered platform surface now includes asynchronous XHR, bounded
+  streams, WebSockets, byte-preserving fetch bodies, File/Blob/FormData,
+  aborts, OAuth Web Crypto, dynamic modules, and the task-required DOM,
+  selection, traversal, focus, editing, form, custom-element, shadow-root, and
+  same-origin-frame behavior. Layout, paint, cross-origin DOM, service workers,
+  and media remain explicit G4-or-later capability boundaries.
+- All eight pinned applications—React, Next.js, Vue, Nuxt, Angular, Svelte,
+  SvelteKit, and Preact—pass their native tasks and Chromium differential
+  assertions. All five controlled OAuth/SSO cases pass in both domains.
+- The exact clean-tree macOS ARM64 production bundle at source commit
+  `8e460a81a6de8c1c2739b1fb5476d323a242c0aa` passed all 43 required manifest
+  cases; all five G4 deferrals emitted their declared diagnostics. The G1/G2
+  regressions, controlled OIL 12/12, and native MiniWoB 24/24 also passed, with
+  zero false semantic-reference preservations.
+- The signed parent is 6,933,984 bytes and the worker is 44,792,096 bytes;
+  combined installed size is 51,730,100 bytes and compressed size is
+  20,452,801 bytes. Startup-to-handshake was 500 ms P50/P95. Eight concurrent
+  pages completed brokered streaming and WebSocket work in 664.155 ms.
+- The schema-valid compact result is
+  `benchmarks/evidence/g3-v1/g3-result-v1.json`; its status record is
+  `benchmarks/evidence/g3-v1/STATUS.json`. The validator recomputed the result
+  from 48 manifest-bound cases and content-addressed raw artifacts.
+
 ## G5A — implemented, release evidence pending
 
 - Public native callers now use a protocol-v2 page worker on macOS. V8, the
@@ -183,12 +222,11 @@ does not imply that later browser-conformance work is complete.
 
 ## Next tracks
 
-- After schema-v4 G2R/G5A evidence closes, G3 compatibility and later G5
-  security increments proceed in parallel. G3 owns
-  context-scoped storage, XHR/WebSocket/streams, the complete framework corpus,
-  page groups/popups/opener, and controlled OAuth/SSO. G5 owns the V8-enabled
-  sandbox worker, threat model, policy engine, secret handles, network
-  isolation, fuzzing, and the pinned V8 update process.
-- G4 begins after G3's DOM/application requirements stabilize. G6 and G7 follow
-  convergence of G3-G5. G8 remains optional and non-blocking unless a workflow
-  requires screenshot, PDF, or visual verification.
+- G4 can now begin on the stabilized G3 application surface: Stylo computed
+  style, Taffy box geometry, inline text layout, scrolling, and explicit table
+  capability boundaries.
+- G2R/G5A schema-v4 release evidence remains open pending the private protected
+  signing/model workflows. Later G5 increments own secret handles, the broader
+  policy language, fuzz infrastructure, and pinned V8 update qualification.
+- G6 and G7 follow convergence of G3-G5. G8 remains optional and non-blocking
+  unless a workflow requires screenshot, PDF, or visual verification.

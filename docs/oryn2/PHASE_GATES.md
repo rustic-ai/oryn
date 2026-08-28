@@ -1,6 +1,6 @@
 # Oryn2 Native Proof Gates
 
-The committed implementation horizon is P0 through G2 on macOS ARM64. Gates
+The committed implementation horizon is P0 through G3 on macOS ARM64. Gates
 are evidence-based; they do not carry calendar dates.
 
 ## P0 — Reuse and baseline
@@ -37,3 +37,27 @@ are evidence-based; they do not carry calendar dates.
 
 The authoritative thresholds and corpus composition are maintained in the
 benchmark manifest introduced during P0.
+
+## G3 — Modern application and multi-page compatibility
+
+- Contract-v3 page groups, popup/opener messaging, active-page orchestration,
+  page-scoped references, closure, crash replacement, and cross-page rejection
+  pass through the production sandbox-worker boundary.
+- Context-owned cookies, local/session storage, persistent `redb` profiles, and
+  the required IndexedDB subset pass restart, quota, transaction, event, and
+  isolation tests.
+- Required XHR, Fetch/Streams, WebSocket, File, Web Crypto, dynamic-module,
+  DOM, event, Shadow DOM, Custom Elements, and same-origin-frame cases pass.
+- React, Next.js, Vue, Nuxt, Angular, Svelte, SvelteKit, and Preact pass native
+  task assertions and Chromium differential checks. Five controlled OAuth/SSO
+  flows pass in both domains.
+- All 43 required manifest entries pass natively, all five G4-deferred entries
+  emit their declared capability diagnostics, and reference churn reports zero
+  false semantic-reference preservation.
+- G1, G2 controlled, native MiniWoB 24/24, strict Rust/Python/JavaScript checks,
+  signed worker security tests, and production multi-page benchmarks pass on
+  the exact clean source commit.
+
+G3 is closed by the schema-valid, raw-recomputed result at
+`benchmarks/evidence/g3-v1/g3-result-v1.json`. Raw traces and application build
+artifacts remain ignored.
