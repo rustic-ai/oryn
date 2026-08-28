@@ -119,6 +119,8 @@ artifacts remain ignored.
   native page and OIL APIs.
 - G6 closes only when all 25 frozen cases and the carried-forward G5 production
   gate pass on the same signed clean-tree bundle.
+- G6 is closed by `benchmarks/evidence/g6-v1/g6-result-v1.json`, recomputed from
+  the clean source commit and content-addressed raw production artifacts.
 
 ## G7 — Deterministic replay and checkpoints
 
@@ -131,3 +133,5 @@ artifacts remain ignored.
   sealed as regression artifacts, replayed, and branched from the CLI.
 - G7 closes only when all 26 frozen cases, G6, and G1-G5 production regressions
   pass on the same signed clean-tree bundle.
+- G7 is closed by `benchmarks/evidence/g7-v1/g7-result-v1.json`, recomputed from
+  the same signed production run as G6.

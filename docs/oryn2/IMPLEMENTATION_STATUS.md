@@ -291,10 +291,52 @@ does not imply that later browser-conformance work is complete.
   `benchmarks/evidence/g5-v1/STATUS.json`. The validator recomputed the result
   from 51 manifest cases and 147 content-addressed raw artifacts.
 
+## G6 — complete
+
+- Native is the canonical default dependency graph. Chromium and user-browser
+  compatibility live in the opt-in `oryn-domain` crate and compile behind
+  explicit features.
+- A versioned capability ledger and deterministic policy select domains for
+  missing capabilities, authenticated sessions, user presence, consequential
+  work, known-bad origins, explicit user choice, and detected site challenges.
+  Decisions retain stable reason codes and rejected candidates.
+- Handoff is a controlled reload carrying only policy-approved URL, storage,
+  selected non-secret form state, cookies, task context, and checkpoint
+  lineage. Heap, promises, sockets, IndexedDB, host objects, and secrets remain
+  behind with explicit loss diagnostics and a fresh destination revision.
+- Domain/reason mix and failures are measured. The signed production probe
+  selected native, Chromium for paint and challenge cases, and the user browser
+  for authenticated consequential work; its controlled Chromium handoff passed.
+- All 25 frozen cases and the complete G5 production regression passed on clean
+  commit `d8930e3c87da0bdaee94699aaebf190b9b092c71`. The schema-valid result is
+  `benchmarks/evidence/g6-v1/g6-result-v1.json`.
+
+## G7 — complete
+
+- Versioned task traces record page/lifecycle events, scrubbed OIL intents and
+  outcomes, revisions, capability/domain decisions, deterministic clock/random
+  inputs, network exchanges, and explicit nondeterministic regions.
+- Network replay is exact and policy preserving: method, URL, scrubbed headers,
+  request body, order, response body, and hashes are checked while the current
+  parent network policy still executes before replay.
+- Sealed L1 checkpoints restore page groups, storage, form state, opener and
+  active-page relationships with fresh identities. L2 replays post-checkpoint
+  OIL and network input; branches retain parent hashes. L3 live V8 heap forking
+  remains explicitly unsupported.
+- Failed tasks become tamper-evident checkpoint+trace regression artifacts.
+  CLI recording, restoration, replay, failure capture, and failure replay are
+  available without changing existing OIL syntax.
+- All 26 frozen cases passed with 1/1 deterministic production replay, zero
+  divergences, verified checkpoint/failure seals, and all G1-G6 regressions on
+  clean commit `d8930e3c87da0bdaee94699aaebf190b9b092c71`. The schema-valid result is
+  `benchmarks/evidence/g7-v1/g7-result-v1.json`.
+
 ## Next tracks
 
 - G2R/G5A schema-v4 release evidence remains open pending the private protected
   signing/model workflows. G5's local signed security gate is complete; this
   does not substitute for the separate 96-cell Azure/Qwen release evidence.
-- G6 and G7 are the next implementation tracks. G8 remains optional and non-blocking
-  unless a workflow requires screenshot, PDF, or visual verification.
+- G8 remains optional and non-blocking unless a workflow requires screenshot,
+  PDF, or visual verification. Broader long-running fuzzing, V8 update
+  automation, and private protected G2R/G5A release evidence remain operational
+  tracks rather than unimplemented G6/G7 behavior.

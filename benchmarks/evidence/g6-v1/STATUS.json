@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "gate": "G6",
+  "status": "closed",
+  "current_result": "benchmarks/evidence/g6-v1/g6-result-v1.json",
+  "implementation_state": "complete",
+  "blocking_checks": [],
+  "closure": {
+    "run_id": "g6-d8930e3c87da-macos-arm64",
+    "tested_source_commit": "d8930e3c87da0bdaee94699aaebf190b9b092c71",
+    "source_tree_sha256": "eb89ae1abba2ce177483fb176735af79b124fa1a4b99b60bc81de66383d65c64",
+    "recorded_at": "2026-08-28T22:13:04Z",
+    "signed_production_boundary": "passed",
+    "required_manifest_cases": "25/25",
+    "controlled_handoffs": "1/1",
+    "handoff_failures": 0,
+    "g1_g5_regressions": "passed",
+    "software_regressions": "passed"
+  }
+}
