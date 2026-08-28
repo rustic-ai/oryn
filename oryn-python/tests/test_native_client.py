@@ -85,6 +85,59 @@ class _CompatibilityObservationTransport:
         return '@ https://example.test/ "Café"\n[1] button "Continué"'
 
 
+class _NativeGeometryTransport:
+    async def send(self, command: str) -> str:
+        assert command == "observe --positions --full"
+        return json.dumps(
+            {
+                "kind": "geometry_observation",
+                "observation": {
+                    "contract_version": 4,
+                    "revision": 8,
+                    "style_revision": 2,
+                    "layout_revision": 3,
+                    "execution_domain": "native",
+                    "page": {
+                        "url": "https://layout.test/",
+                        "title": "Layout",
+                        "document_generation": 1,
+                    },
+                    "viewport": {
+                        "width": 320.0,
+                        "height": 200.0,
+                        "device_pixel_ratio": 1.0,
+                    },
+                    "scroll": {
+                        "x": 0.0,
+                        "y": 40.0,
+                        "content_width": 320.0,
+                        "content_height": 900.0,
+                    },
+                    "nodes": [
+                        {
+                            "alias": 1,
+                            "role": "button",
+                            "name": "Continue",
+                            "states": ["visible"],
+                            "actions": ["click"],
+                            "semantic_ref": {
+                                "page_id": 1,
+                                "document_generation": 1,
+                                "node": 2,
+                            },
+                            "document_order": 2,
+                            "geometry": {
+                                "availability": "available",
+                                "in_viewport": True,
+                                "interactable": True,
+                            },
+                        }
+                    ],
+                },
+            }
+        )
+
+
 @pytest.mark.asyncio
 async def test_native_observation_uses_existing_json_oil_contract():
     client = OrynClient(mode="native")
@@ -131,3 +184,18 @@ async def test_compatibility_observation_measures_exact_utf8_bytes():
 
     assert observation.byte_count == len(observation.raw.encode("utf-8"))
     assert observation.byte_count > len(observation.raw)
+
+
+@pytest.mark.asyncio
+async def test_native_v4_geometry_observation_is_typed_without_losing_nodes():
+    client = OrynClient(mode="native")
+    client._transport = _NativeGeometryTransport()
+
+    observation = await client.observe(positions=True, full=True)
+
+    assert observation.contract_version == 4
+    assert observation.style_revision == 2
+    assert observation.layout_revision == 3
+    assert observation.viewport.width == 320.0
+    assert observation.scroll.y == 40.0
+    assert observation.elements[0]["geometry"]["interactable"] is True

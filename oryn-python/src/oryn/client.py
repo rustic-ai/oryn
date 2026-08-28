@@ -217,7 +217,14 @@ class OrynClient:
             execution_domain=action.get("execution_domain"),
         )
 
-    async def observe(self) -> "OrynObservation":
+    async def observe(
+        self,
+        *,
+        positions: bool = False,
+        viewport: bool = False,
+        hidden: bool = False,
+        full: bool = False,
+    ) -> "OrynObservation":
         """Get structured observation of current page.
 
         Returns:
@@ -227,7 +234,12 @@ class OrynClient:
         from .types import OrynObservation
 
         if self._config.mode == "native":
-            return await self._observe_native()
+            return await self._observe_native(
+                positions=positions,
+                viewport=viewport,
+                hidden=hidden,
+                full=full,
+            )
 
         # 'scan' returns the element list in OIL text format
         raw_response = await self.execute("scan")
@@ -278,20 +290,36 @@ class OrynClient:
             byte_count=len(raw_response.encode("utf-8")),
         )
 
-    async def _observe_native(self) -> "OrynObservation":
+    async def _observe_native(
+        self,
+        *,
+        positions: bool = False,
+        viewport: bool = False,
+        hidden: bool = False,
+        full: bool = False,
+    ) -> "OrynObservation":
         """Decode the existing native JSON OIL response into the SDK type."""
         import json
 
-        from .types import OrynObservation
+        from .types import OrynObservation, OrynScroll, OrynViewport
 
-        raw_response = await self.execute("observe")
+        flags = []
+        if positions:
+            flags.append("--positions")
+        if viewport:
+            flags.append("--viewport")
+        if hidden:
+            flags.append("--hidden")
+        if full:
+            flags.append("--full")
+        raw_response = await self.execute(" ".join(["observe", *flags]))
         payload = None
         for line in raw_response.splitlines():
             try:
                 candidate = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if candidate.get("kind") == "observation":
+            if candidate.get("kind") in {"observation", "geometry_observation"}:
                 payload = candidate.get("observation")
                 break
         if not isinstance(payload, dict):
@@ -315,6 +343,7 @@ class OrynClient:
                     "value": node.get("value"),
                     "description": node.get("description"),
                     "provenance": node.get("provenance"),
+                    "geometry": node.get("geometry"),
                 }
             )
 
@@ -331,6 +360,14 @@ class OrynClient:
             diagnostics=[str(item) for item in payload.get("diagnostics") or []],
             byte_count=len(raw_response.encode("utf-8")),
             execution_domain=payload.get("execution_domain"),
+            style_revision=_revision_value(payload.get("style_revision")),
+            layout_revision=_revision_value(payload.get("layout_revision")),
+            viewport=OrynViewport(**payload["viewport"])
+            if isinstance(payload.get("viewport"), dict)
+            else None,
+            scroll=OrynScroll(**payload["scroll"])
+            if isinstance(payload.get("scroll"), dict)
+            else None,
         )
 
 
@@ -349,6 +386,15 @@ def _first_json_object(raw_response: str) -> Optional[dict[str, Any]]:
 
 def _as_int(value: Any) -> Optional[int]:
     return value if isinstance(value, int) else None
+
+
+def _revision_value(value: Any) -> Optional[int]:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, dict):
+        nested = value.get("0") or value.get("value")
+        return nested if isinstance(nested, int) else None
+    return None
 
 
 def _capability(value: dict[str, Any]):

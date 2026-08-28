@@ -62,6 +62,10 @@ struct WorkerManifest {
     policy_sha256: String,
     source_tree_sha256: String,
     limits: WorkerLimits,
+    style_engine_version: String,
+    box_engine_version: String,
+    inline_engine_version: String,
+    embedded_font_sha256: String,
 }
 
 pub struct WorkerClient {
@@ -222,6 +226,14 @@ impl WorkerClient {
             || protocol_version != WORKER_PROTOCOL_VERSION
             || !runtime.native_v8
             || runtime.v8_version.is_none()
+            || runtime.contract_version != oryn_common::v4::CONTRACT_VERSION
+            || !runtime.capabilities.iter().any(|item| item == "layout_box")
+            || runtime.style_engine_version.as_deref()
+                != Some("stylo-declarations-0.20+oryn-cascade-v1")
+            || runtime.box_engine_version.as_deref() != Some("taffy-0.14")
+            || runtime.inline_engine_version.as_deref() != Some("parley-0.11.1")
+            || runtime.embedded_font_sha256.as_deref()
+                != Some("b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5")
             || effective_limits != limits
             || binary_sha256 != verified_hash
             || policy_digest != crate::worker::policy_digest(context)
@@ -632,6 +644,11 @@ pub fn verify_worker(path: &Path) -> Result<WorkerVerification, RuntimeError> {
         || manifest.entitlement_sha256 != expected_entitlement_sha256()
         || manifest.policy_sha256 != compiled_policy_sha256()
         || manifest.source_tree_sha256.len() != 64
+        || manifest.style_engine_version != "stylo-declarations-0.20+oryn-cascade-v1"
+        || manifest.box_engine_version != "taffy-0.14"
+        || manifest.inline_engine_version != "parley-0.11.1"
+        || manifest.embedded_font_sha256
+            != "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"
     {
         return Err(RuntimeError::SandboxUnavailable(
             "signed worker manifest does not match the executable".into(),

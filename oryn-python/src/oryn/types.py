@@ -33,6 +33,23 @@ class OrynDelta:
     to_revision: int
     upserted: List[dict[str, Any]] = field(default_factory=list)
     removed: List[dict[str, Any]] = field(default_factory=list)
+    style_revision: Optional[int] = None
+    layout_revision: Optional[int] = None
+
+
+@dataclass
+class OrynViewport:
+    width: float = 1280.0
+    height: float = 720.0
+    device_pixel_ratio: float = 1.0
+
+
+@dataclass
+class OrynScroll:
+    x: float = 0.0
+    y: float = 0.0
+    content_width: float = 1280.0
+    content_height: float = 720.0
 
 
 @dataclass
@@ -70,6 +87,10 @@ class OrynObservation:
     diagnostics: List[str] = field(default_factory=list)
     byte_count: int = 0
     execution_domain: Optional[str] = None
+    style_revision: Optional[int] = None
+    layout_revision: Optional[int] = None
+    viewport: Optional[OrynViewport] = None
+    scroll: Optional[OrynScroll] = None
 
 
 @dataclass

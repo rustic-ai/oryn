@@ -5,6 +5,7 @@ pub mod protocol;
 pub mod resolver;
 pub mod v2;
 pub mod v3;
+pub mod v4;
 
 pub mod intent {
     pub mod define_parser;

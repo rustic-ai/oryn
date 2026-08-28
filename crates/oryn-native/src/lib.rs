@@ -28,7 +28,7 @@ pub mod worker_client;
 pub use oryn_common::v3::{PageDescriptor, PageId, PageLifecycleEvent, PagePredicate, PageStatus};
 pub use runtime::{
     Browser, BrowserConfig, BrowserContext, ContentKind, ContextOptions, LifecycleState,
-    NavigationResult, PageHandle, WaitPredicate,
+    NavigationResult, PageHandle, ScrollRequest, WaitPredicate,
 };
 pub use storage::{PersistentProfile, StorageLimits};
 
@@ -51,6 +51,10 @@ pub struct RuntimeBuildInfo {
     pub policy_digest: Option<String>,
     pub sandbox_state: String,
     pub limits: Option<worker::WorkerLimits>,
+    pub style_engine_version: Option<String>,
+    pub box_engine_version: Option<String>,
+    pub inline_engine_version: Option<String>,
+    pub embedded_font_sha256: Option<String>,
 }
 
 pub fn runtime_build_info() -> RuntimeBuildInfo {
@@ -59,17 +63,25 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
         "html5ever".into(),
         "rustls_network_broker".into(),
         "oil".into(),
-        "semantic_v3".into(),
+        "semantic_v3_compat".into(),
+        "semantic_v4".into(),
     ];
     #[cfg(feature = "v8-host")]
     let capabilities = {
         let mut capabilities = capabilities;
         capabilities.push("v8_javascript".into());
+        capabilities.extend([
+            "computed_style".into(),
+            "layout_box".into(),
+            "layout_inline_text".into(),
+            "viewport_scroll".into(),
+            "deterministic_embedded_font".into(),
+        ]);
         capabilities
     };
 
     RuntimeBuildInfo {
-        contract_version: oryn_common::v3::CONTRACT_VERSION,
+        contract_version: oryn_common::v4::CONTRACT_VERSION,
         native_v8: cfg!(feature = "v8-host"),
         #[cfg(feature = "v8-host")]
         v8_version: Some(v8::V8::get_version().into()),
@@ -91,6 +103,22 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
         policy_digest: None,
         sandbox_state: "in_process_probe".into(),
         limits: None,
+        #[cfg(feature = "v8-host")]
+        style_engine_version: Some(oryn_layout::STYLE_ENGINE_VERSION.into()),
+        #[cfg(not(feature = "v8-host"))]
+        style_engine_version: None,
+        #[cfg(feature = "v8-host")]
+        box_engine_version: Some(oryn_layout::BOX_ENGINE_VERSION.into()),
+        #[cfg(not(feature = "v8-host"))]
+        box_engine_version: None,
+        #[cfg(feature = "v8-host")]
+        inline_engine_version: Some(oryn_layout::INLINE_ENGINE_VERSION.into()),
+        #[cfg(not(feature = "v8-host"))]
+        inline_engine_version: None,
+        #[cfg(feature = "v8-host")]
+        embedded_font_sha256: Some(oryn_layout::DEFAULT_FONT_SHA256.into()),
+        #[cfg(not(feature = "v8-host"))]
+        embedded_font_sha256: None,
     }
 }
 

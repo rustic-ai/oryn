@@ -1,0 +1,24 @@
+[package]
+name = "oryn-layout"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Worker-only deterministic style and layout adapter for Oryn"
+
+[dependencies]
+oryn-common = { path = "../oryn-common" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+url = "2"
+sha2 = "0.10"
+thiserror = "2"
+taffy = { version = "0.14.0", default-features = false, features = ["std", "taffy_tree", "block_layout", "flexbox", "grid", "content_size", "detailed_layout_info"] }
+parley = { version = "0.11.1", default-features = false, features = ["std", "libm"] }
+skrifa = "0.44"
+wuff = "0.2"
+fontique = { version = "0.11.1", default-features = false, features = ["std"] }
+style = { version = "=0.20.0", package = "stylo" }
+style_traits = { version = "=0.20.0", package = "stylo_traits" }
+style_atoms = { version = "=0.20.0", package = "stylo_atoms" }
+stylo_taffy = { git = "https://github.com/DioxusLabs/blitz", rev = "9d5cef2fa3d01423081681843d91b76ef593443e", default-features = false, features = ["std", "block", "flexbox", "grid", "floats"] }

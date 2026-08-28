@@ -89,6 +89,31 @@ pub enum TraceEventKind {
         frame_type: String,
         bytes: usize,
     },
+    StyleRecalculated {
+        revision: u64,
+        nodes: usize,
+    },
+    LayoutCompleted {
+        revision: u64,
+        nodes: usize,
+    },
+    ViewportChanged {
+        width: f64,
+        height: f64,
+        device_pixel_ratio: f64,
+    },
+    Scrolled {
+        x: f64,
+        y: f64,
+    },
+    InteractabilityRejected {
+        target: u64,
+        reason: String,
+    },
+    FontLoaded {
+        family: String,
+        sha256: String,
+    },
 }
 
 #[derive(Debug, Default)]

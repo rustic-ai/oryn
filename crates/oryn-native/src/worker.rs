@@ -18,7 +18,7 @@ use crate::{
     runtime::NativeAction,
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 3;
+pub const WORKER_PROTOCOL_VERSION: u32 = 4;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -29,6 +29,10 @@ pub struct WorkerLimits {
     pub command_wall_ms: u64,
     pub navigation_wall_ms: u64,
     pub queue_capacity: usize,
+    pub max_layout_nodes: usize,
+    pub max_font_bytes: usize,
+    pub max_page_font_bytes: usize,
+    pub max_viewport_css_px: u32,
 }
 
 impl Default for WorkerLimits {
@@ -46,6 +50,10 @@ impl From<&BrowserConfig> for WorkerLimits {
             command_wall_ms: config.command_timeout.as_millis() as u64,
             navigation_wall_ms: config.navigation_timeout.as_millis() as u64,
             queue_capacity: config.worker_queue_capacity,
+            max_layout_nodes: config.max_layout_nodes,
+            max_font_bytes: config.max_font_bytes,
+            max_page_font_bytes: config.max_page_font_bytes,
+            max_viewport_css_px: config.max_viewport_css_px,
         }
     }
 }
@@ -64,11 +72,15 @@ impl WorkerLimits {
             navigation_timeout: Duration::from_millis(self.navigation_wall_ms.min(30_000)),
             document_generation_base: 0,
             storage_limits: crate::storage::StorageLimits::default(),
+            max_layout_nodes: self.max_layout_nodes.min(100_000),
+            max_font_bytes: self.max_font_bytes.min(8 * 1024 * 1024),
+            max_page_font_bytes: self.max_page_font_bytes.min(32 * 1024 * 1024),
+            max_viewport_css_px: self.max_viewport_css_px.min(16_384),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HostEnvelope {
     pub protocol_version: u32,
     pub session_id: u64,
@@ -85,7 +97,7 @@ pub struct WorkerEnvelope {
     pub response: WorkerResponse,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum WorkerRequest {
     Initialize {
@@ -124,6 +136,27 @@ pub enum WorkerRequest {
     },
     Observe {
         profile: Option<ProjectionProfile>,
+    },
+    ObserveWith {
+        options: oryn_common::v4::ObservationOptions,
+    },
+    ComputedStyle {
+        target: SemanticRef,
+    },
+    BoxModel {
+        target: SemanticRef,
+    },
+    SetViewport {
+        viewport: oryn_common::v4::ViewportState,
+    },
+    SetMedia {
+        media: oryn_common::v4::MediaState,
+    },
+    Scroll {
+        request: crate::runtime::ScrollRequest,
+    },
+    ScrollIntoView {
+        target: SemanticRef,
     },
     ObserveDelta {
         from: Revision,
@@ -171,6 +204,24 @@ pub enum WorkerResponse {
     },
     Observation {
         observation: Observation,
+    },
+    ObservationV4 {
+        observation: oryn_common::v4::Observation,
+    },
+    ComputedStyle {
+        style: oryn_common::v4::ComputedStyle,
+    },
+    BoxModel {
+        box_model: oryn_common::v4::BoxModel,
+    },
+    Viewport {
+        viewport: oryn_common::v4::ViewportState,
+    },
+    Media {
+        media: oryn_common::v4::MediaState,
+    },
+    Scroll {
+        scroll: oryn_common::v4::ScrollState,
     },
     Delta {
         delta: ObservationDelta,
@@ -353,7 +404,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             Ok(WorkerRequest::Exit) => WorkerResponse::Exiting,
             Ok(_) => WorkerResponse::Error {
                 error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
-                    "page commands require worker protocol v3 initialization".into(),
+                    "page commands require worker protocol v4 initialization".into(),
                 )),
             },
             Err(error) => WorkerResponse::Error {
@@ -487,6 +538,40 @@ async fn dispatch(
                 Err(value) => error(value),
             }
         }
+        WorkerRequest::ObserveWith { options } => match session.page.observe_with(options).await {
+            Ok(observation) => WorkerResponse::ObservationV4 { observation },
+            Err(value) => error(value),
+        },
+        WorkerRequest::ComputedStyle { target } => {
+            match session.page.computed_style(target).await {
+                Ok(style) => WorkerResponse::ComputedStyle { style },
+                Err(value) => error(value),
+            }
+        }
+        WorkerRequest::BoxModel { target } => match session.page.box_model(target).await {
+            Ok(box_model) => WorkerResponse::BoxModel { box_model },
+            Err(value) => error(value),
+        },
+        WorkerRequest::SetViewport { viewport } => {
+            match session.page.set_viewport(viewport).await {
+                Ok(viewport) => WorkerResponse::Viewport { viewport },
+                Err(value) => error(value),
+            }
+        }
+        WorkerRequest::SetMedia { media } => match session.page.set_media(media).await {
+            Ok(media) => WorkerResponse::Media { media },
+            Err(value) => error(value),
+        },
+        WorkerRequest::Scroll { request } => match session.page.scroll(request).await {
+            Ok(scroll) => WorkerResponse::Scroll { scroll },
+            Err(value) => error(value),
+        },
+        WorkerRequest::ScrollIntoView { target } => {
+            match session.page.scroll_into_view(target).await {
+                Ok(scroll) => WorkerResponse::Scroll { scroll },
+                Err(value) => error(value),
+            }
+        }
         WorkerRequest::ObserveDelta { from } => match session.page.observe_delta(from).await {
             Ok(delta) => WorkerResponse::Delta { delta },
             Err(value) => error(value),
@@ -576,7 +661,7 @@ mod tests {
     use super::*;
 
     #[tokio::test(flavor = "current_thread")]
-    async fn serves_initialized_page_requests_over_v3_json_lines() {
+    async fn serves_initialized_page_requests_over_v4_json_lines() {
         let requests = vec![
             WorkerRequest::Initialize {
                 nonce: "test-nonce".into(),
@@ -654,7 +739,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn rejects_duplicate_unmatched_and_reinitialized_v3_messages() {
+    async fn rejects_duplicate_unmatched_and_reinitialized_v4_messages() {
         let commands = [
             (
                 9,

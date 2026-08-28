@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "gate": "G4",
+  "status": "open",
+  "current_result": null,
+  "implementation_state": "in_progress",
+  "blocking_checks": [
+    "exact clean-tree signed production bundle has not yet completed the G4 production gate",
+    "schema-valid g4-result-v1 evidence has not yet been generated from raw artifacts"
+  ],
+  "note": "The status remains open until validators recompute all required cases and declared limitations from the exact signed production bundle."
+}

@@ -9,18 +9,21 @@ use oryn_common::{
     protocol::{Element, ElementState, Rect},
     resolver::{ResolutionStrategy, ResolverContext, Target as ResolverTarget, resolve_target},
 };
-use oryn_core::ast::{Command, ExtractWhat, Target, TargetAtomic, WaitCondition};
+use oryn_core::ast::{Command, ExtractWhat, RelationKind, Target, TargetAtomic, WaitCondition};
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::{
     BrowserContext, ContentKind, LifecycleState, NativeAction, NavigationResult, PageHandle,
-    RuntimeError, WaitPredicate,
+    RuntimeError, ScrollRequest, WaitPredicate,
 };
 
 pub struct NativeOilSession {
     page: PageHandle,
     last_observation: Option<Observation>,
+    geometry: BTreeMap<SemanticRef, Rect>,
     delta_cursor: oryn_common::v3::Revision,
+    viewport: oryn_common::v4::ViewportState,
+    media: oryn_common::v4::MediaState,
 }
 
 /// Parent-side OIL session for a complete browser context. Page-local OIL
@@ -37,6 +40,9 @@ pub enum NativeOilOutput {
     Observation {
         observation: Observation,
     },
+    GeometryObservation {
+        observation: oryn_common::v4::Observation,
+    },
     Delta {
         delta: ObservationDelta,
     },
@@ -51,6 +57,18 @@ pub enum NativeOilOutput {
     },
     Structured {
         value: serde_json::Value,
+    },
+    Box {
+        box_model: oryn_common::v4::BoxModel,
+    },
+    Viewport {
+        viewport: oryn_common::v4::ViewportState,
+    },
+    Media {
+        media: oryn_common::v4::MediaState,
+    },
+    Scroll {
+        scroll: oryn_common::v4::ScrollState,
     },
     Trace {
         events: Vec<crate::trace::TraceEvent>,
@@ -260,7 +278,10 @@ impl NativeOilSession {
         Self {
             page,
             last_observation: None,
+            geometry: BTreeMap::new(),
             delta_cursor: oryn_common::v3::Revision(0),
+            viewport: oryn_common::v4::ViewportState::default(),
+            media: oryn_common::v4::MediaState::default(),
         }
     }
 
@@ -345,6 +366,20 @@ impl NativeOilSession {
                 } else {
                     ProjectionProfile::Compact
                 };
+                if command.positions || command.viewport || command.hidden {
+                    let observation = self
+                        .page
+                        .observe_with(oryn_common::v4::ObservationOptions {
+                            profile,
+                            include_geometry: command.positions || command.viewport,
+                            viewport_only: command.viewport,
+                            include_hidden: command.hidden,
+                        })
+                        .await?;
+                    self.delta_cursor = observation.revision;
+                    self.cache_v4_observation(&observation);
+                    return Ok(NativeOilOutput::GeometryObservation { observation });
+                }
                 let observation = self.page.observe_profile(profile).await?;
                 self.delta_cursor = observation.revision;
                 self.last_observation = Some(observation.clone());
@@ -414,6 +449,11 @@ impl NativeOilSession {
                 };
                 let value = self.page.extract(kind, command.selector).await?;
                 Ok(NativeOilOutput::Structured { value })
+            }
+            Command::Box(command) => {
+                let target = self.resolve_any_target(&command.target).await?;
+                let box_model = self.page.box_model(target).await?;
+                Ok(NativeOilOutput::Box { box_model })
             }
             Command::Click(command) => {
                 self.run_action(command.target, SemanticAction::Click, None)
@@ -531,9 +571,88 @@ impl NativeOilSession {
                     value: "satisfied".into(),
                 })
             }
-            Command::Scroll(_) => Ok(NativeOilOutput::Text {
-                value: "document-order scroll checkpoint".into(),
-            }),
+            Command::Scroll(command) => {
+                let scroll = if let Some(target) = command.target {
+                    let target = self.resolve_any_target(&target).await?;
+                    self.page.scroll_into_view(target).await?
+                } else {
+                    let amount = command
+                        .amount
+                        .unwrap_or(if command.page { 1.0 } else { 400.0 });
+                    let amount = if command.page {
+                        amount * self.viewport.height
+                    } else {
+                        amount
+                    };
+                    let (x, y) = match command.direction.as_deref().unwrap_or("down") {
+                        "up" => (0.0, -amount),
+                        "left" => (-amount, 0.0),
+                        "right" => (amount, 0.0),
+                        _ => (0.0, amount),
+                    };
+                    self.page
+                        .scroll(ScrollRequest {
+                            x,
+                            y,
+                            relative: true,
+                        })
+                        .await?
+                };
+                Ok(NativeOilOutput::Scroll { scroll })
+            }
+            Command::Viewport(command) => {
+                let viewport = self
+                    .page
+                    .set_viewport(oryn_common::v4::ViewportState {
+                        width: command.width,
+                        height: command.height,
+                        device_pixel_ratio: 1.0,
+                    })
+                    .await?;
+                self.viewport = viewport;
+                Ok(NativeOilOutput::Viewport { viewport })
+            }
+            Command::Media(command) => {
+                let current = self.media;
+                let media = match (command.feature.as_deref(), command.value.as_deref()) {
+                    (Some("color-scheme"), Some("dark")) => oryn_common::v4::MediaState {
+                        color_scheme: oryn_common::v4::PreferredColorScheme::Dark,
+                        ..current
+                    },
+                    (Some("color-scheme"), Some("light")) => oryn_common::v4::MediaState {
+                        color_scheme: oryn_common::v4::PreferredColorScheme::Light,
+                        ..current
+                    },
+                    (Some("reduced-motion"), Some("reduce")) => oryn_common::v4::MediaState {
+                        reduced_motion: oryn_common::v4::ReducedMotion::Reduce,
+                        ..current
+                    },
+                    (Some("reduced-motion"), Some("no-preference")) => {
+                        oryn_common::v4::MediaState {
+                            reduced_motion: oryn_common::v4::ReducedMotion::NoPreference,
+                            ..current
+                        }
+                    }
+                    (None, None) => oryn_common::v4::MediaState::default(),
+                    _ => {
+                        return Ok(NativeOilOutput::Unsupported {
+                            diagnostic: CapabilityDiagnostic {
+                                capability: "oil.media.value".into(),
+                                support: SupportLevel::Unsupported,
+                                alternatives: vec![ExecutionDomain::Chromium],
+                                handoff_lossy: false,
+                                detail: Some(
+                                    "supported values are light, dark, reduce, and no-preference"
+                                        .into(),
+                                ),
+                            },
+                        });
+                    }
+                };
+                let media = self.page.set_media(media).await?;
+                self.media = media;
+                Ok(NativeOilOutput::Media { media })
+            }
             Command::Dismiss(command) => {
                 let observation = self.page.observe().await?;
                 self.last_observation = Some(observation.clone());
@@ -653,8 +772,17 @@ impl NativeOilSession {
         // Compact observations intentionally omit non-actionable landmarks. A
         // relational target (for example `"+" near "Wireless Mouse"`) needs
         // those landmarks, so resolve it against a fresh full projection.
-        if target.relation.is_some() {
-            self.last_observation = Some(self.page.observe_profile(ProjectionProfile::Full).await?);
+        if !matches!(&target.atomic, TargetAtomic::Selector { .. }) {
+            let observation = self
+                .page
+                .observe_with(oryn_common::v4::ObservationOptions {
+                    profile: ProjectionProfile::Full,
+                    include_geometry: true,
+                    viewport_only: false,
+                    include_hidden: false,
+                })
+                .await?;
+            self.cache_v4_observation(&observation);
         }
         let semantic_ref = if let TargetAtomic::Selector { value, .. } = &target.atomic {
             self.page.resolve_selector(value, action).await?
@@ -673,6 +801,55 @@ impl NativeOilSession {
         Ok(NativeOilOutput::Action { result })
     }
 
+    fn cache_v4_observation(&mut self, observation: &oryn_common::v4::Observation) {
+        self.geometry = observation
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let rect = node.geometry.as_ref()?.box_model.as_ref()?.border_box;
+                Some((
+                    node.semantic.semantic_ref,
+                    Rect {
+                        x: rect.x as f32,
+                        y: rect.y as f32,
+                        width: rect.width as f32,
+                        height: rect.height as f32,
+                    },
+                ))
+            })
+            .collect();
+        self.last_observation = Some(observation.to_v3_compat());
+    }
+
+    async fn resolve_any_target(&mut self, target: &Target) -> Result<SemanticRef, NativeOilError> {
+        let observation = self
+            .page
+            .observe_with(oryn_common::v4::ObservationOptions {
+                profile: ProjectionProfile::Full,
+                include_geometry: true,
+                viewport_only: false,
+                include_hidden: true,
+            })
+            .await?;
+        let found = observation.nodes.iter().find(|node| match &target.atomic {
+            TargetAtomic::Id(alias) => node.semantic.alias as usize == *alias,
+            TargetAtomic::Text(text) => node
+                .semantic
+                .name
+                .to_ascii_lowercase()
+                .contains(&text.to_ascii_lowercase()),
+            TargetAtomic::Role(role) => node.semantic.role.eq_ignore_ascii_case(role),
+            TargetAtomic::Selector { value, .. } => {
+                node.semantic.selector.as_deref() == Some(value.as_str())
+            }
+        });
+        let reference = found
+            .map(|node| node.semantic.semantic_ref)
+            .ok_or_else(|| NativeOilError::TargetNotFound(target.clone()))?;
+        self.cache_v4_observation(&observation);
+        Ok(reference)
+    }
+
     fn resolve_target(
         &self,
         target: &Target,
@@ -682,7 +859,9 @@ impl NativeOilSession {
             .last_observation
             .as_ref()
             .ok_or(NativeOilError::NoObservation)?;
-        let geometry = semantic_geometry(observation);
+        if self.geometry.is_empty() {
+            return resolve_structural_target(observation, target, action);
+        }
         let elements = observation
             .nodes
             .iter()
@@ -696,7 +875,7 @@ impl NativeOilSession {
                     attributes.insert("id".into(), id.into());
                 }
                 attributes.insert("role".into(), node.role.clone());
-                Element {
+                Ok(Element {
                     id: node.alias,
                     element_type: node.role.clone(),
                     role: Some(node.role.clone()),
@@ -715,10 +894,17 @@ impl NativeOilSession {
                     placeholder: None,
                     selector: node.selector.clone().unwrap_or_default(),
                     xpath: None,
-                    // This is semantic tree geometry, not rendered layout. It lets
-                    // the shared relation engine reuse document ordering and DOM
-                    // containment while keeping that distinction explicit.
-                    rect: geometry[&node.semantic_ref].clone(),
+                    rect: self
+                        .geometry
+                        .get(&node.semantic_ref)
+                        .cloned()
+                        .ok_or_else(|| NativeOilError::TargetResolution {
+                            target: target.clone(),
+                            detail: format!(
+                                "geometry is unavailable for semantic alias {}",
+                                node.alias
+                            ),
+                        })?,
                     attributes,
                     state: ElementState {
                         visible: true,
@@ -732,9 +918,9 @@ impl NativeOilSession {
                         ..Default::default()
                     },
                     children: Vec::new(),
-                }
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, NativeOilError>>()?;
         let context = ResolverContext::from_elements(observation.page.url.clone(), elements);
         let strategy = match action {
             SemanticAction::Type | SemanticAction::Clear | SemanticAction::Select => {
@@ -775,6 +961,63 @@ impl NativeOilSession {
     }
 }
 
+fn resolve_structural_target(
+    observation: &Observation,
+    target: &Target,
+    action: SemanticAction,
+) -> Result<SemanticRef, NativeOilError> {
+    let matches_atomic =
+        |node: &oryn_common::v3::SemanticNodeView, atomic: &TargetAtomic| match atomic {
+            TargetAtomic::Id(alias) => node.alias as usize == *alias,
+            TargetAtomic::Text(text) => node
+                .name
+                .to_ascii_lowercase()
+                .contains(&text.to_ascii_lowercase()),
+            TargetAtomic::Role(role) => node.role.eq_ignore_ascii_case(role),
+            TargetAtomic::Selector { value, .. } => {
+                node.selector.as_deref() == Some(value.as_str())
+            }
+        };
+    let related = target.relation.as_ref().and_then(|relation| {
+        observation
+            .nodes
+            .iter()
+            .find(|node| matches_atomic(node, &relation.target.atomic))
+    });
+    let contains = |container: SemanticRef, candidate: &oryn_common::v3::SemanticNodeView| {
+        let by_ref = observation
+            .nodes
+            .iter()
+            .map(|node| (node.semantic_ref, node))
+            .collect::<BTreeMap<_, _>>();
+        let mut parent = candidate.parent;
+        while let Some(reference) = parent {
+            if reference == container {
+                return true;
+            }
+            parent = by_ref.get(&reference).and_then(|node| node.parent);
+        }
+        false
+    };
+    observation
+        .nodes
+        .iter()
+        .filter(|node| node.actions.contains(&action) && matches_atomic(node, &target.atomic))
+        .find(|node| match (target.relation.as_deref(), related) {
+            (None, _) => true,
+            (Some(_), None) => false,
+            (Some(relation), Some(anchor)) => match relation.kind {
+                RelationKind::Before => node.document_order < anchor.document_order,
+                RelationKind::After => node.document_order > anchor.document_order,
+                RelationKind::Inside => contains(anchor.semantic_ref, node),
+                RelationKind::Contains => contains(node.semantic_ref, anchor),
+                RelationKind::Near => true,
+            },
+        })
+        .map(|node| node.semantic_ref)
+        .ok_or_else(|| NativeOilError::TargetNotFound(target.clone()))
+}
+
 fn target_matches_node(target: &Target, node: &oryn_common::v3::SemanticNodeView) -> bool {
     match &target.atomic {
         TargetAtomic::Id(alias) => node.alias as usize == *alias,
@@ -785,57 +1028,6 @@ fn target_matches_node(target: &Target, node: &oryn_common::v3::SemanticNodeView
         TargetAtomic::Role(role) => node.role.eq_ignore_ascii_case(role),
         TargetAtomic::Selector { value, .. } => node.selector.as_deref() == Some(value.as_str()),
     }
-}
-
-fn semantic_geometry(observation: &Observation) -> std::collections::BTreeMap<SemanticRef, Rect> {
-    let nodes = &observation.nodes;
-    let by_ref = nodes
-        .iter()
-        .map(|node| (node.semantic_ref, node))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let depth = |node: &oryn_common::v3::SemanticNodeView| {
-        let mut depth = 0_u32;
-        let mut parent = node.parent;
-        while let Some(reference) = parent.and_then(|reference| by_ref.get(&reference).copied()) {
-            depth += 1;
-            parent = reference.parent;
-        }
-        depth
-    };
-    let depths = nodes.iter().map(depth).collect::<Vec<_>>();
-    let max_depth = depths.iter().copied().max().unwrap_or(0);
-    nodes
-        .iter()
-        .enumerate()
-        .map(|(index, node)| {
-            let last_descendant = nodes
-                .iter()
-                .enumerate()
-                .skip(index + 1)
-                .take_while(|(_, candidate)| {
-                    let mut parent = candidate.parent;
-                    while let Some(reference) = parent {
-                        if reference == node.semantic_ref {
-                            return true;
-                        }
-                        parent = by_ref.get(&reference).and_then(|parent| parent.parent);
-                    }
-                    false
-                })
-                .map(|(index, _)| index)
-                .last()
-                .unwrap_or(index);
-            (
-                node.semantic_ref,
-                Rect {
-                    x: depths[index] as f32,
-                    y: index as f32,
-                    width: (max_depth - depths[index] + 1) as f32,
-                    height: (last_descendant - index + 1) as f32,
-                },
-            )
-        })
-        .collect()
 }
 
 fn command_name(command: &Command) -> String {

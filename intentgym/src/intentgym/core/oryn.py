@@ -49,6 +49,10 @@ class OrynObservation:
     diagnostics: List[str] = field(default_factory=list)
     byte_count: int = 0
     execution_domain: Optional[str] = None
+    style_revision: Optional[int] = None
+    layout_revision: Optional[int] = None
+    viewport: Optional[Any] = None
+    scroll: Optional[Any] = None
 
     @classmethod
     def from_real(cls, obs: "_RealObservation") -> "OrynObservation":
@@ -84,6 +88,10 @@ class OrynObservation:
             diagnostics=obs.diagnostics,
             byte_count=obs.byte_count,
             execution_domain=obs.execution_domain,
+            style_revision=obs.style_revision,
+            layout_revision=obs.layout_revision,
+            viewport=obs.viewport,
+            scroll=obs.scroll,
         )
 
 

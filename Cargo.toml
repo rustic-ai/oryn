@@ -10,6 +10,7 @@ members = [
     "crates/oryn-r",
     "crates/oryn",
     "crates/oryn-native",
+    "crates/oryn-layout",
     "crates/oryn-webidl",
 ]
 

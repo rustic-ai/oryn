@@ -58,6 +58,8 @@ from .types import (
     OrynEffect,
     OrynObservation,
     OrynResult,
+    OrynScroll,
+    OrynViewport,
 )
 
 __all__ = [
@@ -90,4 +92,6 @@ __all__ = [
     "OrynCapabilityDiagnostic",
     "OrynEffect",
     "OrynDelta",
+    "OrynViewport",
+    "OrynScroll",
 ]

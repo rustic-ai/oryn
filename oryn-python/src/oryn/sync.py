@@ -128,10 +128,10 @@ class OrynClientSync:
         """Execute OIL and decode a structured result when native mode is active."""
         return self._run(self._client.execute_typed(command))
 
-    def observe(self) -> "OrynObservation":
+    def observe(self, **options) -> "OrynObservation":
         """Get structured observation of current page.
 
         Returns:
             OrynObservation object.
         """
-        return self._run(self._client.observe())
+        return self._run(self._client.observe(**options))

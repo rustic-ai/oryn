@@ -16,6 +16,10 @@ use oryn_common::v3::{
     PageLifecycleEvent, PagePredicate, PageStatus, ProjectionProfile, Revision, SemanticAction,
     SemanticRef, SupportLevel,
 };
+use oryn_common::v4::{
+    BoxModel, ComputedStyle, MediaState, ObservationOptions, PreferredColorScheme, ReducedMotion,
+    ScrollState, ViewportState,
+};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "v8-host")]
 use sha2::{Digest, Sha256};
@@ -461,6 +465,10 @@ pub struct BrowserConfig {
     pub navigation_timeout: Duration,
     pub document_generation_base: u64,
     pub storage_limits: StorageLimits,
+    pub max_layout_nodes: usize,
+    pub max_font_bytes: usize,
+    pub max_page_font_bytes: usize,
+    pub max_viewport_css_px: u32,
 }
 
 impl Default for BrowserConfig {
@@ -477,11 +485,15 @@ impl Default for BrowserConfig {
             navigation_timeout: Duration::from_secs(30),
             document_generation_base: 0,
             storage_limits: StorageLimits::default(),
+            max_layout_nodes: 100_000,
+            max_font_bytes: 8 * 1024 * 1024,
+            max_page_font_bytes: 32 * 1024 * 1024,
+            max_viewport_css_px: 16_384,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContextOptions {
     /// Context-owned cookies and storage are discarded when the context closes.
     pub ephemeral: bool,
@@ -489,6 +501,12 @@ pub struct ContextOptions {
     /// Whether page-authored scripts and `_blank` navigations may create popups.
     #[serde(default = "default_allow_popups")]
     pub allow_popups: bool,
+    #[serde(default)]
+    pub viewport: ViewportState,
+    #[serde(default)]
+    pub color_scheme: PreferredColorScheme,
+    #[serde(default)]
+    pub reduced_motion: ReducedMotion,
 }
 
 const fn default_allow_popups() -> bool {
@@ -501,6 +519,9 @@ impl Default for ContextOptions {
             ephemeral: true,
             network_policy: NetworkPolicy::default(),
             allow_popups: true,
+            viewport: ViewportState::default(),
+            color_scheme: PreferredColorScheme::Light,
+            reduced_motion: ReducedMotion::NoPreference,
         }
     }
 }
@@ -515,11 +536,19 @@ impl ContextOptions {
             ephemeral: true,
             network_policy,
             allow_popups: true,
+            viewport: ViewportState::default(),
+            color_scheme: PreferredColorScheme::Light,
+            reduced_motion: ReducedMotion::NoPreference,
         }
     }
 
     pub fn with_popups(mut self, allow_popups: bool) -> Self {
         self.allow_popups = allow_popups;
+        self
+    }
+
+    pub fn with_viewport(mut self, viewport: ViewportState) -> Self {
+        self.viewport = viewport;
         self
     }
 }
@@ -565,6 +594,14 @@ pub enum ContentKind {
     Tables,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ScrollRequest {
+    pub x: f64,
+    pub y: f64,
+    #[serde(default)]
+    pub relative: bool,
+}
+
 enum PageCommand {
     LoadHtml {
         url: String,
@@ -608,6 +645,34 @@ enum PageCommand {
     Observe {
         profile: ProjectionProfile,
         reply: oneshot::Sender<Observation>,
+    },
+    ObserveWith {
+        options: ObservationOptions,
+        reply: oneshot::Sender<Result<oryn_common::v4::Observation, RuntimeError>>,
+    },
+    ComputedStyle {
+        target: SemanticRef,
+        reply: oneshot::Sender<Result<ComputedStyle, RuntimeError>>,
+    },
+    BoxModel {
+        target: SemanticRef,
+        reply: oneshot::Sender<Result<BoxModel, RuntimeError>>,
+    },
+    SetViewport {
+        viewport: ViewportState,
+        reply: oneshot::Sender<Result<ViewportState, RuntimeError>>,
+    },
+    SetMedia {
+        media: MediaState,
+        reply: oneshot::Sender<Result<MediaState, RuntimeError>>,
+    },
+    Scroll {
+        request: ScrollRequest,
+        reply: oneshot::Sender<Result<ScrollState, RuntimeError>>,
+    },
+    ScrollIntoView {
+        target: SemanticRef,
+        reply: oneshot::Sender<Result<ScrollState, RuntimeError>>,
     },
     ObserveDelta {
         from: Revision,
@@ -1074,6 +1139,7 @@ impl BrowserContext {
         }
         let (sender, mut receiver) = mpsc::channel(self.inner.config.worker_queue_capacity);
         let config = self.inner.config.clone();
+        let context_options = self.inner.options.clone();
         let broker = self.inner.broker.clone();
         #[cfg(all(unix, feature = "v8-host"))]
         let context_client = self.inner.context_client.clone().or_else(|| {
@@ -1089,6 +1155,7 @@ impl BrowserContext {
                 page_id,
                 opener_page_id,
                 config,
+                context_options,
                 broker,
                 #[cfg(all(unix, feature = "v8-host"))]
                 context_client,
@@ -1101,9 +1168,14 @@ impl BrowserContext {
                             None,
                             TraceEventKind::NavigationStarted { url: url.clone() },
                         );
-                        if let Err(error) =
-                            state.load_document(url.clone(), &html, true, &BTreeMap::new())
-                        {
+                        if let Err(error) = state.load_document(
+                            url.clone(),
+                            &html,
+                            true,
+                            &BTreeMap::new(),
+                            #[cfg(feature = "v8-host")]
+                            Vec::new(),
+                        ) {
                             let _ = reply.send(Err(error));
                             continue;
                         }
@@ -1147,6 +1219,27 @@ impl BrowserContext {
                     }
                     PageCommand::Observe { profile, reply } => {
                         let _ = reply.send(state.observation(profile));
+                    }
+                    PageCommand::ObserveWith { options, reply } => {
+                        let _ = reply.send(state.observation_v4(options));
+                    }
+                    PageCommand::ComputedStyle { target, reply } => {
+                        let _ = reply.send(state.computed_style(target));
+                    }
+                    PageCommand::BoxModel { target, reply } => {
+                        let _ = reply.send(state.box_model(target));
+                    }
+                    PageCommand::SetViewport { viewport, reply } => {
+                        let _ = reply.send(state.set_viewport(viewport));
+                    }
+                    PageCommand::SetMedia { media, reply } => {
+                        let _ = reply.send(state.set_media(media));
+                    }
+                    PageCommand::Scroll { request, reply } => {
+                        let _ = reply.send(state.scroll(request));
+                    }
+                    PageCommand::ScrollIntoView { target, reply } => {
+                        let _ = reply.send(state.scroll_into_view(target));
                     }
                     PageCommand::ObserveDelta { from, reply } => {
                         let _ = reply.send(state.delta_from(from));
@@ -1530,6 +1623,162 @@ impl PageHandle {
         Ok(observation)
     }
 
+    /// Observe the page with contract-v4 viewport and optional geometry data.
+    pub async fn observe_with(
+        &self,
+        options: ObservationOptions,
+    ) -> Result<oryn_common::v4::Observation, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) =
+            self.worker_request(crate::worker::WorkerRequest::ObserveWith { options })
+        {
+            return match response? {
+                crate::worker::WorkerResponse::ObservationV4 { observation } => Ok(observation),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::ObserveWith { options, reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
+    /// Frozen contract-v3 observation for compatibility callers.
+    pub async fn observe_v3(&self) -> Result<Observation, RuntimeError> {
+        self.observe().await
+    }
+
+    pub async fn computed_style(&self, target: SemanticRef) -> Result<ComputedStyle, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) =
+            self.worker_request(crate::worker::WorkerRequest::ComputedStyle { target })
+        {
+            return match response? {
+                crate::worker::WorkerResponse::ComputedStyle { style } => Ok(style),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::ComputedStyle { target, reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
+    pub async fn box_model(&self, target: SemanticRef) -> Result<BoxModel, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) =
+            self.worker_request(crate::worker::WorkerRequest::BoxModel { target })
+        {
+            return match response? {
+                crate::worker::WorkerResponse::BoxModel { box_model } => Ok(box_model),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::BoxModel { target, reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
+    pub async fn set_viewport(
+        &self,
+        viewport: ViewportState,
+    ) -> Result<ViewportState, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) =
+            self.worker_request(crate::worker::WorkerRequest::SetViewport { viewport })
+        {
+            return match response? {
+                crate::worker::WorkerResponse::Viewport { viewport } => Ok(viewport),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::SetViewport { viewport, reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
+    pub async fn set_media(&self, media: MediaState) -> Result<MediaState, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) =
+            self.worker_request(crate::worker::WorkerRequest::SetMedia { media })
+        {
+            return match response? {
+                crate::worker::WorkerResponse::Media { media } => Ok(media),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::SetMedia { media, reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
+    pub async fn scroll(&self, request: ScrollRequest) -> Result<ScrollState, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) =
+            self.worker_request(crate::worker::WorkerRequest::Scroll { request })
+        {
+            return match response? {
+                crate::worker::WorkerResponse::Scroll { scroll } => Ok(scroll),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::Scroll { request, reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
+    pub async fn scroll_to(&self, x: f64, y: f64) -> Result<ScrollState, RuntimeError> {
+        self.scroll(ScrollRequest {
+            x,
+            y,
+            relative: false,
+        })
+        .await
+    }
+
+    pub async fn scroll_by(&self, x: f64, y: f64) -> Result<ScrollState, RuntimeError> {
+        self.scroll(ScrollRequest {
+            x,
+            y,
+            relative: true,
+        })
+        .await
+    }
+
+    pub async fn scroll_into_view(&self, target: SemanticRef) -> Result<ScrollState, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) =
+            self.worker_request(crate::worker::WorkerRequest::ScrollIntoView { target })
+        {
+            return match response? {
+                crate::worker::WorkerResponse::Scroll { scroll } => Ok(scroll),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::ScrollIntoView { target, reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
     pub async fn observe_delta(&self, from: Revision) -> Result<ObservationDelta, RuntimeError> {
         #[cfg(unix)]
         if let Some(response) =
@@ -1546,6 +1795,37 @@ impl PageHandle {
             .await
             .map_err(|_| RuntimeError::Closed)?;
         response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
+    /// Contract-v4 delta with geometry attached to changed semantic nodes.
+    pub async fn observe_delta_v4(
+        &self,
+        from: Revision,
+    ) -> Result<oryn_common::v4::ObservationDelta, RuntimeError> {
+        let mut delta = oryn_common::v4::ObservationDelta::from_v3(self.observe_delta(from).await?);
+        let observation = self
+            .observe_with(ObservationOptions {
+                profile: ProjectionProfile::Compact,
+                include_geometry: true,
+                viewport_only: false,
+                include_hidden: true,
+            })
+            .await?;
+        let current = observation
+            .nodes
+            .iter()
+            .map(|node| (node.semantic.semantic_ref, node))
+            .collect::<BTreeMap<_, _>>();
+        for node in &mut delta.upserted {
+            node.geometry = current
+                .get(&node.semantic.semantic_ref)
+                .and_then(|current| current.geometry.clone());
+        }
+        delta.style_revision = observation.style_revision;
+        delta.layout_revision = observation.layout_revision;
+        delta.viewport = Some(observation.viewport);
+        delta.scroll = Some(observation.scroll);
+        Ok(delta)
     }
 
     pub async fn trace(&self) -> Result<Vec<TraceEvent>, RuntimeError> {
@@ -1616,6 +1896,51 @@ impl PageHandle {
                     },
                 });
             }
+        }
+        Ok(result)
+    }
+
+    /// Execute an action and return the geometry-aware contract-v4 result.
+    pub async fn execute_v4(
+        &self,
+        action: NativeAction,
+    ) -> Result<oryn_common::v4::ActionResult, RuntimeError> {
+        let result = self.execute(action).await?;
+        let revision_before = result.revision_before;
+        let mut result = oryn_common::v4::ActionResult::from_v3(result);
+        let observation = self
+            .observe_with(ObservationOptions {
+                profile: ProjectionProfile::Compact,
+                include_geometry: true,
+                viewport_only: false,
+                include_hidden: true,
+            })
+            .await?;
+        if let Some(delta) = &mut result.delta {
+            let current = observation
+                .nodes
+                .iter()
+                .map(|node| (node.semantic.semantic_ref, node))
+                .collect::<BTreeMap<_, _>>();
+            for node in &mut delta.upserted {
+                node.geometry = current
+                    .get(&node.semantic.semantic_ref)
+                    .and_then(|current| current.geometry.clone());
+            }
+            delta.style_revision = observation.style_revision;
+            delta.layout_revision = observation.layout_revision;
+            delta.viewport = Some(observation.viewport);
+            delta.scroll = Some(observation.scroll);
+        }
+        if observation.style_revision.0 > revision_before.0 {
+            result.effects.push(oryn_common::v4::Effect::StyleChanged {
+                style_revision: observation.style_revision,
+            });
+        }
+        if observation.layout_revision.0 > revision_before.0 {
+            result.effects.push(oryn_common::v4::Effect::LayoutChanged {
+                layout_revision: observation.layout_revision,
+            });
         }
         Ok(result)
     }
@@ -1712,6 +2037,14 @@ pub enum RuntimeError {
     WorkerLimitExceeded { resource: String },
     #[error("sandboxed native worker protocol violation: {0}")]
     ProtocolViolation(String),
+    #[error("native layout is unavailable: {0}")]
+    LayoutUnavailable(String),
+    #[error("geometry is unsupported for this target: {0}")]
+    UnsupportedGeometry(String),
+    #[error("semantic target is not interactable: {0}")]
+    NotInteractable(String),
+    #[error("invalid viewport: {0}")]
+    InvalidViewport(String),
 }
 
 #[cfg(feature = "v8-host")]
@@ -1738,6 +2071,10 @@ struct PageState {
     url: String,
     document_generation: u64,
     revision: u64,
+    style_revision: u64,
+    layout_revision: u64,
+    viewport: ViewportState,
+    scroll_state: ScrollState,
     next_action_id: u64,
     document: Option<ParsedDocument>,
     #[cfg(feature = "v8-host")]
@@ -1751,6 +2088,14 @@ struct PageState {
     context_client: Option<crate::context_service::SharedContextClient>,
     #[cfg(feature = "v8-host")]
     resource_cache: BTreeMap<String, String>,
+    #[cfg(feature = "v8-host")]
+    web_fonts: Vec<oryn_layout::WebFont>,
+    #[cfg(feature = "v8-host")]
+    layout: Option<oryn_layout::LayoutOutput>,
+    #[cfg(feature = "v8-host")]
+    color_scheme: PreferredColorScheme,
+    #[cfg(feature = "v8-host")]
+    reduced_motion: ReducedMotion,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1765,6 +2110,7 @@ impl PageState {
         page_id: PageId,
         opener_page_id: Option<PageId>,
         config: BrowserConfig,
+        context_options: ContextOptions,
         broker: Option<SharedNetworkBroker>,
         #[cfg(all(unix, feature = "v8-host"))] context_client: Option<
             crate::context_service::SharedContextClient,
@@ -1778,6 +2124,14 @@ impl PageState {
             url: String::new(),
             document_generation,
             revision: 0,
+            style_revision: 0,
+            layout_revision: 0,
+            viewport: context_options.viewport,
+            scroll_state: ScrollState {
+                content_width: context_options.viewport.width,
+                content_height: context_options.viewport.height,
+                ..ScrollState::default()
+            },
             next_action_id: 0,
             document: None,
             #[cfg(feature = "v8-host")]
@@ -1791,6 +2145,14 @@ impl PageState {
             context_client,
             #[cfg(feature = "v8-host")]
             resource_cache: BTreeMap::new(),
+            #[cfg(feature = "v8-host")]
+            web_fonts: Vec::new(),
+            #[cfg(feature = "v8-host")]
+            layout: None,
+            #[cfg(feature = "v8-host")]
+            color_scheme: context_options.color_scheme,
+            #[cfg(feature = "v8-host")]
+            reduced_motion: context_options.reduced_motion,
         }
     }
 
@@ -1800,6 +2162,7 @@ impl PageState {
         html: &str,
         push_history: bool,
         resources: &BTreeMap<String, String>,
+        #[cfg(feature = "v8-host")] web_fonts: Vec<oryn_layout::WebFont>,
     ) -> Result<(), RuntimeError> {
         #[cfg(not(feature = "v8-host"))]
         let _ = resources;
@@ -1808,6 +2171,7 @@ impl PageState {
         self.url = url;
         #[cfg(feature = "v8-host")]
         {
+            self.web_fonts = web_fonts;
             // V8 enters isolates on creation and requires reverse-order drops;
             // retire the previous document realm before creating its successor.
             let storage = self
@@ -1891,6 +2255,8 @@ impl PageState {
         {
             self.document = Some(parse(html));
         }
+        #[cfg(feature = "v8-host")]
+        self.refresh_layout()?;
         if push_history {
             if let Some(index) = self.history_index {
                 self.history.truncate(index + 1);
@@ -1976,6 +2342,8 @@ impl PageState {
                 "<!doctype html>",
                 matches!(history_update, HistoryUpdate::Push),
                 &BTreeMap::new(),
+                #[cfg(feature = "v8-host")]
+                Vec::new(),
             )?;
             return Ok(NavigationResult {
                 page_id: self.page_id,
@@ -2062,12 +2430,16 @@ impl PageState {
         };
         let html = String::from_utf8_lossy(&body).into_owned();
         let html = self.inline_external_stylesheets(&current, &html)?;
+        #[cfg(feature = "v8-host")]
+        let web_fonts = self.load_web_fonts(&current, &html)?;
         let resources = self.load_external_scripts(&current, &html)?;
         self.load_document(
             current.to_string(),
             &html,
             matches!(history_update, HistoryUpdate::Push),
             &resources,
+            #[cfg(feature = "v8-host")]
+            web_fonts,
         )?;
         Ok(NavigationResult {
             page_id: self.page_id,
@@ -2119,15 +2491,7 @@ impl PageState {
             let absolute = base_url.join(&href).map_err(|error| {
                 RuntimeError::Network(format!("invalid stylesheet URL {href}: {error}"))
             })?;
-            let cache_key = absolute.to_string();
-            let css = if let Some(cached) = self.resource_cache.get(&cache_key) {
-                cached.clone()
-            } else {
-                let css =
-                    self.fetch_external_resource(absolute, "text/css,*/*;q=0.1", "stylesheet")?;
-                self.resource_cache.insert(cache_key, css.clone());
-                css
-            };
+            let css = self.load_stylesheet_recursive(&absolute, 0, &mut BTreeSet::new())?;
             styles.push_str("\n<style data-oryn-external=\"");
             styles.push_str(&href.replace('&', "&amp;").replace('"', "&quot;"));
             styles.push_str("\">\n");
@@ -2141,7 +2505,197 @@ impl PageState {
         } else {
             expanded.push_str(&styles);
         }
-        Ok(expanded)
+        self.expand_inline_style_imports(base_url, &expanded)
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn expand_inline_style_imports(
+        &mut self,
+        base_url: &Url,
+        html: &str,
+    ) -> Result<String, RuntimeError> {
+        let styles = regex::Regex::new(r"(?is)(<style\b[^>]*>)(.*?)(</style\s*>)")
+            .expect("constant style element regex");
+        let mut output = String::with_capacity(html.len());
+        let mut cursor = 0usize;
+        for capture in styles.captures_iter(html) {
+            let complete = capture.get(0).expect("complete style capture");
+            output.push_str(&html[cursor..complete.start()]);
+            output.push_str(&capture[1]);
+            output.push_str(&self.expand_css_imports(
+                base_url,
+                &capture[2],
+                0,
+                &mut BTreeSet::new(),
+            )?);
+            output.push_str(&capture[3]);
+            cursor = complete.end();
+        }
+        output.push_str(&html[cursor..]);
+        Ok(output)
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn load_stylesheet_recursive(
+        &mut self,
+        url: &Url,
+        depth: usize,
+        visited: &mut BTreeSet<String>,
+    ) -> Result<String, RuntimeError> {
+        if depth > self.config.max_redirects {
+            return Err(RuntimeError::Network(format!(
+                "stylesheet @import depth exceeded {}",
+                self.config.max_redirects
+            )));
+        }
+        let cache_key = url.to_string();
+        if !visited.insert(cache_key.clone()) {
+            return Ok(String::new());
+        }
+        let css = if let Some(cached) = self.resource_cache.get(&cache_key) {
+            cached.clone()
+        } else {
+            let css =
+                self.fetch_external_resource(url.clone(), "text/css,*/*;q=0.1", "stylesheet")?;
+            self.resource_cache.insert(cache_key, css.clone());
+            css
+        };
+        self.expand_css_imports(url, &css, depth, visited)
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn expand_css_imports(
+        &mut self,
+        base_url: &Url,
+        css: &str,
+        depth: usize,
+        visited: &mut BTreeSet<String>,
+    ) -> Result<String, RuntimeError> {
+        if depth > self.config.max_redirects {
+            return Err(RuntimeError::Network(format!(
+                "stylesheet @import depth exceeded {}",
+                self.config.max_redirects
+            )));
+        }
+        let imports = regex::Regex::new(
+            r#"(?is)@import\s+(?:url\(\s*)?['\"]?([^'\"\)\s;]+)['\"]?\s*\)?[^;]*;"#,
+        )
+        .expect("constant import regex");
+        let mut expanded = String::new();
+        let mut cursor = 0usize;
+        for capture in imports.captures_iter(css) {
+            let complete = capture.get(0).expect("complete import capture");
+            expanded.push_str(&css[cursor..complete.start()]);
+            let import_url = base_url.join(&capture[1]).map_err(|error| {
+                RuntimeError::Network(format!(
+                    "invalid stylesheet @import {}: {error}",
+                    &capture[1]
+                ))
+            })?;
+            expanded.push_str(&self.load_stylesheet_recursive(&import_url, depth + 1, visited)?);
+            cursor = complete.end();
+        }
+        expanded.push_str(&css[cursor..]);
+        let urls = regex::Regex::new(r#"(?is)url\(\s*(['\"]?)([^'\")]+)['\"]?\s*\)"#)
+            .expect("constant CSS URL regex");
+        Ok(urls
+            .replace_all(&expanded, |capture: &regex::Captures<'_>| {
+                let value = capture[2].trim();
+                if value.starts_with("data:") || value.starts_with('#') {
+                    capture[0].to_string()
+                } else {
+                    base_url
+                        .join(value)
+                        .map(|absolute| format!("url(\"{absolute}\")"))
+                        .unwrap_or_else(|_| capture[0].to_string())
+                }
+            })
+            .into_owned())
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn load_web_fonts(
+        &mut self,
+        base_url: &Url,
+        html: &str,
+    ) -> Result<Vec<oryn_layout::WebFont>, RuntimeError> {
+        let parsed = parse(html);
+        let css = parsed
+            .dom
+            .iter()
+            .filter_map(|(id, node)| {
+                matches!(&node.kind, crate::dom::NodeKind::Element { name } if name.local.as_ref() == "style")
+                    .then(|| parsed.dom.text_content(id).ok())
+                    .flatten()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let faces =
+            regex::Regex::new(r"(?is)@font-face\s*\{([^}]*)\}").expect("constant font-face regex");
+        let family = regex::Regex::new(r"(?is)font-family\s*:\s*([^;]+)")
+            .expect("constant font-family regex");
+        let source = regex::Regex::new(r#"(?is)url\(\s*['\"]?([^'\")\s]+)['\"]?\s*\)"#)
+            .expect("constant font source regex");
+        let mut fonts = Vec::new();
+        let mut total = 0usize;
+        for face in faces.captures_iter(&css) {
+            let block = &face[1];
+            let Some(family) = family
+                .captures(block)
+                .map(|capture| capture[1].trim().trim_matches(['\'', '"']).to_string())
+            else {
+                continue;
+            };
+            let Some(source) = source.captures(block).map(|capture| capture[1].to_string()) else {
+                continue;
+            };
+            if source.starts_with("data:") {
+                self.trace.push(
+                    Revision(self.revision),
+                    None,
+                    TraceEventKind::ScriptDiagnostic {
+                        capability: "font.data_url".into(),
+                        detail:
+                            "data URL fonts are not accepted by the bounded brokered font loader"
+                                .into(),
+                    },
+                );
+                continue;
+            }
+            let absolute = base_url.join(&source).map_err(|error| {
+                RuntimeError::Network(format!("invalid web-font URL {source}: {error}"))
+            })?;
+            let bytes = self.fetch_external_resource_bytes(
+                absolute.clone(),
+                "font/woff2,font/woff,application/font-sfnt,*/*;q=0.1",
+                "web font",
+            )?;
+            if bytes.len() > self.config.max_font_bytes {
+                return Err(RuntimeError::WorkerLimitExceeded {
+                    resource: format!(
+                        "web font {} bytes (limit {})",
+                        bytes.len(),
+                        self.config.max_font_bytes
+                    ),
+                });
+            }
+            total = total.saturating_add(bytes.len());
+            if total > self.config.max_page_font_bytes {
+                return Err(RuntimeError::WorkerLimitExceeded {
+                    resource: format!(
+                        "page web fonts {total} bytes (limit {})",
+                        self.config.max_page_font_bytes
+                    ),
+                });
+            }
+            fonts.push(oryn_layout::WebFont {
+                family,
+                source_url: absolute.to_string(),
+                sha256: format!("{:x}", Sha256::digest(&bytes)),
+                bytes,
+            });
+        }
+        Ok(fonts)
     }
 
     #[cfg(not(feature = "v8-host"))]
@@ -2321,10 +2875,21 @@ impl PageState {
     #[cfg(feature = "v8-host")]
     fn fetch_external_resource(
         &mut self,
-        mut url: Url,
+        url: Url,
         accept: &str,
         resource_kind: &str,
     ) -> Result<String, RuntimeError> {
+        self.fetch_external_resource_bytes(url, accept, resource_kind)
+            .map(|body| String::from_utf8_lossy(&body).into_owned())
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn fetch_external_resource_bytes(
+        &mut self,
+        mut url: Url,
+        accept: &str,
+        resource_kind: &str,
+    ) -> Result<Vec<u8>, RuntimeError> {
         for redirect in 0..=self.config.max_redirects {
             self.trace.push(
                 Revision(self.revision),
@@ -2381,7 +2946,7 @@ impl PageState {
                     response.status,
                 )));
             }
-            return Ok(String::from_utf8_lossy(&response.body).into_owned());
+            return Ok(response.body);
         }
         Err(RuntimeError::Network(format!(
             "{resource_kind} redirect limit ({}) exceeded",
@@ -2497,6 +3062,7 @@ impl PageState {
                     self.trace.push(Revision(self.revision), None, kind);
                 }
             }
+            self.refresh_layout()?;
             Ok(value)
         }
         #[cfg(not(feature = "v8-host"))]
@@ -2506,14 +3072,323 @@ impl PageState {
         }
     }
 
+    #[cfg(feature = "v8-host")]
+    fn refresh_layout(&mut self) -> Result<(), RuntimeError> {
+        let layout_document = self
+            .executable
+            .as_mut()
+            .map(|executable| executable.layout_snapshot())
+            .transpose()
+            .map_err(map_host_error)?;
+        let document = layout_document
+            .as_ref()
+            .or(self.document.as_ref())
+            .ok_or_else(|| RuntimeError::LayoutUnavailable("page has no document".into()))?;
+        let input = layout_input(
+            document,
+            self.viewport,
+            self.scroll_state,
+            self.color_scheme,
+            self.reduced_motion,
+            &self.web_fonts,
+        );
+        let limits = oryn_layout::LayoutLimits {
+            max_nodes: self.config.max_layout_nodes,
+            max_font_bytes: self.config.max_font_bytes,
+            max_page_font_bytes: self.config.max_page_font_bytes,
+            max_viewport_css_px: f64::from(self.config.max_viewport_css_px),
+        };
+        let output = oryn_layout::compute(&input, &limits)
+            .map_err(|error| RuntimeError::LayoutUnavailable(error.to_string()))?;
+        self.style_revision = self.style_revision.saturating_add(1);
+        self.layout_revision = self.layout_revision.saturating_add(1);
+        self.scroll_state = output.scroll;
+        if let Some(executable) = self.executable.as_mut() {
+            let payload = serde_json::json!({
+                "styles": output.computed_styles,
+                "geometry": output.geometry,
+                "viewport": self.viewport,
+                "scroll": self.scroll_state,
+                "media": MediaState {
+                    color_scheme: self.color_scheme,
+                    reduced_motion: self.reduced_motion,
+                },
+            });
+            let payload = serde_json::to_string(&payload)
+                .map_err(|error| RuntimeError::Script(error.to_string()))?;
+            executable
+                .evaluate(&format!("__oryn_install_layout({payload});undefined"))
+                .map_err(map_host_error)?;
+            self.document = Some(executable.document.clone());
+        }
+        self.trace.push(
+            Revision(self.revision),
+            None,
+            TraceEventKind::StyleRecalculated {
+                revision: self.style_revision,
+                nodes: output.computed_styles.len(),
+            },
+        );
+        self.trace.push(
+            Revision(self.revision),
+            None,
+            TraceEventKind::LayoutCompleted {
+                revision: self.layout_revision,
+                nodes: output.geometry.len(),
+            },
+        );
+        for font in &output.loaded_fonts {
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::FontLoaded {
+                    family: font.family.clone(),
+                    sha256: font.sha256.clone(),
+                },
+            );
+        }
+        self.layout = Some(output);
+        Ok(())
+    }
+
+    #[cfg(not(feature = "v8-host"))]
+    fn refresh_layout(&mut self) -> Result<(), RuntimeError> {
+        Err(RuntimeError::LayoutUnavailable(
+            "layout is available only in the V8 page worker".into(),
+        ))
+    }
+
+    fn validate_target(&self, target: SemanticRef) -> Result<(), RuntimeError> {
+        if target.page_id != self.page_id {
+            return Err(RuntimeError::WrongPage {
+                expected: self.page_id,
+                actual: target.page_id,
+            });
+        }
+        if target.document_generation != self.document_generation {
+            return Err(RuntimeError::WrongDocumentGeneration {
+                expected: self.document_generation,
+                actual: target.document_generation,
+            });
+        }
+        let node = crate::semantic::unpack_node_ref(target.node);
+        self.document
+            .as_ref()
+            .and_then(|document| document.dom.get(node).ok())
+            .ok_or(RuntimeError::StaleSemanticRef)?;
+        Ok(())
+    }
+
+    fn computed_style(&mut self, target: SemanticRef) -> Result<ComputedStyle, RuntimeError> {
+        self.validate_target(target)?;
+        #[cfg(feature = "v8-host")]
+        {
+            if self.layout.is_none() {
+                self.refresh_layout()?;
+            }
+            let properties = self
+                .layout
+                .as_ref()
+                .and_then(|layout| layout.computed_styles.get(&target.node))
+                .cloned()
+                .ok_or_else(|| {
+                    RuntimeError::LayoutUnavailable("target has no computed style".into())
+                })?;
+            Ok(ComputedStyle {
+                semantic_ref: target,
+                style_revision: oryn_common::v4::StyleRevision(self.style_revision),
+                properties,
+            })
+        }
+        #[cfg(not(feature = "v8-host"))]
+        Err(RuntimeError::LayoutUnavailable(
+            "computed style requires the V8 page worker".into(),
+        ))
+    }
+
+    fn box_model(&mut self, target: SemanticRef) -> Result<BoxModel, RuntimeError> {
+        self.validate_target(target)?;
+        #[cfg(feature = "v8-host")]
+        {
+            if self.layout.is_none() {
+                self.refresh_layout()?;
+            }
+            let geometry = self
+                .layout
+                .as_ref()
+                .and_then(|layout| layout.geometry.get(&target.node))
+                .ok_or_else(|| RuntimeError::LayoutUnavailable("target has no geometry".into()))?;
+            geometry.box_model.clone().ok_or_else(|| {
+                RuntimeError::UnsupportedGeometry(
+                    geometry
+                        .diagnostic
+                        .clone()
+                        .unwrap_or_else(|| format!("{:?}", geometry.availability)),
+                )
+            })
+        }
+        #[cfg(not(feature = "v8-host"))]
+        Err(RuntimeError::LayoutUnavailable(
+            "box geometry requires the V8 page worker".into(),
+        ))
+    }
+
+    fn set_viewport(&mut self, viewport: ViewportState) -> Result<ViewportState, RuntimeError> {
+        let max = f64::from(self.config.max_viewport_css_px);
+        if !viewport.width.is_finite()
+            || !viewport.height.is_finite()
+            || !viewport.device_pixel_ratio.is_finite()
+            || !(1.0..=max).contains(&viewport.width)
+            || !(1.0..=max).contains(&viewport.height)
+            || !(0.1..=8.0).contains(&viewport.device_pixel_ratio)
+        {
+            return Err(RuntimeError::InvalidViewport(format!(
+                "{}x{} at DPR {} exceeds configured bounds",
+                viewport.width, viewport.height, viewport.device_pixel_ratio
+            )));
+        }
+        self.viewport = viewport;
+        self.scroll_state.x = 0.0;
+        self.scroll_state.y = 0.0;
+        self.refresh_layout()?;
+        self.trace.push(
+            Revision(self.revision),
+            None,
+            TraceEventKind::ViewportChanged {
+                width: viewport.width,
+                height: viewport.height,
+                device_pixel_ratio: viewport.device_pixel_ratio,
+            },
+        );
+        Ok(viewport)
+    }
+
+    fn set_media(&mut self, media: MediaState) -> Result<MediaState, RuntimeError> {
+        #[cfg(not(feature = "v8-host"))]
+        let _ = media;
+        #[cfg(feature = "v8-host")]
+        {
+            self.color_scheme = media.color_scheme;
+            self.reduced_motion = media.reduced_motion;
+            self.refresh_layout()?;
+            Ok(media)
+        }
+        #[cfg(not(feature = "v8-host"))]
+        Err(RuntimeError::LayoutUnavailable(
+            "media emulation requires the V8 page worker".into(),
+        ))
+    }
+
+    fn scroll(&mut self, request: ScrollRequest) -> Result<ScrollState, RuntimeError> {
+        if !request.x.is_finite() || !request.y.is_finite() {
+            return Err(RuntimeError::InvalidViewport(
+                "scroll coordinates must be finite".into(),
+            ));
+        }
+        if request.relative {
+            self.scroll_state.x += request.x;
+            self.scroll_state.y += request.y;
+        } else {
+            self.scroll_state.x = request.x;
+            self.scroll_state.y = request.y;
+        }
+        self.refresh_layout()?;
+        self.trace.push(
+            Revision(self.revision),
+            None,
+            TraceEventKind::Scrolled {
+                x: self.scroll_state.x,
+                y: self.scroll_state.y,
+            },
+        );
+        Ok(self.scroll_state)
+    }
+
+    fn scroll_into_view(&mut self, target: SemanticRef) -> Result<ScrollState, RuntimeError> {
+        let box_model = self.box_model(target)?;
+        if box_model.border_box.y < 0.0 || box_model.border_box.bottom() > self.viewport.height {
+            self.scroll_state.y = (self.scroll_state.y + box_model.border_box.y).max(0.0);
+            self.refresh_layout()?;
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::Scrolled {
+                    x: self.scroll_state.x,
+                    y: self.scroll_state.y,
+                },
+            );
+        }
+        Ok(self.scroll_state)
+    }
+
+    fn observation_v4(
+        &mut self,
+        options: ObservationOptions,
+    ) -> Result<oryn_common::v4::Observation, RuntimeError> {
+        if options.include_geometry || options.viewport_only {
+            #[cfg(feature = "v8-host")]
+            if self.layout.is_none() {
+                self.refresh_layout()?;
+            }
+        }
+        let v3 = self.observation(options.profile);
+        let mut observation = oryn_common::v4::Observation::from_v3(v3, self.viewport);
+        observation.style_revision = oryn_common::v4::StyleRevision(self.style_revision);
+        observation.layout_revision = oryn_common::v4::LayoutRevision(self.layout_revision);
+        observation.scroll = self.scroll_state;
+        #[cfg(feature = "v8-host")]
+        if let Some(layout) = &self.layout {
+            for node in &mut observation.nodes {
+                let geometry = layout
+                    .geometry
+                    .get(&node.semantic.semantic_ref.node)
+                    .cloned();
+                if geometry.as_ref().is_some_and(|geometry| {
+                    geometry.availability == oryn_common::v4::GeometryAvailability::Hidden
+                }) {
+                    node.semantic
+                        .states
+                        .remove(&oryn_common::v4::NodeState::Visible);
+                    node.semantic
+                        .states
+                        .insert(oryn_common::v4::NodeState::Hidden);
+                    node.semantic.actions.clear();
+                }
+                if options.include_geometry || options.viewport_only {
+                    node.geometry = geometry;
+                }
+            }
+            if options.viewport_only {
+                observation.nodes.retain(|node| {
+                    node.geometry
+                        .as_ref()
+                        .is_some_and(|geometry| geometry.in_viewport)
+                });
+            }
+            if !options.include_hidden {
+                observation.nodes.retain(|node| {
+                    node.geometry.as_ref().is_none_or(|geometry| {
+                        geometry.availability != oryn_common::v4::GeometryAvailability::Hidden
+                    })
+                });
+            }
+            observation.diagnostics.extend(layout.diagnostics.clone());
+        }
+        Ok(observation)
+    }
+
     fn capabilities(&self) -> Vec<CapabilityDiagnostic> {
-        let layout = CapabilityDiagnostic {
+        let legacy_layout = CapabilityDiagnostic {
             capability: "rendered_layout_and_paint".into(),
-            support: SupportLevel::Unsupported,
+            support: if cfg!(feature = "v8-host") {
+                SupportLevel::Partial
+            } else {
+                SupportLevel::Unsupported
+            },
             alternatives: vec![ExecutionDomain::Chromium, ExecutionDomain::Webkit],
             handoff_lossy: true,
             detail: Some(
-                "native Oryn exposes deterministic document-order geometry, not rendered layout or paint"
+                "legacy aggregate capability: native style and layout are separate from unsupported paint"
                     .into(),
             ),
         };
@@ -2524,7 +3399,42 @@ impl PageState {
                 .as_ref()
                 .map(|executable| executable.diagnostics.clone())
                 .unwrap_or_default();
-            capabilities.push(layout);
+            capabilities.push(legacy_layout);
+            capabilities.extend([
+                supported_capability(
+                    "computed_style",
+                    "Stylo-parsed declarations with a worker-owned deterministic bounded cascade",
+                ),
+                supported_capability("layout.box", "worker-owned CSS box geometry"),
+                supported_capability("layout.inline_text", "deterministic inline text fragments"),
+                CapabilityDiagnostic {
+                    capability: "layout.float".into(),
+                    support: SupportLevel::Partial,
+                    alternatives: vec![ExecutionDomain::Chromium, ExecutionDomain::Webkit],
+                    handoff_lossy: true,
+                    detail: Some(
+                        "simple left/right floats are supported; complex float exclusion and fragmentation remain unavailable"
+                            .into(),
+                    ),
+                },
+                unsupported_capability(
+                    "layout.table",
+                    "table extraction is available, but table geometry is intentionally unavailable",
+                ),
+                unsupported_capability(
+                    "layout.hit_testing.paint_order",
+                    "paint-order hit testing is deferred to G8",
+                ),
+                unsupported_capability(
+                    "layout.transform.3d",
+                    "three-dimensional transforms and perspective are outside the G4 geometry contract",
+                ),
+                unsupported_capability(
+                    "layout.float.complex",
+                    "complex float exclusion, shape-outside, and fragmentation are outside the bounded G4 float subset",
+                ),
+                unsupported_capability("paint", "paint, screenshots, and PDF are deferred to G8"),
+            ]);
             capabilities.extend([
                 unsupported_capability(
                     "cross_origin_dom",
@@ -2572,7 +3482,7 @@ impl PageState {
                             .into(),
                     ),
                 },
-                layout,
+                legacy_layout,
             ]
         }
     }
@@ -2799,6 +3709,9 @@ impl PageState {
                 actual: action.target.document_generation,
             });
         }
+        if matches!(action.action, SemanticAction::Click | SemanticAction::Hover) {
+            self.ensure_interactable(action.target)?;
+        }
         #[cfg(feature = "v8-host")]
         if self.executable.is_some() {
             return self.execute_in_realm(action);
@@ -2938,6 +3851,69 @@ impl PageState {
         Ok(result)
     }
 
+    fn ensure_interactable(&mut self, target: SemanticRef) -> Result<(), RuntimeError> {
+        #[cfg(not(feature = "v8-host"))]
+        let _ = target;
+        #[cfg(feature = "v8-host")]
+        {
+            if self.layout.is_none() {
+                self.refresh_layout()?;
+            }
+            let first = self
+                .layout
+                .as_ref()
+                .and_then(|layout| layout.geometry.get(&target.node))
+                .cloned()
+                .ok_or_else(|| RuntimeError::LayoutUnavailable("target has no geometry".into()))?;
+            if first.availability == oryn_common::v4::GeometryAvailability::Unsupported {
+                let reason = first
+                    .diagnostic
+                    .unwrap_or_else(|| "target geometry is unsupported".into());
+                self.trace.push(
+                    Revision(self.revision),
+                    None,
+                    TraceEventKind::InteractabilityRejected {
+                        target: target.node,
+                        reason: reason.clone(),
+                    },
+                );
+                return Err(RuntimeError::UnsupportedGeometry(reason));
+            }
+            if !first.in_viewport && first.box_model.is_some() {
+                self.scroll_into_view(target)?;
+            }
+            let current = self
+                .layout
+                .as_ref()
+                .and_then(|layout| layout.geometry.get(&target.node))
+                .ok_or_else(|| RuntimeError::LayoutUnavailable("target has no geometry".into()))?;
+            if !current.interactable {
+                let reason = match current.availability {
+                    oryn_common::v4::GeometryAvailability::Hidden => "target is hidden",
+                    oryn_common::v4::GeometryAvailability::Unsupported => {
+                        "target geometry is unsupported"
+                    }
+                    oryn_common::v4::GeometryAvailability::Available => {
+                        "target has no visible pointer-interactable box"
+                    }
+                }
+                .to_string();
+                self.trace.push(
+                    Revision(self.revision),
+                    None,
+                    TraceEventKind::InteractabilityRejected {
+                        target: target.node,
+                        reason: reason.clone(),
+                    },
+                );
+                return Err(RuntimeError::NotInteractable(reason));
+            }
+            Ok(())
+        }
+        #[cfg(not(feature = "v8-host"))]
+        Ok(())
+    }
+
     #[cfg(feature = "v8-host")]
     fn execute_in_realm(&mut self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
         let before = self.observation(ProjectionProfile::Compact);
@@ -2975,6 +3951,7 @@ impl PageState {
         let revision_before = Revision(self.revision);
         self.revision += 1;
         self.next_action_id += 1;
+        self.refresh_layout()?;
         let after = self.observation(ProjectionProfile::Compact);
         let before_by_ref = before
             .nodes
@@ -3225,6 +4202,112 @@ fn unsupported_capability(capability: &str, detail: &str) -> CapabilityDiagnosti
         handoff_lossy: true,
         detail: Some(detail.into()),
     }
+}
+
+#[cfg(feature = "v8-host")]
+fn supported_capability(capability: &str, detail: &str) -> CapabilityDiagnostic {
+    CapabilityDiagnostic {
+        capability: capability.into(),
+        support: SupportLevel::Supported,
+        alternatives: Vec::new(),
+        handoff_lossy: false,
+        detail: Some(detail.into()),
+    }
+}
+
+#[cfg(feature = "v8-host")]
+fn layout_input(
+    document: &ParsedDocument,
+    viewport: ViewportState,
+    scroll: ScrollState,
+    color_scheme: PreferredColorScheme,
+    reduced_motion: ReducedMotion,
+    web_fonts: &[oryn_layout::WebFont],
+) -> oryn_layout::LayoutInput {
+    use crate::dom::NodeKind;
+
+    let elements = document
+        .dom
+        .iter()
+        .filter_map(|(id, node)| matches!(node.kind, NodeKind::Element { .. }).then_some(id))
+        .collect::<Vec<_>>();
+    let nodes = elements
+        .iter()
+        .filter_map(|id| {
+            let node = document.dom.get(*id).ok()?;
+            let NodeKind::Element { name } = &node.kind else {
+                return None;
+            };
+            let packed = pack_node_id(*id);
+            let parent = document
+                .dom
+                .ancestors(*id)
+                .ok()?
+                .into_iter()
+                .find(|ancestor| {
+                    document
+                        .dom
+                        .get(*ancestor)
+                        .is_ok_and(|node| matches!(node.kind, NodeKind::Element { .. }))
+                })
+                .map(pack_node_id);
+            let children = node
+                .children
+                .iter()
+                .filter(|child| {
+                    document
+                        .dom
+                        .get(**child)
+                        .is_ok_and(|node| matches!(node.kind, NodeKind::Element { .. }))
+                })
+                .copied()
+                .map(pack_node_id)
+                .collect();
+            let text = node
+                .children
+                .iter()
+                .filter_map(|child| document.dom.get(*child).ok())
+                .filter_map(|child| match &child.kind {
+                    NodeKind::Text { data } => Some(data.as_str()),
+                    _ => None,
+                })
+                .collect::<String>();
+            Some(oryn_layout::LayoutNode {
+                id: packed,
+                parent,
+                children,
+                tag: name.local.to_string(),
+                attributes: node.attributes.clone(),
+                text,
+            })
+        })
+        .collect();
+    let stylesheets = document
+        .dom
+        .iter()
+        .filter_map(|(id, node)| {
+            matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "style")
+                .then(|| document.dom.text_content(id).ok())
+                .flatten()
+        })
+        .collect();
+    oryn_layout::LayoutInput {
+        nodes,
+        stylesheets,
+        viewport,
+        scroll,
+        color_scheme: match color_scheme {
+            PreferredColorScheme::Light => oryn_layout::ColorScheme::Light,
+            PreferredColorScheme::Dark => oryn_layout::ColorScheme::Dark,
+        },
+        reduced_motion: reduced_motion == ReducedMotion::Reduce,
+        web_fonts: web_fonts.to_vec(),
+    }
+}
+
+#[cfg(feature = "v8-host")]
+fn pack_node_id(id: crate::dom::NodeId) -> u64 {
+    (u64::from(id.generation) << 32) | u64::from(id.slot)
 }
 
 fn visible_text_content(
@@ -3826,6 +4909,75 @@ mod tests {
         );
         page.refresh().await.expect("refresh using cached script");
         server.join().expect("fixture server");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn external_css_import_and_web_font_are_parent_brokered() {
+        struct CssBroker;
+        impl crate::network::NetworkBroker for CssBroker {
+            fn send(
+                &mut self,
+                request: NetworkRequest,
+            ) -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
+                let path = Url::parse(&request.url)
+                    .expect("fixture URL")
+                    .path()
+                    .to_string();
+                let (content_type, body) = match path.as_str() {
+                    "/" => (
+                        "text/html",
+                        br#"<link rel=stylesheet href=/base.css><style>@import '/inline.css';</style><button id=styled>Styled</button>"#
+                            .to_vec(),
+                    ),
+                    "/base.css" => (
+                        "text/css",
+                        br#"@import url('/import.css');@font-face{font-family:'Fixture Font';src:url('/font.ttf')}button{width:111px;font-family:'Fixture Font'}"#.to_vec(),
+                    ),
+                    "/import.css" => ("text/css", b"button{height:33px}".to_vec()),
+                    "/inline.css" => ("text/css", b"button{padding-left:7px}".to_vec()),
+                    "/font.ttf" => (
+                        "font/ttf",
+                        oryn_layout::DEFAULT_FONT_BYTES.to_vec(),
+                    ),
+                    _ => return Err(crate::network::NetworkError::Transport(path)),
+                };
+                Ok(crate::network::NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), content_type.into())],
+                    body,
+                })
+            }
+        }
+
+        let context = Browser::new().new_context_with_broker(
+            ContextOptions::default(),
+            SharedNetworkBroker::new(CssBroker),
+        );
+        let page = context.new_page();
+        page.goto("https://assets.example.test/")
+            .await
+            .expect("load brokered stylesheet fixture");
+        let observation = page.observe().await.expect("observe styled button");
+        let target = observation
+            .nodes
+            .iter()
+            .find(|node| node.name == "Styled")
+            .expect("styled button")
+            .semantic_ref;
+        let style = page.computed_style(target).await.expect("computed style");
+        assert_eq!(style.properties["width"], "111px");
+        assert_eq!(style.properties["height"], "33px");
+        assert_eq!(style.properties["padding-left"], "7px");
+        assert_eq!(style.properties["font-family"], "\"Fixture Font\"");
+        assert!(page.trace().await.expect("trace").iter().any(|event| {
+            matches!(
+                &event.kind,
+                TraceEventKind::FontLoaded { family, sha256, .. }
+                    if family == "Fixture Font" && sha256 == oryn_layout::DEFAULT_FONT_SHA256
+            )
+        }));
     }
 
     #[cfg(feature = "v8-host")]
@@ -4891,6 +6043,251 @@ mod tests {
         assert!(context.page_events().iter().any(|event| {
             matches!(event, PageLifecycleEvent::Closed { page_id } if *page_id == first.page_id())
         }));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn contract_v4_exposes_computed_style_and_relational_geometry() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://layout.example.test",
+            r#"<style>
+                .panel { width: 300px; padding: 10px; }
+                .panel button { display: block; width: 120px; height: 30px; margin: 4px; }
+              </style>
+              <div class=panel><button id=first>First</button><button id=second>Second</button></div>"#,
+        )
+        .await
+        .expect("load layout fixture");
+        let observation = page
+            .observe_with(ObservationOptions {
+                profile: ProjectionProfile::Full,
+                include_geometry: true,
+                viewport_only: false,
+                include_hidden: false,
+            })
+            .await
+            .expect("observe geometry");
+        assert_eq!(
+            observation.contract_version,
+            oryn_common::v4::CONTRACT_VERSION
+        );
+        let first = observation
+            .nodes
+            .iter()
+            .find(|node| node.semantic.name == "First")
+            .expect("first button");
+        let second = observation
+            .nodes
+            .iter()
+            .find(|node| node.semantic.name == "Second")
+            .expect("second button");
+        let first_rect = first
+            .geometry
+            .as_ref()
+            .unwrap()
+            .box_model
+            .as_ref()
+            .unwrap()
+            .border_box;
+        let second_rect = second
+            .geometry
+            .as_ref()
+            .unwrap()
+            .box_model
+            .as_ref()
+            .unwrap()
+            .border_box;
+        assert_eq!(first_rect.width, 120.0);
+        assert!(second_rect.y > first_rect.y);
+        let style = page
+            .computed_style(first.semantic.semantic_ref)
+            .await
+            .expect("computed style");
+        assert_eq!(style.properties["width"], "120px");
+        assert_eq!(
+            page.evaluate("getComputedStyle(document.querySelector('#first')).width")
+                .await
+                .expect("script computed style"),
+            "120px"
+        );
+        assert_eq!(
+            page.evaluate("document.querySelector('#first').getBoundingClientRect().width")
+                .await
+                .expect("script geometry"),
+            "120"
+        );
+        page.evaluate("document.styleSheets[0].insertRule('#first { width: 140px }');'updated'")
+            .await
+            .expect("mutate CSSOM");
+        assert_eq!(
+            page.evaluate("getComputedStyle(document.querySelector('#first')).width")
+                .await
+                .expect("updated computed style"),
+            "140px"
+        );
+        page.set_media(MediaState {
+            color_scheme: PreferredColorScheme::Dark,
+            reduced_motion: ReducedMotion::Reduce,
+        })
+        .await
+        .expect("set emulated media");
+        assert_eq!(
+            page.evaluate(
+                "String(matchMedia('(prefers-color-scheme: dark)').matches)+'|'+String(matchMedia('(prefers-reduced-motion: reduce)').matches)",
+            )
+            .await
+            .expect("evaluate media query"),
+            "true|true"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn viewport_scroll_and_table_geometry_are_truthful() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://layout.example.test",
+            "<style>#spacer{height:900px}button{display:block;width:100px;height:30px}</style><div id=spacer></div><button id=end>End</button><table id=data><tr><td>Cell</td></tr></table>",
+        )
+        .await
+        .expect("load scroll fixture");
+        page.set_viewport(ViewportState {
+            width: 320.0,
+            height: 200.0,
+            device_pixel_ratio: 1.0,
+        })
+        .await
+        .expect("set viewport");
+        let observation = page
+            .observe_with(ObservationOptions {
+                profile: ProjectionProfile::Full,
+                include_geometry: true,
+                viewport_only: false,
+                include_hidden: true,
+            })
+            .await
+            .expect("observe");
+        let end = observation
+            .nodes
+            .iter()
+            .find(|node| node.semantic.name == "End")
+            .expect("end button")
+            .semantic
+            .semantic_ref;
+        let table = observation
+            .nodes
+            .iter()
+            .find(|node| node.semantic.selector.as_deref() == Some("#data"))
+            .expect("table")
+            .semantic
+            .semantic_ref;
+        let scroll = page.scroll_into_view(end).await.expect("scroll into view");
+        assert!(scroll.y > 0.0);
+        assert!(matches!(
+            page.box_model(table).await,
+            Err(RuntimeError::UnsupportedGeometry(_))
+        ));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn viewport_filter_interactability_and_closed_shadow_are_truthful() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://layout.example.test",
+            r#"<style>
+                button { display:block; width:100px; height:30px }
+                #hidden { display:none }
+                #zero { width:0; height:0 }
+                #blocked { pointer-events:none }
+                #spacer { height:900px }
+              </style>
+              <button id=hidden>Hidden</button>
+              <button id=zero>Zero</button>
+              <button id=blocked>Blocked</button>
+              <div id=host></div><div id=spacer></div><button id=far>Far</button>
+              <script>document.querySelector('#host').attachShadow({mode:'closed'}).innerHTML='<button>Secret</button>';</script>"#,
+        )
+        .await
+        .expect("load interactability fixture");
+        page.set_viewport(ViewportState {
+            width: 320.0,
+            height: 180.0,
+            device_pixel_ratio: 1.0,
+        })
+        .await
+        .expect("set viewport");
+        let all = page
+            .observe_with(ObservationOptions {
+                profile: ProjectionProfile::Full,
+                include_geometry: true,
+                viewport_only: false,
+                include_hidden: true,
+            })
+            .await
+            .expect("observe all geometry");
+        assert!(all.nodes.iter().all(|node| node.semantic.name != "Secret"));
+        let find = |name: &str| {
+            all.nodes
+                .iter()
+                .find(|node| node.semantic.name == name)
+                .expect("fixture semantic node")
+        };
+        assert_eq!(
+            find("Hidden").geometry.as_ref().unwrap().availability,
+            oryn_common::v4::GeometryAvailability::Hidden
+        );
+        for name in ["Hidden", "Zero", "Blocked"] {
+            let result = page
+                .execute(NativeAction {
+                    target: find(name).semantic.semantic_ref,
+                    action: SemanticAction::Click,
+                    value: None,
+                })
+                .await;
+            assert!(matches!(result, Err(RuntimeError::NotInteractable(_))));
+        }
+        let visible = page
+            .observe_with(ObservationOptions {
+                profile: ProjectionProfile::Full,
+                include_geometry: true,
+                viewport_only: true,
+                include_hidden: false,
+            })
+            .await
+            .expect("observe viewport");
+        assert!(visible.nodes.iter().all(|node| node.semantic.name != "Far"));
+        let far = find("Far").semantic.semantic_ref;
+        let result = page
+            .execute_v4(NativeAction {
+                target: far,
+                action: SemanticAction::Click,
+                value: None,
+            })
+            .await
+            .expect("auto-scroll and click");
+        assert_eq!(result.contract_version, oryn_common::v4::CONTRACT_VERSION);
+        assert!(
+            page.observe_delta_v4(result.revision_before)
+                .await
+                .expect("v4 delta")
+                .scroll
+                .is_some()
+        );
+        assert!(
+            page.observe_with(ObservationOptions {
+                profile: ProjectionProfile::Full,
+                include_geometry: true,
+                viewport_only: true,
+                include_hidden: false,
+            })
+            .await
+            .expect("observe scrolled viewport")
+            .nodes
+            .iter()
+            .any(|node| node.semantic.name == "Far")
+        );
     }
 
     #[cfg(all(unix, feature = "in-process-probe"))]

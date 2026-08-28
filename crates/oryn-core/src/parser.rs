@@ -985,20 +985,32 @@ fn parse_dialog(_pair: Pair<Rule>) -> Result<DialogCmd, ParseError> {
         action: DialogAction::Dismiss,
     })
 }
-fn parse_viewport(_pair: Pair<Rule>) -> Result<ViewportSizeCmd, ParseError> {
-    Ok(ViewportSizeCmd {
-        width: 0.0,
-        height: 0.0,
-    })
+fn parse_viewport(pair: Pair<Rule>) -> Result<ViewportSizeCmd, ParseError> {
+    let mut numbers = pair
+        .into_inner()
+        .filter(|pair| pair.as_rule() == Rule::number)
+        .map(parse_number);
+    let missing = || ParseError::UnexpectedInput {
+        position: 0,
+        found: "viewport".into(),
+        hint: "viewport requires width and height".into(),
+    };
+    let width = numbers.next().transpose()?.ok_or_else(missing)?;
+    let height = numbers.next().transpose()?.ok_or_else(missing)?;
+    Ok(ViewportSizeCmd { width, height })
 }
 fn parse_device(_pair: Pair<Rule>) -> Result<DeviceCmd, ParseError> {
     Ok(DeviceCmd { name: None })
 }
-fn parse_media(_pair: Pair<Rule>) -> Result<MediaCmd, ParseError> {
-    Ok(MediaCmd {
-        feature: None,
-        value: None,
-    })
+fn parse_media(pair: Pair<Rule>) -> Result<MediaCmd, ParseError> {
+    let mut inner = pair.into_inner();
+    let feature = inner.next().map(|pair| pair.as_str().to_string());
+    let value = inner.next().map(|pair| {
+        pair.as_str()
+            .trim_matches(|character| matches!(character, '\'' | '"'))
+            .to_string()
+    });
+    Ok(MediaCmd { feature, value })
 }
 fn parse_trace(_pair: Pair<Rule>) -> Result<TraceCmd, ParseError> {
     Ok(TraceCmd {
@@ -1220,5 +1232,20 @@ mod comment_validation_tests {
         assert!(command.ctrl);
         assert!(command.shift);
         assert!(command.alt);
+    }
+
+    #[test]
+    fn viewport_and_media_values_are_not_discarded() {
+        let script =
+            parse("viewport 1280 720\nmedia color-scheme dark").expect("parse viewport and media");
+        let Some(Command::Viewport(viewport)) = &script.lines[0].command else {
+            panic!("expected viewport command")
+        };
+        assert_eq!((viewport.width, viewport.height), (1280.0, 720.0));
+        let Some(Command::Media(media)) = &script.lines[1].command else {
+            panic!("expected media command")
+        };
+        assert_eq!(media.feature.as_deref(), Some("color-scheme"));
+        assert_eq!(media.value.as_deref(), Some("dark"));
     }
 }

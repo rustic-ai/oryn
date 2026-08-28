@@ -63,25 +63,37 @@ jq -n \
   --arg entitlement_sha256 "$entitlement_sha256" \
   --arg policy_sha256 "$policy_sha256" \
   --arg source_tree_sha256 "$source_tree_sha256" \
+  --arg style_engine_version "stylo-declarations-0.20+oryn-cascade-v1" \
+  --arg box_engine_version "taffy-0.14" \
+  --arg inline_engine_version "parley-0.11.1" \
+  --arg embedded_font_sha256 "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5" \
   '{
     schema_version: 1,
     bundle_id: $bundle_id,
     team_id: $team_id,
     signing_cert_sha1: $signing_cert_sha1,
-    protocol_version: 3,
+    protocol_version: 4,
     v8_version: $v8_version,
     worker_build_sha256: $worker_build_sha256,
     worker_build_bytes: $worker_build_bytes,
     entitlement_sha256: $entitlement_sha256,
     policy_sha256: $policy_sha256,
     source_tree_sha256: $source_tree_sha256,
+    style_engine_version: $style_engine_version,
+    box_engine_version: $box_engine_version,
+    inline_engine_version: $inline_engine_version,
+    embedded_font_sha256: $embedded_font_sha256,
     limits: {
       v8_heap_bytes: 268435456,
       worker_rss_bytes: 536870912,
       ipc_frame_bytes: 25165824,
       command_wall_ms: 10000,
       navigation_wall_ms: 30000,
-      queue_capacity: 32
+      queue_capacity: 32,
+      max_layout_nodes: 100000,
+      max_font_bytes: 8388608,
+      max_page_font_bytes: 33554432,
+      max_viewport_css_px: 16384
     }
   }' > "$manifest"
 
@@ -176,7 +188,7 @@ if ! jq -e '
   .execution_mode == "sandboxed_worker" and
   .sandboxed == true and
   .sandbox_state == "app_sandbox" and
-  .worker_protocol_version == 3 and
+  .worker_protocol_version == 4 and
   .worker_bundle_id == "ai.rustic.oryn.page-worker" and
   .worker_team_id == "5HVA9VFF8K"
 ' <<<"$runtime_report" >/dev/null; then

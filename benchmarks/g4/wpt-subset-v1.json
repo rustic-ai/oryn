@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "locked": true,
+  "upstream": {
+    "project": "web-platform-tests/wpt",
+    "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+  },
+  "mode": "curated supported-scope behavior vectors; declared limitations are never counted as passes",
+  "subsets": [
+    {"category":"css_cascade","sources":["css/css-cascade/inheritance.html","css/css-cascade/specificity.html"],"native_tests":["runtime::tests::contract_v4_exposes_computed_style_and_relational_geometry"],"layout_tests":["tests::stylo_parses_and_filters_author_declarations"]},
+    {"category":"cssom","sources":["css/cssom/getComputedStyle-basic.html","css/cssom/CSSStyleSheet-insertRule.html"],"native_tests":["runtime::tests::contract_v4_exposes_computed_style_and_relational_geometry","runtime::tests::external_css_import_and_web_font_are_parent_brokered"]},
+    {"category":"css_flexbox","sources":["css/css-flexbox/flexbox-basic-block-horiz-001.html"],"layout_tests":["tests::taffy_places_flex_children_on_the_inline_axis"]},
+    {"category":"css_grid","sources":["css/css-grid/grid-model/grid-container-001.html"],"native_tests":["runtime::tests::contract_v4_exposes_computed_style_and_relational_geometry"],"layout_tests":["tests::taffy_places_grid_children_by_column_and_row"]},
+    {"category":"css_position","sources":["css/css-position/position-fixed-001.html"],"native_tests":["runtime::tests::viewport_scroll_and_table_geometry_are_truthful"],"layout_tests":["tests::position_transform_and_scroll_remain_relational"]},
+    {"category":"css_transforms","sources":["css/css-transforms/transform-translate-001.html"],"native_tests":["runtime::tests::contract_v4_exposes_computed_style_and_relational_geometry"],"layout_tests":["tests::position_transform_and_scroll_remain_relational"]},
+    {"category":"cssom_view","sources":["css/cssom-view/getBoundingClientRect.html","css/cssom-view/scrollIntoView.html"],"native_tests":["runtime::tests::contract_v4_exposes_computed_style_and_relational_geometry","runtime::tests::viewport_scroll_and_table_geometry_are_truthful"]},
+    {"category":"fonts","sources":["css/css-fonts/font-face-src-local.html","css/css-fonts/font-family-001.xht"],"native_tests":["runtime::tests::external_css_import_and_web_font_are_parent_brokered"],"layout_tests":["tests::embedded_font_matches_the_frozen_asset_contract","tests::registered_web_font_is_hash_checked_and_reported","tests::web_font_hash_and_quota_rejections_are_diagnostic"]}
+  ]
+}
