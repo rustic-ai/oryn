@@ -3731,18 +3731,7 @@ impl PageState {
     }
 
     fn execute(&mut self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
-        if action.target.page_id != self.page_id {
-            return Err(RuntimeError::WrongPage {
-                expected: self.page_id,
-                actual: action.target.page_id,
-            });
-        }
-        if action.target.document_generation != self.document_generation {
-            return Err(RuntimeError::WrongDocumentGeneration {
-                expected: self.document_generation,
-                actual: action.target.document_generation,
-            });
-        }
+        self.validate_target(action.target)?;
         if matches!(action.action, SemanticAction::Click | SemanticAction::Hover) {
             self.ensure_interactable(action.target)?;
         }
@@ -5274,6 +5263,41 @@ mod tests {
         .expect("click through page actor");
         let after = page.observe().await.expect("observe mutation");
         assert!(after.nodes.iter().any(|node| node.name == "Items: 1"));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn removed_dom_nodes_invalidate_semantic_references_before_layout_or_action() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/stale-node",
+            "<button id=target>Remove me</button>",
+        )
+        .await
+        .expect("load stale-reference fixture");
+        let reference = page
+            .observe()
+            .await
+            .expect("observe target")
+            .nodes
+            .into_iter()
+            .find(|node| node.name == "Remove me")
+            .expect("semantic target")
+            .semantic_ref;
+        page.evaluate("document.querySelector('#target').remove();'removed'")
+            .await
+            .expect("remove target");
+
+        let error = page
+            .execute(NativeAction {
+                target: reference,
+                action: SemanticAction::Click,
+                value: None,
+            })
+            .await
+            .expect_err("removed reference must be stale");
+
+        assert!(matches!(error, RuntimeError::StaleSemanticRef));
     }
 
     #[cfg(feature = "v8-host")]
