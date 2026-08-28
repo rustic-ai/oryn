@@ -2974,6 +2974,17 @@ impl PageState {
     }
 
     fn wait_for(&mut self, predicate: &WaitPredicate) -> Result<(), RuntimeError> {
+        #[cfg(feature = "v8-host")]
+        if matches!(
+            predicate,
+            WaitPredicate::SelectorVisible(_) | WaitPredicate::SelectorHidden(_)
+        ) {
+            // Visibility predicates must use the same stylesheet-aware layout
+            // state that gates actions. The semantic projection alone only
+            // knows structural/inline visibility and can otherwise report a
+            // class-hidden element as ready before its timer fires.
+            self.refresh_layout()?;
+        }
         if self.wait_satisfied(predicate) {
             return Ok(());
         }
@@ -2981,6 +2992,7 @@ impl PageState {
         if let Some(executable) = self.executable.as_mut() {
             executable.drain_tasks().map_err(map_host_error)?;
             self.document = Some(executable.document.clone());
+            self.refresh_layout()?;
         }
         self.wait_satisfied(predicate)
             .then_some(())
@@ -3002,6 +3014,19 @@ impl PageState {
             WaitPredicate::SelectorVisible(selector) => {
                 self.document.as_ref().is_some_and(|document| {
                     selector_nodes(document, selector).any(|id| {
+                        #[cfg(feature = "v8-host")]
+                        if let Some(geometry) = self
+                            .layout
+                            .as_ref()
+                            .and_then(|layout| layout.geometry.get(&pack_node_id(id)))
+                        {
+                            // Unsupported geometry is not the same as hidden:
+                            // table content, for example, can be visibly
+                            // present even though G4 intentionally exposes no
+                            // table box geometry.
+                            return geometry.availability
+                                != oryn_common::v4::GeometryAvailability::Hidden;
+                        }
                         project_element(
                             &document.dom,
                             id,
@@ -3020,6 +3045,15 @@ impl PageState {
                     let mut nodes = selector_nodes(document, selector).peekable();
                     nodes.peek().is_none()
                         || nodes.all(|id| {
+                            #[cfg(feature = "v8-host")]
+                            if let Some(geometry) = self
+                                .layout
+                                .as_ref()
+                                .and_then(|layout| layout.geometry.get(&pack_node_id(id)))
+                            {
+                                return geometry.availability
+                                    == oryn_common::v4::GeometryAvailability::Hidden;
+                            }
                             project_element(
                                 &document.dom,
                                 id,

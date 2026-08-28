@@ -865,7 +865,13 @@ impl NativeOilSession {
         let elements = observation
             .nodes
             .iter()
-            .map(|node| {
+            .filter_map(|node| {
+                // Geometry can be unavailable for an explicitly unsupported
+                // subtree (for example table layout) while unrelated controls
+                // on the same page remain actionable. Keep those nodes out of
+                // the geometry-aware resolver instead of making one bounded
+                // capability limitation poison every target on the page.
+                let rect = self.geometry.get(&node.semantic_ref).cloned()?;
                 let mut attributes = std::collections::HashMap::new();
                 if let Some(id) = node
                     .selector
@@ -875,7 +881,7 @@ impl NativeOilSession {
                     attributes.insert("id".into(), id.into());
                 }
                 attributes.insert("role".into(), node.role.clone());
-                Ok(Element {
+                Some(Element {
                     id: node.alias,
                     element_type: node.role.clone(),
                     role: Some(node.role.clone()),
@@ -894,17 +900,7 @@ impl NativeOilSession {
                     placeholder: None,
                     selector: node.selector.clone().unwrap_or_default(),
                     xpath: None,
-                    rect: self
-                        .geometry
-                        .get(&node.semantic_ref)
-                        .cloned()
-                        .ok_or_else(|| NativeOilError::TargetResolution {
-                            target: target.clone(),
-                            detail: format!(
-                                "geometry is unavailable for semantic alias {}",
-                                node.alias
-                            ),
-                        })?,
+                    rect,
                     attributes,
                     state: ElementState {
                         visible: true,
@@ -920,7 +916,7 @@ impl NativeOilSession {
                     children: Vec::new(),
                 })
             })
-            .collect::<Result<Vec<_>, NativeOilError>>()?;
+            .collect::<Vec<_>>();
         let context = ResolverContext::from_elements(observation.page.url.clone(), elements);
         let strategy = match action {
             SemanticAction::Type | SemanticAction::Clear | SemanticAction::Select => {
@@ -949,15 +945,26 @@ impl NativeOilSession {
                 .ok_or_else(|| NativeOilError::TargetNotFound(target.clone()))?,
             _ => return Err(NativeOilError::TargetNotFound(target.clone())),
         };
-        observation
+        if let Some(reference) = observation
             .nodes
             .iter()
             .find(|node| node.alias as usize == alias && node.actions.contains(&action))
             .map(|node| node.semantic_ref)
-            .ok_or_else(|| NativeOilError::TargetResolution {
+        {
+            return Ok(reference);
+        }
+
+        // The shared geometric resolver may prefer a non-actionable text node
+        // whose accessible text duplicates a control label (common in help
+        // copy such as `Click "Show Button"`). Preserve its spatial ranking
+        // when it selects an actionable node, but fall back to the semantic
+        // action filter instead of reporting the landmark as the target.
+        resolve_structural_target(observation, target, action).map_err(|_| {
+            NativeOilError::TargetResolution {
                 target: target.clone(),
                 detail: format!("resolver selected non-actionable alias {alias}"),
-            })
+            }
+        })
     }
 }
 
@@ -1216,6 +1223,93 @@ mod tests {
             panic!("expected observation")
         };
         assert!(observation.nodes.iter().any(|node| node.name == "Items: 1"));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn unsupported_table_geometry_does_not_poison_unrelated_target_resolution() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/table-and-nav",
+            "<nav><button>Dashboard</button></nav><table><tr><td><button>Row action</button></td></tr></table>",
+        )
+        .await
+        .expect("load mixed geometry document");
+        let mut session = NativeOilSession::new(page);
+
+        let outputs = session
+            .execute("click \"Dashboard\"")
+            .await
+            .expect("resolve control outside unsupported table subtree");
+
+        assert!(matches!(outputs[0], NativeOilOutput::Action { .. }));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn duplicate_help_text_falls_back_to_the_actionable_control() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/duplicate-label",
+            "<p>Click Delayed Action Button when it appears.</p><button>Delayed Action Button</button>",
+        )
+        .await
+        .expect("load duplicate label document");
+        let mut session = NativeOilSession::new(page);
+
+        let outputs = session
+            .execute("click \"Delayed Action Button\"")
+            .await
+            .expect("resolve actionable duplicate");
+
+        assert!(matches!(outputs[0], NativeOilOutput::Action { .. }));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn wait_visible_uses_stylesheet_layout_and_advances_timer_tasks() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/delayed-visibility",
+            r#"<style>
+                .delayed { visibility: hidden; }
+                .delayed.show { visibility: visible; }
+            </style>
+            <button id="show" onclick="setTimeout(() => document.getElementById('delayed').classList.add('show'), 100)">Show</button>
+            <button id="delayed" class="delayed">Delayed Action Button</button>"#,
+        )
+        .await
+        .expect("load delayed visibility document");
+        let mut session = NativeOilSession::new(page);
+
+        let outputs = session
+            .execute(
+                "click css(#show)\nwait visible css(#delayed.show)\nclick \"Delayed Action Button\"",
+            )
+            .await
+            .expect("wait for computed visibility and click delayed control");
+
+        assert!(matches!(outputs[2], NativeOilOutput::Action { .. }));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn wait_visible_distinguishes_unsupported_geometry_from_hidden_content() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/visible-table",
+            "<table class=results><tr><td>Visible result</td></tr></table>",
+        )
+        .await
+        .expect("load visible table");
+        let mut session = NativeOilSession::new(page);
+
+        let outputs = session
+            .execute("wait visible css(.results)")
+            .await
+            .expect("visible table does not require table box geometry");
+
+        assert!(matches!(outputs[0], NativeOilOutput::Text { ref value } if value == "visible"));
     }
 
     #[tokio::test(flavor = "current_thread")]
