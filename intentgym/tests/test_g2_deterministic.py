@@ -1,6 +1,8 @@
+from intentgym.core.oryn import OrynObservation
 from scripts.run_g2_deterministic import (
     _first_divergence,
     _is_supported_native_runtime,
+    _observation_text,
 )
 from scripts.serve_g2_miniwob import inject_seed
 
@@ -42,3 +44,17 @@ def test_secure_native_runtime_accepts_v3_and_v4_protocols():
     assert _is_supported_native_runtime({**runtime, "worker_protocol_version": 4})
     assert not _is_supported_native_runtime({**runtime, "worker_protocol_version": 2})
     assert not _is_supported_native_runtime({**runtime, "sandboxed": False})
+
+
+def test_observation_text_exposes_dynamic_datepicker_heading():
+    observation = OrynObservation(
+        raw="",
+        url="https://example.test",
+        title="Date",
+        elements=[
+            {"role": "button", "text": "Submit"},
+            {"role": "body", "text": "PrevNextDecember&#xa0;2016SuMoTuWeThFrSa"},
+        ],
+    )
+
+    assert "December\N{NO-BREAK SPACE}2016" in _observation_text(observation)

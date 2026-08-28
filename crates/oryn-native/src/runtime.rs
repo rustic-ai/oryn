@@ -685,6 +685,10 @@ enum PageCommand {
         action: NativeAction,
         reply: oneshot::Sender<Result<ActionResult, RuntimeError>>,
     },
+    ExecuteForced {
+        action: NativeAction,
+        reply: oneshot::Sender<Result<ActionResult, RuntimeError>>,
+    },
     Close,
 }
 
@@ -1249,6 +1253,9 @@ impl BrowserContext {
                     }
                     PageCommand::Execute { action, reply } => {
                         let _ = reply.send(state.execute(action));
+                    }
+                    PageCommand::ExecuteForced { action, reply } => {
+                        let _ = reply.send(state.execute_forced(action));
                     }
                     PageCommand::Close => break,
                 }
@@ -1851,6 +1858,7 @@ impl PageHandle {
                 target: action.target,
                 action: action.action,
                 value: action.value.clone(),
+                force: false,
             },
         }) {
             return match response? {
@@ -1898,6 +1906,32 @@ impl PageHandle {
             }
         }
         Ok(result)
+    }
+
+    pub(crate) async fn execute_forced(
+        &self,
+        action: NativeAction,
+    ) -> Result<ActionResult, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Execute {
+            action: crate::worker::NativeActionRequest {
+                target: action.target,
+                action: action.action,
+                value: action.value.clone(),
+                force: true,
+            },
+        }) {
+            return match response? {
+                crate::worker::WorkerResponse::Action { result } => Ok(result),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::ExecuteForced { action, reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
     }
 
     /// Execute an action and return the geometry-aware contract-v4 result.
@@ -3731,8 +3765,22 @@ impl PageState {
     }
 
     fn execute(&mut self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
+        self.execute_with_interactability(action, true)
+    }
+
+    fn execute_forced(&mut self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
+        self.execute_with_interactability(action, false)
+    }
+
+    fn execute_with_interactability(
+        &mut self,
+        action: NativeAction,
+        check_interactability: bool,
+    ) -> Result<ActionResult, RuntimeError> {
         self.validate_target(action.target)?;
-        if matches!(action.action, SemanticAction::Click | SemanticAction::Hover) {
+        if check_interactability
+            && matches!(action.action, SemanticAction::Click | SemanticAction::Hover)
+        {
             self.ensure_interactable(action.target)?;
         }
         #[cfg(feature = "v8-host")]
@@ -4074,10 +4122,15 @@ impl PageState {
             );
         }
         if let Some(location) = pending_navigation {
-            let navigation = self.navigate(location.clone(), HistoryUpdate::Push)?;
-            result.revision_after = navigation.revision;
-            result.delta = None;
-            result.effects.push(Effect::Navigation { url: location });
+            if same_document_url(&self.url, &location) {
+                self.url = location.clone();
+                result.effects.push(Effect::Navigation { url: location });
+            } else {
+                let navigation = self.navigate(location.clone(), HistoryUpdate::Push)?;
+                result.revision_after = navigation.revision;
+                result.delta = None;
+                result.effects.push(Effect::Navigation { url: location });
+            }
         }
         Ok(result)
     }
@@ -5617,6 +5670,51 @@ mod tests {
                 .await
                 .expect("read denial result"),
             serde_json::json!("denied")
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn fragment_link_preserves_document_and_script_effects() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/results",
+            r##"<a href="#" onclick="document.querySelector('#status').textContent='reward:1'">Result</a><output id=status>reward:-</output>"##,
+        )
+        .await
+        .expect("load fragment link fixture");
+        let before = page.observe().await.expect("observe fixture");
+        let target = before
+            .nodes
+            .iter()
+            .find(|node| node.name == "Result")
+            .expect("result link")
+            .semantic_ref;
+
+        let result = page
+            .execute(NativeAction {
+                target,
+                action: SemanticAction::Click,
+                value: None,
+            })
+            .await
+            .expect("click fragment link");
+        let after = page.observe().await.expect("observe retained document");
+
+        assert!(
+            result.delta.is_some(),
+            "fragment navigation must not reload"
+        );
+        assert_eq!(
+            before.page.document_generation,
+            after.page.document_generation
+        );
+        assert!(after.page.url.ends_with('#'));
+        assert_eq!(
+            page.extract(ContentKind::Text, Some("#status".into()))
+                .await
+                .expect("extract retained reward"),
+            serde_json::json!("reward:1")
         );
     }
 

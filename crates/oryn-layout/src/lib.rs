@@ -150,6 +150,7 @@ struct FlowBox {
 struct TextEngine {
     fonts: FontContext,
     layout: LayoutContext<[u8; 4]>,
+    available_families: BTreeSet<String>,
 }
 
 #[derive(Debug)]
@@ -170,6 +171,7 @@ type PreparedFonts = (Vec<(String, Vec<u8>)>, Vec<LoadedFont>, Vec<String>);
 
 impl TextEngine {
     fn new(web_fonts: &[(String, Vec<u8>)]) -> Self {
+        let mut available_families = BTreeSet::from([DEFAULT_FONT_FAMILY.to_ascii_lowercase()]);
         let mut collection = fontique::Collection::new(fontique::CollectionOptions {
             shared: false,
             system_fonts: false,
@@ -182,6 +184,7 @@ impl TextEngine {
             }),
         );
         for (family, bytes) in web_fonts {
+            available_families.insert(family.to_ascii_lowercase());
             collection.register_fonts(
                 fontique::Blob::new(Arc::new(bytes.clone())),
                 Some(fontique::FontInfoOverride {
@@ -196,6 +199,7 @@ impl TextEngine {
                 source_cache: fontique::SourceCache::default(),
             },
             layout: LayoutContext::new(),
+            available_families,
         }
     }
 
@@ -209,12 +213,24 @@ impl TextEngine {
         }
         let mut builder = self.layout.ranged_builder(&mut self.fonts, text, 1.0, true);
         builder.push_default(StyleProperty::FontSize(font_size as f32));
-        let family = font_family
+        let requested_family = font_family
             .split(',')
             .next()
             .unwrap_or(DEFAULT_FONT_FAMILY)
             .trim()
             .trim_matches(['\'', '"']);
+        // System fonts are intentionally disabled so layout stays reproducible.
+        // CSS commonly requests Arial or another host font, however; shape those
+        // runs with the embedded deterministic fallback instead of returning
+        // zero-width glyph runs.
+        let family = if self
+            .available_families
+            .contains(&requested_family.to_ascii_lowercase())
+        {
+            requested_family
+        } else {
+            DEFAULT_FONT_FAMILY
+        };
         builder.push_default(StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(
             family.to_string(),
         ))));
@@ -855,11 +871,14 @@ fn layout_node(
         font_size,
         input.viewport,
     );
-    let intrinsic_text = if node.text.is_empty() && is_inline(style) {
-        descendant_text(node, by_id)
-    } else {
-        node.text.clone()
-    };
+    let intrinsic_text =
+        if node.text.is_empty() && matches!(node.tag.as_str(), "input" | "button" | "option") {
+            node.attributes.get("value").cloned().unwrap_or_default()
+        } else if node.text.is_empty() && is_inline(style) {
+            descendant_text(node, by_id)
+        } else {
+            node.text.clone()
+        };
     let mut content_width = specified_width.unwrap_or_else(|| {
         if is_inline(style) {
             text_engine
@@ -1512,6 +1531,48 @@ mod tests {
         assert!(second.y > first.y);
         assert!(output.geometry[&2].client_rects[0].width > 0.0);
         assert_eq!(output.computed_styles[&2]["height"], "30px");
+    }
+
+    #[test]
+    fn unavailable_system_font_uses_embedded_fallback() {
+        let mut input_node = node(2, Some(1), "input", "");
+        input_node
+            .attributes
+            .insert("value".into(), "Search".into());
+        let mut root = node(1, None, "div", "");
+        root.children = vec![2, 3];
+        let output = compute(
+            &LayoutInput {
+                nodes: vec![root, input_node, node(3, Some(1), "span", "Result")],
+                stylesheets: vec!["div { font-family: Arial }".into()],
+                viewport: ViewportState::default(),
+                scroll: ScrollState::default(),
+                color_scheme: ColorScheme::Light,
+                reduced_motion: false,
+                web_fonts: Vec::new(),
+            },
+            &LayoutLimits::default(),
+        )
+        .expect("layout");
+
+        assert!(
+            output.geometry[&2]
+                .box_model
+                .as_ref()
+                .unwrap()
+                .border_box
+                .width
+                > 0.0
+        );
+        assert!(
+            output.geometry[&3]
+                .box_model
+                .as_ref()
+                .unwrap()
+                .border_box
+                .width
+                > 0.0
+        );
     }
 
     #[test]

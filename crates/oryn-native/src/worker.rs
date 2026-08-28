@@ -177,6 +177,8 @@ pub struct NativeActionRequest {
     pub target: SemanticRef,
     pub action: oryn_common::v3::SemanticAction,
     pub value: Option<String>,
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -576,18 +578,22 @@ async fn dispatch(
             Ok(delta) => WorkerResponse::Delta { delta },
             Err(value) => error(value),
         },
-        WorkerRequest::Execute { action } => match session
-            .page
-            .execute(NativeAction {
+        WorkerRequest::Execute { action } => {
+            let native_action = NativeAction {
                 target: action.target,
                 action: action.action,
                 value: action.value,
-            })
-            .await
-        {
-            Ok(result) => WorkerResponse::Action { result },
-            Err(value) => error(value),
-        },
+            };
+            let result = if action.force {
+                session.page.execute_forced(native_action).await
+            } else {
+                session.page.execute(native_action).await
+            };
+            match result {
+                Ok(result) => WorkerResponse::Action { result },
+                Err(value) => error(value),
+            }
+        }
         WorkerRequest::Oil { input } => match session.oil.execute(&input).await {
             Ok(outputs) => WorkerResponse::Oil { outputs },
             Err(NativeOilError::Runtime(value)) => error(value),

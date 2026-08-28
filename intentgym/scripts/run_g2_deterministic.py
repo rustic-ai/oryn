@@ -270,6 +270,23 @@ def _quoted(command: str, target: str, value: str | None = None) -> str:
     return result if value is None else f"{result} {json.dumps(value)}"
 
 
+def _observation_text(observation: OrynObservation) -> str:
+    """Return the semantic document text exposed by an Oryn observation."""
+    body = next(
+        (
+            item.get("text")
+            for item in observation.elements
+            if _role_matches(item, "body") and item.get("text")
+        ),
+        None,
+    )
+    if body:
+        return html.unescape(str(body))
+    return html.unescape(
+        " ".join(str(item["text"]) for item in observation.elements if item.get("text"))
+    )
+
+
 class MiniWoBOilOracle:
     """Deterministic controller limited to observations, instructions, and OIL."""
 
@@ -419,9 +436,7 @@ class MiniWoBOilOracle:
             month, day, year = (int(item) for item in date.groups())
             datebox = _element_by(self.observation, action="focus", role="textbox")
             self.execute(f"focus {datebox['id']}", {"alias": datebox["id"]})
-            calendar_text = html.unescape(
-                str(_json_value(self.oryn.execute("text").raw))
-            )
+            calendar_text = _observation_text(self.observation)
             calendar = re.search(
                 rf"({'|'.join(MONTHS)})[^0-9]*(20\d{{2}})", calendar_text
             )
@@ -431,16 +446,12 @@ class MiniWoBOilOracle:
             wanted = year * 12 + month - 1
             direction = "Next" if wanted > current else "Prev"
             for _ in range(abs(wanted - current)):
-                self.execute(_quoted("click", direction), {"name": direction})
-            day_link = _element_by(
-                self.observation,
-                action="click",
-                role="link",
-                name=str(day),
-            )
+                self.execute(
+                    f"{_quoted('click', direction)} --force", {"name": direction}
+                )
             self.execute(
-                f"click {day_link['id']}",
-                {"alias": day_link["id"], "name": str(day)},
+                f"{_quoted('click', str(day))} --force",
+                {"name": str(day)},
             )
             # The pinned jQuery UI version leaves its popup above the task's
             # submit button after programmatic activation. The selected value is

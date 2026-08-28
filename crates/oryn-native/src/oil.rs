@@ -456,8 +456,13 @@ impl NativeOilSession {
                 Ok(NativeOilOutput::Box { box_model })
             }
             Command::Click(command) => {
-                self.run_action(command.target, SemanticAction::Click, None)
-                    .await
+                self.run_action_with_force(
+                    command.target,
+                    SemanticAction::Click,
+                    None,
+                    command.force,
+                )
+                .await
             }
             Command::Type(command) => {
                 self.run_action(command.target, SemanticAction::Type, Some(command.text))
@@ -769,6 +774,17 @@ impl NativeOilSession {
         action: SemanticAction,
         value: Option<String>,
     ) -> Result<NativeOilOutput, NativeOilError> {
+        self.run_action_with_force(target, action, value, false)
+            .await
+    }
+
+    async fn run_action_with_force(
+        &mut self,
+        target: Target,
+        action: SemanticAction,
+        value: Option<String>,
+        force: bool,
+    ) -> Result<NativeOilOutput, NativeOilError> {
         // Compact observations intentionally omit non-actionable landmarks. A
         // relational target (for example `"+" near "Wireless Mouse"`) needs
         // those landmarks, so resolve it against a fresh full projection.
@@ -784,19 +800,23 @@ impl NativeOilSession {
                 .await?;
             self.cache_v4_observation(&observation);
         }
-        let semantic_ref = if let TargetAtomic::Selector { value, .. } = &target.atomic {
+        let semantic_ref = if force {
+            self.resolve_any_target(&target).await?
+        } else if let TargetAtomic::Selector { value, .. } = &target.atomic {
             self.page.resolve_selector(value, action).await?
         } else {
             self.resolve_target(&target, action)?
         };
-        let result = self
-            .page
-            .execute(NativeAction {
-                target: semantic_ref,
-                action,
-                value,
-            })
-            .await?;
+        let native_action = NativeAction {
+            target: semantic_ref,
+            action,
+            value,
+        };
+        let result = if force {
+            self.page.execute_forced(native_action).await?
+        } else {
+            self.page.execute(native_action).await?
+        };
         self.last_observation = Some(self.page.observe().await?);
         Ok(NativeOilOutput::Action { result })
     }
@@ -831,17 +851,27 @@ impl NativeOilSession {
                 include_hidden: true,
             })
             .await?;
-        let found = observation.nodes.iter().find(|node| match &target.atomic {
-            TargetAtomic::Id(alias) => node.semantic.alias as usize == *alias,
-            TargetAtomic::Text(text) => node
-                .semantic
-                .name
-                .to_ascii_lowercase()
-                .contains(&text.to_ascii_lowercase()),
-            TargetAtomic::Role(role) => node.semantic.role.eq_ignore_ascii_case(role),
-            TargetAtomic::Selector { value, .. } => {
-                node.semantic.selector.as_deref() == Some(value.as_str())
+        let found = observation
+            .nodes
+            .iter()
+            .filter(|node| match &target.atomic {
+                TargetAtomic::Id(alias) => node.semantic.alias as usize == *alias,
+                TargetAtomic::Text(text) => node
+                    .semantic
+                    .name
+                    .to_ascii_lowercase()
+                    .contains(&text.to_ascii_lowercase()),
+                TargetAtomic::Role(role) => node.semantic.role.eq_ignore_ascii_case(role),
+                TargetAtomic::Selector { value, .. } => {
+                    node.semantic.selector.as_deref() == Some(value.as_str())
+                }
+            });
+        let found = found.min_by_key(|node| match &target.atomic {
+            TargetAtomic::Text(text) => {
+                let exact = node.semantic.name.eq_ignore_ascii_case(text);
+                (!exact, node.semantic.document_order)
             }
+            _ => (false, node.semantic.document_order),
         });
         let reference = found
             .map(|node| node.semantic.semantic_ref)
@@ -859,6 +889,19 @@ impl NativeOilSession {
             .last_observation
             .as_ref()
             .ok_or(NativeOilError::NoObservation)?;
+        if target.relation.is_none()
+            && let TargetAtomic::Text(text) = &target.atomic
+            && let Some(exact) = observation
+                .nodes
+                .iter()
+                .filter(|node| {
+                    node.actions.contains(&action)
+                        && node.name.trim().eq_ignore_ascii_case(text.trim())
+                })
+                .min_by_key(|node| node.document_order)
+        {
+            return Ok(exact.semantic_ref);
+        }
         if self.geometry.is_empty() {
             return resolve_structural_target(observation, target, action);
         }
@@ -1267,6 +1310,33 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn exact_numeric_link_beats_aggregate_pagination_text() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/pages",
+            r#"<ul onclick="if(event.target===this)document.querySelector('#status').textContent='container'">First123Last<li><a onclick="document.querySelector('#status').textContent='page-3'">3</a></li></ul><output id=status>waiting</output>"#,
+        )
+        .await
+        .expect("load pagination document");
+        let mut session = NativeOilSession::new(page);
+
+        session
+            .execute("click \"3\"")
+            .await
+            .expect("click exact page");
+        let output = session
+            .execute("text --selector \"#status\"")
+            .await
+            .expect("extract selected page");
+
+        assert!(matches!(
+            &output[0],
+            NativeOilOutput::Structured { value } if value == "page-3"
+        ));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn wait_visible_uses_stylesheet_layout_and_advances_timer_tasks() {
         let page = Browser::new().new_context().new_page();
         page.load_html(
@@ -1310,6 +1380,33 @@ mod tests {
             .expect("visible table does not require table box geometry");
 
         assert!(matches!(outputs[0], NativeOilOutput::Text { ref value } if value == "visible"));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn force_click_explicitly_bypasses_hidden_geometry() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/forced",
+            r#"<button style="display:none" onclick="document.querySelector('#status').textContent='clicked'">Hidden action</button><output id=status>waiting</output>"#,
+        )
+        .await
+        .expect("load hidden action document");
+        let mut session = NativeOilSession::new(page);
+
+        session
+            .execute("click \"Hidden action\" --force")
+            .await
+            .expect("force click hidden semantic target");
+        let output = session
+            .execute("text --selector \"#status\"")
+            .await
+            .expect("extract forced action result");
+
+        assert!(matches!(
+            &output[0],
+            NativeOilOutput::Structured { value } if value == "clicked"
+        ));
     }
 
     #[tokio::test(flavor = "current_thread")]
