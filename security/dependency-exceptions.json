@@ -31,6 +31,16 @@
       "risk": "Cargo reports no RustSec vulnerability. Native Oryn secret handles use operating-system randomness through getrandom directly.",
       "resolution": "Advance the frozen compatibility dependency only for a security-compatible upstream release that removes the yanked version.",
       "review_by": "2026-09-28"
+    },
+    {
+      "package": "ttf-parser",
+      "version": "0.25.1",
+      "advisory": "RUSTSEC-2026-0192",
+      "classification": "unmaintained",
+      "scope": "transitive dependency of optional oryn-render through fontdue; it parses only Oryn's checksum-pinned embedded Noto Sans asset",
+      "risk": "No vulnerability is reported. Page-supplied font bytes are not passed to fontdue or ttf-parser, and the package is absent from the native core and default parent dependency graphs.",
+      "resolution": "Replace fontdue with a maintained skrifa-based raster path or a maintained upstream rasterizer before the review deadline.",
+      "review_by": "2026-09-28"
     }
   ]
 }
