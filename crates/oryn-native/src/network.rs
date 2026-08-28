@@ -86,6 +86,8 @@ pub enum NetworkError {
     Transport(String),
     #[error("response exceeded the configured {limit}-byte limit")]
     ResponseTooLarge { limit: usize },
+    #[error("deterministic network replay failed: {0}")]
+    Replay(String),
 }
 
 pub struct PolicyBroker<B> {

@@ -13,6 +13,7 @@ members = [
     "crates/oryn-native",
     "crates/oryn-layout",
     "crates/oryn-webidl",
+    "crates/oryn-domain",
 ]
 
 [profile.release]

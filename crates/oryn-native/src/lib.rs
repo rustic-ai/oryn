@@ -13,10 +13,12 @@ pub mod download;
 pub mod event_loop;
 #[cfg(feature = "v8-host")]
 pub mod executable;
+pub mod execution;
 pub mod host;
 pub mod html;
 pub mod network;
 pub mod oil;
+pub mod replay;
 pub mod runtime;
 pub mod security;
 pub mod semantic;
@@ -27,10 +29,23 @@ pub mod worker;
 pub mod worker_client;
 
 pub use download::{DownloadDescriptor, DownloadId};
+pub use execution::{
+    CapabilityId, CapabilityLedger, ConsequenceLevel, DomainDecision, DomainDescriptor,
+    DomainReasonCode, DomainSelectionError, ExecutionDomainAdapter, ExecutionDomainPolicy,
+    ExecutionRequirements, FormValueState, HandoffBundle, HandoffLoss, HandoffOptions,
+    HandoffReceipt, OriginStorageState, select_execution_domain,
+};
 pub use oryn_common::v3::{PageDescriptor, PageId, PageLifecycleEvent, PagePredicate, PageStatus};
+pub use replay::{
+    CheckpointPage, CheckpointPayload, CheckpointRestore, ContextCheckpoint, DeterminismConfig,
+    FailureArtifact, FailureArtifactPayload, IntentTraceRecord, NetworkArchive,
+    NetworkReplayController, NondeterministicRegion, RecordedExchange, ReplayBranch,
+    ReplayDivergence, ReplayDivergenceKind, ReplayRun, RestoredPage, TRACE_ARCHIVE_VERSION,
+    TaskTraceArchive,
+};
 pub use runtime::{
     Browser, BrowserConfig, BrowserContext, ContentKind, ContextOptions, LifecycleState,
-    NavigationResult, PageHandle, ScrollRequest, WaitPredicate,
+    NativeAction, NavigationResult, PageHandle, RuntimeError, ScrollRequest, WaitPredicate,
 };
 pub use security::{
     ActionPolicy, ConfirmationToken, ConsequentialAction, NetworkPolicy, PolicyDecision,
@@ -71,6 +86,11 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
         "oil".into(),
         "semantic_v3_compat".into(),
         "semantic_v4".into(),
+        "execution_domain_handoff".into(),
+        "trace_recording".into(),
+        "network_record_replay".into(),
+        "sealed_context_checkpoint".into(),
+        "replay_branching".into(),
     ];
     #[cfg(feature = "v8-host")]
     let capabilities = {

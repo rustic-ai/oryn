@@ -143,7 +143,9 @@ impl WorkerClient {
         )
         .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
         let policy = context.network_policy.clone();
-        let parent_network = SharedNetworkBroker::new(PolicyBroker::new(policy, transport));
+        let replay = context_owner.network_replay_controller();
+        let parent_network =
+            SharedNetworkBroker::new(PolicyBroker::new(policy, replay.wrap(transport)));
         let broker_network = parent_network.clone();
         let frame_limit = config.max_ipc_frame_bytes;
         std::thread::Builder::new()

@@ -261,6 +261,12 @@ impl ExecutableDocument {
         };
         host.execute(DOM_BOOTSTRAP)?;
         host.set_module_sources(resources);
+        if let Some(determinism) = resources.get("oryn:determinism") {
+            let determinism: crate::replay::DeterminismConfig =
+                serde_json::from_str(determinism)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+            host.execute(&determinism_bootstrap(&determinism))?;
+        }
         host.execute(&format!("__oryn_install({initial})"))?;
         if let Some(base_url) = &base_url {
             host.execute(&format!(
@@ -610,6 +616,26 @@ impl ExecutableDocument {
         self.document.document = document;
         Ok(())
     }
+}
+
+fn determinism_bootstrap(config: &crate::replay::DeterminismConfig) -> String {
+    format!(
+        r#"(()=>{{
+const __oryn_fixed_time={time};
+let __oryn_state=BigInt({seed})||1n;
+const __oryn_next=()=>{{__oryn_state^=__oryn_state<<13n;__oryn_state^=__oryn_state>>7n;__oryn_state^=__oryn_state<<17n;__oryn_state=BigInt.asUintN(64,__oryn_state);return Number(__oryn_state>>11n)/9007199254740992;}};
+Math.random=__oryn_next;
+const __oryn_Date=Date;
+class OrynReplayDate extends __oryn_Date{{constructor(...args){{super(...(args.length?args:[__oryn_fixed_time]));}}static now(){{return __oryn_fixed_time;}}}}
+globalThis.Date=OrynReplayDate;
+if(globalThis.crypto){{
+  globalThis.crypto.getRandomValues=(array)=>{{if(!ArrayBuffer.isView(array)||array instanceof DataView)throw new TypeError('expected integer typed array');const bytes=new Uint8Array(array.buffer,array.byteOffset,array.byteLength);for(let i=0;i<bytes.length;i++)bytes[i]=Math.floor(__oryn_next()*256);return array;}};
+  globalThis.crypto.randomUUID=function(){{const bytes=this.getRandomValues(new Uint8Array(16));bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;const hex=[...bytes].map(value=>value.toString(16).padStart(2,'0')).join('');return hex.slice(0,8)+'-'+hex.slice(8,12)+'-'+hex.slice(12,16)+'-'+hex.slice(16,20)+'-'+hex.slice(20);}};
+}}
+}})();"#,
+        time = config.unix_time_ms,
+        seed = config.random_seed,
+    )
 }
 
 fn drain_host(host: &mut RawV8Host) -> Result<(), HostError> {

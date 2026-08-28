@@ -38,12 +38,19 @@ use crate::semantic::{
 use crate::trace::{TraceEvent, TraceEventKind, TraceLog};
 use crate::{
     download::{DownloadDescriptor, DownloadId, DownloadStore},
+    execution::{
+        FormValueState, HandoffBundle, HandoffLoss, HandoffOptions, OriginStorageState,
+        SensitiveCookieHeader,
+    },
     network::{NetworkRequest, PolicyBroker, RustlsTransport, SharedNetworkBroker},
     security::{
         ActionPolicy, ConfirmationToken, ConsequentialAction, NetworkPolicy, PolicyDecision,
         PolicyEngine, PolicyRequest, SecretError, SecretHandle, SecretStore, SecurityAuditRecord,
     },
-    storage::{PersistentProfile, SharedContextStore, StorageLimits},
+    storage::{
+        PersistentProfile, SharedContextStore, StorageArea, StorageLimits, StorageRequest,
+        StorageResponse, StorageScope,
+    },
 };
 
 static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -73,6 +80,9 @@ struct BrowserContextInner {
     policy: Arc<PolicyEngine>,
     secrets: Arc<SecretStore>,
     downloads: Arc<DownloadStore>,
+    network_replay: crate::replay::NetworkReplayController,
+    intent_trace: Mutex<Vec<crate::replay::IntentTraceRecord>>,
+    domain_decisions: Mutex<Vec<crate::execution::DomainDecision>>,
     #[cfg(unix)]
     context_events: Mutex<Vec<ContextEventRecord>>,
     #[cfg(unix)]
@@ -516,6 +526,10 @@ pub struct ContextOptions {
     pub color_scheme: PreferredColorScheme,
     #[serde(default)]
     pub reduced_motion: ReducedMotion,
+    /// Optional deterministic clock/random inputs used only for captured
+    /// replay and evaluation. Live contexts leave this unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub determinism: Option<crate::replay::DeterminismConfig>,
 }
 
 const fn default_allow_popups() -> bool {
@@ -532,6 +546,7 @@ impl Default for ContextOptions {
             viewport: ViewportState::default(),
             color_scheme: PreferredColorScheme::Light,
             reduced_motion: ReducedMotion::NoPreference,
+            determinism: None,
         }
     }
 }
@@ -550,6 +565,7 @@ impl ContextOptions {
             viewport: ViewportState::default(),
             color_scheme: PreferredColorScheme::Light,
             reduced_motion: ReducedMotion::NoPreference,
+            determinism: None,
         }
     }
 
@@ -560,6 +576,11 @@ impl ContextOptions {
 
     pub fn with_viewport(mut self, viewport: ViewportState) -> Self {
         self.viewport = viewport;
+        self
+    }
+
+    pub fn with_determinism(mut self, determinism: crate::replay::DeterminismConfig) -> Self {
+        self.determinism = Some(determinism);
         self
     }
 }
@@ -737,7 +758,301 @@ impl Browser {
 
     pub fn new_context_with_options(&self, options: ContextOptions) -> BrowserContext {
         let store = SharedContextStore::memory(self.config.storage_limits);
-        self.new_context_with_store(options, store, None)
+        self.new_context_with_store(
+            options,
+            store,
+            None,
+            crate::replay::NetworkReplayController::live(),
+        )
+    }
+
+    pub fn new_recording_context(
+        &self,
+        options: ContextOptions,
+        capture_response_bodies: bool,
+    ) -> BrowserContext {
+        let store = SharedContextStore::memory(self.config.storage_limits);
+        self.new_context_with_store(
+            options,
+            store,
+            None,
+            crate::replay::NetworkReplayController::recording(capture_response_bodies),
+        )
+    }
+
+    pub fn new_replay_context(
+        &self,
+        options: ContextOptions,
+        archive: crate::replay::NetworkArchive,
+    ) -> Result<BrowserContext, RuntimeError> {
+        let replay = crate::replay::NetworkReplayController::replay(archive)
+            .map_err(|error| RuntimeError::Replay(error.to_string()))?;
+        let store = SharedContextStore::memory(self.config.storage_limits);
+        Ok(self.new_context_with_store(options, store, None, replay))
+    }
+
+    /// Restore a logical browser context from a sealed checkpoint. This is a
+    /// reload/replay boundary: destination pages receive new identities and
+    /// revisions; live V8 heap state is never claimed to survive.
+    pub async fn restore_checkpoint(
+        &self,
+        mut options: ContextOptions,
+        checkpoint: &crate::replay::ContextCheckpoint,
+    ) -> Result<(BrowserContext, crate::replay::CheckpointRestore), RuntimeError> {
+        checkpoint
+            .verify()
+            .map_err(|error| RuntimeError::Replay(error.to_string()))?;
+        options.determinism = checkpoint.payload.determinism.clone();
+        let context = self.new_replay_context(options, checkpoint.payload.network.clone())?;
+        let mut page_ids = BTreeMap::new();
+        let mut restored = Vec::new();
+        let mut active_page_id = None;
+        for source in &checkpoint.payload.pages {
+            let destination_page_id = PageId(NEXT_PAGE_ID.fetch_add(1, Ordering::Relaxed));
+            let opener_page_id = source
+                .opener_page_id
+                .and_then(|opener| page_ids.get(&opener).copied());
+            let page = context.create_page(destination_page_id, opener_page_id, false, false);
+            page_ids.insert(source.source_page_id, destination_page_id);
+
+            for state in &source.storage {
+                let scope = StorageScope {
+                    origin: state.origin.clone(),
+                    top_level_page_id: destination_page_id,
+                };
+                for (key, value) in &state.local {
+                    context
+                        .inner
+                        .store
+                        .execute(StorageRequest::Set {
+                            area: StorageArea::Local,
+                            scope: scope.clone(),
+                            key: key.clone(),
+                            value: value.clone(),
+                        })
+                        .map_err(|error| RuntimeError::Replay(error.to_string()))?;
+                }
+                for (key, value) in &state.session {
+                    context
+                        .inner
+                        .store
+                        .execute(StorageRequest::Set {
+                            area: StorageArea::Session,
+                            scope: scope.clone(),
+                            key: key.clone(),
+                            value: value.clone(),
+                        })
+                        .map_err(|error| RuntimeError::Replay(error.to_string()))?;
+                }
+            }
+
+            let navigation = page.goto(source.url.clone()).await?;
+            for field in &source.form_values {
+                let action = match field.action {
+                    SemanticAction::Check if !field.checked => SemanticAction::Uncheck,
+                    action => action,
+                };
+                let target = page
+                    .resolve_selector(field.selector.clone(), action)
+                    .await?;
+                if action == SemanticAction::Type {
+                    page.execute(NativeAction {
+                        target,
+                        action: SemanticAction::Clear,
+                        value: None,
+                    })
+                    .await?;
+                }
+                page.execute(NativeAction {
+                    target,
+                    action,
+                    value: matches!(action, SemanticAction::Type | SemanticAction::Select)
+                        .then(|| field.value.clone()),
+                })
+                .await?;
+            }
+            if source.active {
+                context.activate_page(destination_page_id)?;
+                active_page_id = Some(destination_page_id);
+            }
+            restored.push(crate::replay::RestoredPage {
+                source_page_id: source.source_page_id,
+                destination_page_id,
+                destination_revision: navigation.revision.0,
+            });
+        }
+        Ok((
+            context,
+            crate::replay::CheckpointRestore {
+                checkpoint_sha256: checkpoint.sha256.clone(),
+                pages: restored,
+                active_page_id,
+            },
+        ))
+    }
+
+    pub async fn branch_from_checkpoint(
+        &self,
+        options: ContextOptions,
+        checkpoint: &crate::replay::ContextCheckpoint,
+        strategy: impl Into<String>,
+    ) -> Result<(BrowserContext, crate::replay::ReplayBranch), RuntimeError> {
+        let strategy = strategy.into();
+        let (context, restore) = self.restore_checkpoint(options, checkpoint).await?;
+        let branch_id = format!(
+            "{}-{}",
+            &checkpoint.sha256[..checkpoint.sha256.len().min(16)],
+            restore
+                .pages
+                .first()
+                .map(|page| page.destination_page_id.0)
+                .unwrap_or_default()
+        );
+        Ok((
+            context,
+            crate::replay::ReplayBranch {
+                branch_id,
+                parent_checkpoint_sha256: checkpoint.sha256.clone(),
+                strategy,
+                restored_pages: restore.pages,
+            },
+        ))
+    }
+
+    /// Restore a checkpoint and replay every subsequently recorded OIL intent.
+    /// The verifier never invents redacted values: those produce an explicit
+    /// nondeterministic divergence instead of silently using placeholder data.
+    pub async fn replay_task_trace(
+        &self,
+        options: ContextOptions,
+        checkpoint: &crate::replay::ContextCheckpoint,
+        trace: &crate::replay::TaskTraceArchive,
+    ) -> Result<(BrowserContext, crate::replay::ReplayRun), RuntimeError> {
+        use crate::replay::{ReplayDivergence, ReplayDivergenceKind, ReplayRun};
+
+        if trace.schema_version != crate::replay::TRACE_ARCHIVE_VERSION {
+            return Err(RuntimeError::Replay(format!(
+                "unsupported task trace version {}",
+                trace.schema_version
+            )));
+        }
+        if trace.context_id != checkpoint.payload.context_id {
+            return Err(RuntimeError::Replay(format!(
+                "trace context {} does not match checkpoint context {}",
+                trace.context_id, checkpoint.payload.context_id
+            )));
+        }
+        if trace.determinism != checkpoint.payload.determinism {
+            return Err(RuntimeError::Replay(
+                "trace determinism inputs do not match the checkpoint".into(),
+            ));
+        }
+        checkpoint
+            .verify()
+            .map_err(|error| RuntimeError::Replay(error.to_string()))?;
+        // A checkpoint contains the archive known at capture time, while the
+        // completed trace contains exchanges that occurred after it. Replay
+        // restores state with the completed, policy-scrubbed archive.
+        let mut replay_payload = checkpoint.payload.clone();
+        replay_payload.network = trace.network.clone();
+        let replay_checkpoint = crate::replay::ContextCheckpoint::seal(replay_payload)
+            .map_err(|error| RuntimeError::Replay(error.to_string()))?;
+        let (context, restore) = self.restore_checkpoint(options, &replay_checkpoint).await?;
+        let page_map = restore
+            .pages
+            .iter()
+            .map(|page| (page.source_page_id, page.destination_page_id))
+            .collect::<BTreeMap<_, _>>();
+        let replay_intents = trace
+            .intents
+            .iter()
+            .filter(|intent| intent.sequence >= checkpoint.payload.intent_cursor)
+            .collect::<Vec<_>>();
+        let mut run = ReplayRun {
+            checkpoint_sha256: checkpoint.sha256.clone(),
+            trace_schema_version: trace.schema_version,
+            attempted_intents: replay_intents.len() as u64,
+            replayed_intents: 0,
+            consumed_network_exchanges: 0,
+            expected_network_exchanges: trace.network.exchanges.len(),
+            deterministic: checkpoint.payload.nondeterministic_regions.is_empty()
+                && trace.nondeterministic_regions.is_empty(),
+            divergences: Vec::new(),
+        };
+        let mut session = crate::oil::NativeContextOilSession::new(context.clone());
+        for intent in replay_intents {
+            if intent.input.contains("[REDACTED]") {
+                run.deterministic = false;
+                run.divergences.push(ReplayDivergence {
+                    sequence: intent.sequence,
+                    kind: ReplayDivergenceKind::RedactedInput,
+                    detail: "sensitive OIL input was redacted and cannot be replayed".into(),
+                });
+                continue;
+            }
+            if let Some(source_page_id) = intent.page_id {
+                let Some(destination_page_id) = page_map.get(&source_page_id).copied() else {
+                    run.divergences.push(ReplayDivergence {
+                        sequence: intent.sequence,
+                        kind: ReplayDivergenceKind::MissingPageMapping,
+                        detail: format!("source page {} has no restored page", source_page_id.0),
+                    });
+                    continue;
+                };
+                context.activate_page(destination_page_id)?;
+            }
+            match session.execute(&intent.input).await {
+                Ok(_) => {
+                    run.replayed_intents += 1;
+                    if intent.outcome.starts_with("failed:") {
+                        run.divergences.push(ReplayDivergence {
+                            sequence: intent.sequence,
+                            kind: ReplayDivergenceKind::OutcomeMismatch,
+                            detail: "recorded intent failed but replay completed".into(),
+                        });
+                    }
+                }
+                Err(error) => {
+                    if !intent.outcome.starts_with("failed:") {
+                        run.divergences.push(ReplayDivergence {
+                            sequence: intent.sequence,
+                            kind: ReplayDivergenceKind::ExecutionFailure,
+                            detail: error.to_string(),
+                        });
+                    } else {
+                        run.replayed_intents += 1;
+                    }
+                }
+            }
+        }
+        run.consumed_network_exchanges = context.replayed_network_exchanges();
+        if run.consumed_network_exchanges != run.expected_network_exchanges {
+            run.divergences.push(ReplayDivergence {
+                sequence: u64::MAX,
+                kind: ReplayDivergenceKind::UnconsumedNetwork,
+                detail: format!(
+                    "consumed {} of {} archived exchanges",
+                    run.consumed_network_exchanges, run.expected_network_exchanges
+                ),
+            });
+        }
+        Ok((context, run))
+    }
+
+    pub async fn replay_failure_artifact(
+        &self,
+        options: ContextOptions,
+        artifact: &crate::replay::FailureArtifact,
+    ) -> Result<(BrowserContext, crate::replay::ReplayRun), RuntimeError> {
+        artifact
+            .verify()
+            .map_err(|error| RuntimeError::Replay(error.to_string()))?;
+        self.replay_task_trace(
+            options,
+            &artifact.payload.checkpoint,
+            &artifact.payload.trace,
+        )
+        .await
     }
 
     pub fn new_persistent_context(
@@ -747,7 +1062,12 @@ impl Browser {
     ) -> BrowserContext {
         options.ephemeral = false;
         let store = SharedContextStore::persistent(&profile, self.config.storage_limits);
-        self.new_context_with_store(options, store, Some(profile))
+        self.new_context_with_store(
+            options,
+            store,
+            Some(profile),
+            crate::replay::NetworkReplayController::live(),
+        )
     }
 
     fn new_context_with_store(
@@ -755,6 +1075,7 @@ impl Browser {
         options: ContextOptions,
         store: SharedContextStore,
         persistent_profile: Option<PersistentProfile>,
+        network_replay: crate::replay::NetworkReplayController,
     ) -> BrowserContext {
         let policy = Arc::new(PolicyEngine::new(options.action_policy.clone()));
         let secrets = Arc::new(SecretStore::default());
@@ -776,6 +1097,9 @@ impl Browser {
                     policy,
                     secrets,
                     downloads: Arc::new(DownloadStore::default()),
+                    network_replay,
+                    intent_trace: Mutex::new(Vec::new()),
+                    domain_decisions: Mutex::new(Vec::new()),
                     #[cfg(unix)]
                     context_events: Mutex::new(Vec::new()),
                     #[cfg(unix)]
@@ -790,11 +1114,15 @@ impl Browser {
         let max_response_bytes = self.config.max_response_bytes;
         let network_policy = options.network_policy.clone();
         let transport_cookies = context_cookies.clone();
+        let replay = network_replay.clone();
         let broker = std::thread::spawn(move || {
             RustlsTransport::with_cookie_store(timeout, max_response_bytes, transport_cookies)
                 .ok()
                 .map(|transport| {
-                    SharedNetworkBroker::new(PolicyBroker::new(network_policy, transport))
+                    SharedNetworkBroker::new(PolicyBroker::new(
+                        network_policy,
+                        replay.wrap(transport),
+                    ))
                 })
         })
         .join()
@@ -812,6 +1140,9 @@ impl Browser {
                 policy,
                 secrets,
                 downloads: Arc::new(DownloadStore::default()),
+                network_replay,
+                intent_trace: Mutex::new(Vec::new()),
+                domain_decisions: Mutex::new(Vec::new()),
                 #[cfg(unix)]
                 context_events: Mutex::new(Vec::new()),
                 #[cfg(unix)]
@@ -845,6 +1176,9 @@ impl Browser {
                 policy,
                 secrets: Arc::new(SecretStore::default()),
                 downloads: Arc::new(DownloadStore::default()),
+                network_replay: crate::replay::NetworkReplayController::live(),
+                intent_trace: Mutex::new(Vec::new()),
+                domain_decisions: Mutex::new(Vec::new()),
                 #[cfg(unix)]
                 context_events: Mutex::new(Vec::new()),
                 #[cfg(unix)]
@@ -878,6 +1212,9 @@ impl Browser {
                 policy,
                 secrets: Arc::new(SecretStore::default()),
                 downloads: Arc::new(DownloadStore::default()),
+                network_replay: crate::replay::NetworkReplayController::live(),
+                intent_trace: Mutex::new(Vec::new()),
+                domain_decisions: Mutex::new(Vec::new()),
                 context_events: Mutex::new(Vec::new()),
                 next_context_event_id: AtomicU64::new(1),
                 parent_cookies: None,
@@ -918,6 +1255,186 @@ impl BrowserContext {
 
     pub fn security_audit(&self) -> Vec<SecurityAuditRecord> {
         self.inner.policy.audit_records()
+    }
+
+    pub fn network_archive(&self) -> crate::replay::NetworkArchive {
+        self.inner.network_replay.archive()
+    }
+
+    pub fn replayed_network_exchanges(&self) -> usize {
+        self.inner.network_replay.consumed()
+    }
+
+    pub async fn trace_archive(
+        &self,
+        mut nondeterministic_regions: Vec<crate::replay::NondeterministicRegion>,
+    ) -> Result<crate::replay::TaskTraceArchive, RuntimeError> {
+        let mut page_traces = BTreeMap::new();
+        for descriptor in self.pages() {
+            if matches!(descriptor.status, PageStatus::Closed | PageStatus::Crashed) {
+                continue;
+            }
+            if let Some(page) = self.inner.group.handle(descriptor.page.page_id) {
+                page_traces.insert(descriptor.page.page_id.0.to_string(), page.trace().await?);
+            }
+        }
+        if page_traces
+            .values()
+            .flatten()
+            .any(|event| matches!(event.kind, TraceEventKind::WebSocketFrame { .. }))
+            && !nondeterministic_regions.contains(&crate::replay::NondeterministicRegion::WebSocket)
+        {
+            nondeterministic_regions.push(crate::replay::NondeterministicRegion::WebSocket);
+        }
+        Ok(crate::replay::TaskTraceArchive {
+            schema_version: crate::replay::TRACE_ARCHIVE_VERSION,
+            context_id: self.id(),
+            determinism: self.inner.options.determinism.clone(),
+            page_events: self.page_events(),
+            page_traces,
+            intents: self
+                .inner
+                .intent_trace
+                .lock()
+                .expect("intent trace lock")
+                .clone(),
+            domain_decisions: self
+                .inner
+                .domain_decisions
+                .lock()
+                .expect("domain decision trace lock")
+                .clone(),
+            network: self.network_archive(),
+            nondeterministic_regions,
+        })
+    }
+
+    pub async fn checkpoint(
+        &self,
+        name: impl Into<String>,
+        task_metadata: BTreeMap<String, String>,
+        nondeterministic_regions: Vec<crate::replay::NondeterministicRegion>,
+    ) -> Result<crate::replay::ContextCheckpoint, RuntimeError> {
+        let mut pages = Vec::new();
+        for descriptor in self.pages() {
+            if matches!(descriptor.status, PageStatus::Closed | PageStatus::Crashed) {
+                continue;
+            }
+            let page = self
+                .inner
+                .group
+                .handle(descriptor.page.page_id)
+                .ok_or(RuntimeError::PageNotFound(descriptor.page.page_id))?;
+            let origin = self.page_origin(descriptor.page.page_id)?;
+            let scope = StorageScope {
+                origin: origin.clone(),
+                top_level_page_id: descriptor.page.page_id,
+            };
+            let read_entries = |area| -> Result<Vec<(String, String)>, RuntimeError> {
+                match self
+                    .inner
+                    .store
+                    .execute(StorageRequest::Entries {
+                        area,
+                        scope: scope.clone(),
+                    })
+                    .map_err(|error| RuntimeError::Replay(error.to_string()))?
+                {
+                    StorageResponse::Entries { entries } => Ok(entries),
+                    _ => Err(RuntimeError::Replay(
+                        "storage service returned an invalid checkpoint response".into(),
+                    )),
+                }
+            };
+            let observation = page.observe_profile(ProjectionProfile::Full).await?;
+            let form_values = observation
+                .nodes
+                .into_iter()
+                .filter_map(|node| {
+                    let selector = node.selector?;
+                    let value = node.value?;
+                    if value == "[REDACTED]" {
+                        return None;
+                    }
+                    let action = if node.actions.contains(&SemanticAction::Select) {
+                        SemanticAction::Select
+                    } else if node.actions.contains(&SemanticAction::Check) {
+                        SemanticAction::Check
+                    } else if node.actions.contains(&SemanticAction::Type) {
+                        SemanticAction::Type
+                    } else {
+                        return None;
+                    };
+                    Some(FormValueState {
+                        selector,
+                        value,
+                        action,
+                        checked: node.states.contains(&oryn_common::v3::NodeState::Checked),
+                    })
+                })
+                .collect();
+            pages.push(crate::replay::CheckpointPage {
+                source_page_id: descriptor.page.page_id,
+                opener_page_id: descriptor.page.opener_page_id,
+                url: descriptor.page.url,
+                active: descriptor.active,
+                storage: vec![OriginStorageState {
+                    origin,
+                    local: read_entries(StorageArea::Local)?,
+                    session: read_entries(StorageArea::Session)?,
+                }],
+                form_values,
+            });
+        }
+        crate::replay::ContextCheckpoint::seal(crate::replay::CheckpointPayload {
+            schema_version: crate::replay::TRACE_ARCHIVE_VERSION,
+            name: name.into(),
+            context_id: self.id(),
+            pages,
+            task_metadata,
+            determinism: self.inner.options.determinism.clone(),
+            network: self.network_archive(),
+            intent_cursor: self
+                .inner
+                .intent_trace
+                .lock()
+                .expect("intent trace lock")
+                .len() as u64,
+            nondeterministic_regions,
+        })
+        .map_err(|error| RuntimeError::Replay(error.to_string()))
+    }
+
+    pub(crate) fn network_replay_controller(&self) -> crate::replay::NetworkReplayController {
+        self.inner.network_replay.clone()
+    }
+
+    pub(crate) fn record_intent(
+        &self,
+        page_id: Option<PageId>,
+        input: String,
+        revision_before: Option<Revision>,
+        revision_after: Option<Revision>,
+        outcome: String,
+    ) {
+        let mut trace = self.inner.intent_trace.lock().expect("intent trace lock");
+        let sequence = trace.len() as u64;
+        trace.push(crate::replay::IntentTraceRecord {
+            sequence,
+            page_id,
+            input,
+            revision_before,
+            revision_after,
+            outcome,
+        });
+    }
+
+    pub fn record_domain_decision(&self, decision: crate::execution::DomainDecision) {
+        self.inner
+            .domain_decisions
+            .lock()
+            .expect("domain decision trace lock")
+            .push(decision);
     }
 
     /// Import an origin-scoped secret into parent-owned memory.
@@ -987,6 +1504,160 @@ impl BrowserContext {
 
     pub fn discard_download(&self, id: DownloadId) -> bool {
         self.inner.downloads.discard(id)
+    }
+
+    /// Capture the explicitly transferable portion of one page before an
+    /// execution-domain handoff. JavaScript heap state and parent secret
+    /// handles never cross this boundary.
+    pub async fn prepare_handoff(
+        &self,
+        page_id: PageId,
+        target_domain: ExecutionDomain,
+        options: HandoffOptions,
+        confirmation: Option<ConfirmationToken>,
+    ) -> Result<HandoffBundle, RuntimeError> {
+        if target_domain == ExecutionDomain::Native {
+            return Err(RuntimeError::InvalidHandoff(
+                "native-to-native movement is page navigation, not a domain handoff".into(),
+            ));
+        }
+        let page = self
+            .inner
+            .group
+            .handle(page_id)
+            .ok_or(RuntimeError::PageNotFound(page_id))?;
+        let descriptor = self
+            .pages()
+            .into_iter()
+            .find(|item| item.page.page_id == page_id)
+            .ok_or(RuntimeError::PageNotFound(page_id))?;
+        let source_origin = self.page_origin(page_id)?;
+        if target_domain == ExecutionDomain::UserBrowser || options.transfer_cookie_header {
+            self.require_policy(
+                PolicyRequest {
+                    action: if target_domain == ExecutionDomain::UserBrowser {
+                        ConsequentialAction::UserBrowserDelegation
+                    } else {
+                        ConsequentialAction::ProtectedRequest
+                    },
+                    source_origin: source_origin.clone(),
+                    target_origin: None,
+                    detail: Some(format!(
+                        "handoff {:?}{}",
+                        target_domain,
+                        if options.transfer_cookie_header {
+                            " with cookies"
+                        } else {
+                            ""
+                        }
+                    )),
+                },
+                confirmation,
+            )?;
+        }
+
+        let mut losses = vec![
+            HandoffLoss::JavascriptHeap,
+            HandoffLoss::PendingPromises,
+            HandoffLoss::OpenSockets,
+            HandoffLoss::NativeHostObjects,
+            HandoffLoss::IndexedDbNotTransferred,
+            HandoffLoss::SecretHandlesRemainAtSource,
+        ];
+        if !options.transfer_cookie_header {
+            losses.push(HandoffLoss::HttpOnlyCookiesNotTransferred);
+        }
+        if !options.allow_lossy {
+            return Err(RuntimeError::LossyHandoffRequiresApproval {
+                losses: losses.iter().map(|loss| format!("{loss:?}")).collect(),
+            });
+        }
+
+        let scope = StorageScope {
+            origin: source_origin.clone(),
+            top_level_page_id: page_id,
+        };
+        let entries = |area| -> Result<Vec<(String, String)>, RuntimeError> {
+            match self
+                .inner
+                .store
+                .execute(StorageRequest::Entries {
+                    area,
+                    scope: scope.clone(),
+                })
+                .map_err(|error| RuntimeError::ContextService(error.to_string()))?
+            {
+                StorageResponse::Entries { entries } => Ok(entries),
+                _ => Err(RuntimeError::ContextService(
+                    "storage service returned the wrong response to handoff snapshot".into(),
+                )),
+            }
+        };
+        let storage = vec![OriginStorageState {
+            origin: source_origin,
+            local: if options.transfer_local_storage {
+                entries(StorageArea::Local)?
+            } else {
+                Vec::new()
+            },
+            session: if options.transfer_session_storage {
+                entries(StorageArea::Session)?
+            } else {
+                Vec::new()
+            },
+        }];
+        let form_values = if options.transfer_form_values {
+            page.observe_profile(ProjectionProfile::Full)
+                .await?
+                .nodes
+                .into_iter()
+                .filter_map(|node| {
+                    let selector = node.selector?;
+                    let value = node.value?;
+                    let action = if node.actions.contains(&SemanticAction::Select) {
+                        SemanticAction::Select
+                    } else if node.actions.contains(&SemanticAction::Check) {
+                        SemanticAction::Check
+                    } else if node.actions.contains(&SemanticAction::Type) {
+                        SemanticAction::Type
+                    } else {
+                        return None;
+                    };
+                    (value != "[REDACTED]").then_some(FormValueState {
+                        selector,
+                        value,
+                        action,
+                        checked: node.states.contains(&oryn_common::v3::NodeState::Checked),
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        #[cfg(unix)]
+        let cookie_header = options
+            .transfer_cookie_header
+            .then(|| Url::parse(&descriptor.page.url).ok())
+            .flatten()
+            .and_then(|url| self.cookie_header(&url))
+            .map(SensitiveCookieHeader::new);
+        #[cfg(not(unix))]
+        let cookie_header = None;
+
+        Ok(HandoffBundle {
+            contract_version: crate::execution::EXECUTION_CONTRACT_VERSION,
+            source_domain: ExecutionDomain::Native,
+            target_domain,
+            source_page_id: page_id,
+            url: descriptor.page.url,
+            document_generation: descriptor.page.document_generation,
+            storage,
+            form_values,
+            cookie_header,
+            task_metadata: options.task_metadata,
+            checkpoint: options.checkpoint,
+            losses,
+        })
     }
 
     pub(crate) fn require_policy(
@@ -2309,6 +2980,12 @@ pub enum RuntimeError {
     Secret(String),
     #[error("download quarantine failed: {0}")]
     Download(String),
+    #[error("execution-domain handoff is invalid: {0}")]
+    InvalidHandoff(String),
+    #[error("execution-domain handoff is lossy and requires explicit approval: {losses:?}")]
+    LossyHandoffRequiresApproval { losses: Vec<String> },
+    #[error("trace replay failed: {0}")]
+    Replay(String),
 }
 
 #[cfg(feature = "v8-host")]
@@ -2360,6 +3037,8 @@ struct PageState {
     color_scheme: PreferredColorScheme,
     #[cfg(feature = "v8-host")]
     reduced_motion: ReducedMotion,
+    #[cfg(feature = "v8-host")]
+    determinism: Option<crate::replay::DeterminismConfig>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2401,7 +3080,7 @@ impl PageState {
             #[cfg(feature = "v8-host")]
             executable: None,
             snapshots: BTreeMap::new(),
-            trace: TraceLog::default(),
+            trace: TraceLog::new(page_id),
             history: Vec::new(),
             history_index: None,
             broker,
@@ -2417,6 +3096,8 @@ impl PageState {
             color_scheme: context_options.color_scheme,
             #[cfg(feature = "v8-host")]
             reduced_motion: context_options.reduced_motion,
+            #[cfg(feature = "v8-host")]
+            determinism: context_options.determinism,
         }
     }
 
@@ -2460,6 +3141,13 @@ impl PageState {
             let mut resources = resources.clone();
             resources.insert("oryn:local-storage".into(), storage.0);
             resources.insert("oryn:session-storage".into(), storage.1);
+            if let Some(determinism) = &self.determinism {
+                resources.insert(
+                    "oryn:determinism".into(),
+                    serde_json::to_string(determinism)
+                        .map_err(|error| RuntimeError::Replay(error.to_string()))?,
+                );
+            }
             #[cfg(unix)]
             let executable = match self.context_client.clone() {
                 Some(context_client) => {
@@ -5899,6 +6587,12 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(result, "hello|7,255,0|4001|fixture-complete");
+        let archive = context.trace_archive(Vec::new()).await.expect("task trace");
+        assert!(
+            archive
+                .nondeterministic_regions
+                .contains(&crate::replay::NondeterministicRegion::WebSocket)
+        );
         server.join().expect("WebSocket fixture server");
     }
 
@@ -6890,5 +7584,350 @@ mod tests {
                     && url == "about:blank"
                     && *document_generation == replacement_generation)
         }));
+    }
+
+    #[tokio::test]
+    async fn checkpoint_restore_uses_fresh_page_identity_and_restores_storage() {
+        let browser = Browser::in_process_with_config(BrowserConfig::default());
+        let context = browser.new_context();
+        let page = context.new_page();
+        page.goto("about:blank").await.expect("blank page");
+        let scope = StorageScope {
+            origin: "null".into(),
+            top_level_page_id: page.page_id(),
+        };
+        context
+            .inner
+            .store
+            .execute(StorageRequest::Set {
+                area: StorageArea::Session,
+                scope,
+                key: "step".into(),
+                value: "shipping".into(),
+            })
+            .expect("set session state");
+        let checkpoint = context
+            .checkpoint(
+                "shipping-ready",
+                BTreeMap::from([("task".into(), "checkout".into())]),
+                Vec::new(),
+            )
+            .await
+            .expect("checkpoint");
+        checkpoint.verify().expect("sealed checkpoint");
+
+        let (restored, receipt) = browser
+            .restore_checkpoint(ContextOptions::default(), &checkpoint)
+            .await
+            .expect("restore checkpoint");
+        assert_eq!(receipt.pages.len(), 1);
+        assert_ne!(
+            receipt.pages[0].source_page_id,
+            receipt.pages[0].destination_page_id
+        );
+        let response = restored
+            .inner
+            .store
+            .execute(StorageRequest::Get {
+                area: StorageArea::Session,
+                scope: StorageScope {
+                    origin: "null".into(),
+                    top_level_page_id: receipt.pages[0].destination_page_id,
+                },
+                key: "step".into(),
+            })
+            .expect("read restored session state");
+        assert!(matches!(
+            response,
+            StorageResponse::Value { value: Some(value) } if value == "shipping"
+        ));
+    }
+
+    #[tokio::test]
+    async fn recorded_navigation_checkpoint_restores_form_state_without_live_network() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture server");
+        let address = listener.local_addr().expect("fixture address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request).expect("read request");
+            stream
+                .write_all(fixture_response("<input id=name aria-label=Name>").as_bytes())
+                .expect("write response");
+        });
+        let browser = Browser::in_process_with_config(BrowserConfig::default());
+        let context = browser.new_recording_context(ContextOptions::loopback_test(), true);
+        let page = context.new_page();
+        page.goto(format!("http://{address}/form"))
+            .await
+            .expect("record navigation");
+        let target = page
+            .resolve_selector("#name", SemanticAction::Type)
+            .await
+            .expect("resolve form field");
+        page.execute(NativeAction {
+            target,
+            action: SemanticAction::Type,
+            value: Some("restored-value".into()),
+        })
+        .await
+        .expect("type value");
+        let checkpoint = context
+            .checkpoint("form-filled", BTreeMap::new(), Vec::new())
+            .await
+            .expect("checkpoint");
+        server.join().expect("fixture server");
+
+        let (restored, receipt) = browser
+            .restore_checkpoint(ContextOptions::loopback_test(), &checkpoint)
+            .await
+            .expect("offline replay restore");
+        let restored_page = restored
+            .inner
+            .group
+            .handle(receipt.pages[0].destination_page_id)
+            .expect("restored page");
+        let observation = restored_page
+            .observe()
+            .await
+            .expect("observe restored form");
+        assert!(observation.nodes.iter().any(|node| {
+            node.selector.as_deref() == Some("#name")
+                && node.value.as_deref() == Some("restored-value")
+        }));
+        assert_eq!(restored.replayed_network_exchanges(), 1);
+    }
+
+    #[tokio::test]
+    async fn task_trace_replays_post_checkpoint_intents_and_verifies_network_consumption() {
+        let browser = Browser::in_process_with_config(BrowserConfig::default());
+        let context = browser.new_recording_context(ContextOptions::default(), true);
+        context
+            .new_page()
+            .goto("about:blank")
+            .await
+            .expect("blank page");
+        let checkpoint = context
+            .checkpoint("before-intent", BTreeMap::new(), Vec::new())
+            .await
+            .expect("checkpoint");
+        let mut session = crate::oil::NativeContextOilSession::new(context.clone());
+        session
+            .execute("page current")
+            .await
+            .expect("record intent");
+        let trace = context.trace_archive(Vec::new()).await.expect("trace");
+
+        let (_restored, replay) = browser
+            .replay_task_trace(ContextOptions::default(), &checkpoint, &trace)
+            .await
+            .expect("replay task");
+        assert_eq!(replay.attempted_intents, 1);
+        assert_eq!(replay.replayed_intents, 1);
+        assert!(replay.divergences.is_empty(), "{replay:#?}");
+        assert!(replay.deterministic);
+    }
+
+    #[tokio::test]
+    async fn replay_branch_records_parent_lineage_and_fresh_page_identity() {
+        let browser = Browser::in_process_with_config(BrowserConfig::default());
+        let context = browser.new_context();
+        let source = context.new_page();
+        source.goto("about:blank").await.expect("blank page");
+        let checkpoint = context
+            .checkpoint("branch-root", BTreeMap::new(), Vec::new())
+            .await
+            .expect("checkpoint");
+        let (_branch_context, branch) = browser
+            .branch_from_checkpoint(ContextOptions::default(), &checkpoint, "alternate-payment")
+            .await
+            .expect("branch");
+        assert_eq!(branch.parent_checkpoint_sha256, checkpoint.sha256);
+        assert_eq!(branch.strategy, "alternate-payment");
+        assert_ne!(
+            branch.restored_pages[0].destination_page_id,
+            source.page_id()
+        );
+    }
+
+    #[tokio::test]
+    async fn replay_reports_redacted_intent_as_nondeterministic_divergence() {
+        let browser = Browser::in_process_with_config(BrowserConfig::default());
+        let context = browser.new_context();
+        let source = context.new_page();
+        source.goto("about:blank").await.expect("blank page");
+        let checkpoint = context
+            .checkpoint("before-secret", BTreeMap::new(), Vec::new())
+            .await
+            .expect("checkpoint");
+        let trace = crate::replay::TaskTraceArchive {
+            schema_version: crate::replay::TRACE_ARCHIVE_VERSION,
+            context_id: context.id(),
+            determinism: None,
+            page_events: Vec::new(),
+            page_traces: BTreeMap::new(),
+            intents: vec![crate::replay::IntentTraceRecord {
+                sequence: checkpoint.payload.intent_cursor,
+                page_id: Some(source.page_id()),
+                input: "type \"Password\" \"[REDACTED]\"".into(),
+                revision_before: None,
+                revision_after: None,
+                outcome: "completed".into(),
+            }],
+            domain_decisions: Vec::new(),
+            network: crate::replay::NetworkArchive::default(),
+            nondeterministic_regions: Vec::new(),
+        };
+        let (_restored, replay) = browser
+            .replay_task_trace(ContextOptions::default(), &checkpoint, &trace)
+            .await
+            .expect("replay");
+        assert!(!replay.deterministic);
+        assert!(replay.divergences.iter().any(|divergence| {
+            divergence.kind == crate::replay::ReplayDivergenceKind::RedactedInput
+        }));
+    }
+
+    #[tokio::test]
+    async fn handoff_captures_only_explicit_transferable_state_and_reports_losses() {
+        let browser = Browser::in_process_with_config(BrowserConfig::default());
+        let context = browser.new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://example.test/form",
+            "<input id=name aria-label=Name value=Oryn><input id=password aria-label=Password type=password value=secret>",
+        )
+        .await
+        .expect("load handoff page");
+        let scope = StorageScope {
+            origin: "https://example.test".into(),
+            top_level_page_id: page.page_id(),
+        };
+        context
+            .inner
+            .store
+            .execute(StorageRequest::Set {
+                area: StorageArea::Local,
+                scope,
+                key: "theme".into(),
+                value: "dark".into(),
+            })
+            .expect("set local storage");
+        context.import_secret(
+            "https://example.test",
+            "api-token",
+            b"do-not-transfer".to_vec(),
+        );
+
+        let bundle = context
+            .prepare_handoff(
+                page.page_id(),
+                ExecutionDomain::Chromium,
+                HandoffOptions {
+                    allow_lossy: true,
+                    ..HandoffOptions::default()
+                },
+                None,
+            )
+            .await
+            .expect("prepare handoff");
+        assert_eq!(
+            bundle.storage[0].local,
+            vec![("theme".into(), "dark".into())]
+        );
+        assert!(
+            bundle.form_values.iter().any(|field| field.value == "Oryn"),
+            "{bundle:#?}"
+        );
+        assert!(
+            bundle
+                .form_values
+                .iter()
+                .all(|field| field.value != "secret")
+        );
+        assert!(bundle.losses.contains(&HandoffLoss::JavascriptHeap));
+        assert!(
+            bundle
+                .losses
+                .contains(&HandoffLoss::HttpOnlyCookiesNotTransferred)
+        );
+        assert!(
+            bundle
+                .losses
+                .contains(&HandoffLoss::SecretHandlesRemainAtSource)
+        );
+        assert_eq!(context.secret_labels(), vec!["api-token"]);
+    }
+
+    #[tokio::test]
+    async fn handoff_cookie_transfer_requires_exact_parent_policy_confirmation() {
+        let context = Browser::in_process_with_config(BrowserConfig::default()).new_context();
+        let page = context.new_page();
+        page.load_html("https://example.test/account", "<button>Account</button>")
+            .await
+            .expect("load account");
+        let options = HandoffOptions {
+            transfer_cookie_header: true,
+            allow_lossy: true,
+            ..HandoffOptions::default()
+        };
+        let error = context
+            .prepare_handoff(
+                page.page_id(),
+                ExecutionDomain::Chromium,
+                options.clone(),
+                None,
+            )
+            .await
+            .expect_err("cookie handoff must require confirmation");
+        assert!(matches!(
+            error,
+            RuntimeError::ConfirmationRequired {
+                action: ConsequentialAction::ProtectedRequest
+            }
+        ));
+        let request = PolicyRequest {
+            action: ConsequentialAction::ProtectedRequest,
+            source_origin: "https://example.test".into(),
+            target_origin: None,
+            detail: Some("handoff Chromium with cookies".into()),
+        };
+        let confirmation = context.prepare_confirmation(request);
+        context
+            .prepare_handoff(
+                page.page_id(),
+                ExecutionDomain::Chromium,
+                options,
+                Some(confirmation),
+            )
+            .await
+            .expect("exact confirmation permits cookie handoff");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test]
+    async fn deterministic_context_freezes_clock_and_random_stream() {
+        let config = crate::replay::DeterminismConfig {
+            unix_time_ms: 1_700_000_000_123,
+            random_seed: 42,
+        };
+        async fn sample(config: crate::replay::DeterminismConfig) -> String {
+            let context = Browser::in_process_with_config(BrowserConfig::default())
+                .new_context_with_options(ContextOptions::default().with_determinism(config));
+            let page = context.new_page();
+            page.load_html(
+                "fixture://determinism",
+                "<script>document.body.textContent=Date.now()+':'+Math.random()+':'+crypto.randomUUID()</script>",
+            )
+            .await
+            .expect("load deterministic page");
+            page.extract(ContentKind::Text, None)
+                .await
+                .expect("extract")
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        }
+        assert_eq!(sample(config.clone()).await, sample(config).await);
     }
 }

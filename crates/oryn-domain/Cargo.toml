@@ -1,0 +1,25 @@
+[package]
+name = "oryn-domain"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Optional execution-domain adapters for Oryn2"
+
+[features]
+default = []
+chromium = ["dep:oryn-h"]
+user-browser = ["dep:oryn-r"]
+
+[dependencies]
+oryn-native = { path = "../oryn-native" }
+oryn-common = { path = "../oryn-common" }
+oryn-engine = { path = "../oryn-engine" }
+oryn-h = { path = "../oryn-h", optional = true }
+oryn-r = { path = "../oryn-r", optional = true }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+oryn-native = { path = "../oryn-native", features = ["in-process-probe"] }
+tokio = { version = "1", features = ["macros", "rt"] }

@@ -1,4 +1,4 @@
-use oryn_common::v3::{ActionId, Revision};
+use oryn_common::v3::{ActionId, PageId, Revision};
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::LifecycleState;
@@ -6,6 +6,12 @@ use crate::runtime::LifecycleState;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TraceEvent {
     pub sequence: u64,
+    #[serde(default)]
+    pub logical_time: u64,
+    #[serde(default)]
+    pub page_id: PageId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_id: Option<String>,
     pub revision: Revision,
     pub action_id: Option<ActionId>,
     pub kind: TraceEventKind,
@@ -116,16 +122,28 @@ pub enum TraceEventKind {
     },
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct TraceLog {
+    page_id: PageId,
     next_sequence: u64,
     events: Vec<TraceEvent>,
 }
 
 impl TraceLog {
+    pub fn new(page_id: PageId) -> Self {
+        Self {
+            page_id,
+            next_sequence: 0,
+            events: Vec::new(),
+        }
+    }
+
     pub fn push(&mut self, revision: Revision, action_id: Option<ActionId>, kind: TraceEventKind) {
         self.events.push(TraceEvent {
             sequence: self.next_sequence,
+            logical_time: self.next_sequence,
+            page_id: self.page_id,
+            frame_id: None,
             revision,
             action_id,
             kind,
@@ -135,5 +153,11 @@ impl TraceLog {
 
     pub fn events(&self) -> &[TraceEvent] {
         &self.events
+    }
+}
+
+impl Default for TraceLog {
+    fn default() -> Self {
+        Self::new(PageId::LEGACY)
     }
 }

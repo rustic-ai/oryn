@@ -117,20 +117,78 @@ impl NativeContextOilSession {
                 continue;
             }
             if line == "pages" || line.starts_with("page ") {
-                outputs.push(self.execute_page_command(line).await?);
+                let page_id = self.context.active_page().map(|page| page.page_id());
+                let before = page_id.and_then(|id| self.revision(id));
+                match self.execute_page_command(line).await {
+                    Ok(output) => {
+                        let after = self
+                            .context
+                            .active_page()
+                            .and_then(|page| self.revision(page.page_id()));
+                        self.context.record_intent(
+                            page_id,
+                            scrub_oil_input(line),
+                            before,
+                            after,
+                            "completed".into(),
+                        );
+                        outputs.push(output);
+                    }
+                    Err(error) => {
+                        self.context.record_intent(
+                            page_id,
+                            scrub_oil_input(line),
+                            before,
+                            before,
+                            format!("failed:{error}"),
+                        );
+                        return Err(error);
+                    }
+                }
                 continue;
             }
             let page = self.context.active_page().ok_or_else(|| {
                 NativeOilError::PageCommand("browser context has no active page".into())
             })?;
             let page_id = page.page_id();
+            let before = self.revision(page_id);
             let session = self
                 .sessions
                 .entry(page_id)
                 .or_insert_with(|| NativeOilSession::new(page));
-            outputs.extend(session.execute(line).await?);
+            match session.execute(line).await {
+                Ok(result) => {
+                    let after = self.revision(page_id);
+                    self.context.record_intent(
+                        Some(page_id),
+                        scrub_oil_input(line),
+                        before,
+                        after,
+                        "completed".into(),
+                    );
+                    outputs.extend(result);
+                }
+                Err(error) => {
+                    self.context.record_intent(
+                        Some(page_id),
+                        scrub_oil_input(line),
+                        before,
+                        self.revision(page_id),
+                        format!("failed:{error}"),
+                    );
+                    return Err(error);
+                }
+            }
         }
         Ok(outputs)
+    }
+
+    fn revision(&self, page_id: PageId) -> Option<oryn_common::v3::Revision> {
+        self.context
+            .pages()
+            .into_iter()
+            .find(|page| page.page.page_id == page_id)
+            .map(|page| page.revision)
     }
 
     async fn execute_page_command(
@@ -220,6 +278,19 @@ impl NativeContextOilSession {
             .find(|page| page.page.page_id == page_id)
             .ok_or_else(|| NativeOilError::PageCommand(format!("unknown page {}", page_id.0)))
     }
+}
+
+fn scrub_oil_input(input: &str) -> String {
+    let mut parts = input.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    if matches!(command, "type" | "fill") {
+        let target = parts.next().unwrap_or_default();
+        return format!("{command} {target} [REDACTED]");
+    }
+    if matches!(command, "evaluate" | "eval" | "execute") {
+        return format!("{command} [REDACTED_SCRIPT]");
+    }
+    input.to_string()
 }
 
 fn parse_page_id(value: &str) -> Result<PageId, NativeOilError> {
@@ -1421,5 +1492,33 @@ mod tests {
             panic!("expected capability diagnostic")
         };
         assert_eq!(diagnostic.support, SupportLevel::Unsupported);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn context_trace_records_intents_without_sensitive_values() {
+        let context =
+            Browser::in_process_with_config(crate::BrowserConfig::default()).new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://example.test/login",
+            "<input aria-label=Password type=password>",
+        )
+        .await
+        .expect("load form");
+        let mut session = NativeContextOilSession::new(context.clone());
+        session.execute("observe").await.expect("observe");
+        session
+            .execute("type \"Password\" \"never-store-this\"")
+            .await
+            .expect("type password");
+        let trace = context.trace_archive(Vec::new()).await.expect("trace");
+        let serialized = serde_json::to_string(&trace).expect("serialize trace");
+        assert!(!serialized.contains("never-store-this"));
+        assert!(
+            trace
+                .intents
+                .iter()
+                .any(|intent| intent.input.contains("[REDACTED]"))
+        );
     }
 }

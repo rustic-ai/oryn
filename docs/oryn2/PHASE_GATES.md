@@ -107,3 +107,27 @@ artifacts remain ignored.
 - G5 is closed by the schema-valid, raw-recomputed result at
   `benchmarks/evidence/g5-v1/g5-result-v1.json`. Raw traces, fuzz logs, and
   benchmark samples remain ignored.
+
+## G6 — Capability-driven execution domains
+
+- Native remains canonical and compatibility backends remain opt-in packages.
+- A versioned capability ledger and policy select native, Chromium, or a
+  user-controlled browser with stable, agent-visible reason diagnostics.
+- Domain movement is an explicit reload handoff with policy-controlled state,
+  fresh revisions, complete loss reporting, and no secret migration.
+- Domain/reason mix and handoff outcomes are measurable through the unchanged
+  native page and OIL APIs.
+- G6 closes only when all 25 frozen cases and the carried-forward G5 production
+  gate pass on the same signed clean-tree bundle.
+
+## G7 — Deterministic replay and checkpoints
+
+- Traces bind lifecycle inputs, scrubbed intents, revisions, deterministic
+  time/random state, causal events, and captured network exchanges.
+- Sealed L1 checkpoints restore context state with fresh identities. L2 adds
+  exact network and post-checkpoint intent replay; L3 live-heap forking remains
+  unsupported.
+- Divergences and nondeterministic regions are explicit. Failed tasks can be
+  sealed as regression artifacts, replayed, and branched from the CLI.
+- G7 closes only when all 26 frozen cases, G6, and G1-G5 production regressions
+  pass on the same signed clean-tree bundle.

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "gate": "G7",
+  "frozen_before_validation": true,
+  "cases": [
+    {"id":"task-trace-versioned","category":"trace","required":true},
+    {"id":"oil-intents-recorded","category":"trace","required":true},
+    {"id":"sensitive-intents-redacted","category":"trace","required":true},
+    {"id":"lifecycle-revisions-recorded","category":"trace","required":true},
+    {"id":"capability-decisions-recorded","category":"trace","required":true},
+    {"id":"deterministic-clock","category":"determinism","required":true},
+    {"id":"deterministic-random","category":"determinism","required":true},
+    {"id":"network-response-capture","category":"network_replay","required":true},
+    {"id":"network-secrets-scrubbed","category":"network_replay","required":true},
+    {"id":"network-body-hash-verified","category":"network_replay","required":true},
+    {"id":"network-request-order-exact","category":"network_replay","required":true},
+    {"id":"network-policy-precedes-replay","category":"network_replay","required":true},
+    {"id":"nondeterminism-labeled","category":"determinism","required":true},
+    {"id":"checkpoint-sealed","category":"checkpoint","required":true},
+    {"id":"checkpoint-tamper-rejected","category":"checkpoint","required":true},
+    {"id":"context-storage-restored","category":"checkpoint","required":true},
+    {"id":"form-state-restored","category":"checkpoint","required":true},
+    {"id":"fresh-page-identities","category":"checkpoint","required":true},
+    {"id":"javascript-heap-not-claimed","category":"checkpoint","required":true},
+    {"id":"post-checkpoint-intent-cursor","category":"replay","required":true},
+    {"id":"task-replay-verifier","category":"replay","required":true},
+    {"id":"redacted-input-divergence","category":"replay","required":true},
+    {"id":"unconsumed-network-divergence","category":"replay","required":true},
+    {"id":"branch-lineage-recorded","category":"branching","required":true},
+    {"id":"cli-trace-checkpoint-replay","category":"cli","required":true},
+    {"id":"failed-task-regression-artifact","category":"regression","required":true}
+  ]
+}

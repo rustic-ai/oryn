@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "gate": "G6",
+  "frozen_before_validation": true,
+  "cases": [
+    {"id":"capability-ledger-versioned","category":"selection","required":true},
+    {"id":"native-canonical-preference","category":"selection","required":true},
+    {"id":"missing-capability-fallback","category":"selection","required":true},
+    {"id":"authenticated-session-selection","category":"selection","required":true},
+    {"id":"user-presence-selection","category":"selection","required":true},
+    {"id":"consequential-visible-selection","category":"selection","required":true},
+    {"id":"site-challenge-reason","category":"selection","required":true},
+    {"id":"known-bad-origin-reason","category":"selection","required":true},
+    {"id":"explicit-domain-no-fallback","category":"selection","required":true},
+    {"id":"policy-denied-domain","category":"selection","required":true},
+    {"id":"chromium-adapter-opt-in","category":"adapters","required":true},
+    {"id":"user-browser-adapter-opt-in","category":"adapters","required":true},
+    {"id":"native-dependency-purity","category":"adapters","required":true},
+    {"id":"controlled-url-reload","category":"handoff","required":true},
+    {"id":"local-storage-transfer","category":"handoff","required":true},
+    {"id":"session-storage-transfer","category":"handoff","required":true},
+    {"id":"selected-form-transfer","category":"handoff","required":true},
+    {"id":"task-checkpoint-metadata-transfer","category":"handoff","required":true},
+    {"id":"cookie-transfer-policy-gated","category":"handoff","required":true},
+    {"id":"secrets-never-transferred","category":"handoff","required":true},
+    {"id":"losses-explicitly-reported","category":"handoff","required":true},
+    {"id":"fresh-destination-revision","category":"handoff","required":true},
+    {"id":"domain-mix-measured","category":"telemetry","required":true},
+    {"id":"decision-reason-mix-measured","category":"telemetry","required":true},
+    {"id":"native-api-remains-canonical","category":"regression","required":true}
+  ]
+}
