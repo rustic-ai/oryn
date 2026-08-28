@@ -883,6 +883,7 @@ dependencies = [
 name = "oryn-native"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64",
  "getrandom 0.3.4",
  "html5ever",
