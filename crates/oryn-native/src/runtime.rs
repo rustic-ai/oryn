@@ -5572,10 +5572,21 @@ mod tests {
         )
         .await
         .expect("load WebSocket fixture");
-        let result = page
-            .evaluate("__oryn_drain(true);__oryn_drain(true);document.querySelector('#result').textContent")
-            .await
-            .expect("read WebSocket result");
+        // The socket is parent-thread brokered, so a busy parallel test run
+        // may not complete the OS handshake within exactly two JavaScript
+        // checkpoints. Poll the observable page state with a strict bound
+        // instead of racing the broker and then tearing down a healthy socket.
+        let mut result = "pending".to_string();
+        for _ in 0..100 {
+            result = page
+                .evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("read WebSocket result");
+            if result != "pending" {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
         assert_eq!(result, "hello|7,255,0|4001|fixture-complete");
         server.join().expect("WebSocket fixture server");
     }
