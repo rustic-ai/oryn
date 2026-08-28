@@ -1,6 +1,6 @@
 # Oryn2 Native Proof Gates
 
-The committed implementation horizon is P0 through G4 on macOS ARM64. Gates
+The committed implementation horizon is P0 through G5 on macOS ARM64. Gates
 are evidence-based; they do not carry calendar dates.
 
 ## P0 — Reuse and baseline
@@ -81,4 +81,29 @@ artifacts remain ignored.
   false preservation pass on the exact clean source commit.
 - G4 is closed by the schema-valid, raw-recomputed result at
   `benchmarks/evidence/g4-v1/g4-result-v1.json`. Raw observations, traces, and
+  benchmark samples remain ignored.
+
+## G5 — Autonomous-runtime security
+
+- The trusted V8 worker is confined by the macOS App Sandbox with only the JIT
+  entitlement. Direct filesystem, network, listener, and inherited-secret
+  access fail; all network and persistent authority remains in the parent.
+- Context policy covers cross-origin navigation, submissions, popups, uploads,
+  downloads, clipboard use, credential fills, protected requests, and
+  user-browser delegation with allow, deny, or exact one-use confirmation.
+- Origin-scoped opaque secret handles, observation redaction, structured audit
+  records, and bounded parent-owned download quarantine prevent ambient secret
+  and filesystem authority.
+- Scheme, host, port, resolved-address, redirect, header, body, decompression,
+  IPC, queue, CPU, heap, and RSS controls fail closed. Worker replacement
+  starts a blank generation and invalidates every old semantic reference.
+- Four pinned libFuzzer targets cover HTML construction, DOM mutation, URL
+  policy, and the worker protocol. Rust/V8 versions, checksums, response SLAs,
+  dependency exceptions, and full update qualification are versioned.
+- All 51 required threat-model cases, G1-G4 regressions, native MiniWoB 24/24,
+  strict software checks, signed-worker rejection cases, and production
+  benchmarks pass on the exact clean source commit with zero false semantic
+  reference preservation and zero dependency vulnerabilities.
+- G5 is closed by the schema-valid, raw-recomputed result at
+  `benchmarks/evidence/g5-v1/g5-result-v1.json`. Raw traces, fuzz logs, and
   benchmark samples remain ignored.

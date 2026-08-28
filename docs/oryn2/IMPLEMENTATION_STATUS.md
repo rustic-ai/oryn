@@ -248,10 +248,53 @@ does not imply that later browser-conformance work is complete.
 - The security boundary and deferred items are documented in
   docs/oryn2/G5A_SECURITY.md.
 
+## G5 — complete
+
+- Every native context now owns an explicit policy engine for cross-origin
+  navigation, form submission, popups, uploads, downloads, clipboard access,
+  credential fills, protected requests, and user-browser delegation. Exact
+  request confirmations are random and one-use; all decisions are recorded in
+  a structured parent audit log.
+- Credentials enter parent-owned memory as opaque, origin-scoped, revocable
+  handles. Secret storage is zeroized on removal, handle debug output is
+  redacted, password observations never expose values, and the production
+  security probe proves secret material is absent from observations and policy
+  audit records.
+- Downloads enter a bounded parent-owned quarantine with sanitized basenames,
+  content hashes, media metadata, and explicit release. Page content never
+  chooses a host path or writes a file implicitly.
+- Network policy now includes host allow/deny lists and port controls in
+  addition to per-hop scheme, DNS/IP, redirect, header, cookie, response, and
+  decompression enforcement. Worker-originated popup and cross-origin
+  navigation requests are checked by the parent.
+- Four immutable libFuzzer entrypoints and curated seeds cover HTML tree
+  construction, DOM mutation/stale identity, URL policy, and bounded worker
+  protocol parsing. The pinned V8 update policy fixes version/checksum,
+  Rust/nightly toolchains, critical/high response SLAs, and the complete signed
+  qualification command.
+- The dependency audit reports zero vulnerabilities. Three informational
+  transitive warnings are explicitly scoped, remediated, and time-bounded in
+  `security/dependency-exceptions.json`; unreviewed or expired warnings fail the
+  gate.
+- The exact clean-tree macOS ARM64 bundle at source commit
+  `6eb164df0e0bd50aa02aae969b6112ff117cdd9c` passed all 51 required G5 cases,
+  all G1-G4 regressions, native MiniWoB 24/24, four fuzz targets with zero
+  crashes, limit/crash recovery, and reference churn with zero false
+  preservation.
+- The parent is 7,449,040 bytes and the worker is 46,970,896 bytes; combined
+  installed size is 54,424,335 bytes and compressed size is 21,890,870 bytes.
+  Startup-to-handshake was 580 ms P50/P95, startup-to-mutation was 590 ms P50
+  and 600 ms P95, parent RSS was 56,492,032 bytes, worker RSS was 56,410,112
+  bytes, and crash restart-to-blank was 570.780 ms.
+- The schema-valid compact result is
+  `benchmarks/evidence/g5-v1/g5-result-v1.json`; its status record is
+  `benchmarks/evidence/g5-v1/STATUS.json`. The validator recomputed the result
+  from 51 manifest cases and 147 content-addressed raw artifacts.
+
 ## Next tracks
 
 - G2R/G5A schema-v4 release evidence remains open pending the private protected
-  signing/model workflows. Later G5 increments own secret handles, the broader
-  policy language, fuzz infrastructure, and pinned V8 update qualification.
-- G6 and G7 follow convergence of G3-G5. G8 remains optional and non-blocking
+  signing/model workflows. G5's local signed security gate is complete; this
+  does not substitute for the separate 96-cell Azure/Qwen release evidence.
+- G6 and G7 are the next implementation tracks. G8 remains optional and non-blocking
   unless a workflow requires screenshot, PDF, or visual verification.
