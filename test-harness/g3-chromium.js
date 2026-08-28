@@ -49,31 +49,36 @@ class CdpTarget {
     }
 
     async connect() {
-        this.socket = new WebSocket(this.target.webSocketDebuggerUrl);
-        this.socket.addEventListener('message', event => {
-            const message = JSON.parse(String(event.data));
-            if (message.id) {
-                const pending = this.pending.get(message.id);
-                if (!pending) return;
-                this.pending.delete(message.id);
-                if (message.error) pending.reject(new Error(message.error.message));
-                else pending.resolve(message.result);
-                return;
-            }
-            if (message.method === 'Runtime.exceptionThrown') {
-                this.diagnostics.push({kind: 'exception', detail: message.params.exceptionDetails.text});
-            }
-            if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') {
-                this.diagnostics.push({kind: 'console_error', detail: message.params.args.map(item => item.value ?? item.description ?? '').join(' ')});
-            }
-        });
-        await new Promise((resolve, reject) => {
-            this.socket.addEventListener('open', resolve, {once: true});
-            this.socket.addEventListener('error', () => reject(new Error('CDP WebSocket failed')), {once: true});
-        });
-        await this.call('Runtime.enable');
-        await this.call('Page.enable');
-        return this;
+        try {
+            this.socket = new WebSocket(this.target.webSocketDebuggerUrl);
+            this.socket.addEventListener('message', event => {
+                const message = JSON.parse(String(event.data));
+                if (message.id) {
+                    const pending = this.pending.get(message.id);
+                    if (!pending) return;
+                    this.pending.delete(message.id);
+                    if (message.error) pending.reject(new Error(message.error.message));
+                    else pending.resolve(message.result);
+                    return;
+                }
+                if (message.method === 'Runtime.exceptionThrown') {
+                    this.diagnostics.push({kind: 'exception', detail: message.params.exceptionDetails.text});
+                }
+                if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') {
+                    this.diagnostics.push({kind: 'console_error', detail: message.params.args.map(item => item.value ?? item.description ?? '').join(' ')});
+                }
+            });
+            await new Promise((resolve, reject) => {
+                this.socket.addEventListener('open', resolve, {once: true});
+                this.socket.addEventListener('error', () => reject(new Error('CDP WebSocket failed')), {once: true});
+            });
+            await this.call('Runtime.enable');
+            await this.call('Page.enable');
+            return this;
+        } catch (error) {
+            await this.close();
+            throw error;
+        }
     }
 
     call(method, params = {}, timeoutMs = 15_000) {
@@ -168,10 +173,20 @@ class ChromiumHarness {
     }
 
     async newPage(url) {
-        const target = await this.json(`/json/new?${encodeURIComponent(url)}`, {method: 'PUT'});
-        const page = await new CdpTarget(target).connect();
-        await page.wait("document.readyState === 'complete'", `load ${url}`);
-        return page;
+        let lastError;
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+            const target = await this.json(`/json/new?${encodeURIComponent(url)}`, {method: 'PUT'});
+            try {
+                const page = await new CdpTarget(target).connect();
+                await page.wait("document.readyState === 'complete'", `load ${url}`);
+                return page;
+            } catch (error) {
+                lastError = error;
+                await fetch(`http://127.0.0.1:${this.port}/json/close/${target.id}`).catch(() => {});
+                if (attempt < 3) await sleep(250);
+            }
+        }
+        throw new Error(`failed to create a responsive Chromium page for ${url}: ${lastError?.message ?? 'unknown error'}`);
     }
 
     async targets() {

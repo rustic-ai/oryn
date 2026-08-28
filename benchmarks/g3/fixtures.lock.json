@@ -28,7 +28,7 @@
     "redirect": "3bc15f932894829932e126ffa9116b5cd34514733cbf59e3a9c8740cfbb73748"
   },
   "harness": {
-    "chromium": "39e02abe6eac2f98cf555c2a449ca6ccbb3d5b1324ff0afdabbcf433b82827d0",
+    "chromium": "c56b4da81ac9e9d459ddb8f15110462370ad4623ca13446125a3fbd4e06ac30b",
     "controlled_regression_validator": "09fcb869a871a0757705bc071df505194b8a56a9ea89af34c644c9886c3d2eb2",
     "framework_validator": "51fd6185ef777c7752aba8e0ea73a2781d025dc1c923ee7783b258c54924093e",
     "limitations_validator": "4b8f0cf2888f79eba5b078aeb5dfd886d048184f580ec75bb42ba8b3154689c5",
