@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 manifest="$repo_root/benchmarks/conformance/g4-manifest-v1.json"
+schema="$repo_root/benchmarks/schema/g4-result-v1.schema.json"
 
 jq -e '
   .schema_version == 1 and .gate == "G4" and .baseline_commit == "8d444f6" and
@@ -25,4 +26,10 @@ jq -e '
   ]))
 ' "$manifest" >/dev/null
 
-echo "G4 conformance manifest is locked and structurally valid"
+jq -e '
+  has("$defs") and
+  (.properties | has("$defs") | not) and
+  (."$defs" | has("sha1") and has("sha256") and has("binary") and has("worker") and has("artifact") and has("case"))
+' "$schema" >/dev/null
+
+echo "G4 conformance manifest and result schema are locked and structurally valid"

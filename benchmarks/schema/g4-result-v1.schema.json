@@ -50,7 +50,7 @@
     "criteria": {"type": "object", "additionalProperties": {"type": "boolean"}},
     "outcome": {
       "type": "object", "additionalProperties": false, "required": ["status", "reason_codes", "diagnostics"],
-      "properties": {"status": {"enum": ["passed", "failed"]}, "reason_codes": {"type": "array", "items": {"type": "string"}}, "diagnostics": {"type": "array", "items": {"type": "string"}}
+      "properties": {"status": {"enum": ["passed", "failed"]}, "reason_codes": {"type": "array", "items": {"type": "string"}}, "diagnostics": {"type": "array", "items": {"type": "string"}}}
     }
   },
   "$defs": {
@@ -91,5 +91,4 @@
       }
     }
   }
-}
 }
