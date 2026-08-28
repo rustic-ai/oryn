@@ -91,6 +91,17 @@ def _canonical_hash(value: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _is_supported_native_runtime(runtime: dict[str, Any]) -> bool:
+    """Accept secure production workers implementing the G2 or G4 protocol."""
+    return (
+        runtime.get("native_v8") is True
+        and runtime.get("build_profile") == "release"
+        and runtime.get("execution_mode") == "sandboxed_worker"
+        and runtime.get("sandboxed") is True
+        and runtime.get("worker_protocol_version") in {3, 4}
+    )
+
+
 def _run_fingerprint(
     args: argparse.Namespace, domains: tuple[str, ...]
 ) -> dict[str, Any]:
@@ -105,13 +116,7 @@ def _run_fingerprint(
             text=True,
         )
     )
-    if "native" in domains and (
-        runtime.get("native_v8") is not True
-        or runtime.get("build_profile") != "release"
-        or runtime.get("execution_mode") != "sandboxed_worker"
-        or runtime.get("sandboxed") is not True
-        or runtime.get("worker_protocol_version") != 3
-    ):
+    if "native" in domains and not _is_supported_native_runtime(runtime):
         raise RuntimeError(
             "deterministic native evidence requires the signed release V8 worker"
         )

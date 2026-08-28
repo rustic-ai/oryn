@@ -1,4 +1,7 @@
-from scripts.run_g2_deterministic import _first_divergence
+from scripts.run_g2_deterministic import (
+    _first_divergence,
+    _is_supported_native_runtime,
+)
 from scripts.serve_g2_miniwob import inject_seed
 
 
@@ -24,3 +27,18 @@ def test_differential_reports_first_instruction_divergence():
         "native": "Click A",
         "chromium": "Click B",
     }
+
+
+def test_secure_native_runtime_accepts_v3_and_v4_protocols():
+    runtime = {
+        "native_v8": True,
+        "build_profile": "release",
+        "execution_mode": "sandboxed_worker",
+        "sandboxed": True,
+        "worker_protocol_version": 3,
+    }
+
+    assert _is_supported_native_runtime(runtime)
+    assert _is_supported_native_runtime({**runtime, "worker_protocol_version": 4})
+    assert not _is_supported_native_runtime({**runtime, "worker_protocol_version": 2})
+    assert not _is_supported_native_runtime({**runtime, "sandboxed": False})
