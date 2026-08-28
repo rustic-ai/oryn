@@ -1,0 +1,1563 @@
+{
+  "schema_version": 1,
+  "gate": "G4",
+  "run_id": "g4-68e5afe14349-macos-arm64",
+  "recorded_at": "2026-08-28T17:38:40.555977Z",
+  "fingerprint": {
+    "source_commit": "68e5afe143490b810301e1ed5d60e6e232209793",
+    "source_dirty": false,
+    "source_tree_sha256": "91f1f2299aecec19aeb3427f45f204605a1737c574e4e1ff30632a8aae13ca07",
+    "manifest_sha256": "b2c57331b1a2735bb52703953f367cfee519af77fcebf13967075d665d7b7690",
+    "wpt_subset_sha256": "3c9d32d7882ab17b8d0a98dec26cc46325061b6bd7c8e0e098409f5c9dbdf3e2",
+    "parent": {
+      "sha256": "b05205062644c9050f387984e9069d9302a8b50119f4e1d417cd819a8a3fd330",
+      "bytes": 7033872,
+      "build_profile": "release"
+    },
+    "worker": {
+      "sha256": "1739c9755c2d59a42121f4ba2d38db588767d0d902072d6f4bcb32b316fa169b",
+      "bytes": 46921472,
+      "protocol_version": 4,
+      "contract_version": 4,
+      "native_v8": true,
+      "v8_version": "15.0.245.2-rusty",
+      "execution_mode": "sandboxed_worker",
+      "sandboxed": true,
+      "sandbox_state": "app_sandbox",
+      "bundle_id": "ai.rustic.oryn.page-worker",
+      "team_id": "5HVA9VFF8K",
+      "signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+      "entitlement_sha256": "f960d04a7d573b582dbbdec00edd57e032e623aa03b786b49ba13f837c6bc0ec",
+      "style_engine_version": "stylo-declarations-0.20+oryn-cascade-v1",
+      "box_engine_version": "taffy-0.14",
+      "inline_engine_version": "parley-0.11.1",
+      "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"
+    },
+    "chromium_version": "Google Chrome 152.0.7977.65"
+  },
+  "corpus": {
+    "manifest_cases": 33,
+    "required_cases": 28,
+    "declared_limitations": 5
+  },
+  "regressions": {
+    "rust_workspace": "passed",
+    "rust_v8": "passed",
+    "strict_clippy_default": "passed",
+    "strict_clippy_v8": "passed",
+    "python_sdk": "passed",
+    "intentgym": "passed",
+    "scanner": "passed",
+    "extension": "passed",
+    "g1": "passed",
+    "g2_controlled": "passed",
+    "native_miniwob_24": "passed",
+    "g3_frameworks_native": "passed",
+    "g3_oauth_native": "passed",
+    "reference_churn": "passed",
+    "signed_production_boundary": "passed"
+  },
+  "metrics": {
+    "required_passed": 28,
+    "required_total": 28,
+    "limitations_reported": 5,
+    "limitations_total": 5,
+    "false_semantic_reference_preservations": 0
+  },
+  "benchmarks": {
+    "schema_version": 1,
+    "suite": "oryn2-g4-production-benchmarks",
+    "recorded_at": "2026-08-28T17:38:17Z",
+    "source_commit": "68e5afe143490b810301e1ed5d60e6e232209793",
+    "source_tree_sha256": "91f1f2299aecec19aeb3427f45f204605a1737c574e4e1ff30632a8aae13ca07",
+    "runtime": {
+      "contract_version": 4,
+      "native_v8": true,
+      "v8_version": "15.0.245.2-rusty",
+      "build_profile": "release",
+      "capabilities": [
+        "native_dom",
+        "html5ever",
+        "rustls_network_broker",
+        "oil",
+        "semantic_v3_compat",
+        "semantic_v4",
+        "v8_javascript",
+        "computed_style",
+        "layout_box",
+        "layout_inline_text",
+        "viewport_scroll",
+        "deterministic_embedded_font"
+      ],
+      "execution_mode": "sandboxed_worker",
+      "sandboxed": true,
+      "worker_protocol_version": 4,
+      "worker_binary_sha256": "1739c9755c2d59a42121f4ba2d38db588767d0d902072d6f4bcb32b316fa169b",
+      "worker_bundle_id": "ai.rustic.oryn.page-worker",
+      "worker_team_id": "5HVA9VFF8K",
+      "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+      "policy_digest": "1f5f10b561897b01bec84d5ec549a0bfefc623da880a90626b379e67e590d13e",
+      "sandbox_state": "app_sandbox",
+      "limits": {
+        "v8_heap_bytes": 268435456,
+        "worker_rss_bytes": 536870912,
+        "ipc_frame_bytes": 25165824,
+        "command_wall_ms": 10000,
+        "navigation_wall_ms": 30000,
+        "queue_capacity": 32,
+        "max_layout_nodes": 100000,
+        "max_font_bytes": 8388608,
+        "max_page_font_bytes": 33554432,
+        "max_viewport_css_px": 16384
+      },
+      "style_engine_version": "stylo-declarations-0.20+oryn-cascade-v1",
+      "box_engine_version": "taffy-0.14",
+      "inline_engine_version": "parley-0.11.1",
+      "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"
+    },
+    "process": {
+      "schema_version": 4,
+      "run_id": "g5a-production-macos-arm64",
+      "captured_at": "2026-08-28T17:37:40Z",
+      "source_commit": "68e5afe143490b810301e1ed5d60e6e232209793",
+      "source_tree_sha256": "91f1f2299aecec19aeb3427f45f204605a1737c574e4e1ff30632a8aae13ca07",
+      "runtime": {
+        "contract_version": 4,
+        "native_v8": true,
+        "v8_version": "15.0.245.2-rusty",
+        "build_profile": "release",
+        "capabilities": [
+          "native_dom",
+          "html5ever",
+          "rustls_network_broker",
+          "oil",
+          "semantic_v3_compat",
+          "semantic_v4",
+          "v8_javascript",
+          "computed_style",
+          "layout_box",
+          "layout_inline_text",
+          "viewport_scroll",
+          "deterministic_embedded_font"
+        ],
+        "execution_mode": "sandboxed_worker",
+        "sandboxed": true,
+        "worker_protocol_version": 4,
+        "worker_binary_sha256": "1739c9755c2d59a42121f4ba2d38db588767d0d902072d6f4bcb32b316fa169b",
+        "worker_bundle_id": "ai.rustic.oryn.page-worker",
+        "worker_team_id": "5HVA9VFF8K",
+        "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+        "policy_digest": "1f5f10b561897b01bec84d5ec549a0bfefc623da880a90626b379e67e590d13e",
+        "sandbox_state": "app_sandbox",
+        "limits": {
+          "v8_heap_bytes": 268435456,
+          "worker_rss_bytes": 536870912,
+          "ipc_frame_bytes": 25165824,
+          "command_wall_ms": 10000,
+          "navigation_wall_ms": 30000,
+          "queue_capacity": 32,
+          "max_layout_nodes": 100000,
+          "max_font_bytes": 8388608,
+          "max_page_font_bytes": 33554432,
+          "max_viewport_css_px": 16384
+        },
+        "style_engine_version": "stylo-declarations-0.20+oryn-cascade-v1",
+        "box_engine_version": "taffy-0.14",
+        "inline_engine_version": "parley-0.11.1",
+        "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"
+      },
+      "artifacts": {
+        "parent": {
+          "sha256": "b05205062644c9050f387984e9069d9302a8b50119f4e1d417cd819a8a3fd330",
+          "installed_bytes": 7033872,
+          "gzip_bytes": 3719469
+        },
+        "worker": {
+          "sha256": "1739c9755c2d59a42121f4ba2d38db588767d0d902072d6f4bcb32b316fa169b",
+          "installed_bytes": 46921472,
+          "gzip_bytes": 17975091,
+          "signature_sha256": "eb1362a4028b0a6b7ea92790abd1b63fa1bd54d93fcd4a199422726a1df3b495",
+          "entitlements_sha256": "f960d04a7d573b582dbbdec00edd57e032e623aa03b786b49ba13f837c6bc0ec"
+        },
+        "worker_app_bytes": 46925871,
+        "combined_installed_bytes": 53959743,
+        "combined_compressed_bytes": 21691132
+      },
+      "measurements": {
+        "samples": 20,
+        "startup_to_handshake_p50_ms": 570,
+        "startup_to_handshake_p95_ms": 580,
+        "startup_to_mutation_p50_ms": 590,
+        "startup_to_mutation_p95_ms": 600,
+        "page_creation": {
+          "schema_version": 4,
+          "pages": 5,
+          "page_handle_creation_ms": 0.097625,
+          "startup_to_page_ready_ms": [
+            605.946417,
+            584.021875,
+            582.157334,
+            582.7686659999999,
+            582.5510409999999
+          ],
+          "total_observation_bytes": 17459
+        },
+        "parent_rss_bytes": 56492032,
+        "worker_rss_bytes": 56213504,
+        "crash_restart": {
+          "infinite_loop_terminated": true,
+          "parent_survived": true,
+          "blank_generation_started": true,
+          "old_reference_invalidated": true,
+          "replacement_generation": 8589934592,
+          "termination_latency_ms": 9513.09175,
+          "restart_to_blank_ms": 489.73904200000004,
+          "status": "passed"
+        }
+      },
+      "outcome": {
+        "status": "passed"
+      }
+    },
+    "layout": {
+      "schema_version": 1,
+      "nodes": 400,
+      "samples": 20,
+      "cold_page_to_geometry_ms": 947.6611660000001,
+      "reflow_p50_ms": 328.617084,
+      "reflow_p95_ms": 330.868542,
+      "observation_bytes": 365403,
+      "passed": true
+    },
+    "outcome": {
+      "status": "passed"
+    }
+  },
+  "artifact_ledger": [
+    {
+      "id": "raw:benchmarks__g4-benchmarks-v1.json",
+      "path": "benchmarks/g4-benchmarks-v1.json",
+      "sha256": "f32e6caec19d7e08682f750bae64b8ae219cfbb3a67a56f9543b22bd5e3025d4",
+      "bytes": 5806,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:benchmarks__layout.json",
+      "path": "benchmarks/layout.json",
+      "sha256": "e0a7ff531c74294cbb53e2ddae79291003428fa3046948072c40dc831eb425ca",
+      "bytes": 219,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:benchmarks__process__live.jsonl",
+      "path": "benchmarks/process/live.jsonl",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:benchmarks__process__live.stderr",
+      "path": "benchmarks/process/live.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__process__mutation-input.txt",
+      "path": "benchmarks/process/mutation-input.txt",
+      "sha256": "8a05cf5e5711816571103fd1fdc37897e6af34c3ce557181982fd620ec5fe418",
+      "bytes": 20,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__process__mutation.jsonl",
+      "path": "benchmarks/process/mutation.jsonl",
+      "sha256": "bd16e9a924628ac60f348d3336e7775cbfc7c4cc318b6400a8041dbd9b8b0c75",
+      "bytes": 1044,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:benchmarks__process__page-creation.json",
+      "path": "benchmarks/process/page-creation.json",
+      "sha256": "7dc87dcdaa913ccd9a7c9c2fa8e2d582624b276642f50c8fc0e579ed18e6d9cc",
+      "bytes": 245,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:benchmarks__process__result.json",
+      "path": "benchmarks/process/result.json",
+      "sha256": "1f13b517efa19c9c738d3bc96c39dc36b52b059999f9297b9e8a38d243b7d6f5",
+      "bytes": 3466,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:benchmarks__process__runtime.json",
+      "path": "benchmarks/process/runtime.json",
+      "sha256": "dca6518ae472bbbf93e9cfdc96057d74e20e6ce967b19539a0d5500af7a7437c",
+      "bytes": 1255,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:benchmarks__process__startup-handshake-ms.txt",
+      "path": "benchmarks/process/startup-handshake-ms.txt",
+      "sha256": "afe29dc427d65e045fb452644c267820bb63f44303bfb1b19337ea34385f6b70",
+      "bytes": 80,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__process__startup-mutation-ms.txt",
+      "path": "benchmarks/process/startup-mutation-ms.txt",
+      "sha256": "14c40c4a3a938ecf1c360095c8d7afde6c85064109eb77f2147b96e09f630581",
+      "bytes": 80,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__process__time.txt",
+      "path": "benchmarks/process/time.txt",
+      "sha256": "54d17845d2fa2b3f83e29e87b7325085e1760e568603c8becbbc362d687c319f",
+      "bytes": 29,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__process__worker-entitlements.plist",
+      "path": "benchmarks/process/worker-entitlements.plist",
+      "sha256": "f960d04a7d573b582dbbdec00edd57e032e623aa03b786b49ba13f837c6bc0ec",
+      "bytes": 281,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__process.stdout.json",
+      "path": "benchmarks/process.stdout.json",
+      "sha256": "1f13b517efa19c9c738d3bc96c39dc36b52b059999f9297b9e8a38d243b7d6f5",
+      "bytes": 3466,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:benchmarks.stdout.json",
+      "path": "benchmarks.stdout.json",
+      "sha256": "f32e6caec19d7e08682f750bae64b8ae219cfbb3a67a56f9543b22bd5e3025d4",
+      "bytes": 5806,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:churn.json",
+      "path": "churn.json",
+      "sha256": "d1094a982653bd5c857e2ea6471b2f67804482c334738eac45c058354de58c6b",
+      "bytes": 3665,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:corpus.log",
+      "path": "corpus.log",
+      "sha256": "8bf9c1e1ff72f627c658225b1fc638db18b2286c369dd086916a153f77035e90",
+      "bytes": 83,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:differential__chromium.json",
+      "path": "differential/chromium.json",
+      "sha256": "6b22f0dbcfef7ae6fb1a71864c6b53c60e5f46c48046d7e840f2b958f1471f3e",
+      "bytes": 444,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:differential__native.json",
+      "path": "differential/native.json",
+      "sha256": "f7513c83b603a7a0cb4dfefa0873e7ebbe17c7dcc88f13f16ae7f8c89cd8eee2",
+      "bytes": 523,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:g1.log",
+      "path": "g1.log",
+      "sha256": "8a49165b74392a012754674e57de84d27c5239102f8ace431130f19ad1c55ec9",
+      "bytes": 46,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:g2-controlled.log",
+      "path": "g2-controlled.log",
+      "sha256": "c5923325b0b87b2bb1daa40597a703f79bdddb7cf56cc739cdbcad156e396143",
+      "bytes": 89,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:g3-controlled__01_static.jsonl",
+      "path": "g3-controlled/01_static.jsonl",
+      "sha256": "bf0f202acff248adf41b0ea0e55fdd702edb91f27ce8c7c9f34c9f1dd2ebb8e3",
+      "bytes": 10931,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-controlled__02_forms.jsonl",
+      "path": "g3-controlled/02_forms.jsonl",
+      "sha256": "a162be180870daf38f2a06e2f02d34cb03cf4247461d4590a6dc2befaf4af77a",
+      "bytes": 33170,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-controlled__03_ecommerce.jsonl",
+      "path": "g3-controlled/03_ecommerce.jsonl",
+      "sha256": "b91ecf50d9bc10c766b4aeedc16cb5ed5a2d7e344afcabea7488ff0721d30380",
+      "bytes": 43970,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-controlled__04_interactivity.jsonl",
+      "path": "g3-controlled/04_interactivity.jsonl",
+      "sha256": "e00188337ebc7d89c223b076666e91c99cdde15d3d9c34d24c591f23b36518e5",
+      "bytes": 38973,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-controlled__05_dynamic.jsonl",
+      "path": "g3-controlled/05_dynamic.jsonl",
+      "sha256": "c5244c95d51d0c6d3def969e062c371e396e2bbd513a2d7e1462022e90738d83",
+      "bytes": 11999,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-controlled__06_edge_cases.jsonl",
+      "path": "g3-controlled/06_edge_cases.jsonl",
+      "sha256": "86ee43b303c160e7043e25c8a84ac6d03629d39823d05c211dd97a76d53d874d",
+      "bytes": 101815,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-controlled__07_intents_builtin.jsonl",
+      "path": "g3-controlled/07_intents_builtin.jsonl",
+      "sha256": "406fd1b75ae2313a6a26a9cd5ba69f9480c3a553d99c6568b0c438494b5db200",
+      "bytes": 126063,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-controlled__08_multipage_flows.jsonl",
+      "path": "g3-controlled/08_multipage_flows.jsonl",
+      "sha256": "0b5f2ef4d23afad169b9e7c496a2b7dcf1da81dbdc7a24a2ef76add824701a33",
+      "bytes": 176126,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-controlled__09_target_resolution.jsonl",
+      "path": "g3-controlled/09_target_resolution.jsonl",
+      "sha256": "2223306193f278416d048aa44577f4be58ce84e6057766248b15be41eca256a2",
+      "bytes": 350644,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-controlled__10_react_spa.jsonl",
+      "path": "g3-controlled/10_react_spa.jsonl",
+      "sha256": "310b59b81da6a1a37f7884a399175a18781681720d904a357a281420d1655c26",
+      "bytes": 265407,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-controlled__11_angular_spa.jsonl",
+      "path": "g3-controlled/11_angular_spa.jsonl",
+      "sha256": "c26431d3fc74a07479e996609f713cb96454483ecd0432ca55968c8353a42063",
+      "bytes": 113692,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-controlled__12_popup_detection.jsonl",
+      "path": "g3-controlled/12_popup_detection.jsonl",
+      "sha256": "708ebca1ba166cc2734657bb9dd79ee0624fc81ace4c7a17a7ac00439d919f98",
+      "bytes": 167447,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-controlled.log",
+      "path": "g3-controlled.log",
+      "sha256": "e4ec7ec03b651467b0d3ef456a3d2fda9f672e176e0d0439e3f141212a6486f9",
+      "bytes": 622,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:g3-fixtures.log",
+      "path": "g3-fixtures.log",
+      "sha256": "9b4385057fc49acb1f0f87d33883a13efd8553428e39d2541af1feb4f13fa0ea",
+      "bytes": 70,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:g3-frameworks__angular-native.jsonl",
+      "path": "g3-frameworks/angular-native.jsonl",
+      "sha256": "769d2267a4ff639f956d41266820cf2610f37ae6c91788b276d2d73fe669c0a1",
+      "bytes": 7879,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-frameworks__chromium.jsonl",
+      "path": "g3-frameworks/chromium.jsonl",
+      "sha256": "bc48c485ee99a9fe4999e72393b419f454d6da03c9866df0149cab0cc8e597a6",
+      "bytes": 916,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-frameworks__next-native.jsonl",
+      "path": "g3-frameworks/next-native.jsonl",
+      "sha256": "0ccf5875f10c454d7261afa45391a1fb7c8843c41604c6dcbe5c9ca7fb0f823d",
+      "bytes": 12130,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-frameworks__nuxt-native.jsonl",
+      "path": "g3-frameworks/nuxt-native.jsonl",
+      "sha256": "bdb4146dd7f66b2cdc239cc84ccf925e27799eeeba37728f87576b155d4561fd",
+      "bytes": 12502,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-frameworks__preact-native.jsonl",
+      "path": "g3-frameworks/preact-native.jsonl",
+      "sha256": "4792b7cb1291d991c4cd76911a64612b4abbf643fe6473c30d71ba7306bece20",
+      "bytes": 7903,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-frameworks__react-native.jsonl",
+      "path": "g3-frameworks/react-native.jsonl",
+      "sha256": "26f10bd3f285f642910ecda479643254b38bf38c16a5ad8e7110eee7e26b176a",
+      "bytes": 49187,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-frameworks__svelte-native.jsonl",
+      "path": "g3-frameworks/svelte-native.jsonl",
+      "sha256": "2421eacaebdc6817db74a2a7f207331541f5615a3fe99b84272eaabd630fc96f",
+      "bytes": 7903,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-frameworks__sveltekit-native.jsonl",
+      "path": "g3-frameworks/sveltekit-native.jsonl",
+      "sha256": "69f0a00e92ee401856e847ef41a0a4c61d235dc3f1ce01d9b3505cc258c91d16",
+      "bytes": 15831,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-frameworks__vue-native.jsonl",
+      "path": "g3-frameworks/vue-native.jsonl",
+      "sha256": "118e2415a6e41bcbf2c5af98045cf0abae330cb25284d4085ff2f02ec0358e49",
+      "bytes": 7873,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-frameworks.log",
+      "path": "g3-frameworks.log",
+      "sha256": "4075f42b6a4e6576c6d72f1403cdf955560a49b7e9a9d8044b381eae8ecb163f",
+      "bytes": 390,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:g3-oauth__chromium.jsonl",
+      "path": "g3-oauth/chromium.jsonl",
+      "sha256": "096c43107e64697f6bfd8e395469162f9a545ff8227da9052779f842c4bc24c3",
+      "bytes": 613,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-oauth__existing-session-sso-native.jsonl",
+      "path": "g3-oauth/existing-session-sso-native.jsonl",
+      "sha256": "c54566e1eac8047e0fe9fc4f68eff069c3d3a1989674cc2ec95bd6915456480d",
+      "bytes": 19002,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-oauth__mfa-handoff-native.jsonl",
+      "path": "g3-oauth/mfa-handoff-native.jsonl",
+      "sha256": "7fdba9ffef877c8ac2713e2d89fb320eb859fbfd3765ad6d10cf22905cdef178",
+      "bytes": 17800,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-oauth__popup-close-recovery-native.jsonl",
+      "path": "g3-oauth/popup-close-recovery-native.jsonl",
+      "sha256": "ec9da1514d3ebd8a7f2749b9698eaf719d746543c126cc151452f5d8bf6e4bf7",
+      "bytes": 19574,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-oauth__popup-pkce-native.jsonl",
+      "path": "g3-oauth/popup-pkce-native.jsonl",
+      "sha256": "3eeb570ac706247ebf24030730dd3662d8e440eadf90c65cace280d340bc90d0",
+      "bytes": 17845,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-oauth__redirect-native.jsonl",
+      "path": "g3-oauth/redirect-native.jsonl",
+      "sha256": "7aba6032783134e937547df8069aeab2112786bba353c0bcc9cae4b651eddb9c",
+      "bytes": 17559,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:g3-oauth.log",
+      "path": "g3-oauth.log",
+      "sha256": "1abd1b7bf5c33e776136cad3e3d84bb711fce7da135d10a06cf3beb171e932c3",
+      "bytes": 294,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:g4-differential.log",
+      "path": "g4-differential.log",
+      "sha256": "a5787020f3d6238603dae6d10fc2655503ae7447f1782d3db9eb5891cea224c0",
+      "bytes": 66,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:g4-layout.json",
+      "path": "g4-layout.json",
+      "sha256": "f7513c83b603a7a0cb4dfefa0873e7ebbe17c7dcc88f13f16ae7f8c89cd8eee2",
+      "bytes": 523,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:g4-limitations.log",
+      "path": "g4-limitations.log",
+      "sha256": "a178a6b867955590782379f2c303c5933231dfdeb17b86db5db4cc08f2c703b7",
+      "bytes": 62,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:g4-manifest.log",
+      "path": "g4-manifest.log",
+      "sha256": "8f89beb60c8672dcde9bf81b3dc613aee238afb0bd310ef7f3d549857394922f",
+      "bytes": 76,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:g4-oil.log",
+      "path": "g4-oil.log",
+      "sha256": "293ceb37f005ec168da4c8872ffaaa9611eb3379aa00944ab23b856408b9ca35",
+      "bytes": 61,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:g4-software.log",
+      "path": "g4-software.log",
+      "sha256": "f364162e35cec5276c0fd6477b7d2f5a61b0ca523cdd814d008717721763c953",
+      "bytes": 977,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:g4-wpt.log",
+      "path": "g4-wpt.log",
+      "sha256": "952c395be51b62f90eeb97ac5d2298d3c2742b8155070a53165a00da0f0f9a38",
+      "bytes": 9607,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:limitations__capabilities.jsonl",
+      "path": "limitations/capabilities.jsonl",
+      "sha256": "eefa16b485761d9e0245975a6c0de452f53f938e543b5ee28a06301b2e6ebef6",
+      "bytes": 3360,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:miniwob__aggregate.json",
+      "path": "miniwob/aggregate.json",
+      "sha256": "5cfc2093f4979d81e0a7752873dcf4bf5ff8c7fedbcf3992dfd00defa62cd2e4",
+      "bytes": 3037,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__choose-date-s17-native-oracle.json",
+      "path": "miniwob/choose-date-s17-native-oracle.json",
+      "sha256": "e611aef0489bab5a93b9ac435727e31474a99083fd560d168344cd73f74643a0",
+      "bytes": 157964,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__choose-date-s42-native-oracle.json",
+      "path": "miniwob/choose-date-s42-native-oracle.json",
+      "sha256": "8ae539b8085dfd8e1768b9e40bc1254bd7e84b9ee2a028dce4669d1380fc3cb5",
+      "bytes": 251039,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__choose-date-s73-native-oracle.json",
+      "path": "miniwob/choose-date-s73-native-oracle.json",
+      "sha256": "849b965b3b6b16cb959496294a23f0340c3ef3b8d00cad42bd7360478c5f2cca",
+      "bytes": 204291,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-button-s17-native-oracle.json",
+      "path": "miniwob/click-button-s17-native-oracle.json",
+      "sha256": "81fc0741c1b155d6870d71cc76a87a126225ee3dd1af413c339086865195d91b",
+      "bytes": 44838,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-button-s42-native-oracle.json",
+      "path": "miniwob/click-button-s42-native-oracle.json",
+      "sha256": "30ac8a766965731bcd429e2088692a536b34480994a6cb5debdb1016cbb6a564",
+      "bytes": 44883,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-button-s73-native-oracle.json",
+      "path": "miniwob/click-button-s73-native-oracle.json",
+      "sha256": "6be4f64209ab5dc67561072c227e226a4ff6587cda98896275b572f273882652",
+      "bytes": 48710,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-link-s17-native-oracle.json",
+      "path": "miniwob/click-link-s17-native-oracle.json",
+      "sha256": "5585d395f7f5c84d3506da84c6da1ab3639f33ae3dd26e10b6564bb22886fb60",
+      "bytes": 43792,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-link-s42-native-oracle.json",
+      "path": "miniwob/click-link-s42-native-oracle.json",
+      "sha256": "7d206d37eee66980e518acc817f1cd1cf1876a32d2469151e1a4aa8415da9a77",
+      "bytes": 41773,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-link-s73-native-oracle.json",
+      "path": "miniwob/click-link-s73-native-oracle.json",
+      "sha256": "30581e2796a6d91c1be8bfc3ba3594f9181dad419a7e78add26e8fc32bb674d9",
+      "bytes": 49402,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-option-s17-native-oracle.json",
+      "path": "miniwob/click-option-s17-native-oracle.json",
+      "sha256": "934db7afd2fef1a259a7b4ec2c7ca989b0f3ee32d561a7307a66332aeec951c8",
+      "bytes": 69869,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-option-s42-native-oracle.json",
+      "path": "miniwob/click-option-s42-native-oracle.json",
+      "sha256": "07d3935cd532bf73a338ccfe2f60829f3fbec76c97327c5c6652ccf08253407c",
+      "bytes": 63917,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-option-s73-native-oracle.json",
+      "path": "miniwob/click-option-s73-native-oracle.json",
+      "sha256": "b69a338baacb894f97ca99ab9da81a1aebb9aaef90ff73d65b4d9f2bbabfda55",
+      "bytes": 66887,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__enter-text-s17-native-oracle.json",
+      "path": "miniwob/enter-text-s17-native-oracle.json",
+      "sha256": "67a0927c7d46e368cc045d602ba6baae1b107e536d9c27e4b9cac01b05efb9cb",
+      "bytes": 57762,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__enter-text-s42-native-oracle.json",
+      "path": "miniwob/enter-text-s42-native-oracle.json",
+      "sha256": "c7a591347e762867fb1d4dc3bc7a401cd403d761516200990487245375820e44",
+      "bytes": 57760,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__enter-text-s73-native-oracle.json",
+      "path": "miniwob/enter-text-s73-native-oracle.json",
+      "sha256": "d32ebcf39da9e8a1ba3cc25c18fb87bab06012eb5207e6fe2202007e72743475",
+      "bytes": 57758,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__focus-text-s17-native-oracle.json",
+      "path": "miniwob/focus-text-s17-native-oracle.json",
+      "sha256": "e2472d328ade177c3f3af755cda3e6dcc4daf15d15a4cb4d99ca1061dd23251b",
+      "bytes": 39791,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__focus-text-s42-native-oracle.json",
+      "path": "miniwob/focus-text-s42-native-oracle.json",
+      "sha256": "4f3670249ba70f8c1601c7b11011026045f0a42a65f5c443df1bb5d9deae91f2",
+      "bytes": 39792,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__focus-text-s73-native-oracle.json",
+      "path": "miniwob/focus-text-s73-native-oracle.json",
+      "sha256": "3cba1ee733eabce919521906a42a198eff2b0c0f9c637e2ee62507025816ba9e",
+      "bytes": 39791,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__login-user-s17-native-oracle.json",
+      "path": "miniwob/login-user-s17-native-oracle.json",
+      "sha256": "41ac32875363da561443a373ee6c68a9b93562a966d89aa025c2467473626efb",
+      "bytes": 77373,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__login-user-s42-native-oracle.json",
+      "path": "miniwob/login-user-s42-native-oracle.json",
+      "sha256": "5a84b4ac4a2ef864442a8e6ab7fd5873a1f2dde35676e850c545e0a7368995b1",
+      "bytes": 77335,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__login-user-s73-native-oracle.json",
+      "path": "miniwob/login-user-s73-native-oracle.json",
+      "sha256": "0ac93b9a29581dcdd80227027e3aa95ec27f21fa7b17e508f10a351272ac6796",
+      "bytes": 77362,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__search-engine-s17-native-oracle.json",
+      "path": "miniwob/search-engine-s17-native-oracle.json",
+      "sha256": "941c453ab9e5bbdd9c6758e61aea1f1ed991864696726067391764f83f30c788",
+      "bytes": 137037,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__search-engine-s42-native-oracle.json",
+      "path": "miniwob/search-engine-s42-native-oracle.json",
+      "sha256": "1bdcf18d87dac23afddba3133f5213147b5cfd4a49c26d97cf314dc5299ccac7",
+      "bytes": 136861,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__search-engine-s73-native-oracle.json",
+      "path": "miniwob/search-engine-s73-native-oracle.json",
+      "sha256": "353cd9f9142af8c6f555fa6f20987aaffd28770b4e6e3be1b379c968a16c59a0",
+      "bytes": 135407,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob-fixture.json",
+      "path": "miniwob-fixture.json",
+      "sha256": "64351264ad9e700a2d8b8d4f98ec1dc2825b1649f88cac4248c83168906c0c6a",
+      "bytes": 278,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob-server.log",
+      "path": "miniwob-server.log",
+      "sha256": "90ef29bd7ed93ec969f1bafb1c3bda5ad847381da9044b95cb0b3de540452033",
+      "bytes": 11998,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:oil__oil.jsonl",
+      "path": "oil/oil.jsonl",
+      "sha256": "8dbc2a4d58825093940e2302f63bf19fb63b9dd3476a4956f00aee331431ee39",
+      "bytes": 11149,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:production-gate.json",
+      "path": "production-gate.json",
+      "sha256": "9358eeaaad8b902ef389676a82ad363d03b2f0455268f82a522530a52636b1cf",
+      "bytes": 15498,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:runtime.json",
+      "path": "runtime.json",
+      "sha256": "c8e07253e128975d2e940f7b3b4484a0ca78800acb9c3db6732c8bf27224e8b2",
+      "bytes": 1458,
+      "kind": "runtime_metadata"
+    },
+    {
+      "id": "raw:signed-worker.log",
+      "path": "signed-worker.log",
+      "sha256": "ca4f957a3a01a9a1a2d8beedcf4e38408bd2749df4c3a1626396d3bd356588bc",
+      "bytes": 3511,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__extension-e2e.log",
+      "path": "software/extension-e2e.log",
+      "sha256": "58c6553c14a5a06e1c713db30048485c1ae1936bcf38b7bba8636aaf004fe7ca",
+      "bytes": 269,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__extension-integration.log",
+      "path": "software/extension-integration.log",
+      "sha256": "ecc0378eb6d171f3fd2eea662bbfa4c4ce1627045f6b4166ccb8de2529847203",
+      "bytes": 247,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__extension-lint.log",
+      "path": "software/extension-lint.log",
+      "sha256": "ffb8e70f3c0c83a49f6d52a1246cd45166ce5bff46aa4033dbf70e4424d4f375",
+      "bytes": 2667,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__extension-unit.log",
+      "path": "software/extension-unit.log",
+      "sha256": "ac2245b08e0a20db4d4c85c18e49e6628c85767be9e9891cee65f33d76bb466c",
+      "bytes": 262,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__extension-wasm.log",
+      "path": "software/extension-wasm.log",
+      "sha256": "db97c73f6222b4b2e54e7d8cf34ebcb6afac4c684beae4f87255b9adbc7749a8",
+      "bytes": 959,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__g4-manifest.log",
+      "path": "software/g4-manifest.log",
+      "sha256": "8f89beb60c8672dcde9bf81b3dc613aee238afb0bd310ef7f3d549857394922f",
+      "bytes": 76,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__g4-wpt.log",
+      "path": "software/g4-wpt.log",
+      "sha256": "f56b549f155e745b327fe9eff48eee7da16b30266b627ae66afbd34e92cbd2cf",
+      "bytes": 9607,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__intentgym-black.log",
+      "path": "software/intentgym-black.log",
+      "sha256": "16c0ebf477b6d058ded4eab6a0777bdeeacfe7db434c17e94a63e343e1f50283",
+      "bytes": 57,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__intentgym-isort.log",
+      "path": "software/intentgym-isort.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__intentgym-tests.log",
+      "path": "software/intentgym-tests.log",
+      "sha256": "c09a087f4a05a30b71b3db60f19d5b0521c06280ee7f2b29b569fdd620478700",
+      "bytes": 99,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__python-format.log",
+      "path": "software/python-format.log",
+      "sha256": "a0a0f191878d553ae2b88299d5ead34d7a6367937ff1bd9e304fb73059c83f8a",
+      "bytes": 27,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__python-ruff.log",
+      "path": "software/python-ruff.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__python-tests.log",
+      "path": "software/python-tests.log",
+      "sha256": "1d11102cedee13a7cd05dcb885082e083463d2fb8c8e243c2b3a3659b9130193",
+      "bytes": 111,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__rust-clippy-default.log",
+      "path": "software/rust-clippy-default.log",
+      "sha256": "8d92a3370e7067062172803e4f0f03ee73d4a6c7daf1b781dabe5da58170b9f5",
+      "bytes": 222,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__rust-clippy-v8.log",
+      "path": "software/rust-clippy-v8.log",
+      "sha256": "000be2b4a60430eaacc2b056d73351df286adf241b657e88b2feb4411cb53747",
+      "bytes": 222,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__rust-fmt.log",
+      "path": "software/rust-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__rust-v8.log",
+      "path": "software/rust-v8.log",
+      "sha256": "6223108b67fd9348ab54293cec15a68c81061eeee8eef49fa3177269a152fa2b",
+      "bytes": 10424,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__rust-workspace.log",
+      "path": "software/rust-workspace.log",
+      "sha256": "f371d4734b671bdb88a93fc4b5ca384ae5eedd2fe915d2c485029a5f538789a2",
+      "bytes": 20194,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__scanner-format.log",
+      "path": "software/scanner-format.log",
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20",
+      "bytes": 66,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__scanner-lint.log",
+      "path": "software/scanner-lint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__scanner-sync.log",
+      "path": "software/scanner-sync.log",
+      "sha256": "a1bd92a156aed3eb96d190cb2507a7fa3db4cb5ce1ae14eaa5be062781b6aa34",
+      "bytes": 210,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__scanner-tests.log",
+      "path": "software/scanner-tests.log",
+      "sha256": "d14ca9a89bef323452f9094b2347a43ff105d32b279638eec93ca87930f4cb5f",
+      "bytes": 2108,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:worker-integration.txt",
+      "path": "worker-integration.txt",
+      "sha256": "8ee367e229d49cfbf277328a4a47e6f5197a3da804612017239ac4487a8c475e",
+      "bytes": 64,
+      "kind": "test_log"
+    }
+  ],
+  "case_ledger": [
+    {
+      "id": "contract-v4-roundtrip",
+      "category": "contract",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "contract-v3-adapter-no-invented-geometry",
+      "category": "contract",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "worker-protocol-v4-layout-fingerprint",
+      "category": "worker",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:runtime.json",
+        "raw:worker-integration.txt"
+      ]
+    },
+    {
+      "id": "cascade-author-inline-inheritance",
+      "category": "style",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "cascade-specificity-source-order",
+      "category": "style",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "custom-properties-fallback",
+      "category": "style",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "media-width-color-motion",
+      "category": "style",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "cssom-computed-style-readonly",
+      "category": "cssom",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "cssom-stylesheet-insert-delete",
+      "category": "cssom",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "external-css-import-broker",
+      "category": "cssom",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "block-box-model",
+      "category": "layout",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "flex-relational-geometry",
+      "category": "layout",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "grid-relational-geometry",
+      "category": "layout",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "bounded-float-clear",
+      "category": "layout",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "absolute-relative-fixed-position",
+      "category": "layout",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "two-dimensional-transform-bounds",
+      "category": "layout",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "inline-shaping-line-fragments",
+      "category": "text",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "deterministic-embedded-font",
+      "category": "font",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "brokered-web-font-hash-quota",
+      "category": "font",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "viewport-resize-reflow",
+      "category": "viewport",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "scroll-clamp-and-into-view",
+      "category": "viewport",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "fixed-position-survives-scroll",
+      "category": "viewport",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "viewport-only-observation",
+      "category": "semantic_geometry",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "oil-box-viewport-media-scroll",
+      "category": "oil",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:oil__oil.jsonl"
+      ]
+    },
+    {
+      "id": "action-auto-scroll-interactability",
+      "category": "action",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "hidden-zero-pointer-rejection",
+      "category": "action",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "closed-shadow-layout-semantic-isolation",
+      "category": "security",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:production-gate.json",
+        "raw:g4-layout.json",
+        "raw:software__rust-v8.log",
+        "raw:software__g4-wpt.log"
+      ]
+    },
+    {
+      "id": "native-chromium-relational-differential",
+      "category": "differential",
+      "disposition": "required",
+      "status": "passed",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "passed"
+      },
+      "evidence": [
+        "raw:differential__native.json",
+        "raw:differential__chromium.json"
+      ]
+    },
+    {
+      "id": "table-structured-extraction-no-geometry",
+      "category": "limitation",
+      "disposition": "declared_limitation",
+      "status": "expected_limitation",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:limitations__capabilities.jsonl"
+      ],
+      "expected_capability": "layout.table"
+    },
+    {
+      "id": "paint-screenshot-pdf",
+      "category": "limitation",
+      "disposition": "declared_limitation",
+      "status": "expected_limitation",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:limitations__capabilities.jsonl"
+      ],
+      "expected_capability": "paint"
+    },
+    {
+      "id": "paint-order-hit-testing",
+      "category": "limitation",
+      "disposition": "declared_limitation",
+      "status": "expected_limitation",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:limitations__capabilities.jsonl"
+      ],
+      "expected_capability": "layout.hit_testing.paint_order"
+    },
+    {
+      "id": "three-dimensional-transforms",
+      "category": "limitation",
+      "disposition": "declared_limitation",
+      "status": "expected_limitation",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:limitations__capabilities.jsonl"
+      ],
+      "expected_capability": "layout.transform.3d"
+    },
+    {
+      "id": "complex-float-fragmentation",
+      "category": "limitation",
+      "disposition": "declared_limitation",
+      "status": "expected_limitation",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      },
+      "evidence": [
+        "raw:limitations__capabilities.jsonl"
+      ],
+      "expected_capability": "layout.float.complex"
+    }
+  ],
+  "criteria": {
+    "required_native_cases_pass": true,
+    "declared_limitations_are_explicit": true,
+    "native_chromium_relations_match": true,
+    "existing_g1_g2_g3_behavior_passes": true,
+    "false_reference_preservation_is_zero": true,
+    "signed_process_boundary_passes": true,
+    "production_benchmarks_published": true
+  },
+  "outcome": {
+    "status": "passed",
+    "reason_codes": [],
+    "diagnostics": []
+  }
+}

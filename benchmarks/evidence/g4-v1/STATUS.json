@@ -1,12 +1,23 @@
 {
   "schema_version": 1,
   "gate": "G4",
-  "status": "open",
-  "current_result": null,
-  "implementation_state": "in_progress",
-  "blocking_checks": [
-    "exact clean-tree signed production bundle has not yet completed the G4 production gate",
-    "schema-valid g4-result-v1 evidence has not yet been generated from raw artifacts"
-  ],
-  "note": "The status remains open until validators recompute all required cases and declared limitations from the exact signed production bundle."
+  "status": "closed",
+  "current_result": "benchmarks/evidence/g4-v1/g4-result-v1.json",
+  "implementation_state": "complete",
+  "blocking_checks": [],
+  "closure": {
+    "run_id": "g4-68e5afe14349-macos-arm64",
+    "tested_source_commit": "68e5afe143490b810301e1ed5d60e6e232209793",
+    "source_tree_sha256": "91f1f2299aecec19aeb3427f45f204605a1737c574e4e1ff30632a8aae13ca07",
+    "recorded_at": "2026-08-28T17:38:40.555977Z",
+    "signed_production_boundary": "passed",
+    "required_manifest_cases": "28/28",
+    "truthful_declared_limitations": "5/5",
+    "controlled_oil": "12/12",
+    "native_miniwob": "24/24",
+    "false_semantic_reference_preservations": 0,
+    "software_regressions": "passed",
+    "production_benchmarks": "passed"
+  },
+  "note": "G4 closed after the exact clean-tree macOS ARM64 bundle passed the signed production gate and the compact result was recomputed from 33 manifest-bound cases and 114 content-addressed raw artifacts. Paint and the five declared geometry limitations remain explicit capability boundaries. G2R/G5A schema-v4 release evidence remains a separate open gate."
 }

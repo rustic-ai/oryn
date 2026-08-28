@@ -1,6 +1,6 @@
 # Oryn2 Native Proof Gates
 
-The committed implementation horizon is P0 through G3 on macOS ARM64. Gates
+The committed implementation horizon is P0 through G4 on macOS ARM64. Gates
 are evidence-based; they do not carry calendar dates.
 
 ## P0 — Reuse and baseline
@@ -61,3 +61,24 @@ benchmark manifest introduced during P0.
 G3 is closed by the schema-valid, raw-recomputed result at
 `benchmarks/evidence/g3-v1/g3-result-v1.json`. Raw traces and application build
 artifacts remain ignored.
+
+## G4 — Deterministic style and layout
+
+- Contract v4 exposes deterministic computed style, box geometry, inline text,
+  viewport, media state, scrolling, and geometry-aware semantic observations.
+- Author declarations are parsed through Stylo, bounded block/flex/grid and
+  simple float geometry is computed through Taffy, and inline text is measured
+  through Parley using the frozen embedded Noto Sans asset.
+- Geometry participates in OIL targeting and action interactability without
+  fabricating paint-order hit testing. Full-document navigation resets viewport
+  scroll state before new-document interactability checks.
+- All 28 required manifest cases pass natively and through the declared
+  Chromium differential assertions. The five declared limitations—table
+  geometry, paint-order hit testing, 3D transforms, complex float exclusion,
+  and paint—emit their expected capability diagnostics.
+- G1/G2/G3 regressions, controlled OIL 12/12, framework and OAuth coverage,
+  native MiniWoB 24/24, signed sandbox checks, and reference churn with zero
+  false preservation pass on the exact clean source commit.
+- G4 is closed by the schema-valid, raw-recomputed result at
+  `benchmarks/evidence/g4-v1/g4-result-v1.json`. Raw observations, traces, and
+  benchmark samples remain ignored.

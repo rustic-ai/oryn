@@ -186,6 +186,34 @@ does not imply that later browser-conformance work is complete.
   `benchmarks/evidence/g3-v1/STATUS.json`. The validator recomputed the result
   from 48 manifest-bound cases and content-addressed raw artifacts.
 
+## G4 — complete
+
+- Contract v4 adds worker-owned computed style, box geometry, inline text
+  fragments, viewport/media state, scrolling, geometry observation, box
+  queries, and action interactability while retaining contract-v3 adapters.
+- Author CSS declarations use Stylo parsing and a deterministic bounded
+  cascade. Taffy supplies the supported block/flex/grid and simple-float box
+  model; Parley measures inline text with a frozen embedded Noto Sans font.
+  Unavailable system fonts fall back deterministically rather than producing
+  zero-width glyph runs.
+- Full-document navigation now resets scroll and layout state. Forced OIL
+  interaction is explicit in the typed worker protocol, while ordinary clicks
+  require a visible pointer-interactable box. Same-document fragment
+  navigation preserves the live DOM and document generation.
+- All 28 required G4 manifest entries pass; all five declared limitations
+  report the expected capability instead of fabricated geometry. G1/G2/G3,
+  controlled OIL 12/12, frameworks, OAuth, native MiniWoB 24/24, signed worker
+  isolation, and semantic churn all pass with zero false preservation.
+- The exact clean-tree macOS ARM64 bundle at source commit
+  `68e5afe143490b810301e1ed5d60e6e232209793` passed the complete production
+  gate. The parent is 7,033,872 bytes and the worker is 46,921,472 bytes;
+  combined installed size is 53,959,743 bytes and compressed size is
+  21,691,132 bytes. Startup-to-handshake was 570 ms P50 and 580 ms P95.
+- The 400-node layout benchmark measured 947.661 ms cold page-to-geometry,
+  328.617 ms reflow P50, and 330.869 ms P95 over 20 samples. The schema-valid
+  compact result is `benchmarks/evidence/g4-v1/g4-result-v1.json`, recomputed
+  from 33 manifest cases and 114 content-addressed raw artifacts.
+
 ## G5A — implemented, release evidence pending
 
 - Public native callers now use a protocol-v2 page worker on macOS. V8, the
@@ -222,9 +250,6 @@ does not imply that later browser-conformance work is complete.
 
 ## Next tracks
 
-- G4 can now begin on the stabilized G3 application surface: Stylo computed
-  style, Taffy box geometry, inline text layout, scrolling, and explicit table
-  capability boundaries.
 - G2R/G5A schema-v4 release evidence remains open pending the private protected
   signing/model workflows. Later G5 increments own secret handles, the broader
   policy language, fuzz infrastructure, and pinned V8 update qualification.
