@@ -40,7 +40,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let html = format!(
         "<style>.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;width:1200px}}.card{{height:28px}}</style><main class=grid>{cards}</main>"
     );
-    let page = Browser::new().new_context().new_page();
+    // Keep the context owner alive for the duration of the benchmark. Page
+    // workers intentionally hold only a weak context reference so dropping a
+    // context closes its pages and parent-owned broker services.
+    let context = Browser::new().new_context();
+    let page = context.new_page();
     let cold = Instant::now();
     page.load_html("https://g4.example.test/benchmark", html)
         .await?;
@@ -57,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let semantic_cards = first
         .nodes
         .iter()
-        .filter(|node| node.semantic.name.starts_with("Card "))
+        .filter(|node| node.semantic.role == "button" && node.semantic.name.starts_with("Card "))
         .count();
     let mut timings = Vec::with_capacity(samples);
     for sample in 0..samples {
