@@ -63,6 +63,7 @@ expected_exceptions = {
     ("bincode", "1.3.3", "RUSTSEC-2025-0141"),
     ("paste", "1.0.15", "RUSTSEC-2024-0436"),
     ("chacha20", "0.10.1", "yanked"),
+    ("ttf-parser", "0.25.1", "RUSTSEC-2026-0192"),
 }
 if exception_keys != expected_exceptions:
     fail("dependency exceptions do not exactly match the reviewed lockfile warnings")
