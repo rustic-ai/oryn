@@ -12,6 +12,7 @@ members = [
     "crates/oryn",
     "crates/oryn-native",
     "crates/oryn-layout",
+    "crates/oryn-render",
     "crates/oryn-webidl",
     "crates/oryn-domain",
 ]

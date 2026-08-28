@@ -12,7 +12,8 @@ use std::{
 };
 
 use oryn_common::v4::{
-    BoxModel, CssRect, EdgeSizes, GeometryAvailability, NodeGeometry, ScrollState, ViewportState,
+    BoxModel, CssRect, EdgeSizes, GeometryAvailability, NodeGeometry, PaintTextFragment,
+    ScrollState, ViewportState,
 };
 use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, Layout, LayoutContext, StyleProperty,
@@ -117,6 +118,8 @@ pub enum ColorScheme {
 pub struct LayoutOutput {
     pub computed_styles: BTreeMap<u64, BTreeMap<String, String>>,
     pub geometry: BTreeMap<u64, NodeGeometry>,
+    #[serde(default)]
+    pub text_fragments: BTreeMap<u64, Vec<PaintTextFragment>>,
     pub scroll: ScrollState,
     #[serde(default)]
     pub diagnostics: Vec<String>,
@@ -280,6 +283,7 @@ pub fn compute(input: &LayoutInput, limits: &LayoutLimits) -> Result<LayoutOutpu
         .map(|node| node.id)
         .collect::<Vec<_>>();
     let mut geometry = BTreeMap::new();
+    let mut text_fragments = BTreeMap::new();
     let mut text_engine = TextEngine::new(&web_fonts);
     let mut cursor_y = 0.0;
     for root in roots {
@@ -293,6 +297,7 @@ pub fn compute(input: &LayoutInput, limits: &LayoutLimits) -> Result<LayoutOutpu
             &by_id,
             &computed_styles,
             &mut geometry,
+            &mut text_fragments,
             input,
             false,
             &mut diagnostics,
@@ -325,6 +330,7 @@ pub fn compute(input: &LayoutInput, limits: &LayoutLimits) -> Result<LayoutOutpu
     Ok(LayoutOutput {
         computed_styles,
         geometry,
+        text_fragments,
         scroll,
         diagnostics,
         loaded_fonts,
@@ -803,6 +809,7 @@ fn layout_node(
     by_id: &BTreeMap<u64, &LayoutNode>,
     styles: &BTreeMap<u64, BTreeMap<String, String>>,
     geometry: &mut BTreeMap<u64, NodeGeometry>,
+    text_fragments: &mut BTreeMap<u64, Vec<PaintTextFragment>>,
     input: &LayoutInput,
     ancestor_hidden: bool,
     diagnostics: &mut Vec<String>,
@@ -830,6 +837,7 @@ fn layout_node(
                 by_id,
                 styles,
                 geometry,
+                text_fragments,
                 input,
                 true,
                 diagnostics,
@@ -948,12 +956,12 @@ fn layout_node(
         )
     };
     let text_layout = text_engine.shape(
-        &node.text,
+        &intrinsic_text,
         content_width.max(1.0),
         font_size,
         style_value(style, "font-family", DEFAULT_FONT_FAMILY),
     );
-    let intrinsic_text_height = text_layout.height.max(if node.text.is_empty() {
+    let intrinsic_text_height = text_layout.height.max(if intrinsic_text.is_empty() {
         0.0
     } else {
         line_height
@@ -1000,6 +1008,7 @@ fn layout_node(
                 by_id,
                 styles,
                 geometry,
+                text_fragments,
                 input,
                 false,
                 diagnostics,
@@ -1020,6 +1029,7 @@ fn layout_node(
                 by_id,
                 styles,
                 geometry,
+                text_fragments,
                 input,
                 false,
                 diagnostics,
@@ -1075,7 +1085,7 @@ fn layout_node(
         .unwrap_or(1.0);
     let pointer_events = style_value(style, "pointer-events", "auto");
     let in_viewport = rect.intersects(viewport_rect);
-    let client_rects = if node.text.is_empty() {
+    let client_rects = if intrinsic_text.is_empty() {
         if rect.width > 0.0 && rect.height > 0.0 {
             vec![rect]
         } else {
@@ -1094,6 +1104,28 @@ fn layout_node(
             })
             .collect()
     };
+    if !intrinsic_text.is_empty() {
+        let color = style_value(style, "color", "#000000").to_string();
+        let font_family = style_value(style, "font-family", DEFAULT_FONT_FAMILY).to_string();
+        let fragments = text_layout
+            .lines
+            .iter()
+            .enumerate()
+            .map(|(line, (text, width, height))| PaintTextFragment {
+                text: text.clone(),
+                rect: CssRect {
+                    x: rect.x + border.left + padding.left,
+                    y: rect.y + border.top + padding.top + line as f64 * line_height,
+                    width: (*width).min(content_width),
+                    height: (*height).max(line_height),
+                },
+                font_family: font_family.clone(),
+                font_size,
+                color: color.clone(),
+            })
+            .collect::<Vec<_>>();
+        text_fragments.insert(id, fragments);
+    }
     geometry.insert(
         id,
         NodeGeometry {

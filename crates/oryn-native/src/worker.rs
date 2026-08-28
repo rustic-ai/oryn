@@ -146,6 +146,7 @@ pub enum WorkerRequest {
     BoxModel {
         target: SemanticRef,
     },
+    PaintSnapshot,
     SetViewport {
         viewport: oryn_common::v4::ViewportState,
     },
@@ -215,6 +216,9 @@ pub enum WorkerResponse {
     },
     BoxModel {
         box_model: oryn_common::v4::BoxModel,
+    },
+    PaintSnapshot {
+        snapshot: Box<oryn_common::v4::PaintSnapshot>,
     },
     Viewport {
         viewport: oryn_common::v4::ViewportState,
@@ -552,6 +556,12 @@ async fn dispatch(
         }
         WorkerRequest::BoxModel { target } => match session.page.box_model(target).await {
             Ok(box_model) => WorkerResponse::BoxModel { box_model },
+            Err(value) => error(value),
+        },
+        WorkerRequest::PaintSnapshot => match session.page.paint_snapshot().await {
+            Ok(snapshot) => WorkerResponse::PaintSnapshot {
+                snapshot: Box::new(snapshot),
+            },
             Err(value) => error(value),
         },
         WorkerRequest::SetViewport { viewport } => {

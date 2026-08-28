@@ -102,6 +102,7 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
             "layout_inline_text".into(),
             "viewport_scroll".into(),
             "deterministic_embedded_font".into(),
+            "paint_snapshot".into(),
         ]);
         capabilities
     };

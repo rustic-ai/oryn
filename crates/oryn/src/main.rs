@@ -109,6 +109,15 @@ struct NativeArgs {
     /// Seed for Math.random and Web Crypto during deterministic execution
     #[arg(long, requires = "deterministic_time_ms")]
     random_seed: Option<u64>,
+    /// Write a deterministic CPU-rendered PNG screenshot (requires `render` feature)
+    #[arg(long)]
+    screenshot_out: Option<String>,
+    /// Write a single-page CPU-rendered PDF (requires `render` feature)
+    #[arg(long)]
+    pdf_out: Option<String>,
+    /// Raster scale; defaults to the page device-pixel ratio
+    #[arg(long)]
+    render_scale: Option<f64>,
 }
 
 #[tokio::main]
@@ -140,6 +149,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             record_network,
             deterministic_time_ms,
             random_seed,
+            screenshot_out,
+            pdf_out,
+            render_scale,
         } = native.as_ref();
         if *runtime_info {
             let runtime_info = if *in_process_probe {
@@ -183,6 +195,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         random_seed,
                     },
                 ),
+                screenshot_out: screenshot_out.clone(),
+                pdf_out: pdf_out.clone(),
+                render_scale: *render_scale,
             },
         )
         .await;
@@ -363,6 +378,8 @@ async fn run_native(
         None
     };
 
+    let render_requested =
+        session_options.screenshot_out.is_some() || session_options.pdf_out.is_some();
     if let Some(oil_path) = oil_path {
         let input = std::fs::read_to_string(oil_path)?;
         match session.execute(&input).await {
@@ -377,7 +394,7 @@ async fn run_native(
                 return Err(error.into());
             }
         }
-    } else {
+    } else if !render_requested {
         let interactive = std::io::stdin().is_terminal() || sdk_repl;
         if interactive {
             eprintln!("Native document loaded. Enter OIL; type 'exit' or 'quit' to close.");
@@ -410,6 +427,10 @@ async fn run_native(
         }
     }
 
+    if render_requested {
+        render_artifacts(&page, &session_options).await?;
+    }
+
     if let Some(path) = &session_options.trace_out {
         let trace = context.trace_archive(Vec::new()).await?;
         std::fs::write(path, serde_json::to_vec_pretty(&trace)?)?;
@@ -440,6 +461,47 @@ struct NativeSessionOptions {
     branch_strategy: Option<String>,
     record_network: bool,
     determinism: Option<oryn_native::DeterminismConfig>,
+    screenshot_out: Option<String>,
+    pdf_out: Option<String>,
+    render_scale: Option<f64>,
+}
+
+#[cfg(feature = "render")]
+async fn render_artifacts(
+    page: &oryn_native::PageHandle,
+    options: &NativeSessionOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let snapshot = page.paint_snapshot().await?;
+    let render_options = oryn_render::RenderOptions {
+        scale: options
+            .render_scale
+            .unwrap_or(snapshot.viewport.device_pixel_ratio),
+        ..oryn_render::RenderOptions::default()
+    };
+    if let Some(path) = &options.screenshot_out {
+        let artifact = oryn_render::render_png(&snapshot, render_options)?;
+        std::fs::write(path, artifact.bytes)?;
+        for diagnostic in artifact.diagnostics {
+            eprintln!("render diagnostic: {diagnostic}");
+        }
+    }
+    if let Some(path) = &options.pdf_out {
+        let artifact = oryn_render::render_pdf(&snapshot, render_options)?;
+        std::fs::write(path, artifact.bytes)?;
+        for diagnostic in artifact.diagnostics {
+            eprintln!("render diagnostic: {diagnostic}");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "render"))]
+async fn render_artifacts(
+    _page: &oryn_native::PageHandle,
+    options: &NativeSessionOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let _ = options.render_scale;
+    Err("screenshot/PDF output requires an Oryn build with the optional `render` feature".into())
 }
 
 async fn write_failure_artifact(

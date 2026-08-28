@@ -10,6 +10,8 @@ use std::{
 #[cfg(feature = "v8-host")]
 use std::collections::BTreeSet;
 
+#[cfg(feature = "v8-host")]
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use oryn_common::v3::{
     ActionId, ActionResult, CONTRACT_VERSION, CapabilityDiagnostic, Effect, ExecutionDomain,
     Observation, ObservationDelta, ObservationSource, PageDescriptor, PageId, PageInfo,
@@ -17,9 +19,11 @@ use oryn_common::v3::{
     SemanticRef, SupportLevel,
 };
 use oryn_common::v4::{
-    BoxModel, ComputedStyle, MediaState, ObservationOptions, PreferredColorScheme, ReducedMotion,
-    ScrollState, ViewportState,
+    BoxModel, ComputedStyle, MediaState, ObservationOptions, PaintSnapshot, PreferredColorScheme,
+    ReducedMotion, ScrollState, ViewportState,
 };
+#[cfg(feature = "v8-host")]
+use oryn_common::v4::{PaintImageResource, PaintNodeSnapshot};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "v8-host")]
 use sha2::{Digest, Sha256};
@@ -32,6 +36,8 @@ use crate::context_service::SharedContextClient;
 use crate::context_service::{ContextEvent, ContextEventRecord};
 
 use crate::html::{ParsedDocument, parse};
+#[cfg(feature = "v8-host")]
+use crate::network::NetworkBroker;
 use crate::semantic::{
     empty_observation, is_hidden, project_document, project_document_full, project_element,
 };
@@ -689,6 +695,9 @@ enum PageCommand {
     BoxModel {
         target: SemanticRef,
         reply: oneshot::Sender<Result<BoxModel, RuntimeError>>,
+    },
+    PaintSnapshot {
+        reply: oneshot::Sender<Result<PaintSnapshot, RuntimeError>>,
     },
     SetViewport {
         viewport: ViewportState,
@@ -2038,6 +2047,9 @@ impl BrowserContext {
                     PageCommand::BoxModel { target, reply } => {
                         let _ = reply.send(state.box_model(target));
                     }
+                    PageCommand::PaintSnapshot { reply } => {
+                        let _ = reply.send(state.paint_snapshot());
+                    }
                     PageCommand::SetViewport { viewport, reply } => {
                         let _ = reply.send(state.set_viewport(viewport));
                     }
@@ -2526,6 +2538,25 @@ impl PageHandle {
         response.await.map_err(|_| RuntimeError::Closed)?
     }
 
+    /// Export a bounded, read-only scene input for an optional renderer.
+    /// The page worker retains DOM/V8 ownership; image bytes are acquired only
+    /// through its typed parent network broker.
+    pub async fn paint_snapshot(&self) -> Result<PaintSnapshot, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::PaintSnapshot) {
+            return match response? {
+                crate::worker::WorkerResponse::PaintSnapshot { snapshot } => Ok(*snapshot),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::PaintSnapshot { reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
     pub async fn set_viewport(
         &self,
         viewport: ViewportState,
@@ -2968,6 +2999,8 @@ pub enum RuntimeError {
     LayoutUnavailable(String),
     #[error("geometry is unsupported for this target: {0}")]
     UnsupportedGeometry(String),
+    #[error("native paint snapshot is unavailable: {0}")]
+    PaintUnavailable(String),
     #[error("semantic target is not interactable: {0}")]
     NotInteractable(String),
     #[error("invalid viewport: {0}")]
@@ -4320,6 +4353,210 @@ impl PageState {
         Ok(self.scroll_state)
     }
 
+    #[cfg(feature = "v8-host")]
+    fn paint_snapshot(&mut self) -> Result<PaintSnapshot, RuntimeError> {
+        self.refresh_layout()?;
+        let document = self
+            .document
+            .clone()
+            .ok_or_else(|| RuntimeError::PaintUnavailable("page has no document".into()))?;
+        let layout = self
+            .layout
+            .clone()
+            .ok_or_else(|| RuntimeError::PaintUnavailable("page has no layout snapshot".into()))?;
+        let mut images = Vec::new();
+        let mut image_indexes = BTreeMap::<String, usize>::new();
+        let mut diagnostics = layout.diagnostics.clone();
+        let mut image_bytes = 0usize;
+        let mut nodes = Vec::new();
+
+        for (id, node) in document.dom.iter() {
+            let crate::dom::NodeKind::Element { name } = &node.kind else {
+                continue;
+            };
+            let node_id = pack_node_id(id);
+            let Some(geometry) = layout.geometry.get(&node_id).cloned() else {
+                continue;
+            };
+            let Some(style) = layout.computed_styles.get(&node_id).cloned() else {
+                continue;
+            };
+            let mut image_resource = None;
+            if name.local.as_ref() == "img"
+                && geometry.in_viewport
+                && let Some(source) = node.attributes.get("src")
+            {
+                let resolved = Url::parse(source)
+                    .or_else(|_| Url::parse(&self.url).and_then(|base| base.join(source)));
+                match resolved {
+                    Ok(url) => {
+                        let key = url.as_str().to_string();
+                        if let Some(index) = image_indexes.get(&key).copied() {
+                            image_resource = Some(index);
+                        } else {
+                            match self.load_paint_image(&url) {
+                                Ok(resource)
+                                    if image_bytes.saturating_add(resource.bytes.len())
+                                        <= self.config.max_response_bytes =>
+                                {
+                                    image_bytes += resource.bytes.len();
+                                    let index = images.len();
+                                    image_indexes.insert(key, index);
+                                    images.push(resource);
+                                    image_resource = Some(index);
+                                }
+                                Ok(_) => diagnostics.push(format!(
+                                    "image {url} omitted: paint snapshot image budget exceeded"
+                                )),
+                                Err(error) => diagnostics
+                                    .push(format!("image {url} unavailable for paint: {error}")),
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        diagnostics.push(format!("image source {source:?} is invalid: {error}"))
+                    }
+                }
+            }
+            nodes.push(PaintNodeSnapshot {
+                node_id,
+                tag: name.local.to_string(),
+                geometry,
+                style,
+                text: layout
+                    .text_fragments
+                    .get(&node_id)
+                    .cloned()
+                    .unwrap_or_default(),
+                image_resource,
+            });
+        }
+        Ok(PaintSnapshot {
+            contract_version: oryn_common::v4::CONTRACT_VERSION,
+            page: PageInfo {
+                page_id: self.page_id,
+                opener_page_id: self.opener_page_id,
+                url: self.url.clone(),
+                title: document_title(&document),
+                document_generation: self.document_generation,
+            },
+            revision: Revision(self.revision),
+            style_revision: oryn_common::v4::StyleRevision(self.style_revision),
+            layout_revision: oryn_common::v4::LayoutRevision(self.layout_revision),
+            viewport: self.viewport,
+            scroll: self.scroll_state,
+            nodes,
+            images,
+            diagnostics,
+        })
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn load_paint_image(&mut self, url: &Url) -> Result<PaintImageResource, RuntimeError> {
+        if url.scheme() == "data" {
+            let value = url.as_str().strip_prefix("data:").unwrap_or_default();
+            let (metadata, encoded) = value
+                .split_once(',')
+                .ok_or_else(|| RuntimeError::PaintUnavailable("malformed data URL".into()))?;
+            if !metadata.ends_with(";base64") {
+                return Err(RuntimeError::PaintUnavailable(
+                    "only base64 image data URLs are supported".into(),
+                ));
+            }
+            let media_type = metadata.trim_end_matches(";base64").to_ascii_lowercase();
+            let bytes = BASE64
+                .decode(encoded)
+                .map_err(|error| RuntimeError::PaintUnavailable(error.to_string()))?;
+            return Ok(PaintImageResource {
+                url: url.as_str().into(),
+                media_type,
+                bytes,
+            });
+        }
+        if !matches!(url.scheme(), "http" | "https") {
+            return Err(RuntimeError::PaintUnavailable(format!(
+                "image scheme {} is unsupported",
+                url.scheme()
+            )));
+        }
+        let mut current = url.clone();
+        let mut response = None;
+        for redirect in 0..=self.config.max_redirects {
+            self.next_action_id = self.next_action_id.saturating_add(1);
+            let next = self
+                .broker
+                .as_mut()
+                .ok_or_else(|| {
+                    RuntimeError::PaintUnavailable("network broker is unavailable".into())
+                })?
+                .send(NetworkRequest {
+                    request_id: self.next_action_id,
+                    method: "GET".into(),
+                    url: current.as_str().into(),
+                    headers: vec![("accept".into(), "image/png,image/jpeg,image/*;q=0.8".into())],
+                    body: Vec::new(),
+                    credentials: true,
+                    resolved_addrs: Vec::new(),
+                })
+                .map_err(|error| RuntimeError::PaintUnavailable(error.to_string()))?;
+            if (300..400).contains(&next.status) {
+                if redirect == self.config.max_redirects {
+                    return Err(RuntimeError::PaintUnavailable(
+                        "image redirect limit exceeded".into(),
+                    ));
+                }
+                let location = next
+                    .headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+                    .map(|(_, value)| value)
+                    .ok_or_else(|| {
+                        RuntimeError::PaintUnavailable("image redirect omitted Location".into())
+                    })?;
+                current = current
+                    .join(location)
+                    .map_err(|error| RuntimeError::PaintUnavailable(error.to_string()))?;
+                continue;
+            }
+            response = Some(next);
+            break;
+        }
+        let response = response.ok_or_else(|| {
+            RuntimeError::PaintUnavailable("image redirect loop did not produce a response".into())
+        })?;
+        if !(200..300).contains(&response.status) {
+            return Err(RuntimeError::PaintUnavailable(format!(
+                "image request returned HTTP {}",
+                response.status
+            )));
+        }
+        let media_type = response
+            .headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+            .map(|(_, value)| {
+                value
+                    .split(';')
+                    .next()
+                    .unwrap_or(value)
+                    .trim()
+                    .to_ascii_lowercase()
+            })
+            .unwrap_or_else(|| "application/octet-stream".into());
+        Ok(PaintImageResource {
+            url: current.as_str().into(),
+            media_type,
+            bytes: response.body,
+        })
+    }
+
+    #[cfg(not(feature = "v8-host"))]
+    fn paint_snapshot(&mut self) -> Result<PaintSnapshot, RuntimeError> {
+        Err(RuntimeError::PaintUnavailable(
+            "paint snapshots require the sandboxed V8 page worker".into(),
+        ))
+    }
+
     fn observation_v4(
         &mut self,
         options: ObservationOptions,
@@ -4406,6 +4643,10 @@ impl PageState {
                 ),
                 supported_capability("layout.box", "worker-owned CSS box geometry"),
                 supported_capability("layout.inline_text", "deterministic inline text fragments"),
+                supported_capability(
+                    "paint.snapshot",
+                    "bounded read-only paint input for an optional renderer",
+                ),
                 CapabilityDiagnostic {
                     capability: "layout.float".into(),
                     support: SupportLevel::Partial,
@@ -4432,7 +4673,10 @@ impl PageState {
                     "layout.float.complex",
                     "complex float exclusion, shape-outside, and fragmentation are outside the bounded G4 float subset",
                 ),
-                unsupported_capability("paint", "paint, screenshots, and PDF are deferred to G8"),
+                unsupported_capability(
+                    "paint",
+                    "the native core exports a paint snapshot but intentionally owns no rasterizer; use the optional oryn-render package",
+                ),
             ]);
             capabilities.extend([
                 unsupported_capability(
@@ -7902,6 +8146,35 @@ mod tests {
             )
             .await
             .expect("exact confirmation permits cookie handoff");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test]
+    async fn paint_snapshot_is_worker_neutral_and_broker_complete() {
+        let context = Browser::in_process_with_config(BrowserConfig::default()).new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://paint.example.test/",
+            r#"<!doctype html><style>
+              body{margin:0;background-color:#fefefe}
+              #card{width:120px;height:40px;background-color:#123456;color:#ffffff;border:2px solid #000000}
+              img{width:8px;height:8px}
+            </style><div id=card>Paint me</div>
+            <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">"#,
+        )
+        .await
+        .expect("load paint fixture");
+        let snapshot = page.paint_snapshot().await.expect("paint snapshot");
+        assert_eq!(snapshot.contract_version, oryn_common::v4::CONTRACT_VERSION);
+        assert_eq!(snapshot.images.len(), 1);
+        assert_eq!(snapshot.images[0].media_type, "image/png");
+        assert!(snapshot.nodes.iter().any(|node| {
+            node.style.contains_key("background-color")
+                && node
+                    .text
+                    .iter()
+                    .any(|fragment| fragment.text.contains("Paint me"))
+        }));
     }
 
     #[cfg(feature = "v8-host")]

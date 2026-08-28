@@ -1,0 +1,27 @@
+[package]
+name = "oryn-render"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Optional CPU-first renderer for Oryn paint snapshots"
+
+[dependencies]
+oryn-common = { path = "../oryn-common" }
+oryn-layout = { path = "../oryn-layout" }
+oryn-native = { path = "../oryn-native" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt"] }
+fontdue = "0.9"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+flate2 = "1"
+
+[[bin]]
+name = "oryn-render"
+path = "src/main.rs"
+
+[[example]]
+name = "g8_compare"
+path = "examples/g8_compare.rs"

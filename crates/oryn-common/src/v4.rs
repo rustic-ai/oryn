@@ -23,6 +23,75 @@ pub struct CssRect {
     pub height: f64,
 }
 
+/// A shaped text run positioned by the worker-owned layout engine.  This is a
+/// neutral transfer contract: it contains no rasterizer or page state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaintTextFragment {
+    pub text: String,
+    pub rect: CssRect,
+    pub font_family: String,
+    pub font_size: f64,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaintImageResource {
+    pub url: String,
+    pub media_type: String,
+    #[serde(with = "base64_bytes")]
+    pub bytes: Vec<u8>,
+}
+
+mod base64_bytes {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&STANDARD.encode(value))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        STANDARD.decode(value).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Read-only paint input exported by a page worker.  Optional renderers may
+/// consume this value but can never mutate DOM, JavaScript, cookies or policy.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaintNodeSnapshot {
+    pub node_id: u64,
+    pub tag: String,
+    pub geometry: NodeGeometry,
+    pub style: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub text: Vec<PaintTextFragment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_resource: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaintSnapshot {
+    pub contract_version: u16,
+    pub page: PageInfo,
+    pub revision: Revision,
+    pub style_revision: StyleRevision,
+    pub layout_revision: LayoutRevision,
+    pub viewport: ViewportState,
+    pub scroll: ScrollState,
+    pub nodes: Vec<PaintNodeSnapshot>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<PaintImageResource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<String>,
+}
+
 impl CssRect {
     pub fn right(self) -> f64 {
         self.x + self.width
