@@ -6,6 +6,13 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const { jest: jestGlobals } = require('@jest/globals');
+
+// Chrome page creation can exceed Jest's 5-second default on shared or
+// heavily loaded macOS hosts. Keep the suite bounded while allowing the
+// browser lifecycle hooks to finish instead of aborting the connection and
+// producing cascaded protocol errors.
+jestGlobals.setTimeout(30_000);
 
 // Load scanner source
 const SCANNER_JS = fs.readFileSync(path.resolve(__dirname, '../src/scanner.js'), 'utf8');
