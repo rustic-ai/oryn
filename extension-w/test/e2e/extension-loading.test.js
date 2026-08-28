@@ -18,36 +18,46 @@ describe('Extension Loading E2E', () => {
   let backgroundPage;
 
   beforeAll(async () => {
-    // Launch browser with extension loaded
-    browser = await puppeteer.launch({
-      headless: false, // Extensions only work in headed mode
-      args: [
-        `--disable-extensions-except=${EXTENSION_PATH}`,
-        `--load-extension=${EXTENSION_PATH}`,
-        '--no-sandbox',
-        '--disable-setuid-sandbox'
-      ]
-    });
+    let lastError;
 
-    // Wait for extension to load
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Chromium can exit while Puppeteer attaches to a just-created extension
+    // service worker. Retry the complete browser launch so a dead CDP session is
+    // never reused, while keeping the setup bounded.
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        browser = await puppeteer.launch({
+          headless: false, // Extensions only work in headed mode
+          args: [
+            `--disable-extensions-except=${EXTENSION_PATH}`,
+            `--load-extension=${EXTENSION_PATH}`,
+            '--no-sandbox',
+            '--disable-setuid-sandbox'
+          ]
+        });
 
-    // Get background service worker page
-    const targets = await browser.targets();
-    const backgroundTarget = targets.find(
-      target => target.type() === 'service_worker' &&
-                target.url().includes('chrome-extension://')
-    );
+        const backgroundTarget = await browser.waitForTarget(
+          target =>
+            target.type() === 'service_worker' &&
+            target.url().includes('chrome-extension://'),
+          { timeout: 10000 }
+        );
 
-    if (!backgroundTarget) {
-      console.error('Available targets:', targets.map(t => ({ type: t.type(), url: t.url() })));
-      throw new Error('Extension background service worker not found. Check console for available targets.');
+        backgroundPage = await backgroundTarget.worker();
+        page = await browser.newPage();
+        return;
+      } catch (error) {
+        lastError = error;
+        if (browser) {
+          await browser.close().catch(() => {});
+        }
+        browser = undefined;
+        backgroundPage = undefined;
+        page = undefined;
+      }
     }
 
-    backgroundPage = await backgroundTarget.worker();
-
-    page = await browser.newPage();
-  }, 30000);
+    throw new Error(`Unable to attach to extension service worker: ${lastError}`);
+  }, 60000);
 
   afterAll(async () => {
     if (browser) {
