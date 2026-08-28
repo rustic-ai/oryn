@@ -2203,6 +2203,19 @@ impl PageState {
         self.document_generation += 1;
         self.revision += 1;
         self.url = url;
+        // A new top-level document starts at the viewport origin. Carrying a
+        // prior document's scroll offset into layout can make otherwise
+        // visible controls fail pointer-interactability until another layout
+        // mutation happens to repair the stale viewport relationship.
+        self.scroll_state = ScrollState {
+            content_width: self.viewport.width,
+            content_height: self.viewport.height,
+            ..ScrollState::default()
+        };
+        #[cfg(feature = "v8-host")]
+        {
+            self.layout = None;
+        }
         #[cfg(feature = "v8-host")]
         {
             self.web_fonts = web_fonts;
@@ -3969,6 +3982,7 @@ impl PageState {
                     }
                 }
                 .to_string();
+                let reason = format!("{reason} (semantic node {})", target.node);
                 self.trace.push(
                     Revision(self.revision),
                     None,
@@ -6344,6 +6358,67 @@ mod tests {
             page.box_model(table).await,
             Err(RuntimeError::UnsupportedGeometry(_))
         ));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn top_level_navigation_resets_scroll_before_interactability_checks() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://layout.example.test/first",
+            "<style>#spacer{height:900px}button{display:block;width:100px;height:30px}</style><div id=spacer></div><button>Far</button>",
+        )
+        .await
+        .expect("load first document");
+        page.set_viewport(ViewportState {
+            width: 320.0,
+            height: 200.0,
+            device_pixel_ratio: 1.0,
+        })
+        .await
+        .expect("set viewport");
+        let far = page
+            .observe()
+            .await
+            .expect("observe first document")
+            .nodes
+            .into_iter()
+            .find(|node| node.name == "Far")
+            .expect("far button")
+            .semantic_ref;
+        assert!(page.scroll_into_view(far).await.expect("scroll down").y > 0.0);
+
+        page.load_html(
+            "https://layout.example.test/second",
+            "<button style='width:100px;height:30px'>Top</button>",
+        )
+        .await
+        .expect("load second document");
+        let observation = page
+            .observe_with(ObservationOptions {
+                profile: ProjectionProfile::Full,
+                include_geometry: true,
+                viewport_only: false,
+                include_hidden: false,
+            })
+            .await
+            .expect("observe second document");
+        assert_eq!(observation.scroll.x, 0.0);
+        assert_eq!(observation.scroll.y, 0.0);
+        let top = observation
+            .nodes
+            .iter()
+            .find(|node| node.semantic.name == "Top")
+            .expect("top button")
+            .semantic
+            .semantic_ref;
+        page.execute(NativeAction {
+            target: top,
+            action: SemanticAction::Click,
+            value: None,
+        })
+        .await
+        .expect("top control remains interactable after navigation");
     }
 
     #[cfg(feature = "v8-host")]
