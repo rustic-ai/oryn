@@ -151,7 +151,7 @@ pub(crate) fn resolve_and_authorize(
     policy: &NetworkPolicy,
     url: &Url,
 ) -> Result<Vec<SocketAddr>, NetworkError> {
-    policy.check_scheme(url.scheme())?;
+    policy.check_url(url)?;
     let mut vetted = Vec::new();
     if let Some(host) = url.host_str() {
         if (host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost"))

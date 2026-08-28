@@ -103,7 +103,7 @@ pub enum WorkerRequest {
     Initialize {
         nonce: String,
         limits: WorkerLimits,
-        context: ContextOptions,
+        context: Box<ContextOptions>,
         page_id: PageId,
         opener_page_id: Option<PageId>,
         document_generation_base: u64,
@@ -454,7 +454,7 @@ async fn dispatch(
         config.document_generation_base = document_generation_base;
         *session = Some(PageSession::new(
             config,
-            context,
+            *context,
             broker,
             #[cfg(unix)]
             context_client,
@@ -672,7 +672,7 @@ mod tests {
             WorkerRequest::Initialize {
                 nonce: "test-nonce".into(),
                 limits: WorkerLimits::default(),
-                context: ContextOptions::default(),
+                context: Box::new(ContextOptions::default()),
                 page_id: PageId(7),
                 opener_page_id: None,
                 document_generation_base: 0,
@@ -753,7 +753,7 @@ mod tests {
                 WorkerRequest::Initialize {
                     nonce: "nonce".into(),
                     limits: WorkerLimits::default(),
-                    context: ContextOptions::default(),
+                    context: Box::new(ContextOptions::default()),
                     page_id: PageId(7),
                     opener_page_id: None,
                     document_generation_base: 0,
@@ -767,7 +767,7 @@ mod tests {
                 WorkerRequest::Initialize {
                     nonce: "again".into(),
                     limits: WorkerLimits::default(),
-                    context: ContextOptions::default(),
+                    context: Box::new(ContextOptions::default()),
                     page_id: PageId(7),
                     opener_page_id: None,
                     document_generation_base: 0,

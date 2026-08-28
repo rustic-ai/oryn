@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 pub mod context_service;
 pub mod dom;
+pub mod download;
 pub mod event_loop;
 #[cfg(feature = "v8-host")]
 pub mod executable;
@@ -25,10 +26,15 @@ pub mod worker;
 #[cfg(unix)]
 pub mod worker_client;
 
+pub use download::{DownloadDescriptor, DownloadId};
 pub use oryn_common::v3::{PageDescriptor, PageId, PageLifecycleEvent, PagePredicate, PageStatus};
 pub use runtime::{
     Browser, BrowserConfig, BrowserContext, ContentKind, ContextOptions, LifecycleState,
     NavigationResult, PageHandle, ScrollRequest, WaitPredicate,
+};
+pub use security::{
+    ActionPolicy, ConfirmationToken, ConsequentialAction, NetworkPolicy, PolicyDecision,
+    PolicyRequest, PolicyRule, SecretHandle, SecurityAuditRecord,
 };
 pub use storage::{PersistentProfile, StorageLimits};
 

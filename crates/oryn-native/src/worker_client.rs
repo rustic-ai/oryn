@@ -193,7 +193,7 @@ impl WorkerClient {
             WorkerRequest::Initialize {
                 nonce: nonce.clone(),
                 limits: limits.clone(),
-                context: context.clone(),
+                context: Box::new(context.clone()),
                 page_id,
                 opener_page_id,
                 document_generation_base: config.document_generation_base,

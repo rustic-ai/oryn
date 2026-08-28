@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "crate": "v8",
+  "expected_crate_version": "150.4.0",
+  "expected_crate_checksum": "42a978ff11f15b24e5c05a7123cf2b68f41e763546699781a924ef4e2cf43a49",
+  "expected_runtime_prefix": "15.0.",
+  "rust_toolchain": "1.98.0",
+  "fuzz_toolchain": "nightly-2026-08-20",
+  "response_sla_hours": {
+    "critical": 24,
+    "high": 72
+  },
+  "qualification": [
+    "cargo test --workspace --all-features",
+    "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+    "cargo check --manifest-path fuzz/Cargo.toml",
+    "scripts/validate-g1-manifest.sh",
+    "scripts/validate-g2-controlled.sh",
+    "scripts/validate-g3-software.sh",
+    "scripts/validate-g4-software.sh",
+    "scripts/validate-g5-security.py",
+    "scripts/run-g5-production-gate.sh"
+  ],
+  "release_rule": "A V8 change is not releasable until the signed worker, sandbox denial suite, crash/limit suite, G1-G4 regressions, dependency audit, and all four fuzz targets pass."
+}

@@ -37,8 +37,12 @@ use crate::semantic::{
 };
 use crate::trace::{TraceEvent, TraceEventKind, TraceLog};
 use crate::{
+    download::{DownloadDescriptor, DownloadId, DownloadStore},
     network::{NetworkRequest, PolicyBroker, RustlsTransport, SharedNetworkBroker},
-    security::NetworkPolicy,
+    security::{
+        ActionPolicy, ConfirmationToken, ConsequentialAction, NetworkPolicy, PolicyDecision,
+        PolicyEngine, PolicyRequest, SecretError, SecretHandle, SecretStore, SecurityAuditRecord,
+    },
     storage::{PersistentProfile, SharedContextStore, StorageLimits},
 };
 
@@ -66,6 +70,9 @@ struct BrowserContextInner {
     group: ContextGroup,
     store: SharedContextStore,
     persistent_profile: Option<PersistentProfile>,
+    policy: Arc<PolicyEngine>,
+    secrets: Arc<SecretStore>,
+    downloads: Arc<DownloadStore>,
     #[cfg(unix)]
     context_events: Mutex<Vec<ContextEventRecord>>,
     #[cfg(unix)]
@@ -498,6 +505,8 @@ pub struct ContextOptions {
     /// Context-owned cookies and storage are discarded when the context closes.
     pub ephemeral: bool,
     pub network_policy: NetworkPolicy,
+    #[serde(default)]
+    pub action_policy: ActionPolicy,
     /// Whether page-authored scripts and `_blank` navigations may create popups.
     #[serde(default = "default_allow_popups")]
     pub allow_popups: bool,
@@ -518,6 +527,7 @@ impl Default for ContextOptions {
         Self {
             ephemeral: true,
             network_policy: NetworkPolicy::default(),
+            action_policy: ActionPolicy::default(),
             allow_popups: true,
             viewport: ViewportState::default(),
             color_scheme: PreferredColorScheme::Light,
@@ -535,6 +545,7 @@ impl ContextOptions {
         Self {
             ephemeral: true,
             network_policy,
+            action_policy: ActionPolicy::default(),
             allow_popups: true,
             viewport: ViewportState::default(),
             color_scheme: PreferredColorScheme::Light,
@@ -745,6 +756,8 @@ impl Browser {
         store: SharedContextStore,
         persistent_profile: Option<PersistentProfile>,
     ) -> BrowserContext {
+        let policy = Arc::new(PolicyEngine::new(options.action_policy.clone()));
+        let secrets = Arc::new(SecretStore::default());
         let context_cookies: Arc<dyn reqwest::cookie::CookieStore> = persistent_profile
             .as_ref()
             .map(PersistentProfile::cookie_store)
@@ -760,6 +773,9 @@ impl Browser {
                     group: ContextGroup::new(),
                     store,
                     persistent_profile,
+                    policy,
+                    secrets,
+                    downloads: Arc::new(DownloadStore::default()),
                     #[cfg(unix)]
                     context_events: Mutex::new(Vec::new()),
                     #[cfg(unix)]
@@ -793,6 +809,9 @@ impl Browser {
                 group: ContextGroup::new(),
                 store,
                 persistent_profile,
+                policy,
+                secrets,
+                downloads: Arc::new(DownloadStore::default()),
                 #[cfg(unix)]
                 context_events: Mutex::new(Vec::new()),
                 #[cfg(unix)]
@@ -812,6 +831,7 @@ impl Browser {
         options: ContextOptions,
         broker: SharedNetworkBroker,
     ) -> BrowserContext {
+        let policy = Arc::new(PolicyEngine::new(options.action_policy.clone()));
         BrowserContext {
             inner: Arc::new(BrowserContextInner {
                 id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
@@ -822,6 +842,9 @@ impl Browser {
                 group: ContextGroup::new(),
                 store: SharedContextStore::memory(self.config.storage_limits),
                 persistent_profile: None,
+                policy,
+                secrets: Arc::new(SecretStore::default()),
+                downloads: Arc::new(DownloadStore::default()),
                 #[cfg(unix)]
                 context_events: Mutex::new(Vec::new()),
                 #[cfg(unix)]
@@ -841,6 +864,7 @@ impl Browser {
         broker: SharedNetworkBroker,
         context_client: crate::context_service::SharedContextClient,
     ) -> BrowserContext {
+        let policy = Arc::new(PolicyEngine::new(options.action_policy.clone()));
         BrowserContext {
             inner: Arc::new(BrowserContextInner {
                 id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
@@ -851,6 +875,9 @@ impl Browser {
                 group: ContextGroup::new(),
                 store: SharedContextStore::memory(self.config.storage_limits),
                 persistent_profile: None,
+                policy,
+                secrets: Arc::new(SecretStore::default()),
+                downloads: Arc::new(DownloadStore::default()),
                 context_events: Mutex::new(Vec::new()),
                 next_context_event_id: AtomicU64::new(1),
                 parent_cookies: None,
@@ -873,6 +900,109 @@ impl Default for Browser {
 impl BrowserContext {
     pub fn id(&self) -> u64 {
         self.inner.id
+    }
+
+    /// Create a one-use approval for one exact consequential operation.
+    pub fn prepare_confirmation(&self, request: PolicyRequest) -> ConfirmationToken {
+        self.inner.policy.prepare_confirmation(request)
+    }
+
+    /// Evaluate a host policy decision and append it to the context audit log.
+    pub fn authorize(
+        &self,
+        request: PolicyRequest,
+        confirmation: Option<ConfirmationToken>,
+    ) -> PolicyDecision {
+        self.inner.policy.authorize(request, confirmation)
+    }
+
+    pub fn security_audit(&self) -> Vec<SecurityAuditRecord> {
+        self.inner.policy.audit_records()
+    }
+
+    /// Import an origin-scoped secret into parent-owned memory.
+    pub fn import_secret(
+        &self,
+        origin: impl Into<String>,
+        label: impl Into<String>,
+        value: impl Into<Vec<u8>>,
+    ) -> SecretHandle {
+        self.inner
+            .secrets
+            .insert(origin.into(), label.into(), value.into())
+    }
+
+    pub fn revoke_secret(&self, handle: SecretHandle) -> bool {
+        self.inner.secrets.revoke(handle)
+    }
+
+    pub fn secret_labels(&self) -> Vec<String> {
+        self.inner.secrets.labels()
+    }
+
+    pub fn quarantine_download(
+        &self,
+        source_url: impl Into<String>,
+        suggested_filename: impl Into<String>,
+        media_type: impl Into<String>,
+        body: Vec<u8>,
+        confirmation: Option<ConfirmationToken>,
+    ) -> Result<DownloadDescriptor, RuntimeError> {
+        let source_url = source_url.into();
+        let parsed =
+            Url::parse(&source_url).map_err(|error| RuntimeError::Network(error.to_string()))?;
+        let source_origin = parsed.origin().ascii_serialization();
+        self.require_policy(
+            PolicyRequest {
+                action: ConsequentialAction::Download,
+                source_origin: source_origin.clone(),
+                target_origin: None,
+                detail: Some(source_url.clone()),
+            },
+            confirmation,
+        )?;
+        self.inner
+            .downloads
+            .quarantine(
+                source_url,
+                source_origin,
+                suggested_filename.into(),
+                media_type.into(),
+                body,
+                self.inner.policy.policy().max_download_bytes,
+            )
+            .map_err(|error| RuntimeError::Download(error.to_string()))
+    }
+
+    pub fn downloads(&self) -> Vec<DownloadDescriptor> {
+        self.inner.downloads.list()
+    }
+
+    pub fn release_download(&self, id: DownloadId) -> Result<Vec<u8>, RuntimeError> {
+        self.inner
+            .downloads
+            .release(id)
+            .map_err(|error| RuntimeError::Download(error.to_string()))
+    }
+
+    pub fn discard_download(&self, id: DownloadId) -> bool {
+        self.inner.downloads.discard(id)
+    }
+
+    pub(crate) fn require_policy(
+        &self,
+        request: PolicyRequest,
+        confirmation: Option<ConfirmationToken>,
+    ) -> Result<(), RuntimeError> {
+        match self.authorize(request.clone(), confirmation) {
+            PolicyDecision::Allowed => Ok(()),
+            PolicyDecision::Denied => Err(RuntimeError::PolicyDenied {
+                action: request.action,
+            }),
+            PolicyDecision::ConfirmationRequired => Err(RuntimeError::ConfirmationRequired {
+                action: request.action,
+            }),
+        }
     }
 
     pub(crate) fn network_policy(&self) -> &NetworkPolicy {
@@ -1006,7 +1136,11 @@ impl BrowserContext {
         Ok(())
     }
 
-    fn resolve_page_url(&self, source_page_id: PageId, target: &str) -> Result<Url, RuntimeError> {
+    pub(crate) fn resolve_page_url(
+        &self,
+        source_page_id: PageId,
+        target: &str,
+    ) -> Result<Url, RuntimeError> {
         let source = self
             .pages()
             .into_iter()
@@ -1416,7 +1550,35 @@ impl PageHandle {
     }
 
     pub async fn goto(&self, url: impl Into<String>) -> Result<NavigationResult, RuntimeError> {
+        self.goto_authorized(url, None).await
+    }
+
+    pub async fn goto_authorized(
+        &self,
+        url: impl Into<String>,
+        confirmation: Option<ConfirmationToken>,
+    ) -> Result<NavigationResult, RuntimeError> {
         let url = url.into();
+        if let Some(context) = self.context.upgrade() {
+            let context = BrowserContext { inner: context };
+            let source_origin = context
+                .page_origin(self.page_id())
+                .unwrap_or_else(|_| "null".into());
+            let target_origin = Url::parse(&url)
+                .map(|url| url.origin().ascii_serialization())
+                .unwrap_or_else(|_| "null".into());
+            if source_origin != target_origin && source_origin != "null" {
+                context.require_policy(
+                    PolicyRequest {
+                        action: ConsequentialAction::CrossOriginNavigation,
+                        source_origin,
+                        target_origin: Some(target_origin),
+                        detail: Some(url.clone()),
+                    },
+                    confirmation,
+                )?;
+            }
+        }
         #[cfg(unix)]
         if let Some(response) =
             self.worker_request(crate::worker::WorkerRequest::Goto { url: url.clone() })
@@ -1852,6 +2014,30 @@ impl PageHandle {
     }
 
     pub async fn execute(&self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
+        self.execute_authorized(action, None).await
+    }
+
+    pub async fn execute_authorized(
+        &self,
+        action: NativeAction,
+        confirmation: Option<ConfirmationToken>,
+    ) -> Result<ActionResult, RuntimeError> {
+        if action.action == SemanticAction::Submit
+            && let Some(context) = self.context.upgrade()
+        {
+            let context = BrowserContext { inner: context };
+            context.require_policy(
+                PolicyRequest {
+                    action: ConsequentialAction::FormSubmission,
+                    source_origin: context
+                        .page_origin(self.page_id())
+                        .unwrap_or_else(|_| "null".into()),
+                    target_origin: None,
+                    detail: Some("semantic form submission".into()),
+                },
+                confirmation,
+            )?;
+        }
         #[cfg(unix)]
         if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Execute {
             action: crate::worker::NativeActionRequest {
@@ -1906,6 +2092,42 @@ impl PageHandle {
             }
         }
         Ok(result)
+    }
+
+    /// Fill a control from an opaque parent-owned secret handle. The handle is
+    /// origin-scoped and the operation is independently policy-controlled.
+    pub async fn fill_secret(
+        &self,
+        target: SemanticRef,
+        handle: SecretHandle,
+        confirmation: Option<ConfirmationToken>,
+    ) -> Result<ActionResult, RuntimeError> {
+        let context = self.context.upgrade().ok_or(RuntimeError::Closed)?;
+        let context = BrowserContext { inner: context };
+        let origin = context.page_origin(self.page_id())?;
+        let request = PolicyRequest {
+            action: ConsequentialAction::CredentialFill,
+            source_origin: origin.clone(),
+            target_origin: None,
+            detail: Some("opaque secret fill".into()),
+        };
+        context.require_policy(request, confirmation)?;
+        let bytes = context
+            .inner
+            .secrets
+            .materialize(handle, &origin)
+            .map_err(|error| RuntimeError::Secret(error.to_string()))?;
+        let value = String::from_utf8(bytes)
+            .map_err(|_| RuntimeError::Secret(SecretError::InvalidUtf8.to_string()))?;
+        self.execute_authorized(
+            NativeAction {
+                target,
+                action: SemanticAction::Type,
+                value: Some(value),
+            },
+            None,
+        )
+        .await
     }
 
     pub(crate) async fn execute_forced(
@@ -2079,6 +2301,14 @@ pub enum RuntimeError {
     NotInteractable(String),
     #[error("invalid viewport: {0}")]
     InvalidViewport(String),
+    #[error("host policy denied consequential action {action:?}")]
+    PolicyDenied { action: ConsequentialAction },
+    #[error("host confirmation is required for consequential action {action:?}")]
+    ConfirmationRequired { action: ConsequentialAction },
+    #[error("secret handle failed: {0}")]
+    Secret(String),
+    #[error("download quarantine failed: {0}")]
+    Download(String),
 }
 
 #[cfg(feature = "v8-host")]
@@ -4730,6 +4960,7 @@ mod tests {
     use oryn_common::v3::{ExecutionDomain, ObservationSource};
 
     use super::*;
+    use crate::security::PolicyRule;
 
     #[tokio::test(flavor = "current_thread")]
     async fn page_handle_queues_typed_operations() {
@@ -5303,6 +5534,86 @@ mod tests {
             error,
             RuntimeError::WrongDocumentGeneration { .. }
         ));
+    }
+
+    #[tokio::test]
+    async fn consequential_navigation_requires_scoped_one_use_confirmation() {
+        let mut options = ContextOptions::default();
+        options.action_policy.rules.insert(
+            ConsequentialAction::CrossOriginNavigation,
+            PolicyRule::RequireConfirmation,
+        );
+        let context = Browser::new().new_context_with_options(options);
+        let page = context.new_page();
+        page.load_html("https://app.example/", "<p>ready</p>")
+            .await
+            .unwrap();
+        let request = PolicyRequest {
+            action: ConsequentialAction::CrossOriginNavigation,
+            source_origin: "https://app.example".into(),
+            target_origin: Some("https://other.example".into()),
+            detail: Some("https://other.example/".into()),
+        };
+        assert!(matches!(
+            page.goto("https://other.example/").await,
+            Err(RuntimeError::ConfirmationRequired {
+                action: ConsequentialAction::CrossOriginNavigation
+            })
+        ));
+        let confirmation = context.prepare_confirmation(request);
+        // The policy decision is consumed before network activity. A second
+        // use can therefore never authorize another navigation.
+        let _ = page
+            .goto_authorized("https://other.example/", Some(confirmation))
+            .await;
+        assert!(matches!(
+            page.goto_authorized("https://other.example/", Some(confirmation))
+                .await,
+            Err(RuntimeError::ConfirmationRequired { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn secret_fill_is_origin_scoped_confirmed_and_observation_redacted() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://app.example/",
+            r#"<label for="pw">Password</label><input id="pw" type="password">"#,
+        )
+        .await
+        .unwrap();
+        let target = page
+            .resolve_selector("#pw", SemanticAction::Type)
+            .await
+            .unwrap();
+        let handle = context.import_secret(
+            "https://app.example",
+            "account password",
+            b"do-not-observe".to_vec(),
+        );
+        let request = PolicyRequest {
+            action: ConsequentialAction::CredentialFill,
+            source_origin: "https://app.example".into(),
+            target_origin: None,
+            detail: Some("opaque secret fill".into()),
+        };
+        let confirmation = context.prepare_confirmation(request);
+        page.fill_secret(target, handle, Some(confirmation))
+            .await
+            .unwrap();
+        let observation = page.observe().await.unwrap();
+        let password = observation
+            .nodes
+            .iter()
+            .find(|node| node.semantic_ref == target)
+            .unwrap();
+        assert_eq!(password.value.as_deref(), Some("[REDACTED]"));
+        assert!(
+            !serde_json::to_string(&observation)
+                .unwrap()
+                .contains("do-not-observe")
+        );
     }
 
     #[cfg(feature = "v8-host")]

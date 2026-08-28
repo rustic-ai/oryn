@@ -213,7 +213,18 @@ pub fn project_element(
                     .get("data-testid")
                     .map(|value| format!(r#"[data-testid="{value}"]"#))
             }),
-        value: node.attributes.get("value").cloned(),
+        value: if local_name == "input"
+            && node
+                .attributes
+                .get("type")
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("password"))
+        {
+            node.attributes
+                .contains_key("value")
+                .then(|| "[REDACTED]".into())
+        } else {
+            node.attributes.get("value").cloned()
+        },
         description,
         states,
         actions,

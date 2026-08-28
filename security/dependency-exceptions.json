@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-08-28",
+  "exceptions": [
+    {
+      "package": "bincode",
+      "version": "1.3.3",
+      "advisory": "RUSTSEC-2025-0141",
+      "classification": "unmaintained",
+      "scope": "optional deno-host probe through deno_core; not the production v8-host path",
+      "risk": "No known vulnerability is reported. Oryn does not deserialize untrusted bincode data through this dependency.",
+      "resolution": "Remove the deno-host comparison probe or migrate when deno_core no longer depends on bincode 1.x.",
+      "review_by": "2026-09-28"
+    },
+    {
+      "package": "paste",
+      "version": "1.0.15",
+      "advisory": "RUSTSEC-2024-0436",
+      "classification": "unmaintained",
+      "scope": "build-time transitive dependency of the pinned v8 and v8x crates",
+      "risk": "No known vulnerability is reported and the crate is not exposed to page-controlled runtime input.",
+      "resolution": "Replace through the next qualified V8/V8X release that removes paste.",
+      "review_by": "2026-09-28"
+    },
+    {
+      "package": "chacha20",
+      "version": "0.10.1",
+      "advisory": "yanked",
+      "classification": "yanked",
+      "scope": "transitive rand dependency in the Oryn1 Chromium compatibility dependency graph",
+      "risk": "Cargo reports no RustSec vulnerability. Native Oryn secret handles use operating-system randomness through getrandom directly.",
+      "resolution": "Advance the frozen compatibility dependency only for a security-compatible upstream release that removes the yanked version.",
+      "review_by": "2026-09-28"
+    }
+  ]
+}

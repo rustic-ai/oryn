@@ -34,6 +34,7 @@ use crate::{
         sanitize_worker_headers,
     },
     runtime::{BrowserContext, RuntimeError},
+    security::{ConsequentialAction, PolicyRequest},
     storage::{StorageArea, StorageChange, StorageRequest, StorageResponse, StorageScope},
 };
 
@@ -153,7 +154,7 @@ pub enum ContextServiceResponse {
     },
     HttpStreamAborted,
     Storage {
-        response: StorageResponse,
+        response: Box<StorageResponse>,
     },
     PageOpened {
         page_id: PageId,
@@ -392,7 +393,9 @@ impl ParentContextService {
                         change: change.clone(),
                     });
                 }
-                Ok(ContextServiceResponse::Storage { response })
+                Ok(ContextServiceResponse::Storage {
+                    response: Box::new(response),
+                })
             }
             ContextServiceRequest::OpenPage {
                 opener_page_id,
@@ -408,10 +411,29 @@ impl ParentContextService {
                         reason: "popup policy denied page creation".into(),
                     });
                 }
+                let opener_origin = self.context.page_origin(opener_page_id)?;
+                let target_origin = url.as_deref().and_then(|value| {
+                    self.context
+                        .resolve_page_url(self.source_page_id, value)
+                        .ok()
+                        .map(|url| url.origin().ascii_serialization())
+                });
+                if let Err(error) = self.context.require_policy(
+                    PolicyRequest {
+                        action: ConsequentialAction::Popup,
+                        source_origin: opener_origin.clone(),
+                        target_origin,
+                        detail: url.clone(),
+                    },
+                    None,
+                ) {
+                    return Ok(ContextServiceResponse::PageDenied {
+                        reason: error.to_string(),
+                    });
+                }
                 if let Some(url) = &url {
                     self.context.validate_page_url(self.source_page_id, url)?;
                 }
-                let opener_origin = self.context.page_origin(opener_page_id)?;
                 // Clone sessionStorage before the popup's first document can
                 // execute, matching the browser's initial-copy semantics.
                 let initial_url = url;
@@ -483,6 +505,25 @@ impl ParentContextService {
                     ));
                 }
                 self.context.validate_page_url(page_id, &url)?;
+                let source_origin = self.context.page_origin(page_id)?;
+                let resolved = self.context.resolve_page_url(page_id, &url)?;
+                let target_origin = resolved.origin().ascii_serialization();
+                if source_origin != target_origin
+                    && source_origin != "null"
+                    && let Err(error) = self.context.require_policy(
+                        PolicyRequest {
+                            action: ConsequentialAction::CrossOriginNavigation,
+                            source_origin,
+                            target_origin: Some(target_origin),
+                            detail: Some(resolved.to_string()),
+                        },
+                        None,
+                    )
+                {
+                    return Ok(ContextServiceResponse::PageDenied {
+                        reason: error.to_string(),
+                    });
+                }
                 self.context.queue_script_navigation(page_id, url)?;
                 Ok(ContextServiceResponse::NavigationQueued)
             }
@@ -1055,7 +1096,7 @@ fn read_bounded_line(
 #[cfg(all(test, feature = "in-process-probe"))]
 mod tests {
     use super::*;
-    use crate::{Browser, network::NetworkError};
+    use crate::{Browser, ContextOptions, PolicyRule, network::NetworkError};
 
     struct FixtureNetwork;
 
@@ -1156,5 +1197,36 @@ mod tests {
             }),
             Err(RuntimeError::ContextService(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn worker_originated_cross_origin_navigation_is_parent_policy_checked() {
+        let mut options = ContextOptions::default();
+        options
+            .action_policy
+            .rules
+            .insert(ConsequentialAction::CrossOriginNavigation, PolicyRule::Deny);
+        let context = Browser::in_process_probe().new_context_with_options(options);
+        let page = context.new_page();
+        page.load_html("https://app.example/", "<p>ready</p>")
+            .await
+            .unwrap();
+        let service = ParentContextService::new(context.clone(), page.page_id());
+
+        let response = service
+            .handle(ContextServiceRequest::NavigatePage {
+                page_id: page.page_id(),
+                url: "https://other.example/".into(),
+            })
+            .unwrap();
+        assert!(matches!(
+            response,
+            ContextServiceResponse::PageDenied { .. }
+        ));
+        assert_eq!(context.security_audit().len(), 1);
+        assert_eq!(
+            context.security_audit()[0].decision,
+            crate::PolicyDecision::Denied
+        );
     }
 }

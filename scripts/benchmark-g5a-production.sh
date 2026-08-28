@@ -104,8 +104,9 @@ percentile() {
 
 page_creation="$(cat "$output_dir/page-creation.json")"
 crash_restart='null'
-if [[ -f "$repo_root/artifacts/g2r-g5a-v4/g2r-churn.json" ]]; then
-  crash_restart="$(jq '.worker_replacement' "$repo_root/artifacts/g2r-g5a-v4/g2r-churn.json")"
+churn_result="${ORYN_CHURN_RESULT:-$repo_root/artifacts/g2r-g5a-v4/g2r-churn.json}"
+if [[ -f "$churn_result" ]]; then
+  crash_restart="$(jq '.worker_replacement' "$churn_result")"
 fi
 
 jq -n \

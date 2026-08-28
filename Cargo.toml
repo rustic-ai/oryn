@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["fuzz"]
 members = [
     "crates/oryn-common",
     "crates/oryn-core",
