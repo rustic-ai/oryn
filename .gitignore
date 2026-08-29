@@ -33,6 +33,8 @@ unified-test-results.md
 e2e-results/
 artifacts/
 *.whl
+__pycache__/
+*.py[cod]
 **/dist/
 benchmarks/app-compatibility/frameworks/**/.next/
 benchmarks/app-compatibility/frameworks/**/.nuxt/

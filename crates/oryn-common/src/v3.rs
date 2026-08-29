@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::protocol::{Element, ScanResult};
 
 pub use crate::v2::{
-    ActionId, ExecutionDomain, NodeState, ObservationSource, ProjectionProfile, Provenance,
-    Revision, SemanticAction, SupportLevel,
+    ActionId, ContentTrust, ExecutionDomain, NodeState, ObservationSource, ProjectionProfile,
+    Provenance, Revision, SemanticAction, SupportLevel,
 };
 
 pub const CONTRACT_VERSION: u16 = 3;
@@ -119,6 +119,9 @@ pub struct SemanticNodeView {
     pub states: BTreeSet<NodeState>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub actions: BTreeSet<SemanticAction>,
+    /// Trust source for page-facing strings and values in this node.
+    #[serde(default)]
+    pub content_trust: ContentTrust,
     pub provenance: Provenance,
 }
 
@@ -266,6 +269,7 @@ impl Observation {
                     description: node.description.clone(),
                     states: node.states.clone(),
                     actions: node.actions.clone(),
+                    content_trust: node.content_trust,
                     provenance: node.provenance.clone(),
                 })
                 .collect(),
@@ -309,6 +313,7 @@ impl Observation {
                     description: node.description.clone(),
                     states: node.states.clone(),
                     actions: node.actions.clone(),
+                    content_trust: node.content_trust,
                     provenance: node.provenance.clone(),
                 })
                 .collect(),
@@ -423,7 +428,8 @@ fn node_from_element(
         description: None,
         states,
         actions: actions_for(element),
-        provenance: Provenance::BrowserDeterministic,
+        content_trust: ContentTrust::PageAuthored,
+        provenance: Provenance::Heuristic { confidence: 0.8 },
     }
 }
 
@@ -554,6 +560,11 @@ mod tests {
             v3.nodes
                 .iter()
                 .all(|node| node.semantic_ref.page_id == PageId(42))
+        );
+        assert!(
+            v3.nodes
+                .iter()
+                .all(|node| node.content_trust == ContentTrust::PageAuthored)
         );
         assert_eq!(v3.to_v2_compat(), v2);
     }

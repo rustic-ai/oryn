@@ -39,9 +39,17 @@ fi
 poetry="$repo_root/artifacts/tools/poetry/bin/poetry"
 cd "$repo_root/intentgym"
 if [[ -x "$poetry" ]]; then
-  "$poetry" run python scripts/validate_semantic_sandbox_v4.py \
-    --evidence "$current" "${allow_historical_tree[@]}"
+  if ((${#allow_historical_tree[@]})); then
+    "$poetry" run python scripts/validate_semantic_sandbox_v4.py \
+      --evidence "$current" "${allow_historical_tree[@]}"
+  else
+    "$poetry" run python scripts/validate_semantic_sandbox_v4.py --evidence "$current"
+  fi
 else
-  poetry run python scripts/validate_semantic_sandbox_v4.py \
-    --evidence "$current" "${allow_historical_tree[@]}"
+  if ((${#allow_historical_tree[@]})); then
+    poetry run python scripts/validate_semantic_sandbox_v4.py \
+      --evidence "$current" "${allow_historical_tree[@]}"
+  else
+    poetry run python scripts/validate_semantic_sandbox_v4.py --evidence "$current"
+  fi
 fi

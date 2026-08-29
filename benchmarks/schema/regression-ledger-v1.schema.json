@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oryn.dev/schemas/regression-ledger-v1.json",
+  "title": "Oryn assertion-bound regression ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "suite", "regressions"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "suite": {"type": "string", "minLength": 1},
+    "regressions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/regression"}
+    }
+  },
+  "$defs": {
+    "regression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "checks", "artifacts"],
+      "properties": {
+        "status": {"enum": ["passed", "failed"]},
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "passed", "artifact"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "passed": {"type": "boolean"},
+              "artifact": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

@@ -47,7 +47,7 @@
         "required_passed": {"type": "integer", "minimum": 0, "maximum": 51},
         "required_total": {"const": 51},
         "vulnerabilities": {"const": 0},
-        "reviewed_dependency_warnings": {"const": 3},
+        "reviewed_dependency_warnings": {"type": "integer", "minimum": 0},
         "fuzz_targets_passed": {"type": "integer", "minimum": 0, "maximum": 4},
         "fuzz_targets_total": {"const": 4},
         "fuzz_crashes": {"const": 0},
@@ -123,6 +123,7 @@
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "category": {"type": "string", "minLength": 1},
+        "assertion_id": {"type": "string", "minLength": 1},
         "status": {"enum": ["passed", "failed"]},
         "evidence": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^raw:"}}
       }

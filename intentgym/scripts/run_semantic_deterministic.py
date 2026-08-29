@@ -320,8 +320,13 @@ class MiniWoBOilOracle:
         result = self.oryn.execute(oil)
         self.observe()
         effects = [_serializable(effect) for effect in result.effects]
-        expected = self._expected_effect_kinds(oil)
-        observed = {effect.get("kind") for effect in effects}
+        trace_slice = [_serializable(event) for event in result.trace_slice]
+        expected = self._expected_causal_labels(oil)
+        observed = {
+            (event.get("causality"), (event.get("kind") or {}).get("kind"))
+            for event in trace_slice
+            if event.get("causality") in {"direct", "derived"}
+        }
         self.expected_effects += len(expected)
         self.observed_expected_effects += len(expected & observed)
         self.observed_effects += len(observed)
@@ -339,7 +344,7 @@ class MiniWoBOilOracle:
                 resolution=resolution or {},
                 result=_serializable(result),
                 effects=effects,
-                trace_slice=[],
+                trace_slice=trace_slice,
                 task_reward=None,
                 failure_domain_reason_code=reason,
             )
@@ -348,12 +353,12 @@ class MiniWoBOilOracle:
             raise RuntimeError(result.error or f"OIL failed: {oil}")
         return result
 
-    def _expected_effect_kinds(self, oil: str) -> set[str]:
+    def _expected_causal_labels(self, oil: str) -> set[tuple[str, str]]:
         action = oil.split(maxsplit=1)[0]
         if action in {"click", "type", "clear", "check", "focus", "select", "submit"}:
-            return {"event"}
+            return {("direct", "event_dispatched")}
         if action in {"goto", "back", "forward", "refresh"}:
-            return {"navigation"}
+            return {("direct", "navigation_started")}
         return set()
 
     def solve(self) -> dict[str, Any]:

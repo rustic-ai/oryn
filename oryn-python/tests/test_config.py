@@ -1,6 +1,5 @@
 """Tests for configuration."""
 
-
 from oryn.config import OrynConfig
 
 
@@ -11,7 +10,7 @@ class TestOrynConfig:
         """Test default configuration values."""
         config = OrynConfig()
 
-        assert config.mode == "headless"
+        assert config.mode == "native"
         assert config.timeout == 30.0
         assert config.connect_timeout == 60.0
         assert config.port == 9001

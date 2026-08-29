@@ -17,7 +17,7 @@ class OrynClientSync:
 
     Example:
         ```python
-        with OrynClientSync(mode="headless") as client:
+        with OrynClientSync() as client:
             client.execute('goto "https://example.com"')
             obs = client.observe()
             print(obs.elements)
@@ -28,7 +28,7 @@ class OrynClientSync:
 
     def __init__(
         self,
-        mode: Literal["native", "headless", "embedded", "remote"] = "headless",
+        mode: Literal["native", "headless", "embedded", "remote"] = "native",
         *,
         binary_path: str | None = None,
         timeout: float = 30.0,

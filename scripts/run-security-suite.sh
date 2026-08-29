@@ -87,6 +87,12 @@ jq -n \
       then "passed" else "failed" end)}}' >"$output_dir/production-gate.json"
 jq -e '.outcome.status == "passed"' "$output_dir/production-gate.json" >/dev/null
 
+# Produce case-bound raw evidence only after every underlying artifact exists.
+# The emitter checks structured values and named test results, rather than
+# treating the suite command's exit status as proof.
+python3 "$repo_root/scripts/emit_suite_evidence_ledgers.py" security \
+  --artifact-root "$output_dir"
+
 result="$output_dir/security-result-v1.json"
 "$repo_root/scripts/build_security_result.py" \
   --repo-root "$repo_root" --artifact-root "$output_dir" --output "$result"

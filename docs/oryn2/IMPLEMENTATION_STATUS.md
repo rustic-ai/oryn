@@ -1,5 +1,15 @@
 # Oryn2 implementation status
 
+> **Current attestation status: provisional.** A 2026-08-29 evidence audit found
+> that the layout and security result builders could assign passing case status
+> from category-level artifacts without a case-bound executed assertion. Those
+> builders now fail closed unless every manifest case has exactly one passing
+> assertion record. The production suite runners now emit those assertion and
+> regression ledgers, and raw-mode validators independently recompute compact
+> results from them. Existing compact results remain historical records for
+> their source commits, but they are not current release attestations. See
+> `ORYN2-PROPOSAL-VS-IMPLEMENTATION-REVIEW.md`.
+
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.
 
@@ -19,18 +29,21 @@ rewrite those historical payloads or present them as a new validation run.
   corpus validator checks counts, unique IDs, read-only canary policy, and all
   required local sources.
 
-## runtime foundation — complete
+## Runtime foundation — provisional
 
-- Raw V8 and `deno_core` probes use the same V8 revision. Raw V8 was selected
-  because its startup P50 was 1.117 ms versus 3.747 ms and its probe was
-  1.90 MB smaller.
-- Oryn-owned generation-safe DOM, `html5ever` tree sink, WebIDL parser,
-  host-broker network policy, trace spine, and typed page actor are implemented.
+- Raw V8 and `deno_core` host probes use the same V8 revision. Their historical
+  startup/size comparison selected raw V8, but the mandatory concurrent-page
+  evidence used a no-V8 probe and must be rerun with the shipped worker bundle.
+- `html5ever` builds an initial generation-safe Rust DOM, but executable pages
+  currently mutate a JavaScript-canonical tree and synchronize a Rust mirror.
+  Restoring the proposal's Rust-canonical `NodeId`/wrapper model remains open.
+- Host-broker network policy, trace spine, and typed page actor are implemented.
 - The JSONL page worker supports load, observe, direct semantic actions, OIL,
   and orderly shutdown without exposing filesystem or network commands.
-- The final native 20-page benchmark measured a 0.368 ms median load+observe batch,
-  4.59 MB peak RSS, and a 2.38 MB release probe (1.28 MB gzip). Raw artifacts
-  live under ignored `artifacts/`.
+- The historical 20-page benchmark measured a 0.368 ms median load+observe
+  batch, 4.59 MB peak RSS, and a 2.38 MB probe, but it did not include V8 and is
+  not valid production concurrency/RSS evidence. It must be replaced with a
+  shipped-worker measurement.
 - The worker is packaged as `OrynPageWorker.app`, signed by the trusted Apple
   Development identity `9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90`, and
   verified with bundle identifier `ai.rustic.oryn.page-worker`, team identifier
@@ -96,9 +109,11 @@ rewrite those historical payloads or present them as a new validation run.
 - All 12 harness OIL files and all six required framework fixtures pass natively.
   Structural churn reports zero false semantic-reference preservations. The
   machine-readable result is `benchmarks/evidence/semantic-loop-controlled-native.json`.
-- The 30-entry corpus has published results. The four read-only public canaries
-  separately report one available, two challenged, and one unavailable result
-  without conflating availability with correctness.
+- The 30-entry corpus has historical published results. The read-only canary
+  artifact incorrectly labelled two native parse/empty-observation failures as
+  site challenges. Challenge detection and the proposal-defined challenge-rate
+  metric are not implemented; those rows must be reclassified as native
+  failures in the next evidence run.
 - The earlier 96-cell panel is invalid as native evidence: its production
   `oryn` executable was built without `native-v8`, so the native 0/24 result did
   not exercise the designed runtime. Its `$1.196980` Azure spend remains charged
@@ -133,10 +148,12 @@ rewrite those historical payloads or present them as a new validation run.
   passes 22/24, Azure/Chromium passes 16/24, and pinned `qwen3:4b` passes 0/48.
   The local-model failures are retained as model-quality results rather than
   reported as runtime failures. Overall model success is 38/96.
-- The validator recomputes every aggregate from fingerprint-matched cell and
-  per-turn JSONL artifacts. It reports measured observation sufficiency 17/96,
-  recovery 2/2, reference survival 1/1, false preservation 0/5, causal recall
-  99/99, and causal precision 99/198. All action classifications are explicit.
+- The historical validator recomputed its aggregate from fingerprint-matched
+  cells, but `17/96` observation sufficiency and `99/99`/`99/198` causal
+  recall/precision are non-conforming heuristics, not the proposal KPIs. The
+  corrected runner now compares compact versus full truth only at failed-task
+  checkpoints and labels trace causality as direct, derived, correlated, or
+  unattributed. No replacement result has been attested yet.
 - The final Azure run spent `$2.019074`. Including `$3.190558` from the two
   invalid attempts, cumulative hosted spend is `$5.209632`, within the `$100`
   ceiling. The committed schema-v3 summary is
@@ -159,11 +176,13 @@ rewrite those historical payloads or present them as a new validation run.
   21/24, Azure/Chromium passes 15/24, and pinned Qwen completes 48/48 cells with
   0 task successes. Qwen's measured model-quality failures do not masquerade as
   runtime failures and were not a semantic recovery success threshold.
-- Schema-v4 ledger recomputation passes with 36/96 overall task success,
-  observation sufficiency 13/96, recovery 2/2, reference survival 1/1, false
-  preservation 0/5, causal recall 99/99, and causal precision 99/198. The new
-  Azure spend is `$1.152654`; cumulative hosted spend is `$6.362286`, within the
-  `$100` ceiling.
+- Schema-v4 historically reported 36/96 overall task success, `13/96`
+  observation sufficiency, and `99/99`/`99/198` causal recall/precision. The
+  latter three figures use the superseded heuristic definitions and do not
+  close the current semantic evidence criteria. Recovery 2/2, reference
+  survival 1/1, and false preservation 0/5 remain bounded historical results.
+  The run's Azure spend was `$1.152654`; cumulative hosted spend was
+  `$6.362286`, within the `$100` ceiling.
 - Current compact evidence is
   `benchmarks/evidence/semantic-sandbox-v4/model-panel-v4.json`; deterministic, churn, and
   production summaries are published beside it. Raw observations, turns,

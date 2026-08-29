@@ -786,12 +786,13 @@ mod raw_v8 {
                 .map_err(|error| format!("invalid fetch URL: {error}"))?;
             let request_origin = origin(&state.base_url);
             for redirect in 0..=10_u64 {
-                if !request_headers
-                    .iter()
-                    .any(|(name, _)| name.eq_ignore_ascii_case("origin"))
-                {
-                    request_headers.push(("origin".into(), request_origin.clone()));
-                }
+                request_headers.retain(|(name, _)| {
+                    !name.eq_ignore_ascii_case("origin")
+                        && !name.eq_ignore_ascii_case("referer")
+                        && !name.eq_ignore_ascii_case("cookie")
+                        && !name.eq_ignore_ascii_case("authorization")
+                });
+                request_headers.push(("origin".into(), request_origin.clone()));
                 let request = NetworkRequest {
                     request_id: 1_000_000 + redirect,
                     method: method.clone(),

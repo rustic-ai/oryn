@@ -34,6 +34,11 @@ class _NativeTransport:
                             },
                             "document_order": 8,
                             "selector": "#continue",
+                            "content_trust": "page_authored",
+                            "provenance": {
+                                "kind": "heuristic",
+                                "confidence": 0.7,
+                            },
                         }
                     ],
                     "capabilities": [
@@ -153,6 +158,8 @@ async def test_native_observation_uses_existing_json_oil_contract():
     assert observation.revision == 4
     assert observation.document_generation == 2
     assert observation.elements[0]["selector"] == "#continue"
+    assert observation.elements[0]["content_trust"] == "page_authored"
+    assert observation.elements[0]["provenance"]["kind"] == "heuristic"
     assert observation.capabilities[0].capability == "rendered_layout_and_paint"
     assert observation.diagnostics == ["fixture diagnostic"]
     assert observation.byte_count == len(observation.raw.encode("utf-8"))
@@ -199,3 +206,4 @@ async def test_native_v4_geometry_observation_is_typed_without_losing_nodes():
     assert observation.viewport.width == 320.0
     assert observation.scroll.y == 40.0
     assert observation.elements[0]["geometry"]["interactable"] is True
+    assert observation.elements[0]["content_trust"] == "page_authored"

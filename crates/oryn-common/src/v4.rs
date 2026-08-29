@@ -8,9 +8,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 pub use crate::v3::{
-    ActionId, CapabilityDiagnostic, ExecutionDomain, NodeState, ObservationSource, PageDescriptor,
-    PageId, PageInfo, PageLifecycleEvent, PagePredicate, PageStatus, ProjectionProfile, Provenance,
-    Revision, SemanticAction, SemanticRef, SupportLevel,
+    ActionId, CapabilityDiagnostic, ContentTrust, ExecutionDomain, NodeState, ObservationSource,
+    PageDescriptor, PageId, PageInfo, PageLifecycleEvent, PagePredicate, PageStatus,
+    ProjectionProfile, Provenance, Revision, SemanticAction, SemanticRef, SupportLevel,
 };
 
 pub const CONTRACT_VERSION: u16 = 4;
@@ -433,6 +433,8 @@ impl ActionResult {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
 
     fn v3_observation() -> crate::v3::Observation {
@@ -448,7 +450,25 @@ mod tests {
             revision: Revision(9),
             profile: ProjectionProfile::Compact,
             source: ObservationSource::NativeDom,
-            nodes: Vec::new(),
+            nodes: vec![crate::v3::SemanticNodeView {
+                semantic_ref: SemanticRef {
+                    page_id: PageId(7),
+                    document_generation: 3,
+                    node: 11,
+                },
+                parent: None,
+                document_order: 1,
+                alias: 1,
+                role: "button".into(),
+                name: "Continue".into(),
+                selector: Some("#continue".into()),
+                value: None,
+                description: None,
+                states: BTreeSet::from([NodeState::Visible]),
+                actions: BTreeSet::from([SemanticAction::Click]),
+                content_trust: ContentTrust::PageAuthored,
+                provenance: Provenance::Heuristic { confidence: 0.7 },
+            }],
             capabilities: Vec::new(),
             diagnostics: Vec::new(),
             execution_domain: ExecutionDomain::Native,
@@ -484,6 +504,7 @@ mod tests {
         assert_eq!(v4.contract_version, CONTRACT_VERSION);
         assert_eq!(v4.to_v3_compat(), v3);
         let encoded = serde_json::to_string(&v4).expect("serialize v4");
+        assert!(encoded.contains(r#""content_trust":"page_authored""#));
         let decoded: Observation = serde_json::from_str(&encoded).expect("deserialize v4");
         assert_eq!(decoded, v4);
     }

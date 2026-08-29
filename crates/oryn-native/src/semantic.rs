@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 
 use oryn_common::v3::{
-    CONTRACT_VERSION, ExecutionDomain, NodeState, Observation, ObservationSource, PageId, PageInfo,
-    ProjectionProfile, Provenance, Revision, SemanticAction, SemanticNodeView, SemanticRef,
+    CONTRACT_VERSION, ContentTrust, ExecutionDomain, NodeState, Observation, ObservationSource,
+    PageId, PageInfo, ProjectionProfile, Provenance, Revision, SemanticAction, SemanticNodeView,
+    SemanticRef,
 };
 
 use crate::dom::{DomArena, NodeId, NodeKind};
@@ -213,22 +214,28 @@ pub fn project_element(
                     .get("data-testid")
                     .map(|value| format!(r#"[data-testid="{value}"]"#))
             }),
-        value: if local_name == "input"
-            && node
-                .attributes
-                .get("type")
-                .is_some_and(|kind| kind.eq_ignore_ascii_case("password"))
+        value: if node.sensitive_value
+            || (local_name == "input"
+                && node
+                    .attributes
+                    .get("type")
+                    .is_some_and(|kind| kind.eq_ignore_ascii_case("password")))
         {
-            node.attributes
-                .contains_key("value")
-                .then(|| "[REDACTED]".into())
+            (node.value.is_some() || node.sensitive_value).then(|| "[REDACTED]".into())
         } else {
-            node.attributes.get("value").cloned()
+            node.value
+                .clone()
+                .or_else(|| node.attributes.get("value").cloned())
         },
         description,
         states,
         actions,
-        provenance: Provenance::BrowserDeterministic,
+        content_trust: ContentTrust::PageAuthored,
+        // This projection currently has node-level provenance. Accessible-name
+        // fallback and visibility both use deliberately bounded heuristics, so
+        // the whole node must be conservatively labelled until field-level
+        // provenance is introduced.
+        provenance: Provenance::Heuristic { confidence: 0.7 },
     })
 }
 
@@ -483,5 +490,28 @@ pub fn empty_observation(
         capabilities: Vec::new(),
         diagnostics: Vec::new(),
         execution_domain: ExecutionDomain::Native,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_projection_marks_page_content_untrusted_and_heuristic() {
+        let document = crate::html::parse(
+            r#"<button title="Continue" style="display:block">Fallback text</button>"#,
+        );
+        let nodes = project_document(&document.dom, PageId(3), 7);
+        let button = nodes
+            .iter()
+            .find(|node| node.role == "button")
+            .expect("button projection");
+
+        assert_eq!(button.content_trust, ContentTrust::PageAuthored);
+        assert!(matches!(
+            button.provenance,
+            Provenance::Heuristic { confidence } if (confidence - 0.7).abs() < f32::EPSILON
+        ));
     }
 }

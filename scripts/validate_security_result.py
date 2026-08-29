@@ -12,6 +12,8 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from evidence_assertions import assertion_bound_cases, verified_regressions
+
 
 def load(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -111,6 +113,21 @@ def main() -> int:
         }
         require(
             referenced <= artifacts.keys(), "case ledger references unknown artifacts"
+        )
+        by_path = {item["path"]: item["id"] for item in artifacts.values()}
+        recomputed_cases = assertion_bound_cases(
+            manifest, load(raw / "assertions.json"), by_path
+        )
+        require(
+            recomputed_cases == result["case_ledger"],
+            "compact cases do not match assertion-bound raw evidence",
+        )
+        recomputed_regressions = verified_regressions(
+            raw / "regressions.json", set(result["regressions"])
+        )
+        require(
+            recomputed_regressions == result["regressions"],
+            "compact regressions do not match assertion-bound raw evidence",
         )
 
         runtime = load(raw / "runtime.json")

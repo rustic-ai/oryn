@@ -244,6 +244,7 @@ fn parse_observe(pair: Pair<Rule>) -> Result<ObserveCmd, ParseError> {
         hidden: has_flag("--hidden"),
         positions: has_flag("--positions"),
         diff: has_flag("--diff"),
+        since: None,
         near: None,
         timeout: None,
     };
@@ -252,6 +253,14 @@ fn parse_observe(pair: Pair<Rule>) -> Result<ObserveCmd, ParseError> {
         match inner.as_rule() {
             Rule::near_opt => {
                 cmd.near = Some(parse_string(inner.into_inner().next().unwrap()));
+            }
+            Rule::since_opt => {
+                let value = inner
+                    .as_str()
+                    .split_ascii_whitespace()
+                    .nth(1)
+                    .expect("since option grammar always contains a revision");
+                cmd.since = Some(value.parse::<u64>().map_err(ParseError::InvalidInteger)?);
             }
             Rule::timeout_opt => cmd.timeout = Some(parse_timeout(inner)?),
             _ => match inner.as_str() {
@@ -1205,8 +1214,9 @@ mod comment_validation_tests {
 
     #[test]
     fn observe_boolean_flags_survive_silent_grammar_rules() {
-        let script = parse("observe --full --minimal --viewport --hidden --positions --diff")
-            .expect("parse observe flags");
+        let script =
+            parse("observe --full --minimal --viewport --hidden --positions --diff --since 42")
+                .expect("parse observe flags");
         let Some(Command::Observe(command)) = &script.lines[0].command else {
             panic!("expected observe command")
         };
@@ -1216,6 +1226,7 @@ mod comment_validation_tests {
         assert!(command.hidden);
         assert!(command.positions);
         assert!(command.diff);
+        assert_eq!(command.since, Some(42));
     }
 
     #[test]

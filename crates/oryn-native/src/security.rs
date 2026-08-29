@@ -122,6 +122,9 @@ pub enum ConsequentialAction {
     CredentialFill,
     ProtectedRequest,
     UserBrowserDelegation,
+    /// Explicit raw evaluation, selector, or extraction access. The default
+    /// remains available for compatibility, but every use is parent-audited.
+    RawPageInspection,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,6 +183,7 @@ impl Default for ActionPolicy {
             ConsequentialAction::UserBrowserDelegation,
             PolicyRule::RequireConfirmation,
         );
+        rules.insert(ConsequentialAction::RawPageInspection, PolicyRule::Allow);
         Self {
             rules,
             denied_origins: BTreeSet::new(),
@@ -260,6 +264,23 @@ impl PolicyEngine {
         request: PolicyRequest,
         confirmation: Option<ConfirmationToken>,
     ) -> PolicyDecision {
+        self.authorize_inner(request, confirmation, false)
+    }
+
+    /// Re-check origin restrictions at the concrete effect boundary after a
+    /// parent-side confirmation has already been consumed for this action.
+    /// A preconfirmed request can satisfy only `RequireConfirmation`; an
+    /// origin or action rule that resolves to `Deny` remains denied.
+    pub(crate) fn authorize_preconfirmed(&self, request: PolicyRequest) -> PolicyDecision {
+        self.authorize_inner(request, None, true)
+    }
+
+    fn authorize_inner(
+        &self,
+        request: PolicyRequest,
+        confirmation: Option<ConfirmationToken>,
+        preconfirmed: bool,
+    ) -> PolicyDecision {
         let origin_denied = origin_matches(&self.policy.denied_origins, &request.source_origin)
             || request
                 .target_origin
@@ -285,15 +306,16 @@ impl PolicyEngine {
             PolicyRule::Allow => PolicyDecision::Allowed,
             PolicyRule::Deny => PolicyDecision::Denied,
             PolicyRule::RequireConfirmation => {
-                let valid = confirmation.is_some_and(|token| {
-                    self.confirmations
-                        .lock()
-                        .expect("confirmation lock")
-                        .remove(&token)
-                        .is_some_and(|approved| approved == request)
-                });
+                let valid = preconfirmed
+                    || confirmation.is_some_and(|token| {
+                        self.confirmations
+                            .lock()
+                            .expect("confirmation lock")
+                            .remove(&token)
+                            .is_some_and(|approved| approved == request)
+                    });
                 if valid {
-                    consumed = true;
+                    consumed = !preconfirmed;
                     PolicyDecision::Allowed
                 } else {
                     PolicyDecision::ConfirmationRequired

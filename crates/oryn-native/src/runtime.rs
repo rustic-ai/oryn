@@ -4,11 +4,11 @@ use std::{
         Arc, Mutex, Weak,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[cfg(feature = "v8-host")]
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 
 #[cfg(feature = "v8-host")]
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -41,7 +41,7 @@ use crate::network::NetworkBroker;
 use crate::semantic::{
     empty_observation, is_hidden, project_document, project_document_full, project_element,
 };
-use crate::trace::{TraceEvent, TraceEventKind, TraceLog};
+use crate::trace::{CausalRelation, TraceEvent, TraceEventKind, TraceLog};
 use crate::{
     download::{DownloadDescriptor, DownloadId, DownloadStore},
     execution::{
@@ -62,6 +62,7 @@ use crate::{
 static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_PAGE_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_WORKER_GENERATION: AtomicU64 = AtomicU64::new(1);
+const NETWORK_IDLE_QUIET_PERIOD: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone)]
 pub struct Browser {
@@ -89,6 +90,9 @@ struct BrowserContextInner {
     network_replay: crate::replay::NetworkReplayController,
     intent_trace: Mutex<Vec<crate::replay::IntentTraceRecord>>,
     domain_decisions: Mutex<Vec<crate::execution::DomainDecision>>,
+    /// One-shot parent authorizations consumed only by the corresponding
+    /// worker-originated form effect.
+    form_submission_grants: Mutex<BTreeMap<PageId, usize>>,
     #[cfg(unix)]
     context_events: Mutex<Vec<ContextEventRecord>>,
     #[cfg(unix)]
@@ -99,14 +103,27 @@ struct BrowserContextInner {
     context_client: Option<crate::context_service::SharedContextClient>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PageHandle {
     id: u64,
     opener_page_id: Option<PageId>,
     context: Weak<BrowserContextInner>,
+    // Public page handles retain their owning context. The context registry
+    // stores detached handles to avoid an Arc cycle.
+    context_guard: Option<Arc<BrowserContextInner>>,
     sender: Option<mpsc::Sender<PageCommand>>,
     #[cfg(unix)]
     worker: Option<std::sync::Arc<WorkerPage>>,
+}
+
+impl std::fmt::Debug for PageHandle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PageHandle")
+            .field("id", &self.id)
+            .field("opener_page_id", &self.opener_page_id)
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(unix)]
@@ -182,7 +199,7 @@ impl ContextGroup {
         pages.insert(
             page_id,
             PageRecord {
-                handle,
+                handle: handle.detached_clone(),
                 descriptor: descriptor.clone(),
             },
         );
@@ -215,7 +232,7 @@ impl ContextGroup {
                     PageStatus::Closed | PageStatus::Crashed
                 )
             })
-            .map(|record| record.handle.clone())
+            .map(|record| record.handle.retained_clone())
     }
 
     fn activate(&self, page_id: PageId) -> Result<PageHandle, RuntimeError> {
@@ -228,7 +245,7 @@ impl ContextGroup {
                     PageStatus::Closed | PageStatus::Crashed
                 )
             })
-            .map(|record| record.handle.clone())
+            .map(|record| record.handle.retained_clone())
             .ok_or(RuntimeError::PageNotFound(page_id))?;
         for record in pages.values_mut() {
             record.descriptor.active = record.descriptor.page.page_id == page_id;
@@ -378,7 +395,7 @@ impl ContextGroup {
                     PageStatus::Closed | PageStatus::Crashed
                 ) && page_matches(&record.descriptor, predicate)
             })
-            .map(|record| record.handle.clone())
+            .map(|record| record.handle.retained_clone())
     }
 }
 
@@ -492,6 +509,14 @@ pub struct BrowserConfig {
     pub max_font_bytes: usize,
     pub max_page_font_bytes: usize,
     pub max_viewport_css_px: u32,
+    /// Maximum number of semantic revisions retained for delta queries.
+    pub max_revision_snapshots: usize,
+    /// Approximate serialized byte ceiling for retained semantic revisions.
+    pub max_revision_bytes: usize,
+    /// Maximum number of pinned script/style resources cached by a page.
+    pub max_resource_cache_entries: usize,
+    /// Combined UTF-8 byte ceiling for pinned page resources.
+    pub max_resource_cache_bytes: usize,
 }
 
 impl Default for BrowserConfig {
@@ -512,6 +537,10 @@ impl Default for BrowserConfig {
             max_font_bytes: 8 * 1024 * 1024,
             max_page_font_bytes: 32 * 1024 * 1024,
             max_viewport_css_px: 16_384,
+            max_revision_snapshots: 128,
+            max_revision_bytes: 16 * 1024 * 1024,
+            max_resource_cache_entries: 256,
+            max_resource_cache_bytes: 32 * 1024 * 1024,
         }
     }
 }
@@ -727,6 +756,10 @@ enum PageCommand {
         reply: oneshot::Sender<Result<ActionResult, RuntimeError>>,
     },
     ExecuteForced {
+        action: NativeAction,
+        reply: oneshot::Sender<Result<ActionResult, RuntimeError>>,
+    },
+    ExecuteSensitive {
         action: NativeAction,
         reply: oneshot::Sender<Result<ActionResult, RuntimeError>>,
     },
@@ -1109,6 +1142,7 @@ impl Browser {
                     network_replay,
                     intent_trace: Mutex::new(Vec::new()),
                     domain_decisions: Mutex::new(Vec::new()),
+                    form_submission_grants: Mutex::new(BTreeMap::new()),
                     #[cfg(unix)]
                     context_events: Mutex::new(Vec::new()),
                     #[cfg(unix)]
@@ -1152,6 +1186,7 @@ impl Browser {
                 network_replay,
                 intent_trace: Mutex::new(Vec::new()),
                 domain_decisions: Mutex::new(Vec::new()),
+                form_submission_grants: Mutex::new(BTreeMap::new()),
                 #[cfg(unix)]
                 context_events: Mutex::new(Vec::new()),
                 #[cfg(unix)]
@@ -1188,6 +1223,7 @@ impl Browser {
                 network_replay: crate::replay::NetworkReplayController::live(),
                 intent_trace: Mutex::new(Vec::new()),
                 domain_decisions: Mutex::new(Vec::new()),
+                form_submission_grants: Mutex::new(BTreeMap::new()),
                 #[cfg(unix)]
                 context_events: Mutex::new(Vec::new()),
                 #[cfg(unix)]
@@ -1224,6 +1260,7 @@ impl Browser {
                 network_replay: crate::replay::NetworkReplayController::live(),
                 intent_trace: Mutex::new(Vec::new()),
                 domain_decisions: Mutex::new(Vec::new()),
+                form_submission_grants: Mutex::new(BTreeMap::new()),
                 context_events: Mutex::new(Vec::new()),
                 next_context_event_id: AtomicU64::new(1),
                 parent_cookies: None,
@@ -1685,6 +1722,59 @@ impl BrowserContext {
         }
     }
 
+    #[cfg(unix)]
+    pub(crate) fn grant_form_submission(&self, page_id: PageId) {
+        *self
+            .inner
+            .form_submission_grants
+            .lock()
+            .expect("form submission grant lock")
+            .entry(page_id)
+            .or_default() += 1;
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn consume_form_submission_grant(&self, page_id: PageId) -> bool {
+        let mut grants = self
+            .inner
+            .form_submission_grants
+            .lock()
+            .expect("form submission grant lock");
+        let Some(remaining) = grants.get_mut(&page_id) else {
+            return false;
+        };
+        *remaining = remaining.saturating_sub(1);
+        if *remaining == 0 {
+            grants.remove(&page_id);
+        }
+        true
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn clear_form_submission_grant(&self, page_id: PageId) {
+        self.inner
+            .form_submission_grants
+            .lock()
+            .expect("form submission grant lock")
+            .remove(&page_id);
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn require_preconfirmed_policy(
+        &self,
+        request: PolicyRequest,
+    ) -> Result<(), RuntimeError> {
+        match self.inner.policy.authorize_preconfirmed(request.clone()) {
+            PolicyDecision::Allowed => Ok(()),
+            PolicyDecision::Denied => Err(RuntimeError::PolicyDenied {
+                action: request.action,
+            }),
+            PolicyDecision::ConfirmationRequired => Err(RuntimeError::ConfirmationRequired {
+                action: request.action,
+            }),
+        }
+    }
+
     pub(crate) fn network_policy(&self) -> &NetworkPolicy {
         &self.inner.options.network_policy
     }
@@ -1929,6 +2019,7 @@ impl BrowserContext {
                 id: page_id.0,
                 opener_page_id,
                 context: Arc::downgrade(&self.inner),
+                context_guard: Some(self.inner.clone()),
                 sender: None,
                 worker: Some(std::sync::Arc::new(WorkerPage {
                     page_id,
@@ -2074,6 +2165,9 @@ impl BrowserContext {
                     PageCommand::ExecuteForced { action, reply } => {
                         let _ = reply.send(state.execute_forced(action));
                     }
+                    PageCommand::ExecuteSensitive { action, reply } => {
+                        let _ = reply.send(state.execute_sensitive(action));
+                    }
                     PageCommand::Close => break,
                 }
             }
@@ -2082,6 +2176,7 @@ impl BrowserContext {
             id: page_id.0,
             opener_page_id,
             context: Arc::downgrade(&self.inner),
+            context_guard: Some(self.inner.clone()),
             sender: Some(sender),
             #[cfg(unix)]
             worker: None,
@@ -2153,6 +2248,26 @@ impl BrowserContext {
 }
 
 impl PageHandle {
+    fn detached_clone(&self) -> Self {
+        Self {
+            id: self.id,
+            opener_page_id: self.opener_page_id,
+            context: self.context.clone(),
+            context_guard: None,
+            sender: self.sender.clone(),
+            #[cfg(unix)]
+            worker: self.worker.clone(),
+        }
+    }
+
+    fn retained_clone(&self) -> Self {
+        let mut handle = self.clone();
+        if handle.context_guard.is_none() {
+            handle.context_guard = handle.context.upgrade();
+        }
+        handle
+    }
+
     pub fn id(&self) -> u64 {
         self.id
     }
@@ -2170,28 +2285,32 @@ impl PageHandle {
     }
 
     #[cfg(unix)]
-    fn worker_request(
+    async fn worker_request(
         &self,
         request: crate::worker::WorkerRequest,
     ) -> Option<Result<crate::worker::WorkerResponse, RuntimeError>> {
-        self.worker.as_ref().map(|worker| {
-            let result = worker.request(request);
-            if let Err(
-                RuntimeError::WorkerCrashed(detail) | RuntimeError::ProtocolViolation(detail),
-            ) = &result
-            {
-                if let Some(context) = self.context.upgrade() {
-                    context.group.crash(self.page_id(), detail.clone());
-                }
-            } else if let Err(RuntimeError::WorkerLimitExceeded { resource }) = &result
-                && let Some(context) = self.context.upgrade()
-            {
-                context
-                    .group
-                    .crash(self.page_id(), format!("worker exceeded {resource} limit"));
+        let worker = self.worker.clone()?;
+        let result = tokio::task::spawn_blocking(move || worker.request(request))
+            .await
+            .unwrap_or_else(|error| {
+                Err(RuntimeError::WorkerCrashed(format!(
+                    "worker request task failed: {error}"
+                )))
+            });
+        if let Err(RuntimeError::WorkerCrashed(detail) | RuntimeError::ProtocolViolation(detail)) =
+            &result
+        {
+            if let Some(context) = self.context.upgrade() {
+                context.group.crash(self.page_id(), detail.clone());
             }
-            result
-        })
+        } else if let Err(RuntimeError::WorkerLimitExceeded { resource }) = &result
+            && let Some(context) = self.context.upgrade()
+        {
+            context
+                .group
+                .crash(self.page_id(), format!("worker exceeded {resource} limit"));
+        }
+        Some(result)
     }
 
     pub async fn load_html(
@@ -2202,10 +2321,13 @@ impl PageHandle {
         let url = url.into();
         let html = html.into();
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::LoadHtml {
-            url: url.clone(),
-            html: html.clone(),
-        }) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::LoadHtml {
+                url: url.clone(),
+                html: html.clone(),
+            })
+            .await
+        {
             return match response? {
                 crate::worker::WorkerResponse::Loaded { revision, page } => {
                     if let Some(context) = self.context.upgrade() {
@@ -2263,8 +2385,9 @@ impl PageHandle {
             }
         }
         #[cfg(unix)]
-        if let Some(response) =
-            self.worker_request(crate::worker::WorkerRequest::Goto { url: url.clone() })
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Goto { url: url.clone() })
+            .await
         {
             let navigation = worker_navigation(response?)?;
             self.record_navigation(&navigation);
@@ -2282,7 +2405,10 @@ impl PageHandle {
 
     pub async fn back(&self) -> Result<NavigationResult, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Back) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Back)
+            .await
+        {
             let navigation = worker_navigation(response?)?;
             self.record_navigation(&navigation);
             return Ok(navigation);
@@ -2293,7 +2419,10 @@ impl PageHandle {
 
     pub async fn forward(&self) -> Result<NavigationResult, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Forward) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Forward)
+            .await
+        {
             let navigation = worker_navigation(response?)?;
             self.record_navigation(&navigation);
             return Ok(navigation);
@@ -2304,7 +2433,10 @@ impl PageHandle {
 
     pub async fn refresh(&self) -> Result<NavigationResult, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Refresh) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Refresh)
+            .await
+        {
             let navigation = worker_navigation(response?)?;
             self.record_navigation(&navigation);
             return Ok(navigation);
@@ -2335,9 +2467,12 @@ impl PageHandle {
 
     pub async fn wait_for(&self, predicate: WaitPredicate) -> Result<(), RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::WaitFor {
-            predicate: predicate.clone(),
-        }) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::WaitFor {
+                predicate: predicate.clone(),
+            })
+            .await
+        {
             return match response? {
                 crate::worker::WorkerResponse::Satisfied => Ok(()),
                 response => Err(unexpected_worker_response(response)),
@@ -2353,10 +2488,14 @@ impl PageHandle {
 
     pub async fn evaluate(&self, source: impl Into<String>) -> Result<String, RuntimeError> {
         let source = source.into();
+        self.audit_raw_inspection("evaluate", Some(&source))?;
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Evaluate {
-            source: source.clone(),
-        }) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Evaluate {
+                source: source.clone(),
+            })
+            .await
+        {
             return match response? {
                 crate::worker::WorkerResponse::Value { value } => Ok(value),
                 response => Err(unexpected_worker_response(response)),
@@ -2372,7 +2511,10 @@ impl PageHandle {
 
     pub async fn capabilities(&self) -> Result<Vec<CapabilityDiagnostic>, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Capabilities) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Capabilities)
+            .await
+        {
             return match response? {
                 crate::worker::WorkerResponse::Capabilities { capabilities } => Ok(capabilities),
                 response => Err(unexpected_worker_response(response)),
@@ -2392,11 +2534,15 @@ impl PageHandle {
         action: SemanticAction,
     ) -> Result<SemanticRef, RuntimeError> {
         let selector = selector.into();
+        self.audit_raw_inspection("selector", Some(&selector))?;
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::ResolveSelector {
-            selector: selector.clone(),
-            action,
-        }) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::ResolveSelector {
+                selector: selector.clone(),
+                action,
+            })
+            .await
+        {
             return match response? {
                 crate::worker::WorkerResponse::SemanticRef { semantic_ref } => Ok(semantic_ref),
                 response => Err(unexpected_worker_response(response)),
@@ -2419,11 +2565,15 @@ impl PageHandle {
         kind: ContentKind,
         selector: Option<String>,
     ) -> Result<serde_json::Value, RuntimeError> {
+        self.audit_raw_inspection("extract", selector.as_deref())?;
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Extract {
-            kind,
-            selector: selector.clone(),
-        }) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Extract {
+                kind,
+                selector: selector.clone(),
+            })
+            .await
+        {
             return match response? {
                 crate::worker::WorkerResponse::Structured { value } => Ok(value),
                 response => Err(unexpected_worker_response(response)),
@@ -2450,9 +2600,12 @@ impl PageHandle {
         profile: ProjectionProfile,
     ) -> Result<Observation, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Observe {
-            profile: Some(profile),
-        }) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Observe {
+                profile: Some(profile),
+            })
+            .await
+        {
             return match response? {
                 crate::worker::WorkerResponse::Observation { observation } => {
                     if let Some(context) = self.context.upgrade() {
@@ -2481,8 +2634,9 @@ impl PageHandle {
         options: ObservationOptions,
     ) -> Result<oryn_common::v4::Observation, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) =
-            self.worker_request(crate::worker::WorkerRequest::ObserveWith { options })
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::ObserveWith { options })
+            .await
         {
             return match response? {
                 crate::worker::WorkerResponse::ObservationV4 { observation } => Ok(observation),
@@ -2504,8 +2658,9 @@ impl PageHandle {
 
     pub async fn computed_style(&self, target: SemanticRef) -> Result<ComputedStyle, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) =
-            self.worker_request(crate::worker::WorkerRequest::ComputedStyle { target })
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::ComputedStyle { target })
+            .await
         {
             return match response? {
                 crate::worker::WorkerResponse::ComputedStyle { style } => Ok(style),
@@ -2522,8 +2677,9 @@ impl PageHandle {
 
     pub async fn box_model(&self, target: SemanticRef) -> Result<BoxModel, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) =
-            self.worker_request(crate::worker::WorkerRequest::BoxModel { target })
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::BoxModel { target })
+            .await
         {
             return match response? {
                 crate::worker::WorkerResponse::BoxModel { box_model } => Ok(box_model),
@@ -2543,7 +2699,10 @@ impl PageHandle {
     /// through its typed parent network broker.
     pub async fn paint_snapshot(&self) -> Result<PaintSnapshot, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::PaintSnapshot) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::PaintSnapshot)
+            .await
+        {
             return match response? {
                 crate::worker::WorkerResponse::PaintSnapshot { snapshot } => Ok(*snapshot),
                 response => Err(unexpected_worker_response(response)),
@@ -2562,8 +2721,9 @@ impl PageHandle {
         viewport: ViewportState,
     ) -> Result<ViewportState, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) =
-            self.worker_request(crate::worker::WorkerRequest::SetViewport { viewport })
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::SetViewport { viewport })
+            .await
         {
             return match response? {
                 crate::worker::WorkerResponse::Viewport { viewport } => Ok(viewport),
@@ -2580,8 +2740,9 @@ impl PageHandle {
 
     pub async fn set_media(&self, media: MediaState) -> Result<MediaState, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) =
-            self.worker_request(crate::worker::WorkerRequest::SetMedia { media })
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::SetMedia { media })
+            .await
         {
             return match response? {
                 crate::worker::WorkerResponse::Media { media } => Ok(media),
@@ -2598,8 +2759,9 @@ impl PageHandle {
 
     pub async fn scroll(&self, request: ScrollRequest) -> Result<ScrollState, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) =
-            self.worker_request(crate::worker::WorkerRequest::Scroll { request })
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Scroll { request })
+            .await
         {
             return match response? {
                 crate::worker::WorkerResponse::Scroll { scroll } => Ok(scroll),
@@ -2634,8 +2796,9 @@ impl PageHandle {
 
     pub async fn scroll_into_view(&self, target: SemanticRef) -> Result<ScrollState, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) =
-            self.worker_request(crate::worker::WorkerRequest::ScrollIntoView { target })
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::ScrollIntoView { target })
+            .await
         {
             return match response? {
                 crate::worker::WorkerResponse::Scroll { scroll } => Ok(scroll),
@@ -2652,8 +2815,9 @@ impl PageHandle {
 
     pub async fn observe_delta(&self, from: Revision) -> Result<ObservationDelta, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) =
-            self.worker_request(crate::worker::WorkerRequest::ObserveDelta { from })
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::ObserveDelta { from })
+            .await
         {
             return match response? {
                 crate::worker::WorkerResponse::Delta { delta } => Ok(delta),
@@ -2701,7 +2865,10 @@ impl PageHandle {
 
     pub async fn trace(&self) -> Result<Vec<TraceEvent>, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Trace) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Trace)
+            .await
+        {
             return match response? {
                 crate::worker::WorkerResponse::Trace { events } => Ok(events),
                 response => Err(unexpected_worker_response(response)),
@@ -2717,6 +2884,36 @@ impl PageHandle {
 
     pub async fn execute(&self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
         self.execute_authorized(action, None).await
+    }
+
+    fn audit_raw_inspection(
+        &self,
+        operation: &str,
+        page_controlled_value: Option<&str>,
+    ) -> Result<(), RuntimeError> {
+        let Some(context) = self.context.upgrade() else {
+            return Err(RuntimeError::Closed);
+        };
+        let context = BrowserContext { inner: context };
+        let detail = page_controlled_value.map_or_else(
+            || operation.to_string(),
+            |value| {
+                use sha2::Digest as _;
+                let digest = sha2::Sha256::digest(value.as_bytes());
+                format!("{operation}:sha256:{digest:x}")
+            },
+        );
+        context.require_policy(
+            PolicyRequest {
+                action: ConsequentialAction::RawPageInspection,
+                source_origin: context
+                    .page_origin(self.page_id())
+                    .unwrap_or_else(|_| "null".into()),
+                target_origin: None,
+                detail: Some(detail),
+            },
+            None,
+        )
     }
 
     pub async fn execute_authorized(
@@ -2739,17 +2936,36 @@ impl PageHandle {
                 },
                 confirmation,
             )?;
+            #[cfg(unix)]
+            context.grant_form_submission(self.page_id());
         }
+        let clear_form_grant = action.action == SemanticAction::Submit;
+        let outcome = self.execute_after_authorization(action).await;
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Execute {
-            action: crate::worker::NativeActionRequest {
-                target: action.target,
-                action: action.action,
-                value: action.value.clone(),
-                force: false,
-            },
-        }) {
-            return match response? {
+        if clear_form_grant && let Some(context) = self.context.upgrade() {
+            BrowserContext { inner: context }.clear_form_submission_grant(self.page_id());
+        }
+        outcome
+    }
+
+    async fn execute_after_authorization(
+        &self,
+        action: NativeAction,
+    ) -> Result<ActionResult, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Execute {
+                action: crate::worker::NativeActionRequest {
+                    target: action.target,
+                    action: action.action,
+                    value: action.value.clone(),
+                    force: false,
+                    sensitive: false,
+                },
+            })
+            .await
+        {
+            let outcome = match response? {
                 crate::worker::WorkerResponse::Action { result } => {
                     if let Some(context) = self.context.upgrade() {
                         context
@@ -2770,6 +2986,7 @@ impl PageHandle {
                 }
                 response => Err(unexpected_worker_response(response)),
             };
+            return outcome;
         }
         let (reply, response) = oneshot::channel();
         self.local_sender()?
@@ -2821,15 +3038,42 @@ impl PageHandle {
             .map_err(|error| RuntimeError::Secret(error.to_string()))?;
         let value = String::from_utf8(bytes)
             .map_err(|_| RuntimeError::Secret(SecretError::InvalidUtf8.to_string()))?;
-        self.execute_authorized(
-            NativeAction {
-                target,
-                action: SemanticAction::Type,
-                value: Some(value),
-            },
-            None,
-        )
+        self.execute_sensitive(NativeAction {
+            target,
+            action: SemanticAction::Type,
+            value: Some(value),
+        })
         .await
+    }
+
+    pub(crate) async fn execute_sensitive(
+        &self,
+        action: NativeAction,
+    ) -> Result<ActionResult, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Execute {
+                action: crate::worker::NativeActionRequest {
+                    target: action.target,
+                    action: action.action,
+                    value: action.value.clone(),
+                    force: false,
+                    sensitive: true,
+                },
+            })
+            .await
+        {
+            return match response? {
+                crate::worker::WorkerResponse::Action { result } => Ok(result),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::ExecuteSensitive { action, reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
     }
 
     pub(crate) async fn execute_forced(
@@ -2837,14 +3081,18 @@ impl PageHandle {
         action: NativeAction,
     ) -> Result<ActionResult, RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Execute {
-            action: crate::worker::NativeActionRequest {
-                target: action.target,
-                action: action.action,
-                value: action.value.clone(),
-                force: true,
-            },
-        }) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Execute {
+                action: crate::worker::NativeActionRequest {
+                    target: action.target,
+                    action: action.action,
+                    value: action.value.clone(),
+                    force: true,
+                    sensitive: false,
+                },
+            })
+            .await
+        {
             return match response? {
                 crate::worker::WorkerResponse::Action { result } => Ok(result),
                 response => Err(unexpected_worker_response(response)),
@@ -2905,7 +3153,10 @@ impl PageHandle {
 
     pub async fn close(&self) -> Result<(), RuntimeError> {
         #[cfg(unix)]
-        if let Some(response) = self.worker_request(crate::worker::WorkerRequest::Close) {
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Close)
+            .await
+        {
             return match response? {
                 crate::worker::WorkerResponse::Closed => {
                     if let Some(context) = self.context.upgrade() {
@@ -3050,10 +3301,13 @@ struct PageState {
     viewport: ViewportState,
     scroll_state: ScrollState,
     next_action_id: u64,
+    lifecycle: Vec<LifecycleState>,
+    network_quiet_since: Option<Instant>,
     document: Option<ParsedDocument>,
     #[cfg(feature = "v8-host")]
     executable: Option<crate::executable::ExecutableDocument>,
     snapshots: BTreeMap<u64, Vec<oryn_common::v3::SemanticNodeView>>,
+    snapshot_bytes: usize,
     trace: TraceLog,
     history: Vec<String>,
     history_index: Option<usize>,
@@ -3062,6 +3316,10 @@ struct PageState {
     context_client: Option<crate::context_service::SharedContextClient>,
     #[cfg(feature = "v8-host")]
     resource_cache: BTreeMap<String, String>,
+    #[cfg(feature = "v8-host")]
+    resource_cache_order: VecDeque<String>,
+    #[cfg(feature = "v8-host")]
+    resource_cache_bytes: usize,
     #[cfg(feature = "v8-host")]
     web_fonts: Vec<oryn_layout::WebFont>,
     #[cfg(feature = "v8-host")]
@@ -3109,10 +3367,13 @@ impl PageState {
                 ..ScrollState::default()
             },
             next_action_id: 0,
+            lifecycle: Vec::new(),
+            network_quiet_since: None,
             document: None,
             #[cfg(feature = "v8-host")]
             executable: None,
             snapshots: BTreeMap::new(),
+            snapshot_bytes: 0,
             trace: TraceLog::new(page_id),
             history: Vec::new(),
             history_index: None,
@@ -3121,6 +3382,10 @@ impl PageState {
             context_client,
             #[cfg(feature = "v8-host")]
             resource_cache: BTreeMap::new(),
+            #[cfg(feature = "v8-host")]
+            resource_cache_order: VecDeque::new(),
+            #[cfg(feature = "v8-host")]
+            resource_cache_bytes: 0,
             #[cfg(feature = "v8-host")]
             web_fonts: Vec::new(),
             #[cfg(feature = "v8-host")]
@@ -3146,6 +3411,9 @@ impl PageState {
         let _ = resources;
         self.document_generation += 1;
         self.revision += 1;
+        self.lifecycle.clear();
+        self.lifecycle.push(LifecycleState::Commit);
+        self.network_quiet_since = None;
         self.url = url;
         // A new top-level document starts at the viewport origin. Carrying a
         // prior document's scroll offset into layout can make otherwise
@@ -3270,17 +3538,15 @@ impl PageState {
                 url: self.url.clone(),
             },
         );
-        for state in [
-            LifecycleState::DomContentLoaded,
-            LifecycleState::Load,
-            LifecycleState::NetworkIdle,
-        ] {
+        for state in [LifecycleState::DomContentLoaded, LifecycleState::Load] {
+            self.lifecycle.push(state);
             self.trace.push(
                 Revision(self.revision),
                 None,
                 TraceEventKind::LifecycleChanged { state },
             );
         }
+        self.network_quiet_since = Some(Instant::now());
         Ok(())
     }
 
@@ -3351,12 +3617,7 @@ impl PageState {
                 status: 200,
                 document_generation: self.document_generation,
                 revision: Revision(self.revision),
-                lifecycle: vec![
-                    LifecycleState::Commit,
-                    LifecycleState::DomContentLoaded,
-                    LifecycleState::Load,
-                    LifecycleState::NetworkIdle,
-                ],
+                lifecycle: self.lifecycle.clone(),
             });
         }
         let (status, body) = loop {
@@ -3451,12 +3712,7 @@ impl PageState {
             status,
             document_generation: self.document_generation,
             revision: Revision(self.revision),
-            lifecycle: vec![
-                LifecycleState::Commit,
-                LifecycleState::DomContentLoaded,
-                LifecycleState::Load,
-                LifecycleState::NetworkIdle,
-            ],
+            lifecycle: self.lifecycle.clone(),
         })
     }
 
@@ -3555,7 +3811,7 @@ impl PageState {
         } else {
             let css =
                 self.fetch_external_resource(url.clone(), "text/css,*/*;q=0.1", "stylesheet")?;
-            self.resource_cache.insert(cache_key, css.clone());
+            self.cache_resource(cache_key, css.clone());
             css
         };
         self.expand_css_imports(url, &css, depth, visited)
@@ -3840,7 +4096,7 @@ impl PageState {
                         )));
                     }
                 }
-                self.resource_cache.insert(cache_key, body.clone());
+                self.cache_resource(cache_key, body.clone());
                 body
             };
             if module {
@@ -3889,6 +4145,7 @@ impl PageState {
         resource_kind: &str,
     ) -> Result<Vec<u8>, RuntimeError> {
         for redirect in 0..=self.config.max_redirects {
+            self.network_quiet_since = None;
             self.trace.push(
                 Revision(self.revision),
                 None,
@@ -3915,6 +4172,7 @@ impl PageState {
                     resolved_addrs: Vec::new(),
                 })
                 .map_err(|error| RuntimeError::Network(error.to_string()))?;
+            self.network_quiet_since = Some(Instant::now());
             self.trace.push(
                 Revision(self.revision),
                 None,
@@ -3972,6 +4230,10 @@ impl PageState {
     }
 
     fn wait_for(&mut self, predicate: &WaitPredicate) -> Result<(), RuntimeError> {
+        let network_idle = matches!(
+            predicate,
+            WaitPredicate::Lifecycle(LifecycleState::NetworkIdle)
+        );
         #[cfg(feature = "v8-host")]
         if matches!(
             predicate,
@@ -3983,14 +4245,68 @@ impl PageState {
             // class-hidden element as ready before its timer fires.
             self.refresh_layout()?;
         }
-        if self.wait_satisfied(predicate) {
+        if !network_idle && self.wait_satisfied(predicate) {
             return Ok(());
         }
         #[cfg(feature = "v8-host")]
         if let Some(executable) = self.executable.as_mut() {
+            let before = self
+                .document
+                .as_ref()
+                .map(|document| {
+                    project_document(&document.dom, self.page_id, self.document_generation)
+                })
+                .unwrap_or_default();
             executable.drain_tasks().map_err(map_host_error)?;
+            let context_entries = executable
+                .take_context_trace_entries()
+                .map_err(map_host_error)?;
             self.document = Some(executable.document.clone());
             self.refresh_layout()?;
+            let after = self
+                .document
+                .as_ref()
+                .map(|document| {
+                    project_document(&document.dom, self.page_id, self.document_generation)
+                })
+                .unwrap_or_default();
+            if before != after {
+                self.revision += 1;
+                self.record_snapshot();
+                self.trace.push(
+                    Revision(self.revision),
+                    None,
+                    TraceEventKind::Mutation {
+                        summary: "asynchronous page checkpoint".into(),
+                    },
+                );
+            }
+            for entry in context_entries {
+                match entry.kind.as_str() {
+                    "request_started" => self.network_quiet_since = None,
+                    "response_received" => self.network_quiet_since = Some(Instant::now()),
+                    _ => {}
+                }
+                if let Some(kind) = context_trace_kind(entry) {
+                    self.trace.push(Revision(self.revision), None, kind);
+                }
+            }
+        }
+        if network_idle && let Some(quiet_since) = self.network_quiet_since {
+            let elapsed = quiet_since.elapsed();
+            if elapsed < NETWORK_IDLE_QUIET_PERIOD {
+                std::thread::sleep(NETWORK_IDLE_QUIET_PERIOD - elapsed);
+            }
+            if !self.lifecycle.contains(&LifecycleState::NetworkIdle) {
+                self.lifecycle.push(LifecycleState::NetworkIdle);
+                self.trace.push(
+                    Revision(self.revision),
+                    None,
+                    TraceEventKind::LifecycleChanged {
+                        state: LifecycleState::NetworkIdle,
+                    },
+                );
+            }
         }
         self.wait_satisfied(predicate)
             .then_some(())
@@ -3999,7 +4315,13 @@ impl PageState {
 
     fn wait_satisfied(&self, predicate: &WaitPredicate) -> bool {
         match predicate {
-            WaitPredicate::Lifecycle(_) => self.document.is_some(),
+            WaitPredicate::Lifecycle(LifecycleState::NetworkIdle) => {
+                self.lifecycle.contains(&LifecycleState::NetworkIdle)
+                    || self
+                        .network_quiet_since
+                        .is_some_and(|since| since.elapsed() >= NETWORK_IDLE_QUIET_PERIOD)
+            }
+            WaitPredicate::Lifecycle(state) => self.lifecycle.contains(state),
             WaitPredicate::UrlContains(fragment) => self.url.contains(fragment),
             WaitPredicate::SelectorExists(selector) => self
                 .document
@@ -4071,6 +4393,13 @@ impl PageState {
     fn evaluate(&mut self, source: &str) -> Result<String, RuntimeError> {
         #[cfg(feature = "v8-host")]
         {
+            let before = self
+                .document
+                .as_ref()
+                .map(|document| {
+                    project_document(&document.dom, self.page_id, self.document_generation)
+                })
+                .unwrap_or_default();
             let executable = self
                 .executable
                 .as_mut()
@@ -4095,6 +4424,24 @@ impl PageState {
                 }
             }
             self.refresh_layout()?;
+            let after = self
+                .document
+                .as_ref()
+                .map(|document| {
+                    project_document(&document.dom, self.page_id, self.document_generation)
+                })
+                .unwrap_or_default();
+            if before != after {
+                self.revision += 1;
+                self.record_snapshot();
+                self.trace.push(
+                    Revision(self.revision),
+                    None,
+                    TraceEventKind::Mutation {
+                        summary: "evaluated script changed page state".into(),
+                    },
+                );
+            }
             Ok(value)
         }
         #[cfg(not(feature = "v8-host"))]
@@ -4647,6 +4994,14 @@ impl PageState {
                     "paint.snapshot",
                     "bounded read-only paint input for an optional renderer",
                 ),
+                supported_capability(
+                    "network.cors.parent_enforced",
+                    "the parent broker enforces CORS response and preflight policy before bytes enter the worker",
+                ),
+                supported_capability(
+                    "security.mixed_content",
+                    "the parent blocks active HTTP and WebSocket mixed content",
+                ),
                 CapabilityDiagnostic {
                     capability: "layout.float".into(),
                     support: SupportLevel::Partial,
@@ -4694,6 +5049,14 @@ impl PageState {
                 unsupported_capability(
                     "xhr.synchronous_main_thread",
                     "synchronous main-thread XHR is intentionally unsupported",
+                ),
+                unsupported_capability(
+                    "cookie.same_site",
+                    "SameSite cookie context is not yet modeled; workflows requiring cross-site cookie semantics must use a compatibility domain",
+                ),
+                unsupported_capability(
+                    "security.csp",
+                    "Content-Security-Policy is not yet enforced by the native application profile",
                 ),
                 CapabilityDiagnostic {
                     capability: "indexeddb.advanced".into(),
@@ -4899,7 +5262,63 @@ impl PageState {
             .as_ref()
             .map(|document| project_document(&document.dom, self.page_id, self.document_generation))
             .unwrap_or_default();
-        self.snapshots.insert(self.revision, nodes);
+        let bytes = serde_json::to_vec(&nodes).map_or(0, |encoded| encoded.len());
+        if let Some(previous) = self.snapshots.insert(self.revision, nodes) {
+            self.snapshot_bytes = self
+                .snapshot_bytes
+                .saturating_sub(serde_json::to_vec(&previous).map_or(0, |encoded| encoded.len()));
+        }
+        self.snapshot_bytes = self.snapshot_bytes.saturating_add(bytes);
+        while self.snapshots.len() > self.config.max_revision_snapshots
+            || self.snapshot_bytes > self.config.max_revision_bytes
+        {
+            let Some(oldest) = self.snapshots.keys().next().copied() else {
+                break;
+            };
+            // Retain the current revision even when one unusually large
+            // observation exceeds the byte ceiling. Older delta bases fail
+            // explicitly rather than allowing memory to grow without limit.
+            if oldest == self.revision && self.snapshots.len() == 1 {
+                break;
+            }
+            if let Some(removed) = self.snapshots.remove(&oldest) {
+                self.snapshot_bytes = self.snapshot_bytes.saturating_sub(
+                    serde_json::to_vec(&removed).map_or(0, |encoded| encoded.len()),
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn cache_resource(&mut self, key: String, body: String) {
+        let entry_bytes = key.len().saturating_add(body.len());
+        if entry_bytes > self.config.max_resource_cache_bytes
+            || self.config.max_resource_cache_entries == 0
+        {
+            return;
+        }
+        if let Some(previous) = self.resource_cache.remove(&key) {
+            self.resource_cache_bytes = self
+                .resource_cache_bytes
+                .saturating_sub(key.len().saturating_add(previous.len()));
+            self.resource_cache_order.retain(|cached| cached != &key);
+        }
+        while self.resource_cache.len() >= self.config.max_resource_cache_entries
+            || self.resource_cache_bytes.saturating_add(entry_bytes)
+                > self.config.max_resource_cache_bytes
+        {
+            let Some(oldest) = self.resource_cache_order.pop_front() else {
+                break;
+            };
+            if let Some(removed) = self.resource_cache.remove(&oldest) {
+                self.resource_cache_bytes = self
+                    .resource_cache_bytes
+                    .saturating_sub(oldest.len().saturating_add(removed.len()));
+            }
+        }
+        self.resource_cache_bytes = self.resource_cache_bytes.saturating_add(entry_bytes);
+        self.resource_cache_order.push_back(key.clone());
+        self.resource_cache.insert(key, body);
     }
 
     fn delta_from(&self, from: Revision) -> Result<ObservationDelta, RuntimeError> {
@@ -4940,17 +5359,22 @@ impl PageState {
     }
 
     fn execute(&mut self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
-        self.execute_with_interactability(action, true)
+        self.execute_with_interactability(action, true, false)
     }
 
     fn execute_forced(&mut self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
-        self.execute_with_interactability(action, false)
+        self.execute_with_interactability(action, false, false)
+    }
+
+    fn execute_sensitive(&mut self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
+        self.execute_with_interactability(action, true, true)
     }
 
     fn execute_with_interactability(
         &mut self,
         action: NativeAction,
         check_interactability: bool,
+        sensitive: bool,
     ) -> Result<ActionResult, RuntimeError> {
         self.validate_target(action.target)?;
         if check_interactability
@@ -4960,7 +5384,7 @@ impl PageState {
         }
         #[cfg(feature = "v8-host")]
         if self.executable.is_some() {
-            return self.execute_in_realm(action);
+            return self.execute_in_realm(action, sensitive);
         }
         let document = self
             .document
@@ -4981,11 +5405,12 @@ impl PageState {
         let (summary, mutated) = match action.action {
             SemanticAction::Type if matches!(local_name, "input" | "textarea") => {
                 let value = action.value.unwrap_or_default();
-                node.attributes.insert("value".into(), value);
+                node.value = Some(value);
+                node.sensitive_value = sensitive;
                 ("updated form control value", true)
             }
             SemanticAction::Clear if matches!(local_name, "input" | "textarea") => {
-                node.attributes.insert("value".into(), String::new());
+                node.value = Some(String::new());
                 ("cleared form control value", true)
             }
             SemanticAction::Click if matches!(local_name, "button" | "a" | "input" | "select") => {
@@ -5092,8 +5517,12 @@ impl PageState {
                 .into(),
             }
         };
-        self.trace
-            .push(Revision(self.revision), Some(result.action_id), trace_kind);
+        self.trace.push_causal(
+            Revision(self.revision),
+            Some(result.action_id),
+            CausalRelation::Direct,
+            trace_kind,
+        );
         Ok(result)
     }
 
@@ -5162,7 +5591,11 @@ impl PageState {
     }
 
     #[cfg(feature = "v8-host")]
-    fn execute_in_realm(&mut self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
+    fn execute_in_realm(
+        &mut self,
+        action: NativeAction,
+        sensitive: bool,
+    ) -> Result<ActionResult, RuntimeError> {
         let before = self.observation(ProjectionProfile::Compact);
         let node_id = crate::semantic::unpack_node_ref(action.target.node);
         let document = self
@@ -5180,9 +5613,15 @@ impl PageState {
             .executable
             .as_mut()
             .ok_or(RuntimeError::StaleSemanticRef)?;
-        executable
-            .apply_action(node_id, action.action, action.value.as_deref())
-            .map_err(map_host_error)?;
+        if sensitive {
+            executable
+                .apply_sensitive_action(node_id, action.action, action.value.as_deref())
+                .map_err(map_host_error)?;
+        } else {
+            executable
+                .apply_action(node_id, action.action, action.value.as_deref())
+                .map_err(map_host_error)?;
+        }
         let console_entries = executable.take_console_entries().unwrap_or_default();
         let context_entries = executable.take_context_trace_entries().unwrap_or_default();
         let pending_navigation = executable.location().ok().filter(|location| {
@@ -5258,17 +5697,19 @@ impl PageState {
             execution_domain: ExecutionDomain::Native,
         };
         self.record_snapshot();
-        self.trace.push(
+        self.trace.push_causal(
             Revision(self.revision),
             Some(result.action_id),
+            CausalRelation::Direct,
             TraceEventKind::EventDispatched {
                 event_type: event_type.into(),
             },
         );
         for entry in console_entries {
-            self.trace.push(
+            self.trace.push_causal(
                 Revision(self.revision),
                 Some(result.action_id),
+                CausalRelation::Correlated,
                 TraceEventKind::Console {
                     level: entry.level,
                     message: entry.message,
@@ -5276,12 +5717,21 @@ impl PageState {
             );
         }
         for entry in context_entries {
+            match entry.kind.as_str() {
+                "request_started" => self.network_quiet_since = None,
+                "response_received" => self.network_quiet_since = Some(Instant::now()),
+                _ => {}
+            }
             if let Some(effect) = context_trace_effect(&entry) {
                 result.effects.push(effect);
             }
             if let Some(kind) = context_trace_kind(entry) {
-                self.trace
-                    .push(Revision(self.revision), Some(result.action_id), kind);
+                self.trace.push_causal(
+                    Revision(self.revision),
+                    Some(result.action_id),
+                    CausalRelation::Correlated,
+                    kind,
+                );
             }
         }
         if result
@@ -5289,9 +5739,10 @@ impl PageState {
             .as_ref()
             .is_some_and(|delta| !delta.upserted.is_empty() || !delta.removed.is_empty())
         {
-            self.trace.push(
+            self.trace.push_causal(
                 Revision(self.revision),
                 Some(result.action_id),
+                CausalRelation::Derived,
                 TraceEventKind::Mutation {
                     summary: "script realm changed the native DOM".into(),
                 },
@@ -5960,13 +6411,18 @@ mod tests {
         let page = Browser::new()
             .new_context_with_options(ContextOptions::loopback_test())
             .new_page();
+        let navigation_started = Instant::now();
         let first = page
             .goto(format!("http://{address}/redirect"))
             .await
             .expect("follow checked redirect");
         assert_eq!(first.status, 200);
         assert!(first.final_url.ends_with("/one"));
-        assert_eq!(first.lifecycle.last(), Some(&LifecycleState::NetworkIdle));
+        assert_eq!(first.lifecycle.last(), Some(&LifecycleState::Load));
+        page.wait_for(WaitPredicate::Lifecycle(LifecycleState::NetworkIdle))
+            .await
+            .expect("wait for a measured quiet period");
+        assert!(navigation_started.elapsed() >= NETWORK_IDLE_QUIET_PERIOD);
         page.goto(format!("http://{address}/two"))
             .await
             .expect("second navigation");
@@ -6001,7 +6457,10 @@ mod tests {
         let back = page.back().await.expect("return to about:blank");
         assert_eq!(back.final_url, "about:blank");
         assert_eq!(back.status, 200);
-        assert_eq!(back.lifecycle.last(), Some(&LifecycleState::NetworkIdle));
+        assert_eq!(back.lifecycle.last(), Some(&LifecycleState::Load));
+        page.wait_for(WaitPredicate::Lifecycle(LifecycleState::NetworkIdle))
+            .await
+            .expect("wait for blank document quiet period");
     }
 
     #[cfg(unix)]
@@ -6325,6 +6784,112 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn evaluate_publishes_one_revision_for_one_semantic_dom_change() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/evaluate-revision",
+            "<button id=target aria-label=Pending></button>",
+        )
+        .await
+        .expect("load evaluation fixture");
+        let before = page.observe().await.expect("observe initial state");
+
+        assert_eq!(
+            page.evaluate(
+                "document.querySelector('#target').setAttribute('aria-label','Ready'); 'done'",
+            )
+            .await
+            .expect("evaluate mutation"),
+            "done"
+        );
+
+        let after = page.observe().await.expect("observe evaluated state");
+        assert_eq!(after.revision, Revision(before.revision.0 + 1));
+        let delta = page
+            .observe_delta(before.revision)
+            .await
+            .expect("observe evaluated delta");
+        assert_eq!(delta.from_revision, before.revision);
+        assert_eq!(delta.to_revision, after.revision);
+        assert!(delta.upserted.iter().any(|node| {
+            node.semantic_ref
+                == before
+                    .nodes
+                    .iter()
+                    .find(|node| node.name == "Pending")
+                    .expect("initial target")
+                    .semantic_ref
+                && node.name == "Ready"
+        }));
+
+        page.evaluate("'no mutation'")
+            .await
+            .expect("evaluate no-op");
+        assert_eq!(
+            page.observe().await.expect("observe after no-op").revision,
+            after.revision,
+            "an evaluation without an observable DOM change must not mint a revision"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn wait_task_drain_publishes_one_revision_and_one_delta() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/wait-revision",
+            r#"<button id=pending aria-label=Pending></button>
+               <script>
+                 setTimeout(() => {
+                   const target = document.querySelector('#pending');
+                   target.id = 'ready';
+                   target.setAttribute('aria-label', 'Ready');
+                 }, 25);
+               </script>"#,
+        )
+        .await
+        .expect("load delayed mutation fixture");
+        let before = page.observe().await.expect("observe pending state");
+        let target = before
+            .nodes
+            .iter()
+            .find(|node| node.name == "Pending")
+            .expect("pending target")
+            .semantic_ref;
+
+        page.wait_for(WaitPredicate::SelectorExists("#ready".into()))
+            .await
+            .expect("drain delayed task");
+
+        let after = page.observe().await.expect("observe ready state");
+        assert_eq!(after.revision, Revision(before.revision.0 + 1));
+        let delta = page
+            .observe_delta(before.revision)
+            .await
+            .expect("observe asynchronous delta");
+        assert_eq!(delta.to_revision, after.revision);
+        assert!(
+            delta
+                .upserted
+                .iter()
+                .any(|node| node.semantic_ref == target && node.name == "Ready")
+        );
+
+        page.wait_for(WaitPredicate::SelectorExists("#ready".into()))
+            .await
+            .expect("already-satisfied wait");
+        assert_eq!(
+            page.observe()
+                .await
+                .expect("observe after repeated wait")
+                .revision,
+            after.revision,
+            "an already-satisfied wait must not publish the same task change twice"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn same_origin_iframe_is_semantic_and_cross_origin_is_diagnostic() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture server");
         let address = listener.local_addr().expect("fixture address");
@@ -6468,6 +7033,48 @@ mod tests {
         ));
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn semantic_revision_history_is_bounded_and_eviction_is_explicit() {
+        let config = BrowserConfig {
+            max_revision_snapshots: 2,
+            max_revision_bytes: usize::MAX,
+            ..BrowserConfig::default()
+        };
+        let page = Browser::in_process_with_config(config)
+            .new_context()
+            .new_page();
+        page.load_html("https://example.test/", "<input id=value>")
+            .await
+            .unwrap();
+        let target = page
+            .resolve_selector("#value", SemanticAction::Type)
+            .await
+            .unwrap();
+        page.execute(NativeAction {
+            target,
+            action: SemanticAction::Type,
+            value: Some("first".into()),
+        })
+        .await
+        .unwrap();
+        page.execute(NativeAction {
+            target,
+            action: SemanticAction::Clear,
+            value: None,
+        })
+        .await
+        .unwrap();
+
+        assert!(matches!(
+            page.observe_delta(Revision(1)).await,
+            Err(RuntimeError::UnknownRevision(Revision(1)))
+        ));
+        assert_eq!(
+            page.observe_delta(Revision(2)).await.unwrap().to_revision,
+            Revision(3)
+        );
+    }
+
     #[tokio::test]
     async fn consequential_navigation_requires_scoped_one_use_confirmation() {
         let mut options = ContextOptions::default();
@@ -6505,13 +7112,68 @@ mod tests {
         ));
     }
 
+    #[cfg(all(unix, feature = "v8-host", feature = "in-process-probe"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn confirmed_form_command_is_rechecked_at_the_concrete_effect_boundary() {
+        let mut options = ContextOptions::default();
+        options.action_policy.rules.insert(
+            ConsequentialAction::FormSubmission,
+            PolicyRule::RequireConfirmation,
+        );
+        let context = Browser::in_process_probe().new_context_with_options(options);
+        let page = context.new_page();
+        page.load_html(
+            "https://app.example/",
+            "<form id=checkout action=/charged><button>Pay</button></form>",
+        )
+        .await
+        .unwrap();
+        let request = PolicyRequest {
+            action: ConsequentialAction::FormSubmission,
+            source_origin: "https://app.example".into(),
+            target_origin: None,
+            detail: Some("semantic form submission".into()),
+        };
+        let confirmation = context.prepare_confirmation(request.clone());
+
+        context.require_policy(request, Some(confirmation)).unwrap();
+        context.grant_form_submission(page.page_id());
+        let service =
+            crate::context_service::ParentContextService::new(context.clone(), page.page_id());
+        assert!(matches!(
+            service
+                .handle(
+                    crate::context_service::ContextServiceRequest::AuthorizeFormSubmission {
+                        page_id: page.page_id(),
+                        url: "https://app.example/charged".into(),
+                        method: "post".into(),
+                    },
+                )
+                .unwrap(),
+            crate::context_service::ContextServiceResponse::FormSubmissionAuthorized
+        ));
+        let form_audit = context
+            .security_audit()
+            .into_iter()
+            .filter(|record| record.request.action == ConsequentialAction::FormSubmission)
+            .collect::<Vec<_>>();
+        assert_eq!(form_audit.len(), 2);
+        assert!(form_audit[0].confirmation_consumed);
+        assert!(!form_audit[1].confirmation_consumed);
+        assert_eq!(form_audit[1].decision, PolicyDecision::Allowed);
+        assert_eq!(
+            form_audit[1].request.target_origin.as_deref(),
+            Some("https://app.example")
+        );
+    }
+
     #[tokio::test]
     async fn secret_fill_is_origin_scoped_confirmed_and_observation_redacted() {
         let context = Browser::new().new_context();
         let page = context.new_page();
         page.load_html(
             "https://app.example/",
-            r#"<label for="pw">Password</label><input id="pw" type="password">"#,
+            r#"<label for="pw">API key</label><input id="pw" type="text">"#,
         )
         .await
         .unwrap();
@@ -6546,6 +7208,30 @@ mod tests {
                 .unwrap()
                 .contains("do-not-observe")
         );
+        let html = page.extract(ContentKind::Html, None).await.unwrap();
+        assert!(!html.to_string().contains("do-not-observe"));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn raw_page_inspection_is_audited_without_recording_page_content() {
+        let context = Browser::in_process_probe().new_context();
+        let page = context.new_page();
+        page.load_html("https://app.example/", "<p>ready</p>")
+            .await
+            .unwrap();
+        page.evaluate("'page-controlled-sensitive-marker'")
+            .await
+            .unwrap();
+
+        let record = context.security_audit().pop().unwrap();
+        assert_eq!(
+            record.request.action,
+            ConsequentialAction::RawPageInspection
+        );
+        let detail = record.request.detail.unwrap();
+        assert!(detail.starts_with("evaluate:sha256:"));
+        assert!(!detail.contains("page-controlled-sensitive-marker"));
     }
 
     #[cfg(feature = "v8-host")]

@@ -25,6 +25,11 @@ pub struct Node {
     pub parent: Option<NodeId>,
     pub children: Vec<NodeId>,
     pub attributes: BTreeMap<String, String>,
+    /// Live form-control value. Unlike the HTML `value` attribute this is
+    /// mutable control state and must not be serialized into markup.
+    pub value: Option<String>,
+    /// True when the value came from a parent-owned secret handle.
+    pub sensitive_value: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +110,8 @@ impl DomArena {
             parent: None,
             children: Vec::new(),
             attributes: BTreeMap::new(),
+            value: None,
+            sensitive_value: false,
         });
         Ok(())
     }
@@ -115,6 +122,8 @@ impl DomArena {
             parent: None,
             children: Vec::new(),
             attributes: BTreeMap::new(),
+            value: None,
+            sensitive_value: false,
         };
         if let Some(slot_index) = self.free.pop() {
             let slot = &mut self.slots[slot_index as usize];

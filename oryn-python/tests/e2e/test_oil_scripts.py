@@ -172,7 +172,7 @@ class TestOilScriptDetails:
 @pytest.mark.oil
 def test_run_all_scripts_sequentially(check_oryn_available, scripts_dir):
     """Run all .oil scripts in sequence."""
-    mode = os.environ.get("ORYN_MODE", "headless")
+    mode = os.environ.get("ORYN_MODE", "native")
     total_commands = 0
     total_failures = 0
 

@@ -1,5 +1,11 @@
 # Oryn2 capability milestones
 
+> **Attestation note:** capability implementations and historical result files
+> are retained, but layout and security closure are provisional after the
+> assertion-binding audit of 2026-08-29. A current result must be rebuilt from
+> one executed assertion per manifest case; category logs and hard-coded passing
+> ledgers are no longer accepted.
+
 The committed implementation horizon is P0 through rendering on macOS ARM64.
 Milestones are evidence-based; they do not carry calendar dates.
 

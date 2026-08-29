@@ -29,7 +29,7 @@ The Python client is a **thin pass-through layer** that sends Intent Language co
 ```python
 from oryn import OrynClient
 
-async with OrynClient(mode="headless") as client:
+async with OrynClient() as client:
     # All commands are Intent Language strings
     await client.execute('goto "https://example.com"')
 
@@ -46,7 +46,7 @@ async with OrynClient(mode="headless") as client:
 ```python
 from oryn import OrynClientSync
 
-with OrynClientSync(mode="headless") as client:
+with OrynClientSync() as client:
     client.execute('goto "https://example.com"')
     obs = client.execute('observe')
     print(obs)
@@ -60,7 +60,7 @@ You can run existing `.oil` scripts directly:
 ```python
 from oryn import OrynClientSync, run_oil_file_sync
 
-with OrynClientSync(mode="headless") as client:
+with OrynClientSync() as client:
     results = run_oil_file_sync(client, "path/to/script.oil")
 
     for cmd, result in results:
@@ -88,11 +88,12 @@ See the [Intent Language documentation](../docs/SPEC-INTENT-LANGUAGE.md) for the
 
 ## Browser Modes
 
-| Mode       | Description                |
-| ---------- | -------------------------- |
-| `headless` | Chromium via CDP (default) |
-| `embedded` | WPE WebKit                 |
-| `remote`   | Browser extension          |
+| Mode       | Description                               |
+| ---------- | ----------------------------------------- |
+| `native`   | Sandboxed Oryn native runtime (default)   |
+| `headless` | Chromium via CDP compatibility domain     |
+| `embedded` | WPE WebKit                                |
+| `remote`   | Browser extension                         |
 
 ```python
 OrynClient(mode="headless")

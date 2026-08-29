@@ -17,7 +17,7 @@ use oryn_r::backend::RemoteBackend;
 #[command(name = "oryn", version, about = "Oryn Unified CLI")]
 struct Args {
     #[command(subcommand)]
-    mode: Mode,
+    mode: Option<Mode>,
 
     /// Scripts to execute (non-interactive mode)
     #[arg(long)]
@@ -129,8 +129,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = Args::parse();
 
+    // Native Oryn is the product default. Named compatibility domains and the
+    // `native` subcommand remain available for existing scripts.
+    if args.mode.is_none() {
+        return run_native(
+            None,
+            None,
+            false,
+            None,
+            args.file.as_deref(),
+            false,
+            NativeSessionOptions::default(),
+        )
+        .await;
+    }
+
     #[allow(irrefutable_let_patterns)]
-    if let Mode::Native(native) = &args.mode {
+    if let Some(Mode::Native(native)) = &args.mode {
         let NativeArgs {
             runtime_info,
             in_process_probe,
@@ -206,15 +221,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "compat-core")]
     let mut backend: Box<dyn Backend> = match args.mode {
         #[cfg(feature = "chromium")]
-        Mode::Headless { visible } => Box::new(HeadlessBackend::new_with_visibility(visible)),
+        Some(Mode::Headless { visible }) => Box::new(HeadlessBackend::new_with_visibility(visible)),
         #[cfg(feature = "embedded")]
-        Mode::Embedded { driver_url } => match driver_url {
+        Some(Mode::Embedded { driver_url }) => match driver_url {
             Some(url) => Box::new(EmbeddedBackend::with_url(url)),
             None => Box::new(EmbeddedBackend::new()),
         },
         #[cfg(feature = "user-browser")]
-        Mode::Remote { port } => Box::new(RemoteBackend::new(port)),
-        Mode::Native(_) => unreachable!("native mode returned before backend dispatch"),
+        Some(Mode::Remote { port }) => Box::new(RemoteBackend::new(port)),
+        Some(Mode::Native(_)) => unreachable!("native mode returned before backend dispatch"),
+        None => unreachable!("default native mode returned before backend dispatch"),
     };
 
     #[cfg(feature = "compat-core")]

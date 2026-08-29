@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from evidence_assertions import assertion_bound_cases, verified_regressions
+
 
 def load(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -106,36 +108,37 @@ def main() -> int:
     manifest_path = root / "benchmarks/conformance/layout-manifest-v1.json"
     wpt_path = root / "benchmarks/layout/wpt-subset-v1.json"
     manifest = load(manifest_path)
-    generic = evidence(
-        "production-gate.json",
-        "layout-result.json",
-        "software/rust-v8.log",
-        "software/layout-platform-subset.log",
+    case_ledger = assertion_bound_cases(
+        manifest,
+        load(raw / "assertions.json"),
+        by_path,
+        include_layout_domains=True,
     )
-    case_ledger = []
-    for case in manifest["cases"]:
-        item = {
-            "id": case["id"],
-            "category": case["category"],
-            "disposition": case["disposition"],
-            "status": "passed",
-            "domains": {"native": "passed", "chromium_differential": "not_applicable"},
-            "evidence": list(generic),
-        }
-        if case["id"] == "worker-protocol-v4-layout-fingerprint":
-            item["evidence"] = evidence("runtime.json", "worker-integration.txt")
-        elif case["category"] == "oil":
-            item["evidence"] = evidence("oil/oil.jsonl")
-        elif case["category"] == "differential":
-            item["domains"]["chromium_differential"] = "passed"
-            item["evidence"] = evidence(
-                "differential/native.json", "differential/chromium.json"
-            )
-        elif case["disposition"] == "declared_limitation":
-            item["status"] = "expected_limitation"
-            item["expected_capability"] = case["expected_capability"]
-            item["evidence"] = evidence("limitations/capabilities.jsonl")
-        case_ledger.append(item)
+    required_regressions = {
+        "rust_workspace",
+        "rust_v8",
+        "strict_clippy_default",
+        "strict_clippy_v8",
+        "python_sdk",
+        "intentgym",
+        "scanner",
+        "extension",
+        "g1",
+        "g2_controlled",
+        "native_miniwob_24",
+        "g3_frameworks_native",
+        "g3_oauth_native",
+        "reference_churn",
+        "signed_production_boundary",
+    }
+    regressions = verified_regressions(raw / "regressions.json", required_regressions)
+    required_passed = sum(
+        case["status"] == "passed" and case["disposition"] == "required"
+        for case in case_ledger
+    )
+    limitations_reported = sum(
+        case["status"] == "expected_limitation" for case in case_ledger
+    )
 
     parent = root / "target/release/oryn"
     worker = root / "target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker"
@@ -144,6 +147,35 @@ def main() -> int:
     source_tree = subprocess.check_output(
         [str(root / "scripts/source-tree-hash.sh")], text=True
     ).strip()
+    false_preservations = int(churn.get("false_preservation", {}).get("numerator", -1))
+    signed_boundary = (
+        runtime.get("native_v8") is True
+        and runtime.get("execution_mode") == "sandboxed_worker"
+        and runtime.get("sandboxed") is True
+        and runtime.get("sandbox_state") == "app_sandbox"
+    )
+    differential_cases = [
+        case
+        for case in case_ledger
+        if case["domains"]["chromium_differential"] != "not_applicable"
+    ]
+    criteria = {
+        "required_native_cases_pass": required_passed == 28,
+        "declared_limitations_are_explicit": limitations_reported == 5,
+        "native_chromium_relations_match": bool(differential_cases)
+        and all(
+            case["domains"]["chromium_differential"] == "passed"
+            for case in differential_cases
+        ),
+        "existing_regressions_pass": all(
+            value == "passed" for value in regressions.values()
+        ),
+        "false_reference_preservation_is_zero": false_preservations == 0,
+        "signed_process_boundary_passes": signed_boundary,
+        "production_benchmarks_published": benchmarks.get("outcome", {}).get("status")
+        == "passed",
+    }
+    reason_codes = [name for name, passed in criteria.items() if not passed]
     result = {
         "schema_version": 1,
         "gate": "G4",
@@ -188,46 +220,27 @@ def main() -> int:
             "required_cases": 28,
             "declared_limitations": 5,
         },
-        "regressions": {
-            key: "passed"
-            for key in (
-                "rust_workspace",
-                "rust_v8",
-                "strict_clippy_default",
-                "strict_clippy_v8",
-                "python_sdk",
-                "intentgym",
-                "scanner",
-                "extension",
-                "g1",
-                "g2_controlled",
-                "native_miniwob_24",
-                "g3_frameworks_native",
-                "g3_oauth_native",
-                "reference_churn",
-                "signed_production_boundary",
-            )
-        },
+        "regressions": regressions,
         "metrics": {
-            "required_passed": 28,
+            "required_passed": required_passed,
             "required_total": 28,
-            "limitations_reported": 5,
+            "limitations_reported": limitations_reported,
             "limitations_total": 5,
-            "false_semantic_reference_preservations": 0,
+            "false_semantic_reference_preservations": false_preservations,
         },
         "benchmarks": benchmarks,
         "artifact_ledger": ledger,
         "case_ledger": case_ledger,
-        "criteria": {
-            "required_native_cases_pass": True,
-            "declared_limitations_are_explicit": True,
-            "native_chromium_relations_match": True,
-            "existing_g1_g2_g3_behavior_passes": True,
-            "false_reference_preservation_is_zero": True,
-            "signed_process_boundary_passes": True,
-            "production_benchmarks_published": True,
+        "criteria": criteria,
+        "outcome": {
+            "status": "passed" if not reason_codes else "failed",
+            "reason_codes": reason_codes,
+            "diagnostics": (
+                [f"unsatisfied layout evidence criteria: {', '.join(reason_codes)}"]
+                if reason_codes
+                else []
+            ),
         },
-        "outcome": {"status": "passed", "reason_codes": [], "diagnostics": []},
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")

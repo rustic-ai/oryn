@@ -736,13 +736,24 @@ def _observation_sufficient(cell: dict[str, Any]) -> bool:
     )
 
 
+def _projection_gap(cell: dict[str, Any]) -> bool:
+    """Whether a failed task had required truth omitted by compact projection."""
+    comparison = cell.get("failure_projection_comparison") or {}
+    return bool(
+        comparison.get("captured") is True
+        and comparison.get("full_contains_required") is True
+        and comparison.get("compact_contains_required") is False
+    )
+
+
 def _measured_metrics(
     cells: list[dict[str, Any]],
     churn: dict[str, Any],
     deterministic_causal: dict[str, Any],
 ) -> dict[str, Any]:
     completed = [cell for cell in cells if cell.get("completed") is True]
-    observation_numerator = sum(_observation_sufficient(cell) for cell in completed)
+    failures = [cell for cell in completed if cell.get("success") is not True]
+    observation_numerator = sum(_projection_gap(cell) for cell in failures)
     action_latencies = []
     observation_bytes = []
     for cell in completed:
@@ -757,7 +768,10 @@ def _measured_metrics(
         "task_success": _ratio(
             sum(bool(cell.get("success")) for cell in completed), len(completed)
         ),
-        "observation_sufficiency": _ratio(observation_numerator, len(completed)),
+        # Proposal §5.2 defines this as the failure rate attributable to the
+        # compact projection omitting state that exists in browser truth.
+        # Lower is better; successful cells never enter the denominator.
+        "observation_sufficiency": _ratio(observation_numerator, len(failures)),
         "recovery": {
             "numerator": int(recovery.get("numerator", 0)),
             "denominator": int(recovery.get("denominator", 0)),
@@ -917,13 +931,17 @@ def _aggregate(
         "semantic_metrics_measured": all(
             metrics[name]["denominator"] > 0
             for name in (
-                "observation_sufficiency",
                 "recovery",
                 "reference_survival",
                 "false_reference_preservation",
                 "causal_recall",
                 "causal_precision",
             )
+        )
+        and all(
+            (cell.get("failure_projection_comparison") or {}).get("captured") is True
+            for cell in completed
+            if cell.get("success") is not True
         )
         and metrics["action_latency_ms"]["samples"] > 0
         and metrics["observation_utf8_bytes"]["samples"] > 0,
@@ -1113,8 +1131,31 @@ def main() -> int:
                     )
                 config = _config(args, task, seed, domain, model_kind, remaining)
                 runner = BenchmarkRunner(config)
+                failure_projection_comparison = None
                 try:
                     result = runner.run(subset=task)[0]
+                    if not result.success:
+                        compact = runner.oryn.observe()
+                        full = runner.oryn.observe(full=True)
+                        compact_record = {
+                            "observation_raw": compact.raw,
+                            "observation_elements": list(compact.elements),
+                        }
+                        full_record = {
+                            "observation_raw": full.raw,
+                            "observation_elements": list(full.elements),
+                        }
+                        failure_projection_comparison = {
+                            "captured": True,
+                            "compact_contains_required": _checkpoint_sufficient(
+                                task, compact_record
+                            ),
+                            "full_contains_required": _checkpoint_sufficient(
+                                task, full_record
+                            ),
+                            "compact_utf8_bytes": len(compact.raw.encode("utf-8")),
+                            "full_utf8_bytes": len(full.raw.encode("utf-8")),
+                        }
                 except Exception:
                     _write_json(
                         args.evidence, _aggregate(args, preflight, cells, started_at)
@@ -1137,6 +1178,7 @@ def main() -> int:
                     "local_model_digest": (
                         args.local_model_digest if model_kind == "local" else None
                     ),
+                    "failure_projection_comparison": failure_projection_comparison,
                     **asdict(result),
                 }
                 cell.pop("config", None)

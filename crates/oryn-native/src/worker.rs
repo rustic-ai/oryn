@@ -76,6 +76,10 @@ impl WorkerLimits {
             max_font_bytes: self.max_font_bytes.min(8 * 1024 * 1024),
             max_page_font_bytes: self.max_page_font_bytes.min(32 * 1024 * 1024),
             max_viewport_css_px: self.max_viewport_css_px.min(16_384),
+            max_revision_snapshots: 128,
+            max_revision_bytes: 16 * 1024 * 1024,
+            max_resource_cache_entries: 256,
+            max_resource_cache_bytes: 32 * 1024 * 1024,
         }
     }
 }
@@ -180,6 +184,8 @@ pub struct NativeActionRequest {
     pub value: Option<String>,
     #[serde(default)]
     pub force: bool,
+    #[serde(default)]
+    pub sensitive: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -594,7 +600,9 @@ async fn dispatch(
                 action: action.action,
                 value: action.value,
             };
-            let result = if action.force {
+            let result = if action.sensitive {
+                session.page.execute_sensitive(native_action).await
+            } else if action.force {
                 session.page.execute_forced(native_action).await
             } else {
                 session.page.execute(native_action).await

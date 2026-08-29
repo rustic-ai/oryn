@@ -7,7 +7,7 @@ Example (async):
     ```python
     from oryn import OrynClient
 
-    async with OrynClient(mode="headless") as client:
+    async with OrynClient() as client:
         await client.execute('goto "https://example.com"')
         obs = await client.observe()
         print(f"Found {len(obs.elements)} elements")
@@ -19,7 +19,7 @@ Example (sync):
     ```python
     from oryn import OrynClientSync
 
-    with OrynClientSync(mode="headless") as client:
+    with OrynClientSync() as client:
         client.execute('goto "https://example.com"')
         obs = client.observe()
         print(f"Found {len(obs.elements)} elements")

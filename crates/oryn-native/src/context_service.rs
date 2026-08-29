@@ -30,8 +30,8 @@ use url::Url;
 
 use crate::{
     network::{
-        NetworkBroker, NetworkRequest, SharedNetworkBroker, sanitize_parent_response_headers,
-        sanitize_worker_headers,
+        NetworkBroker, NetworkRequest, NetworkResponse, SharedNetworkBroker,
+        sanitize_parent_response_headers, sanitize_worker_headers,
     },
     runtime::{BrowserContext, RuntimeError},
     security::{ConsequentialAction, PolicyRequest},
@@ -75,6 +75,20 @@ pub enum ContextServiceRequest {
     NavigatePage {
         page_id: PageId,
         url: String,
+    },
+    /// Authorize a page-originated navigation before the worker mutates its
+    /// location. The worker remains responsible for the resulting document
+    /// navigation; this call is only the parent policy boundary.
+    AuthorizeNavigation {
+        page_id: PageId,
+        url: String,
+    },
+    /// Authorize the actual default form-submission effect after validation
+    /// and the cancelable submit event have completed.
+    AuthorizeFormSubmission {
+        page_id: PageId,
+        url: String,
+        method: String,
     },
     ClosePage {
         source_page_id: PageId,
@@ -168,6 +182,8 @@ pub enum ContextServiceResponse {
     PageClosed,
     PageCommitted,
     NavigationQueued,
+    NavigationAuthorized,
+    FormSubmissionAuthorized,
     MessageQueued,
     Events {
         events: Vec<ContextEventRecord>,
@@ -527,6 +543,66 @@ impl ParentContextService {
                 self.context.queue_script_navigation(page_id, url)?;
                 Ok(ContextServiceResponse::NavigationQueued)
             }
+            ContextServiceRequest::AuthorizeNavigation { page_id, url } => {
+                if page_id != self.source_page_id {
+                    return Err(RuntimeError::ContextService(
+                        "worker cannot authorize navigation for another page".into(),
+                    ));
+                }
+                self.context.validate_page_url(page_id, &url)?;
+                let source_origin = self.context.page_origin(page_id)?;
+                let resolved = self.context.resolve_page_url(page_id, &url)?;
+                let target_origin = resolved.origin().ascii_serialization();
+                if source_origin != target_origin
+                    && source_origin != "null"
+                    && let Err(error) = self.context.require_policy(
+                        PolicyRequest {
+                            action: ConsequentialAction::CrossOriginNavigation,
+                            source_origin,
+                            target_origin: Some(target_origin),
+                            detail: Some(resolved.to_string()),
+                        },
+                        None,
+                    )
+                {
+                    return Ok(ContextServiceResponse::PageDenied {
+                        reason: error.to_string(),
+                    });
+                }
+                Ok(ContextServiceResponse::NavigationAuthorized)
+            }
+            ContextServiceRequest::AuthorizeFormSubmission {
+                page_id,
+                url,
+                method,
+            } => {
+                if page_id != self.source_page_id {
+                    return Err(RuntimeError::ContextService(
+                        "worker cannot authorize form submission for another page".into(),
+                    ));
+                }
+                self.context.validate_page_url(page_id, &url)?;
+                let source_origin = self.context.page_origin(page_id)?;
+                let resolved = self.context.resolve_page_url(page_id, &url)?;
+                let target_origin = resolved.origin().ascii_serialization();
+                let policy_request = PolicyRequest {
+                    action: ConsequentialAction::FormSubmission,
+                    source_origin,
+                    target_origin: Some(target_origin),
+                    detail: Some(format!("{} {}", method.to_uppercase(), resolved)),
+                };
+                let authorization = if self.context.consume_form_submission_grant(page_id) {
+                    self.context.require_preconfirmed_policy(policy_request)
+                } else {
+                    self.context.require_policy(policy_request, None)
+                };
+                if let Err(error) = authorization {
+                    return Ok(ContextServiceResponse::PageDenied {
+                        reason: error.to_string(),
+                    });
+                }
+                Ok(ContextServiceResponse::FormSubmissionAuthorized)
+            }
             ContextServiceRequest::ClosePage {
                 source_page_id,
                 target_page_id,
@@ -647,17 +723,60 @@ impl ParentContextService {
         let mut network = self.network.clone().ok_or_else(|| {
             RuntimeError::ContextService("HTTP streaming broker is unavailable".into())
         })?;
+        let source_origin = self.context.page_origin(page_id)?;
+        let target =
+            Url::parse(&request.url).map_err(|error| RuntimeError::Network(error.to_string()))?;
+        enforce_mixed_content(&source_origin, &target)?;
+        let cross_origin = target.origin().ascii_serialization() != source_origin;
+        let mut headers = sanitize_worker_headers(request.headers);
+        headers.push(("origin".into(), source_origin.clone()));
+        if cross_origin && cors_preflight_required(&request.method, &headers) {
+            let requested_headers = cors_non_safelisted_headers(&headers);
+            let mut preflight_headers = vec![
+                ("origin".into(), source_origin.clone()),
+                (
+                    "access-control-request-method".into(),
+                    request.method.to_uppercase(),
+                ),
+            ];
+            if !requested_headers.is_empty() {
+                preflight_headers.push((
+                    "access-control-request-headers".into(),
+                    requested_headers.join(", "),
+                ));
+            }
+            let preflight = network
+                .send(NetworkRequest {
+                    request_id: request.request_id ^ (1_u64 << 63),
+                    method: "OPTIONS".into(),
+                    url: request.url.clone(),
+                    headers: preflight_headers,
+                    body: Vec::new(),
+                    credentials: false,
+                    resolved_addrs: Vec::new(),
+                })
+                .map_err(|error| RuntimeError::Network(error.to_string()))?;
+            enforce_cors_preflight(
+                &source_origin,
+                &request.method,
+                &requested_headers,
+                &preflight,
+            )?;
+        }
         let response = network
             .send(NetworkRequest {
                 request_id: request.request_id,
                 method: request.method,
                 url: request.url,
-                headers: sanitize_worker_headers(request.headers),
+                headers,
                 body,
                 credentials: request.credentials,
                 resolved_addrs: Vec::new(),
             })
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
+        if cross_origin {
+            enforce_cors_response(&source_origin, request.credentials, &response)?;
+        }
         if response.body.len() > 16 * 1024 * 1024 {
             return Err(RuntimeError::WorkerLimitExceeded {
                 resource: "decoded HTTP response body".into(),
@@ -763,6 +882,7 @@ impl ParentContextService {
                 "WebSocket URL must use ws or wss".into(),
             ));
         }
+        enforce_mixed_content(&self.context.page_origin(page_id)?, &url)?;
         let addresses = crate::network::resolve_and_authorize(self.context.network_policy(), &url)
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
         let timeout = self.context.request_timeout();
@@ -1093,6 +1213,110 @@ fn read_bounded_line(
     Ok(read)
 }
 
+fn cors_non_safelisted_headers(headers: &[(String, String)]) -> Vec<String> {
+    let mut names = headers
+        .iter()
+        .filter_map(|(name, value)| {
+            let lower = name.to_ascii_lowercase();
+            let safe = matches!(lower.as_str(), "accept" | "accept-language" | "origin")
+                || (lower == "content-type"
+                    && matches!(
+                        value
+                            .split(';')
+                            .next()
+                            .unwrap_or_default()
+                            .trim()
+                            .to_ascii_lowercase()
+                            .as_str(),
+                        "application/x-www-form-urlencoded" | "multipart/form-data" | "text/plain"
+                    ));
+            (!safe).then_some(lower)
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn enforce_mixed_content(source_origin: &str, target: &Url) -> Result<(), RuntimeError> {
+    let secure_source =
+        source_origin.starts_with("https://") || source_origin.starts_with("wss://");
+    if secure_source && matches!(target.scheme(), "http" | "ws") {
+        return Err(RuntimeError::ContextService(format!(
+            "active mixed content blocked: {source_origin} -> {target}"
+        )));
+    }
+    Ok(())
+}
+
+fn cors_preflight_required(method: &str, headers: &[(String, String)]) -> bool {
+    !matches!(
+        method.to_ascii_uppercase().as_str(),
+        "GET" | "HEAD" | "POST"
+    ) || !cors_non_safelisted_headers(headers).is_empty()
+}
+
+fn response_header<'a>(response: &'a NetworkResponse, requested: &str) -> Option<&'a str> {
+    response
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(requested))
+        .map(|(_, value)| value.as_str())
+}
+
+fn cors_origin_allowed(source_origin: &str, credentials: bool, response: &NetworkResponse) -> bool {
+    response_header(response, "access-control-allow-origin")
+        .is_some_and(|allowed| allowed == source_origin || (!credentials && allowed == "*"))
+        && (!credentials
+            || response_header(response, "access-control-allow-credentials")
+                .is_some_and(|value| value.eq_ignore_ascii_case("true")))
+}
+
+fn enforce_cors_preflight(
+    source_origin: &str,
+    method: &str,
+    requested_headers: &[String],
+    response: &NetworkResponse,
+) -> Result<(), RuntimeError> {
+    let allowed_methods = response_header(response, "access-control-allow-methods")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    let allowed_headers = response_header(response, "access-control-allow-headers")
+        .unwrap_or_default()
+        .split(',')
+        .map(|value| value.trim().to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    if !(200..300).contains(&response.status)
+        || !cors_origin_allowed(source_origin, false, response)
+        || !allowed_methods
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(method))
+        || requested_headers
+            .iter()
+            .any(|header| !allowed_headers.iter().any(|allowed| allowed == header))
+    {
+        return Err(RuntimeError::ContextService(
+            "cross-origin request denied by CORS preflight".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn enforce_cors_response(
+    source_origin: &str,
+    credentials: bool,
+    response: &NetworkResponse,
+) -> Result<(), RuntimeError> {
+    if !cors_origin_allowed(source_origin, credentials, response) {
+        return Err(RuntimeError::ContextService(
+            "cross-origin response denied by CORS".into(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(all(test, feature = "in-process-probe"))]
 mod tests {
     use super::*;
@@ -1105,9 +1329,21 @@ mod tests {
             &mut self,
             request: NetworkRequest,
         ) -> Result<crate::network::NetworkResponse, NetworkError> {
-            assert_eq!(
-                request.headers,
-                vec![("Accept".into(), "text/plain".into())]
+            assert!(
+                request
+                    .headers
+                    .contains(&("Accept".into(), "text/plain".into()))
+            );
+            assert!(
+                request
+                    .headers
+                    .contains(&("origin".into(), "https://example.test".into()))
+            );
+            assert!(
+                !request
+                    .headers
+                    .iter()
+                    .any(|(name, _)| name.eq_ignore_ascii_case("authorization"))
             );
             Ok(crate::network::NetworkResponse {
                 request_id: request.request_id,
@@ -1121,10 +1357,14 @@ mod tests {
         }
     }
 
-    #[test]
-    fn typed_http_streams_are_owned_bounded_and_header_filtered() {
+    #[tokio::test]
+    async fn typed_http_streams_are_owned_bounded_and_header_filtered() {
         let context = Browser::in_process_probe().new_context();
-        let page_id = PageId(91);
+        let page = context.new_page();
+        page.load_html("https://example.test/app", "<p>ready</p>")
+            .await
+            .unwrap();
+        let page_id = page.page_id();
         let service = ParentContextService::new_with_network(
             context,
             page_id,
@@ -1227,6 +1467,105 @@ mod tests {
         assert_eq!(
             context.security_audit()[0].decision,
             crate::PolicyDecision::Denied
+        );
+    }
+
+    #[tokio::test]
+    async fn worker_originated_form_effect_is_parent_policy_checked() {
+        let mut options = ContextOptions::default();
+        options
+            .action_policy
+            .rules
+            .insert(ConsequentialAction::FormSubmission, PolicyRule::Deny);
+        let context = Browser::in_process_probe().new_context_with_options(options);
+        let page = context.new_page();
+        page.load_html("https://app.example/", "<form action=/charged></form>")
+            .await
+            .unwrap();
+        let service = ParentContextService::new(context.clone(), page.page_id());
+
+        let response = service
+            .handle(ContextServiceRequest::AuthorizeFormSubmission {
+                page_id: page.page_id(),
+                url: "https://app.example/charged".into(),
+                method: "post".into(),
+            })
+            .unwrap();
+        assert!(matches!(
+            response,
+            ContextServiceResponse::PageDenied { .. }
+        ));
+        assert_eq!(context.security_audit().len(), 1);
+        assert_eq!(
+            context.security_audit()[0].request.action,
+            ConsequentialAction::FormSubmission
+        );
+        assert_eq!(
+            context.security_audit()[0].decision,
+            crate::PolicyDecision::Denied
+        );
+    }
+
+    #[test]
+    fn parent_cors_checks_credentials_and_preflight_permissions() {
+        let response = NetworkResponse {
+            request_id: 1,
+            status: 204,
+            headers: vec![
+                (
+                    "Access-Control-Allow-Origin".into(),
+                    "https://app.example".into(),
+                ),
+                ("Access-Control-Allow-Credentials".into(), "true".into()),
+                ("Access-Control-Allow-Methods".into(), "PUT".into()),
+                (
+                    "Access-Control-Allow-Headers".into(),
+                    "content-type, if-match".into(),
+                ),
+            ],
+            body: Vec::new(),
+        };
+        assert!(enforce_cors_response("https://app.example", true, &response).is_ok());
+        assert!(
+            enforce_cors_preflight(
+                "https://app.example",
+                "PUT",
+                &["content-type".into(), "if-match".into()],
+                &response,
+            )
+            .is_ok()
+        );
+        assert!(
+            enforce_cors_preflight(
+                "https://app.example",
+                "DELETE",
+                &["x-forbidden".into()],
+                &response,
+            )
+            .is_err()
+        );
+
+        let wildcard = NetworkResponse {
+            request_id: 2,
+            status: 200,
+            headers: vec![("Access-Control-Allow-Origin".into(), "*".into())],
+            body: Vec::new(),
+        };
+        assert!(enforce_cors_response("https://app.example", false, &wildcard).is_ok());
+        assert!(enforce_cors_response("https://app.example", true, &wildcard).is_err());
+        assert!(
+            enforce_mixed_content(
+                "https://app.example",
+                &Url::parse("http://api.example/data").unwrap(),
+            )
+            .is_err()
+        );
+        assert!(
+            enforce_mixed_content(
+                "http://app.example",
+                &Url::parse("http://api.example/data").unwrap(),
+            )
+            .is_ok()
         );
     }
 }

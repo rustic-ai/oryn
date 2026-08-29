@@ -823,11 +823,7 @@ fn layout_node(
         || style.get("display").is_some_and(|value| value == "none")
         || style
             .get("visibility")
-            .is_some_and(|value| value == "hidden" || value == "collapse")
-        || node
-            .attributes
-            .get("aria-hidden")
-            .is_some_and(|value| value == "true");
+            .is_some_and(|value| value == "hidden" || value == "collapse");
     if hidden {
         geometry.insert(id, hidden_geometry());
         for child in &node.children {
@@ -967,12 +963,6 @@ fn layout_node(
         line_height
     });
     let display = style_value(style, "display", "block");
-    let gap = length(
-        style_value(style, "gap", "0px"),
-        content_width,
-        font_size,
-        input.viewport,
-    );
     let child_x = x + border.left + padding.left;
     let child_y = y + border.top + padding.top + intrinsic_text_height;
     let mut children_height: f64 = 0.0;
@@ -983,20 +973,14 @@ fn layout_node(
         })
     });
     if matches!(display, "flex" | "grid") || has_float_or_clear {
-        let placements = taffy_child_placements(node, style, styles, content_width, input.viewport)
-            .unwrap_or_else(|| {
-                let count = node.children.len().max(1) as f64;
-                let child_width = ((content_width - gap * (count - 1.0)) / count).max(0.0);
-                node.children
-                    .iter()
-                    .enumerate()
-                    .map(|(index, _)| ChildPlacement {
-                        x: index as f64 * (child_width + gap),
-                        y: 0.0,
-                        width: child_width,
-                    })
-                    .collect()
-            });
+        let Some(placements) =
+            taffy_child_placements(node, style, styles, content_width, input.viewport)
+        else {
+            let diagnostic = "layout computation failed for this flex/grid/float subtree; geometry is unavailable";
+            diagnostics.push(format!("node {id}: {diagnostic}"));
+            mark_unsupported_subtree(id, diagnostic, by_id, geometry);
+            return 0.0;
+        };
         for (child, placement) in node.children.iter().zip(placements) {
             let child_height = layout_node(
                 *child,
@@ -1627,6 +1611,33 @@ mod tests {
             GeometryAvailability::Unsupported
         );
         assert!(output.geometry[&1].box_model.is_none());
+    }
+
+    #[test]
+    fn aria_hidden_changes_semantics_but_not_layout_geometry() {
+        let mut child = node(2, Some(1), "div", "Visible box");
+        child.attributes.insert("aria-hidden".into(), "true".into());
+        let mut root = node(1, None, "div", "");
+        root.children.push(2);
+        let output = compute(
+            &LayoutInput {
+                nodes: vec![root, child],
+                stylesheets: vec!["div { width: 100px; min-height: 20px }".into()],
+                viewport: ViewportState::default(),
+                scroll: ScrollState::default(),
+                color_scheme: ColorScheme::Light,
+                reduced_motion: false,
+                web_fonts: Vec::new(),
+            },
+            &LayoutLimits::default(),
+        )
+        .expect("layout");
+
+        assert_eq!(
+            output.geometry[&2].availability,
+            GeometryAvailability::Available
+        );
+        assert!(output.geometry[&2].box_model.is_some());
     }
 
     #[test]

@@ -2,8 +2,8 @@ use std::{collections::BTreeMap, time::Duration};
 
 use oryn_common::v3::{
     ActionResult, CapabilityDiagnostic, ExecutionDomain, Observation, ObservationDelta,
-    PageDescriptor, PageId, PagePredicate, ProjectionProfile, SemanticAction, SemanticRef,
-    SupportLevel,
+    PageDescriptor, PageId, PagePredicate, ProjectionProfile, Revision, SemanticAction,
+    SemanticRef, SupportLevel,
 };
 use oryn_common::{
     protocol::{Element, ElementState, Rect},
@@ -423,8 +423,8 @@ impl NativeOilSession {
                 self.last_observation = Some(observation.clone());
                 Ok(NativeOilOutput::Observation { observation })
             }
-            Command::Observe(command) if command.diff => {
-                let from = self.delta_cursor;
+            Command::Observe(command) if command.diff || command.since.is_some() => {
+                let from = command.since.map(Revision).unwrap_or(self.delta_cursor);
                 let delta = self.page.observe_delta(from).await?;
                 let observation = self.page.observe().await?;
                 self.delta_cursor = observation.revision;
@@ -1225,6 +1225,35 @@ mod tests {
         };
         assert_eq!(observation.profile, ProjectionProfile::Scoped);
         assert!(!observation.nodes.is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn observe_since_uses_the_explicit_revision_base() {
+        let page = Browser::new().new_context().new_page();
+        let base = page
+            .load_html("https://example.test/form", "<input aria-label=Email>")
+            .await
+            .expect("load HTML");
+        let mut session = NativeOilSession::new(page);
+        let observation = session.execute("observe").await.expect("observe");
+        let NativeOilOutput::Observation { observation } = &observation[0] else {
+            panic!("expected observation")
+        };
+        let input_alias = observation.nodes[0].alias;
+        session
+            .execute(&format!("type {input_alias} \"agent@example.test\""))
+            .await
+            .expect("type value");
+
+        let outputs = session
+            .execute(&format!("observe --since {}", base.0))
+            .await
+            .expect("observe explicit delta");
+        let NativeOilOutput::Delta { delta } = &outputs[0] else {
+            panic!("expected delta")
+        };
+        assert_eq!(delta.from_revision, base);
+        assert_eq!(delta.upserted.len(), 1);
     }
 
     #[tokio::test(flavor = "current_thread")]

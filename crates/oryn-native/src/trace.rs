@@ -14,7 +14,28 @@ pub struct TraceEvent {
     pub frame_id: Option<String>,
     pub revision: Revision,
     pub action_id: Option<ActionId>,
+    /// Strength of the action-to-effect claim. Events remain unattributed
+    /// unless the runtime can establish the relationship at the scheduling
+    /// boundary; temporal proximity alone is never deterministic causality.
+    #[serde(default, skip_serializing_if = "CausalRelation::is_unattributed")]
+    pub causality: CausalRelation,
     pub kind: TraceEventKind,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CausalRelation {
+    #[default]
+    Unattributed,
+    Direct,
+    Derived,
+    Correlated,
+}
+
+impl CausalRelation {
+    const fn is_unattributed(&self) -> bool {
+        matches!(self, Self::Unattributed)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -139,6 +160,16 @@ impl TraceLog {
     }
 
     pub fn push(&mut self, revision: Revision, action_id: Option<ActionId>, kind: TraceEventKind) {
+        self.push_causal(revision, action_id, CausalRelation::Unattributed, kind);
+    }
+
+    pub fn push_causal(
+        &mut self,
+        revision: Revision,
+        action_id: Option<ActionId>,
+        causality: CausalRelation,
+        kind: TraceEventKind,
+    ) {
         self.events.push(TraceEvent {
             sequence: self.next_sequence,
             logical_time: self.next_sequence,
@@ -146,6 +177,7 @@ impl TraceLog {
             frame_id: None,
             revision,
             action_id,
+            causality,
             kind,
         });
         self.next_sequence += 1;
@@ -159,5 +191,37 @@ impl TraceLog {
 impl Default for TraceLog {
     fn default() -> Self {
         Self::new(PageId::LEGACY)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn causal_strength_is_explicit_and_unattributed_is_not_promoted() {
+        let mut trace = TraceLog::new(PageId(7));
+        trace.push(
+            Revision(1),
+            Some(ActionId(3)),
+            TraceEventKind::Console {
+                level: "log".into(),
+                message: "later work".into(),
+            },
+        );
+        trace.push_causal(
+            Revision(1),
+            Some(ActionId(3)),
+            CausalRelation::Direct,
+            TraceEventKind::EventDispatched {
+                event_type: "click".into(),
+            },
+        );
+
+        assert_eq!(trace.events()[0].causality, CausalRelation::Unattributed);
+        assert_eq!(trace.events()[1].causality, CausalRelation::Direct);
+        let encoded = serde_json::to_value(trace.events()).unwrap();
+        assert!(encoded[0].get("causality").is_none());
+        assert_eq!(encoded[1]["causality"], "direct");
     }
 }

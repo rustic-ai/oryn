@@ -538,8 +538,6 @@ pub(crate) fn sanitize_worker_headers(headers: Vec<(String, String)>) -> Vec<(St
         "if-unmodified-since",
         "pragma",
         "range",
-        "referer",
-        "origin",
         "user-agent",
     ];
     headers
@@ -799,5 +797,17 @@ mod tests {
         ));
         drop(broker);
         server.join().unwrap().expect("broker server");
+    }
+
+    #[test]
+    fn worker_cannot_supply_parent_owned_request_headers() {
+        let headers = sanitize_worker_headers(vec![
+            ("Origin".into(), "https://forged.example".into()),
+            ("Referer".into(), "https://forged.example/path".into()),
+            ("Cookie".into(), "session=forged".into()),
+            ("Authorization".into(), "Bearer forged".into()),
+            ("Accept".into(), "application/json".into()),
+        ]);
+        assert_eq!(headers, vec![("Accept".into(), "application/json".into())]);
     }
 }

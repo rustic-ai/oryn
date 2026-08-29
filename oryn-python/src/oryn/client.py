@@ -19,7 +19,7 @@ class OrynClient:
 
     Example:
         ```python
-        async with OrynClient(mode="headless") as client:
+        async with OrynClient() as client:
             await client.execute('goto "https://example.com"')
             obs = await client.observe()
             print(obs.elements)
@@ -30,7 +30,7 @@ class OrynClient:
 
     def __init__(
         self,
-        mode: Literal["native", "headless", "embedded", "remote"] = "headless",
+        mode: Literal["native", "headless", "embedded", "remote"] = "native",
         *,
         binary_path: str | None = None,
         timeout: float = 30.0,
@@ -127,7 +127,9 @@ class OrynClient:
 
         raw_response = await self.execute(command)
         if self._config.mode != "native":
-            failed = not raw_response or raw_response.strip().lower().startswith("error")
+            failed = not raw_response or raw_response.strip().lower().startswith(
+                "error"
+            )
             return OrynResult(
                 success=not failed,
                 accepted=not failed,
@@ -149,7 +151,11 @@ class OrynClient:
         kind = payload.get("kind")
         if kind == "unsupported":
             diagnostic = payload.get("diagnostic") or {}
-            detail = diagnostic.get("detail") or diagnostic.get("capability") or "unsupported"
+            detail = (
+                diagnostic.get("detail")
+                or diagnostic.get("capability")
+                or "unsupported"
+            )
             return OrynResult(
                 success=False,
                 accepted=False,
@@ -249,7 +255,9 @@ class OrynClient:
         import re
 
         elements = []
-        element_pattern = re.compile(r'^\[(\d+)\]\s+([^\s"]+)(?:\s+"([^"]*)")?(?:\s+\{(.*)\})?')
+        element_pattern = re.compile(
+            r'^\[(\d+)\]\s+([^\s"]+)(?:\s+"([^"]*)")?(?:\s+\{(.*)\})?'
+        )
 
         lines = raw_response.splitlines()
         page_info = {"url": "", "title": ""}
@@ -277,7 +285,9 @@ class OrynClient:
                         "type": etype,
                         "role": role,
                         "text": label if label else None,
-                        "state": {f: True for f in (flags.split(", ") if flags else [])},
+                        "state": {
+                            f: True for f in (flags.split(", ") if flags else [])
+                        },
                     }
                 )
 
@@ -342,6 +352,7 @@ class OrynClient:
                     "selector": node.get("selector"),
                     "value": node.get("value"),
                     "description": node.get("description"),
+                    "content_trust": node.get("content_trust", "page_authored"),
                     "provenance": node.get("provenance"),
                     "geometry": node.get("geometry"),
                 }
@@ -356,18 +367,24 @@ class OrynClient:
             contract_version=_as_int(payload.get("contract_version")),
             revision=_as_int(payload.get("revision")),
             document_generation=_as_int(page.get("document_generation")),
-            capabilities=[_capability(item) for item in payload.get("capabilities") or []],
+            capabilities=[
+                _capability(item) for item in payload.get("capabilities") or []
+            ],
             diagnostics=[str(item) for item in payload.get("diagnostics") or []],
             byte_count=len(raw_response.encode("utf-8")),
             execution_domain=payload.get("execution_domain"),
             style_revision=_revision_value(payload.get("style_revision")),
             layout_revision=_revision_value(payload.get("layout_revision")),
-            viewport=OrynViewport(**payload["viewport"])
-            if isinstance(payload.get("viewport"), dict)
-            else None,
-            scroll=OrynScroll(**payload["scroll"])
-            if isinstance(payload.get("scroll"), dict)
-            else None,
+            viewport=(
+                OrynViewport(**payload["viewport"])
+                if isinstance(payload.get("viewport"), dict)
+                else None
+            ),
+            scroll=(
+                OrynScroll(**payload["scroll"])
+                if isinstance(payload.get("scroll"), dict)
+                else None
+            ),
         )
 
 

@@ -135,6 +135,10 @@ pub struct ObserveCmd {
     pub hidden: bool,
     pub positions: bool,
     pub diff: bool,
+    /// Explicit base revision for a delta observation. When present this takes
+    /// precedence over the session's implicit delta cursor.
+    #[serde(default)]
+    pub since: Option<u64>,
     pub near: Option<String>,
     pub timeout: Option<String>,
 }

@@ -147,8 +147,41 @@ def test_prior_invalid_spend_is_included_in_cumulative_cap():
     assert (
         result["panel"]["cumulative_hosted_spend_usd"] > PRIOR_INVALID_HOSTED_SPEND_USD
     )
-    assert result["metrics"]["observation_sufficiency"]["denominator"] == 96
+    assert result["metrics"]["observation_sufficiency"] == {
+        "numerator": 0,
+        "denominator": 0,
+        "value": None,
+    }
     assert result["metrics"]["causal_recall"]["value"] == 1.0
+
+
+def test_observation_sufficiency_measures_projection_caused_failures_only():
+    cells = [_cell(index) for index in range(96)]
+    cells[0]["success"] = False
+    cells[0]["failure_projection_comparison"] = {
+        "captured": True,
+        "compact_contains_required": False,
+        "full_contains_required": True,
+    }
+    cells[1]["success"] = False
+    cells[1]["failure_projection_comparison"] = {
+        "captured": True,
+        "compact_contains_required": True,
+        "full_contains_required": True,
+    }
+
+    result = _aggregate(
+        _args(),
+        _preflight(),
+        cells,
+        "2026-08-26T00:00:00Z",
+    )
+
+    assert result["metrics"]["observation_sufficiency"] == {
+        "numerator": 1,
+        "denominator": 2,
+        "value": 0.5,
+    }
 
 
 def test_native_trace_slices_advance_and_reset_with_the_existing_oil_command():

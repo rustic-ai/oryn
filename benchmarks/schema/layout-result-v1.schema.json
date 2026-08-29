@@ -83,6 +83,7 @@
       "type": "object", "additionalProperties": false, "required": ["id", "category", "disposition", "status", "domains", "evidence"],
       "properties": {
         "id": {"type": "string", "minLength": 1}, "category": {"type": "string", "minLength": 1},
+        "assertion_id": {"type": "string", "minLength": 1},
         "disposition": {"enum": ["required", "declared_limitation"]},
         "status": {"enum": ["passed", "failed", "expected_limitation"]},
         "domains": {"type": "object", "additionalProperties": false, "required": ["native", "chromium_differential"], "properties": {"native": {"$ref": "#/$defs/domainStatus"}, "chromium_differential": {"$ref": "#/$defs/domainStatus"}}},

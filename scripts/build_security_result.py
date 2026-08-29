@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from evidence_assertions import assertion_bound_cases, verified_regressions
+
 
 def load(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -132,46 +134,31 @@ def main() -> int:
             raise ValueError(f"missing raw evidence: {missing}")
         return [by_path[path] for path in paths]
 
-    category_evidence = {
-        "worker_sandbox": evidence(
-            "runtime.json", "layout/signed-worker.log", "worker-rejections.log"
-        ),
-        "network": evidence(
-            "software/native-security-protocol.log", "layout/executable-document.log"
-        ),
-        "action_policy": evidence(
-            "security-probe.json", "software/native-security-protocol.log"
-        ),
-        "secrets": evidence(
-            "security-probe.json", "software/native-security-protocol.log"
-        ),
-        "downloads": evidence(
-            "security-probe.json", "software/native-security-protocol.log"
-        ),
-        "limits": evidence("runtime.json", "churn.json", "benchmarks/result.json"),
-        "prompt_boundary": evidence(
-            "software/security-static.log", "software/native-security-protocol.log"
-        ),
-        "fuzzing": evidence("fuzz/summary.json"),
-        "supply_chain": evidence(
-            "software/cargo-audit.json",
-            "software/dependency-audit.log",
-            "software/security-static.log",
-        ),
-        "release": evidence("production-gate.json", "layout/layout-result-v1.json"),
-    }
     manifest_path = root / "benchmarks/conformance/security-manifest-v1.json"
     manifest = load(manifest_path)
-    cases = [
-        {
-            "id": case["id"],
-            "category": case["category"],
-            "status": "passed",
-            "evidence": category_evidence[case["category"]],
-        }
-        for case in manifest["cases"]
-    ]
+    cases = assertion_bound_cases(manifest, load(raw / "assertions.json"), by_path)
     require(len(cases) == 51, "security manifest is not 51 required cases")
+    required_regressions = {
+        "g1",
+        "g2_controlled",
+        "g3",
+        "g4",
+        "native_miniwob_24",
+        "rust_workspace",
+        "strict_clippy",
+        "python_sdk",
+        "intentgym",
+        "scanner",
+        "extension",
+        "signed_production_boundary",
+        "reference_churn",
+    }
+    regressions = verified_regressions(raw / "regressions.json", required_regressions)
+    reviewed_warnings = sum(
+        len(items)
+        for items in (audit.get("warnings") or {}).values()
+        if isinstance(items, list)
+    )
 
     parent = root / "target/release/oryn"
     worker = root / "target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker"
@@ -180,6 +167,41 @@ def main() -> int:
         [str(root / "scripts/source-tree-hash.sh")], text=True
     ).strip()
     process = benchmarks["artifacts"]
+    required_passed = sum(case["status"] == "passed" for case in cases)
+    fuzz_targets = fuzz.get("targets") or []
+    fuzz_passed = sum(target.get("status") == "passed" for target in fuzz_targets)
+    vulnerabilities = int(audit.get("vulnerabilities", {}).get("count", -1))
+    fuzz_crashes = int(fuzz.get("crashes", -1))
+    false_preservations = int(churn.get("false_preservation", {}).get("numerator", -1))
+    signed_boundary = (
+        runtime.get("native_v8") is True
+        and runtime.get("execution_mode") == "sandboxed_worker"
+        and runtime.get("sandboxed") is True
+        and runtime.get("sandbox_state") == "app_sandbox"
+    )
+    criteria = {
+        "all_threat_model_cases_pass": required_passed == 51,
+        "signed_worker_isolation_passes": signed_boundary,
+        "network_action_secret_download_controls_pass": required_passed == 51,
+        "resource_limits_and_replacement_pass": churn.get("status") == "passed"
+        and churn.get("worker_replacement", {}).get("status") == "passed",
+        "fuzz_targets_pass_without_crash": len(fuzz_targets) == 4
+        and fuzz_passed == 4
+        and fuzz_crashes == 0
+        and fuzz.get("outcome", {}).get("status") == "passed",
+        "dependency_vulnerabilities_are_zero": vulnerabilities == 0,
+        "dependency_warnings_are_reviewed": reviewed_warnings
+        == len(
+            load(root / "security/dependency-exceptions.json").get("exceptions") or []
+        ),
+        "existing_regressions_pass": all(
+            value == "passed" for value in regressions.values()
+        ),
+        "false_reference_preservation_is_zero": false_preservations == 0,
+        "production_benchmarks_published": benchmarks.get("outcome", {}).get("status")
+        == "passed",
+    }
+    reason_codes = [name for name, passed in criteria.items() if not passed]
     result = {
         "schema_version": 1,
         "gate": "G5",
@@ -218,51 +240,30 @@ def main() -> int:
             },
         },
         "corpus": {"manifest_cases": 51, "required_cases": 51},
-        "regressions": {
-            key: "passed"
-            for key in (
-                "g1",
-                "g2_controlled",
-                "g3",
-                "layout_result",
-                "native_miniwob_24",
-                "rust_workspace",
-                "strict_clippy",
-                "python_sdk",
-                "intentgym",
-                "scanner",
-                "extension",
-                "signed_production_boundary",
-                "reference_churn",
-            )
-        },
+        "regressions": regressions,
         "metrics": {
-            "required_passed": 51,
+            "required_passed": required_passed,
             "required_total": 51,
-            "vulnerabilities": 0,
-            "reviewed_dependency_warnings": 3,
-            "fuzz_targets_passed": 4,
-            "fuzz_targets_total": 4,
-            "fuzz_crashes": 0,
-            "false_semantic_reference_preservations": 0,
+            "vulnerabilities": vulnerabilities,
+            "reviewed_dependency_warnings": reviewed_warnings,
+            "fuzz_targets_passed": fuzz_passed,
+            "fuzz_targets_total": len(fuzz_targets),
+            "fuzz_crashes": fuzz_crashes,
+            "false_semantic_reference_preservations": false_preservations,
         },
         "benchmarks": benchmarks,
         "artifact_ledger": ledger,
         "case_ledger": cases,
-        "criteria": {
-            "all_threat_model_cases_pass": True,
-            "signed_worker_isolation_passes": True,
-            "network_and_action_policy_pass": True,
-            "secret_and_download_controls_pass": True,
-            "resource_limits_and_replacement_pass": True,
-            "fuzz_targets_pass_without_crash": True,
-            "dependency_vulnerabilities_are_zero": True,
-            "dependency_warnings_are_reviewed": True,
-            "existing_g1_g2_g3_g4_behavior_passes": True,
-            "false_reference_preservation_is_zero": True,
-            "production_benchmarks_published": True,
+        "criteria": criteria,
+        "outcome": {
+            "status": "passed" if not reason_codes else "failed",
+            "reason_codes": reason_codes,
+            "diagnostics": (
+                [f"unsatisfied security evidence criteria: {', '.join(reason_codes)}"]
+                if reason_codes
+                else []
+            ),
         },
-        "outcome": {"status": "passed", "reason_codes": [], "diagnostics": []},
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")

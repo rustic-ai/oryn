@@ -41,7 +41,7 @@ def check_oryn_available():
 @pytest.fixture
 def client(check_oryn_available):
     """Create an OrynClientSync instance for testing."""
-    mode = os.environ.get("ORYN_MODE", "headless")
+    mode = os.environ.get("ORYN_MODE", "native")
     with OrynClientSync(mode=mode, timeout=60.0) as c:
         yield c
 

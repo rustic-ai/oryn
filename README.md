@@ -15,7 +15,8 @@ Traditional agent-browser interfaces fail because they expose the wrong abstract
 - **Consistent behavior** across all deployment environments
 
 ## The Unified CLI
-Oryn provides a single unified binary `oryn` that adapts to any environment:
+Oryn provides a single unified binary. Native is the default when no domain is
+named; compatibility domains remain explicit:
 
 ```bash
 # Headless Mode (Cloud/CI)
@@ -29,17 +30,18 @@ oryn remote --port 9001
 ```
 
 The Oryn2 native runtime is under gated implementation. It reuses the existing
-OIL parser and evaluation assets while replacing the browser dependency with an
-Oryn-owned DOM, semantic loop, and raw-V8 host. See the
+OIL parser and evaluation assets while replacing the browser dependency with a
+native semantic loop and sandboxed raw-V8 worker. Executable pages currently
+use a JavaScript-canonical DOM synchronized into a Rust mirror. See the
 [implementation status](docs/oryn2/IMPLEMENTATION_STATUS.md) for exactly what is
 available today.
 
 ```bash
-# Current native proof: load a local fixture, then enter OIL interactively
+# Native remains an explicit compatibility alias for existing scripts
 oryn native --html test-harness/scenarios/spa/svelte-tasks.html
 
-# Or execute an OIL file against the fixture
-oryn --file path/to/script.oil native --html path/to/document.html
+# With no domain subcommand, an OIL file runs in native mode
+oryn --file path/to/script.oil
 
 # Verify the production runtime fingerprint (native V8 is enabled by default)
 oryn native --runtime-info

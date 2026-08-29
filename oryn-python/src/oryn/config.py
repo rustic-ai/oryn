@@ -19,7 +19,7 @@ class OrynConfig:
         cli_args: Additional CLI arguments to pass to oryn binary
     """
 
-    mode: Literal["native", "headless", "embedded", "remote"] = "headless"
+    mode: Literal["native", "headless", "embedded", "remote"] = "native"
     binary_path: str | None = None
     timeout: float = 30.0
     connect_timeout: float = 60.0

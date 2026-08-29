@@ -91,9 +91,11 @@ observe_opt = _{
     "--hidden" |
     "--positions" |
     "--diff" |
+    since_opt |
     near_opt |
     timeout_opt
 }
+since_opt = { "--since" ~ WSP+ ~ ASCII_DIGIT+ }
 near_opt = { "--near" ~ WSP+ ~ string_value }
 
 html_cmd = { "html" ~ (WSP+ ~ selector_opt)* }

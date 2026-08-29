@@ -524,6 +524,25 @@ impl ExecutableDocument {
         action: SemanticAction,
         value: Option<&str>,
     ) -> Result<(), HostError> {
+        self.apply_action_with_sensitivity(target, action, value, false)
+    }
+
+    pub fn apply_sensitive_action(
+        &mut self,
+        target: NodeId,
+        action: SemanticAction,
+        value: Option<&str>,
+    ) -> Result<(), HostError> {
+        self.apply_action_with_sensitivity(target, action, value, true)
+    }
+
+    fn apply_action_with_sensitivity(
+        &mut self,
+        target: NodeId,
+        action: SemanticAction,
+        value: Option<&str>,
+        sensitive: bool,
+    ) -> Result<(), HostError> {
         let frame_target = self.document.dom.get(target).ok().and_then(|node| {
             Some((
                 node.attributes.get("data-oryn-frame-owner")?.clone(),
@@ -545,7 +564,12 @@ impl ExecutableDocument {
                 .find(|frame| frame.instance == instance)
                 .ok_or_else(|| HostError::Execution("frame realm is unavailable".into()))?;
             frame.document.host.enter_realm();
-            let action_result = frame.document.apply_action(child_target, action, value);
+            let action_result = frame.document.apply_action_with_sensitivity(
+                child_target,
+                action,
+                value,
+                sensitive,
+            );
             frame.document.host.exit_realm();
             action_result?;
             self.sync_frame_documents()?;
@@ -556,7 +580,7 @@ impl ExecutableDocument {
         let value = json_string(value.unwrap_or_default())?;
         let operation = match action {
             SemanticAction::Click => "node.click()".into(),
-            SemanticAction::Type => format!("node.value={value};node.dispatchEvent(new Event('input',{{bubbles:true}}));node.dispatchEvent(new Event('change',{{bubbles:true}}))"),
+            SemanticAction::Type => format!("node.__sensitive={sensitive};node.value={value};node.dispatchEvent(new Event('input',{{bubbles:true}}));node.dispatchEvent(new Event('change',{{bubbles:true}}))"),
             SemanticAction::Clear => "node.value='';node.dispatchEvent(new Event('input',{bubbles:true}));node.dispatchEvent(new Event('change',{bubbles:true}))".into(),
             SemanticAction::Check => "node.checked=true;node.dispatchEvent(new Event('change',{bubbles:true}))".into(),
             SemanticAction::Uncheck => "node.checked=false;node.dispatchEvent(new Event('change',{bubbles:true}))".into(),
@@ -565,7 +589,7 @@ impl ExecutableDocument {
             ),
             SemanticAction::Focus => "node.focus()".into(),
             SemanticAction::Hover => "node.dispatchEvent(new Event('mouseover',{bubbles:true}))".into(),
-            SemanticAction::Submit => "node.dispatchEvent(new Event('submit',{bubbles:true}))".into(),
+            SemanticAction::Submit => "{const form=node.__tag==='form'?node:node.closest('form');if(!form)throw new Error('target has no form');form.requestSubmit(node.__tag==='form'?null:node)}".into(),
             _ => return Err(HostError::Execution(format!("unsupported native executable action {action:?}"))),
         };
         self.host.execute(&format!("{{const node=__oryn_get({target});if(!node)throw new Error('stale node');{operation};}}"))?;
@@ -660,6 +684,10 @@ struct JsNode {
     data: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     attrs: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    value: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    sensitive: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     children: Vec<JsNode>,
 }
@@ -688,6 +716,8 @@ impl JsNode {
             tag,
             data,
             attrs: node.attributes.clone(),
+            value: node.value.clone(),
+            sensitive: node.sensitive_value,
             children,
         })
     }
@@ -770,6 +800,11 @@ impl JsNode {
         dom.get_mut(id)
             .map_err(|error| HostError::Execution(error.to_string()))?
             .attributes = self.attrs;
+        let node = dom
+            .get_mut(id)
+            .map_err(|error| HostError::Execution(error.to_string()))?;
+        node.value = self.value;
+        node.sensitive_value = self.sensitive;
         for child in self.children {
             let child = child.insert_into(dom)?;
             dom.append_child(id, child)
@@ -850,7 +885,7 @@ const DOM_BOOTSTRAP: &str = r#"
   }
   class OrynNode {
     constructor(raw={kind:'element',tag:'unknown'}, allocate=false) {
-      this.__kind=raw.kind; this.__id=raw.id||(allocate?{slot:nextNodeSlot++,generation:0}:null); this.__tag=raw.tag||null; this.__data=raw.data||''; this.__attrs={...(raw.attrs||{})};
+      this.__kind=raw.kind; this.__id=raw.id||(allocate?{slot:nextNodeSlot++,generation:0}:null); this.__tag=raw.tag||null; this.__data=raw.data||''; this.__attrs={...(raw.attrs||{})};this.__value=raw.value??this.__attrs.value??'';this.__sensitive=!!raw.sensitive;
       this.childNodes=[]; this.parentNode=null; this.__listeners=new Map(); this.__shadow=null; this.__shadowMode=null;this.__style=null;
       for (const child of raw.children||[]) this.appendChild(new OrynNode(child));
     }
@@ -948,8 +983,8 @@ const DOM_BOOTSTRAP: &str = r#"
     get selectedOptions() { if(this.__tag!=='select')return undefined;const entries=this.options.filter(option=>option.selected);return Object.assign(entries,{item:index=>entries[index]||null}); }
     get selectedIndex() { if(this.__tag!=='select')return -1;return this.options.findIndex(option=>option.selected); }
     set selectedIndex(value) { if(this.__tag!=='select')return;const index=Number(value);for(let optionIndex=0;optionIndex<this.options.length;optionIndex++)this.options[optionIndex].selected=optionIndex===index; }
-    get value() { if(this.__tag==='option')return this.getAttribute('value')??this.textContent;if(this.__tag==='select'){const selected=this.options.find(option=>option.selected)||(!this.multiple?this.options[0]:null);return selected?selected.value:'';}return this.getAttribute('value')||''; }
-    set value(value) { value=String(value);if(this.__tag==='select'){let matched=false;for(const option of this.options){const selected=!matched&&option.value===value;option.selected=selected;matched=matched||selected;}return;}this.setAttribute('value',value); }
+    get value() { if(this.__tag==='option')return this.getAttribute('value')??this.textContent;if(this.__tag==='select'){const selected=this.options.find(option=>option.selected)||(!this.multiple?this.options[0]:null);return selected?selected.value:'';}return this.__value||''; }
+    set value(value) { value=String(value);if(this.__tag==='select'){let matched=false;for(const option of this.options){const selected=!matched&&option.value===value;option.selected=selected;matched=matched||selected;}return;}this.__value=value; }
     get selected() { return this.__tag==='option'&&this.hasAttribute('selected'); } set selected(value) { if(this.__tag!=='option')return;value?this.setAttribute('selected',''):this.removeAttribute('selected'); }
     get defaultSelected() { return this.__tag==='option'&&this.hasAttribute('selected'); } set defaultSelected(value) { this.selected=value; }
     get multiple() { return this.__tag==='select'&&this.hasAttribute('multiple'); } set multiple(value) { value?this.setAttribute('multiple',''):this.removeAttribute('multiple'); }
@@ -965,7 +1000,7 @@ const DOM_BOOTSTRAP: &str = r#"
     getContext(kind) { if(this.__tag!=='canvas'||kind!=='2d')return null;return {canvas:this,font:'16px Oryn Noto Sans',beginPath(){},closePath(){},clearRect(){},fillRect(){},strokeRect(){},moveTo(){},lineTo(){},arc(){},fill(){},stroke(){},save(){},restore(){},translate(){},scale(){},rotate(){},setTransform(){},fillText(){},strokeText(){},measureText(text){const size=Number(String(this.font||'16px').match(/([0-9.]+)px/)?.[1]||16);const width=[...String(text)].reduce((sum,char)=>sum+(char.charCodeAt(0)<128?.55:1),0)*size;return {width,actualBoundingBoxAscent:size*.8,actualBoundingBoxDescent:size*.2};}}; }
     attachShadow(init={mode:'open'}) { if(this.__shadow)throw new Error('shadow root already attached');this.__shadow=new OrynNode({kind:'fragment'},true);this.__shadow.parentNode=this;this.__shadowMode=init.mode==='closed'?'closed':'open';return this.__shadow; }
     get shadowRoot() { return this.__shadowMode==='open'?this.__shadow:null; }
-    export() { const children=this.childNodes.concat(this.__shadowMode==='open'&&this.__shadow?this.__shadow.childNodes:[]).concat(this.__tag==='iframe'&&this.contentDocument?this.contentDocument.childNodes:[]);return {kind:this.__kind,...(this.__id?{id:this.__id}:{}),...(this.__tag?{tag:this.__tag}:{}),...(this.__data?{data:this.__data}:{}),...(Object.keys(this.__attrs).length?{attrs:{...this.__attrs}}:{}),...(children.length?{children:children.map(node=>node.export())}:{})}; }
+    export() { const children=this.childNodes.concat(this.__shadowMode==='open'&&this.__shadow?this.__shadow.childNodes:[]).concat(this.__tag==='iframe'&&this.contentDocument?this.contentDocument.childNodes:[]);return {kind:this.__kind,...(this.__id?{id:this.__id}:{}),...(this.__tag?{tag:this.__tag}:{}),...(this.__data?{data:this.__data}:{}),...(Object.keys(this.__attrs).length?{attrs:{...this.__attrs}}:{}),...(!this.__sensitive&&this.__value?{value:this.__value}:{}),...(this.__sensitive?{sensitive:true}:{}),...(children.length?{children:children.map(node=>node.export())}:{})}; }
     exportLayout() { const children=this.childNodes.concat(this.__shadow?this.__shadow.childNodes:[]).concat(this.__tag==='iframe'&&this.contentDocument?this.contentDocument.childNodes:[]);return {kind:this.__kind,...(this.__id?{id:this.__id}:{}),...(this.__tag?{tag:this.__tag}:{}),...(this.__data?{data:this.__data}:{}),...(Object.keys(this.__attrs).length?{attrs:{...this.__attrs}}:{}),...(children.length?{children:children.map(node=>node.exportLayout())}:{})}; }
   }
   function descendants(root) { const out=[]; const children=root.childNodes.concat(root.__shadowMode==='open'&&root.__shadow?[root.__shadow]:[]);for(const child of children){out.push(child);out.push(...descendants(child));} return out; }
@@ -1111,8 +1146,8 @@ const DOM_BOOTSTRAP: &str = r#"
   const historyEntries=[{url:'about:blank',state:null}];let historyIndex=0;
   const updateLocation=href=>{globalThis.location.href=href;document.location=globalThis.location;};
   globalThis.history={scrollRestoration:'auto',get length(){return historyEntries.length;},get state(){return historyEntries[historyIndex]?.state??null;},pushState(state,_title,url){const href=url===undefined||url===null?location.href:new OrynURL(url,location.href).href;historyEntries.splice(historyIndex+1);historyEntries.push({url:href,state});historyIndex=historyEntries.length-1;updateLocation(href);if(contextPageId!==null)contextCall({operation:'commit_page',page_id:contextPageId,url:href});},replaceState(state,_title,url){const href=url===undefined||url===null?location.href:new OrynURL(url,location.href).href;historyEntries[historyIndex]={url:href,state};updateLocation(href);if(contextPageId!==null)contextCall({operation:'commit_page',page_id:contextPageId,url:href});},go(delta=0){const next=Math.max(0,Math.min(historyEntries.length-1,historyIndex+Number(delta||0)));if(next===historyIndex)return;historyIndex=next;const entry=historyEntries[historyIndex];updateLocation(entry.url);const event=new OrynEvent('popstate');event.state=entry.state;globalThis.dispatchEvent(event);},back(){this.go(-1);},forward(){this.go(1);}};
-  const navigateTarget=(url,target='_self')=>{url=new OrynURL(url,location.href).href;if(String(target).toLowerCase()==='_blank')return globalThis.open(url,'_blank');const oldURL=location.href;updateLocation(url);if(oldURL.split('#')[0]===url.split('#')[0]&&oldURL!==url){const event=new OrynEvent('hashchange');event.oldURL=oldURL;event.newURL=url;globalThis.dispatchEvent(event);}return null;};
-  const submitForm=form=>{if(!(form.hasAttribute('novalidate')||form.reportValidity()))return false;const event=new OrynEvent('submit',{bubbles:true,cancelable:true});if(!form.dispatchEvent(event))return false;let url=new OrynURL(form.getAttribute('action')||location.href,location.href);const method=(form.getAttribute('method')||'get').toLowerCase();if(method==='get'){const values=new OrynFormData(form);for(const [key,value] of values)url.searchParams.append(key,value instanceof OrynBlob?value.name||'blob':value);}navigateTarget(url.href,form.getAttribute('target')||'_self');return true;};
+  const navigateTarget=(url,target='_self')=>{url=new OrynURL(url,location.href).href;if(String(target).toLowerCase()==='_blank')return globalThis.open(url,'_blank');if(contextPageId!==null){const response=contextCall({operation:'authorize_navigation',page_id:contextPageId,url});if(response&&response.result==='page_denied'){traceContext('capability_failure',{capability:'navigation.policy',detail:response.reason});return null;}if(response&&response.result!=='navigation_authorized')throw new Error('navigation authorization response was invalid');}const oldURL=location.href;updateLocation(url);if(oldURL.split('#')[0]===url.split('#')[0]&&oldURL!==url){const event=new OrynEvent('hashchange');event.oldURL=oldURL;event.newURL=url;globalThis.dispatchEvent(event);}return null;};
+  const submitForm=form=>{if(!(form.hasAttribute('novalidate')||form.reportValidity()))return false;const event=new OrynEvent('submit',{bubbles:true,cancelable:true});if(!form.dispatchEvent(event))return false;let url=new OrynURL(form.getAttribute('action')||location.href,location.href);const method=(form.getAttribute('method')||'get').toLowerCase();if(method==='get'){const values=new OrynFormData(form);for(const [key,value] of values)url.searchParams.append(key,value instanceof OrynBlob?value.name||'blob':value);}if(contextPageId!==null){const response=contextCall({operation:'authorize_form_submission',page_id:contextPageId,url:url.href,method});if(response&&response.result==='page_denied'){traceContext('capability_failure',{capability:'form.submit.policy',detail:response.reason});return false;}if(response&&response.result!=='form_submission_authorized')throw new Error('form authorization response was invalid');}navigateTarget(url.href,form.getAttribute('target')||'_self');return true;};
   const pageProxies=new Map();let contextSelfClosed=false;
   const pageProxy=pageId=>{if(pageId===null||pageId===undefined)return null;if(pageProxies.has(pageId))return pageProxies.get(pageId);const proxy={__orynPageId:pageId,__closed:false,get closed(){return this.__closed;},focus(){contextCall({operation:'activate_page',source_page_id:contextPageId,target_page_id:pageId});traceContext('page_activated',{page_id:pageId});},close(){contextCall({operation:'close_page',source_page_id:contextPageId,target_page_id:pageId});this.__closed=true;traceContext('page_closed',{page_id:pageId});},postMessage(data,targetOrigin='*'){contextCall({operation:'post_message',source_page_id:contextPageId,target_page_id:pageId,target_origin:String(targetOrigin),data});traceContext('opener_message',{source_page_id:contextPageId,target_page_id:pageId,origin:String(targetOrigin)});}};pageProxies.set(pageId,proxy);return proxy;};
   globalThis.__oryn_configure_context=(pageId,openerPageId)=>{contextPageId=pageId;contextOpenerPageId=openerPageId;globalThis.opener=pageProxy(openerPageId);contextCall({operation:'commit_page',page_id:contextPageId,url:location.href});};

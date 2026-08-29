@@ -88,6 +88,19 @@ pub enum Provenance {
     Model { confidence: f32, model_id: String },
 }
 
+/// Trust boundary for human-readable content carried by an observation.
+///
+/// Semantic node strings originate in the loaded page and must remain data,
+/// even when Oryn derives them deterministically. Browser-owned metadata such
+/// as revisions and capability diagnostics does not use this label.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentTrust {
+    #[default]
+    PageAuthored,
+    BrowserOwned,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageInfo {
     pub url: String,
@@ -116,6 +129,9 @@ pub struct SemanticNodeView {
     pub states: BTreeSet<NodeState>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub actions: BTreeSet<SemanticAction>,
+    /// Trust source for page-facing strings and values in this node.
+    #[serde(default)]
+    pub content_trust: ContentTrust,
     pub provenance: Provenance,
 }
 
@@ -300,7 +316,8 @@ fn node_from_element(element: &Element, document_generation: u64) -> SemanticNod
         description: None,
         states,
         actions: actions_for(element),
-        provenance: Provenance::BrowserDeterministic,
+        content_trust: ContentTrust::PageAuthored,
+        provenance: Provenance::Heuristic { confidence: 0.8 },
     }
 }
 
@@ -413,7 +430,21 @@ mod tests {
         let observation =
             Observation::from_scan(&scan(), ExecutionDomain::Chromium, 1, Revision(2));
         let json = serde_json::to_string(&observation).expect("serialize");
+        assert!(json.contains(r#""content_trust":"page_authored""#));
         let decoded: Observation = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(decoded, observation);
+    }
+
+    #[test]
+    fn legacy_node_without_trust_defaults_to_page_authored() {
+        let observation =
+            Observation::from_scan(&scan(), ExecutionDomain::Chromium, 1, Revision(2));
+        let mut value = serde_json::to_value(observation).expect("serialize");
+        value["nodes"][0]
+            .as_object_mut()
+            .expect("node object")
+            .remove("content_trust");
+        let decoded: Observation = serde_json::from_value(value).expect("deserialize legacy");
+        assert_eq!(decoded.nodes[0].content_trust, ContentTrust::PageAuthored);
     }
 }
