@@ -38,6 +38,22 @@ are evidence-based; they do not carry calendar dates.
 The authoritative thresholds and corpus composition are maintained in the
 benchmark manifest introduced during P0.
 
+### G2R/G5A recovery closure
+
+- The signed protocol-v4 worker and production parent are bound to the clean
+  source tree, policy, limits, entitlements, fixtures, compatibility adapter,
+  Chromium version, Azure deployment, and immutable Qwen digest.
+- Native and Chromium deterministic matrices pass 24/24 with zero first
+  divergences; Azure/native passes 21/24 against the required 15/24 floor.
+- The full Azure/Qwen × native/Chromium panel completes 96/96 cells within the
+  cumulative hosted-model budget, and schema-v4 aggregates recompute from the
+  compact ledgers plus content-addressed raw artifacts.
+- Churn records zero false semantic-reference preservation, recovery passes
+  2/2, and worker limit replacement invalidates every old reference.
+- G2R/G5A is closed by
+  `benchmarks/evidence/g2r-v4/g2-model-panel-v4.json` and the signed production
+  summary in `benchmarks/evidence/g2r-v4/g5a-production-macos-arm64.json`.
+
 ## G3 — Modern application and multi-page compatibility
 
 - Contract-v3 page groups, popup/opener messaging, active-page orchestration,

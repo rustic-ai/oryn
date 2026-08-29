@@ -68,7 +68,7 @@ does not imply that later browser-conformance work is complete.
   paint, and Encoding Standard behavior beyond the advertised UTF-8 subset
   remain explicitly unavailable.
 
-## G2R — historical schema-v3 pass; schema-v4 revalidation open
+## G2R — complete
 
 - Existing OIL syntax drives native observations and click/type/clear/check,
   select, hover, focus, and targeted submit actions.
@@ -146,6 +146,27 @@ does not imply that later browser-conformance work is complete.
   Python SDK tests, IntentGym tests, G1/G2/corpus validators, and schema-v3 raw
   evidence recomputation passed at commit a41a231. That result remains
   historical and is not reusable for the G5A worker bundle.
+- The replacement schema-v4 run is bound to clean source commit
+  `cbfee34143af257bc43430d23fa842f4bad12448`, the signed protocol-v4 worker,
+  the separate opt-in Chromium adapter, pinned MiniWoB, Chrome 152, Azure
+  deployment `gpt-5.6-terra`, and the immutable `qwen3:4b` digest.
+- Native and Chromium deterministic matrices both pass 24/24 with zero first
+  divergences. The full model panel completes 96/96 cells: Azure/native passes
+  21/24, Azure/Chromium passes 15/24, and pinned Qwen completes 48/48 cells with
+  0 task successes. Qwen's measured model-quality failures do not masquerade as
+  runtime failures and were not a G2R success threshold.
+- Schema-v4 ledger recomputation passes with 36/96 overall task success,
+  observation sufficiency 13/96, recovery 2/2, reference survival 1/1, false
+  preservation 0/5, causal recall 99/99, and causal precision 99/198. The new
+  Azure spend is `$1.152654`; cumulative hosted spend is `$6.362286`, within the
+  `$100` ceiling.
+- Current compact evidence is
+  `benchmarks/evidence/g2r-v4/g2-model-panel-v4.json`; deterministic, churn, and
+  production summaries are published beside it. Raw observations, turns,
+  traces, and deterministic cells remain ignored.
+- Formatting, strict default/all-feature Clippy, Rust default/all-feature,
+  V8-host and no-default tests, Python SDK, IntentGym, scanner, extension, and
+  corpus/G1/G2/schema-v4 validators pass against the closure tree.
 
 ## G3 — complete
 
@@ -214,9 +235,9 @@ does not imply that later browser-conformance work is complete.
   compact result is `benchmarks/evidence/g4-v1/g4-result-v1.json`, recomputed
   from 33 manifest cases and 114 content-addressed raw artifacts.
 
-## G5A — implemented, release evidence pending
+## G5A — complete
 
-- Public native callers now use a protocol-v2 page worker on macOS. V8, the
+- Public native callers now use a protocol-v4 page worker on macOS. V8, the
   DOM, OIL, semantic state, and traces live in the worker; networking, DNS,
   cookies, policy, limits, signatures, and secrets remain parent-owned.
 - Production fails closed for a missing, unsigned, ad-hoc-signed, altered,
@@ -235,16 +256,22 @@ does not imply that later browser-conformance work is complete.
   references are invalid.
 - Pull-request CI pins Rust 1.98.0 and every GitHub Action to a commit SHA.
   Unsigned production-worker rejection runs without signing secrets. Protected
-  g5a-signing and g2r-release environments own the P12 and model secrets.
+  signing and model workflow definitions remain available for a future private
+  repository; no Apple key or model credential is stored in this public repo.
 - Schema v4 binds the source-tree hash, parent and final signed-worker hashes,
   signature/certificate/entitlement/manifest fingerprints, policy, limits,
   fixtures, Chromium, Azure deployment, and Qwen digest. Compact 96-cell and
   24-cell causal ledgers are sufficient to recompute the aggregate; raw turns
   and traces remain uploaded, ignored artifacts.
-- The current machine-readable state is
-  benchmarks/evidence/g2r-v4/STATUS.json: G2R/G5A remains open until the
-  protected signed workflow and manual 96-cell release workflow publish and
-  validate schema-v4 evidence. Budget accounting begins at $5.209632.
+- The exact clean-tree local macOS ARM64 release run verified the trusted Apple
+  identity, App Sandbox plus JIT-only entitlements, runtime handshake, mutation,
+  broker isolation, worker replacement, deterministic parity, and the complete
+  96-cell panel. `benchmarks/evidence/g2r-v4/STATUS.json` records G2R/G5A closed.
+- Production measurements publish a 4,929,744-byte parent, 47,004,112-byte
+  worker, 51,938,255-byte combined installation, and 20,641,316-byte compressed
+  bundle. Handshake and mutation P50 are 560 ms and 580 ms; parent and worker
+  RSS are 56,098,816 and 56,377,344 bytes. Crash replacement passes and restores
+  a blank generation in 489.739 ms after termination.
 - The security boundary and deferred items are documented in
   docs/oryn2/G5A_SECURITY.md.
 
@@ -361,10 +388,10 @@ does not imply that later browser-conformance work is complete.
 
 ## Next tracks
 
-- G2R/G5A schema-v4 release evidence remains open pending the private protected
-  signing/model workflows. G5's local signed security gate is complete; this
-  does not substitute for the separate 96-cell Azure/Qwen release evidence.
+- G2R/G5A schema-v4 release evidence is complete on the exact signed local
+  macOS ARM64 bundle. Private protected signing/model workflows remain an
+  operational release option, not an open implementation gate.
 - G8's optional CPU reference package is complete. Broader long-running fuzzing,
   V8 update automation, GPU acceleration, multi-page print layout, broader SVG
-  and font support, and private protected G2R/G5A release evidence remain
-  operational or product-driven tracks rather than unimplemented G6-G8 gates.
+  and font support remain operational or product-driven tracks rather than
+  unimplemented G6-G8 gates.

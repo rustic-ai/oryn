@@ -1,0 +1,3829 @@
+{
+  "schema_version": 4,
+  "run_id": "g2r-g5a-model-panel-v4",
+  "started_at": "2026-08-29T00:57:19.074902Z",
+  "updated_at": "2026-08-29T02:41:16.606311Z",
+  "fingerprint": {
+    "source_commit": "cbfee34143af257bc43430d23fa842f4bad12448",
+    "source_dirty": false,
+    "source_tree_sha256": "90f940a572a66874120da910b6692d86be593ca9d299a6b4c4770560b54e136b",
+    "harness_sha256": "ef91b8bfb67bea0f0d716fc2453bbaff9f0aa1f88b89cf96c553d362b6e741d3",
+    "deterministic_evidence_sha256": "d8b3a1904bf5604cca4aecf04b910368ce6c82efba6ce238cedc7c7b46605dd7",
+    "deterministic_cells_sha256": "9513ed4812c17739500a4d938875faca0a1465197c9ff2177cd1ce55138c3470",
+    "churn_evidence_sha256": "30d745ab1017e43b2e3f1e6befab5ec1667e363191455adcffc07c068acf046c",
+    "binary": {
+      "sha256": "a7c8e408682f889764d949a8dcb06e5325cdc0ae541558613f8462c44ba4df7b",
+      "bytes": 4929744,
+      "runtime": {
+        "contract_version": 4,
+        "native_v8": true,
+        "v8_version": "15.0.245.2-rusty",
+        "build_profile": "release",
+        "capabilities": [
+          "native_dom",
+          "html5ever",
+          "rustls_network_broker",
+          "oil",
+          "semantic_v3_compat",
+          "semantic_v4",
+          "execution_domain_handoff",
+          "trace_recording",
+          "network_record_replay",
+          "sealed_context_checkpoint",
+          "replay_branching",
+          "v8_javascript",
+          "computed_style",
+          "layout_box",
+          "layout_inline_text",
+          "viewport_scroll",
+          "deterministic_embedded_font",
+          "paint_snapshot"
+        ],
+        "execution_mode": "sandboxed_worker",
+        "sandboxed": true,
+        "worker_protocol_version": 4,
+        "worker_binary_sha256": "97725b0833d818e38ca6b27d8fce620d6124f50a1210aa6921942dfe83e86db1",
+        "worker_bundle_id": "ai.rustic.oryn.page-worker",
+        "worker_team_id": "5HVA9VFF8K",
+        "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+        "policy_digest": "828a1b8ea74ec04124531620126a637f7bdd58a6ca2126eb85188804c2ecdac2",
+        "sandbox_state": "app_sandbox",
+        "limits": {
+          "v8_heap_bytes": 268435456,
+          "worker_rss_bytes": 536870912,
+          "ipc_frame_bytes": 25165824,
+          "command_wall_ms": 10000,
+          "navigation_wall_ms": 30000,
+          "queue_capacity": 32,
+          "max_layout_nodes": 100000,
+          "max_font_bytes": 8388608,
+          "max_page_font_bytes": 33554432,
+          "max_viewport_css_px": 16384
+        },
+        "style_engine_version": "stylo-declarations-0.20+oryn-cascade-v1",
+        "box_engine_version": "taffy-0.14",
+        "inline_engine_version": "parley-0.11.1",
+        "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"
+      },
+      "mutation_smoke": {
+        "status": "passed",
+        "revision_before": 1,
+        "revision_after": 2,
+        "effect_kinds": [
+          "dom_mutation",
+          "event"
+        ]
+      }
+    },
+    "worker_bundle": {
+      "path": "/Users/rohit/Work/oryn2/oryn/target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker",
+      "sha256": "97725b0833d818e38ca6b27d8fce620d6124f50a1210aa6921942dfe83e86db1",
+      "bytes": 47004112,
+      "bundle_id": "ai.rustic.oryn.page-worker",
+      "team_id": "5HVA9VFF8K",
+      "signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+      "cdhash": "7b538db36169d87e693789546e856a263f482572",
+      "hardened_runtime": true,
+      "signature_details_sha256": "834227b82b2a2a2dc424f4389d3ca472cba293bc354831ee6e965e730a21a454",
+      "entitlements": {
+        "com.apple.security.app-sandbox": true,
+        "com.apple.security.cs.allow-jit": true
+      },
+      "entitlements_sha256": "d8e575571677e786b671cd2aa7c0c6edf4f9b185fe78e17b11b0d8fd336f2d93",
+      "manifest_sha256": "fdb453aac9818ed8cf797f5f6b59801085340c77bf243151ac23aa263ff2e7c3",
+      "manifest": {
+        "schema_version": 1,
+        "bundle_id": "ai.rustic.oryn.page-worker",
+        "team_id": "5HVA9VFF8K",
+        "signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+        "protocol_version": 4,
+        "v8_version": "15.0.245.2-rusty",
+        "worker_build_sha256": "eecc7ab94a93aa68aadf99bba104a4f2d8b546e3c98d687ec0c22d64b5947d74",
+        "worker_build_bytes": 47260016,
+        "entitlement_sha256": "cbb53a56267d47cc0e275b74373577dd1d6220f47d0e6da34599a7e9dc9c2d65",
+        "policy_sha256": "66016a3ec727c65beccf8a031094ec208aff116ae6fb51601eeaf92c5be1e1f7",
+        "source_tree_sha256": "90f940a572a66874120da910b6692d86be593ca9d299a6b4c4770560b54e136b",
+        "style_engine_version": "stylo-declarations-0.20+oryn-cascade-v1",
+        "box_engine_version": "taffy-0.14",
+        "inline_engine_version": "parley-0.11.1",
+        "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+        "limits": {
+          "v8_heap_bytes": 268435456,
+          "worker_rss_bytes": 536870912,
+          "ipc_frame_bytes": 25165824,
+          "command_wall_ms": 10000,
+          "navigation_wall_ms": 30000,
+          "queue_capacity": 32,
+          "max_layout_nodes": 100000,
+          "max_font_bytes": 8388608,
+          "max_page_font_bytes": 33554432,
+          "max_viewport_css_px": 16384
+        }
+      }
+    },
+    "policy": {
+      "digest": "828a1b8ea74ec04124531620126a637f7bdd58a6ca2126eb85188804c2ecdac2",
+      "network_mode": "benchmark_loopback",
+      "parent_owned_cookies": true,
+      "decoded_response_limit_bytes": 16777216
+    },
+    "limits": {
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912,
+      "ipc_frame_bytes": 25165824,
+      "command_wall_ms": 10000,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "max_layout_nodes": 100000,
+      "max_font_bytes": 8388608,
+      "max_page_font_bytes": 33554432,
+      "max_viewport_css_px": 16384
+    },
+    "miniwob": {
+      "allowed_seeds": [
+        17,
+        42,
+        73
+      ],
+      "content_sha256": "7bac5e8f28c40b8a44b3c915f98b26a8d3c494ecc1634e3d43839ed13598e386",
+      "injection": "after_core_before_load",
+      "kind": "oryn_g2_seeded_miniwob",
+      "source_commit": "33c3b4ddef8c6eb67c57a29663d844b1eda7e614",
+      "source_modified": false
+    },
+    "chromium_version": "Google Chrome 152.0.7977.65",
+    "compatibility_binary": {
+      "sha256": "450c2608703dcaadd0f5041c6432d67b62c9310e917a0debf95af3e62e248c5d",
+      "bytes": 7247904
+    },
+    "models": {
+      "hosted_provider": "azure_openai",
+      "hosted_deployment": "gpt-5.6-terra",
+      "local_model": "qwen3:4b",
+      "local_model_digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7"
+    },
+    "sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5"
+  },
+  "corpus": {
+    "name": "oryn-g2r-native-proof",
+    "revision": "2026-08-26",
+    "entries": 30,
+    "published_entries": 30
+  },
+  "deterministic": {
+    "schema_version": 4,
+    "run_id": "g2r-g5a-deterministic-v4",
+    "fingerprint": {
+      "source_commit": "cbfee34143af257bc43430d23fa842f4bad12448",
+      "binary": {
+        "sha256": "a7c8e408682f889764d949a8dcb06e5325cdc0ae541558613f8462c44ba4df7b",
+        "bytes": 4929744,
+        "runtime": {
+          "contract_version": 4,
+          "native_v8": true,
+          "v8_version": "15.0.245.2-rusty",
+          "build_profile": "release",
+          "capabilities": [
+            "native_dom",
+            "html5ever",
+            "rustls_network_broker",
+            "oil",
+            "semantic_v3_compat",
+            "semantic_v4",
+            "execution_domain_handoff",
+            "trace_recording",
+            "network_record_replay",
+            "sealed_context_checkpoint",
+            "replay_branching",
+            "v8_javascript",
+            "computed_style",
+            "layout_box",
+            "layout_inline_text",
+            "viewport_scroll",
+            "deterministic_embedded_font",
+            "paint_snapshot"
+          ],
+          "execution_mode": "sandboxed_worker",
+          "sandboxed": true,
+          "worker_protocol_version": 4,
+          "worker_binary_sha256": "97725b0833d818e38ca6b27d8fce620d6124f50a1210aa6921942dfe83e86db1",
+          "worker_bundle_id": "ai.rustic.oryn.page-worker",
+          "worker_team_id": "5HVA9VFF8K",
+          "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+          "policy_digest": "828a1b8ea74ec04124531620126a637f7bdd58a6ca2126eb85188804c2ecdac2",
+          "sandbox_state": "app_sandbox",
+          "limits": {
+            "v8_heap_bytes": 268435456,
+            "worker_rss_bytes": 536870912,
+            "ipc_frame_bytes": 25165824,
+            "command_wall_ms": 10000,
+            "navigation_wall_ms": 30000,
+            "queue_capacity": 32,
+            "max_layout_nodes": 100000,
+            "max_font_bytes": 8388608,
+            "max_page_font_bytes": 33554432,
+            "max_viewport_css_px": 16384
+          },
+          "style_engine_version": "stylo-declarations-0.20+oryn-cascade-v1",
+          "box_engine_version": "taffy-0.14",
+          "inline_engine_version": "parley-0.11.1",
+          "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"
+        }
+      },
+      "source_tree_sha256": "90f940a572a66874120da910b6692d86be593ca9d299a6b4c4770560b54e136b",
+      "miniwob": {
+        "allowed_seeds": [
+          17,
+          42,
+          73
+        ],
+        "content_sha256": "7bac5e8f28c40b8a44b3c915f98b26a8d3c494ecc1634e3d43839ed13598e386",
+        "injection": "after_core_before_load",
+        "kind": "oryn_g2_seeded_miniwob",
+        "source_commit": "33c3b4ddef8c6eb67c57a29663d844b1eda7e614",
+        "source_modified": false
+      },
+      "chromium_version": "Google Chrome 152.0.7977.65",
+      "compatibility_binary": {
+        "sha256": "450c2608703dcaadd0f5041c6432d67b62c9310e917a0debf95af3e62e248c5d",
+        "bytes": 7247904
+      },
+      "oracle": {
+        "id": "oil_deterministic_oracle_v1",
+        "sha256": "42ffd3f1233deecef55490c6ee23898b7f53457478c77587e824aca9d54fbbc6"
+      },
+      "sha256": "32294e8b19318af0d44ab43c5a88a5bb22f2fdbfb4395530e836510e825b84d2"
+    },
+    "started_at": "2026-08-29T00:52:52.820280Z",
+    "completed_at": "2026-08-29T00:54:37.172073Z",
+    "cells": 48,
+    "native": {
+      "completed": 24,
+      "passed": 24
+    },
+    "chromium": {
+      "completed": 24,
+      "passed": 24
+    },
+    "differential": [
+      {
+        "task_id": "click-button",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-button",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-button",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-link",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-link",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-link",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-option",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-option",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-option",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "enter-text",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "enter-text",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "enter-text",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "focus-text",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "focus-text",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "focus-text",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "choose-date",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "choose-date",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "choose-date",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "login-user",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "login-user",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "login-user",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "search-engine",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "search-engine",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "search-engine",
+        "seed": 73,
+        "first_divergence": null
+      }
+    ],
+    "outcome": {
+      "status": "passed"
+    }
+  },
+  "panel": {
+    "expected_runs": 96,
+    "completed_runs": 96,
+    "prior_hosted_spend_usd": 5.209632,
+    "new_hosted_spend_usd": 1.152654,
+    "cumulative_hosted_spend_usd": 6.362286,
+    "hosted_cost_cap_usd": 100.0,
+    "hosted_provider": "azure_openai",
+    "hosted_model": "gpt-5.6-terra",
+    "azure_native_completed": 24,
+    "azure_native_passed": 21,
+    "local_model": "qwen3:4b",
+    "local_model_digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+    "local_model_max_output_tokens": 256
+  },
+  "metrics": {
+    "task_success": {
+      "numerator": 36,
+      "denominator": 96,
+      "value": 0.375
+    },
+    "observation_sufficiency": {
+      "numerator": 13,
+      "denominator": 96,
+      "value": 0.13541666666666666
+    },
+    "recovery": {
+      "numerator": 2,
+      "denominator": 2,
+      "value": 1.0
+    },
+    "reference_survival": {
+      "numerator": 1,
+      "denominator": 1,
+      "value": 1.0
+    },
+    "false_reference_preservation": {
+      "numerator": 0,
+      "denominator": 5,
+      "value": 0.0
+    },
+    "causal_recall": {
+      "numerator": 99,
+      "denominator": 99,
+      "value": 1.0
+    },
+    "causal_precision": {
+      "numerator": 99,
+      "denominator": 198,
+      "value": 0.5
+    },
+    "action_latency_ms": {
+      "p50": 5.89299201965332,
+      "p95": 80.0771713256836,
+      "samples": 834
+    },
+    "observation_utf8_bytes": {
+      "p50": 4385.0,
+      "p95": 5414,
+      "samples": 738
+    }
+  },
+  "cell_ledger": [
+    {
+      "cell_id": "click-button-s17-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.013164,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.737211227416992,
+        39.71099853515625,
+        47.125816345214844
+      ],
+      "observation_utf8_bytes": [
+        4389,
+        5117
+      ]
+    },
+    {
+      "cell_id": "click-button-s42-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.012992,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        4.125118255615234,
+        63.16184997558594,
+        65.4749870300293
+      ],
+      "observation_utf8_bytes": [
+        4389,
+        5115
+      ]
+    },
+    {
+      "cell_id": "click-button-s73-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.013739999999999999,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.3168792724609375,
+        66.35808944702148,
+        70.22595405578613
+      ],
+      "observation_utf8_bytes": [
+        4389,
+        5699
+      ]
+    },
+    {
+      "cell_id": "click-link-s17-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.013032,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.2210350036621094,
+        47.067880630493164,
+        60.17804145812988
+      ],
+      "observation_utf8_bytes": [
+        4385,
+        5145
+      ]
+    },
+    {
+      "cell_id": "click-link-s42-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.013323999999999999,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.3011436462402344,
+        56.77008628845215,
+        57.080745697021484
+      ],
+      "observation_utf8_bytes": [
+        4385,
+        4821
+      ]
+    },
+    {
+      "cell_id": "click-link-s73-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.014235999999999999,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.782987594604492,
+        61.31887435913086,
+        64.69583511352539
+      ],
+      "observation_utf8_bytes": [
+        4385,
+        6031
+      ]
+    },
+    {
+      "cell_id": "click-option-s17-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.023894000000000002,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        38.9409065246582,
+        307.2397708892822,
+        336.76695823669434,
+        340.2290344238281
+      ],
+      "observation_utf8_bytes": [
+        4987,
+        6073,
+        6083
+      ]
+    },
+    {
+      "cell_id": "click-option-s42-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.022402000000000002,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        39.36886787414551,
+        273.26488494873047,
+        290.61317443847656,
+        292.6509380340576
+      ],
+      "observation_utf8_bytes": [
+        4987,
+        5400,
+        5420
+      ]
+    },
+    {
+      "cell_id": "click-option-s73-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.022622,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        40.03596305847168,
+        293.1389808654785,
+        310.58478355407715,
+        311.6309642791748
+      ],
+      "observation_utf8_bytes": [
+        4987,
+        5738,
+        5748
+      ]
+    },
+    {
+      "cell_id": "enter-text-s17-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.036238,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.8950443267822266,
+        67.2461986541748,
+        23.38409423828125,
+        20.405054092407227,
+        57.457923889160156,
+        65.31786918640137
+      ],
+      "observation_utf8_bytes": [
+        5052,
+        4802,
+        4802,
+        4802,
+        4808
+      ]
+    },
+    {
+      "cell_id": "enter-text-s42-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.021526,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        5.335092544555664,
+        65.53506851196289,
+        56.09011650085449,
+        67.5199031829834
+      ],
+      "observation_utf8_bytes": [
+        5052,
+        4802,
+        4808
+      ]
+    },
+    {
+      "cell_id": "enter-text-s73-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.021286,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        4.015207290649414,
+        66.73693656921387,
+        60.43720245361328,
+        65.54579734802246
+      ],
+      "observation_utf8_bytes": [
+        5052,
+        4802,
+        4808
+      ]
+    },
+    {
+      "cell_id": "focus-text-s17-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.026822,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.154277801513672,
+        61.46693229675293,
+        20.218849182128906,
+        17.118215560913086,
+        53.53498458862305
+      ],
+      "observation_utf8_bytes": [
+        4718,
+        4437,
+        4437,
+        4437
+      ]
+    },
+    {
+      "cell_id": "focus-text-s42-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.019382,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.6559104919433594,
+        57.760000228881836,
+        17.09890365600586,
+        54.11982536315918
+      ],
+      "observation_utf8_bytes": [
+        4718,
+        4437,
+        4437
+      ]
+    },
+    {
+      "cell_id": "focus-text-s73-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.01315,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.491640090942383,
+        56.75101280212402,
+        56.35690689086914
+      ],
+      "observation_utf8_bytes": [
+        4718,
+        4437
+      ]
+    },
+    {
+      "cell_id": "choose-date-s17-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.093606,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        42.44589805603027,
+        278.853178024292,
+        42.57798194885254,
+        1390.639066696167,
+        212.99362182617188,
+        212.84818649291992,
+        214.46895599365234,
+        213.38605880737305,
+        213.55891227722168,
+        214.04695510864258,
+        214.3409252166748,
+        9.991884231567383
+      ],
+      "observation_utf8_bytes": [
+        5328,
+        5067,
+        5067,
+        5195,
+        5195,
+        5195,
+        5195,
+        5195,
+        5195,
+        5195,
+        5195
+      ]
+    },
+    {
+      "cell_id": "choose-date-s42-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.09508799999999999,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        38.91110420227051,
+        280.0178527832031,
+        54.32271957397461,
+        1387.6049518585205,
+        212.32104301452637,
+        194.51117515563965,
+        210.07299423217773,
+        208.24599266052246,
+        13.541936874389648,
+        13.056039810180664,
+        209.8081111907959,
+        15.461921691894531
+      ],
+      "observation_utf8_bytes": [
+        5328,
+        5067,
+        5067,
+        5195,
+        5195,
+        5195,
+        5195,
+        5195,
+        5195,
+        5195,
+        5195
+      ]
+    },
+    {
+      "cell_id": "choose-date-s73-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.093844,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        38.76996040344238,
+        267.880916595459,
+        60.87779998779297,
+        61.296701431274414,
+        1387.7079486846924,
+        212.75925636291504,
+        213.00482749938965,
+        211.04836463928223,
+        10.531187057495117,
+        9.983062744140625,
+        10.396957397460938,
+        13.571977615356445
+      ],
+      "observation_utf8_bytes": [
+        5328,
+        5067,
+        5067,
+        5067,
+        5195,
+        5195,
+        5195,
+        5195,
+        5195,
+        5195,
+        5195
+      ]
+    },
+    {
+      "cell_id": "login-user-s17-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.031972,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        5.21087646484375,
+        80.83987236022949,
+        75.34599304199219,
+        74.03898239135742,
+        80.49798011779785
+      ],
+      "observation_utf8_bytes": [
+        5414,
+        5223,
+        5229,
+        5229
+      ]
+    },
+    {
+      "cell_id": "login-user-s42-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.032044,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        4.230976104736328,
+        78.2160758972168,
+        72.56221771240234,
+        71.20609283447266,
+        76.97200775146484
+      ],
+      "observation_utf8_bytes": [
+        5414,
+        5220,
+        5225,
+        5225
+      ]
+    },
+    {
+      "cell_id": "login-user-s73-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.03178,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        5.562782287597656,
+        83.50491523742676,
+        72.71480560302734,
+        74.07522201538086,
+        78.73821258544922
+      ],
+      "observation_utf8_bytes": [
+        5414,
+        5222,
+        5228,
+        5228
+      ]
+    },
+    {
+      "cell_id": "search-engine-s17-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.073612,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        7.029056549072266,
+        74.41091537475586,
+        16.284942626953125,
+        20.7061767578125,
+        23.391008377075195,
+        71.20418548583984,
+        137.3591423034668,
+        211.99512481689453,
+        135.78176498413086
+      ],
+      "observation_utf8_bytes": [
+        5070,
+        4865,
+        4865,
+        4865,
+        4865,
+        4872,
+        8421,
+        8424
+      ]
+    },
+    {
+      "cell_id": "search-engine-s42-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.06457,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        5.6629180908203125,
+        79.26034927368164,
+        24.623870849609375,
+        25.1619815826416,
+        71.0139274597168,
+        137.97307014465332,
+        209.73896980285645,
+        141.86596870422363
+      ],
+      "observation_utf8_bytes": [
+        5070,
+        4864,
+        4864,
+        4864,
+        4870,
+        8427,
+        8387
+      ]
+    },
+    {
+      "cell_id": "search-engine-s73-native-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.072432,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        5.534887313842773,
+        80.0771713256836,
+        25.104284286499023,
+        24.62005615234375,
+        25.079965591430664,
+        75.04391670227051,
+        137.76493072509766,
+        143.93997192382812,
+        139.07098770141602
+      ],
+      "observation_utf8_bytes": [
+        5070,
+        4863,
+        4863,
+        4863,
+        4863,
+        4868,
+        8417,
+        8383
+      ]
+    },
+    {
+      "cell_id": "click-button-s17-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        4.040956497192383,
+        4.436969757080078,
+        4.731893539428711,
+        4.711151123046875,
+        4.805326461791992,
+        4.478931427001953,
+        5.047082901000977,
+        4.635810852050781,
+        4.120826721191406,
+        4.553079605102539,
+        4.5928955078125,
+        4.685163497924805
+      ],
+      "observation_utf8_bytes": [
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389
+      ]
+    },
+    {
+      "cell_id": "click-button-s42-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.2777786254882812,
+        4.645109176635742,
+        5.402803421020508,
+        4.077911376953125,
+        4.5299530029296875,
+        5.866050720214844,
+        4.436969757080078,
+        4.559040069580078,
+        4.764795303344727,
+        7.670879364013672,
+        4.327058792114258,
+        4.670143127441406
+      ],
+      "observation_utf8_bytes": [
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389
+      ]
+    },
+    {
+      "cell_id": "click-button-s73-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.571033477783203,
+        8.638858795166016,
+        10.304927825927734,
+        9.887933731079102,
+        5.255937576293945,
+        6.736278533935547,
+        7.984161376953125,
+        7.151126861572266,
+        8.083105087280273,
+        8.330106735229492,
+        7.131814956665039,
+        5.986690521240234
+      ],
+      "observation_utf8_bytes": [
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389,
+        4389
+      ]
+    },
+    {
+      "cell_id": "click-link-s17-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.8750171661376953,
+        11.773824691772461,
+        10.401725769042969,
+        9.427070617675781,
+        9.562015533447266,
+        8.032083511352539,
+        7.541894912719727,
+        8.208036422729492,
+        6.32786750793457,
+        7.048845291137695,
+        6.494045257568359,
+        7.952213287353516
+      ],
+      "observation_utf8_bytes": [
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385
+      ]
+    },
+    {
+      "cell_id": "click-link-s42-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.8869380950927734,
+        16.72220230102539,
+        8.522987365722656,
+        7.674217224121094,
+        11.688947677612305,
+        7.083892822265625,
+        7.094860076904297,
+        7.113933563232422,
+        6.778955459594727,
+        5.919933319091797,
+        6.524801254272461,
+        4.711389541625977
+      ],
+      "observation_utf8_bytes": [
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385
+      ]
+    },
+    {
+      "cell_id": "click-link-s73-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.813028335571289,
+        10.389089584350586,
+        10.019063949584961,
+        9.550094604492188,
+        8.960962295532227,
+        8.196115493774414,
+        6.077051162719727,
+        8.20302963256836,
+        6.519794464111328,
+        5.002021789550781,
+        6.855249404907227,
+        6.290197372436523
+      ],
+      "observation_utf8_bytes": [
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385,
+        4385
+      ]
+    },
+    {
+      "cell_id": "click-option-s17-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        37.52899169921875,
+        53.85398864746094,
+        55.78017234802246,
+        54.129838943481445,
+        40.53497314453125,
+        51.73802375793457,
+        50.995826721191406,
+        49.981117248535156,
+        41.10002517700195,
+        48.24399948120117,
+        48.16699028015137,
+        41.04113578796387
+      ],
+      "observation_utf8_bytes": [
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987
+      ]
+    },
+    {
+      "cell_id": "click-option-s42-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        40.201425552368164,
+        47.25289344787598,
+        38.787841796875,
+        42.34123229980469,
+        49.82614517211914,
+        41.59092903137207,
+        51.660776138305664,
+        50.47774314880371,
+        41.14985466003418,
+        48.74777793884277,
+        47.77216911315918,
+        47.70302772521973
+      ],
+      "observation_utf8_bytes": [
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987
+      ]
+    },
+    {
+      "cell_id": "click-option-s73-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        40.76385498046875,
+        42.31882095336914,
+        56.9918155670166,
+        54.1379451751709,
+        53.59196662902832,
+        51.47194862365723,
+        50.67610740661621,
+        50.282955169677734,
+        49.42917823791504,
+        48.28000068664551,
+        46.94509506225586,
+        46.97394371032715
+      ],
+      "observation_utf8_bytes": [
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987,
+        4987
+      ]
+    },
+    {
+      "cell_id": "enter-text-s17-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.8928985595703125,
+        10.009050369262695,
+        9.567975997924805,
+        7.0400238037109375,
+        7.385015487670898,
+        7.537841796875,
+        6.648063659667969,
+        6.949186325073242,
+        6.186962127685547,
+        6.892204284667969,
+        5.840301513671875,
+        6.242036819458008
+      ],
+      "observation_utf8_bytes": [
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052
+      ]
+    },
+    {
+      "cell_id": "enter-text-s42-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.798961639404297,
+        14.406919479370117,
+        8.800983428955078,
+        5.558967590332031,
+        7.970094680786133,
+        7.930994033813477,
+        6.789922714233398,
+        6.450891494750977,
+        5.670309066772461,
+        6.4487457275390625,
+        6.125688552856445,
+        4.993915557861328
+      ],
+      "observation_utf8_bytes": [
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052
+      ]
+    },
+    {
+      "cell_id": "enter-text-s73-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        4.037141799926758,
+        6.745815277099609,
+        6.4697265625,
+        5.089044570922852,
+        4.5928955078125,
+        6.083011627197266,
+        4.967927932739258,
+        5.149126052856445,
+        6.183147430419922,
+        4.371881484985352,
+        4.483938217163086,
+        6.700992584228516
+      ],
+      "observation_utf8_bytes": [
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052,
+        5052
+      ]
+    },
+    {
+      "cell_id": "focus-text-s17-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.2722949981689453,
+        9.856939315795898,
+        5.136013031005859,
+        4.985809326171875,
+        5.117893218994141,
+        5.632162094116211,
+        4.8980712890625,
+        5.019903182983398,
+        4.31370735168457,
+        4.84919548034668,
+        4.915952682495117,
+        3.9949417114257812
+      ],
+      "observation_utf8_bytes": [
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718
+      ]
+    },
+    {
+      "cell_id": "focus-text-s42-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.471851348876953,
+        6.161928176879883,
+        5.777835845947266,
+        8.127927780151367,
+        7.137060165405273,
+        6.374835968017578,
+        4.754781723022461,
+        5.609989166259766,
+        4.256010055541992,
+        6.298065185546875,
+        6.554841995239258,
+        4.3792724609375
+      ],
+      "observation_utf8_bytes": [
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718
+      ]
+    },
+    {
+      "cell_id": "focus-text-s73-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        3.584146499633789,
+        9.630918502807617,
+        8.404016494750977,
+        9.100914001464844,
+        10.925054550170898,
+        7.372140884399414,
+        4.492759704589844,
+        6.536006927490234,
+        4.736900329589844,
+        5.752801895141602,
+        4.310131072998047,
+        6.0710906982421875
+      ],
+      "observation_utf8_bytes": [
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718,
+        4718
+      ]
+    },
+    {
+      "cell_id": "choose-date-s17-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        42.32501983642578,
+        58.37202072143555,
+        54.94403839111328,
+        53.05290222167969,
+        55.374860763549805,
+        53.980112075805664,
+        53.42292785644531,
+        51.019906997680664,
+        50.48203468322754,
+        49.91483688354492,
+        43.260812759399414,
+        42.81973838806152
+      ],
+      "observation_utf8_bytes": [
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328
+      ]
+    },
+    {
+      "cell_id": "choose-date-s42-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        41.085004806518555,
+        50.85492134094238,
+        57.98006057739258,
+        56.65993690490723,
+        55.36055564880371,
+        53.86996269226074,
+        53.2078742980957,
+        43.11084747314453,
+        51.1782169342041,
+        42.672157287597656,
+        41.80598258972168,
+        48.590898513793945
+      ],
+      "observation_utf8_bytes": [
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328
+      ]
+    },
+    {
+      "cell_id": "choose-date-s73-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        41.55302047729492,
+        53.14993858337402,
+        56.78892135620117,
+        56.52809143066406,
+        53.401947021484375,
+        52.55770683288574,
+        52.559852600097656,
+        43.46299171447754,
+        52.95372009277344,
+        49.536943435668945,
+        49.28898811340332,
+        48.37179183959961
+      ],
+      "observation_utf8_bytes": [
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328,
+        5328
+      ]
+    },
+    {
+      "cell_id": "login-user-s17-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        5.847930908203125,
+        12.245893478393555,
+        14.194965362548828,
+        8.411169052124023,
+        7.241964340209961,
+        9.905815124511719,
+        6.873130798339844,
+        8.86392593383789,
+        8.925914764404297,
+        6.728887557983398,
+        5.466222763061523,
+        6.553173065185547
+      ],
+      "observation_utf8_bytes": [
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414
+      ]
+    },
+    {
+      "cell_id": "login-user-s42-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        4.488945007324219,
+        7.276773452758789,
+        6.546974182128906,
+        5.83195686340332,
+        5.566835403442383,
+        6.760120391845703,
+        5.777120590209961,
+        5.785226821899414,
+        6.774663925170898,
+        5.205869674682617,
+        6.636142730712891,
+        6.682872772216797
+      ],
+      "observation_utf8_bytes": [
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414
+      ]
+    },
+    {
+      "cell_id": "login-user-s73-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        5.856990814208984,
+        6.823062896728516,
+        7.210969924926758,
+        6.833076477050781,
+        5.06591796875,
+        5.4950714111328125,
+        6.67119026184082,
+        7.456064224243164,
+        6.871223449707031,
+        5.509138107299805,
+        7.341146469116211,
+        6.6471099853515625
+      ],
+      "observation_utf8_bytes": [
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414,
+        5414
+      ]
+    },
+    {
+      "cell_id": "search-engine-s17-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        6.845235824584961,
+        7.970094680786133,
+        7.833719253540039,
+        7.396936416625977,
+        7.475852966308594,
+        7.017374038696289,
+        6.914854049682617,
+        6.9751739501953125,
+        6.991863250732422,
+        7.116079330444336,
+        6.817102432250977,
+        6.750822067260742
+      ],
+      "observation_utf8_bytes": [
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070
+      ]
+    },
+    {
+      "cell_id": "search-engine-s42-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        5.928993225097656,
+        7.293939590454102,
+        6.921052932739258,
+        11.647939682006836,
+        7.343053817749023,
+        11.161088943481445,
+        8.262872695922852,
+        7.890939712524414,
+        7.496833801269531,
+        8.247137069702148,
+        9.248018264770508,
+        9.047269821166992
+      ],
+      "observation_utf8_bytes": [
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070
+      ]
+    },
+    {
+      "cell_id": "search-engine-s73-native-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        6.835222244262695,
+        12.569904327392578,
+        7.843017578125,
+        7.609128952026367,
+        11.230945587158203,
+        11.368274688720703,
+        8.460760116577148,
+        7.274866104125977,
+        7.679939270019531,
+        8.713245391845703,
+        9.939908981323242,
+        9.699106216430664
+      ],
+      "observation_utf8_bytes": [
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070,
+        5070
+      ]
+    },
+    {
+      "cell_id": "click-button-s17-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.004710000000000001,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        8.749723434448242,
+        7.827281951904297,
+        3.6492347717285156
+      ],
+      "observation_utf8_bytes": [
+        302,
+        580
+      ]
+    },
+    {
+      "cell_id": "click-button-s42-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.00451,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        15.132904052734375,
+        7.498025894165039,
+        3.899097442626953
+      ],
+      "observation_utf8_bytes": [
+        302,
+        585
+      ]
+    },
+    {
+      "cell_id": "click-button-s73-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.004512,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        11.442899703979492,
+        5.445957183837891,
+        2.440929412841797
+      ],
+      "observation_utf8_bytes": [
+        302,
+        540
+      ]
+    },
+    {
+      "cell_id": "click-link-s17-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.004534,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        20.238161087036133,
+        4.92095947265625,
+        2.1300315856933594
+      ],
+      "observation_utf8_bytes": [
+        298,
+        605
+      ]
+    },
+    {
+      "cell_id": "click-link-s42-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.00451,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        23.379802703857422,
+        6.293058395385742,
+        4.591703414916992
+      ],
+      "observation_utf8_bytes": [
+        298,
+        553
+      ]
+    },
+    {
+      "cell_id": "click-link-s73-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.004538,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        11.406898498535156,
+        6.4411163330078125,
+        4.006862640380859
+      ],
+      "observation_utf8_bytes": [
+        298,
+        669
+      ]
+    },
+    {
+      "cell_id": "click-option-s17-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.005024000000000001,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        12.623071670532227,
+        9.025096893310547,
+        5.393028259277344
+      ],
+      "observation_utf8_bytes": [
+        331,
+        561
+      ]
+    },
+    {
+      "cell_id": "click-option-s42-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.004532,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        9.241819381713867,
+        7.158041000366211,
+        3.865957260131836
+      ],
+      "observation_utf8_bytes": [
+        331,
+        484
+      ]
+    },
+    {
+      "cell_id": "click-option-s73-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.0047799999999999995,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        11.536836624145508,
+        7.442951202392578,
+        2.2652149200439453
+      ],
+      "observation_utf8_bytes": [
+        331,
+        522
+      ]
+    },
+    {
+      "cell_id": "enter-text-s17-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.012458,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        10.052919387817383,
+        6.489992141723633,
+        4.161834716796875,
+        1.7511844635009766,
+        2.3539066314697266,
+        2.4557113647460938
+      ],
+      "observation_utf8_bytes": [
+        347,
+        430,
+        430,
+        429,
+        435
+      ]
+    },
+    {
+      "cell_id": "enter-text-s42-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.012014,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        14.422178268432617,
+        4.163026809692383,
+        2.9959678649902344,
+        20.921707153320312,
+        4.614830017089844,
+        2.696990966796875
+      ],
+      "observation_utf8_bytes": [
+        347,
+        430,
+        429,
+        429,
+        435
+      ]
+    },
+    {
+      "cell_id": "enter-text-s73-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.009702,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        14.99176025390625,
+        8.998870849609375,
+        2.1860599517822266,
+        3.6542415618896484,
+        3.6089420318603516
+      ],
+      "observation_utf8_bytes": [
+        347,
+        430,
+        430,
+        435
+      ]
+    },
+    {
+      "cell_id": "focus-text-s17-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.020362,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        12.428045272827148,
+        10.76197624206543,
+        42.60516166687012,
+        2.354860305786133,
+        8.836746215820312,
+        28.901100158691406,
+        2.2041797637939453,
+        2.98309326171875
+      ],
+      "observation_utf8_bytes": [
+        318,
+        370,
+        369,
+        369,
+        369,
+        369,
+        369
+      ]
+    },
+    {
+      "cell_id": "focus-text-s42-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.018732,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        15.537023544311523,
+        2.763032913208008,
+        1.3608932495117188,
+        1.1870861053466797,
+        1.8811225891113281,
+        1.2178421020507812,
+        29.979944229125977,
+        11.819124221801758
+      ],
+      "observation_utf8_bytes": [
+        318,
+        370,
+        369,
+        369,
+        369,
+        369,
+        369
+      ]
+    },
+    {
+      "cell_id": "focus-text-s73-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.02861,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        19.25182342529297,
+        2.5489330291748047,
+        2.7871131896972656,
+        3.4570693969726562,
+        2.8028488159179688,
+        2.0639896392822266,
+        5.77092170715332,
+        4.281044006347656,
+        42.47093200683594,
+        10.355949401855469,
+        1.4851093292236328,
+        2.137899398803711
+      ],
+      "observation_utf8_bytes": [
+        318,
+        318,
+        318,
+        370,
+        370,
+        369,
+        369,
+        369,
+        369,
+        369,
+        369
+      ]
+    },
+    {
+      "cell_id": "choose-date-s17-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.039034,
+      "observation_sufficient": true,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        13.030767440795898,
+        16.18218421936035,
+        1.3549327850341797,
+        12.391090393066406,
+        5.748987197875977,
+        4.501104354858398,
+        3.5200119018554688,
+        2.440929412841797,
+        2.370119094848633,
+        1.5881061553955078,
+        4.043102264404297
+      ],
+      "observation_utf8_bytes": [
+        380,
+        454,
+        454,
+        2158,
+        2191,
+        2191,
+        463,
+        463,
+        463,
+        463
+      ]
+    },
+    {
+      "cell_id": "choose-date-s42-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.004699999999999999,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        11.268138885498047,
+        21.756887435913086,
+        3.9370059967041016
+      ],
+      "observation_utf8_bytes": [
+        380,
+        454
+      ]
+    },
+    {
+      "cell_id": "choose-date-s73-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.0047480000000000005,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        9.561777114868164,
+        21.042823791503906,
+        2.977132797241211
+      ],
+      "observation_utf8_bytes": [
+        380,
+        454
+      ]
+    },
+    {
+      "cell_id": "login-user-s17-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.010162000000000001,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        15.832185745239258,
+        6.905078887939453,
+        2.958059310913086,
+        49.55911636352539,
+        3.1900405883789062
+      ],
+      "observation_utf8_bytes": [
+        469,
+        591,
+        596,
+        600
+      ]
+    },
+    {
+      "cell_id": "login-user-s42-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.010684,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        16.49618148803711,
+        5.585193634033203,
+        2.6998519897460938,
+        41.976213455200195,
+        3.8149356842041016
+      ],
+      "observation_utf8_bytes": [
+        469,
+        588,
+        592,
+        594
+      ]
+    },
+    {
+      "cell_id": "login-user-s73-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.01003,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        9.27877426147461,
+        3.4961700439453125,
+        3.4427642822265625,
+        42.260169982910156,
+        4.010915756225586
+      ],
+      "observation_utf8_bytes": [
+        469,
+        590,
+        596,
+        598
+      ]
+    },
+    {
+      "cell_id": "search-engine-s17-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.01432,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        9.562015533447266,
+        6.809711456298828,
+        4.534006118774414,
+        8.542299270629883,
+        6.1359405517578125,
+        12.26186752319336
+      ],
+      "observation_utf8_bytes": [
+        352,
+        482,
+        489,
+        970,
+        980
+      ]
+    },
+    {
+      "cell_id": "search-engine-s42-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.02099,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        9.423255920410156,
+        8.347034454345703,
+        4.03904914855957,
+        3.8878917694091797,
+        4.206180572509766,
+        7.60197639465332,
+        5.513191223144531,
+        9.014129638671875
+      ],
+      "observation_utf8_bytes": [
+        352,
+        481,
+        481,
+        481,
+        487,
+        973,
+        941
+      ]
+    },
+    {
+      "cell_id": "search-engine-s73-chromium-hosted",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.0177,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        9.68313217163086,
+        9.788751602172852,
+        4.268169403076172,
+        4.203081130981445,
+        10.838985443115234,
+        8.461952209472656,
+        8.433103561401367
+      ],
+      "observation_utf8_bytes": [
+        352,
+        480,
+        480,
+        485,
+        964,
+        979
+      ]
+    },
+    {
+      "cell_id": "click-button-s17-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        13.325214385986328,
+        4.312753677368164,
+        8.189916610717773,
+        5.957126617431641,
+        25.224924087524414,
+        2.022981643676758,
+        8.189201354980469,
+        2.117156982421875,
+        3.408193588256836,
+        3.4589767456054688,
+        3.331899642944336,
+        2.651214599609375
+      ],
+      "observation_utf8_bytes": [
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302
+      ]
+    },
+    {
+      "cell_id": "click-button-s42-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        10.831117630004883,
+        4.4918060302734375,
+        3.6809444427490234,
+        3.564119338989258,
+        2.1631717681884766,
+        1.7979145050048828,
+        1.7268657684326172,
+        1.9001960754394531,
+        1.760721206665039,
+        1.8658638000488281,
+        1.931905746459961,
+        1.8661022186279297
+      ],
+      "observation_utf8_bytes": [
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302
+      ]
+    },
+    {
+      "cell_id": "click-button-s73-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        9.978771209716797,
+        3.595113754272461,
+        1.8529891967773438,
+        4.0950775146484375,
+        3.5691261291503906,
+        3.854990005493164,
+        1.825094223022461,
+        1.7552375793457031,
+        1.8460750579833984,
+        1.7240047454833984,
+        4.143714904785156,
+        1.8701553344726562
+      ],
+      "observation_utf8_bytes": [
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302
+      ]
+    },
+    {
+      "cell_id": "click-link-s17-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        15.691041946411133,
+        4.160881042480469,
+        1.7800331115722656,
+        3.657102584838867,
+        1.6868114471435547,
+        1.7499923706054688,
+        1.9450187683105469,
+        1.6849040985107422,
+        1.7218589782714844,
+        1.6639232635498047,
+        1.956939697265625,
+        3.4470558166503906
+      ],
+      "observation_utf8_bytes": [
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298
+      ]
+    },
+    {
+      "cell_id": "click-link-s42-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        19.505023956298828,
+        4.882097244262695,
+        1.9042491912841797,
+        3.7758350372314453,
+        1.8749237060546875,
+        1.7380714416503906,
+        1.7142295837402344,
+        1.7781257629394531,
+        1.7921924591064453,
+        1.7819404602050781,
+        1.9903182983398438,
+        2.067089080810547
+      ],
+      "observation_utf8_bytes": [
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298
+      ]
+    },
+    {
+      "cell_id": "click-link-s73-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        17.096757888793945,
+        2.1178722381591797,
+        1.9969940185546875,
+        3.567934036254883,
+        1.7132759094238281,
+        0.40030479431152344,
+        1.7542839050292969,
+        1.7888545989990234,
+        3.5681724548339844,
+        1.73187255859375,
+        2.045154571533203,
+        2.3589134216308594
+      ],
+      "observation_utf8_bytes": [
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298
+      ]
+    },
+    {
+      "cell_id": "click-option-s17-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        10.116100311279297,
+        4.342079162597656,
+        1.8279552459716797,
+        4.194021224975586,
+        1.6651153564453125,
+        1.912832260131836,
+        1.7619132995605469,
+        1.7211437225341797,
+        1.8367767333984375,
+        2.0132064819335938,
+        1.9152164459228516,
+        3.2358169555664062
+      ],
+      "observation_utf8_bytes": [
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331
+      ]
+    },
+    {
+      "cell_id": "click-option-s42-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        11.816024780273438,
+        4.349946975708008,
+        1.7578601837158203,
+        3.833770751953125,
+        4.288911819458008,
+        2.001047134399414,
+        1.9800662994384766,
+        1.9469261169433594,
+        1.810312271118164,
+        1.7049312591552734,
+        1.9619464874267578,
+        1.8398761749267578
+      ],
+      "observation_utf8_bytes": [
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331
+      ]
+    },
+    {
+      "cell_id": "click-option-s73-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        9.185791015625,
+        3.924131393432617,
+        1.7652511596679688,
+        3.882884979248047,
+        1.8091201782226562,
+        3.8650035858154297,
+        2.592802047729492,
+        3.818988800048828,
+        1.8870830535888672,
+        3.3020973205566406,
+        4.215002059936523,
+        1.9309520721435547
+      ],
+      "observation_utf8_bytes": [
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331
+      ]
+    },
+    {
+      "cell_id": "enter-text-s17-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        17.28510856628418,
+        4.333972930908203,
+        2.0799636840820312,
+        4.007816314697266,
+        4.0130615234375,
+        2.0279884338378906,
+        4.222869873046875,
+        3.988981246948242,
+        1.9330978393554688,
+        1.8477439880371094,
+        4.530906677246094,
+        2.456188201904297
+      ],
+      "observation_utf8_bytes": [
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347
+      ]
+    },
+    {
+      "cell_id": "enter-text-s42-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        9.406328201293945,
+        2.195119857788086,
+        2.090930938720703,
+        4.295110702514648,
+        1.8639564514160156,
+        1.7540454864501953,
+        1.9609928131103516,
+        1.725912094116211,
+        1.7910003662109375,
+        3.9010047912597656,
+        2.214193344116211,
+        1.9428730010986328
+      ],
+      "observation_utf8_bytes": [
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347
+      ]
+    },
+    {
+      "cell_id": "enter-text-s73-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        10.377168655395508,
+        3.676891326904297,
+        2.267122268676758,
+        1.9829273223876953,
+        1.8351078033447266,
+        4.259824752807617,
+        4.085779190063477,
+        1.9741058349609375,
+        1.8467903137207031,
+        1.8758773803710938,
+        3.6318302154541016,
+        1.7910003662109375
+      ],
+      "observation_utf8_bytes": [
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347
+      ]
+    },
+    {
+      "cell_id": "focus-text-s17-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        13.029098510742188,
+        2.1600723266601562,
+        1.7600059509277344,
+        1.9001960754394531,
+        2.022266387939453,
+        3.94439697265625,
+        1.9059181213378906,
+        3.5178661346435547,
+        1.8000602722167969,
+        3.2761096954345703,
+        1.6701221466064453,
+        1.9459724426269531
+      ],
+      "observation_utf8_bytes": [
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318
+      ]
+    },
+    {
+      "cell_id": "focus-text-s42-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        11.465072631835938,
+        1.9550323486328125,
+        1.7499923706054688,
+        4.265069961547852,
+        1.7278194427490234,
+        2.2122859954833984,
+        2.008199691772461,
+        1.7158985137939453,
+        1.8329620361328125,
+        3.535032272338867,
+        1.8820762634277344,
+        1.8107891082763672
+      ],
+      "observation_utf8_bytes": [
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318
+      ]
+    },
+    {
+      "cell_id": "focus-text-s73-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        22.86696434020996,
+        4.731178283691406,
+        1.7709732055664062,
+        4.926919937133789,
+        2.0301342010498047,
+        1.873016357421875,
+        3.3872127532958984,
+        1.753091812133789,
+        1.6956329345703125,
+        2.1011829376220703,
+        2.7861595153808594,
+        1.9259452819824219
+      ],
+      "observation_utf8_bytes": [
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318
+      ]
+    },
+    {
+      "cell_id": "choose-date-s17-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        6.995201110839844,
+        5.2051544189453125,
+        2.003908157348633,
+        4.474163055419922,
+        2.023935317993164,
+        1.9409656524658203,
+        4.082918167114258,
+        1.9016265869140625,
+        3.2567977905273438,
+        2.0208358764648438,
+        2.936124801635742,
+        2.619028091430664
+      ],
+      "observation_utf8_bytes": [
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380
+      ]
+    },
+    {
+      "cell_id": "choose-date-s42-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        8.922815322875977,
+        4.347085952758789,
+        1.817941665649414,
+        2.279043197631836,
+        2.086162567138672,
+        1.9679069519042969,
+        11.08694076538086,
+        4.405021667480469,
+        4.116058349609375,
+        4.62794303894043,
+        2.4178028106689453,
+        3.081083297729492
+      ],
+      "observation_utf8_bytes": [
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380
+      ]
+    },
+    {
+      "cell_id": "choose-date-s73-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        16.086816787719727,
+        4.0111541748046875,
+        3.1571388244628906,
+        2.1469593048095703,
+        3.9491653442382812,
+        4.20689582824707,
+        3.9620399475097656,
+        3.2100677490234375,
+        4.02379035949707,
+        4.222393035888672,
+        4.127025604248047,
+        4.051923751831055
+      ],
+      "observation_utf8_bytes": [
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380
+      ]
+    },
+    {
+      "cell_id": "login-user-s17-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        18.829822540283203,
+        2.2649765014648438,
+        2.937793731689453,
+        2.6428699493408203,
+        3.999948501586914,
+        2.6061534881591797,
+        3.339052200317383,
+        3.0379295349121094,
+        3.777027130126953,
+        2.9909610748291016,
+        3.3609867095947266,
+        3.1728744506835938
+      ],
+      "observation_utf8_bytes": [
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469
+      ]
+    },
+    {
+      "cell_id": "login-user-s42-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        20.240068435668945,
+        3.088235855102539,
+        2.505779266357422,
+        2.2437572479248047,
+        2.1190643310546875,
+        2.584695816040039,
+        4.008054733276367,
+        2.089977264404297,
+        2.0780563354492188,
+        2.6590824127197266,
+        2.1588802337646484,
+        2.2220611572265625
+      ],
+      "observation_utf8_bytes": [
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469
+      ]
+    },
+    {
+      "cell_id": "login-user-s73-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        13.488054275512695,
+        4.34565544128418,
+        2.3238658905029297,
+        3.5660266876220703,
+        2.023935317993164,
+        2.3009777069091797,
+        2.0759105682373047,
+        1.9800662994384766,
+        3.70025634765625,
+        2.4881362915039062,
+        2.237081527709961,
+        2.1209716796875
+      ],
+      "observation_utf8_bytes": [
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469
+      ]
+    },
+    {
+      "cell_id": "search-engine-s17-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        11.272907257080078,
+        4.4689178466796875,
+        2.086162567138672,
+        3.6687850952148438,
+        2.074003219604492,
+        1.953125,
+        2.1898746490478516,
+        1.8410682678222656,
+        1.9431114196777344,
+        1.8510818481445312,
+        1.9540786743164062,
+        2.045154571533203
+      ],
+      "observation_utf8_bytes": [
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352
+      ]
+    },
+    {
+      "cell_id": "search-engine-s42-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        9.879112243652344,
+        4.366874694824219,
+        1.9619464874267578,
+        3.213644027709961,
+        1.8868446350097656,
+        1.8830299377441406,
+        1.7940998077392578,
+        4.010915756225586,
+        1.9309520721435547,
+        1.9249916076660156,
+        3.5338401794433594,
+        1.8818378448486328
+      ],
+      "observation_utf8_bytes": [
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352
+      ]
+    },
+    {
+      "cell_id": "search-engine-s73-chromium-local",
+      "fingerprint_sha256": "2f3220a36b5ba2bb818bc87948fde216cc89ce60ba12bca5f04de936efaf00e5",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "observation_sufficient": false,
+      "classifications_explained": true,
+      "action_latency_ms": [
+        12.462139129638672,
+        4.886150360107422,
+        2.1839141845703125,
+        3.604888916015625,
+        3.818988800048828,
+        2.1538734436035156,
+        2.0029544830322266,
+        2.767801284790039,
+        3.422260284423828,
+        3.4868717193603516,
+        2.8619766235351562,
+        4.005193710327148
+      ],
+      "observation_utf8_bytes": [
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352
+      ]
+    }
+  ],
+  "causal_ledger": [
+    {
+      "cell_id": "choose-date-s17-native-oracle",
+      "expected_effects": 9,
+      "observed_expected_effects": 9,
+      "observed_effects": 18
+    },
+    {
+      "cell_id": "choose-date-s42-native-oracle",
+      "expected_effects": 15,
+      "observed_expected_effects": 15,
+      "observed_effects": 30
+    },
+    {
+      "cell_id": "choose-date-s73-native-oracle",
+      "expected_effects": 12,
+      "observed_expected_effects": 12,
+      "observed_effects": 24
+    },
+    {
+      "cell_id": "click-button-s17-native-oracle",
+      "expected_effects": 2,
+      "observed_expected_effects": 2,
+      "observed_effects": 4
+    },
+    {
+      "cell_id": "click-button-s42-native-oracle",
+      "expected_effects": 2,
+      "observed_expected_effects": 2,
+      "observed_effects": 4
+    },
+    {
+      "cell_id": "click-button-s73-native-oracle",
+      "expected_effects": 2,
+      "observed_expected_effects": 2,
+      "observed_effects": 4
+    },
+    {
+      "cell_id": "click-link-s17-native-oracle",
+      "expected_effects": 2,
+      "observed_expected_effects": 2,
+      "observed_effects": 4
+    },
+    {
+      "cell_id": "click-link-s42-native-oracle",
+      "expected_effects": 2,
+      "observed_expected_effects": 2,
+      "observed_effects": 4
+    },
+    {
+      "cell_id": "click-link-s73-native-oracle",
+      "expected_effects": 2,
+      "observed_expected_effects": 2,
+      "observed_effects": 4
+    },
+    {
+      "cell_id": "click-option-s17-native-oracle",
+      "expected_effects": 3,
+      "observed_expected_effects": 3,
+      "observed_effects": 6
+    },
+    {
+      "cell_id": "click-option-s42-native-oracle",
+      "expected_effects": 3,
+      "observed_expected_effects": 3,
+      "observed_effects": 6
+    },
+    {
+      "cell_id": "click-option-s73-native-oracle",
+      "expected_effects": 3,
+      "observed_expected_effects": 3,
+      "observed_effects": 6
+    },
+    {
+      "cell_id": "enter-text-s17-native-oracle",
+      "expected_effects": 3,
+      "observed_expected_effects": 3,
+      "observed_effects": 6
+    },
+    {
+      "cell_id": "enter-text-s42-native-oracle",
+      "expected_effects": 3,
+      "observed_expected_effects": 3,
+      "observed_effects": 6
+    },
+    {
+      "cell_id": "enter-text-s73-native-oracle",
+      "expected_effects": 3,
+      "observed_expected_effects": 3,
+      "observed_effects": 6
+    },
+    {
+      "cell_id": "focus-text-s17-native-oracle",
+      "expected_effects": 2,
+      "observed_expected_effects": 2,
+      "observed_effects": 4
+    },
+    {
+      "cell_id": "focus-text-s42-native-oracle",
+      "expected_effects": 2,
+      "observed_expected_effects": 2,
+      "observed_effects": 4
+    },
+    {
+      "cell_id": "focus-text-s73-native-oracle",
+      "expected_effects": 2,
+      "observed_expected_effects": 2,
+      "observed_effects": 4
+    },
+    {
+      "cell_id": "login-user-s17-native-oracle",
+      "expected_effects": 4,
+      "observed_expected_effects": 4,
+      "observed_effects": 7
+    },
+    {
+      "cell_id": "login-user-s42-native-oracle",
+      "expected_effects": 4,
+      "observed_expected_effects": 4,
+      "observed_effects": 7
+    },
+    {
+      "cell_id": "login-user-s73-native-oracle",
+      "expected_effects": 4,
+      "observed_expected_effects": 4,
+      "observed_effects": 7
+    },
+    {
+      "cell_id": "search-engine-s17-native-oracle",
+      "expected_effects": 5,
+      "observed_expected_effects": 5,
+      "observed_effects": 11
+    },
+    {
+      "cell_id": "search-engine-s42-native-oracle",
+      "expected_effects": 5,
+      "observed_expected_effects": 5,
+      "observed_effects": 11
+    },
+    {
+      "cell_id": "search-engine-s73-native-oracle",
+      "expected_effects": 5,
+      "observed_expected_effects": 5,
+      "observed_effects": 11
+    }
+  ],
+  "criteria": {
+    "panel_complete": true,
+    "source_tree_clean_and_bound": true,
+    "sandboxed_worker_verified": true,
+    "worker_limits_match_manifest": true,
+    "worker_replacement_passed": true,
+    "native_deterministic_24_of_24": true,
+    "chromium_deterministic_24_of_24": true,
+    "deterministic_zero_divergences": true,
+    "azure_native_at_least_15_of_24": true,
+    "budget_with_prior_spend_within_cap": true,
+    "zero_false_reference_preservation": true,
+    "semantic_metrics_measured": true,
+    "all_action_classifications_explained": true
+  },
+  "outcome": {
+    "panel_complete": true,
+    "status": "passed",
+    "reason_codes": [],
+    "diagnostics": []
+  }
+}
