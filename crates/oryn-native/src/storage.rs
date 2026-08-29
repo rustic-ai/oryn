@@ -1,4 +1,4 @@
-//! BrowserContext-owned storage for G3.
+//! Browser-context-owned storage for modern application compatibility.
 //!
 //! Page workers never open this database. They access it only through the
 //! typed context service, keeping filesystem access in the privileged parent.

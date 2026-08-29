@@ -33,23 +33,30 @@ app.use('/dynamic', express.static(path.join(__dirname, 'scenarios/dynamic')));
 app.use('/nav', express.static(path.join(__dirname, 'scenarios/navigation')));
 app.use('/edge', express.static(path.join(__dirname, 'scenarios/edge-cases')));
 app.use('/intent-tests', express.static(path.join(__dirname, 'scenarios/intent-tests')));
-app.use('/g3/auth', require('./scenarios/g3-auth/api'));
+app.use('/app-compatibility/auth', require('./scenarios/auth-flows/api'));
 
-// G3 framework build outputs are reproducible, ignored artifacts. The source
-// applications and lockfile live under benchmarks/g3/frameworks.
-const g3Apps = path.join(__dirname, '..', 'benchmarks', 'g3', 'frameworks', 'apps');
-const g3Outputs = {
-    angular: path.join(g3Apps, 'angular', 'dist', 'browser'),
-    next: path.join(g3Apps, 'next', 'out'),
-    nuxt: path.join(g3Apps, 'nuxt', '.output', 'public'),
-    preact: path.join(g3Apps, 'preact', 'dist'),
-    react: path.join(g3Apps, 'react', 'dist'),
-    svelte: path.join(g3Apps, 'svelte', 'dist'),
-    sveltekit: path.join(g3Apps, 'sveltekit', 'build'),
-    vue: path.join(g3Apps, 'vue', 'dist'),
+// application compatibility framework build outputs are reproducible, ignored artifacts. The source
+// applications and lockfile live under benchmarks/app-compatibility/frameworks.
+const frameworkApps = path.join(
+    __dirname,
+    '..',
+    'benchmarks',
+    'app-compatibility',
+    'frameworks',
+    'apps',
+);
+const frameworkOutputs = {
+    angular: path.join(frameworkApps, 'angular', 'dist', 'browser'),
+    next: path.join(frameworkApps, 'next', 'out'),
+    nuxt: path.join(frameworkApps, 'nuxt', '.output', 'public'),
+    preact: path.join(frameworkApps, 'preact', 'dist'),
+    react: path.join(frameworkApps, 'react', 'dist'),
+    svelte: path.join(frameworkApps, 'svelte', 'dist'),
+    sveltekit: path.join(frameworkApps, 'sveltekit', 'build'),
+    vue: path.join(frameworkApps, 'vue', 'dist'),
 };
-for (const [framework, directory] of Object.entries(g3Outputs)) {
-    app.use(`/g3/frameworks/${framework}`, express.static(directory, { extensions: ['html'] }));
+for (const [framework, directory] of Object.entries(frameworkOutputs)) {
+    app.use(`/app-compatibility/frameworks/${framework}`, express.static(directory, { extensions: ['html'] }));
 }
 
 // Main index

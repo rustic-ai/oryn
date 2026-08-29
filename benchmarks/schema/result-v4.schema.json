@@ -21,7 +21,7 @@
   ],
   "properties": {
     "schema_version": { "const": 4 },
-    "run_id": { "const": "g2r-g5a-model-panel-v4" },
+    "run_id": { "enum": ["g2r-g5a-model-panel-v4", "semantic-sandbox-model-panel-v4"] },
     "started_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
     "fingerprint": {
@@ -84,7 +84,7 @@
             "injection"
           ],
           "properties": {
-            "kind": { "const": "oryn_g2_seeded_miniwob" },
+            "kind": { "enum": ["oryn_g2_seeded_miniwob", "oryn_seeded_miniwob"] },
             "allowed_seeds": { "const": [17, 42, 73] },
             "source_commit": { "$ref": "#/$defs/sha1" },
             "content_sha256": { "$ref": "#/$defs/sha256" },
@@ -113,7 +113,7 @@
       "type": "object",
       "required": ["name", "revision", "entries", "published_entries"],
       "properties": {
-        "name": { "const": "oryn-g2r-native-proof" },
+        "name": { "enum": ["oryn-g2r-native-proof", "oryn-semantic-validation-native-proof"] },
         "revision": { "type": "string", "minLength": 1 },
         "entries": { "const": 30 },
         "published_entries": { "const": 30 }

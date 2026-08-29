@@ -1,1 +1,0 @@
-{"name":"g3-react","version":"1.0.0","private":true,"type":"module","scripts":{"build":"vite build"},"dependencies":{"@vitejs/plugin-react":"6.1.0","vite":"8.2.2","react":"19.2.8","react-dom":"19.2.8"},"devDependencies":{}}

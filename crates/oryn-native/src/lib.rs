@@ -1,6 +1,6 @@
 //! Oryn's native browser runtime.
 //!
-//! This crate begins as a deliberately compact G0 spine. Browser-owned DOM,
+//! This crate provides the compact native-runtime foundation. Browser-owned DOM,
 //! scheduling, security policy, semantics, and tracing live here until
 //! measurements justify narrower packages.
 

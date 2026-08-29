@@ -13,6 +13,6 @@ export ORYN_CODESIGN_IDENTITY="Apple Development: Example (TEAMID)"
 
 Ad-hoc signing is deliberately rejected. macOS can display the entitlement on
 an ad-hoc-signed command-line executable but aborts it during sandbox
-initialization because the signature has no trusted team identity. The G0
+initialization because the signature has no trusted team identity. The runtime foundation
 sandbox gate therefore requires a real development identity rather than a
 cosmetic entitlement check.

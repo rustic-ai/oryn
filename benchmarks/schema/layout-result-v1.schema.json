@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oryn.dev/schemas/layout-result-v1.json",
+  "title": "Oryn G4 style and layout gate result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "gate", "run_id", "recorded_at", "fingerprint", "corpus", "regressions", "metrics", "benchmarks", "artifact_ledger", "case_ledger", "criteria", "outcome"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "gate": {"const": "G4"},
+    "run_id": {"type": "string", "minLength": 1},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "fingerprint": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_commit", "source_dirty", "source_tree_sha256", "manifest_sha256", "wpt_subset_sha256", "parent", "worker", "chromium_version"],
+      "properties": {
+        "source_commit": {"$ref": "#/$defs/sha1"},
+        "source_dirty": {"const": false},
+        "source_tree_sha256": {"$ref": "#/$defs/sha256"},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "wpt_subset_sha256": {"$ref": "#/$defs/sha256"},
+        "parent": {"$ref": "#/$defs/binary"},
+        "worker": {"$ref": "#/$defs/worker"},
+        "chromium_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "corpus": {
+      "type": "object", "additionalProperties": false,
+      "required": ["manifest_cases", "required_cases", "declared_limitations"],
+      "properties": {"manifest_cases": {"const": 33}, "required_cases": {"const": 28}, "declared_limitations": {"const": 5}}
+    },
+    "regressions": {
+      "type": "object", "additionalProperties": {"enum": ["passed", "failed", "unverified"]},
+      "required": ["rust_workspace", "rust_v8", "strict_clippy_default", "strict_clippy_v8", "python_sdk", "intentgym", "scanner", "extension", "g1", "g2_controlled", "native_miniwob_24", "g3_frameworks_native", "g3_oauth_native", "reference_churn", "signed_production_boundary"]
+    },
+    "metrics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["required_passed", "required_total", "limitations_reported", "limitations_total", "false_semantic_reference_preservations"],
+      "properties": {
+        "required_passed": {"type": "integer", "minimum": 0, "maximum": 28},
+        "required_total": {"const": 28},
+        "limitations_reported": {"type": "integer", "minimum": 0, "maximum": 5},
+        "limitations_total": {"const": 5},
+        "false_semantic_reference_preservations": {"type": "integer", "minimum": 0}
+      }
+    },
+    "benchmarks": {"type": "object", "additionalProperties": true, "required": ["layout", "process", "outcome"]},
+    "artifact_ledger": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/artifact"}},
+    "case_ledger": {"type": "array", "minItems": 33, "maxItems": 33, "items": {"$ref": "#/$defs/case"}},
+    "criteria": {"type": "object", "additionalProperties": {"type": "boolean"}},
+    "outcome": {
+      "type": "object", "additionalProperties": false, "required": ["status", "reason_codes", "diagnostics"],
+      "properties": {"status": {"enum": ["passed", "failed"]}, "reason_codes": {"type": "array", "items": {"type": "string"}}, "diagnostics": {"type": "array", "items": {"type": "string"}}}
+    }
+  },
+  "$defs": {
+    "sha1": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "binary": {
+      "type": "object", "additionalProperties": false, "required": ["sha256", "bytes", "build_profile"],
+      "properties": {"sha256": {"$ref": "#/$defs/sha256"}, "bytes": {"type": "integer", "minimum": 1}, "build_profile": {"const": "release"}}
+    },
+    "worker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sha256", "bytes", "protocol_version", "contract_version", "native_v8", "v8_version", "execution_mode", "sandboxed", "sandbox_state", "bundle_id", "team_id", "signing_cert_sha1", "entitlement_sha256", "style_engine_version", "box_engine_version", "inline_engine_version", "embedded_font_sha256"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"}, "bytes": {"type": "integer", "minimum": 1},
+        "protocol_version": {"const": 4}, "contract_version": {"const": 4}, "native_v8": {"const": true},
+        "v8_version": {"type": "string", "minLength": 1}, "execution_mode": {"const": "sandboxed_worker"},
+        "sandboxed": {"const": true}, "sandbox_state": {"const": "app_sandbox"},
+        "bundle_id": {"const": "ai.rustic.oryn.page-worker"}, "team_id": {"const": "5HVA9VFF8K"},
+        "signing_cert_sha1": {"type": "string", "pattern": "^[0-9A-F]{40}$"}, "entitlement_sha256": {"$ref": "#/$defs/sha256"},
+        "style_engine_version": {"type": "string", "minLength": 1}, "box_engine_version": {"type": "string", "minLength": 1},
+        "inline_engine_version": {"type": "string", "minLength": 1}, "embedded_font_sha256": {"const": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"}
+      }
+    },
+    "artifact": {
+      "type": "object", "additionalProperties": false, "required": ["id", "path", "sha256", "bytes", "kind"],
+      "properties": {"id": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "bytes": {"type": "integer", "minimum": 0}, "kind": {"enum": ["test_log", "jsonl", "json_summary", "runtime_metadata", "benchmark"]}}
+    },
+    "domainStatus": {"enum": ["passed", "failed", "not_applicable"]},
+    "case": {
+      "type": "object", "additionalProperties": false, "required": ["id", "category", "disposition", "status", "domains", "evidence"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1}, "category": {"type": "string", "minLength": 1},
+        "disposition": {"enum": ["required", "declared_limitation"]},
+        "status": {"enum": ["passed", "failed", "expected_limitation"]},
+        "domains": {"type": "object", "additionalProperties": false, "required": ["native", "chromium_differential"], "properties": {"native": {"$ref": "#/$defs/domainStatus"}, "chromium_differential": {"$ref": "#/$defs/domainStatus"}}},
+        "expected_capability": {"type": "string", "minLength": 1},
+        "evidence": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

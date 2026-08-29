@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "gate": "G8",
+  "status": "closed",
+  "current_result": "benchmarks/evidence/rendering-v1/result-v1.json",
+  "implementation_state": "complete",
+  "blocking_checks": [],
+  "closure": {
+    "run_id": "g8-d14b73314f74-macos-arm64",
+    "tested_source_commit": "d14b73314f748e9b35c5020ef86c175aa1050563",
+    "source_tree_sha256": "cf47438243801110b1a0dcac04aba64f4f8c0bba62a17fe97d18ed9ba44b6124",
+    "recorded_at": "2026-08-29T00:12:30Z",
+    "signed_production_boundary": "passed",
+    "required_manifest_cases": "24/24",
+    "g1_g7_regressions": "passed",
+    "software_regressions": "passed",
+    "visual_differential": "passed"
+  }
+}

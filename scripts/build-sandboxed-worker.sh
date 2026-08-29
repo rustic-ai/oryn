@@ -199,7 +199,7 @@ fi
 mutation_output="$(
   printf '%s\n' 'observe' 'click "Mutate"' 'observe' 'exit' |
     ORYN_PAGE_WORKER="$app_worker" "$repo_root/target/release/oryn" native \
-      --html "$repo_root/benchmarks/conformance/g2r-v8-mutation.html"
+      --html "$repo_root/benchmarks/conformance/javascript-mutation-smoke.html"
 )"
 if ! jq -Rse '
   split("\n")

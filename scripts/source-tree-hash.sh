@@ -8,7 +8,7 @@ git ls-files \
   | LC_ALL=C sort \
   | while IFS= read -r path; do
       case "$path" in
-        benchmarks/evidence/*|docs/oryn2/IMPLEMENTATION_STATUS.md|docs/oryn2/PHASE_GATES.md) continue ;;
+        benchmarks/evidence/*|docs/oryn2/IMPLEMENTATION_STATUS.md|docs/oryn2/CAPABILITY_MILESTONES.md) continue ;;
       esac
       printf '%s\0' "$path"
       shasum -a 256 "$path" | awk '{print $1}'

@@ -35,6 +35,6 @@ url = "2.5"
 dirs = "4.0"
 
 [[example]]
-name = "g8_gate_probe"
-path = "examples/g8_gate_probe.rs"
+name = "rendering_probe"
+path = "examples/rendering_probe.rs"
 required-features = ["render"]

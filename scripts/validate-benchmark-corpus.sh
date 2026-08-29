@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-manifest="$repo_root/benchmarks/corpus/g2.json"
+manifest="$repo_root/benchmarks/corpus/semantic-loop.json"
 
 jq -e '
   .schema_version == 1 and

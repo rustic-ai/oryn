@@ -1,4 +1,4 @@
-//! Page-scoped native browser contracts introduced for Oryn2 G3.
+//! Page-scoped native browser contracts for application compatibility.
 //!
 //! Contract v2 remains available unchanged for compatibility domains and
 //! historical evidence. Native Oryn uses this contract so a semantic

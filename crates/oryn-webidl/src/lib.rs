@@ -448,7 +448,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_g0_interface_slice() {
+    fn parses_initial_interface_subset() {
         let interface = parse_interface(
             r#"
                 interface Node : EventTarget {
@@ -469,12 +469,12 @@ mod tests {
     #[test]
     fn rejects_unsupported_constructs() {
         let error = parse_interface("interface Node { iterable<Node>; };")
-            .expect_err("iterable is outside the G0 slice");
+            .expect_err("iterable is outside the initial interface subset");
         assert!(matches!(error, ParseError::UnsupportedMember(_)));
     }
 
     #[test]
-    fn parses_and_merges_g3_binding_constructs() {
+    fn parses_and_merges_extended_binding_constructs() {
         let definitions = parse_definitions(
             r#"
               interface Response : Body {
@@ -490,7 +490,7 @@ mod tests {
               callback StreamCallback = Promise<void> (optional ArrayBuffer? chunk = null);
             "#,
         )
-        .expect("parse G3 WebIDL");
+        .expect("parse extended WebIDL");
         let interfaces = merge_partial_interfaces(&definitions).expect("merge partial interface");
         assert_eq!(interfaces.len(), 1);
         assert_eq!(interfaces[0].members.len(), 2);

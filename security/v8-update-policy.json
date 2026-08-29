@@ -14,12 +14,12 @@
     "cargo test --workspace --all-features",
     "cargo clippy --workspace --all-targets --all-features -- -D warnings",
     "cargo check --manifest-path fuzz/Cargo.toml",
-    "scripts/validate-g1-manifest.sh",
-    "scripts/validate-g2-controlled.sh",
-    "scripts/validate-g3-software.sh",
-    "scripts/validate-g4-software.sh",
-    "scripts/validate-g5-security.py",
-    "scripts/run-g5-production-gate.sh"
+    "scripts/validate-executable-document-manifest.sh",
+    "scripts/validate-semantic-controlled.sh",
+    "scripts/validate-app-compatibility-software.sh",
+    "scripts/validate-layout-software.sh",
+    "scripts/validate_security_controls.py",
+    "scripts/run-security-suite.sh"
   ],
-  "release_rule": "A V8 change is not releasable until the signed worker, sandbox denial suite, crash/limit suite, G1-G4 regressions, dependency audit, and all four fuzz targets pass."
+  "release_rule": "A V8 change is not releasable until the signed worker, sandbox denial suite, crash/limit suite, executable document-layout regressions, dependency audit, and all four fuzz targets pass."
 }

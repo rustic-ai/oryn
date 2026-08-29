@@ -23,5 +23,5 @@ name = "oryn-render"
 path = "src/main.rs"
 
 [[example]]
-name = "g8_compare"
-path = "examples/g8_compare.rs"
+name = "rendering_comparison"
+path = "examples/rendering_comparison.rs"

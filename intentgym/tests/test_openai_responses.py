@@ -4,7 +4,6 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-
 from intentgym.core.llm import OpenAIProvider
 
 

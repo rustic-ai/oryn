@@ -1,0 +1,1 @@
+{"name":"app-compatibility-svelte","version":"1.0.0","private":true,"type":"module","scripts":{"build":"vite build"},"dependencies":{"@sveltejs/vite-plugin-svelte":"7.3.0","vite":"8.2.2","svelte":"5.56.10"},"devDependencies":{}}

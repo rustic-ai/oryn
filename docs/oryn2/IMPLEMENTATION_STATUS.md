@@ -1,7 +1,11 @@
 # Oryn2 implementation status
 
-This status is intentionally gate-based. It records implemented behavior and
+This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.
+
+Committed result payloads retain the source fingerprints and versioned field
+names from the runs that produced them. The capability-naming refactor does not
+rewrite those historical payloads or present them as a new validation run.
 
 ## P0 — complete
 
@@ -11,11 +15,11 @@ does not imply that later browser-conformance work is complete.
   in `benchmarks/baselines/p0-a66a6680.json`.
 - IntentGym now resolves the in-repository Python SDK portably; its lockfile no
   longer contains a developer-machine absolute path.
-- The versioned result schema and fixed 30-task G2 corpus are committed. The
+- The versioned result schema and fixed 30-task semantic loop corpus are committed. The
   corpus validator checks counts, unique IDs, read-only canary policy, and all
   required local sources.
 
-## G0 — complete
+## runtime foundation — complete
 
 - Raw V8 and `deno_core` probes use the same V8 revision. Raw V8 was selected
   because its startup P50 was 1.117 ms versus 3.747 ms and its probe was
@@ -34,9 +38,9 @@ does not imply that later browser-conformance work is complete.
 - The sandboxed process launches and completes the versioned JSONL `ping` and
   `exit` exchange. Machine-readable signing, sandbox, protocol, startup, page
   creation, concurrency, RSS, and size evidence is committed at
-  `benchmarks/evidence/g0-macos-arm64.json`; raw samples remain ignored.
+  `benchmarks/evidence/runtime-foundation-macos-arm64.json`; raw samples remain ignored.
 
-## G1 — complete
+## executable document — complete
 
 - Classic inline scripts execute in document order in a persistent raw-V8 realm.
 - A narrow document realm now provides Oryn-owned element/text nodes,
@@ -61,14 +65,14 @@ does not imply that later browser-conformance work is complete.
   inline and linked stylesheet visibility, custom elements, open/closed shadow
   roots, same-origin frames, cross-origin diagnostics, and pinned real React 18
   plus Babel execution are covered by executable tests.
-- The versioned G1 manifest passes all required advertised cases. Pinned WPT
+- The versioned executable document manifest passes all required advertised cases. Pinned WPT
   URL/UTF-8 vectors, pinned html5lib parser vectors, and a supported-scope
   native-versus-Chromium differential run are published in
-  `benchmarks/evidence/g1-external-validation.json`. Rendered layout, geometry,
+  `benchmarks/evidence/executable-document-external-validation.json`. Rendered layout, geometry,
   paint, and Encoding Standard behavior beyond the advertised UTF-8 subset
   remain explicitly unavailable.
 
-## G2R — complete
+## semantic recovery — complete
 
 - Existing OIL syntax drives native observations and click/type/clear/check,
   select, hover, focus, and targeted submit actions.
@@ -91,7 +95,7 @@ does not imply that later browser-conformance work is complete.
   classifications while preserving the raw `execute()` API.
 - All 12 harness OIL files and all six required framework fixtures pass natively.
   Structural churn reports zero false semantic-reference preservations. The
-  machine-readable result is `benchmarks/evidence/g2-controlled-native.json`.
+  machine-readable result is `benchmarks/evidence/semantic-loop-controlled-native.json`.
 - The 30-entry corpus has published results. The four read-only public canaries
   separately report one available, two challenged, and one unavailable result
   without conflating availability with correctness.
@@ -99,12 +103,12 @@ does not imply that later browser-conformance work is complete.
   `oryn` executable was built without `native-v8`, so the native 0/24 result did
   not exercise the designed runtime. Its `$1.196980` Azure spend remains charged
   to the cumulative $100 ceiling, but its schema-v2 aggregate is being replaced
-  rather than retained as a valid result. A first G2R collection attempt then
+  rather than retained as a valid result. A first semantic recovery collection attempt then
   spent `$1.993578` before independent validation found that Chromium observation
   byte counts were zero; that attempt is also invalid and the cumulative prior
   spend charged to the replacement run is therefore `$3.190558`.
-- G2R originally enabled `native-v8` in the monolithic production binary.
-  G5A supersedes that packaging: the default `oryn` parent is now deliberately
+- semantic recovery originally enabled `native-v8` in the monolithic production binary.
+  sandbox worker supersedes that packaging: the default `oryn` parent is now deliberately
   built without V8, while the required worker is built with `v8-host`.
   Machine-readable runtime metadata and a scripted DOM-mutation preflight still
   reject a no-V8 or debug worker before any hosted request. Resume keys include
@@ -123,7 +127,7 @@ does not imply that later browser-conformance work is complete.
   survival. The current suite reports 4/4 required invalidations, 1/1 survival,
   and 0/5 false preservations. Its controlled stale-reference and event-only
   no-progress recovery cases pass 2/2 in
-  `benchmarks/evidence/g2r-churn.json`.
+  `benchmarks/evidence/semantic-reference-churn.json`.
 - `benchmarks/schema/result-v3.schema.json` separates `panel_complete` from the
   gate outcome. The final fingerprinted panel completes 96/96 cells: Azure/native
   passes 22/24, Azure/Chromium passes 16/24, and pinned `qwen3:4b` passes 0/48.
@@ -136,16 +140,16 @@ does not imply that later browser-conformance work is complete.
 - The final Azure run spent `$2.019074`. Including `$3.190558` from the two
   invalid attempts, cumulative hosted spend is `$5.209632`, within the `$100`
   ceiling. The committed schema-v3 summary is
-  `benchmarks/evidence/g2-model-panel.json`; raw cells and traces remain ignored.
+  `benchmarks/evidence/semantic-model-panel.json`; raw cells and traces remain ignored.
 - The release V8-enabled production binary is 46,556,752 bytes (17,837,843
   bytes gzip), starts and completes the mutation protocol at 10 ms P50/P95 over
   30 samples, and peaks at 23,805,952 bytes RSS. Its SHA-256 matches the model
   panel fingerprint; evidence is published in
-  `benchmarks/evidence/g2r-production-macos-arm64.json`.
+  `benchmarks/evidence/semantic-production-macos-arm64.json`.
 - Formatting, strict all-feature Clippy, all-feature Rust workspace tests,
-  Python SDK tests, IntentGym tests, G1/G2/corpus validators, and schema-v3 raw
+  Python SDK tests, IntentGym tests, executable document/semantic loop/corpus validators, and schema-v3 raw
   evidence recomputation passed at commit a41a231. That result remains
-  historical and is not reusable for the G5A worker bundle.
+  historical and is not reusable for the sandbox worker worker bundle.
 - The replacement schema-v4 run is bound to clean source commit
   `cbfee34143af257bc43430d23fa842f4bad12448`, the signed protocol-v4 worker,
   the separate opt-in Chromium adapter, pinned MiniWoB, Chrome 152, Azure
@@ -154,21 +158,21 @@ does not imply that later browser-conformance work is complete.
   divergences. The full model panel completes 96/96 cells: Azure/native passes
   21/24, Azure/Chromium passes 15/24, and pinned Qwen completes 48/48 cells with
   0 task successes. Qwen's measured model-quality failures do not masquerade as
-  runtime failures and were not a G2R success threshold.
+  runtime failures and were not a semantic recovery success threshold.
 - Schema-v4 ledger recomputation passes with 36/96 overall task success,
   observation sufficiency 13/96, recovery 2/2, reference survival 1/1, false
   preservation 0/5, causal recall 99/99, and causal precision 99/198. The new
   Azure spend is `$1.152654`; cumulative hosted spend is `$6.362286`, within the
   `$100` ceiling.
 - Current compact evidence is
-  `benchmarks/evidence/g2r-v4/g2-model-panel-v4.json`; deterministic, churn, and
+  `benchmarks/evidence/semantic-sandbox-v4/model-panel-v4.json`; deterministic, churn, and
   production summaries are published beside it. Raw observations, turns,
   traces, and deterministic cells remain ignored.
 - Formatting, strict default/all-feature Clippy, Rust default/all-feature,
   V8-host and no-default tests, Python SDK, IntentGym, scanner, extension, and
-  corpus/G1/G2/schema-v4 validators pass against the closure tree.
+  corpus/executable document/semantic loop/schema-v4 validators pass against the closure tree.
 
-## G3 — complete
+## application compatibility — complete
 
 - Contract v3 adds page-scoped semantic references, `PageId`, page descriptors,
   lifecycle events, predicates, and compatibility adapters. `BrowserContext`
@@ -189,13 +193,13 @@ does not imply that later browser-conformance work is complete.
   aborts, OAuth Web Crypto, dynamic modules, and the task-required DOM,
   selection, traversal, focus, editing, form, custom-element, shadow-root, and
   same-origin-frame behavior. Layout, paint, cross-origin DOM, service workers,
-  and media remain explicit G4-or-later capability boundaries.
+  and media remain explicit layout-or-later capability boundaries.
 - All eight pinned applications—React, Next.js, Vue, Nuxt, Angular, Svelte,
   SvelteKit, and Preact—pass their native tasks and Chromium differential
   assertions. All five controlled OAuth/SSO cases pass in both domains.
 - The exact clean-tree macOS ARM64 production bundle at source commit
   `8e460a81a6de8c1c2739b1fb5476d323a242c0aa` passed all 43 required manifest
-  cases; all five G4 deferrals emitted their declared diagnostics. The G1/G2
+  cases; all five layout deferrals emitted their declared diagnostics. The executable document/semantic loop
   regressions, controlled OIL 12/12, and native MiniWoB 24/24 also passed, with
   zero false semantic-reference preservations.
 - The signed parent is 6,933,984 bytes and the worker is 44,792,096 bytes;
@@ -203,11 +207,11 @@ does not imply that later browser-conformance work is complete.
   20,452,801 bytes. Startup-to-handshake was 500 ms P50/P95. Eight concurrent
   pages completed brokered streaming and WebSocket work in 664.155 ms.
 - The schema-valid compact result is
-  `benchmarks/evidence/g3-v1/g3-result-v1.json`; its status record is
-  `benchmarks/evidence/g3-v1/STATUS.json`. The validator recomputed the result
+  `benchmarks/evidence/app-compatibility-v1/result-v1.json`; its status record is
+  `benchmarks/evidence/app-compatibility-v1/STATUS.json`. The validator recomputed the result
   from 48 manifest-bound cases and content-addressed raw artifacts.
 
-## G4 — complete
+## layout — complete
 
 - Contract v4 adds worker-owned computed style, box geometry, inline text
   fragments, viewport/media state, scrolling, geometry observation, box
@@ -221,8 +225,8 @@ does not imply that later browser-conformance work is complete.
   interaction is explicit in the typed worker protocol, while ordinary clicks
   require a visible pointer-interactable box. Same-document fragment
   navigation preserves the live DOM and document generation.
-- All 28 required G4 manifest entries pass; all five declared limitations
-  report the expected capability instead of fabricated geometry. G1/G2/G3,
+- All 28 required layout manifest entries pass; all five declared limitations
+  report the expected capability instead of fabricated geometry. executable document/semantic loop/application compatibility,
   controlled OIL 12/12, frameworks, OAuth, native MiniWoB 24/24, signed worker
   isolation, and semantic churn all pass with zero false preservation.
 - The exact clean-tree macOS ARM64 bundle at source commit
@@ -232,10 +236,10 @@ does not imply that later browser-conformance work is complete.
   21,691,132 bytes. Startup-to-handshake was 570 ms P50 and 580 ms P95.
 - The 400-node layout benchmark measured 947.661 ms cold page-to-geometry,
   328.617 ms reflow P50, and 330.869 ms P95 over 20 samples. The schema-valid
-  compact result is `benchmarks/evidence/g4-v1/g4-result-v1.json`, recomputed
+  compact result is `benchmarks/evidence/layout-v1/result-v1.json`, recomputed
   from 33 manifest cases and 114 content-addressed raw artifacts.
 
-## G5A — complete
+## sandbox worker — complete
 
 - Public native callers now use a protocol-v4 page worker on macOS. V8, the
   DOM, OIL, semantic state, and traces live in the worker; networking, DNS,
@@ -266,16 +270,17 @@ does not imply that later browser-conformance work is complete.
 - The exact clean-tree local macOS ARM64 release run verified the trusted Apple
   identity, App Sandbox plus JIT-only entitlements, runtime handshake, mutation,
   broker isolation, worker replacement, deterministic parity, and the complete
-  96-cell panel. `benchmarks/evidence/g2r-v4/STATUS.json` records G2R/G5A closed.
+  96-cell panel. `benchmarks/evidence/semantic-sandbox-v4/STATUS.json` records
+  semantic recovery and the sandbox worker as closed.
 - Production measurements publish a 4,929,744-byte parent, 47,004,112-byte
   worker, 51,938,255-byte combined installation, and 20,641,316-byte compressed
   bundle. Handshake and mutation P50 are 560 ms and 580 ms; parent and worker
   RSS are 56,098,816 and 56,377,344 bytes. Crash replacement passes and restores
   a blank generation in 489.739 ms after termination.
 - The security boundary and deferred items are documented in
-  docs/oryn2/G5A_SECURITY.md.
+  docs/oryn2/SANDBOX_WORKER_SECURITY.md.
 
-## G5 — complete
+## security — complete
 
 - Every native context now owns an explicit policy engine for cross-origin
   navigation, form submission, popups, uploads, downloads, clipboard access,
@@ -304,8 +309,8 @@ does not imply that later browser-conformance work is complete.
   `security/dependency-exceptions.json`; unreviewed or expired warnings fail the
   gate.
 - The exact clean-tree macOS ARM64 bundle at source commit
-  `6eb164df0e0bd50aa02aae969b6112ff117cdd9c` passed all 51 required G5 cases,
-  all G1-G4 regressions, native MiniWoB 24/24, four fuzz targets with zero
+  `6eb164df0e0bd50aa02aae969b6112ff117cdd9c` passed all 51 required security cases,
+  all executable document-layout regressions, native MiniWoB 24/24, four fuzz targets with zero
   crashes, limit/crash recovery, and reference churn with zero false
   preservation.
 - The parent is 7,449,040 bytes and the worker is 46,970,896 bytes; combined
@@ -314,11 +319,11 @@ does not imply that later browser-conformance work is complete.
   and 600 ms P95, parent RSS was 56,492,032 bytes, worker RSS was 56,410,112
   bytes, and crash restart-to-blank was 570.780 ms.
 - The schema-valid compact result is
-  `benchmarks/evidence/g5-v1/g5-result-v1.json`; its status record is
-  `benchmarks/evidence/g5-v1/STATUS.json`. The validator recomputed the result
+  `benchmarks/evidence/security-v1/result-v1.json`; its status record is
+  `benchmarks/evidence/security-v1/STATUS.json`. The validator recomputed the result
   from 51 manifest cases and 147 content-addressed raw artifacts.
 
-## G6 — complete
+## execution domains — complete
 
 - Native is the canonical default dependency graph. Chromium and user-browser
   compatibility live in the opt-in `oryn-domain` crate and compile behind
@@ -334,11 +339,11 @@ does not imply that later browser-conformance work is complete.
 - Domain/reason mix and failures are measured. The signed production probe
   selected native, Chromium for paint and challenge cases, and the user browser
   for authenticated consequential work; its controlled Chromium handoff passed.
-- All 25 frozen cases and the complete G5 production regression passed on clean
+- All 25 frozen cases and the complete security production regression passed on clean
   commit `d8930e3c87da0bdaee94699aaebf190b9b092c71`. The schema-valid result is
-  `benchmarks/evidence/g6-v1/g6-result-v1.json`.
+  `benchmarks/evidence/execution-domains-v1/result-v1.json`.
 
-## G7 — complete
+## replay — complete
 
 - Versioned task traces record page/lifecycle events, scrubbed OIL intents and
   outcomes, revisions, capability/domain decisions, deterministic clock/random
@@ -354,11 +359,11 @@ does not imply that later browser-conformance work is complete.
   CLI recording, restoration, replay, failure capture, and failure replay are
   available without changing existing OIL syntax.
 - All 26 frozen cases passed with 1/1 deterministic production replay, zero
-  divergences, verified checkpoint/failure seals, and all G1-G6 regressions on
+  divergences, verified checkpoint/failure seals, and all executable document-execution domains regressions on
   clean commit `d8930e3c87da0bdaee94699aaebf190b9b092c71`. The schema-valid result is
-  `benchmarks/evidence/g7-v1/g7-result-v1.json`.
+  `benchmarks/evidence/replay-v1/result-v1.json`.
 
-## G8 — complete
+## rendering — complete
 
 - The optional `oryn-render` package consumes a neutral contract-v4 paint
   snapshot and builds a bounded display list. Page state, JavaScript, storage,
@@ -371,27 +376,27 @@ does not imply that later browser-conformance work is complete.
   and output size. Unsupported SVG images, gradients, GPU acceleration, and
   unrestricted page fonts produce explicit diagnostics instead of fabricated
   output. Chromium pixel parity is not claimed.
-- All 24 frozen G8 manifest cases passed. The signed worker produced a six-node,
+- All 24 frozen rendering manifest cases passed. The signed worker produced a six-node,
   eight-command paint snapshot with text and one broker-fetched image; its PNG
   and PDF outputs were deterministic and valid. The visual differential matched
   Chromium's 320×200 viewport and 22,748 painted pixels, with mean absolute RGB
   delta 7.730 over the declared visible-content sanity scope.
 - The exact clean-tree macOS ARM64 run at source commit
-  `d14b73314f748e9b35c5020ef86c175aa1050563` passed the complete G1-G7
+  `d14b73314f748e9b35c5020ef86c175aa1050563` passed the complete executable document-replay
   production regression, signed-worker boundary, formatting, strict Clippy,
   renderer tests, architecture boundary, and raw evidence recomputation.
 - The parent is 4,929,744 bytes, the worker is 47,004,112 bytes, and the optional
   renderer is 4,443,584 bytes. Startup-to-screenshot was 622.285 ms P50 and
   623.220 ms P95 over ten samples. The schema-valid compact result is
-  `benchmarks/evidence/g8-v1/g8-result-v1.json`; raw images, PDFs, logs, and
+  `benchmarks/evidence/rendering-v1/result-v1.json`; raw images, PDFs, logs, and
   benchmark samples remain ignored.
 
 ## Next tracks
 
-- G2R/G5A schema-v4 release evidence is complete on the exact signed local
+- Semantic-recovery and sandbox-worker schema-v4 release evidence is complete on the exact signed local
   macOS ARM64 bundle. Private protected signing/model workflows remain an
   operational release option, not an open implementation gate.
-- G8's optional CPU reference package is complete. Broader long-running fuzzing,
+- rendering's optional CPU reference package is complete. Broader long-running fuzzing,
   V8 update automation, GPU acceleration, multi-page print layout, broader SVG
   and font support remain operational or product-driven tracks rather than
-  unimplemented G6-G8 gates.
+  unimplemented execution domains-rendering gates.

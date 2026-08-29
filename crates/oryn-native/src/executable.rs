@@ -1290,7 +1290,7 @@ mod tests {
 
     #[test]
     fn hostless_hierarchical_urls_retain_their_scheme() {
-        let expected = "fixture:///tmp/oryn-g2r-smoke.html";
+        let expected = "fixture:///tmp/oryn-javascript-mutation-smoke.html";
         let mut document = ExecutableDocument::load_with_environment(
             r#"<button type=button id=go onclick="document.querySelector('#status').textContent='changed'">Mutate</button><output id=status>before</output>"#,
             &BTreeMap::new(),
@@ -1391,9 +1391,11 @@ mod tests {
             "../../../test-harness/scenarios/spa/vue-tasks.html"
         ))
         .expect("load Vue-style fixture");
-        document.type_text("#task", "Ship G1").expect("type task");
+        document
+            .type_text("#task", "Ship release")
+            .expect("type task");
         document.click("#add").expect("add task");
-        assert!(text_by_id(&document, "tasks").is_some_and(|text| text.contains("Ship G1")));
+        assert!(text_by_id(&document, "tasks").is_some_and(|text| text.contains("Ship release")));
     }
 
     #[test]

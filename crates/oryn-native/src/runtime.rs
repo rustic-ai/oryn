@@ -4020,7 +4020,7 @@ impl PageState {
                         {
                             // Unsupported geometry is not the same as hidden:
                             // table content, for example, can be visibly
-                            // present even though G4 intentionally exposes no
+                            // present even though bounded layout intentionally exposes no
                             // table box geometry.
                             return geometry.availability
                                 != oryn_common::v4::GeometryAvailability::Hidden;
@@ -4663,15 +4663,15 @@ impl PageState {
                 ),
                 unsupported_capability(
                     "layout.hit_testing.paint_order",
-                    "paint-order hit testing is deferred to G8",
+                    "paint-order hit testing requires the optional rendering capability",
                 ),
                 unsupported_capability(
                     "layout.transform.3d",
-                    "three-dimensional transforms and perspective are outside the G4 geometry contract",
+                    "three-dimensional transforms and perspective are outside the bounded geometry contract",
                 ),
                 unsupported_capability(
                     "layout.float.complex",
-                    "complex float exclusion, shape-outside, and fragmentation are outside the bounded G4 float subset",
+                    "complex float exclusion, shape-outside, and fragmentation are outside the bounded float subset",
                 ),
                 unsupported_capability(
                     "paint",
@@ -4685,11 +4685,11 @@ impl PageState {
                 ),
                 unsupported_capability(
                     "service_worker_and_cache_api",
-                    "service workers and Cache API are outside G3",
+                    "service workers and Cache API are outside the application-compatibility subset",
                 ),
                 unsupported_capability(
                     "webrtc_and_media",
-                    "WebRTC and media capture are outside G3",
+                    "WebRTC and media capture are outside the application-compatibility subset",
                 ),
                 unsupported_capability(
                     "xhr.synchronous_main_thread",
@@ -4701,7 +4701,7 @@ impl PageState {
                     alternatives: vec![ExecutionDomain::Chromium, ExecutionDomain::Webkit],
                     handoff_lossy: true,
                     detail: Some(
-                        "compound keys, multi-entry indexes, key-range intervals, and durability controls are outside the G3 subset"
+                        "compound keys, multi-entry indexes, key-range intervals, and durability controls are outside the IndexedDB compatibility subset"
                             .into(),
                     ),
                 },
@@ -6009,7 +6009,7 @@ mod tests {
     fn internal_fixture_urls_may_commit_but_cannot_escape_as_navigation() {
         let context = Browser::new().new_context();
         let page = context.new_page();
-        let fixture = "fixture:///tmp/oryn-g3-smoke.html";
+        let fixture = "fixture:///tmp/oryn-app-compatibility-smoke.html";
 
         context
             .validate_page_commit_url(page.page_id(), fixture)
@@ -7052,7 +7052,7 @@ mod tests {
             stream
                 .write_all(
                     format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-G3: yes\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Fixture: yes\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                         body.len()
                     )
                     .as_bytes(),
@@ -7066,7 +7066,7 @@ mod tests {
             r#"<output id=result>pending</output><script>
               const states=[];const xhr=new XMLHttpRequest();xhr.responseType='json';
               xhr.onreadystatechange=()=>states.push(xhr.readyState);
-              xhr.onload=()=>document.querySelector('#result').textContent=xhr.response.name+'|'+xhr.getResponseHeader('x-g3')+'|'+states.join(',');
+              xhr.onload=()=>document.querySelector('#result').textContent=xhr.response.name+'|'+xhr.getResponseHeader('x-fixture')+'|'+states.join(',');
               xhr.open('GET','/api');xhr.send();
             </script>"#,
         )
@@ -7158,14 +7158,14 @@ mod tests {
         page.load_html(
             "https://app.example.test/file-fetch",
             r#"<form id=form><input name=name value=oryn><input name=enabled type=checkbox value=yes checked></form><output id=result>pending</output><script>
-              const headers=new Headers({'X-G3':'one'});headers.append('x-g3','two');
+              const headers=new Headers({'X-Fixture':'one'});headers.append('x-fixture','two');
               const form=new FormData(document.querySelector('#form'));
               form.append('upload',new Blob(['payload'],{type:'text/plain'}),'proof.txt');
               const request=new Request('/submit',{method:'POST',headers,body:form});
               const response=Response.json({accepted:true},{status:201,headers:{'X-Result':'ready'}});
               const file=new File(['hello'],'hello.txt',{type:'text/plain',lastModified:7});
               Promise.all([response.json(),file.text()]).then(([body,text])=>{
-                document.querySelector('#result').textContent=[request.method,request.headers.get('x-g3'),request.body.get('name'),request.body.get('enabled'),request.body.get('upload').name,response.status,response.headers.get('x-result'),body.accepted,file.name,file.type,file.lastModified,text].join('|');
+                document.querySelector('#result').textContent=[request.method,request.headers.get('x-fixture'),request.body.get('name'),request.body.get('enabled'),request.body.get('upload').name,response.status,response.headers.get('x-result'),body.accepted,file.name,file.type,file.lastModified,text].join('|');
               });
             </script>"#,
         )

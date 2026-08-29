@@ -34,15 +34,15 @@ e2e-results/
 artifacts/
 *.whl
 **/dist/
-benchmarks/g3/frameworks/**/.next/
-benchmarks/g3/frameworks/**/.nuxt/
-benchmarks/g3/frameworks/**/.output/
-benchmarks/g3/frameworks/**/.angular/
-benchmarks/g3/frameworks/**/.svelte-kit/
-benchmarks/g3/frameworks/**/ssr-dist/
-benchmarks/g3/frameworks/**/out/
-benchmarks/g3/frameworks/**/build/
-benchmarks/g3/frameworks/apps/nuxt/dist
+benchmarks/app-compatibility/frameworks/**/.next/
+benchmarks/app-compatibility/frameworks/**/.nuxt/
+benchmarks/app-compatibility/frameworks/**/.output/
+benchmarks/app-compatibility/frameworks/**/.angular/
+benchmarks/app-compatibility/frameworks/**/.svelte-kit/
+benchmarks/app-compatibility/frameworks/**/ssr-dist/
+benchmarks/app-compatibility/frameworks/**/out/
+benchmarks/app-compatibility/frameworks/**/build/
+benchmarks/app-compatibility/frameworks/apps/nuxt/dist
 
 intentgym/transcripts/
 intentgym/results/

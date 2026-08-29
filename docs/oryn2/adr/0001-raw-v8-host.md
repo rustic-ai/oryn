@@ -1,6 +1,6 @@
 # ADR 0001: Use raw V8 for the native page host
 
-- Status: Accepted for G0–G2
+- Status: Accepted for runtime foundation–semantic loop
 - Date: 2026-08-25
 - Reference platform: Apple M2 Max, 32 GB, macOS ARM64
 - Engine revision: V8 150.4.0 for both candidates
@@ -17,7 +17,7 @@ Only borrow independently useful Deno utilities when they do not pull the
 
 ## Evidence
 
-`scripts/benchmark-g0-hosts.sh` ran 5 warmups and 30 measured processes for
+`scripts/benchmark-runtime-hosts.sh` ran 5 warmups and 30 measured processes for
 each host. Each process created one runtime and executed the same script 100
 times in a persistent realm.
 
@@ -38,5 +38,5 @@ and the raw host better matches Oryn's browser-owned scheduling boundary.
   handles cross threads.
 - Oryn must implement module loading and browser event-loop integration.
 - Both probes remain buildable so major dependency updates can be remeasured.
-- G1 must validate that the owned event loop passes the advertised HTML tests;
+- executable document must validate that the owned event loop passes the advertised HTML tests;
   this ADR does not treat lower startup time as evidence of semantic correctness.

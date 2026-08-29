@@ -33,7 +33,7 @@ regex = "1"
 zeroize = "1"
 async-trait = "0.1"
 tungstenite = { version = "0.28", default-features = false, features = ["handshake", "rustls-tls-native-roots"] }
-# Keep the raw host on deno_core's exact V8 revision so G0 compares host
+# Keep the raw host on deno_core's exact V8 revision so the foundation benchmark compares host
 # layers rather than different JavaScript engines.
 v8 = { version = "150.4", optional = true }
 deno_core = { version = "0.410", optional = true }

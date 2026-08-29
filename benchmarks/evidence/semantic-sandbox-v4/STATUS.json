@@ -1,0 +1,44 @@
+{
+  "schema_version": 4,
+  "gate": "G2R_G5A",
+  "status": "closed",
+  "current_result": "benchmarks/evidence/semantic-sandbox-v4/model-panel-v4.json",
+  "implementation_state": "complete",
+  "blocking_checks": [],
+  "historical_evidence": {
+    "schema_version": 3,
+    "path": "benchmarks/evidence/semantic-model-panel.json",
+    "committed_by": "a41a231d076378026b9e1827f686e9ac8af44ae0",
+    "generated_source_commit": "a66a6680eaf6ec3ae161b6c35eb3b224b9c63c59",
+    "status": "passed",
+    "cumulative_hosted_spend_usd": 5.209632
+  },
+  "closure": {
+    "run_id": "g2r-g5a-model-panel-v4",
+    "tested_source_commit": "cbfee34143af257bc43430d23fa842f4bad12448",
+    "source_tree_sha256": "90f940a572a66874120da910b6692d86be593ca9d299a6b4c4770560b54e136b",
+    "recorded_at": "2026-08-29T02:41:16.606311Z",
+    "signed_production_boundary": "passed",
+    "worker_protocol_version": 4,
+    "deterministic_native": "24/24",
+    "deterministic_chromium": "24/24",
+    "deterministic_first_divergences": 0,
+    "model_panel": "96/96",
+    "azure_native": "21/24",
+    "azure_chromium": "15/24",
+    "qwen_native": "0/24",
+    "qwen_chromium": "0/24",
+    "false_semantic_reference_preservations": 0,
+    "recovery": "2/2",
+    "cumulative_hosted_spend_usd": 6.362286,
+    "hosted_cost_cap_usd": 100.0,
+    "software_regressions": "passed",
+    "production_benchmarks": "passed"
+  },
+  "compact_evidence": {
+    "deterministic": "benchmarks/evidence/semantic-sandbox-v4/deterministic-aggregate-v4.json",
+    "churn": "benchmarks/evidence/semantic-sandbox-v4/reference-churn-v4.json",
+    "production": "benchmarks/evidence/semantic-sandbox-v4/sandbox-production-macos-arm64.json"
+  },
+  "note": "G2R/G5A closed after the exact clean-tree signed macOS ARM64 bundle passed deterministic native and Chromium parity, worker replacement and reference churn, the complete Azure/Qwen model panel, schema-v4 ledger recomputation, and production benchmarks. Raw observations, turns, traces, and deterministic cell artifacts remain ignored."
+}

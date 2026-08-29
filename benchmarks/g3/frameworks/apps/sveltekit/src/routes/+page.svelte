@@ -1,2 +1,0 @@
-<script>let count=0;let query='';function add(){count+=1;localStorage.setItem('sveltekit-count',String(count));}</script>
-<svelte:head><title>SvelteKit G3</title></svelte:head><main data-framework="sveltekit"><h1>SvelteKit ready</h1><label>Search<input aria-label="Search" bind:value={query}></label><button on:click={add}>Add item</button><output>Items: {count}</output><a href="./details">Route</a></main>

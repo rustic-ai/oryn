@@ -98,7 +98,7 @@
             "injection"
           ],
           "properties": {
-            "kind": { "const": "oryn_g2_seeded_miniwob" },
+            "kind": { "enum": ["oryn_g2_seeded_miniwob", "oryn_seeded_miniwob"] },
             "allowed_seeds": { "const": [17, 42, 73] },
             "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
             "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

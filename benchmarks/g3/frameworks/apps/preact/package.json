@@ -1,1 +1,0 @@
-{"name":"g3-preact","version":"1.0.0","private":true,"type":"module","scripts":{"build":"vite build"},"dependencies":{"@preact/preset-vite":"2.10.2","vite":"8.2.2","preact":"10.29.8"},"devDependencies":{}}

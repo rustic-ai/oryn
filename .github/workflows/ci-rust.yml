@@ -106,10 +106,10 @@ jobs:
           jq empty benchmarks/schema/result-v4.schema.json
           ./scripts/check-scanner-sync.sh
           ./scripts/validate-benchmark-corpus.sh
-          ./scripts/validate-g1-manifest.sh
-          ./scripts/validate-g2-controlled.sh
-          ./scripts/validate-g2-model-panel.sh
-          ./scripts/validate-g2r-v4.sh --allow-historical
+          ./scripts/validate-executable-document-manifest.sh
+          ./scripts/validate-semantic-controlled.sh
+          ./scripts/validate-semantic-model-panel.sh
+          ./scripts/validate-semantic-sandbox-v4.sh --allow-historical
 
   native-proof:
     name: native-proof-macos-arm64

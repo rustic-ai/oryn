@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 AST_PATH = ROOT / "crates/oryn-core/src/ast.rs"
 PARSER_PATH = ROOT / "crates/oryn-core/src/parser.rs"
@@ -36,7 +35,7 @@ NOTES = {
     "Click": "`--ctrl/--shift/--alt` parsed but translator sends empty modifiers",
     "Type": "`--append/--timeout` parsed but currently not applied in translation",
     "Scroll": "`--timeout` parsed but currently not applied in translation",
-    "Wait": "`wait url \"...\"` downgraded to generic `navigation`; `ready` maps to unsupported condition",
+    "Wait": '`wait url "..."` downgraded to generic `navigation`; `ready` maps to unsupported condition',
     "Login": "`--no-submit/--wait/--timeout` parsed but current translation ignores these options",
     "Search": "`--submit/--wait/--timeout` parsed but current translation ignores these options",
     "Cookies": (
@@ -54,7 +53,7 @@ STUBBED_EXECUTOR = {"Tab"}
 
 
 def parse_commands(ast_text: str) -> list[str]:
-    match = re.search(r"pub enum Command \{(.*?)\n\}", ast_text, re.S)
+    match = re.search(r"pub enum Command \{(.*?)\n\}", ast_text, re.DOTALL)
     if not match:
         raise RuntimeError("Could not find `pub enum Command` in ast.rs")
 
@@ -197,11 +196,19 @@ def build_summary(rows: list[CommandCoverage]) -> dict[str, int]:
     }
 
     for row in rows:
-        summary["parser_implemented" if row.parser_status == "implemented" else "parser_stubbed"] += 1
         summary[
-            "translator_implemented"
-            if row.translator_status == "implemented"
-            else "translator_stubbed"
+            (
+                "parser_implemented"
+                if row.parser_status == "implemented"
+                else "parser_stubbed"
+            )
+        ] += 1
+        summary[
+            (
+                "translator_implemented"
+                if row.translator_status == "implemented"
+                else "translator_stubbed"
+            )
         ] += 1
 
         if (

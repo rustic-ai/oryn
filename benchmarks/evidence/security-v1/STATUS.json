@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "gate": "G5",
+  "status": "closed",
+  "current_result": "benchmarks/evidence/security-v1/result-v1.json",
+  "implementation_state": "complete",
+  "blocking_checks": [],
+  "closure": {
+    "run_id": "g5-6eb164df0e0b-macos-arm64",
+    "tested_source_commit": "6eb164df0e0bd50aa02aae969b6112ff117cdd9c",
+    "source_tree_sha256": "2482773bdc0455d1b2554db519ad4515a72a963da4603f1a90abf5c94239c52d",
+    "recorded_at": "2026-08-28T20:25:05.459400Z",
+    "signed_production_boundary": "passed",
+    "required_manifest_cases": "51/51",
+    "native_miniwob": "24/24",
+    "fuzz_targets": "4/4",
+    "fuzz_crashes": 0,
+    "dependency_vulnerabilities": 0,
+    "reviewed_dependency_warnings": 3,
+    "false_semantic_reference_preservations": 0,
+    "software_regressions": "passed",
+    "production_benchmarks": "passed"
+  },
+  "note": "G5 closed after the exact clean-tree macOS ARM64 bundle passed the signed worker threat model, parent policy, opaque secret, download quarantine, resource-limit, fuzz, dependency, G1-G4 regression, and benchmark gates. The compact result was recomputed from 51 manifest cases and 147 content-addressed raw artifacts. G2R/G5A schema-v4 hosted-model release evidence remains a separate open gate."
+}

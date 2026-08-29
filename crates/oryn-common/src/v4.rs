@@ -1,4 +1,4 @@
-//! Native style, layout, viewport, and geometry contracts introduced for G4.
+//! Native style, layout, viewport, and geometry contracts.
 //!
 //! Contract v3 remains frozen.  The compatibility adapter below deliberately
 //! strips geometry instead of inventing it for older consumers.
