@@ -359,6 +359,11 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         raise RuntimeError(f"Oryn binary does not exist: {args.oryn_binary}")
     if not args.chrome_binary.is_file():
         raise RuntimeError(f"Chromium oracle does not exist: {args.chrome_binary}")
+    if not args.chromium_oryn_binary.is_file():
+        raise RuntimeError(
+            "Chromium compatibility binary does not exist: "
+            f"{args.chromium_oryn_binary}"
+        )
 
     runtime = json.loads(
         subprocess.check_output(
@@ -485,6 +490,17 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
     ).strip()
     if deterministic_fingerprint.get("chromium_version") != chrome_version:
         raise RuntimeError("deterministic evidence used a different Chromium version")
+    deterministic_compatibility = (
+        deterministic_fingerprint.get("compatibility_binary") or {}
+    )
+    compatibility_binary = {
+        "sha256": _sha256(args.chromium_oryn_binary),
+        "bytes": args.chromium_oryn_binary.stat().st_size,
+    }
+    if deterministic_compatibility != compatibility_binary:
+        raise RuntimeError(
+            "deterministic evidence used a different Chromium compatibility binary"
+        )
     fingerprint = {
         "source_commit": commit,
         "source_dirty": bool(status.strip()),
@@ -509,6 +525,7 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         "limits": runtime.get("limits"),
         "miniwob": fixture,
         "chromium_version": chrome_version,
+        "compatibility_binary": compatibility_binary,
         "models": {
             "hosted_provider": "azure_openai",
             "hosted_deployment": args.hosted_model,
@@ -566,7 +583,7 @@ def _config(
     else:
         oryn_mode = "headless"
         oryn_options = {
-            "binary_path": str(args.oryn_binary),
+            "binary_path": str(args.chromium_oryn_binary),
             "env": {"CHROME_BIN": str(args.chrome_binary)},
             "timeout": args.command_timeout,
         }
@@ -974,6 +991,11 @@ def main() -> int:
         "--chrome-binary",
         type=Path,
         default=Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+    )
+    parser.add_argument(
+        "--chromium-oryn-binary",
+        type=Path,
+        default=repo_root / "target/compat/release/oryn",
     )
     parser.add_argument("--miniwob-url", default="http://127.0.0.1:8765")
     parser.add_argument("--ollama-url", default="http://127.0.0.1:11434")

@@ -68,6 +68,9 @@ jobs:
       - name: Build and verify exact signed bundle
         run: ./scripts/build-sandboxed-worker.sh
 
+      - name: Build opt-in Chromium comparison adapter
+        run: cargo build --locked --release -p oryn --features chromium --target-dir target/compat
+
       - name: Reject altered and invalid worker variants
         run: ./scripts/test-worker-rejections.sh
 
@@ -116,7 +119,9 @@ jobs:
           ORYN_PAGE_WORKER: ${{ github.workspace }}/target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker
         run: |
           cd intentgym
-          poetry run python scripts/run_g2_deterministic.py --domain both
+          poetry run python scripts/run_g2_deterministic.py \
+            --domain both \
+            --chromium-oryn-binary ../target/compat/release/oryn
 
       - name: Run churn, recovery, causal, and limit suites
         env:
@@ -146,6 +151,7 @@ jobs:
           cd intentgym
           poetry run python scripts/run_g2_model_panel.py \
             --ollama-url "$ORYN_OLLAMA_URL" \
+            --chromium-oryn-binary ../target/compat/release/oryn \
             --prior-hosted-spend 5.209632
 
       - name: Recompute schema-v4 evidence and all repository gates

@@ -126,10 +126,20 @@ def _run_fingerprint(
     ) as response:
         fixture = json.load(response)
     chromium_version = None
+    compatibility_binary = None
     if "chromium" in domains:
+        if not args.chromium_oryn_binary.is_file():
+            raise RuntimeError(
+                "Chromium compatibility binary does not exist: "
+                f"{args.chromium_oryn_binary}"
+            )
         chromium_version = subprocess.check_output(
             [str(args.chrome_binary), "--version"], text=True
         ).strip()
+        compatibility_binary = {
+            "sha256": _sha256(args.chromium_oryn_binary),
+            "bytes": args.chromium_oryn_binary.stat().st_size,
+        }
     fingerprint = {
         "source_commit": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=args.repo_root, text=True
@@ -144,6 +154,7 @@ def _run_fingerprint(
         ).strip(),
         "miniwob": fixture,
         "chromium_version": chromium_version,
+        "compatibility_binary": compatibility_binary,
         "oracle": {
             "id": "oil_deterministic_oracle_v1",
             "sha256": _sha256(Path(__file__).resolve()),
@@ -666,7 +677,9 @@ def run_cell(
     fingerprint_sha256: str,
 ) -> dict[str, Any]:
     options: dict[str, Any] = {
-        "binary_path": str(args.oryn_binary),
+        "binary_path": str(
+            args.oryn_binary if domain == "native" else args.chromium_oryn_binary
+        ),
         "timeout": args.command_timeout,
     }
     mode = "native" if domain == "native" else "headless"
@@ -712,6 +725,11 @@ def main() -> int:
         "--chrome-binary",
         type=Path,
         default=Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+    )
+    parser.add_argument(
+        "--chromium-oryn-binary",
+        type=Path,
+        default=repo_root / "target/compat/release/oryn",
     )
     parser.add_argument("--miniwob-url", default="http://127.0.0.1:8765")
     parser.add_argument(

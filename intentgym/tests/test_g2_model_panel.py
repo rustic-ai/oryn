@@ -20,6 +20,7 @@ def _args(**overrides):
         "ollama_url": "http://127.0.0.1:11434",
         "oryn_binary": "/tmp/oryn",
         "chrome_binary": "/tmp/chrome",
+        "chromium_oryn_binary": "/tmp/oryn-chromium",
         "command_timeout": 60.0,
         "miniwob_url": "http://127.0.0.1:8765",
         "task_timeout": 300,

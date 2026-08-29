@@ -35,6 +35,7 @@
         "deterministic_cells_sha256",
         "churn_evidence_sha256",
         "binary",
+        "compatibility_binary",
         "worker_bundle",
         "policy",
         "limits",
@@ -54,6 +55,7 @@
         "sha256": { "$ref": "#/$defs/sha256" },
         "chromium_version": { "type": "string", "minLength": 1 },
         "binary": { "$ref": "#/$defs/parentBinary" },
+        "compatibility_binary": { "$ref": "#/$defs/binaryArtifact" },
         "worker_bundle": { "$ref": "#/$defs/workerBundle" },
         "policy": {
           "type": "object",
@@ -272,6 +274,14 @@
             }
           }
         }
+      }
+    },
+    "binaryArtifact": {
+      "type": "object",
+      "required": ["sha256", "bytes"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 1 }
       }
     },
     "workerBundle": {
