@@ -53,6 +53,7 @@ EXPECTED_MINIWOB_COMMIT = "33c3b4ddef8c6eb67c57a29663d844b1eda7e614"
 EXPECTED_MINIWOB_CONTENT_SHA256 = (
     "7bac5e8f28c40b8a44b3c915f98b26a8d3c494ecc1634e3d43839ed13598e386"
 )
+REQUIRED_WORKER_PROTOCOL_VERSION = 4
 
 
 def _json(url: str) -> dict[str, Any]:
@@ -235,8 +236,11 @@ def _worker_bundle_fingerprint(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("source_tree_sha256") != source_tree_sha256:
         raise RuntimeError("signed worker manifest does not match the source tree")
-    if manifest.get("protocol_version") != 3:
-        raise RuntimeError("signed worker manifest does not require protocol v2")
+    if manifest.get("protocol_version") != REQUIRED_WORKER_PROTOCOL_VERSION:
+        raise RuntimeError(
+            "signed worker manifest does not require worker protocol "
+            f"v{REQUIRED_WORKER_PROTOCOL_VERSION}"
+        )
     worker_sha256 = _sha256(worker)
     if runtime.get("worker_binary_sha256") != worker_sha256:
         raise RuntimeError("worker handshake hash differs from the signed artifact")
@@ -377,7 +381,7 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         runtime.get("execution_mode") != "sandboxed_worker"
         or runtime.get("sandboxed") is not True
         or runtime.get("sandbox_state") != "app_sandbox"
-        or runtime.get("worker_protocol_version") != 3
+        or runtime.get("worker_protocol_version") != REQUIRED_WORKER_PROTOCOL_VERSION
     ):
         raise RuntimeError("G5A evidence requires the verified macOS sandbox worker")
     smoke = _runtime_smoke(
@@ -860,7 +864,7 @@ def _aggregate(
             and (
                 (preflight["fingerprint"].get("binary") or {}).get("runtime") or {}
             ).get("worker_protocol_version")
-            == 2
+            == REQUIRED_WORKER_PROTOCOL_VERSION
         ),
         "worker_limits_match_manifest": preflight["fingerprint"].get("limits")
         == (preflight["fingerprint"].get("worker_bundle") or {})

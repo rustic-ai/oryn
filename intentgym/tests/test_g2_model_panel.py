@@ -6,6 +6,7 @@ from intentgym.core.oryn import OrynInterface
 from scripts.run_g2_model_panel import (
     EXPECTED_QWEN_DIGEST,
     PRIOR_INVALID_HOSTED_SPEND_USD,
+    REQUIRED_WORKER_PROTOCOL_VERSION,
     _aggregate,
     _config,
 )
@@ -30,7 +31,20 @@ def _args(**overrides):
 
 def _preflight():
     return {
-        "fingerprint": {"sha256": "f" * 64},
+        "fingerprint": {
+            "sha256": "f" * 64,
+            "source_dirty": False,
+            "source_tree_sha256": "s" * 64,
+            "binary": {
+                "runtime": {
+                    "execution_mode": "sandboxed_worker",
+                    "sandboxed": True,
+                    "worker_protocol_version": REQUIRED_WORKER_PROTOCOL_VERSION,
+                }
+            },
+            "limits": {"queue_capacity": 32},
+            "worker_bundle": {"manifest": {"limits": {"queue_capacity": 32}}},
+        },
         "deterministic": {
             "native": {"completed": 24, "passed": 24},
             "chromium": {"completed": 24, "passed": 24},
@@ -48,6 +62,7 @@ def _preflight():
             "reference_survival": {"numerator": 4, "denominator": 4, "value": 1.0},
             "false_preservation": {"numerator": 0, "denominator": 4, "value": 0.0},
             "recovery": {"numerator": 2, "denominator": 2, "value": 1.0},
+            "worker_replacement": {"status": "passed"},
         },
     }
 
@@ -86,6 +101,19 @@ def test_local_panel_requests_are_bounded_and_seeded():
     assert config.llm.options["max_tokens"] == 256
     assert config.llm.options["think"] is False
     assert config.benchmark.options["seed"] == 17
+
+
+def test_schema_v4_uses_the_current_signed_worker_protocol():
+    assert REQUIRED_WORKER_PROTOCOL_VERSION == 4
+
+    result = _aggregate(
+        _args(),
+        _preflight(),
+        [_cell(index) for index in range(96)],
+        "2026-08-26T00:00:00Z",
+    )
+
+    assert result["criteria"]["sandboxed_worker_verified"] is True
 
 
 def test_completeness_does_not_override_quality_criteria():
