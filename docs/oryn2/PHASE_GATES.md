@@ -1,6 +1,6 @@
 # Oryn2 Native Proof Gates
 
-The committed implementation horizon is P0 through G5 on macOS ARM64. Gates
+The committed implementation horizon is P0 through G8 on macOS ARM64. Gates
 are evidence-based; they do not carry calendar dates.
 
 ## P0 — Reuse and baseline
@@ -135,3 +135,24 @@ artifacts remain ignored.
   pass on the same signed clean-tree bundle.
 - G7 is closed by `benchmarks/evidence/g7-v1/g7-result-v1.json`, recomputed from
   the same signed production run as G6.
+
+## G8 — Optional rendering and visual verification
+
+- Rendering remains an opt-in package. The default parent and signed page
+  worker do not depend on the renderer, and the renderer receives only a
+  neutral, bounded paint snapshot rather than live page state or network access.
+- A deterministic CPU display list covers supported backgrounds, borders,
+  embedded-font text, and PNG/JPEG images. PNG screenshot and single-page PDF
+  outputs are available through the Rust API and dedicated CLI.
+- Viewport, pixel, command, image, and output budgets fail explicitly. SVG,
+  gradients, GPU paint, unrestricted fonts, and other unsupported effects emit
+  truthful diagnostics; Chromium pixel parity is outside the gate.
+- The native-versus-Chromium differential asserts identical viewport dimensions
+  and visible-content sanity. It does not redefine the deterministic native
+  output by comparing pixels against Chromium.
+- G8 closes only when all 24 frozen cases, the signed worker boundary, the
+  default dependency boundary, strict software validation, and the complete
+  G1-G7 production regression pass on one clean source commit.
+- G8 is closed by `benchmarks/evidence/g8-v1/g8-result-v1.json`, recomputed from
+  204 content-addressed raw artifacts. Raw images, PDFs, logs, and benchmark
+  samples remain ignored.

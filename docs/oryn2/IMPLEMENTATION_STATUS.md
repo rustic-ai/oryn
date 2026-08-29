@@ -331,12 +331,40 @@ does not imply that later browser-conformance work is complete.
   clean commit `d8930e3c87da0bdaee94699aaebf190b9b092c71`. The schema-valid result is
   `benchmarks/evidence/g7-v1/g7-result-v1.json`.
 
+## G8 — complete
+
+- The optional `oryn-render` package consumes a neutral contract-v4 paint
+  snapshot and builds a bounded display list. Page state, JavaScript, storage,
+  policy, and network access remain in the signed page worker and privileged
+  parent; the default `oryn` dependency graph does not include the renderer.
+- The deterministic CPU reference renderer paints supported backgrounds,
+  borders, embedded-font text, and PNG/JPEG images. It emits PNG screenshots
+  and single-page PDF output through both the Rust API and dedicated CLI.
+- Rendering limits bound viewport dimensions, pixels, commands, image bytes,
+  and output size. Unsupported SVG images, gradients, GPU acceleration, and
+  unrestricted page fonts produce explicit diagnostics instead of fabricated
+  output. Chromium pixel parity is not claimed.
+- All 24 frozen G8 manifest cases passed. The signed worker produced a six-node,
+  eight-command paint snapshot with text and one broker-fetched image; its PNG
+  and PDF outputs were deterministic and valid. The visual differential matched
+  Chromium's 320×200 viewport and 22,748 painted pixels, with mean absolute RGB
+  delta 7.730 over the declared visible-content sanity scope.
+- The exact clean-tree macOS ARM64 run at source commit
+  `d14b73314f748e9b35c5020ef86c175aa1050563` passed the complete G1-G7
+  production regression, signed-worker boundary, formatting, strict Clippy,
+  renderer tests, architecture boundary, and raw evidence recomputation.
+- The parent is 4,929,744 bytes, the worker is 47,004,112 bytes, and the optional
+  renderer is 4,443,584 bytes. Startup-to-screenshot was 622.285 ms P50 and
+  623.220 ms P95 over ten samples. The schema-valid compact result is
+  `benchmarks/evidence/g8-v1/g8-result-v1.json`; raw images, PDFs, logs, and
+  benchmark samples remain ignored.
+
 ## Next tracks
 
 - G2R/G5A schema-v4 release evidence remains open pending the private protected
   signing/model workflows. G5's local signed security gate is complete; this
   does not substitute for the separate 96-cell Azure/Qwen release evidence.
-- G8 remains optional and non-blocking unless a workflow requires screenshot,
-  PDF, or visual verification. Broader long-running fuzzing, V8 update
-  automation, and private protected G2R/G5A release evidence remain operational
-  tracks rather than unimplemented G6/G7 behavior.
+- G8's optional CPU reference package is complete. Broader long-running fuzzing,
+  V8 update automation, GPU acceleration, multi-page print layout, broader SVG
+  and font support, and private protected G2R/G5A release evidence remain
+  operational or product-driven tracks rather than unimplemented G6-G8 gates.
