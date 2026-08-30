@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "suite": "challenge-detection-controlled",
+  "cases": [
+    {"id":"cloudflare-turnstile","status":403,"headers":[],"html":"<script src='https://challenges.cloudflare.com/turnstile/v0/api.js'></script><input name='cf-turnstile-response'>","expected":"confirmed","provider":"cloudflare"},
+    {"id":"cloudflare-header","status":403,"headers":[["cf-mitigated","challenge"]],"html":"<input name='cf-turnstile-response'>","expected":"confirmed","provider":"cloudflare"},
+    {"id":"recaptcha","status":200,"headers":[],"html":"<script src='https://www.google.com/recaptcha/api.js'></script><textarea name='g-recaptcha-response'></textarea>","expected":"confirmed","provider":"recaptcha"},
+    {"id":"hcaptcha","status":200,"headers":[],"html":"<script src='https://hcaptcha.com/1/api.js'></script><textarea name='h-captcha-response'></textarea>","expected":"confirmed","provider":"hcaptcha"},
+    {"id":"arkose","status":200,"headers":[],"html":"<script src='https://client-api.arkoselabs.com/fc/api/'></script><input name='fc-token'>","expected":"confirmed","provider":"arkose"},
+    {"id":"datadome","status":403,"headers":[["x-datadome","blocked"]],"html":"<div id='datadome'>captcha</div>","expected":"confirmed","provider":"datadome_perimeterx"},
+    {"id":"generic-403","status":403,"headers":[],"html":"Access denied","expected":"suspected","provider":null},
+    {"id":"challenge-prose","status":200,"headers":[],"html":"An article explaining how to verify you are human","expected":"suspected","provider":null},
+    {"id":"single-provider-marker","status":200,"headers":[],"html":"<script src='https://challenges.cloudflare.com/turnstile/v0/api.js'></script>","expected":"not_detected","provider":null},
+    {"id":"native-parser-failure","status":200,"headers":[],"html":"Unexpected token; empty semantic observation","expected":"not_detected","provider":null}
+  ]
+}

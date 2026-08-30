@@ -139,11 +139,15 @@ rewrite those historical payloads or present them as a new validation run.
 - All 12 harness OIL files and all six required framework fixtures pass natively.
   Structural churn reports zero false semantic-reference preservations. The
   machine-readable result is `benchmarks/evidence/semantic-loop-controlled-native.json`.
-- The 30-entry corpus has historical published results. The read-only canary
-  artifact incorrectly labelled two native parse/empty-observation failures as
-  site challenges. Challenge detection and the proposal-defined challenge-rate
-  metric are not implemented; those rows must be reclassified as native
-  failures in the next evidence run.
+- The 30-entry corpus has historical published results. A versioned,
+  confirmed-only challenge detector now requires paired provider evidence and
+  reports generic block responses as suspected rather than routing them as
+  challenges. Controlled evidence passes six provider-positive and four
+  negative/ambiguous cases. The historical Wikipedia and crates.io
+  parse/empty-observation rows are corrected to `native_runtime` failures in
+  `benchmarks/evidence/semantic-public-canaries-v2.json`; their historical
+  challenge disposition is `not_assessed`, because response bodies were not
+  retained for a retrospective detector run.
 - The earlier 96-cell panel is invalid as native evidence: its production
   `oryn` executable was built without `native-v8`, so the native 0/24 result did
   not exercise the designed runtime. Its `$1.196980` Azure spend remains charged
@@ -181,9 +185,14 @@ rewrite those historical payloads or present them as a new validation run.
 - The historical validator recomputed its aggregate from fingerprint-matched
   cells, but `17/96` observation sufficiency and `99/99`/`99/198` causal
   recall/precision are non-conforming heuristics, not the proposal KPIs. The
-  corrected runner now compares compact versus full truth only at failed-task
-  checkpoints and labels trace causality as direct, derived, correlated, or
-  unattributed. No replacement result has been attested yet.
+  schema-v5 runner now compares compact versus full truth at failed-task
+  checkpoints, makes failed tasks the denominator, treats projection omission
+  as a lower-is-better rate, and separates browser-truth, model/action,
+  capability, and runtime failures. Trace events carry explicit direct,
+  derived, correlated, or unattributed causality, with controlled per-class
+  precision and recall evidence. The validator recomputes these metrics from
+  raw cells and rejects unmatched fingerprints or promoted unattributed work.
+  No replacement 96-cell result has been attested yet.
 - The final Azure run spent `$2.019074`. Including `$3.190558` from the two
   invalid attempts, cumulative hosted spend is `$5.209632`, within the `$100`
   ceiling. The committed schema-v3 summary is
@@ -213,6 +222,18 @@ rewrite those historical payloads or present them as a new validation run.
   survival 1/1, and false preservation 0/5 remain bounded historical results.
   The run's Azure spend was `$1.152654`; cumulative hosted spend was
   `$6.362286`, within the `$100` ceiling.
+- Schema v5 replaces the semantic KPI definitions without rewriting schema-v4
+  history. It expands exact-NodeId churn to eight survival and eight
+  invalidation cases, including attribute/text/value changes, sibling and
+  ancestor churn, same-document reparenting, shadow changes, DOM recreation,
+  framework-style keyed replacement, frame/navigation changes, and worker
+  replacement. The suite is implemented but must run through the final signed
+  release candidate before its result can be published.
+- `benchmarks/evidence/semantic-validation-v5/STATUS.json` records the current
+  split honestly: controlled causal and challenge software evidence passes;
+  release-candidate churn and the complete 96-cell Azure/Qwen re-attestation
+  remain pending. No hosted requests were made for this correction, so prior
+  cumulative spend remains `$6.362286` against the `$100` ceiling.
 - Current compact evidence is
   `benchmarks/evidence/semantic-sandbox-v4/model-panel-v4.json`; deterministic, churn, and
   production summaries are published beside it. Raw observations, turns,

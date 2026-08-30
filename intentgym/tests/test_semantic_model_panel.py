@@ -5,10 +5,13 @@ from types import SimpleNamespace
 from intentgym.core.oryn import OrynInterface
 from scripts.run_semantic_model_panel import (
     EXPECTED_QWEN_DIGEST,
+    LEGACY_SCHEMA_V4_WORKER_PROTOCOL_VERSION,
+    PRIOR_HOSTED_SPEND_V5_USD,
     PRIOR_INVALID_HOSTED_SPEND_USD,
     REQUIRED_WORKER_PROTOCOL_VERSION,
     _aggregate,
     _config,
+    _required_worker_protocol,
 )
 
 
@@ -40,7 +43,7 @@ def _preflight():
                 "runtime": {
                     "execution_mode": "sandboxed_worker",
                     "sandboxed": True,
-                    "worker_protocol_version": REQUIRED_WORKER_PROTOCOL_VERSION,
+                    "worker_protocol_version": LEGACY_SCHEMA_V4_WORKER_PROTOCOL_VERSION,
                 }
             },
             "limits": {"queue_capacity": 32},
@@ -95,6 +98,89 @@ def _cell(index: int):
     }
 
 
+def _v5_preflight():
+    value = _preflight()
+    value["fingerprint"]["binary"]["runtime"]["worker_protocol_version"] = 5
+    value["deterministic_causal"] = {
+        "metrics": {
+            relation: {
+                "precision": {"numerator": 1, "denominator": 1, "value": 1.0},
+                "recall": {"numerator": 1, "denominator": 1, "value": 1.0},
+            }
+            for relation in ("direct", "derived", "correlated")
+        }
+        | {"unattributed_promotions": 0},
+        "ledger": [
+            {
+                "case_id": "controlled",
+                "expected": [
+                    {
+                        "label_id": "dispatch",
+                        "relation": "direct",
+                        "kind": "event_dispatched",
+                    }
+                ],
+                "observed": [
+                    {
+                        "sequence": 1,
+                        "action_id": 1,
+                        "relation": "direct",
+                        "source_relation": "direct",
+                        "kind": "event_dispatched",
+                        "matched_label_id": "dispatch",
+                    }
+                ],
+                "passed": True,
+            }
+        ],
+        "recall": {"numerator": 1, "denominator": 1, "value": 1.0},
+        "precision": {"numerator": 1, "denominator": 1, "value": 1.0},
+    }
+    value["challenge"] = {
+        "evidence": {"status": "passed"},
+        "metrics": {
+            "confirmed_precision": {
+                "numerator": 6,
+                "denominator": 6,
+                "value": 1.0,
+            },
+            "confirmed_recall": {
+                "numerator": 6,
+                "denominator": 6,
+                "value": 1.0,
+            },
+        },
+    }
+    value["churn"]["reference_survival"] = {
+        "numerator": 8,
+        "denominator": 8,
+        "value": 1.0,
+    }
+    value["churn"]["invalidation"] = {
+        "numerator": 8,
+        "denominator": 8,
+        "value": 1.0,
+    }
+    value["churn"]["false_preservation"] = {
+        "numerator": 0,
+        "denominator": 8,
+        "value": 0.0,
+    }
+    return value
+
+
+def _v5_cell(index: int):
+    value = _cell(index)
+    value.update(
+        {
+            "cell_id": f"cell-{index}",
+            "fingerprint_sha256": "f" * 64,
+            "seed": (17, 42, 73)[index % 3],
+        }
+    )
+    return value
+
+
 def test_local_panel_requests_are_bounded_and_seeded():
     config = _config(_args(), "click-button", 17, "native", "local", 100.0)
 
@@ -104,17 +190,26 @@ def test_local_panel_requests_are_bounded_and_seeded():
     assert config.benchmark.options["seed"] == 17
 
 
-def test_schema_v4_uses_the_current_signed_worker_protocol():
-    assert REQUIRED_WORKER_PROTOCOL_VERSION == 4
+def test_current_panel_uses_the_streaming_worker_protocol():
+    assert REQUIRED_WORKER_PROTOCOL_VERSION == 5
+    assert _required_worker_protocol(5) == 5
+    assert _required_worker_protocol(4) == 4
 
+
+def test_schema_v5_emits_corrected_metrics_and_exact_identity_gate():
     result = _aggregate(
-        _args(),
-        _preflight(),
-        [_cell(index) for index in range(96)],
-        "2026-08-26T00:00:00Z",
+        _args(schema_version=5, prior_hosted_spend=PRIOR_HOSTED_SPEND_V5_USD),
+        _v5_preflight(),
+        [_v5_cell(index) for index in range(96)],
+        "2026-08-29T00:00:00Z",
     )
-
-    assert result["criteria"]["sandboxed_worker_verified"] is True
+    assert result["schema_version"] == 5
+    assert result["metrics"]["observation_sufficiency"]["direction"] == (
+        "lower_is_better"
+    )
+    assert result["metrics"]["causal_attribution"]["direct"]["recall"]["value"] == 1
+    assert result["metrics"]["challenge_detection"]["confirmed_precision"]["value"] == 1
+    assert result["criteria"]["exact_identity_reference_survival_8_of_8"] is True
 
 
 def test_completeness_does_not_override_quality_criteria():

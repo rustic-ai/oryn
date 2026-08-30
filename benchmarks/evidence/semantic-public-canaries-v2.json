@@ -1,0 +1,29 @@
+{
+  "schema_version": 2,
+  "suite": "public_canaries",
+  "policy": "read_only",
+  "classification_revision": {
+    "source": "benchmarks/evidence/semantic-public-canaries.json",
+    "source_commit": "a66a6680eaf6ec3ae161b6c35eb3b224b9c63c59",
+    "captured_at": "2026-08-26T08:40:32Z",
+    "method": "classification_only_no_network_rerun"
+  },
+  "results": [
+    {"task_id":"canary-wikipedia-search","requested_url":"https://www.wikipedia.org/","final_url":"https://www.wikipedia.org/","transport_availability":"available","challenge":{"disposition":"not_assessed","provider":null,"signals":[]},"native_correctness":"failed","failure_domain":"native_runtime","title":"","semantic_nodes":0,"diagnostics":["Unexpected token","empty semantic observation"]},
+    {"task_id":"canary-mdn-search","requested_url":"https://developer.mozilla.org/","final_url":"https://developer.mozilla.org/en-US/","transport_availability":"available","challenge":{"disposition":"not_assessed","provider":null,"signals":[]},"native_correctness":"passed","failure_domain":"none","title":"MDN Web Docs","semantic_nodes":117,"diagnostics":["module linking reported as a non-fatal partial capability"]},
+    {"task_id":"canary-crates-search","requested_url":"https://crates.io/","final_url":"https://crates.io/","transport_availability":"available","challenge":{"disposition":"not_assessed","provider":null,"signals":[]},"native_correctness":"failed","failure_domain":"native_runtime","title":"","semantic_nodes":0,"diagnostics":["Unexpected token","empty semantic observation"]},
+    {"task_id":"canary-github-public-search","requested_url":"https://github.com/rustic-ai/oryn","final_url":null,"transport_availability":"unavailable","challenge":{"disposition":"not_assessed","provider":null,"signals":[]},"native_correctness":"not_evaluated","failure_domain":"transport","title":null,"semantic_nodes":null,"diagnostics":["navigation exceeded the 90 second public-canary budget"]}
+  ],
+  "summary": {
+    "published":4,
+    "transport_available":3,
+    "transport_unavailable":1,
+    "challenge_confirmed":0,
+    "challenge_suspected":0,
+    "challenge_not_detected":0,
+    "challenge_not_assessed":4,
+    "correctness_passed":1,
+    "correctness_failed":2,
+    "correctness_not_evaluated":1
+  }
+}

@@ -701,7 +701,7 @@ def run_cell(
         oracle = MiniWoBOilOracle(oryn, task)
         try:
             result = oracle.solve()
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - task failures are evidence rows
             result = {
                 "task_id": task,
                 "success": False,
@@ -743,12 +743,19 @@ def main() -> int:
     parser.add_argument("--task", choices=TASKS, action="append")
     parser.add_argument("--seed", choices=SEEDS, type=int, action="append")
     parser.add_argument("--command-timeout", type=float, default=120.0)
+    parser.add_argument("--schema-version", type=int, choices=(4, 5), default=5)
     parser.add_argument(
         "--output",
         type=Path,
-        default=repo_root / "artifacts/semantic-sandbox-v4/deterministic",
+        default=None,
     )
     args = parser.parse_args()
+    namespace = (
+        f"semantic-validation-v{args.schema_version}"
+        if args.schema_version >= 5
+        else "semantic-sandbox-v4"
+    )
+    args.output = args.output or (repo_root / "artifacts" / namespace / "deterministic")
 
     domains = ("native", "chromium") if args.domain == "both" else (args.domain,)
     fingerprint = _run_fingerprint(args, domains)
@@ -768,7 +775,7 @@ def main() -> int:
                         domain,
                         fingerprint["sha256"],
                     )
-                except Exception as error:
+                except Exception as error:  # noqa: BLE001 - divergence is evidence
                     cell = {
                         "cell_id": f"{task}-s{seed}-{domain}-oracle",
                         "fingerprint_sha256": fingerprint["sha256"],
@@ -825,8 +832,12 @@ def main() -> int:
         item["first_divergence"] is None for item in differential
     )
     aggregate = {
-        "schema_version": 4,
-        "run_id": "semantic-sandbox-deterministic-v4",
+        "schema_version": args.schema_version,
+        "run_id": (
+            f"semantic-validation-deterministic-v{args.schema_version}"
+            if args.schema_version >= 5
+            else "semantic-sandbox-deterministic-v4"
+        ),
         "fingerprint": fingerprint,
         "started_at": started_at,
         "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

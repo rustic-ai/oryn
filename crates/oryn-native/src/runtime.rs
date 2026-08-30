@@ -35,6 +35,7 @@ use crate::context_service::SharedContextClient;
 #[cfg(unix)]
 use crate::context_service::{ContextEvent, ContextEventRecord};
 
+use crate::challenge::{ChallengeAssessment, assess_challenge};
 use crate::html::{ParsedDocument, parse};
 #[cfg(feature = "v8-host")]
 use crate::network::NetworkBroker;
@@ -704,6 +705,8 @@ pub struct NavigationResult {
     pub document_generation: u64,
     pub revision: Revision,
     pub lifecycle: Vec<LifecycleState>,
+    #[serde(default)]
+    pub challenge: ChallengeAssessment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -762,6 +765,9 @@ enum PageCommand {
     },
     Capabilities {
         reply: oneshot::Sender<Vec<CapabilityDiagnostic>>,
+    },
+    ChallengeAssessment {
+        reply: oneshot::Sender<ChallengeAssessment>,
     },
     ResolveSelector {
         selector: String,
@@ -2134,6 +2140,7 @@ impl BrowserContext {
                             None,
                             TraceEventKind::NavigationStarted { url: url.clone() },
                         );
+                        state.set_challenge_assessment(assess_challenge(200, &[], &html));
                         if let Err(error) = state.load_document(
                             url.clone(),
                             &html,
@@ -2168,6 +2175,9 @@ impl BrowserContext {
                     }
                     PageCommand::Capabilities { reply } => {
                         let _ = reply.send(state.capabilities());
+                    }
+                    PageCommand::ChallengeAssessment { reply } => {
+                        let _ = reply.send(state.last_challenge.clone());
                     }
                     PageCommand::ResolveSelector {
                         selector,
@@ -2580,6 +2590,27 @@ impl PageHandle {
         let (reply, response) = oneshot::channel();
         self.local_sender()?
             .send(PageCommand::Capabilities { reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)
+    }
+
+    /// Return the latest deterministic challenge assessment for this page.
+    /// Only `Confirmed` assessments are eligible to influence domain routing.
+    pub async fn challenge_assessment(&self) -> Result<ChallengeAssessment, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::ChallengeAssessment)
+            .await
+        {
+            return match response? {
+                crate::worker::WorkerResponse::ChallengeAssessment { assessment } => Ok(assessment),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::ChallengeAssessment { reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
         response.await.map_err(|_| RuntimeError::Closed)
@@ -3381,6 +3412,7 @@ struct PageState {
     reduced_motion: ReducedMotion,
     #[cfg(feature = "v8-host")]
     determinism: Option<crate::replay::DeterminismConfig>,
+    last_challenge: ChallengeAssessment,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3441,7 +3473,25 @@ impl PageState {
             reduced_motion: context_options.reduced_motion,
             #[cfg(feature = "v8-host")]
             determinism: context_options.determinism,
+            last_challenge: ChallengeAssessment::default(),
         }
+    }
+
+    fn set_challenge_assessment(&mut self, assessment: ChallengeAssessment) {
+        self.trace.push(
+            Revision(self.revision),
+            None,
+            TraceEventKind::ChallengeAssessed {
+                disposition: assessment.disposition,
+                provider: assessment.provider.clone(),
+                signals: assessment
+                    .signals
+                    .iter()
+                    .map(|signal| signal.marker.clone())
+                    .collect(),
+            },
+        );
+        self.last_challenge = assessment;
     }
 
     fn load_document(
@@ -3643,9 +3693,11 @@ impl PageState {
                 document_generation: self.document_generation,
                 revision: Revision(self.revision),
                 lifecycle: vec![LifecycleState::Commit],
+                challenge: self.last_challenge.clone(),
             });
         }
         if current.as_str() == "about:blank" {
+            self.set_challenge_assessment(ChallengeAssessment::default());
             self.load_document(
                 current.to_string(),
                 "<!doctype html>",
@@ -3663,6 +3715,7 @@ impl PageState {
                 document_generation: self.document_generation,
                 revision: Revision(self.revision),
                 lifecycle: self.lifecycle.clone(),
+                challenge: self.last_challenge.clone(),
             });
         }
         let (status, response_headers, body) = loop {
@@ -3736,6 +3789,7 @@ impl PageState {
             .map(|(_, value)| value.as_str());
         let (html, _) =
             oryn_net::decode_resource_text(&body, content_type, oryn_net::TextResourceKind::Html);
+        self.set_challenge_assessment(assess_challenge(status, &response_headers, &html));
         let html = self.inline_external_stylesheets(&current, &html)?;
         #[cfg(feature = "v8-host")]
         let web_fonts = self.load_web_fonts(&current, &html)?;
@@ -3761,6 +3815,7 @@ impl PageState {
             document_generation: self.document_generation,
             revision: Revision(self.revision),
             lifecycle: self.lifecycle.clone(),
+            challenge: self.last_challenge.clone(),
         })
     }
 
@@ -8947,5 +9002,35 @@ mod tests {
                 .to_string()
         }
         assert_eq!(sample(config.clone()).await, sample(config).await);
+    }
+
+    #[tokio::test]
+    async fn page_exposes_confirmed_only_challenge_assessment_and_trace() {
+        let context = Browser::in_process_with_config(BrowserConfig::default()).new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://challenge.test/",
+            r#"<script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script><input name="cf-turnstile-response">"#,
+        )
+        .await
+        .expect("load challenge fixture");
+        let assessment = page.challenge_assessment().await.expect("assessment");
+        assert_eq!(
+            assessment.disposition,
+            crate::challenge::ChallengeDisposition::Confirmed
+        );
+        assert!(
+            page.trace()
+                .await
+                .expect("trace")
+                .iter()
+                .any(|event| matches!(
+                    event.kind,
+                    TraceEventKind::ChallengeAssessed {
+                        disposition: crate::challenge::ChallengeDisposition::Confirmed,
+                        ..
+                    }
+                ))
+        );
     }
 }

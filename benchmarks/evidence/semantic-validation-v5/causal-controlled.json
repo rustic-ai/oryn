@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "suite": "semantic-causality-controlled",
+  "ledger": [
+    {
+      "case_id": "event-handler-mutation-and-console",
+      "expected": [
+        {"label_id":"dispatch","relation":"direct","kind":"event_dispatched"},
+        {"label_id":"mutation","relation":"derived","kind":"mutation"},
+        {"label_id":"console","relation":"correlated","kind":"console"}
+      ],
+      "observed": [
+        {"sequence":9,"action_id":1,"relation":"direct","kind":"event_dispatched","matched_label_id":"dispatch","source_relation":"direct"},
+        {"sequence":10,"action_id":1,"relation":"correlated","kind":"console","matched_label_id":"console","source_relation":"correlated"},
+        {"sequence":11,"action_id":1,"relation":"derived","kind":"mutation","matched_label_id":"mutation","source_relation":"derived"}
+      ],
+      "passed": true
+    }
+  ],
+  "status": "passed"
+}

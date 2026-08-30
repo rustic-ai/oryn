@@ -144,6 +144,7 @@ pub enum WorkerRequest {
         source: String,
     },
     Capabilities,
+    ChallengeAssessment,
     ResolveSelector {
         selector: String,
         action: oryn_common::v3::SemanticAction,
@@ -263,6 +264,9 @@ pub enum WorkerResponse {
     },
     Capabilities {
         capabilities: Vec<oryn_common::v3::CapabilityDiagnostic>,
+    },
+    ChallengeAssessment {
+        assessment: crate::challenge::ChallengeAssessment,
     },
     SemanticRef {
         semantic_ref: SemanticRef,
@@ -553,6 +557,10 @@ async fn dispatch(
         },
         WorkerRequest::Capabilities => match session.page.capabilities().await {
             Ok(capabilities) => WorkerResponse::Capabilities { capabilities },
+            Err(value) => error(value),
+        },
+        WorkerRequest::ChallengeAssessment => match session.page.challenge_assessment().await {
+            Ok(assessment) => WorkerResponse::ChallengeAssessment { assessment },
             Err(value) => error(value),
         },
         WorkerRequest::ResolveSelector { selector, action } => {

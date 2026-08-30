@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "suite": "challenge-detection-controlled",
+  "ledger": [
+    {"id":"cloudflare-turnstile","expected":"confirmed","observed":"confirmed","expected_provider":"cloudflare","observed_provider":"cloudflare","signals":["challenges.cloudflare.com","cf-turnstile-response"],"passed":true},
+    {"id":"cloudflare-header","expected":"confirmed","observed":"confirmed","expected_provider":"cloudflare","observed_provider":"cloudflare","signals":["cf-mitigated","cf-turnstile-response"],"passed":true},
+    {"id":"recaptcha","expected":"confirmed","observed":"confirmed","expected_provider":"recaptcha","observed_provider":"recaptcha","signals":["google.com/recaptcha","g-recaptcha-response"],"passed":true},
+    {"id":"hcaptcha","expected":"confirmed","observed":"confirmed","expected_provider":"hcaptcha","observed_provider":"hcaptcha","signals":["hcaptcha.com/1/api.js","h-captcha-response"],"passed":true},
+    {"id":"arkose","expected":"confirmed","observed":"confirmed","expected_provider":"arkose","observed_provider":"arkose","signals":["arkoselabs.com","fc-token"],"passed":true},
+    {"id":"datadome","expected":"confirmed","observed":"confirmed","expected_provider":"datadome_perimeterx","observed_provider":"datadome_perimeterx","signals":["x-datadome","datadome"],"passed":true},
+    {"id":"generic-403","expected":"suspected","observed":"suspected","expected_provider":null,"observed_provider":null,"signals":["403"],"passed":true},
+    {"id":"challenge-prose","expected":"suspected","observed":"suspected","expected_provider":null,"observed_provider":null,"signals":["generic_challenge_language"],"passed":true},
+    {"id":"single-provider-marker","expected":"not_detected","observed":"not_detected","expected_provider":null,"observed_provider":null,"signals":[],"passed":true},
+    {"id":"native-parser-failure","expected":"not_detected","observed":"not_detected","expected_provider":null,"observed_provider":null,"signals":[],"passed":true}
+  ],
+  "confirmed_precision": {"numerator":6,"denominator":6},
+  "confirmed_recall": {"numerator":6,"denominator":6},
+  "status": "passed"
+}

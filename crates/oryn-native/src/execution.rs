@@ -116,6 +116,18 @@ impl Default for ExecutionRequirements {
     }
 }
 
+impl ExecutionRequirements {
+    /// Apply detector output without allowing suspected challenges or native
+    /// failures to masquerade as confirmed site challenges.
+    pub fn with_challenge_assessment(
+        mut self,
+        assessment: &crate::challenge::ChallengeAssessment,
+    ) -> Self {
+        self.site_challenged = assessment.is_confirmed();
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionDomainPolicy {
     pub allowed: Vec<ExecutionDomain>,
@@ -585,5 +597,20 @@ mod tests {
         .expect("select compatibility domain");
         assert_eq!(decision.selected, ExecutionDomain::Chromium);
         assert_eq!(decision.reason, DomainReasonCode::OriginKnownBad);
+    }
+
+    #[test]
+    fn suspected_challenge_does_not_change_domain_requirements() {
+        let suspected = crate::challenge::assess_challenge(403, &[], "Access denied");
+        let requirements = ExecutionRequirements::default().with_challenge_assessment(&suspected);
+        assert!(!requirements.site_challenged);
+
+        let confirmed = crate::challenge::assess_challenge(
+            403,
+            &[],
+            "<script src='https://challenges.cloudflare.com/turnstile/v0/api.js'></script><input name='cf-turnstile-response'>",
+        );
+        let requirements = ExecutionRequirements::default().with_challenge_assessment(&confirmed);
+        assert!(requirements.site_challenged);
     }
 }

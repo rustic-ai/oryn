@@ -20,6 +20,27 @@ from typing import Any
 from intentgym.core.config import AgentConfig, BenchmarkConfig, LLMConfig, RunConfig
 from intentgym.core.runner import BenchmarkRunner
 
+try:
+    from semantic_metrics_v5 import (
+        causal_metrics as _causal_metrics_v5,
+    )
+    from semantic_metrics_v5 import (
+        compact_cell as _compact_cell_v5,
+    )
+    from semantic_metrics_v5 import (
+        observation_sufficiency as _observation_sufficiency_v5,
+    )
+except ModuleNotFoundError:
+    from scripts.semantic_metrics_v5 import (  # type: ignore[no-redef]
+        causal_metrics as _causal_metrics_v5,
+    )
+    from scripts.semantic_metrics_v5 import (
+        compact_cell as _compact_cell_v5,
+    )
+    from scripts.semantic_metrics_v5 import (
+        observation_sufficiency as _observation_sufficiency_v5,
+    )
+
 TASKS = (
     "click-button",
     "click-link",
@@ -44,6 +65,7 @@ HOSTED_CAP_USD = 100.0
 # Backwards-compatible symbol used by tests and downstream imports. For schema
 # v4 it means all hosted spend accumulated before this sandbox-worker-bound rerun.
 PRIOR_INVALID_HOSTED_SPEND_USD = 5.209632
+PRIOR_HOSTED_SPEND_V5_USD = 6.362286
 HOSTED_INPUT_COST_PER_MILLION = 2.0
 HOSTED_OUTPUT_COST_PER_MILLION = 12.0
 EXPECTED_QWEN_DIGEST = (
@@ -53,7 +75,16 @@ EXPECTED_MINIWOB_COMMIT = "33c3b4ddef8c6eb67c57a29663d844b1eda7e614"
 EXPECTED_MINIWOB_CONTENT_SHA256 = (
     "7bac5e8f28c40b8a44b3c915f98b26a8d3c494ecc1634e3d43839ed13598e386"
 )
-REQUIRED_WORKER_PROTOCOL_VERSION = 4
+REQUIRED_WORKER_PROTOCOL_VERSION = 5
+LEGACY_SCHEMA_V4_WORKER_PROTOCOL_VERSION = 4
+
+
+def _required_worker_protocol(schema_version: int) -> int:
+    return (
+        REQUIRED_WORKER_PROTOCOL_VERSION
+        if schema_version >= 5
+        else LEGACY_SCHEMA_V4_WORKER_PROTOCOL_VERSION
+    )
 
 
 def _json(url: str) -> dict[str, Any]:
@@ -158,6 +189,45 @@ def _deterministic_causal(
     }
 
 
+def _controlled_causal_v5(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if value.get("status") != "passed" or not value.get("ledger"):
+        raise RuntimeError("controlled schema-v5 causal evidence did not pass")
+    metrics = _causal_metrics_v5(value["ledger"])
+    for relation in ("direct", "derived", "correlated"):
+        if metrics[relation]["precision"]["value"] != 1.0:
+            raise RuntimeError(f"{relation} causal precision is not complete")
+        if metrics[relation]["recall"]["value"] != 1.0:
+            raise RuntimeError(f"{relation} causal recall is not complete")
+    if metrics["unattributed_promotions"] != 0:
+        raise RuntimeError("unattributed causal work was promoted")
+    return {
+        "ledger": value["ledger"],
+        "metrics": metrics,
+        "recall": metrics["direct"]["recall"],
+        "precision": metrics["direct"]["precision"],
+        "sha256": _sha256(path),
+    }
+
+
+def _controlled_challenge_v5(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if value.get("status") != "passed":
+        raise RuntimeError("controlled schema-v5 challenge evidence did not pass")
+    if value.get("confirmed_precision") != {"numerator": 6, "denominator": 6}:
+        raise RuntimeError("confirmed challenge precision is incomplete")
+    if value.get("confirmed_recall") != {"numerator": 6, "denominator": 6}:
+        raise RuntimeError("confirmed challenge recall is incomplete")
+    return {
+        "sha256": _sha256(path),
+        "evidence": value,
+        "metrics": {
+            "confirmed_precision": _ratio(6, 6),
+            "confirmed_recall": _ratio(6, 6),
+        },
+    }
+
+
 def _harness_hash(repo_root: Path) -> str:
     """Fingerprint the Python execution path that can change a panel cell."""
     candidates = [
@@ -195,6 +265,7 @@ def _codesign_value(details: str, name: str) -> str:
 def _worker_bundle_fingerprint(
     args: argparse.Namespace, runtime: dict[str, Any], source_tree_sha256: str
 ) -> dict[str, Any]:
+    required_protocol = _required_worker_protocol(args.schema_version)
     configured = os.environ.get("ORYN_PAGE_WORKER")
     worker = (
         Path(configured)
@@ -236,10 +307,10 @@ def _worker_bundle_fingerprint(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("source_tree_sha256") != source_tree_sha256:
         raise RuntimeError("signed worker manifest does not match the source tree")
-    if manifest.get("protocol_version") != REQUIRED_WORKER_PROTOCOL_VERSION:
+    if manifest.get("protocol_version") != required_protocol:
         raise RuntimeError(
             "signed worker manifest does not require worker protocol "
-            f"v{REQUIRED_WORKER_PROTOCOL_VERSION}"
+            f"v{required_protocol}"
         )
     worker_sha256 = _sha256(worker)
     if runtime.get("worker_binary_sha256") != worker_sha256:
@@ -334,12 +405,19 @@ def _runtime_smoke(binary: Path, fixture: Path) -> dict[str, Any]:
 
 
 def _preflight(args: argparse.Namespace) -> dict[str, Any]:
+    required_protocol = _required_worker_protocol(args.schema_version)
+    expected_prior_spend = (
+        PRIOR_HOSTED_SPEND_V5_USD
+        if args.schema_version >= 5
+        else PRIOR_INVALID_HOSTED_SPEND_USD
+    )
     if (
         float(getattr(args, "prior_hosted_spend", PRIOR_INVALID_HOSTED_SPEND_USD))
-        != PRIOR_INVALID_HOSTED_SPEND_USD
+        != expected_prior_spend
     ):
         raise RuntimeError(
-            f"schema-v4 budget accounting must start at USD {PRIOR_INVALID_HOSTED_SPEND_USD:.6f}"
+            f"schema-v{args.schema_version} budget accounting must start at USD "
+            f"{expected_prior_spend:.6f}"
         )
     if not os.environ.get("AZURE_OPENAI_API_KEY"):
         raise RuntimeError(
@@ -388,7 +466,7 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         runtime.get("execution_mode") != "sandboxed_worker"
         or runtime.get("sandboxed") is not True
         or runtime.get("sandbox_state") != "app_sandbox"
-        or runtime.get("worker_protocol_version") != REQUIRED_WORKER_PROTOCOL_VERSION
+        or runtime.get("worker_protocol_version") != required_protocol
     ):
         raise RuntimeError(
             "sandbox-worker evidence requires the verified macOS sandbox worker"
@@ -450,8 +528,15 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         )
     if deterministic.get("outcome", {}).get("status") != "passed":
         raise RuntimeError("deterministic evidence outcome is not passed")
-    deterministic_causal = _deterministic_causal(
-        args.deterministic_evidence, deterministic
+    deterministic_causal = (
+        _controlled_causal_v5(args.causal_evidence)
+        if schema_version >= 5
+        else _deterministic_causal(args.deterministic_evidence, deterministic)
+    )
+    controlled_challenge = (
+        _controlled_challenge_v5(args.challenge_evidence)
+        if schema_version >= 5
+        else None
     )
     deterministic_fingerprint = deterministic.get("fingerprint") or {}
     deterministic_binary = deterministic_fingerprint.get("binary") or {}
@@ -477,6 +562,19 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         raise RuntimeError(
             "churn evidence reports false semantic-reference preservation"
         )
+    if schema_version >= 5:
+        if churn.get("reference_survival") != {
+            "numerator": 8,
+            "denominator": 8,
+            "value": 1.0,
+        }:
+            raise RuntimeError("exact-identity reference survival suite is incomplete")
+        if churn.get("invalidation") != {
+            "numerator": 8,
+            "denominator": 8,
+            "value": 1.0,
+        }:
+            raise RuntimeError("semantic-reference invalidation suite is incomplete")
     recovery = churn.get("recovery") or {}
     if recovery.get("denominator", 0) < 2 or recovery.get("value") != 1.0:
         raise RuntimeError("controlled stale/no-progress recovery suite did not pass")
@@ -488,7 +586,9 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         ["git", "status", "--porcelain"], cwd=args.repo_root, text=True
     )
     if schema_version >= 4 and status.strip():
-        raise RuntimeError("schema-v4 release evidence requires a clean source tree")
+        raise RuntimeError(
+            f"schema-v{schema_version} release evidence requires a clean source tree"
+        )
     source_tree_sha256 = _source_tree_hash(args.repo_root)
     worker_bundle = _worker_bundle_fingerprint(args, runtime, source_tree_sha256)
     chrome_version = subprocess.check_output(
@@ -513,7 +613,11 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         "source_tree_sha256": source_tree_sha256,
         "harness_sha256": _harness_hash(args.repo_root),
         "deterministic_evidence_sha256": _sha256(args.deterministic_evidence),
-        "deterministic_cells_sha256": deterministic_causal["cells_sha256"],
+        "deterministic_cells_sha256": deterministic_causal.get("cells_sha256"),
+        "causal_evidence_sha256": deterministic_causal.get("sha256"),
+        "challenge_evidence_sha256": (
+            controlled_challenge.get("sha256") if controlled_challenge else None
+        ),
         "churn_evidence_sha256": _sha256(args.churn_evidence),
         "binary": {
             "sha256": _sha256(args.oryn_binary),
@@ -545,6 +649,7 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         "deterministic": deterministic,
         "deterministic_causal": deterministic_causal,
         "churn": churn,
+        "challenge": controlled_challenge,
     }
 
 
@@ -882,6 +987,13 @@ def _aggregate(
     metrics = _measured_metrics(
         completed, preflight["churn"], preflight["deterministic_causal"]
     )
+    schema_version = int(getattr(args, "schema_version", 4))
+    if schema_version >= 5:
+        metrics["observation_sufficiency"] = _observation_sufficiency_v5(completed)
+        metrics["causal_attribution"] = preflight["deterministic_causal"]["metrics"]
+        metrics["challenge_detection"] = preflight["challenge"]["metrics"]
+        metrics.pop("causal_recall", None)
+        metrics.pop("causal_precision", None)
     deterministic = preflight["deterministic"]
     panel_complete = len(completed) == 96
     criteria = {
@@ -901,7 +1013,7 @@ def _aggregate(
             and (
                 (preflight["fingerprint"].get("binary") or {}).get("runtime") or {}
             ).get("worker_protocol_version")
-            == REQUIRED_WORKER_PROTOCOL_VERSION
+            == _required_worker_protocol(schema_version)
         ),
         "worker_limits_match_manifest": preflight["fingerprint"].get("limits")
         == (preflight["fingerprint"].get("worker_bundle") or {})
@@ -928,14 +1040,20 @@ def _aggregate(
             "numerator"
         ]
         == 0,
+        "exact_identity_reference_survival_8_of_8": schema_version < 5
+        or metrics["reference_survival"]
+        == {"numerator": 8, "denominator": 8, "value": 1.0},
+        "challenge_detector_verified": (
+            schema_version < 5
+            or (preflight.get("challenge") or {}).get("evidence", {}).get("status")
+            == "passed"
+        ),
         "semantic_metrics_measured": all(
             metrics[name]["denominator"] > 0
             for name in (
                 "recovery",
                 "reference_survival",
                 "false_reference_preservation",
-                "causal_recall",
-                "causal_precision",
             )
         )
         and all(
@@ -944,14 +1062,26 @@ def _aggregate(
             if cell.get("success") is not True
         )
         and metrics["action_latency_ms"]["samples"] > 0
-        and metrics["observation_utf8_bytes"]["samples"] > 0,
+        and metrics["observation_utf8_bytes"]["samples"] > 0
+        and (
+            schema_version < 5
+            or all(
+                metrics["causal_attribution"][relation][measure]["value"] == 1.0
+                for relation in ("direct", "derived", "correlated")
+                for measure in ("precision", "recall")
+            )
+        ),
         "all_action_classifications_explained": _classifications_explained(completed),
     }
     passed = all(criteria.values())
     reason_codes = [name for name, value in criteria.items() if not value]
     return {
-        "schema_version": int(getattr(args, "schema_version", 4)),
-        "run_id": "semantic-sandbox-model-panel-v4",
+        "schema_version": schema_version,
+        "run_id": (
+            f"semantic-validation-model-panel-v{schema_version}"
+            if schema_version >= 5
+            else "semantic-sandbox-model-panel-v4"
+        ),
         "started_at": started_at,
         "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "fingerprint": preflight["fingerprint"],
@@ -980,7 +1110,11 @@ def _aggregate(
             "local_model_max_output_tokens": LOCAL_MAX_OUTPUT_TOKENS,
         },
         "metrics": metrics,
-        "cell_ledger": _compact_cell_ledger(completed),
+        "cell_ledger": (
+            [_compact_cell_v5(cell) for cell in completed]
+            if schema_version >= 5
+            else _compact_cell_ledger(completed)
+        ),
         "causal_ledger": preflight["deterministic_causal"].get("ledger", []),
         "criteria": criteria,
         "outcome": {
@@ -1053,35 +1187,67 @@ def main() -> int:
     )
     parser.add_argument("--command-timeout", type=float, default=120.0)
     parser.add_argument("--task-timeout", type=int, default=600)
-    parser.add_argument("--schema-version", type=int, choices=(4,), default=4)
+    parser.add_argument("--schema-version", type=int, choices=(4, 5), default=5)
     parser.add_argument(
         "--prior-hosted-spend",
         type=float,
-        default=PRIOR_INVALID_HOSTED_SPEND_USD,
+        default=None,
     )
     parser.add_argument(
         "--deterministic-evidence",
         type=Path,
-        default=repo_root
-        / "artifacts/semantic-sandbox-v4/deterministic/aggregate.json",
+        default=None,
     )
     parser.add_argument(
         "--churn-evidence",
         type=Path,
-        default=repo_root / "artifacts/semantic-sandbox-v4/reference-churn.json",
+        default=None,
     )
+    parser.add_argument("--causal-evidence", type=Path, default=None)
+    parser.add_argument("--challenge-evidence", type=Path, default=None)
     parser.add_argument(
         "--output",
         type=Path,
-        default=repo_root / "artifacts/semantic-sandbox-v4/model-panel",
+        default=None,
     )
     parser.add_argument(
         "--evidence",
         type=Path,
-        default=repo_root / "artifacts/semantic-sandbox-v4/model-panel-v4.json",
+        default=None,
     )
     parser.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args()
+    namespace = (
+        f"semantic-validation-v{args.schema_version}"
+        if args.schema_version >= 5
+        else "semantic-sandbox-v4"
+    )
+    args.prior_hosted_spend = (
+        PRIOR_HOSTED_SPEND_V5_USD
+        if args.prior_hosted_spend is None and args.schema_version >= 5
+        else (
+            PRIOR_INVALID_HOSTED_SPEND_USD
+            if args.prior_hosted_spend is None
+            else args.prior_hosted_spend
+        )
+    )
+    args.deterministic_evidence = args.deterministic_evidence or (
+        repo_root / "artifacts" / namespace / "deterministic" / "aggregate.json"
+    )
+    args.churn_evidence = args.churn_evidence or (
+        repo_root / "artifacts" / namespace / "reference-churn.json"
+    )
+    args.causal_evidence = args.causal_evidence or (
+        repo_root / "benchmarks/evidence/semantic-validation-v5/causal-controlled.json"
+    )
+    args.challenge_evidence = args.challenge_evidence or (
+        repo_root
+        / "benchmarks/evidence/semantic-validation-v5/challenge-controlled.json"
+    )
+    args.output = args.output or (repo_root / "artifacts" / namespace / "model-panel")
+    args.evidence = args.evidence or (
+        repo_root / "artifacts" / namespace / f"model-panel-v{args.schema_version}.json"
+    )
 
     preflight = _preflight(args)
     if args.preflight_only:
@@ -1147,14 +1313,21 @@ def main() -> int:
                         }
                         failure_projection_comparison = {
                             "captured": True,
+                            "checkpoint": "terminal",
                             "compact_contains_required": _checkpoint_sufficient(
                                 task, compact_record
                             ),
                             "full_contains_required": _checkpoint_sufficient(
                                 task, full_record
                             ),
-                            "compact_utf8_bytes": len(compact.raw.encode("utf-8")),
-                            "full_utf8_bytes": len(full.raw.encode("utf-8")),
+                            "compact_utf8_bytes": compact.byte_count,
+                            "full_utf8_bytes": full.byte_count,
+                            "compact_sha256": hashlib.sha256(
+                                compact.raw.encode("utf-8")
+                            ).hexdigest(),
+                            "full_sha256": hashlib.sha256(
+                                full.raw.encode("utf-8")
+                            ).hexdigest(),
                         }
                 except Exception:
                     _write_json(

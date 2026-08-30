@@ -4,6 +4,10 @@
 - `schema/result-v2.schema.json` preserves the original aggregate contract.
 - `schema/result-v3.schema.json` is the fingerprinted semantic recovery semantic, causal,
   recovery, reference-churn, and 96-cell model-panel contract.
+- `schema/result-v5.schema.json` corrects the proposal KPIs: failed-task
+  compact-versus-full attribution, independently labelled direct/derived/
+  correlated causality, and exact-identity churn. Historical schemas remain
+  immutable.
 - `corpus/semantic-loop.json` freezes the 30-task native-proof corpus.
 - Generated measurements belong under ignored `artifacts/`.
 - `evidence/semantic-loop-controlled-native.json` publishes the native 12-script harness,
@@ -13,6 +17,12 @@
   native-versus-Chromium supported-scope validation.
 - `evidence/semantic-public-canaries.json` publishes all four read-only public canary
   outcomes, with availability kept separate from correctness.
+- `evidence/semantic-public-canaries-v2.json` corrects historical native
+  failures that were labelled as site challenges. It uses `not_assessed` where
+  retained data cannot support retrospective detection.
+- `evidence/semantic-validation-v5/` contains controlled causal/challenge
+  evidence and a machine-readable attestation status. The final 96-cell result
+  is intentionally absent until it can be bound to the final signed candidate.
 
 Required harness and framework tasks block semantic recovery. MiniWoB and public canaries
 establish published baselines; public availability is reported separately from

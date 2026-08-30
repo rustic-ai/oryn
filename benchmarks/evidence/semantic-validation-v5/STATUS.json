@@ -1,0 +1,23 @@
+{
+  "schema_version": 5,
+  "scope": "semantic-evidence-correction",
+  "implementation": {
+    "compact_full_failure_attribution": "implemented",
+    "labelled_causal_attribution": "controlled_passed",
+    "confirmed_only_challenge_detection": "controlled_passed",
+    "historical_public_canary_reclassification": "published",
+    "exact_identity_reference_churn": "implemented_release_candidate_run_pending"
+  },
+  "attestation": {
+    "status": "pending_final_signed_release_candidate",
+    "required_model_cells": 96,
+    "completed_model_cells": 0,
+    "prior_hosted_spend_usd": 6.362286,
+    "hosted_spend_cap_usd": 100.0,
+    "hosted_requests_made_by_this_change": 0
+  },
+  "historical_evidence": {
+    "schema_v4_status": "immutable_nonconforming_semantic_metrics",
+    "reason": "The published compact-observation and causal figures use the rejected heuristic definitions and are not reused as schema-v5 evidence."
+  }
+}

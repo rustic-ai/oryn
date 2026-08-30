@@ -10,6 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod challenge;
 #[cfg(unix)]
 pub mod context_service;
 pub mod dom;
@@ -35,6 +36,10 @@ pub mod worker;
 #[cfg(unix)]
 pub mod worker_client;
 
+pub use challenge::{
+    CHALLENGE_DETECTOR_VERSION, ChallengeAssessment, ChallengeDisposition, ChallengeSignal,
+    ChallengeSignalSource,
+};
 pub use download::{DownloadDescriptor, DownloadId};
 pub use execution::{
     CapabilityId, CapabilityLedger, ConsequenceLevel, DomainDecision, DomainDescriptor,

@@ -91,6 +91,49 @@ fn invalidation_case(id: &'static str, invalidated: bool) -> ChurnCase {
     }
 }
 
+async fn survival_case(
+    page: &oryn_native::PageHandle,
+    id: &'static str,
+    html: &str,
+    mutation: &str,
+) -> Result<ChurnCase, Box<dyn std::error::Error>> {
+    page.load_html(format!("https://example.test/{id}"), html)
+        .await?;
+    let semantic_ref = target(&page.observe().await?, "Stable target");
+    page.evaluate(mutation).await?;
+    let survived = page
+        .execute(NativeAction {
+            target: semantic_ref,
+            action: SemanticAction::Click,
+            value: None,
+        })
+        .await
+        .is_ok();
+    Ok(ChurnCase {
+        id,
+        expectation: "preserved",
+        observed: if survived { "preserved" } else { "invalidated" },
+        passed: survived,
+        false_preservation: false,
+    })
+}
+
+async fn scripted_invalidation_case(
+    page: &oryn_native::PageHandle,
+    id: &'static str,
+    html: &str,
+    mutation: &str,
+) -> Result<ChurnCase, Box<dyn std::error::Error>> {
+    page.load_html(format!("https://example.test/{id}"), html)
+        .await?;
+    let semantic_ref = target(&page.observe().await?, "Replace target");
+    page.evaluate(mutation).await?;
+    Ok(invalidation_case(
+        id,
+        old_ref_is_invalidated(page, semantic_ref).await,
+    ))
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = oryn_native::production_runtime_build_info()?;
@@ -208,11 +251,112 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .is_ok();
     cases.push(ChurnCase {
         id: "unrelated_mutation_survival",
-        expectation: "preserved",
+        expectation: "identity_control",
         observed: if survived { "preserved" } else { "invalidated" },
         passed: survived,
         false_preservation: false,
     });
+
+    cases.push(
+        survival_case(
+            &page,
+            "target_attribute_survival",
+            "<button id=stable>Stable target</button>",
+            "document.querySelector('#stable').setAttribute('data-state','changed');'attribute'",
+        )
+        .await?,
+    );
+    cases.push(
+        survival_case(
+            &page,
+            "target_text_survival",
+            "<button id=stable aria-label='Stable target'>Before</button>",
+            "document.querySelector('#stable').textContent='After';'text'",
+        )
+        .await?,
+    );
+    cases.push(
+        survival_case(
+            &page,
+            "form_value_survival",
+            "<button id=stable>Stable target</button><input id=value value=before>",
+            "document.querySelector('#value').value='after';'value'",
+        )
+        .await?,
+    );
+    cases.push(
+        survival_case(
+            &page,
+            "sibling_insertion_survival",
+            "<main id=host><button id=stable>Stable target</button></main>",
+            "const sibling=document.createElement('span');sibling.textContent='new';document.querySelector('#host').appendChild(sibling);'inserted'",
+        )
+        .await?,
+    );
+    cases.push(
+        survival_case(
+            &page,
+            "sibling_removal_survival",
+            "<main><span id=sibling>remove</span><button id=stable>Stable target</button></main>",
+            "document.querySelector('#sibling').remove();'removed sibling'",
+        )
+        .await?,
+    );
+    cases.push(
+        survival_case(
+            &page,
+            "ancestor_attribute_survival",
+            "<main id=host><button id=stable>Stable target</button></main>",
+            "document.querySelector('#host').className='changed';'ancestor'",
+        )
+        .await?,
+    );
+    cases.push(
+        survival_case(
+            &page,
+            "same_document_reparent_survival",
+            "<main id=from><button id=stable>Stable target</button></main><aside id=to></aside>",
+            "document.querySelector('#to').appendChild(document.querySelector('#stable'));'reparented'",
+        )
+        .await?,
+    );
+    cases.push(
+        survival_case(
+            &page,
+            "open_shadow_unrelated_survival",
+            "<button id=stable>Stable target</button><div id=host></div>",
+            "const root=document.querySelector('#host').attachShadow({mode:'open'});root.innerHTML='<span>shadow change</span>';'shadow'",
+        )
+        .await?,
+    );
+
+    cases.push(
+        scripted_invalidation_case(
+            &page,
+            "inner_html_recreation",
+            "<main id=host><button id=target>Replace target</button></main>",
+            "document.querySelector('#host').innerHTML='<button id=target>Replace target</button>';'innerHTML'",
+        )
+        .await?,
+    );
+    cases.push(
+        scripted_invalidation_case(
+            &page,
+            "react_style_key_replacement",
+            "<main id=root><button id=target data-key=old>Replace target</button></main>",
+            "const root=document.querySelector('#root');const fresh=document.createElement('button');fresh.id='target';fresh.setAttribute('data-key','new');fresh.textContent='Replace target';root.replaceChild(fresh,document.querySelector('#target'));'react-style replacement'",
+        )
+        .await?,
+    );
+    cases.push(
+        scripted_invalidation_case(
+            &page,
+            "vue_style_conditional_replacement",
+            "<main id=root><button id=target data-branch=a>Replace target</button></main>",
+            "const old=document.querySelector('#target');const fresh=document.createElement('button');fresh.id='target';fresh.setAttribute('data-branch','b');fresh.textContent='Replace target';old.parentNode.replaceChild(fresh,old);'vue-style replacement'",
+        )
+        .await?,
+    );
 
     page.load_html(
         "https://example.test/stale-recovery",
@@ -338,6 +482,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "failed"
         },
     };
+    cases.push(invalidation_case(
+        "worker_replacement",
+        old_reference_invalidated,
+    ));
 
     let invalidations = cases
         .iter()
@@ -345,6 +493,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Vec<_>>();
     let invalidation_denominator = invalidations.len();
     let invalidation_numerator = invalidations.iter().filter(|case| case.passed).count();
+    let survivals = cases
+        .iter()
+        .filter(|case| case.expectation == "preserved")
+        .collect::<Vec<_>>();
+    let survival_denominator = survivals.len();
+    let survival_numerator = survivals.iter().filter(|case| case.passed).count();
     let false_preservations = cases.iter().filter(|case| case.false_preservation).count();
     let recovery_attempts = recovery_cases.iter().filter(|case| case.attempted).count();
     let successful_recoveries = recovery_cases
@@ -352,6 +506,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|case| case.attempted && case.recovered)
         .count();
     let passed = cases.iter().all(|case| case.passed)
+        && survival_denominator == 8
+        && survival_numerator == survival_denominator
+        && invalidation_denominator == 8
         && recovery_attempts == recovery_cases.len()
         && successful_recoveries == recovery_attempts
         && worker_replacement_passed;
@@ -361,13 +518,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         value: (denominator > 0).then(|| numerator as f64 / denominator as f64),
     };
     let evidence = Evidence {
-        schema_version: 4,
+        schema_version: 5,
         suite: "semantic-reference-churn",
         runtime,
         cases,
-        reference_survival: ratio(usize::from(survived), 1),
+        reference_survival: ratio(survival_numerator, survival_denominator),
         invalidation: ratio(invalidation_numerator, invalidation_denominator),
-        false_preservation: ratio(false_preservations, invalidation_denominator + 1),
+        false_preservation: ratio(false_preservations, invalidation_denominator),
         recovery_cases,
         recovery: ratio(successful_recoveries, recovery_attempts),
         worker_replacement,

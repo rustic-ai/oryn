@@ -10,7 +10,8 @@ pub use oryn_common::v3::{
     SemanticRef,
 };
 pub use oryn_native::{
-    ActionPolicy, Browser, BrowserConfig, BrowserContext, CacheMode, ConfirmationToken,
+    ActionPolicy, Browser, BrowserConfig, BrowserContext, CacheMode, ChallengeAssessment,
+    ChallengeDisposition, ChallengeSignal, ChallengeSignalSource, ConfirmationToken,
     ConsequentialAction, ContentKind, ContextOptions, LifecycleState, NativeAction,
     NavigationResult, PageHandle, PersistentProfile, PolicyDecision, PolicyRequest, PolicyRule,
     RuntimeBuildInfo, RuntimeError, RuntimeProfile, ScrollRequest, SecretHandle, StorageLimits,

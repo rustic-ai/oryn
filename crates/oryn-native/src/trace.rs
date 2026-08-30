@@ -79,6 +79,11 @@ pub enum TraceEventKind {
     PolicyDenied {
         capability: String,
     },
+    ChallengeAssessed {
+        disposition: crate::challenge::ChallengeDisposition,
+        provider: Option<String>,
+        signals: Vec<String>,
+    },
     WorkerTerminated {
         reason: String,
     },

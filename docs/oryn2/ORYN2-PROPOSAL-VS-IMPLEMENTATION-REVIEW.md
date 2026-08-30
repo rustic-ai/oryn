@@ -718,3 +718,32 @@ alter the audit evidence above. Current proposal-v1 software status is tracked
 by `runtime-architecture-v1.json`; its local software cases pass. Platform
 signing/sandbox execution and exact-artifact performance/model evidence remain
 release attestations.
+
+### 2026-08-29 F2 remediation update
+
+The software defects identified by F2 are now addressed without rewriting the
+historical schema-v3/v4 records:
+
+- Schema v5 computes observation insufficiency only over failed tasks and only
+  when a captured full projection contains task-required state omitted by the
+  compact projection. Browser-truth absence, model/action failure, capability
+  failure, and runtime failure are separate attribution buckets.
+- Runtime trace records carry direct, derived, correlated, or unattributed
+  causality. A labelled controlled manifest publishes independent precision and
+  recall for the first three classes and rejects promotion of unattributed work.
+- Navigation records a typed challenge assessment. Only paired, provider-
+  specific evidence is confirmed; generic 401/403/429 or challenge language is
+  suspected and does not set execution-domain `site_challenged`.
+- Public-canary v2 corrects the Wikipedia and crates.io rows to native-runtime
+  failures. Because the old response bodies were not retained, all historical
+  challenge dispositions are explicitly `not_assessed`, not fabricated
+  negative detector results.
+- Exact Rust NodeId behavior is covered by eight preservation and eight
+  invalidation cases. DOM recreation and framework-style keyed/conditional
+  replacement invalidate old references; benign mutation and same-document
+  reparenting preserve them.
+
+Controlled causal and challenge evidence is reproducible locally. F2 evidence
+closure remains pending until the expanded churn suite and corrected 96-cell
+panel run against the final signed release candidate. That future run starts
+with `$6.362286` already spent and remains bounded by the original `$100` cap.

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "suite": "semantic-causality-controlled",
+  "cases": [
+    {
+      "id": "event-handler-mutation-and-console",
+      "html": "<button id=target>Act</button><output id=status>before</output><script>document.getElementById('target').addEventListener('click',()=>{document.getElementById('status').textContent='after';console.log('controlled-correlation')})</script>",
+      "target": "Act",
+      "expected": [
+        {"label_id": "dispatch", "relation": "direct", "kind": "event_dispatched"},
+        {"label_id": "mutation", "relation": "derived", "kind": "mutation"},
+        {"label_id": "console", "relation": "correlated", "kind": "console"}
+      ]
+    }
+  ]
+}
