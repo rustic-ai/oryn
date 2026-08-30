@@ -874,6 +874,11 @@ mod raw_v8 {
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                     scope.perform_microtask_checkpoint();
                 }
+                if let Some(dom) = self.active_dom() {
+                    dom.borrow_mut()
+                        .release_mutation_roots(&mutations)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                }
             }
             Err(HostError::LimitExceeded {
                 resource: "mutation observer checkpoint iterations".into(),

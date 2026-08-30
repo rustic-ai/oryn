@@ -791,6 +791,10 @@ impl DomRuntime {
 
     pub fn remove(&mut self, node: NodeId) -> Result<(), DomError> {
         let parent = self.arena.get(node)?.parent;
+        // Mutation delivery may expose the removed subtree to JavaScript.
+        // Keep one native lease until every realm has consumed this journal
+        // entry; wrapper leases then decide its ordinary detached lifetime.
+        self.retain_native(node)?;
         self.arena.detach(node)?;
         self.mark_disconnected(node)?;
         self.mutations.push(Mutation::Removed {
@@ -1052,6 +1056,15 @@ impl DomRuntime {
         std::mem::take(&mut self.mutations)
     }
 
+    pub fn release_mutation_roots(&mut self, mutations: &[Mutation]) -> Result<(), DomError> {
+        for mutation in mutations {
+            if let Mutation::Removed { node, .. } = mutation {
+                self.release_native(*node)?;
+            }
+        }
+        Ok(())
+    }
+
     fn rebuild_document_indexes(&mut self) -> Result<(), DomError> {
         let document = self.document();
         let mut pending = vec![document];
@@ -1247,6 +1260,9 @@ mod tests {
         dom.remove(root).unwrap();
         assert!(dom.arena().get(root).is_ok());
         dom.release_wrapper(root).unwrap();
+        assert!(dom.arena().get(root).is_ok());
+        let mutations = dom.drain_mutations();
+        dom.release_mutation_roots(&mutations).unwrap();
         assert_eq!(dom.arena().get(root), Err(DomError::StaleNode(root)));
     }
 
@@ -1274,6 +1290,8 @@ mod tests {
         dom.retain_wrapper(parent).unwrap();
         dom.retain_wrapper(retained_child).unwrap();
         dom.remove(parent).unwrap();
+        let mutations = dom.drain_mutations();
+        dom.release_mutation_roots(&mutations).unwrap();
         dom.release_wrapper(parent).unwrap();
         assert_eq!(dom.parent(retained_child).unwrap(), None);
         assert_eq!(dom.arena().get(parent), Err(DomError::StaleNode(parent)));
