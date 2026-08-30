@@ -23,6 +23,9 @@ const RUST_RUNTIME_GLOBALS: &str = r#"
 globalThis.window=globalThis;
 globalThis.self=globalThis;
 globalThis.global=globalThis;
+const __oryn_time_origin=Date.now();
+globalThis.performance={timeOrigin:__oryn_time_origin,now:()=>Date.now()-__oryn_time_origin,toJSON(){return {timeOrigin:this.timeOrigin}}};
+globalThis.navigator=Object.freeze({userAgent:'Oryn/0.1',appVersion:'Oryn/0.1',platform:'MacIntel',language:'en-US',languages:Object.freeze(['en-US','en']),onLine:true,cookieEnabled:true,hardwareConcurrency:1,maxTouchPoints:0});
 globalThis.queueMicrotask=callback=>Promise.resolve().then(callback);
 globalThis.__oryn_console=[];
 globalThis.console={
@@ -1443,6 +1446,18 @@ mod tests {
             )
             .unwrap(),
             "2|next|?view=ready|#next"
+        );
+    }
+
+    #[test]
+    fn navigator_and_performance_are_available_for_framework_feature_detection() {
+        let mut page = RustExecutableDocument::load("<main></main>").unwrap();
+        assert_eq!(
+            page.evaluate(
+                "navigator.language+'|'+navigator.languages.join(',')+'|'+navigator.onLine+'|'+(performance.now()>=0)"
+            )
+            .unwrap(),
+            "en-US|en-US,en|true|true"
         );
     }
 
