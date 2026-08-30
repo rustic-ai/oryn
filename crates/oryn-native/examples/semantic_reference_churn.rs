@@ -4,6 +4,10 @@ use oryn_native::{
     runtime::{NativeAction, RuntimeError},
 };
 use serde::Serialize;
+use std::{
+    io::{Read, Write},
+    net::TcpListener,
+};
 
 #[derive(Debug, Serialize)]
 struct ChurnCase {
@@ -138,7 +142,7 @@ async fn scripted_invalidation_case(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = oryn_native::production_runtime_build_info()?;
     let browser = Browser::new();
-    let context = browser.new_context();
+    let context = browser.new_context_with_options(oryn_native::ContextOptions::loopback_test());
     let page = context.new_page();
     let mut cases = Vec::new();
 
@@ -170,28 +174,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         old_ref_is_invalidated(&page, replaced).await,
     ));
 
-    page.load_html(
-        "https://example.test/frame",
-        r#"<iframe id=frame></iframe><script>
-          const frame=document.querySelector('#frame');
-          frame.contentDocument=document.createDocumentFragment();
-          const action=document.createElement('button');action.textContent='Frame target';
-          frame.contentDocument.appendChild(action);
-        </script>"#,
-    )
-    .await?;
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let frame_address = listener.local_addr()?;
+    let frame_server = std::thread::spawn(move || -> std::io::Result<()> {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept()?;
+            let mut request = [0_u8; 2048];
+            let length = stream.read(&mut request)?;
+            let request = String::from_utf8_lossy(&request[..length]);
+            let path = request
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .unwrap_or("/");
+            let body = if path == "/frame" {
+                "<button>Frame target</button>"
+            } else {
+                "<iframe id=frame src=/frame></iframe>"
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes())?;
+        }
+        Ok(())
+    });
+    page.goto(format!("http://{frame_address}/")).await?;
     let frame = target(
         &page.observe_profile(ProjectionProfile::Full).await?,
         "Frame target",
     );
     page.evaluate(
-        "{const replacementFrame=document.querySelector('#frame');replacementFrame.contentDocument=document.createDocumentFragment();const freshFrameAction=document.createElement('button');freshFrameAction.textContent='Fresh frame target';replacementFrame.contentDocument.appendChild(freshFrameAction);}'frame replaced'",
+        "{const old=document.querySelector('#frame');const fresh=document.createElement('iframe');fresh.id='frame';old.parentNode.replaceChild(fresh,old);}'frame replaced'",
     )
     .await?;
     cases.push(invalidation_case(
         "frame_replaced",
         old_ref_is_invalidated(&page, frame).await,
     ));
+    frame_server.join().expect("frame fixture server")?;
 
     page.load_html(
         "https://example.test/closed-shadow",
