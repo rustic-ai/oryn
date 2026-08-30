@@ -1822,6 +1822,7 @@ fn set_attribute_value(
             // moving the resulting subtree into a document must not execute
             // them later.
             state.mark_script_subtree_inert(node)?;
+            upgrade_custom_element_subtree(scope, state, node)?;
             return Ok(());
         }
         ("Element", "outerHTML") => dom.set_outer_html(node, &value)?,
@@ -1832,6 +1833,38 @@ fn set_attribute_value(
             });
         }
     }
+    Ok(())
+}
+
+fn upgrade_custom_element_subtree(
+    scope: &mut v8::PinScope<'_, '_>,
+    state: &Rc<V8BindingState>,
+    root: NodeId,
+) -> Result<(), V8BindingError> {
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+    let registry_key = v8::String::new(scope, "customElements")
+        .ok_or(V8BindingError::Allocation("customElements key"))?;
+    let Some(registry) = global
+        .get(scope, registry_key.into())
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+    else {
+        return Ok(());
+    };
+    let upgrade_key = v8::String::new(scope, "upgrade")
+        .ok_or(V8BindingError::Allocation("customElements.upgrade key"))?;
+    let Some(upgrade) = registry
+        .get(scope, upgrade_key.into())
+        .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+    else {
+        return Ok(());
+    };
+    let root = wrap_node(scope, state, root)?;
+    upgrade
+        .call(scope, registry.into(), &[root.into()])
+        .ok_or_else(|| {
+            V8BindingError::EventCallback("customElements.upgrade raised an exception".into())
+        })?;
     Ok(())
 }
 

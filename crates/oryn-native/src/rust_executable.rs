@@ -1053,7 +1053,6 @@ impl RustExecutableDocument {
         self.host.drain_async_fetches(true)?;
         self.drain_dynamic_scripts()?;
         self.host.execute("void 0")?;
-        self.host.execute("customElements.upgrade(document)")?;
         self.host.execute("__oryn_run_custom_reactions()")?;
         self.host.run_dom_observer_checkpoint()?;
         for rejection in self.host.take_unhandled_promise_rejections() {
@@ -1738,6 +1737,24 @@ mod tests {
         assert_eq!(
             page.evaluate("order.join(',')").unwrap(),
             "microtask,reaction,observer"
+        );
+    }
+
+    #[test]
+    fn inner_html_upgrades_only_the_inserted_custom_element_subtree() {
+        let mut page = RustExecutableDocument::load(
+            r#"<main id="root"></main><script>
+            customElements.define('x-state',class extends HTMLElement{
+                connectedCallback(){this.setAttribute('ready','')}
+            });
+            document.querySelector('#root').innerHTML='<x-state></x-state>';
+            </script>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("String(document.querySelector('x-state').hasAttribute('ready'))")
+                .unwrap(),
+            "true"
         );
     }
 }
