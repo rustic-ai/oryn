@@ -3061,6 +3061,18 @@ impl PageHandle {
     ) -> Result<Revision, RuntimeError> {
         let url = url.into();
         let html = html.into();
+        // The privileged parent establishes the initial document security
+        // state before an untrusted worker is allowed to confirm the snapshot.
+        // This keeps local HTML on the same fail-closed ordering as a
+        // brokered navigation without granting the worker policy authority.
+        if let Some(context) = self.context.upgrade() {
+            BrowserContext { inner: context }.prepare_document_security(
+                self.page_id(),
+                url.clone(),
+                &[],
+                &html,
+            )?;
+        }
         #[cfg(unix)]
         if let Some(response) = self
             .worker_request(crate::worker::WorkerRequest::LoadHtml {

@@ -21,22 +21,16 @@ from intentgym.core.config import AgentConfig, BenchmarkConfig, LLMConfig, RunCo
 from intentgym.core.runner import BenchmarkRunner
 
 try:
-    from semantic_metrics_v5 import (
-        causal_metrics as _causal_metrics_v5,
-    )
-    from semantic_metrics_v5 import (
-        compact_cell as _compact_cell_v5,
-    )
+    from semantic_metrics_v5 import causal_metrics as _causal_metrics_v5
+    from semantic_metrics_v5 import compact_cell as _compact_cell_v5
     from semantic_metrics_v5 import (
         observation_sufficiency as _observation_sufficiency_v5,
     )
 except ModuleNotFoundError:
-    from scripts.semantic_metrics_v5 import (  # type: ignore[no-redef]
-        causal_metrics as _causal_metrics_v5,
-    )
     from scripts.semantic_metrics_v5 import (
-        compact_cell as _compact_cell_v5,
+        causal_metrics as _causal_metrics_v5,  # type: ignore[no-redef]
     )
+    from scripts.semantic_metrics_v5 import compact_cell as _compact_cell_v5
     from scripts.semantic_metrics_v5 import (
         observation_sufficiency as _observation_sufficiency_v5,
     )
@@ -75,7 +69,7 @@ EXPECTED_MINIWOB_COMMIT = "33c3b4ddef8c6eb67c57a29663d844b1eda7e614"
 EXPECTED_MINIWOB_CONTENT_SHA256 = (
     "7bac5e8f28c40b8a44b3c915f98b26a8d3c494ecc1634e3d43839ed13598e386"
 )
-REQUIRED_WORKER_PROTOCOL_VERSION = 5
+REQUIRED_WORKER_PROTOCOL_VERSION = 6
 LEGACY_SCHEMA_V4_WORKER_PROTOCOL_VERSION = 4
 
 

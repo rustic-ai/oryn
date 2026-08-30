@@ -50,7 +50,7 @@ class OrynIntersectionObserver{constructor(callback,options={}){if(typeof callba
 globalThis.ResizeObserver=OrynResizeObserver;globalThis.IntersectionObserver=OrynIntersectionObserver;
 const __oryn_rect_key=rect=>[rect.x,rect.y,rect.width,rect.height].join(':');
 globalThis.__oryn_run_geometry_observers=()=>{for(const observer of __oryn_resize_observers){const entries=[];for(const target of observer.targets.keys())try{const rect=target.getBoundingClientRect(),key=__oryn_rect_key(rect);if(observer.targets.get(target)!==key){observer.targets.set(target,key);entries.push({target,contentRect:rect,borderBoxSize:[{inlineSize:rect.width,blockSize:rect.height}],contentBoxSize:[{inlineSize:rect.width,blockSize:rect.height}]})}}catch(_){}if(entries.length)observer.callback(entries,observer)}for(const observer of __oryn_intersection_observers){const entries=[];for(const target of observer.targets.keys())try{const rect=target.getBoundingClientRect(),viewport={x:0,y:0,width:innerWidth||0,height:innerHeight||0},width=Math.max(0,Math.min(rect.right,viewport.width)-Math.max(rect.left,0)),height=Math.max(0,Math.min(rect.bottom,viewport.height)-Math.max(rect.top,0)),area=rect.width*rect.height,ratio=area>0?(width*height)/area:0,key=__oryn_rect_key(rect)+':'+ratio;if(observer.targets.get(target)!==key){observer.targets.set(target,key);entries.push({target,boundingClientRect:rect,intersectionRect:{x:Math.max(rect.x,0),y:Math.max(rect.y,0),width,height},rootBounds:viewport,isIntersecting:ratio>0,intersectionRatio:ratio,time:Date.now()})}}catch(_){}if(entries.length)observer.callback(entries,observer)}};
-globalThis.location={href:'about:blank'};
+Object.defineProperty(globalThis,'location',{value:{href:'about:blank'},writable:true,enumerable:true,configurable:true});
 globalThis.__oryn_layout={styles:{},geometry:{},viewport:{},scroll:{},media:{}};
 globalThis.__oryn_install_layout=value=>{globalThis.__oryn_layout=value;globalThis.innerWidth=Number(value.viewport?.width||0);globalThis.innerHeight=Number(value.viewport?.height||0)};
 globalThis.__oryn_media={color_scheme:'light',reduced_motion:'no_preference'};
@@ -90,16 +90,17 @@ class OrynURLSearchParams {
   toString(){return this.items.map(([key,value])=>encodeURIComponent(key)+'='+encodeURIComponent(value)).join('&')}
 }
 class OrynURL {
-  constructor(input,base){input=String(input);if(base&&!/^[a-z][a-z0-9+.-]*:/i.test(input)){const parent=new OrynURL(base);const root=parent.host?parent.origin:parent.protocol;if(input.startsWith('#'))input=root+parent.pathname+parent.search+input;else if(input.startsWith('?'))input=root+parent.pathname+input;else input=input.startsWith('/')?root+input:root+parent.pathname.replace(/[^/]*$/,'')+input}const match=input.match(/^([a-z][a-z0-9+.-]*:)(?:\/\/([^/?#]*))?([^?#]*)(\?[^#]*)?(#.*)?$/i);if(!match)throw new TypeError('Invalid URL');this.protocol=match[1];this.host=match[2]||'';this.hostname=this.host.split(':')[0];this.port=this.host.slice(this.hostname.length+1);this.pathname=match[3]||'/';this.search=match[4]||'';this.hash=match[5]||'';this.origin=this.host?this.protocol+'//'+this.host:'null';this.searchParams=new OrynURLSearchParams(this.search)}
-  get href(){const query=this.searchParams.toString();return (this.host?this.origin:this.protocol)+this.pathname+(query?'?'+query:'')+this.hash}
+  constructor(input,base){input=String(input);if(base&&!/^[a-z][a-z0-9+.-]*:/i.test(input)){const parent=new OrynURL(base);const root=parent.host?parent.origin:parent.protocol;if(input.startsWith('#'))input=root+parent.pathname+parent.search+input;else if(input.startsWith('?'))input=root+parent.pathname+input;else input=input.startsWith('/')?root+input:root+parent.pathname.replace(/[^/]*$/,'')+input}const match=input.match(/^([a-z][a-z0-9+.-]*:)(?:\/\/([^/?#]*))?([^?#]*)(\?[^#]*)?(#.*)?$/i);if(!match)throw new TypeError('Invalid URL');this.protocol=match[1];this.hasAuthority=input.startsWith(this.protocol+'//');this.host=match[2]||'';this.hostname=this.host.split(':')[0];this.port=this.host.slice(this.hostname.length+1);this.pathname=match[3]||'/';this.search=match[4]||'';this.hash=match[5]||'';this.origin=this.host?this.protocol+'//'+this.host:'null';this.searchParams=new OrynURLSearchParams(this.search)}
+  get href(){const query=this.searchParams.toString();return (this.host?this.origin:(this.hasAuthority?this.protocol+'//':this.protocol))+this.pathname+(query?'?'+query:'')+this.hash}
   set href(value){Object.assign(this,new OrynURL(value,this.href))}
   toString(){return this.href}
   toJSON(){return this.href}
 }
 globalThis.URL=OrynURL;globalThis.URLSearchParams=OrynURLSearchParams;
-globalThis.location=new OrynURL(location.href);
+Object.defineProperty(globalThis,'location',{value:new OrynURL(location.href),writable:true,enumerable:true,configurable:true});
 const contextCall=request=>JSON.parse(globalThis.__oryn_context_call(JSON.stringify(request)));
 Object.defineProperty(Document.prototype,'cookie',{configurable:true,enumerable:true,get(){if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return '';const response=contextCall({operation:'get_document_cookie',page_id:__oryn_page_id});return response.result==='document_cookie'?response.value:''},set(value){if(typeof globalThis.__oryn_context_call==='function'&&__oryn_page_id!==null)contextCall({operation:'set_document_cookie',page_id:__oryn_page_id,value:String(value)})}});
+Object.defineProperty(Document.prototype,'title',{configurable:true,enumerable:true,get(){const node=this.querySelector('title');return node?node.textContent:''},set(value){let node=this.querySelector('title');if(!node){node=this.createElement('title');const parent=this.querySelector('head')||this.documentElement;parent.appendChild(node)}node.textContent=String(value)}});
 const __oryn_page_proxy=pageId=>pageId==null?null:({__orynPageId:pageId,__closed:false,get closed(){return this.__closed},focus(){contextCall({operation:'activate_page',source_page_id:__oryn_page_id,target_page_id:pageId})},close(){contextCall({operation:'close_page',source_page_id:__oryn_page_id,target_page_id:pageId});this.__closed=true},postMessage(data,targetOrigin='*'){contextCall({operation:'post_message',source_page_id:__oryn_page_id,target_page_id:pageId,target_origin:String(targetOrigin),data})}});
 globalThis.__oryn_configure_context=(pageId,openerPageId)=>{__oryn_page_id=pageId;globalThis.opener=__oryn_page_proxy(openerPageId);if(typeof globalThis.__oryn_context_call==='function'){const response=contextCall({operation:'get_security_origin',page_id:pageId});if(response.result==='security_origin'){location.origin=response.serialized;globalThis.__oryn_opaque_origin=!!response.opaque}}};
 globalThis.open=(url='')=>{if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return null;const target=url?new OrynURL(url,location.href).href:null;const response=contextCall({operation:'open_page',opener_page_id:__oryn_page_id,url:target});if(response.result==='page_opened'){__oryn_context_trace.push({kind:'page_created',detail:{page_id:response.page_id,opener_page_id:__oryn_page_id}});return __oryn_page_proxy(response.page_id)}if(response.result==='page_denied')__oryn_context_trace.push({kind:'capability_failure',detail:{capability:'popup.open',detail:response.reason}});return null};
@@ -413,7 +414,12 @@ impl RustExecutableDocument {
         if let Some(base_url) = &base_url {
             let url = serde_json::to_string(base_url.as_str())
                 .map_err(|error| HostError::Execution(error.to_string()))?;
-            host.execute(&format!("location.href={url}"))?;
+            // Seed the realm's committed URL without invoking Location's public
+            // navigation path. Internal fixture URLs are valid document origins
+            // but must never escape through the network broker as navigations.
+            host.execute(&format!(
+                "Object.assign(globalThis.location,new OrynURL({url}))"
+            ))?;
             #[cfg(unix)]
             if let Some((client, page_id, _)) = &context_handle {
                 client
@@ -497,7 +503,11 @@ impl RustExecutableDocument {
             if let Some(frame_url) = &frame_url {
                 let url = serde_json::to_string(frame_url.as_str())
                     .map_err(|error| HostError::Execution(error.to_string()))?;
-                host.execute(&format!("location.href={url}"))?;
+                // Frame creation installs an already-authorized document URL;
+                // assigning href here would incorrectly schedule navigation.
+                host.execute(&format!(
+                    "Object.assign(globalThis.location,new OrynURL({url}))"
+                ))?;
             }
             #[cfg(unix)]
             if let Some((page_id, _)) = context_identity {
@@ -1461,6 +1471,38 @@ mod tests {
         page.drain_tasks().unwrap();
         page.drain_tasks().unwrap();
         assert_eq!(page.evaluate("String(count)").unwrap(), "1");
+    }
+
+    #[test]
+    fn ordinary_button_click_does_not_schedule_document_navigation() {
+        let mut page = RustExecutableDocument::load(
+            "<button type=button id=go onclick=\"document.querySelector('#status').textContent='changed'\">Mutate</button><output id=status>before</output>",
+        )
+        .unwrap();
+        let button = page.node_by_id("go").expect("button");
+        page.apply_action(button, SemanticAction::Click, None)
+            .expect("ordinary button click must not navigate");
+        let status = page.node_by_id("status").expect("status");
+        assert_eq!(page.document.dom.text_content(status).unwrap(), "changed");
+        assert_eq!(
+            page.evaluate("new URL('fixture:///tmp/page.html').href")
+                .unwrap(),
+            "fixture:///tmp/page.html"
+        );
+    }
+
+    #[test]
+    fn document_title_reflects_the_rust_owned_title_element() {
+        let mut page = RustExecutableDocument::load("<title>Initial</title><main>Body</main>")
+            .expect("document");
+        assert_eq!(page.evaluate("document.title").unwrap(), "Initial");
+        page.execute("document.title='Updated'").unwrap();
+        assert_eq!(page.evaluate("document.title").unwrap(), "Updated");
+        assert_eq!(
+            page.evaluate("document.querySelector('title').textContent")
+                .unwrap(),
+            "Updated"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]

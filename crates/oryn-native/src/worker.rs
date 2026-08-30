@@ -444,7 +444,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             Ok(WorkerRequest::Exit) => WorkerResponse::Exiting,
             Ok(_) => WorkerResponse::Error {
                 error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
-                    "page commands require worker protocol v5 initialization".into(),
+                    "page commands require worker protocol v6 initialization".into(),
                 )),
             },
             Err(error) => WorkerResponse::Error {
@@ -754,7 +754,7 @@ mod tests {
     use super::*;
 
     #[tokio::test(flavor = "current_thread")]
-    async fn serves_initialized_page_requests_over_v5_json_lines() {
+    async fn serves_initialized_page_requests_over_v6_json_lines() {
         let requests = vec![
             WorkerRequest::Initialize {
                 nonce: "test-nonce".into(),
@@ -839,7 +839,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn rejects_duplicate_unmatched_and_reinitialized_v5_messages() {
+    async fn rejects_duplicate_unmatched_and_reinitialized_v6_messages() {
         let commands = [
             (
                 9,

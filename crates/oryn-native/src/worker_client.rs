@@ -333,7 +333,7 @@ impl WorkerClient {
             || runtime.binding_abi_version != oryn_js::BINDING_ABI_VERSION
             || !runtime.capabilities.iter().any(|item| item == "layout_box")
             || runtime.style_engine_version.as_deref()
-                != Some("stylo-declarations-0.20+oryn-cascade-v1")
+                != Some("stylo-declarations-0.20+oryn-common-web-cascade-v2")
             || runtime.box_engine_version.as_deref() != Some("taffy-0.14")
             || runtime.inline_engine_version.as_deref() != Some("parley-0.11.1")
             || runtime.embedded_font_sha256.as_deref()
@@ -751,7 +751,7 @@ pub fn verify_worker(path: &Path) -> Result<WorkerVerification, RuntimeError> {
         || manifest.entitlement_sha256 != expected_entitlement_sha256()
         || manifest.policy_sha256 != compiled_policy_sha256()
         || manifest.source_tree_sha256.len() != 64
-        || manifest.style_engine_version != "stylo-declarations-0.20+oryn-cascade-v1"
+        || manifest.style_engine_version != "stylo-declarations-0.20+oryn-common-web-cascade-v2"
         || manifest.box_engine_version != "taffy-0.14"
         || manifest.inline_engine_version != "parley-0.11.1"
         || manifest.embedded_font_sha256

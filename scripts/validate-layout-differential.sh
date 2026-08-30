@@ -26,7 +26,7 @@ jq -e '.outcome.status == "passed" and .domain == "chromium" and
 native_relations="$(jq -S '.relations | del(.table_geometry_unavailable, .block_border_width)' "$artifact_dir/native.json")"
 chromium_relations="$(jq -S '.relations | del(.block_border_width)' "$artifact_dir/chromium.json")"
 test "$native_relations" = "$chromium_relations"
-jq -e '.relations.table_geometry_unavailable == true' "$artifact_dir/native.json" >/dev/null
+jq -e '.relations.table_geometry_unavailable == false' "$artifact_dir/native.json" >/dev/null
 jq -e --slurp '
   (.[0].relations.block_border_width - .[1].relations.block_border_width) as $difference |
   (($difference | if . < 0 then -. else . end) <= 1.0)

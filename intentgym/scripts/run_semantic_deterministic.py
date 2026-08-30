@@ -98,7 +98,7 @@ def _is_supported_native_runtime(runtime: dict[str, Any]) -> bool:
         and runtime.get("build_profile") == "release"
         and runtime.get("execution_mode") == "sandboxed_worker"
         and runtime.get("sandboxed") is True
-        and runtime.get("worker_protocol_version") in {3, 4}
+        and runtime.get("worker_protocol_version") in {3, 4, 6}
     )
 
 
