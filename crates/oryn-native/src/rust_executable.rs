@@ -122,6 +122,7 @@ class OrynURL {
 }
 globalThis.URL=OrynURL;globalThis.URLSearchParams=OrynURLSearchParams;
 Object.defineProperty(globalThis,'location',{value:new OrynURL(location.href),writable:true,enumerable:true,configurable:true});
+Object.defineProperty(location,'assign',{configurable:true,enumerable:true,writable:true,value(url){this.href=new OrynURL(url,this.href).href}});
 class OrynHistory {
   constructor(){this.length=1;this.state=null;this.scrollRestoration='auto'}
   __update(state,url,push){if(url!==undefined&&url!==null&&String(url)!==''){const next=new OrynURL(url,location.href);if(location.origin!=='null'&&next.origin!==location.origin)throw new Error('SecurityError: history URL must be same-origin');Object.assign(location,next)}this.state=state;if(push)this.length++}
@@ -1687,6 +1688,24 @@ mod tests {
         page.apply_action(button, SemanticAction::Click, None)
             .expect("inline navigation handler");
         assert_eq!(page.location().unwrap(), "https://example.test/next.html");
+    }
+
+    #[test]
+    fn location_assign_resolves_against_the_committed_url() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<button type=button id=go onclick=\"location.assign('/oauth/callback?code=ready')\">Continue</button>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://example.test/oauth/start").unwrap()),
+        )
+        .unwrap();
+        let button = page.node_by_id("go").expect("button");
+        page.apply_action(button, SemanticAction::Click, None)
+            .expect("location.assign navigation handler");
+        assert_eq!(
+            page.location().unwrap(),
+            "https://example.test/oauth/callback?code=ready"
+        );
     }
 
     #[test]
