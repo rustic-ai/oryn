@@ -188,6 +188,14 @@ interface HTMLElement : Element {
   attribute DOMString innerText;
   readonly attribute CSSStyleDeclaration style;
   readonly attribute any dataset;
+  attribute EventListener? onclick;
+  attribute EventListener? oninput;
+  attribute EventListener? onchange;
+  attribute EventListener? onsubmit;
+  attribute EventListener? onfocus;
+  attribute EventListener? onblur;
+  attribute EventListener? onkeydown;
+  attribute EventListener? onkeyup;
   undefined click();
   undefined focus();
   undefined blur();

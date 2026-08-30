@@ -116,6 +116,7 @@ pub struct V8BindingState {
     next_event_id: Cell<u64>,
     events: RefCell<BTreeMap<u64, EventRecord>>,
     listeners: RefCell<BTreeMap<(NodeId, String), Vec<EventListener>>>,
+    event_handlers: RefCell<BTreeMap<(NodeId, String), v8::Global<v8::Value>>>,
     next_mutation_observer_id: Cell<u64>,
     mutation_observers: RefCell<BTreeMap<u64, MutationObserverEntry>>,
     layout: RefCell<BindingLayout>,
@@ -293,6 +294,7 @@ pub fn install_generated_bindings_with_root(
         next_event_id: Cell::new(1),
         events: RefCell::new(BTreeMap::new()),
         listeners: RefCell::new(BTreeMap::new()),
+        event_handlers: RefCell::new(BTreeMap::new()),
         next_mutation_observer_id: Cell::new(1),
         mutation_observers: RefCell::new(BTreeMap::new()),
         layout: RefCell::new(BindingLayout::default()),
@@ -1584,6 +1586,14 @@ fn get_attribute_value<'s>(
     interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if interface == "HTMLElement" && member.starts_with("on") {
+        return Ok(state
+            .event_handlers
+            .borrow()
+            .get(&(node, member.to_string()))
+            .map(|handler| v8::Local::new(scope, handler))
+            .unwrap_or_else(|| v8::null(scope).into()));
+    }
     if interface == "HTMLTemplateElement" && member == "content" {
         let content = template_content(state, node)?;
         return Ok(wrap_node(scope, state, content)?.into());
@@ -2018,6 +2028,28 @@ fn set_attribute_value(
     member: &str,
     value: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
+    if interface == "HTMLElement" && member.starts_with("on") {
+        let key = (node, member.to_string());
+        let present = if value.is_null_or_undefined() {
+            state.event_handlers.borrow_mut().remove(&key);
+            false
+        } else if v8::Local::<v8::Function>::try_from(value).is_ok() {
+            state
+                .event_handlers
+                .borrow_mut()
+                .insert(key, v8::Global::new(scope, value));
+            true
+        } else {
+            state.event_handlers.borrow_mut().remove(&key);
+            false
+        };
+        state.dom.borrow_mut().set_event_listener_presence(
+            node,
+            member.trim_start_matches("on"),
+            present,
+        )?;
+        return Ok(());
+    }
     let value = if matches!(
         (interface, member),
         ("Element", "innerHTML" | "outerHTML") | ("ShadowRoot", "innerHTML")
@@ -3436,13 +3468,13 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "let calls=[];const root=document.getElementById('root');const go=document.getElementById('go');root.addEventListener('click',e=>calls.push('root:'+e.target.id));go.addEventListener('click',e=>{calls.push('go');e.preventDefault()});const accepted=go.dispatchEvent(new Event('click',{bubbles:true,cancelable:true}));calls.join(',')+'|'+accepted",
+            "let calls=[];const root=document.getElementById('root');const go=document.getElementById('go');root.addEventListener('click',e=>calls.push('root:'+e.target.id));go.addEventListener('click',e=>{calls.push('go');e.preventDefault()});go.onclick=()=>calls.push('property');const accepted=go.dispatchEvent(new Event('click',{bubbles:true,cancelable:true}));calls.join(',')+'|'+accepted+'|'+('onclick' in go)",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
-            "go,root:go|false"
+            "go,property,root:go|false|true"
         );
     }
 
