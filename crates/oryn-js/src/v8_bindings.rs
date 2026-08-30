@@ -795,16 +795,13 @@ fn get_computed_style_callback(
             .get(&key)
             .cloned()
             .unwrap_or_default();
-        let template = state
-            .instance_templates
-            .borrow()
-            .get("CSSStyleDeclaration")
-            .cloned()
-            .ok_or(V8BindingError::MissingInterface("CSSStyleDeclaration"))?;
-        let object = v8::Local::new(scope, template)
-            .new_instance(scope)
-            .ok_or(V8BindingError::Allocation("computed CSSStyleDeclaration"))?;
-        object.set_internal_field(0, v8::BigInt::new_from_u64(scope, node_key(node)).into());
+        let object = v8::Local::<v8::Object>::try_from(associated_wrapper(
+            scope,
+            &state,
+            node,
+            "CSSStyleDeclaration",
+        )?)
+        .map_err(|_| V8BindingError::Allocation("computed CSSStyleDeclaration"))?;
         for (name, value) in styles {
             let Some(name) = v8::String::new(scope, &name) else {
                 continue;
