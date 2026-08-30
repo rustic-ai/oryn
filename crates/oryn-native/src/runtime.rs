@@ -9564,28 +9564,46 @@ mod tests {
             .await
             .expect("popup");
         popup
-            .load_html("https://app.example.test/popup", "<main>Popup</main>")
+            .load_html(
+                "https://app.example.test/popup",
+                "<button onclick='close()'>Close popup</button>",
+            )
             .await
             .expect("load popup");
         assert_eq!(
             popup
-                .evaluate("typeof close+'|'+closed+'|'+(close(),closed)")
+                .evaluate("typeof close+'|'+closed")
                 .await
-                .expect("close popup through global alias"),
-            "function|false|true"
+                .expect("inspect global close alias"),
+            "function|false"
         );
-        for _ in 0..100 {
-            if context
+        let target = popup
+            .observe()
+            .await
+            .expect("observe popup")
+            .nodes
+            .into_iter()
+            .find(|node| node.name == "Close popup")
+            .expect("close control")
+            .semantic_ref;
+        let result = popup
+            .execute(NativeAction {
+                target,
+                action: SemanticAction::Click,
+                value: None,
+            })
+            .await
+            .expect("close popup through global alias");
+        assert!(result.effects.iter().any(
+            |effect| matches!(effect, Effect::PageClosed { page_id } if *page_id == popup.page_id())
+        ));
+        assert!(
+            context
                 .pages()
                 .iter()
                 .find(|page| page.page.page_id == popup.page_id())
                 .is_some_and(|page| page.status == PageStatus::Closed)
-            {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!("popup remained registered after global close()")
+        );
     }
 
     #[cfg(feature = "v8-host")]
