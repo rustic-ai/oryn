@@ -340,6 +340,7 @@ impl RustExecutableDocument {
                     script_type,
                     parsed.dom.text_content(id).unwrap_or_default(),
                     parser_blocking,
+                    node.attributes.contains_key("nomodule"),
                 )
             })
             .collect::<Vec<_>>();
@@ -520,7 +521,13 @@ impl RustExecutableDocument {
             host.activate_realm(top_realm)?;
             host.set_frame_document(frame, child_document)?;
         }
-        for (script, src, script_type, inline, parser_blocking) in scripts {
+        for (script, src, script_type, inline, parser_blocking, no_module) in scripts {
+            // V8 provides module-script support, so the HTML `nomodule`
+            // fallback must not execute. Modern framework exports commonly
+            // include a legacy polyfill bundle behind this attribute.
+            if no_module {
+                continue;
+            }
             let parser_suspension = parser_blocking
                 .then(|| live_dom.borrow_mut().suspend_parser_tail(script))
                 .transpose()
@@ -534,7 +541,7 @@ impl RustExecutableDocument {
                     .map(String::as_str)
                     .unwrap_or(&inline);
                 if let Err(error) = host.execute_module(name, source, resources) {
-                    diagnostics.push(script_diagnostic(error));
+                    diagnostics.push(script_diagnostic_at(error, name));
                 }
                 if let Some(suspension) = parser_suspension {
                     live_dom
@@ -575,7 +582,10 @@ impl RustExecutableDocument {
                 source
             };
             if let Err(error) = host.execute(source) {
-                diagnostics.push(script_diagnostic(error));
+                diagnostics.push(script_diagnostic_at(
+                    error,
+                    src.as_deref().unwrap_or("inline script"),
+                ));
             }
             if let Some(suspension) = parser_suspension {
                 live_dom
@@ -1348,6 +1358,10 @@ fn script_diagnostic(error: HostError) -> oryn_common::v3::CapabilityDiagnostic 
     }
 }
 
+fn script_diagnostic_at(error: HostError, resource: &str) -> oryn_common::v3::CapabilityDiagnostic {
+    script_diagnostic(HostError::Execution(format!("{resource}: {error}")))
+}
+
 fn subtree_nodes(dom: &DomRuntime, root: NodeId) -> Result<Vec<NodeId>, HostError> {
     let mut nodes = vec![root];
     let mut index = 0;
@@ -1377,6 +1391,19 @@ mod tests {
         page.click("#go").unwrap();
         let button = page.node_by_id("go").unwrap();
         assert_eq!(page.document.dom.text_content(button).unwrap(), "done");
+    }
+
+    #[test]
+    fn nomodule_fallback_is_skipped_when_v8_supports_modules() {
+        let mut page = RustExecutableDocument::load(
+            "<output id='result'>modern</output><script nomodule>document.getElementById('result').textContent='legacy'</script>",
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("document.getElementById('result').textContent")
+                .unwrap(),
+            "modern"
+        );
     }
 
     #[test]
