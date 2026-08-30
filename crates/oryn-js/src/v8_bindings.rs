@@ -2416,6 +2416,33 @@ fn call_operation<'s>(
             let found = state.dom.borrow().query_selector_all(node, &selector)?;
             node_array(scope, state, &found).map(Some)
         }
+        ("Document" | "Element", "getElementsByTagName") => {
+            let name = required_string(scope, args, 0)?;
+            let found = state.dom.borrow().query_selector_all(node, &name)?;
+            node_array(scope, state, &found).map(Some)
+        }
+        ("Document" | "Element", "getElementsByClassName") => {
+            let classes = required_string(scope, args, 0)?;
+            let selector = classes
+                .split_ascii_whitespace()
+                .filter(|class| !class.is_empty())
+                .map(|class| format!(".{class}"))
+                .collect::<String>();
+            let found = if selector.is_empty() {
+                Vec::new()
+            } else {
+                state.dom.borrow().query_selector_all(node, &selector)?
+            };
+            node_array(scope, state, &found).map(Some)
+        }
+        ("Document", "getElementsByName") => {
+            let name = required_string(scope, args, 0)?.replace('"', "\\\"");
+            let found = state
+                .dom
+                .borrow()
+                .query_selector_all(node, &format!("[name=\"{name}\"]"))?;
+            node_array(scope, state, &found).map(Some)
+        }
         ("Element", "remove") => {
             state.dom.borrow_mut().remove(node)?;
             Ok(None)
@@ -3239,7 +3266,7 @@ mod tests {
     fn document_landmarks_and_node_equality_support_framework_bootstrap() {
         initialize_v8();
         let parsed = html::parse(
-            "<!doctype html><html><head><title>App</title></head><body><main id='root'></main></body></html>",
+            "<!doctype html><html><head><title>App</title></head><body><main id='root' class='shell' name='content'></main></body></html>",
         );
         let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
         let mut isolate = v8::Isolate::new(Default::default());
@@ -3249,13 +3276,13 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "const main=document.getElementById('root');main.appendChild(document.createElement('span'));const clone=main.cloneNode(true);const names=main.getAttributeNames().join(',');const toggled=main.toggleAttribute('hidden',true)&&main.hasAttributes();main.toggleAttribute('hidden',false);String(document.head.tagName)+'|'+document.body.tagName+'|'+main.isEqualNode(clone)+'|'+main.hasChildNodes()+'|'+main.childElementCount+'|'+(main.firstElementChild===main.lastElementChild)+'|'+(main.getRootNode()===document)+'|'+names+'|'+toggled",
+            "const main=document.getElementById('root');main.appendChild(document.createElement('span'));const clone=main.cloneNode(true);const names=main.getAttributeNames().join(',');const toggled=main.toggleAttribute('hidden',true)&&main.hasAttributes();main.toggleAttribute('hidden',false);const collections=document.getElementsByTagName('main').length+document.getElementsByClassName('shell').length+document.getElementsByName('content').length;String(document.head.tagName)+'|'+document.body.tagName+'|'+main.isEqualNode(clone)+'|'+main.hasChildNodes()+'|'+main.childElementCount+'|'+(main.firstElementChild===main.lastElementChild)+'|'+(main.getRootNode()===document)+'|'+names+'|'+toggled+'|'+collections",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
-            "HEAD|BODY|true|true|1|true|true|id|true"
+            "HEAD|BODY|true|true|1|true|true|class,id,name|true|3"
         );
     }
 

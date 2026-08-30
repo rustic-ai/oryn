@@ -326,6 +326,24 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         arity: 1,
         readonly: false,
     },
+    GeneratedMember {
+        name: "getElementsByTagName",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "getElementsByClassName",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "getElementsByName",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
 ];
 pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
@@ -488,6 +506,18 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         name: "querySelectorAll",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "getElementsByTagName",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "getElementsByClassName",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
         readonly: false,

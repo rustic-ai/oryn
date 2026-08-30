@@ -141,6 +141,8 @@ interface Element : Node {
   boolean toggleAttribute(DOMString name, optional boolean force);
   Element? querySelector(DOMString selectors);
   sequence<Element> querySelectorAll(DOMString selectors);
+  sequence<Element> getElementsByTagName(DOMString qualifiedName);
+  sequence<Element> getElementsByClassName(DOMString classNames);
   boolean matches(DOMString selectors);
   Element? closest(DOMString selectors);
   DOMRect getBoundingClientRect();
@@ -264,6 +266,9 @@ interface Document : Node {
   Element? getElementById(DOMString id);
   Element? querySelector(DOMString selectors);
   sequence<Element> querySelectorAll(DOMString selectors);
+  sequence<Element> getElementsByTagName(DOMString qualifiedName);
+  sequence<Element> getElementsByClassName(DOMString classNames);
+  sequence<Element> getElementsByName(DOMString elementName);
 };
 
 [Exposed=Window]
