@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_tree_sha256": "a3ea885eafd82f685c0b17dcce6909a9110a65fd018ee7c488ee66e664c6b12e",
+  "source_tree_sha256": "953fa1a387f4c9efe977973d95d21b1a6853619113d53c47579ffc737ffc4ba2",
   "manifest": "benchmarks/conformance/runtime-shadow-v1.json",
   "legacy_commit": "35ff762ac35716bb891bf980654d434eed5dfcf2",
   "side_effect_policy": "repository_fixtures_only",
