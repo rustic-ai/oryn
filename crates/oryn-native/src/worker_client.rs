@@ -185,6 +185,34 @@ pub struct WorkerClient {
     verification: Option<WorkerVerification>,
 }
 
+fn request_timeout(request: &WorkerRequest, limits: &WorkerLimits) -> Duration {
+    match request {
+        WorkerRequest::Goto { .. }
+        | WorkerRequest::Back
+        | WorkerRequest::Forward
+        | WorkerRequest::Refresh
+        | WorkerRequest::LoadHtml { .. } => Duration::from_millis(limits.navigation_wall_ms),
+        WorkerRequest::Oil { input } => {
+            // OIL is a bounded batch transport. Individual navigation,
+            // JavaScript, and action operations retain their worker-side 30s
+            // and 10s limits; the outer IPC watchdog must allow each command
+            // to reach those checks instead of charging the whole batch as one
+            // action. Queue capacity supplies a hard upper bound even when an
+            // input contains arbitrarily many lines.
+            let commands = input
+                .lines()
+                .filter(|line| {
+                    let line = line.trim();
+                    !line.is_empty() && !line.starts_with('#')
+                })
+                .count()
+                .clamp(1, limits.queue_capacity.max(1));
+            Duration::from_millis(limits.navigation_wall_ms.saturating_mul(commands as u64))
+        }
+        _ => Duration::from_millis(limits.command_wall_ms),
+    }
+}
+
 impl WorkerClient {
     pub fn spawn(
         config: &BrowserConfig,
@@ -370,16 +398,7 @@ impl WorkerClient {
     }
 
     pub fn request(&mut self, request: WorkerRequest) -> Result<WorkerResponse, RuntimeError> {
-        let timeout = match request {
-            WorkerRequest::Goto { .. }
-            | WorkerRequest::Back
-            | WorkerRequest::Forward
-            | WorkerRequest::Refresh
-            | WorkerRequest::LoadHtml { .. } => {
-                Duration::from_millis(self.limits.navigation_wall_ms)
-            }
-            _ => Duration::from_millis(self.limits.command_wall_ms),
-        };
+        let timeout = request_timeout(&request, &self.limits);
         self.request_with_timeout(request, timeout)
     }
 
@@ -1063,6 +1082,36 @@ mod tests {
             PathBuf::from("/tmp/OrynPageWorker.app")
         );
         assert!(containing_app(Path::new("/tmp/oryn-page-worker")).is_err());
+    }
+
+    #[test]
+    fn oil_batch_timeout_is_bounded_per_command_without_weakening_action_limits() {
+        let limits = WorkerLimits::default();
+        let batch = WorkerRequest::Oil {
+            input: "# comment\nobserve\nclick \"Save\"\n\nwait visible css(#done)".into(),
+        };
+        assert_eq!(
+            request_timeout(&batch, &limits),
+            Duration::from_millis(limits.navigation_wall_ms * 3)
+        );
+        assert_eq!(
+            request_timeout(
+                &WorkerRequest::Evaluate {
+                    source: "for(;;){}".into()
+                },
+                &limits
+            ),
+            Duration::from_millis(limits.command_wall_ms)
+        );
+        let oversized = WorkerRequest::Oil {
+            input: std::iter::repeat_n("observe", limits.queue_capacity + 10)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        };
+        assert_eq!(
+            request_timeout(&oversized, &limits),
+            Duration::from_millis(limits.navigation_wall_ms * limits.queue_capacity as u64)
+        );
     }
 
     #[test]
