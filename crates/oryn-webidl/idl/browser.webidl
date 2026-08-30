@@ -181,6 +181,7 @@ interface HTMLTextAreaElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLSelectElement : HTMLElement {
+  readonly attribute sequence<HTMLOptionElement> options;
   attribute DOMString value;
   attribute long selectedIndex;
   attribute DOMString name;

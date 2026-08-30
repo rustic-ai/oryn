@@ -1603,6 +1603,10 @@ fn get_attribute_value<'s>(
     if interface == "Document" && member == "defaultView" {
         return Ok(scope.get_current_context().global(scope).into());
     }
+    if interface == "HTMLSelectElement" && member == "options" {
+        let options = state.dom.borrow().query_selector_all(node, "option")?;
+        return node_array(scope, state, &options);
+    }
     if interface == "HTMLIFrameElement" && member == "contentDocument" {
         let document = state.frame_roots.borrow().get(&node).copied();
         return optional_node(scope, state, document);
@@ -3040,6 +3044,30 @@ mod tests {
                 .unwrap()
                 .event_listeners
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn select_options_expose_live_option_wrappers_to_frameworks() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<select id='category'><option value='all'>All</option><option value='tools'>Tools</option></select>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const options=document.getElementById('category').options;options.length+'|'+options[1].value+'|'+(options[0]===document.querySelector('option'))",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "2|tools|true"
         );
     }
 
