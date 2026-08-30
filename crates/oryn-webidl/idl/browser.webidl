@@ -108,6 +108,9 @@ interface Node : EventTarget {
   boolean isEqualNode(Node? other);
   boolean hasChildNodes();
   Node getRootNode();
+  undefined before(Node node);
+  undefined after(Node node);
+  undefined remove();
 };
 
 dictionary ShadowRootInit {
@@ -181,6 +184,15 @@ interface HTMLElement : Element {
   readonly attribute any dataset;
   undefined click();
   undefined focus();
+};
+
+[Exposed=Window]
+interface HTMLTemplateElement : HTMLElement {
+  readonly attribute DocumentFragment content;
+};
+
+[Exposed=Window]
+interface HTMLMediaElement : HTMLElement {
 };
 
 [Exposed=Window]

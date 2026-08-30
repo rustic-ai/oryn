@@ -120,6 +120,7 @@ pub struct V8BindingState {
     mutation_observers: RefCell<BTreeMap<u64, MutationObserverEntry>>,
     layout: RefCell<BindingLayout>,
     frame_roots: RefCell<BTreeMap<NodeId, NodeId>>,
+    template_contents: RefCell<BTreeMap<NodeId, NodeId>>,
     document_write_anchor: Cell<Option<NodeId>>,
     document_open: Cell<bool>,
     document_write_buffer: RefCell<String>,
@@ -296,6 +297,7 @@ pub fn install_generated_bindings_with_root(
         mutation_observers: RefCell::new(BTreeMap::new()),
         layout: RefCell::new(BindingLayout::default()),
         frame_roots: RefCell::new(BTreeMap::new()),
+        template_contents: RefCell::new(BTreeMap::new()),
         document_write_anchor: Cell::new(None),
         document_open: Cell::new(false),
         document_write_buffer: RefCell::new(String::new()),
@@ -1115,6 +1117,8 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "SVGElement"
         }
         NodeKind::Element { name } => match name.local.as_ref() {
+            "template" => "HTMLTemplateElement",
+            "audio" | "video" => "HTMLMediaElement",
             "input" => "HTMLInputElement",
             "textarea" => "HTMLTextAreaElement",
             "select" => "HTMLSelectElement",
@@ -1544,6 +1548,30 @@ fn set_inline_style_property(
     Ok(previous)
 }
 
+fn template_content(
+    state: &Rc<V8BindingState>,
+    template: NodeId,
+) -> Result<NodeId, V8BindingError> {
+    if let Some(content) = state.template_contents.borrow().get(&template).copied() {
+        return Ok(content);
+    }
+    let content = {
+        let mut dom = state.dom.borrow_mut();
+        let content = dom.create_fragment();
+        let children = dom.arena().get(template)?.children.clone();
+        for child in children {
+            dom.remove_child(template, child)?;
+            dom.append_child(content, child)?;
+        }
+        content
+    };
+    state
+        .template_contents
+        .borrow_mut()
+        .insert(template, content);
+    Ok(content)
+}
+
 fn get_attribute_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
@@ -1551,6 +1579,10 @@ fn get_attribute_value<'s>(
     interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if interface == "HTMLTemplateElement" && member == "content" {
+        let content = template_content(state, node)?;
+        return Ok(wrap_node(scope, state, content)?.into());
+    }
     if interface == "Element" && member == "classList" {
         return associated_wrapper(scope, state, node, "DOMTokenList");
     }
@@ -1768,6 +1800,18 @@ fn get_attribute_value<'s>(
         let host = state.dom.borrow().arena().get(node)?.parent;
         return optional_node(scope, state, host);
     }
+    let template_inner_html = if interface == "Element"
+        && member == "innerHTML"
+        && state
+            .dom
+            .borrow()
+            .node_name(node)
+            .is_ok_and(|name| name.eq_ignore_ascii_case("template"))
+    {
+        Some(template_content(state, node)?)
+    } else {
+        None
+    };
     let dom = state.dom.borrow();
     let record = dom.arena().get(node)?;
     let value = match (interface, member) {
@@ -1827,7 +1871,11 @@ fn get_attribute_value<'s>(
         }
         ("Element" | "ShadowRoot", "innerHTML") => {
             let mut html = String::new();
-            for child in &record.children {
+            let children = template_inner_html
+                .map(|content| dom.arena().get(content).map(|record| &record.children))
+                .transpose()?
+                .unwrap_or(&record.children);
+            for child in children {
                 html.push_str(&dom.serialize(*child)?);
             }
             v8_string(scope, &html)?
@@ -1968,6 +2016,18 @@ fn set_attribute_value(
     } else {
         value.to_rust_string_lossy(scope)
     };
+    let inner_html_target = if interface == "Element"
+        && member == "innerHTML"
+        && state
+            .dom
+            .borrow()
+            .node_name(node)
+            .is_ok_and(|name| name.eq_ignore_ascii_case("template"))
+    {
+        Some(template_content(state, node)?)
+    } else {
+        None
+    };
     let mut dom = state.dom.borrow_mut();
     match (interface, member) {
         (_, "textContent") | ("HTMLElement", "innerText") => {
@@ -2049,13 +2109,14 @@ fn set_attribute_value(
             }
         }
         ("Element" | "ShadowRoot", "innerHTML") => {
-            dom.set_inner_html(node, &value)?;
+            let target = inner_html_target.unwrap_or(node);
+            dom.set_inner_html(target, &value)?;
             drop(dom);
             // HTML fragment parsing marks script elements already-started;
             // moving the resulting subtree into a document must not execute
             // them later.
-            state.mark_script_subtree_inert(node)?;
-            upgrade_custom_element_subtree(scope, state, node)?;
+            state.mark_script_subtree_inert(target)?;
+            upgrade_custom_element_subtree(scope, state, target)?;
             return Ok(());
         }
         ("Element", "outerHTML") => dom.set_outer_html(node, &value)?,
@@ -2306,18 +2367,47 @@ fn call_operation<'s>(
         }
         (_, "appendChild") => {
             let child = argument_node(scope, state, args.get(0))?;
-            state.dom.borrow_mut().append_child(node, child)?;
-            prepare_dynamic_script_subtree(scope, state, child)?;
+            let fragment_children = {
+                let dom = state.dom.borrow();
+                matches!(dom.arena().get(child)?.kind, NodeKind::DocumentFragment)
+                    .then(|| dom.arena().get(child).map(|record| record.children.clone()))
+                    .transpose()?
+            };
+            if let Some(children) = fragment_children {
+                for fragment_child in children {
+                    state.dom.borrow_mut().append_child(node, fragment_child)?;
+                    prepare_dynamic_script_subtree(scope, state, fragment_child)?;
+                }
+            } else {
+                state.dom.borrow_mut().append_child(node, child)?;
+                prepare_dynamic_script_subtree(scope, state, child)?;
+            }
             Ok(Some(wrap_node(scope, state, child)?.into()))
         }
         (_, "insertBefore") => {
             let child = argument_node(scope, state, args.get(0))?;
             let reference = optional_argument_node(scope, state, args.get(1))?;
-            state
-                .dom
-                .borrow_mut()
-                .insert_before(node, child, reference)?;
-            prepare_dynamic_script_subtree(scope, state, child)?;
+            let fragment_children = {
+                let dom = state.dom.borrow();
+                matches!(dom.arena().get(child)?.kind, NodeKind::DocumentFragment)
+                    .then(|| dom.arena().get(child).map(|record| record.children.clone()))
+                    .transpose()?
+            };
+            if let Some(children) = fragment_children {
+                for fragment_child in children {
+                    state
+                        .dom
+                        .borrow_mut()
+                        .insert_before(node, fragment_child, reference)?;
+                    prepare_dynamic_script_subtree(scope, state, fragment_child)?;
+                }
+            } else {
+                state
+                    .dom
+                    .borrow_mut()
+                    .insert_before(node, child, reference)?;
+                prepare_dynamic_script_subtree(scope, state, child)?;
+            }
             Ok(Some(wrap_node(scope, state, child)?.into()))
         }
         (_, "removeChild") => {
@@ -2328,17 +2418,84 @@ fn call_operation<'s>(
         (_, "replaceChild") => {
             let replacement = argument_node(scope, state, args.get(0))?;
             let child = argument_node(scope, state, args.get(1))?;
-            state
-                .dom
-                .borrow_mut()
-                .replace_child(node, replacement, child)?;
-            prepare_dynamic_script_subtree(scope, state, replacement)?;
+            let fragment_children = {
+                let dom = state.dom.borrow();
+                matches!(
+                    dom.arena().get(replacement)?.kind,
+                    NodeKind::DocumentFragment
+                )
+                .then(|| {
+                    dom.arena()
+                        .get(replacement)
+                        .map(|record| record.children.clone())
+                })
+                .transpose()?
+            };
+            if let Some(children) = fragment_children {
+                for fragment_child in children {
+                    state
+                        .dom
+                        .borrow_mut()
+                        .insert_before(node, fragment_child, Some(child))?;
+                    prepare_dynamic_script_subtree(scope, state, fragment_child)?;
+                }
+                state.dom.borrow_mut().remove_child(node, child)?;
+            } else {
+                state
+                    .dom
+                    .borrow_mut()
+                    .replace_child(node, replacement, child)?;
+                prepare_dynamic_script_subtree(scope, state, replacement)?;
+            }
             Ok(Some(wrap_node(scope, state, child)?.into()))
         }
         (_, "cloneNode") => {
             let deep = args.get(0).boolean_value(scope);
             let clone = state.dom.borrow_mut().clone_node(node, deep)?;
             Ok(Some(wrap_node(scope, state, clone)?.into()))
+        }
+        ("Node", "before" | "after") => {
+            let inserted = argument_node(scope, state, args.get(0))?;
+            let (parent, reference) = {
+                let dom = state.dom.borrow();
+                let Some(parent) = dom.arena().get(node)?.parent else {
+                    return Ok(None);
+                };
+                let siblings = &dom.arena().get(parent)?.children;
+                let index = siblings
+                    .iter()
+                    .position(|candidate| *candidate == node)
+                    .ok_or(DomError::StaleNode(node))?;
+                let reference = if member == "before" {
+                    Some(node)
+                } else {
+                    siblings.get(index + 1).copied()
+                };
+                (parent, reference)
+            };
+            let fragment_children = {
+                let dom = state.dom.borrow();
+                matches!(dom.arena().get(inserted)?.kind, NodeKind::DocumentFragment)
+                    .then(|| {
+                        dom.arena()
+                            .get(inserted)
+                            .map(|record| record.children.clone())
+                    })
+                    .transpose()?
+            };
+            let children = fragment_children.unwrap_or_else(|| vec![inserted]);
+            for child in children {
+                state
+                    .dom
+                    .borrow_mut()
+                    .insert_before(parent, child, reference)?;
+                prepare_dynamic_script_subtree(scope, state, child)?;
+            }
+            Ok(None)
+        }
+        ("Node", "remove") => {
+            state.dom.borrow_mut().remove(node)?;
+            Ok(None)
         }
         ("Node", "contains") => {
             let Some(other) = optional_argument_node(scope, state, args.get(0))? else {
@@ -3421,6 +3578,25 @@ mod tests {
         let source = v8::String::new(
             scope,
             "const root=document.getElementById('root'),go=document.getElementById('go');go.remove();const absent=document.getElementById('go')===null;root.appendChild(go);absent&&go===document.getElementById('go')",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().boolean_value(scope));
+    }
+
+    #[test]
+    fn template_content_and_fragment_insertion_match_framework_expectations() {
+        initialize_v8();
+        let parsed = html::parse("<main id='root'></main><video id='media'></video>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const root=document.getElementById('root');const template=document.createElement('template');template.innerHTML='<button>Add</button><span>ready</span>';const content=template.content;const clone=content.cloneNode(true);const first=Object.getOwnPropertyDescriptor(Node.prototype,'firstChild').get.call(clone);root.appendChild(clone);first.tagName==='BUTTON'&&root.children.length===2&&content.childNodes.length===2&&document.getElementById('media') instanceof HTMLMediaElement",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();

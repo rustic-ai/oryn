@@ -809,6 +809,7 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
 ];
+pub const H_T_M_L_MEDIA_ELEMENT_MEMBERS: &[GeneratedMember] = &[];
 pub const H_T_M_L_OPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "value",
@@ -877,6 +878,14 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: false,
+    },
+];
+pub const H_T_M_L_TEMPLATE_ELEMENT_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "content",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
     },
 ];
 pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
@@ -1098,6 +1107,24 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         name: "getRootNode",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "before",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "after",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "remove",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
         readonly: false,
@@ -1465,6 +1492,11 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         members: H_T_M_L_INPUT_ELEMENT_MEMBERS,
     },
     GeneratedInterface {
+        name: "HTMLMediaElement",
+        parent: Some("HTMLElement"),
+        members: H_T_M_L_MEDIA_ELEMENT_MEMBERS,
+    },
+    GeneratedInterface {
         name: "HTMLOptionElement",
         parent: Some("HTMLElement"),
         members: H_T_M_L_OPTION_ELEMENT_MEMBERS,
@@ -1473,6 +1505,11 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         name: "HTMLSelectElement",
         parent: Some("HTMLElement"),
         members: H_T_M_L_SELECT_ELEMENT_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "HTMLTemplateElement",
+        parent: Some("HTMLElement"),
+        members: H_T_M_L_TEMPLATE_ELEMENT_MEMBERS,
     },
     GeneratedInterface {
         name: "HTMLTextAreaElement",
