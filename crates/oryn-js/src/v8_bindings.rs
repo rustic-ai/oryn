@@ -6,11 +6,11 @@
 
 use std::{
     cell::{Cell, RefCell},
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet, VecDeque},
     rc::{Rc, Weak as RcWeak},
 };
 
-use oryn_dom::{DomError, DomRuntime, NodeId, NodeKind};
+use oryn_dom::{DomError, DomRuntime, Mutation, NodeId, NodeKind};
 
 use crate::{
     bindings::{BindingError, InterfaceBrand, WrapperId, WrapperRegistry},
@@ -57,6 +57,22 @@ struct EventListener {
     callback: v8::Global<v8::Function>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct MutationObserverOptions {
+    child_list: bool,
+    attributes: bool,
+    character_data: bool,
+    subtree: bool,
+}
+
+struct MutationObserverEntry {
+    callback: v8::Global<v8::Function>,
+    object: v8::Global<v8::Object>,
+    target: Option<NodeId>,
+    options: MutationObserverOptions,
+    records: Vec<Mutation>,
+}
+
 struct TrustedPolicyCallbacks {
     name: String,
     create_html: Option<v8::Global<v8::Function>>,
@@ -72,10 +88,17 @@ pub struct BindingRect {
     pub height: f64,
 }
 
+#[derive(Debug, Clone)]
+pub enum BindingGeometry {
+    Available(BindingRect),
+    Hidden,
+    Unsupported(String),
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BindingLayout {
     pub styles: BTreeMap<u64, BTreeMap<String, String>>,
-    pub rects: BTreeMap<u64, BindingRect>,
+    pub geometry: BTreeMap<u64, BindingGeometry>,
 }
 
 /// Per-context binding state. The DOM may be shared with the page orchestrator,
@@ -90,12 +113,16 @@ pub struct V8BindingState {
     next_event_id: Cell<u64>,
     events: RefCell<BTreeMap<u64, EventRecord>>,
     listeners: RefCell<BTreeMap<(NodeId, String), Vec<EventListener>>>,
+    next_mutation_observer_id: Cell<u64>,
+    mutation_observers: RefCell<BTreeMap<u64, MutationObserverEntry>>,
     layout: RefCell<BindingLayout>,
     frame_roots: RefCell<BTreeMap<NodeId, NodeId>>,
     document_write_anchor: Cell<Option<NodeId>>,
     document_open: Cell<bool>,
     document_write_buffer: RefCell<String>,
     document_write_depth: Cell<u32>,
+    pending_dynamic_scripts: RefCell<VecDeque<NodeId>>,
+    prepared_scripts: RefCell<BTreeSet<NodeId>>,
     trusted_registry: RefCell<TrustedTypesRegistry>,
     trusted_policies: RefCell<BTreeMap<u64, TrustedPolicyCallbacks>>,
     trusted_values: RefCell<BTreeMap<u64, TrustedValue>>,
@@ -134,6 +161,65 @@ impl V8BindingState {
 
     pub fn configure_trusted_types(&self, config: TrustedTypesConfig) {
         *self.trusted_registry.borrow_mut() = TrustedTypesRegistry::new(config);
+    }
+
+    /// Drain scripts whose preparation was triggered by a JavaScript DOM
+    /// insertion or by assigning executable content to an already-connected
+    /// script element. The page orchestrator performs resource policy and
+    /// execution; bindings remain the authoritative mutation boundary.
+    pub fn take_pending_dynamic_scripts(&self) -> Vec<NodeId> {
+        self.pending_dynamic_scripts
+            .borrow_mut()
+            .drain(..)
+            .collect()
+    }
+
+    fn dynamic_script_candidates(&self, root: NodeId) -> Result<Vec<NodeId>, V8BindingError> {
+        let candidates = {
+            let dom = self.dom.borrow();
+            if !dom.is_connected(root)? {
+                return Ok(Vec::new());
+            }
+            let mut candidates = Vec::new();
+            if dom
+                .node_name(root)
+                .is_ok_and(|name| name.eq_ignore_ascii_case("script"))
+            {
+                candidates.push(root);
+            }
+            candidates.extend(dom.query_selector_all(root, "script")?);
+            candidates
+                .into_iter()
+                .filter(|script| {
+                    dom.attribute(*script, "src")
+                        .ok()
+                        .flatten()
+                        .is_some_and(|src| !src.trim().is_empty())
+                        || dom
+                            .arena()
+                            .text_content(*script)
+                            .is_ok_and(|source| !source.trim().is_empty())
+                })
+                .collect::<Vec<_>>()
+        };
+        Ok(candidates)
+    }
+
+    fn mark_script_subtree_inert(&self, root: NodeId) -> Result<(), V8BindingError> {
+        let scripts = {
+            let dom = self.dom.borrow();
+            let mut scripts = Vec::new();
+            if dom
+                .node_name(root)
+                .is_ok_and(|name| name.eq_ignore_ascii_case("script"))
+            {
+                scripts.push(root);
+            }
+            scripts.extend(dom.query_selector_all(root, "script")?);
+            scripts
+        };
+        self.prepared_scripts.borrow_mut().extend(scripts);
+        Ok(())
     }
 }
 
@@ -175,12 +261,16 @@ pub fn install_generated_bindings_with_root(
         next_event_id: Cell::new(1),
         events: RefCell::new(BTreeMap::new()),
         listeners: RefCell::new(BTreeMap::new()),
+        next_mutation_observer_id: Cell::new(1),
+        mutation_observers: RefCell::new(BTreeMap::new()),
         layout: RefCell::new(BindingLayout::default()),
         frame_roots: RefCell::new(BTreeMap::new()),
         document_write_anchor: Cell::new(None),
         document_open: Cell::new(false),
         document_write_buffer: RefCell::new(String::new()),
         document_write_depth: Cell::new(0),
+        pending_dynamic_scripts: RefCell::new(VecDeque::new()),
+        prepared_scripts: RefCell::new(BTreeSet::new()),
         trusted_registry: RefCell::new(TrustedTypesRegistry::new(TrustedTypesConfig {
             allow_any_policy: true,
             ..TrustedTypesConfig::default()
@@ -743,6 +833,33 @@ fn generated_constructor(
         args.this().set_internal_field(0, id.into());
         return;
     }
+    if name == "MutationObserver" && args.is_construct_call() {
+        let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+            throw_type_error(scope, "generated binding state is unavailable");
+            return;
+        };
+        let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(0)) else {
+            throw_type_error(scope, "MutationObserver callback must be callable");
+            return;
+        };
+        let observer_id = state.next_mutation_observer_id.get();
+        state
+            .next_mutation_observer_id
+            .set(observer_id.saturating_add(1));
+        state.mutation_observers.borrow_mut().insert(
+            observer_id,
+            MutationObserverEntry {
+                callback: v8::Global::new(scope, callback),
+                object: v8::Global::new(scope, args.this()),
+                target: None,
+                options: MutationObserverOptions::default(),
+                records: Vec::new(),
+            },
+        );
+        let id = v8::Number::new(scope, observer_id as f64);
+        args.this().set_internal_field(0, id.into());
+        return;
+    }
     throw_type_error(scope, &format!("Illegal constructor: {name}"));
 }
 
@@ -815,6 +932,14 @@ fn generated_operation(
     };
     if interface == "Event" {
         match call_event_operation(scope, &state, args.this(), member) {
+            Ok(Some(value)) => return_value.set(value),
+            Ok(None) => return_value.set(v8::undefined(scope).into()),
+            Err(error) => throw_type_error(scope, &error.to_string()),
+        }
+        return;
+    }
+    if interface == "MutationObserver" {
+        match call_mutation_observer_operation(scope, &state, args.this(), member, &args) {
             Ok(Some(value)) => return_value.set(value),
             Ok(None) => return_value.set(v8::undefined(scope).into()),
             Err(error) => throw_type_error(scope, &error.to_string()),
@@ -999,6 +1124,256 @@ fn exact_wrapper_id(value: v8::Local<v8::Value>) -> Option<WrapperId> {
     lossless.then_some(WrapperId(value))
 }
 
+fn mutation_observer_id(
+    scope: &mut v8::PinScope,
+    object: v8::Local<v8::Object>,
+) -> Result<u64, V8BindingError> {
+    object
+        .get_internal_field(scope, 0)
+        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+        .and_then(|value| value.number_value(scope))
+        .filter(|value| value.is_finite() && *value >= 1.0)
+        .map(|value| value as u64)
+        .ok_or(V8BindingError::Allocation("MutationObserver identity"))
+}
+
+fn call_mutation_observer_operation<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    object: v8::Local<v8::Object>,
+    member: &str,
+    args: &v8::FunctionCallbackArguments,
+) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    let observer_id = mutation_observer_id(scope, object)?;
+    match member {
+        "observe" => {
+            let target = argument_node(scope, state, args.get(0))?;
+            let init = args
+                .get(1)
+                .to_object(scope)
+                .ok_or(V8BindingError::Allocation("MutationObserverInit"))?;
+            let boolean = |scope: &mut v8::PinScope<'s, '_>, name: &str| {
+                v8::String::new(scope, name)
+                    .and_then(|key| init.get(scope, key.into()))
+                    .is_some_and(|value| value.boolean_value(scope))
+            };
+            let options = MutationObserverOptions {
+                child_list: boolean(scope, "childList"),
+                attributes: boolean(scope, "attributes"),
+                character_data: boolean(scope, "characterData"),
+                subtree: boolean(scope, "subtree"),
+            };
+            if !options.child_list && !options.attributes && !options.character_data {
+                return Err(V8BindingError::Unsupported {
+                    interface: "MutationObserver".into(),
+                    member: "observe requires childList, attributes, or characterData".into(),
+                });
+            }
+            let mut observers = state.mutation_observers.borrow_mut();
+            let observer = observers
+                .get_mut(&observer_id)
+                .ok_or(V8BindingError::Allocation("MutationObserver record"))?;
+            observer.target = Some(target);
+            observer.options = options;
+            Ok(None)
+        }
+        "disconnect" => {
+            if let Some(observer) = state.mutation_observers.borrow_mut().get_mut(&observer_id) {
+                observer.target = None;
+                observer.records.clear();
+            }
+            Ok(None)
+        }
+        "takeRecords" => {
+            let records = state
+                .mutation_observers
+                .borrow_mut()
+                .get_mut(&observer_id)
+                .map(|observer| std::mem::take(&mut observer.records))
+                .unwrap_or_default();
+            Ok(Some(mutation_record_array(scope, state, &records)?.into()))
+        }
+        _ => Err(V8BindingError::Unsupported {
+            interface: "MutationObserver".into(),
+            member: member.into(),
+        }),
+    }
+}
+
+fn mutation_target(mutation: &Mutation) -> Option<NodeId> {
+    match mutation {
+        Mutation::Inserted { parent, .. } => *parent,
+        Mutation::Removed { former_parent, .. } => *former_parent,
+        Mutation::Attribute { node, .. }
+        | Mutation::CharacterData { node, .. }
+        | Mutation::FormState { node } => Some(*node),
+        Mutation::Focus { current, previous } => current.or(*previous),
+        Mutation::ShadowAttached { host, .. } => Some(*host),
+    }
+}
+
+fn observer_accepts(
+    dom: &DomRuntime,
+    target: NodeId,
+    options: MutationObserverOptions,
+    mutation: &Mutation,
+) -> bool {
+    let Some(mutation_target) = mutation_target(mutation) else {
+        return false;
+    };
+    let in_scope = mutation_target == target
+        || (options.subtree
+            && dom
+                .arena()
+                .ancestors(mutation_target)
+                .is_ok_and(|ancestors| ancestors.contains(&target)));
+    in_scope
+        && match mutation {
+            Mutation::Inserted { .. }
+            | Mutation::Removed { .. }
+            | Mutation::ShadowAttached { .. } => options.child_list,
+            Mutation::Attribute { .. } | Mutation::FormState { .. } => options.attributes,
+            Mutation::CharacterData { .. } => options.character_data,
+            Mutation::Focus { .. } => false,
+        }
+}
+
+fn set_object_property(
+    scope: &mut v8::PinScope,
+    object: v8::Local<v8::Object>,
+    name: &str,
+    value: v8::Local<v8::Value>,
+) -> Result<(), V8BindingError> {
+    let key = v8::String::new(scope, name).ok_or(V8BindingError::Allocation("property name"))?;
+    object.create_data_property(scope, key.into(), value);
+    Ok(())
+}
+
+fn mutation_record_array<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    records: &[Mutation],
+) -> Result<v8::Local<'s, v8::Array>, V8BindingError> {
+    let array = v8::Array::new(scope, records.len() as i32);
+    for (index, mutation) in records.iter().enumerate() {
+        let object = v8::Object::new(scope);
+        let (kind, target, attribute, old_value, added, removed) = match mutation {
+            Mutation::Inserted { node, parent } => {
+                ("childList", *parent, None, None, Some(*node), None)
+            }
+            Mutation::Removed {
+                node,
+                former_parent,
+            } => ("childList", *former_parent, None, None, None, Some(*node)),
+            Mutation::Attribute {
+                node,
+                name,
+                old_value,
+                ..
+            } => (
+                "attributes",
+                Some(*node),
+                Some(name.as_str()),
+                old_value.as_deref(),
+                None,
+                None,
+            ),
+            Mutation::CharacterData {
+                node, old_value, ..
+            } => (
+                "characterData",
+                Some(*node),
+                None,
+                Some(old_value.as_str()),
+                None,
+                None,
+            ),
+            Mutation::FormState { node } => {
+                ("attributes", Some(*node), Some("value"), None, None, None)
+            }
+            Mutation::ShadowAttached { host, root, .. } => {
+                ("childList", Some(*host), None, None, Some(*root), None)
+            }
+            Mutation::Focus { .. } => continue,
+        };
+        let kind_value = v8_string(scope, kind)?;
+        set_object_property(scope, object, "type", kind_value)?;
+        let target_value = match target {
+            Some(node) => wrap_node(scope, state, node)?.into(),
+            None => v8::null(scope).into(),
+        };
+        set_object_property(scope, object, "target", target_value)?;
+        let attribute_value = match attribute {
+            Some(value) => v8_string(scope, value)?,
+            None => v8::null(scope).into(),
+        };
+        set_object_property(scope, object, "attributeName", attribute_value)?;
+        let old_value = match old_value {
+            Some(value) => v8_string(scope, value)?,
+            None => v8::null(scope).into(),
+        };
+        set_object_property(scope, object, "oldValue", old_value)?;
+        let added_nodes = added.map_or_else(Vec::new, |node| vec![node]);
+        let removed_nodes = removed.map_or_else(Vec::new, |node| vec![node]);
+        let added_value = node_array(scope, state, &added_nodes)?;
+        set_object_property(scope, object, "addedNodes", added_value)?;
+        let removed_value = node_array(scope, state, &removed_nodes)?;
+        set_object_property(scope, object, "removedNodes", removed_value)?;
+        array.set_index(scope, index as u32, object.into());
+    }
+    Ok(array)
+}
+
+/// Queue and deliver one stable MutationObserver checkpoint for this realm.
+pub fn deliver_mutation_observers(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    mutations: &[Mutation],
+) -> Result<usize, V8BindingError> {
+    {
+        let dom = state.dom.borrow();
+        for observer in state.mutation_observers.borrow_mut().values_mut() {
+            let Some(target) = observer.target else {
+                continue;
+            };
+            observer.records.extend(
+                mutations
+                    .iter()
+                    .filter(|mutation| observer_accepts(&dom, target, observer.options, mutation))
+                    .cloned(),
+            );
+        }
+    }
+    let ids = state
+        .mutation_observers
+        .borrow()
+        .iter()
+        .filter_map(|(id, observer)| (!observer.records.is_empty()).then_some(*id))
+        .collect::<Vec<_>>();
+    let mut delivered = 0;
+    for id in ids {
+        let (callback, object, records) = {
+            let mut observers = state.mutation_observers.borrow_mut();
+            let observer = observers.get_mut(&id).expect("queued observer exists");
+            (
+                observer.callback.clone(),
+                observer.object.clone(),
+                std::mem::take(&mut observer.records),
+            )
+        };
+        let callback = v8::Local::new(scope, &callback);
+        let object = v8::Local::new(scope, &object);
+        let array = mutation_record_array(scope, state, &records)?;
+        callback.call(
+            scope,
+            v8::undefined(scope).into(),
+            &[array.into(), object.into()],
+        );
+        delivered += 1;
+    }
+    Ok(delivered)
+}
+
 fn get_attribute_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
@@ -1141,7 +1516,12 @@ fn set_attribute_value(
     };
     let mut dom = state.dom.borrow_mut();
     match (interface, member) {
-        (_, "textContent") | ("HTMLElement", "innerText") => dom.set_text_content(node, value)?,
+        (_, "textContent") | ("HTMLElement", "innerText") => {
+            dom.set_text_content(node, value)?;
+            drop(dom);
+            prepare_dynamic_script_subtree(scope, state, node)?;
+            return Ok(());
+        }
         ("Element", "id") => dom.set_attribute(node, "id", value)?,
         ("Element", "className") => dom.set_attribute(node, "class", value)?,
         ("DOMTokenList", "value") => dom.set_attribute(node, "class", value)?,
@@ -1172,7 +1552,15 @@ fn set_attribute_value(
                 }
             }
         }
-        ("Element", "innerHTML") => dom.set_inner_html(node, &value)?,
+        ("Element", "innerHTML") => {
+            dom.set_inner_html(node, &value)?;
+            drop(dom);
+            // HTML fragment parsing marks script elements already-started;
+            // moving the resulting subtree into a document must not execute
+            // them later.
+            state.mark_script_subtree_inert(node)?;
+            return Ok(());
+        }
         ("Element", "outerHTML") => dom.set_outer_html(node, &value)?,
         _ => {
             return Err(V8BindingError::Unsupported {
@@ -1321,6 +1709,7 @@ fn call_operation<'s>(
         (_, "appendChild") => {
             let child = argument_node(scope, state, args.get(0))?;
             state.dom.borrow_mut().append_child(node, child)?;
+            prepare_dynamic_script_subtree(scope, state, child)?;
             Ok(Some(wrap_node(scope, state, child)?.into()))
         }
         (_, "insertBefore") => {
@@ -1330,6 +1719,7 @@ fn call_operation<'s>(
                 .dom
                 .borrow_mut()
                 .insert_before(node, child, reference)?;
+            prepare_dynamic_script_subtree(scope, state, child)?;
             Ok(Some(wrap_node(scope, state, child)?.into()))
         }
         (_, "removeChild") => {
@@ -1344,6 +1734,7 @@ fn call_operation<'s>(
                 .dom
                 .borrow_mut()
                 .replace_child(node, replacement, child)?;
+            prepare_dynamic_script_subtree(scope, state, replacement)?;
             Ok(Some(wrap_node(scope, state, child)?.into()))
         }
         (_, "cloneNode") => {
@@ -1389,6 +1780,7 @@ fn call_operation<'s>(
                 None => required_string(scope, args, 1)?,
             };
             state.dom.borrow_mut().set_attribute(node, name, value)?;
+            prepare_dynamic_script_subtree(scope, state, node)?;
             Ok(None)
         }
         ("Element", "removeAttribute") => {
@@ -1432,13 +1824,25 @@ fn call_operation<'s>(
             Ok(Some(v8::null(scope).into()))
         }
         ("Element", "getBoundingClientRect") => {
-            let rect = state
-                .layout
-                .borrow()
-                .rects
-                .get(&node_key(node))
-                .copied()
-                .unwrap_or_default();
+            let layout = state.layout.borrow();
+            let rect = match layout.geometry.get(&node_key(node)) {
+                Some(BindingGeometry::Available(rect)) => *rect,
+                Some(BindingGeometry::Hidden) => BindingRect::default(),
+                Some(BindingGeometry::Unsupported(detail)) => {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Element".into(),
+                        member: format!("getBoundingClientRect: {detail}"),
+                    });
+                }
+                None => {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Element".into(),
+                        member:
+                            "getBoundingClientRect: geometry is not available at this checkpoint"
+                                .into(),
+                    });
+                }
+            };
             let object = v8::Object::new(scope);
             for (name, value) in [
                 ("x", rect.x),
@@ -1611,6 +2015,59 @@ fn execute_parser_inserted_scripts(
             .set(state.document_write_depth.get().saturating_sub(1));
         state.document_write_anchor.set(previous_anchor);
         result?;
+    }
+    Ok(())
+}
+
+/// Run connected inline classic scripts synchronously at the DOM insertion
+/// boundary and enqueue external/module scripts for the page resource
+/// scheduler. This preserves the observable `appendChild(script)` ordering
+/// without granting the bindings layer any network authority.
+fn prepare_dynamic_script_subtree(
+    scope: &mut v8::PinScope<'_, '_>,
+    state: &Rc<V8BindingState>,
+    root: NodeId,
+) -> Result<(), V8BindingError> {
+    for script in state.dynamic_script_candidates(root)? {
+        if state.prepared_scripts.borrow().contains(&script) {
+            continue;
+        }
+        let (script_type, external, source) = {
+            let dom = state.dom.borrow();
+            (
+                dom.attribute(script, "type")?
+                    .unwrap_or_default()
+                    .to_owned(),
+                dom.attribute(script, "src")?.map(str::to_owned),
+                dom.arena().text_content(script)?,
+            )
+        };
+        let kind = script_type.trim().to_ascii_lowercase();
+        let classic = matches!(
+            kind.as_str(),
+            "" | "text/javascript" | "application/javascript" | "text/babel"
+        );
+        let module = kind == "module";
+        if !classic && !module {
+            state.prepared_scripts.borrow_mut().insert(script);
+            continue;
+        }
+        state.prepared_scripts.borrow_mut().insert(script);
+        if external.is_some() || module {
+            state.pending_dynamic_scripts.borrow_mut().push_back(script);
+            continue;
+        }
+        if source.trim().is_empty() {
+            continue;
+        }
+        let source = v8::String::new(scope, &source)
+            .ok_or(V8BindingError::Allocation("dynamic script source"))?;
+        let compiled = v8::Script::compile(scope, source, None)
+            .ok_or(V8BindingError::Allocation("dynamic script"))?;
+        compiled
+            .run(scope)
+            .ok_or(V8BindingError::Allocation("dynamic script result"))?;
+        scope.perform_microtask_checkpoint();
     }
     Ok(())
 }
@@ -2049,6 +2506,38 @@ mod tests {
         );
         let input = dom.borrow().find_by_id("name").unwrap();
         assert_eq!(dom.borrow().value(input).unwrap(), Some("Ada"));
+    }
+
+    #[test]
+    fn generated_geometry_distinguishes_hidden_from_unsupported() {
+        initialize_v8();
+        let parsed =
+            html::parse("<main><div id='hidden'></div><table id='unsupported'></table></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let hidden = dom.borrow().find_by_id("hidden").unwrap();
+        let unsupported = dom.borrow().find_by_id("unsupported").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_layout(BindingLayout {
+            styles: BTreeMap::new(),
+            geometry: BTreeMap::from([
+                (node_key(hidden), BindingGeometry::Hidden),
+                (
+                    node_key(unsupported),
+                    BindingGeometry::Unsupported("table geometry is unavailable".into()),
+                ),
+            ]),
+        });
+        let source = v8::String::new(
+            scope,
+            "const hidden=document.getElementById('hidden').getBoundingClientRect();let rejected=false;try{document.getElementById('unsupported').getBoundingClientRect()}catch(error){rejected=error instanceof TypeError&&String(error).includes('table geometry is unavailable')}hidden.width===0&&hidden.height===0&&rejected",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().boolean_value(scope));
     }
 
     #[test]

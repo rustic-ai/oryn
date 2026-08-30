@@ -1,7 +1,9 @@
 """Subprocess transport for communicating with oryn via stdin/stdout."""
 
 import asyncio
+import json
 import os
+import tempfile
 from collections import deque
 from typing import Optional
 
@@ -45,6 +47,27 @@ class SubprocessTransport(Transport):
         # Build command line arguments
         args = [self._binary] + self._config.get_cli_args()
 
+        secret_file = None
+        secret_fd: int | None = None
+        if self._config.secret_values:
+            records = [
+                {"origin": origin, "label": label, "value": value}
+                for origin, labels in self._config.secret_values.items()
+                for label, value in labels.items()
+            ]
+            encoded = (json.dumps(records, separators=(",", ":")) + "\n").encode()
+            if len(encoded) > 1024 * 1024:
+                raise LaunchError("secret provisioning input exceeds the 1 MiB limit")
+            # An anonymous inherited file avoids putting secrets in argv,
+            # environment variables, or a named filesystem path. Unlike a
+            # pipe, it cannot block here when the payload exceeds pipe capacity
+            # before the child process has started reading.
+            secret_file = tempfile.TemporaryFile()
+            secret_file.write(encoded)
+            secret_file.seek(0)
+            secret_fd = secret_file.fileno()
+            args.extend(["--secret-fd", str(secret_fd)])
+
         # Set up environment
         env = os.environ.copy()
         env.update(self._config.env)
@@ -65,6 +88,7 @@ class SubprocessTransport(Transport):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=stderr,
                 env=env,
+                pass_fds=(() if secret_fd is None else (secret_fd,)),
             )
         except FileNotFoundError as e:
             if self._log_file_handle:
@@ -76,6 +100,9 @@ class SubprocessTransport(Transport):
                 self._log_file_handle.close()
                 self._log_file_handle = None
             raise LaunchError(f"Permission denied launching oryn: {e}")
+        finally:
+            if secret_file is not None:
+                secret_file.close()
 
         if self._process.stderr:
             self._stderr_task = asyncio.create_task(self._drain_stderr())

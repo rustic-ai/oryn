@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod error;
 pub mod error_mapping;
 pub mod formatter;
@@ -6,6 +7,7 @@ pub mod resolver;
 pub mod v2;
 pub mod v3;
 pub mod v4;
+pub mod v5;
 
 pub mod intent {
     pub mod define_parser;

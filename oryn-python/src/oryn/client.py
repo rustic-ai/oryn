@@ -3,11 +3,11 @@
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from .config import OrynConfig
-from .errors import ConnectionLostError
+from .errors import CommandError, ConnectionLostError, ParseError
 from .transport import SubprocessTransport, Transport
 
 if TYPE_CHECKING:
-    from .types import OrynObservation, OrynResult
+    from .types import OrynIntent, OrynIntentResult, OrynObservation, OrynResult
 
 
 class OrynClient:
@@ -40,6 +40,8 @@ class OrynClient:
         env: dict[str, str] | None = None,
         log_file: str | None = None,
         cli_args: list[str] | None = None,
+        secret_values: dict[str, dict[str, str]] | None = None,
+        upload_paths: dict[str, str] | None = None,
     ):
         """Initialize OrynClient.
 
@@ -53,6 +55,9 @@ class OrynClient:
             env: Additional environment variables for subprocess
             log_file: Path to file for redirecting Oryn output (optional)
             cli_args: Additional CLI arguments to pass to oryn binary (optional)
+            secret_values: Origin -> label -> secret values provisioned through
+                an inherited pipe, never argv or environment variables
+            upload_paths: Upload label -> parent-readable host path
         """
         self._config = OrynConfig(
             mode=mode,
@@ -64,6 +69,8 @@ class OrynClient:
             env=env or {},
             log_file=log_file,
             cli_args=cli_args or [],
+            secret_values=secret_values or {},
+            upload_paths=upload_paths or {},
         )
         self._transport: Optional[Transport] = None
 
@@ -123,13 +130,11 @@ class OrynClient:
 
     async def execute_typed(self, command: str) -> "OrynResult":
         """Execute OIL and decode native JSON without changing ``execute()`` compatibility."""
-        from .types import OrynDelta, OrynEffect, OrynResult
+        from .types import OrynResult
 
         raw_response = await self.execute(command)
         if self._config.mode != "native":
-            failed = not raw_response or raw_response.strip().lower().startswith(
-                "error"
-            )
+            failed = not raw_response or raw_response.strip().lower().startswith("error")
             return OrynResult(
                 success=not failed,
                 accepted=not failed,
@@ -151,11 +156,7 @@ class OrynClient:
         kind = payload.get("kind")
         if kind == "unsupported":
             diagnostic = payload.get("diagnostic") or {}
-            detail = (
-                diagnostic.get("detail")
-                or diagnostic.get("capability")
-                or "unsupported"
-            )
+            detail = diagnostic.get("detail") or diagnostic.get("capability") or "unsupported"
             return OrynResult(
                 success=False,
                 accepted=False,
@@ -184,44 +185,84 @@ class OrynClient:
                 execution_domain="native",
             )
 
-        action = payload.get("result") or {}
-        effects = [
-            OrynEffect(kind=str(effect.get("kind", "unknown")), data=dict(effect))
-            for effect in action.get("effects") or []
-            if isinstance(effect, dict)
-        ]
-        delta_payload = action.get("delta")
-        delta = None
-        if isinstance(delta_payload, dict):
-            delta = OrynDelta(
-                contract_version=int(delta_payload.get("contract_version", 0)),
-                from_revision=int(delta_payload.get("from_revision", 0)),
-                to_revision=int(delta_payload.get("to_revision", 0)),
-                upserted=list(delta_payload.get("upserted") or []),
-                removed=list(delta_payload.get("removed") or []),
+        return _decode_action_result(payload.get("result") or {}, raw_response)
+
+    async def perform(self, intent: "OrynIntent") -> "OrynIntentResult":
+        """Execute the shared typed agent contract without constructing OIL text.
+
+        Typed intents are currently a native-runtime contract. Compatibility
+        modes remain available through :meth:`execute` and cannot silently
+        reinterpret this request.
+        """
+        import json
+
+        from .types import OrynIntentResult
+
+        if self._config.mode != "native":
+            raise CommandError("typed intents require native mode")
+        request = json.dumps(intent.to_request(), separators=(",", ":"))
+        raw_response = await self.execute(f"@oryn-intent {request}")
+        payload = _first_json_object(raw_response)
+        if not isinstance(payload, dict) or payload.get("kind") != "intent":
+            raise ParseError("native command returned no typed intent result", raw_response)
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            raise ParseError("typed intent result is malformed", raw_response)
+        kind = result.get("kind")
+        if kind == "semantic_observation":
+            observation = result.get("observation")
+            if not isinstance(observation, dict):
+                raise ParseError("typed semantic observation is malformed", raw_response)
+            return OrynIntentResult(
+                kind="semantic_observation",
+                raw=raw_response,
+                semantic_observation=_decode_semantic_observation(observation, raw_response),
             )
-        effect_kinds = {effect.kind for effect in effects}
-        if "navigation" in effect_kinds:
-            classification = "navigation"
-        elif "request" in effect_kinds or "response" in effect_kinds:
-            classification = "request_effect"
-        elif delta is not None or "dom_mutation" in effect_kinds:
-            classification = "state_changed"
-        else:
-            classification = "event_only"
-        diagnostics = [str(item) for item in action.get("diagnostics") or []]
-        return OrynResult(
-            success=True,
-            accepted=True,
-            raw=raw_response,
-            classification=classification,
-            effects=effects,
-            delta=delta,
-            diagnostics=diagnostics,
-            revision_before=_as_int(action.get("revision_before")),
-            revision_after=_as_int(action.get("revision_after")),
-            execution_domain=action.get("execution_domain"),
-        )
+        if kind == "observation" or kind == "geometry_observation":
+            observation = result.get("observation")
+            if not isinstance(observation, dict):
+                raise ParseError("typed observation result is malformed", raw_response)
+            return OrynIntentResult(
+                kind=kind,
+                raw=raw_response,
+                observation=_decode_native_observation(observation, raw_response),
+            )
+        if kind == "delta":
+            delta = result.get("delta")
+            if not isinstance(delta, dict):
+                raise ParseError("typed delta result is malformed", raw_response)
+            return OrynIntentResult(
+                kind="delta",
+                raw=raw_response,
+                delta=_decode_delta(delta),
+            )
+        if kind == "action":
+            action = result.get("result")
+            if not isinstance(action, dict):
+                raise ParseError("typed action result is malformed", raw_response)
+            return OrynIntentResult(
+                kind="action",
+                raw=raw_response,
+                action=_decode_action_result(action, raw_response),
+            )
+        if kind == "navigation":
+            navigation = result.get("navigation")
+            if not isinstance(navigation, dict):
+                raise ParseError("typed navigation result is malformed", raw_response)
+            return OrynIntentResult(
+                kind="navigation",
+                raw=raw_response,
+                navigation=navigation,
+            )
+        if kind in {"structured", "text"}:
+            return OrynIntentResult(kind=kind, raw=raw_response, value=result.get("value"))
+        if kind == "wait":
+            return OrynIntentResult(
+                kind="wait",
+                raw=raw_response,
+                revision=_as_int(result.get("revision")),
+            )
+        raise ParseError(f"unknown typed intent result kind: {kind!r}", raw_response)
 
     async def observe(
         self,
@@ -255,9 +296,7 @@ class OrynClient:
         import re
 
         elements = []
-        element_pattern = re.compile(
-            r'^\[(\d+)\]\s+([^\s"]+)(?:\s+"([^"]*)")?(?:\s+\{(.*)\})?'
-        )
+        element_pattern = re.compile(r'^\[(\d+)\]\s+([^\s"]+)(?:\s+"([^"]*)")?(?:\s+\{(.*)\})?')
 
         lines = raw_response.splitlines()
         page_info = {"url": "", "title": ""}
@@ -285,9 +324,7 @@ class OrynClient:
                         "type": etype,
                         "role": role,
                         "text": label if label else None,
-                        "state": {
-                            f: True for f in (flags.split(", ") if flags else [])
-                        },
+                        "state": {f: True for f in (flags.split(", ") if flags else [])},
                     }
                 )
 
@@ -311,8 +348,6 @@ class OrynClient:
         """Decode the existing native JSON OIL response into the SDK type."""
         import json
 
-        from .types import OrynObservation, OrynScroll, OrynViewport
-
         flags = []
         if positions:
             flags.append("--positions")
@@ -335,57 +370,7 @@ class OrynClient:
         if not isinstance(payload, dict):
             raise ConnectionLostError()
 
-        page = payload.get("page") or {}
-        elements = []
-        for node in payload.get("nodes") or []:
-            elements.append(
-                {
-                    "id": node.get("alias"),
-                    "type": node.get("role"),
-                    "role": node.get("role"),
-                    "text": node.get("name") or None,
-                    "state": {name: True for name in node.get("states") or []},
-                    "actions": node.get("actions") or [],
-                    "semantic_ref": node.get("semantic_ref"),
-                    "parent": node.get("parent"),
-                    "document_order": node.get("document_order"),
-                    "selector": node.get("selector"),
-                    "value": node.get("value"),
-                    "description": node.get("description"),
-                    "content_trust": node.get("content_trust", "page_authored"),
-                    "provenance": node.get("provenance"),
-                    "geometry": node.get("geometry"),
-                }
-            )
-
-        return OrynObservation(
-            raw=raw_response,
-            url=page.get("url", ""),
-            title=page.get("title", ""),
-            elements=elements,
-            token_count=len(raw_response) // 4,
-            contract_version=_as_int(payload.get("contract_version")),
-            revision=_as_int(payload.get("revision")),
-            document_generation=_as_int(page.get("document_generation")),
-            capabilities=[
-                _capability(item) for item in payload.get("capabilities") or []
-            ],
-            diagnostics=[str(item) for item in payload.get("diagnostics") or []],
-            byte_count=len(raw_response.encode("utf-8")),
-            execution_domain=payload.get("execution_domain"),
-            style_revision=_revision_value(payload.get("style_revision")),
-            layout_revision=_revision_value(payload.get("layout_revision")),
-            viewport=(
-                OrynViewport(**payload["viewport"])
-                if isinstance(payload.get("viewport"), dict)
-                else None
-            ),
-            scroll=(
-                OrynScroll(**payload["scroll"])
-                if isinstance(payload.get("scroll"), dict)
-                else None
-            ),
-        )
+        return _decode_native_observation(payload, raw_response)
 
 
 def _first_json_object(raw_response: str) -> Optional[dict[str, Any]]:
@@ -399,6 +384,132 @@ def _first_json_object(raw_response: str) -> Optional[dict[str, Any]]:
         if isinstance(candidate, dict):
             return candidate
     return None
+
+
+def _decode_native_observation(payload: dict[str, Any], raw_response: str):
+    from .types import OrynObservation, OrynScroll, OrynViewport
+
+    page = payload.get("page") or {}
+    elements = []
+    for node in payload.get("nodes") or []:
+        elements.append(
+            {
+                "id": node.get("alias"),
+                "type": node.get("role"),
+                "role": node.get("role"),
+                "text": node.get("name") or None,
+                "state": {name: True for name in node.get("states") or []},
+                "actions": node.get("actions") or [],
+                "semantic_ref": node.get("semantic_ref"),
+                "parent": node.get("parent"),
+                "document_order": node.get("document_order"),
+                "selector": node.get("selector"),
+                "value": node.get("value"),
+                "description": node.get("description"),
+                "content_trust": node.get("content_trust", "page_authored"),
+                "provenance": node.get("provenance"),
+                "geometry": node.get("geometry"),
+            }
+        )
+    return OrynObservation(
+        raw=raw_response,
+        url=page.get("url", ""),
+        title=page.get("title", ""),
+        elements=elements,
+        token_count=len(raw_response) // 4,
+        contract_version=_as_int(payload.get("contract_version")),
+        revision=_as_int(payload.get("revision")),
+        document_generation=_as_int(page.get("document_generation")),
+        capabilities=[_capability(item) for item in payload.get("capabilities") or []],
+        diagnostics=[str(item) for item in payload.get("diagnostics") or []],
+        byte_count=len(raw_response.encode("utf-8")),
+        execution_domain=payload.get("execution_domain"),
+        style_revision=_revision_value(payload.get("style_revision")),
+        layout_revision=_revision_value(payload.get("layout_revision")),
+        viewport=(
+            OrynViewport(**payload["viewport"])
+            if isinstance(payload.get("viewport"), dict)
+            else None
+        ),
+        scroll=(
+            OrynScroll(**payload["scroll"]) if isinstance(payload.get("scroll"), dict) else None
+        ),
+    )
+
+
+def _decode_delta(payload: dict[str, Any]):
+    from .types import OrynDelta
+
+    return OrynDelta(
+        contract_version=int(payload.get("contract_version", 0)),
+        from_revision=int(payload.get("from_revision", 0)),
+        to_revision=int(payload.get("to_revision", 0)),
+        upserted=list(payload.get("upserted") or []),
+        removed=list(payload.get("removed") or []),
+        style_revision=_revision_value(payload.get("style_revision")),
+        layout_revision=_revision_value(payload.get("layout_revision")),
+    )
+
+
+def _decode_semantic_observation(payload: dict[str, Any], raw_response: str):
+    from .types import (
+        OrynAccessibilityNode,
+        OrynSemanticObservation,
+        OrynSemanticStructure,
+    )
+
+    base = payload.get("observation")
+    if not isinstance(base, dict):
+        raise ParseError("semantic observation has no base observation", raw_response)
+    return OrynSemanticObservation(
+        contract_version=int(payload.get("contract_version", 0)),
+        observation=_decode_native_observation(base, raw_response),
+        accessibility=[
+            OrynAccessibilityNode(**node)
+            for node in payload.get("accessibility") or []
+            if isinstance(node, dict)
+        ],
+        structures=[
+            OrynSemanticStructure(**structure)
+            for structure in payload.get("structures") or []
+            if isinstance(structure, dict)
+        ],
+        diagnostics=[str(item) for item in payload.get("diagnostics") or []],
+    )
+
+
+def _decode_action_result(action: dict[str, Any], raw_response: str):
+    from .types import OrynEffect, OrynResult
+
+    effects = [
+        OrynEffect(kind=str(effect.get("kind", "unknown")), data=dict(effect))
+        for effect in action.get("effects") or []
+        if isinstance(effect, dict)
+    ]
+    delta_payload = action.get("delta")
+    delta = _decode_delta(delta_payload) if isinstance(delta_payload, dict) else None
+    effect_kinds = {effect.kind for effect in effects}
+    if "navigation" in effect_kinds:
+        classification = "navigation"
+    elif "request" in effect_kinds or "response" in effect_kinds:
+        classification = "request_effect"
+    elif delta is not None or "dom_mutation" in effect_kinds:
+        classification = "state_changed"
+    else:
+        classification = "event_only"
+    diagnostics = [str(item) for item in action.get("diagnostics") or []]
+    return OrynResult(
+        success=True,
+        accepted=True,
+        raw=raw_response,
+        classification=classification,
+        effects=effects,
+        delta=delta,
+        diagnostics=diagnostics,
+        revision_before=_as_int(action.get("revision_before")),
+        revision_after=_as_int(action.get("revision_after")),
+        execution_domain=action.get("execution_domain"),
+    )
 
 
 def _as_int(value: Any) -> Optional[int]:

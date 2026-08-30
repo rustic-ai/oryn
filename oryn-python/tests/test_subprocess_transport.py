@@ -3,7 +3,6 @@
 import textwrap
 
 import pytest
-
 from oryn.config import OrynConfig
 from oryn.errors import ConnectionLostError, LaunchError, TimeoutError
 from oryn.transport.subprocess import SubprocessTransport
@@ -37,6 +36,42 @@ async def test_connect_fails_fast_with_exit_code_and_stderr(tmp_path):
     message = str(exc_info.value)
     assert "exit code: 7" in message
     assert "launch failed on purpose" in message
+
+
+@pytest.mark.asyncio
+async def test_secret_values_use_inherited_fd_not_argv_or_environment(tmp_path):
+    binary = _make_executable_script(
+        tmp_path,
+        "fake_oryn_secret_fd.py",
+        """
+        import json
+        import os
+        import sys
+
+        assert "must-not-leak" not in " ".join(sys.argv)
+        assert "must-not-leak" not in os.environ.values()
+        descriptor = int(sys.argv[sys.argv.index("--secret-fd") + 1])
+        records = json.loads(os.read(descriptor, 1024 * 1024))
+        assert records == [{"origin":"https://example.test","label":"password","value":"must-not-leak"}]
+        print("Backend launched. Enter commands.", flush=True)
+        print("> ", end="", flush=True)
+        for line in sys.stdin:
+            if line.strip() in ("exit", "quit"):
+                break
+            print("ok", flush=True)
+            print("> ", end="", flush=True)
+        """,
+    )
+    transport = SubprocessTransport(
+        OrynConfig(
+            mode="native",
+            binary_path=str(binary),
+            secret_values={"https://example.test": {"password": "must-not-leak"}},
+            connect_timeout=2.0,
+        )
+    )
+    await transport.connect()
+    await transport.close()
 
 
 @pytest.mark.asyncio

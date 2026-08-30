@@ -116,8 +116,12 @@ pub enum ConsequentialAction {
     CrossOriginNavigation,
     FormSubmission,
     Popup,
+    /// Reserved contract value. Native file-input upload is currently
+    /// unavailable and capability diagnostics direct callers elsewhere.
     FileUpload,
     Download,
+    /// Policy boundary for the context-owned virtual clipboard. Host system
+    /// clipboard access remains unavailable.
     Clipboard,
     CredentialFill,
     ProtectedRequest,
@@ -368,6 +372,7 @@ impl Drop for SecretEntry {
 #[derive(Default)]
 pub struct SecretStore {
     entries: Mutex<BTreeMap<SecretHandle, SecretEntry>>,
+    labels: Mutex<BTreeMap<(String, String), SecretHandle>>,
 }
 
 impl SecretStore {
@@ -378,11 +383,15 @@ impl SecretStore {
         self.entries.lock().expect("secret store lock").insert(
             handle,
             SecretEntry {
-                origin,
-                label,
+                origin: origin.clone(),
+                label: label.clone(),
                 bytes,
             },
         );
+        self.labels
+            .lock()
+            .expect("secret label lock")
+            .insert((origin, label), handle);
         handle
     }
 
@@ -396,11 +405,27 @@ impl SecretStore {
     }
 
     pub fn revoke(&self, handle: SecretHandle) -> bool {
-        self.entries
+        let removed = self
+            .entries
             .lock()
             .expect("secret store lock")
-            .remove(&handle)
-            .is_some()
+            .remove(&handle);
+        if let Some(entry) = &removed {
+            self.labels
+                .lock()
+                .expect("secret label lock")
+                .remove(&(entry.origin.clone(), entry.label.clone()));
+        }
+        removed.is_some()
+    }
+
+    pub fn handle_for_label(&self, origin: &str, label: &str) -> Result<SecretHandle, SecretError> {
+        self.labels
+            .lock()
+            .expect("secret label lock")
+            .get(&(origin.to_owned(), label.to_owned()))
+            .copied()
+            .ok_or(SecretError::UnknownLabel)
     }
 
     pub fn labels(&self) -> Vec<String> {
@@ -417,6 +442,8 @@ impl SecretStore {
 pub enum SecretError {
     #[error("secret handle is unknown or revoked")]
     UnknownHandle,
+    #[error("secret label is unknown for this origin")]
+    UnknownLabel,
     #[error("secret handle is not valid for this origin")]
     WrongOrigin,
     #[error("secret is not valid UTF-8")]

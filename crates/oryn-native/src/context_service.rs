@@ -39,7 +39,7 @@ use crate::{
     storage::{StorageArea, StorageChange, StorageRequest, StorageResponse, StorageScope},
 };
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 8;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 9;
 pub const MAX_CONTEXT_FRAME_BYTES: usize = 24 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,6 +133,17 @@ pub enum ContextServiceRequest {
         page_id: PageId,
         url: String,
         module: bool,
+    },
+    LoadScript {
+        page_id: PageId,
+        url: String,
+        module: bool,
+        nonce: Option<String>,
+    },
+    AuthorizeInlineScript {
+        page_id: PageId,
+        source: String,
+        nonce: Option<String>,
     },
     WebSocketOpen {
         page_id: PageId,
@@ -232,6 +243,12 @@ pub enum ContextServiceResponse {
         source: String,
         module: bool,
     },
+    ScriptSource {
+        url: String,
+        source: String,
+        module: bool,
+    },
+    ScriptAuthorized,
     WebSocketOpened {
         socket_id: u64,
         protocol: String,
@@ -800,21 +817,23 @@ impl ParentContextService {
                 let source_origin = self.context.page_origin(page_id)?;
                 let resolved = self.context.resolve_page_url(page_id, &url)?;
                 let target_origin = resolved.origin().ascii_serialization();
-                if source_origin != target_origin
-                    && source_origin != "null"
-                    && let Err(error) = self.context.require_policy(
-                        PolicyRequest {
-                            action: ConsequentialAction::CrossOriginNavigation,
-                            source_origin,
-                            target_origin: Some(target_origin),
-                            detail: Some(resolved.to_string()),
-                        },
-                        None,
-                    )
-                {
-                    return Ok(ContextServiceResponse::PageDenied {
-                        reason: error.to_string(),
-                    });
+                if source_origin != target_origin && source_origin != "null" {
+                    let request = PolicyRequest {
+                        action: ConsequentialAction::CrossOriginNavigation,
+                        source_origin,
+                        target_origin: Some(target_origin),
+                        detail: Some(resolved.to_string()),
+                    };
+                    let authorization = if self.context.navigation_chain_is_preconfirmed(page_id) {
+                        self.context.require_preconfirmed_policy(request)
+                    } else {
+                        self.context.require_policy(request, None)
+                    };
+                    if let Err(error) = authorization {
+                        return Ok(ContextServiceResponse::PageDenied {
+                            reason: error.to_string(),
+                        });
+                    }
                 }
                 Ok(ContextServiceResponse::NavigationAuthorized)
             }
@@ -955,6 +974,17 @@ impl ParentContextService {
                 url,
                 module,
             } => self.load_worker_script(page_id, &url, module),
+            ContextServiceRequest::LoadScript {
+                page_id,
+                url,
+                module,
+                nonce,
+            } => self.load_page_script(page_id, &url, module, nonce.as_deref()),
+            ContextServiceRequest::AuthorizeInlineScript {
+                page_id,
+                source,
+                nonce,
+            } => self.authorize_inline_script(page_id, &source, nonce.as_deref()),
             ContextServiceRequest::WebSocketOpen {
                 page_id,
                 url,
@@ -1327,6 +1357,146 @@ impl ParentContextService {
         }
         Err(RuntimeError::Network(
             "worker request did not produce a response".into(),
+        ))
+    }
+
+    fn authorize_inline_script(
+        &self,
+        page_id: PageId,
+        source: &str,
+        nonce: Option<&str>,
+    ) -> Result<ContextServiceResponse, RuntimeError> {
+        self.validate_socket_owner(page_id)?;
+        let decision = self.context.authorize_csp(
+            page_id,
+            &crate::csp::CspRequest {
+                destination: crate::csp::CspDestination::Script,
+                url: "inline".into(),
+                nonce: nonce.map(str::to_owned),
+                inline_source: Some(source.to_owned()),
+                parser_inserted: false,
+                initiated_by_trusted_script: true,
+            },
+        )?;
+        if !decision.violations.is_empty() {
+            self.context
+                .handle_csp_violations(page_id, decision.violations.clone())?;
+        }
+        if !decision.allowed {
+            return Err(RuntimeError::ContextService(
+                "dynamic inline script blocked by Content-Security-Policy".into(),
+            ));
+        }
+        Ok(ContextServiceResponse::ScriptAuthorized)
+    }
+
+    fn load_page_script(
+        &self,
+        page_id: PageId,
+        requested_url: &str,
+        module: bool,
+        nonce: Option<&str>,
+    ) -> Result<ContextServiceResponse, RuntimeError> {
+        self.validate_socket_owner(page_id)?;
+        let network = self.network.clone().ok_or_else(|| {
+            RuntimeError::ContextService("script resource broker is unavailable".into())
+        })?;
+        let source_origin = self.context.page_origin(page_id)?;
+        let mut url = self.context.resolve_page_url(page_id, requested_url)?;
+        for redirect in 0..=10 {
+            let decision = self.context.authorize_csp(
+                page_id,
+                &crate::csp::CspRequest {
+                    destination: crate::csp::CspDestination::Script,
+                    url: url.to_string(),
+                    nonce: nonce.map(str::to_owned),
+                    inline_source: None,
+                    parser_inserted: false,
+                    initiated_by_trusted_script: true,
+                },
+            )?;
+            if !decision.violations.is_empty() {
+                self.context
+                    .handle_csp_violations(page_id, decision.violations.clone())?;
+            }
+            if !decision.allowed {
+                return Err(RuntimeError::ContextService(
+                    "dynamic script blocked by Content-Security-Policy script-src".into(),
+                ));
+            }
+            let response = network
+                .send(NetworkRequest {
+                    request_id: self.next_http_stream_id.fetch_add(1, Ordering::Relaxed),
+                    method: "GET".into(),
+                    url: url.to_string(),
+                    headers: vec![(
+                        "accept".into(),
+                        "text/javascript,application/javascript,*/*;q=0.1".into(),
+                    )],
+                    body: Vec::new(),
+                    credentials: true,
+                    security: crate::cookies::CookieRequestContext {
+                        kind: crate::cookies::CookieRequestKind::Script,
+                        initiator_url: Some(self.context.page_url(page_id)?),
+                        top_level_url: Some(self.context.page_url(page_id)?),
+                        ..Default::default()
+                    },
+                    resolved_addrs: Vec::new(),
+                })
+                .map_err(|error| RuntimeError::Network(error.to_string()))?;
+            if (300..400).contains(&response.status) {
+                if redirect == 10 {
+                    return Err(RuntimeError::Network(
+                        "dynamic script redirect limit exceeded".into(),
+                    ));
+                }
+                let location = response
+                    .headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+                    .map(|(_, value)| value)
+                    .ok_or_else(|| {
+                        RuntimeError::Network("script redirect omitted Location".into())
+                    })?;
+                url = url
+                    .join(location)
+                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                continue;
+            }
+            if response.body.len() > 1024 * 1024 {
+                return Err(RuntimeError::WorkerLimitExceeded {
+                    resource: "dynamic script resource".into(),
+                });
+            }
+            if module && url.origin().ascii_serialization() != source_origin {
+                let allowed = response.headers.iter().any(|(name, value)| {
+                    name.eq_ignore_ascii_case("access-control-allow-origin")
+                        && (value.trim() == "*" || value.trim() == source_origin)
+                });
+                if !allowed {
+                    return Err(RuntimeError::ContextService(
+                        "cross-origin module script failed CORS".into(),
+                    ));
+                }
+            }
+            let content_type = response
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                .map(|(_, value)| value.as_str());
+            let (source, _) = oryn_net::decode_resource_text(
+                &response.body,
+                content_type,
+                oryn_net::TextResourceKind::JavaScript,
+            );
+            return Ok(ContextServiceResponse::ScriptSource {
+                url: url.to_string(),
+                source,
+                module,
+            });
+        }
+        Err(RuntimeError::Network(
+            "dynamic script request did not produce a response".into(),
         ))
     }
 
@@ -1915,7 +2085,10 @@ mod tests {
             Ok(NetworkStreamResponse {
                 request_id: request.request_id,
                 status: 200,
-                headers: vec![("content-type".into(), "text/plain".into())],
+                headers: vec![
+                    ("content-type".into(), "text/plain".into()),
+                    ("access-control-allow-origin".into(), "*".into()),
+                ],
                 content_length: Some(5),
                 body: Box::new(CountingReader {
                     reads: self.reads.clone(),
@@ -1949,7 +2122,10 @@ mod tests {
             Ok(NetworkStreamResponse {
                 request_id: request.request_id,
                 status: 200,
-                headers: vec![("content-type".into(), "text/plain".into())],
+                headers: vec![
+                    ("content-type".into(), "text/plain".into()),
+                    ("access-control-allow-origin".into(), "*".into()),
+                ],
                 content_length: Some(2),
                 body: Box::new(std::io::Cursor::new(b"ok".to_vec())),
             })
@@ -1989,7 +2165,7 @@ mod tests {
                             url: format!("https://example.test/{index}"),
                             headers: Vec::new(),
                             body_base64: String::new(),
-                            credentials: true,
+                            credentials: false,
                         },
                     })
                 })
@@ -2164,6 +2340,51 @@ mod tests {
             context.security_audit()[0].decision,
             crate::PolicyDecision::Denied
         );
+    }
+
+    #[tokio::test]
+    async fn preconfirmed_navigation_chain_rechecks_every_redirect_origin() {
+        let mut options = ContextOptions::default();
+        options.action_policy.rules.insert(
+            ConsequentialAction::CrossOriginNavigation,
+            PolicyRule::RequireConfirmation,
+        );
+        options
+            .action_policy
+            .denied_origins
+            .insert("https://blocked.example".into());
+        let context = Browser::in_process_probe().new_context_with_options(options);
+        let page = context.new_page();
+        page.load_html("https://app.example/", "<p>ready</p>")
+            .await
+            .unwrap();
+        context.grant_navigation_chain(page.page_id());
+        let service = ParentContextService::new(context.clone(), page.page_id());
+
+        assert!(matches!(
+            service
+                .handle(ContextServiceRequest::AuthorizeNavigation {
+                    page_id: page.page_id(),
+                    url: "https://allowed.example/redirect-1".into(),
+                })
+                .unwrap(),
+            ContextServiceResponse::NavigationAuthorized
+        ));
+        assert!(matches!(
+            service
+                .handle(ContextServiceRequest::AuthorizeNavigation {
+                    page_id: page.page_id(),
+                    url: "https://blocked.example/redirect-2".into(),
+                })
+                .unwrap(),
+            ContextServiceResponse::PageDenied { .. }
+        ));
+        let audit = context.security_audit();
+        assert_eq!(audit.len(), 2);
+        assert_eq!(audit[0].decision, crate::PolicyDecision::Allowed);
+        assert_eq!(audit[1].decision, crate::PolicyDecision::Denied);
+        assert!(!audit[0].confirmation_consumed);
+        assert!(!audit[1].confirmation_consumed);
     }
 
     #[tokio::test]

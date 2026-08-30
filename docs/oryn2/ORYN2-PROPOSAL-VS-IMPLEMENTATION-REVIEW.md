@@ -2,6 +2,11 @@
 
 **Assessment date:** 2026-08-28  
 **Assessed source:** `0b7a38b` (`refactor: replace phase labels with capability names`)  
+**Current status update:** 2026-08-30
+
+**Current status source:** `dfd67b0` (`feat: complete native CSP enforcement`)
+plus the verified, uncommitted remediation work described below
+
 **Proposal:** *Oryn2 Product Proposal & Technical Architecture v0.2*  
 **Scope:** combined product, architecture, code, evidence, security, and release assessment
 
@@ -12,6 +17,220 @@ broader product-gap assessment formerly maintained as
 the repository's capability milestone pages: passing a frozen controlled
 manifest is historical evidence for a bounded feature, not proof that the full
 v1 product described by the proposal is complete.
+
+> **Reading note:** Sections 1–7 preserve the forensic assessment of source
+> `0b7a38b`. They are historical findings and should not be read as a fresh
+> description of current production code. This status section records the
+> verified disposition at `dfd67b0` plus the current working tree; later
+> remediation notes retain additional
+> implementation detail. A finding is closed only when its software defect is
+> absent. Release evidence is tracked separately and must bind to the exact
+> source and packaged artifacts being claimed.
+
+## Current HEAD status
+
+Oryn has completed the central proposal-v1 runtime cutover: Rust owns the live
+DOM; generated WebIDL bindings are installed in V8; same-origin frames use
+separate contexts within one page isolate; html5ever supports streaming parser
+pauses and document-write re-entry; and Fetch/XHR use the asynchronous parent
+broker. The stable `oryn` Rust facade, native-default CLI, full/English-lite
+runtime profiles, WebAssembly, HTTP/2, charset decoding, bounded caches,
+SameSite cookies, and the `csp3-agent-browser-2` profile also exist.
+
+The implementation is nevertheless not complete against every original design
+requirement. The remaining work is concentrated in long-tail layout
+compatibility, Linux/release operations, representative compatibility, and
+exact-artifact re-attestation.
+
+### Finding disposition at `dfd67b0` plus current verified remediation
+
+| Finding | Status | Current disposition |
+|---|---|---|
+| F1 — Rust-owned DOM | **Closed in software** | `oryn-dom` is the sole live-DOM authority. The JavaScript-owned graph, full-document export/synchronization, and old frame-document path are absent from production. |
+| F2 — semantic KPIs | **Partial; release evidence pending** | Schema v5 implements compact-versus-full failure attribution, labelled causal classes, confirmed-only challenge detection, corrected canary classification, and expanded exact-identity churn. The corrected 96-cell panel and release-candidate churn result have not been produced. |
+| F3 — style/layout architecture | **Partial; common-web subset expanded** | The shipped contract uses Stylo declaration parsing, Taffy box algorithms, and Parley measurement. It now covers bounded table/row/cell geometry in addition to block, inline, flex, grid, floats, positioning, overflow and 2D transforms. Fragmentation/multicolumn, vertical writing/ruby, SVG layout, 3D transforms and paint-order hit testing remain explicit alternate-domain boundaries; it is not a claim of general browser layout parity. |
+| F4 — act/wait/event loop | **Closed for the declared scheduler profile** | Rust owns timer deadlines and ordering. Each checkpoint runs V8 microtasks, host-phased custom-element reactions, Rust-journal MutationObservers to a stable point, style/semantic publication, then rendering-opportunity animation, ResizeObserver and IntersectionObserver delivery. Focused ordering and self-mutation regressions pass. |
+| F5 — evidence integrity | **Partial** | Layout and security evidence builders now bind manifest cases to assertions and recompute their aggregates. Some historical builders/manifests still carry supplied pass states, and the current source tree has no unified exact-artifact attestation. |
+| F6 — CORS/SameSite/CSP | **Closed in software; release evidence pending** | Parent CORS/preflight authority, schemeful SameSite cookies, mixed-content policy, CSP reporting, violation events, opaque sandbox origins, and worker/media/object/manifest directives are implemented. The latest CSP change is newer than the committed signed security evidence. |
+| F7 — consequential policy | **Closed in software for the native profile** | Concrete form submission and every redirect target are checked at the effect boundary. File upload uses parent-owned opaque handles and sends only explicitly selected payloads to the page worker. Clipboard is text-only and isolated to `BrowserContext`; host system clipboard access remains unsupported. Both paths are policy-controlled and audited. |
+| F8 — parser and scripts | **Closed in current software; release evidence pending** | Streaming html5ever, parser-blocking scripts, contextual fragments, serialization, bounded `document.write` re-entry, and dynamic script preparation/execution are implemented. Connected inline classic scripts preserve synchronous insertion ordering; external/module scripts use the parent resource scheduler; fragment-created scripts remain inert. |
+| F9 — page-facing capability honesty | **Partial only for declared layout boundaries** | JavaScript geometry distinguishes available, hidden, and unsupported states; ancestor overflow clipping affects interactability. Mutation, resize and intersection observers now consume the authoritative DOM/layout checkpoints. Unsupported fragmentation, vertical/ruby/SVG/3D/paint-order behavior still emits capability diagnostics instead of fabricated geometry. |
+| F10 — concurrency and realms | **Closed in software** | Worker exchanges run through `spawn_blocking`; one worker/isolate owns each top-level page; same-origin frames and dedicated workers use separate persistent V8 contexts in that isolate. Dedicated-worker globals and message queues are realm-isolated from their owner page. |
+| F11 — retained-state bounds | **Closed in software** | Revision history has count/byte ceilings, DOM slots and wrapper leases are reclaimed, and memory/persistent caches have entry and byte bounds. |
+| F12 — untrusted content | **Mostly closed** | Semantic nodes carry `ContentTrust::PageAuthored`, inferred facts use heuristic provenance, and raw inspection is policy-audited without recording page content. Broader prompt-boundary evidence remains narrower than the proposal's full trust model. |
+| F13 — secret leakage | **Closed in software** | Secret sensitivity is stored independently on Rust DOM nodes, applies to text inputs, survives page-controlled attribute changes, and redacts observation and HTML extraction. |
+| F14 — generated WebIDL | **Closed in software** | Deterministic generated bindings install real prototypes and callbacks with wrapper identity, brand, realm, origin, generation, and weak-root enforcement. |
+| F15 — production-path testing | **Closed in software; signed artifact evidence pending** | `production-profile-equivalence-v1` and its validator cover default/full/lite/no-V8 builds, generated bindings, scheduler/observer ordering, uploads, virtual clipboard, accessibility, layout and inherited-FD provisioning. Exact signed worker execution remains a private release-attestation step. |
+| F16 — Intent/API/MCP | **Closed in software; release evidence pending** | Agent contract v2 adds upload and context-virtual clipboard intents while preserving the existing resolver/action engine. OIL accepts `$secret:<label>` and `upload <target> $file:<label>`. Standalone Python and MCP accept secrets only through an inherited descriptor consumed by the privileged parent; values never enter argv, environment, OIL, JSON-RPC, traces, observations or worker initialization. |
+
+### Current broader-gap status
+
+- **Canonical product boundary — implemented in software.** `crates/oryn` is a stable Rust
+  facade, native is the CLI default, and the shared Rust `Intent`/`Target`
+  contract executes through the same semantic resolver and action engine as
+  OIL. Python and the first-party MCP stdio server use the same versioned JSON
+  envelope; OIL subprocess transport remains available for compatibility.
+  Secure secret-label provisioning is available to Rust embedding, Python and
+  MCP through parent-owned memory and inherited descriptors.
+- **JavaScript/runtime profiles — implemented in software.** V8 WebAssembly,
+  `core-full`, and English-lite locale diagnostics are present. Exact packaged
+  ICU/profile sizes remain release evidence.
+- **Network/decoding profile — implemented in software.** HTTP/2, gzip,
+  Brotli, deflate, zstd, charset precedence, cancellation, bounded streaming,
+  and context-partitioned caching have production implementations and focused
+  tests.
+- **Semantic runtime — structured contract implemented; broader conformance remains.**
+  Additive contract v5 preserves frozen v2-v4 observations while publishing
+  first-class forms, tables, lists, navigation, dialogs, menus, trees, tab sets,
+  grids, landmarks, live regions, repeated collections, ownership and ARIA
+  relationships. Supported accessible-name/description, role, state and
+  tree-exclusion rules carry explicit evidence, provenance and trust. Long-tail
+  A pinned agent-critical Accessible Name/ARIA set now covers referenced names,
+  hidden descendants, host alternatives, default submit names, role fallback
+  and presentational-role conflicts. Long-tail conformance and changing-site
+  evidence remain broader compatibility work rather than silently inferred
+  support.
+- **Compatibility — controlled evidence only.** Eight pinned frameworks and
+  five controlled authentication scenarios are useful deterministic coverage,
+  not a representative changing-site compatibility program.
+- **Linux — implemented but unattested.** Namespace, `no_new_privs`, Landlock,
+  and seccomp installation code exists and fails closed. It still requires a
+  Linux VM run, policy-parity evidence, reproducible x86_64/ARM64 packages, and
+  SBOM/provenance publication.
+- **Rendering — bounded subset.** The optional renderer is deterministic for
+  its declared effects; browser visual parity, broader SVG/fonts, GPU output,
+  and multi-page print layout are not claimed.
+- **Performance — current target gap.** Historical signed runs report roughly
+  500–580 ms startup-to-handshake, above the proposal's 250 ms cold-start
+  target. Current-release startup, warm-page, RSS, concurrency, and sustained
+  churn figures must be republished or receive an explicit reviewed exception.
+
+### Evidence and release status
+
+The current source tree is not release-attested as one bundle:
+
+- `validate_runtime_architecture.py --require-cutover` rejects the committed
+  shadow evidence because its source-tree hash predates `dfd67b0`.
+- Schema-v5 semantic validation cannot complete because the corrected
+  `model-panel-v5.json` has not been generated.
+- Layout evidence recomputes successfully but is bound to `68e5afe`.
+- Security evidence recomputes successfully but is bound to `6eb164d` and
+  predates the completed CSP profile.
+- The schema-v5 replacement run must include expanded churn plus all 96
+  Azure/Qwen × native/Chromium cells. Prior hosted spend remains `$6.362286`
+  against the original `$100` ceiling.
+
+The current honest product statement is therefore:
+
+> **The proposal-v1 runtime foundation is substantially implemented, including
+> the Rust-owned DOM and secure parent/worker architecture. Oryn is not yet
+> complete against the original design or release-ready as one attested
+> artifact. Recent working-tree remediation makes unsupported geometry visible,
+> adds ancestor clipping, gives production timers real deadlines, and closes
+> redirect-time policy bypasses. It also adds one shared typed Rust/OIL/Python/
+> MCP intent contract and first-class semantic/accessibility structures. The
+> principal remaining software gaps are long-tail layout compatibility and
+> broader changing-site coverage;
+> platform and model evidence must then be regenerated against one exact
+> release candidate.**
+
+### Updated implementation priority
+
+1. Expand pinned accessibility and layout differential coverage while
+   preserving explicit evidence, provenance and capability boundaries.
+2. Exercise the fail-closed Linux sandbox in CayVM, add platform parity and
+   packaging/SBOM evidence, and optimize or explicitly except startup targets.
+3. Regenerate shadow evidence and run the corrected churn and 96-cell panel on
+   one clean, signed, fingerprinted release candidate.
+
+### 2026-08-30 working-tree remediation status
+
+The following changes are implemented and have focused local verification, but
+are not yet represented by a committed source identifier or exact-artifact gate
+result:
+
+- Generated V8 geometry bindings preserve `Available`, `Hidden`, and
+  `Unsupported` instead of converting every unavailable box into a plausible
+  zero rectangle.
+- Layout interactability is clipped by viewport and ancestor padding boxes for
+  `hidden`, `clip`, `scroll`, and `auto` overflow, including visible-axis
+  normalization when the other axis establishes a scroll container.
+- Production timers use real deadlines, deterministic ordering, repeating
+  intervals, self-cancellation, and a V8 microtask checkpoint after each timer
+  task.
+- Cross-origin navigation authorization is preserved as a chain grant only
+  after the initiating action is approved, and every redirect origin is checked
+  again by the parent policy service.
+- File upload uses parent-imported opaque handles, policy authorization,
+  native `FileList`/`FormData`, agent contract v2 and OIL `$file:` labels.
+  Clipboard is a policy-controlled text buffer scoped to `BrowserContext`; host
+  system clipboard access remains explicitly unsupported.
+- Standalone CLI/Python/MCP secret labels can be provisioned through a bounded
+  inherited descriptor that is consumed before page work and never copied into
+  argv, environment, OIL, MCP requests, traces or worker initialization.
+- The checkpoint pipeline now covers Rust timers, V8 microtasks,
+  custom-element reactions, Rust-journal MutationObservers, style/semantic
+  publication, animation frames, ResizeObserver and IntersectionObserver.
+- Agent-critical Accessible Name/ARIA pins and bounded table geometry extend
+  the semantic and common-web layout profiles without claiming long-tail
+  browser parity.
+- Dynamically connected scripts now have one-shot preparation state. Inline
+  classic scripts execute synchronously at insertion; external/module scripts
+  run through parent-authorized resource loading; and fragment-created scripts
+  remain inert.
+- Dedicated workers now execute in independent persistent V8 contexts, with
+  parent-brokered `worker-src` loading, realm ownership checks, bounded worker
+  counts, and native message queues. The JavaScript compatibility-scope and
+  `Function`-constructor execution path have been removed.
+- `oryn-common` now owns a versioned serializable `Intent`/`Target` contract.
+  `PageHandle::perform` delegates target resolution to the existing native OIL
+  resolver and mutations to the existing typed action path, so the new Rust
+  entry point does not introduce a competing selector or scoring engine.
+- OIL now accepts `type <target> $secret:<label>`. The label resolves in the
+  parent-owned, origin-scoped secret store and invokes the existing secret-fill
+  path; serialized intents and normalized OIL contain the label only, never a
+  plaintext secret value. Compatibility translators reject this native-only
+  form rather than treating the label as text.
+- Python `perform()` sends the shared versioned intent envelope and returns
+  typed observation, action, navigation, delta, extraction, wait and semantic
+  structure results. Compatibility modes fail closed instead of translating a
+  typed request into a different backend contract.
+- `oryn-mcp` implements MCP stdio JSON-RPC and exposes only `oryn_perform` with
+  a complete JSON schema for the shared Intent/Target contract. Its secret
+  input schema contains a parent-owned label and no value field; it does not
+  provide OIL or raw-JavaScript tunnelling.
+- Rust embedding can populate the parent-owned origin-scoped store with
+  `BrowserContext::import_secret`. The standalone Python subprocess and MCP
+  server currently create their own contexts and expose no secure provisioning
+  channel. Their secret intents therefore fail closed on an unknown label; the
+  adapters must not be described as end-to-end secret-capable until that
+  parent-side integration exists.
+- Additive semantic contract v5 publishes first-class agent structures for
+  forms, tables, lists, navigation, dialogs, menus, trees, tab sets, grids,
+  landmarks, live regions and repeated collections. Accessibility nodes carry
+  supported name/description evidence, ARIA relationships and ownership,
+  properties, tree-exclusion reasons, trust and provenance without modifying
+  frozen v2-v4 observations.
+
+Focused tests cover geometry-state distinction, overflow clipping, timer
+deadlines/microtask ordering, interval cancellation, redirect-origin denial,
+and consequential form effects. Dynamic-script ordering/one-shot/inertness and
+dedicated-worker realm isolation are also covered. The no-default-feature
+native build also checks successfully. Focused parser/normalizer tests cover
+secret-label handling, and typed-intent tests cover shared semantic resolution,
+native action execution, and value-free secret serialization. These results
+include typed Python SDK tests, MCP protocol/schema tests, first-class semantic
+structure/accessibility tests, and worker-protocol serialization. They improve
+the software disposition of F4, F7, F8, F9, F10, and F16, but do not
+change the release-attestation status above.
+
+The verified working-tree test record is: 178/178 `oryn-native` V8 library
+tests; all `oryn-common` and `oryn-core` tests; six `oryn` MCP tests; all-feature
+binary checking; strict all-target Clippy with warnings denied; formatting;
+26 passing Python SDK tests with 19 environment-dependent skips; Ruff; an MCP
+stdio initialize/tools-list smoke test; and `git diff --check`. This is local
+software verification, not an exact packaged-worker, signed-release, Linux, or
+model-panel attestation.
 
 ## 1. Verdict
 
@@ -166,9 +385,9 @@ reach the affected document; sandboxed documents receive unique parent-owned
 opaque origins; and worker, media, object, and manifest requests exercise their
 actual CSP directive fallbacks. `security.csp` is therefore supported for the
 native platform surface. Dedicated-worker script loading is parent-brokered and
-`worker-src` complete, but `worker.dedicated` remains separately marked partial
-because its compatibility scope is not yet an independent V8 realm. Media
-decoding, plugin execution, SharedWorker, ServiceWorker, WebRTC, and
+`worker-src` complete; worker code now executes in a persistent independent V8
+context with realm-owned message queues rather than a page-realm compatibility
+scope. Media decoding, plugin execution, SharedWorker, ServiceWorker, WebRTC, and
 ReportingObserver remain separately declared capabilities. Release attestation
 still requires a clean signed-worker policy run publishing new compact evidence.
 
@@ -275,6 +494,14 @@ Relatedly, genuinely approximate values ship labeled deterministic: the projecti
 
 ### F16 — Medium. No typed Intent IR; the SDK ships OIL text; two named §13 OIL features missing
 *Merged: two interfaces findings.*
+
+> **Superseding implementation update (2026-08-30):** This finding describes
+> the assessed historical commit, not the current working tree. The shared
+> typed `Intent`/`Target` IR, `PageHandle::perform`, `observe --since`, and
+> `$secret:<label>` OIL path now exist and reuse the native resolver/action
+> engine. Typed Python transport and the first-party `oryn-mcp` adapter now use
+> that same envelope, closing the software defect. Exact release attestation
+> remains separate.
 
 §13.1 specifies `enum Intent`/`enum Target` and Appendix A specifies `PageHandle::perform(intent)`. Neither exists. The typed surface is `NativeAction { target: SemanticRef, action, value }` (`runtime.rs:3035-3039`) — target is a resolved ref only, with no `Semantic(SemanticQuery)` or `Css` arm; CSS is a separate method (`:2389`). Semantic resolution lives in the OIL session (`oil.rs:954-1043`), so any non-OIL frontend must reproduce that glue or shell out to OIL text — which is what `oryn-python` does (`client.py:100-122` over stdin). No MCP adapter exists, and no gate owns one. Separately, §13.3 makes `observe --since <rev>` first-class and the §13.3 worked example uses `$secret:` — `ObserveCmd` (`oryn-core/src/ast.rs:131-140`) has no `since` (only an implicit session cursor, `oil.rs:24,427-432`) and the canonical grammar has no `$secret:` token, so `fill_secret` is Rust-only and the printed OIL example does not parse. `IMPLEMENTATION_STATUS.md:82` claims revision-delta projections are wired through OIL flags.
 

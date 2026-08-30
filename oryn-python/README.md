@@ -1,6 +1,6 @@
 # Oryn Python Client
 
-Python client library for [Oryn](https://github.com/dragonscale/oryn) browser automation via Intent Language pass-through.
+Python client library for [Oryn](https://github.com/dragonscale/oryn) browser automation through the shared typed agent contract or the compatible Intent Language pass-through.
 
 ## Installation
 
@@ -22,23 +22,50 @@ pip install -e .
 
 ## Quick Start
 
-The Python client is a **thin pass-through layer** that sends Intent Language commands directly to the oryn backend. Commands are sent as strings, exactly as you would type them in the oryn REPL or write in `.oil` scripts.
+The Python client exposes the same versioned `Intent`/`Target` contract as the
+Rust API and MCP server. Existing OIL strings and `.oil` scripts remain
+supported through `execute()`.
 
 ### Async Usage
 
 ```python
-from oryn import OrynClient
+from oryn import OrynClient, OrynInput, OrynIntent, OrynTarget
 
 async with OrynClient() as client:
-    # All commands are Intent Language strings
-    await client.execute('goto "https://example.com"')
+    await client.perform(OrynIntent.navigate("https://example.com"))
+    observed = await client.perform(OrynIntent.observe(include_structures=True))
+    print(observed.semantic_observation.structures)
 
-    # Observations are raw strings (JSON or otherwise)
-    obs = await client.execute('observe')
-    print(obs)
+    await client.perform(OrynIntent.click(OrynTarget.text("Sign in")))
+    await client.perform(
+        OrynIntent.type(
+            OrynTarget.role("textbox"),
+            OrynInput.text("user@example.com"),
+        )
+    )
+```
 
-    await client.execute('click "Sign in"')
-    await client.execute('type email "user@example.com"')
+Secret input uses a parent-owned label and never places the secret value in the
+intent, trace, observation, Python result, argv, environment, or MCP request.
+Standalone clients provision values through an anonymous inherited descriptor:
+
+```python
+async with OrynClient(secret_values={
+    "https://example.com": {"account-password": "value stays in parent memory"}
+}) as client:
+    await client.perform(
+        OrynIntent.type(
+            OrynTarget.role("textbox"),
+            OrynInput.secret("account-password"),
+        )
+    )
+```
+
+Native upload paths are imported by the parent and selected by label:
+
+```python
+async with OrynClient(upload_paths={"proof": "/private/path/proof.txt"}) as client:
+    await client.perform(OrynIntent.upload(OrynTarget.css("input[type=file]"), ["proof"]))
 ```
 
 ### Sync Usage
@@ -71,9 +98,10 @@ with OrynClientSync() as client:
 
 ### OrynClient / OrynClientSync
 
-| Method             | Description                                                                   |
-| ------------------ | ----------------------------------------------------------------------------- |
-| `execute(command)` | Execute an Intent Language command string and return the raw string response. |
+| Method             | Description                                                                    |
+| ------------------ | ------------------------------------------------------------------------------ |
+| `perform(intent)`  | Execute the shared typed agent contract and return an `OrynIntentResult`.       |
+| `execute(command)` | Execute an Intent Language command string and return the raw string response.  |
 
 ### run_oil_file_sync / run_oil_file_async
 

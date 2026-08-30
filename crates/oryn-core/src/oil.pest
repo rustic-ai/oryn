@@ -151,7 +151,8 @@ click_opt = _{
     timeout_opt
 }
 
-type_cmd = { "type" ~ WSP+ ~ target ~ WSP+ ~ string_value ~ (WSP+ ~ type_opt)* }
+type_cmd = { "type" ~ WSP+ ~ target ~ WSP+ ~ (string_value | secret_value) ~ (WSP+ ~ type_opt)* }
+secret_value = @{ "$secret:" ~ (ASCII_ALPHANUMERIC | "_" | "-" | ".")+ }
 type_opt = _{
     "--append" |
     "--enter" |

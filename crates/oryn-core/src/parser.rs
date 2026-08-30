@@ -380,6 +380,7 @@ fn parse_click(pair: Pair<Rule>) -> Result<ClickCmd, ParseError> {
 fn parse_type(pair: Pair<Rule>) -> Result<TypeCmd, ParseError> {
     let mut target = None;
     let mut text = String::new();
+    let mut secret = None;
     let mut append = false;
     let mut enter = false;
     let mut clear = false;
@@ -390,6 +391,9 @@ fn parse_type(pair: Pair<Rule>) -> Result<TypeCmd, ParseError> {
         match inner.as_rule() {
             Rule::target => target = Some(parse_target(inner)?),
             Rule::string_value => text = parse_string(inner),
+            Rule::secret_value => {
+                secret = inner.as_str().strip_prefix("$secret:").map(str::to_owned)
+            }
             Rule::timeout_opt => timeout = Some(parse_timeout(inner)?),
             Rule::number => delay = Some(parse_number(inner)?),
             _ => match inner.as_str() {
@@ -403,6 +407,7 @@ fn parse_type(pair: Pair<Rule>) -> Result<TypeCmd, ParseError> {
     Ok(TypeCmd {
         target: target.unwrap(),
         text,
+        secret,
         append,
         enter,
         delay,
@@ -1258,5 +1263,15 @@ mod comment_validation_tests {
         };
         assert_eq!(media.feature.as_deref(), Some("color-scheme"));
         assert_eq!(media.value.as_deref(), Some("dark"));
+    }
+
+    #[test]
+    fn parses_parent_owned_secret_label_without_a_plaintext_value() {
+        let script = parse("type password $secret:account-password").unwrap();
+        let Some(Command::Type(command)) = &script.lines[0].command else {
+            panic!("expected type command");
+        };
+        assert_eq!(command.secret.as_deref(), Some("account-password"));
+        assert!(command.text.is_empty());
     }
 }

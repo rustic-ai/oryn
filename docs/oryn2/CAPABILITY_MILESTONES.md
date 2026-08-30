@@ -111,9 +111,11 @@ artifacts remain ignored.
 - The trusted V8 worker is confined by the macOS App Sandbox with only the JIT
   entitlement. Direct filesystem, network, listener, and inherited-secret
   access fail; all network and persistent authority remains in the parent.
-- Context policy covers cross-origin navigation, submissions, popups, uploads,
-  downloads, clipboard use, credential fills, protected requests, and
-  user-browser delegation with allow, deny, or exact one-use confirmation.
+- Context policy covers cross-origin navigation, submissions, popups,
+  downloads, credential fills, protected requests, and user-browser delegation
+  with allow, deny, or exact one-use confirmation. File-input upload uses
+  parent-imported opaque handles. Clipboard is context-owned, virtual, and
+  text-only; host system clipboard access remains unsupported.
 - Origin-scoped opaque secret handles, observation redaction, structured audit
   records, and bounded parent-owned download quarantine prevent ambient secret
   and filesystem authority.

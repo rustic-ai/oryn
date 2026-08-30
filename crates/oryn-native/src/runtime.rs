@@ -1,14 +1,11 @@
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{
         Arc, Mutex, Weak,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
-
-#[cfg(feature = "v8-host")]
-use std::collections::BTreeSet;
 
 #[cfg(feature = "v8-host")]
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -40,6 +37,7 @@ use crate::html::{ParsedDocument, parse};
 use crate::network::NetworkBroker;
 use crate::semantic::{
     empty_observation, is_hidden, project_document, project_document_full, project_element,
+    project_semantic_observation,
 };
 use crate::trace::{CausalRelation, TraceEvent, TraceEventKind, TraceLog};
 use crate::{
@@ -129,6 +127,8 @@ struct BrowserContextInner {
     persistent_profile: Option<PersistentProfile>,
     policy: Arc<PolicyEngine>,
     secrets: Arc<SecretStore>,
+    uploads: Arc<crate::upload::UploadStore>,
+    virtual_clipboard: Mutex<String>,
     downloads: Arc<DownloadStore>,
     network_replay: crate::replay::NetworkReplayController,
     intent_trace: Mutex<Vec<crate::replay::IntentTraceRecord>>,
@@ -140,6 +140,7 @@ struct BrowserContextInner {
     /// One-shot parent authorizations consumed only by the corresponding
     /// worker-originated form effect.
     form_submission_grants: Mutex<BTreeMap<PageId, usize>>,
+    navigation_grants: Mutex<BTreeSet<PageId>>,
     #[cfg(unix)]
     context_events: Mutex<Vec<ContextEventRecord>>,
     #[cfg(unix)]
@@ -827,6 +828,10 @@ enum PageCommand {
         options: ObservationOptions,
         reply: oneshot::Sender<Result<oryn_common::v4::Observation, RuntimeError>>,
     },
+    ObserveSemantic {
+        profile: ProjectionProfile,
+        reply: oneshot::Sender<oryn_common::v5::SemanticObservation>,
+    },
     ComputedStyle {
         target: SemanticRef,
         reply: oneshot::Sender<Result<ComputedStyle, RuntimeError>>,
@@ -871,6 +876,11 @@ enum PageCommand {
     },
     ExecuteSensitive {
         action: NativeAction,
+        reply: oneshot::Sender<Result<ActionResult, RuntimeError>>,
+    },
+    SetFiles {
+        target: SemanticRef,
+        files: Vec<crate::upload::UploadFile>,
         reply: oneshot::Sender<Result<ActionResult, RuntimeError>>,
     },
     Close,
@@ -1295,6 +1305,8 @@ impl Browser {
                 persistent_profile,
                 policy,
                 secrets,
+                uploads: Arc::new(crate::upload::UploadStore::default()),
+                virtual_clipboard: Mutex::new(String::new()),
                 downloads: Arc::new(DownloadStore::default()),
                 network_replay,
                 intent_trace: Mutex::new(Vec::new()),
@@ -1304,6 +1316,7 @@ impl Browser {
                 expected_meta_security: Mutex::new(BTreeMap::new()),
                 csp_reporting: Arc::new(Mutex::new(CspReportingState::default())),
                 form_submission_grants: Mutex::new(BTreeMap::new()),
+                navigation_grants: Mutex::new(BTreeSet::new()),
                 #[cfg(unix)]
                 context_events: Mutex::new(Vec::new()),
                 #[cfg(unix)]
@@ -1336,6 +1349,8 @@ impl Browser {
                 persistent_profile: None,
                 policy,
                 secrets: Arc::new(SecretStore::default()),
+                uploads: Arc::new(crate::upload::UploadStore::default()),
+                virtual_clipboard: Mutex::new(String::new()),
                 downloads: Arc::new(DownloadStore::default()),
                 network_replay: crate::replay::NetworkReplayController::live(),
                 intent_trace: Mutex::new(Vec::new()),
@@ -1345,6 +1360,7 @@ impl Browser {
                 expected_meta_security: Mutex::new(BTreeMap::new()),
                 csp_reporting: Arc::new(Mutex::new(CspReportingState::default())),
                 form_submission_grants: Mutex::new(BTreeMap::new()),
+                navigation_grants: Mutex::new(BTreeSet::new()),
                 #[cfg(unix)]
                 context_events: Mutex::new(Vec::new()),
                 #[cfg(unix)]
@@ -1377,6 +1393,8 @@ impl Browser {
                 persistent_profile: None,
                 policy,
                 secrets: Arc::new(SecretStore::default()),
+                uploads: Arc::new(crate::upload::UploadStore::default()),
+                virtual_clipboard: Mutex::new(String::new()),
                 downloads: Arc::new(DownloadStore::default()),
                 network_replay: crate::replay::NetworkReplayController::live(),
                 intent_trace: Mutex::new(Vec::new()),
@@ -1386,6 +1404,7 @@ impl Browser {
                 expected_meta_security: Mutex::new(BTreeMap::new()),
                 csp_reporting: Arc::new(Mutex::new(CspReportingState::default())),
                 form_submission_grants: Mutex::new(BTreeMap::new()),
+                navigation_grants: Mutex::new(BTreeSet::new()),
                 context_events: Mutex::new(Vec::new()),
                 next_context_event_id: AtomicU64::new(1),
                 parent_cookies: None,
@@ -1622,6 +1641,127 @@ impl BrowserContext {
 
     pub fn secret_labels(&self) -> Vec<String> {
         self.inner.secrets.labels()
+    }
+
+    pub fn secret_handle(&self, origin: &str, label: &str) -> Result<SecretHandle, RuntimeError> {
+        self.inner
+            .secrets
+            .handle_for_label(origin, label)
+            .map_err(|error| RuntimeError::Secret(error.to_string()))
+    }
+
+    /// Import bytes into the parent-owned upload store and return an opaque
+    /// handle safe to place in agent contracts and traces.
+    pub fn import_upload(
+        &self,
+        filename: impl Into<String>,
+        media_type: impl Into<String>,
+        bytes: Vec<u8>,
+    ) -> crate::upload::UploadHandle {
+        self.inner.uploads.insert(crate::upload::UploadFile {
+            filename: filename.into(),
+            media_type: media_type.into(),
+            bytes,
+        })
+    }
+
+    pub fn import_upload_as(
+        &self,
+        label: impl Into<String>,
+        filename: impl Into<String>,
+        media_type: impl Into<String>,
+        bytes: Vec<u8>,
+    ) -> crate::upload::UploadHandle {
+        self.inner.uploads.insert_named(
+            label.into(),
+            crate::upload::UploadFile {
+                filename: filename.into(),
+                media_type: media_type.into(),
+                bytes,
+            },
+        )
+    }
+
+    /// Read a host path in the privileged parent. The path is never sent to a
+    /// worker or serialized into an intent.
+    pub fn import_upload_path(
+        &self,
+        path: impl AsRef<std::path::Path>,
+        media_type: Option<&str>,
+    ) -> Result<crate::upload::UploadHandle, RuntimeError> {
+        self.inner
+            .uploads
+            .import_path(path.as_ref(), media_type)
+            .map_err(|error| RuntimeError::Upload(error.to_string()))
+    }
+
+    pub fn upload_descriptor(
+        &self,
+        handle: crate::upload::UploadHandle,
+    ) -> Result<crate::upload::UploadDescriptor, RuntimeError> {
+        self.inner
+            .uploads
+            .descriptor(handle)
+            .map_err(|error| RuntimeError::Upload(error.to_string()))
+    }
+
+    pub fn upload_handle(&self, label: &str) -> Result<crate::upload::UploadHandle, RuntimeError> {
+        self.inner
+            .uploads
+            .handle_for_label(label)
+            .map_err(|error| RuntimeError::Upload(error.to_string()))
+    }
+
+    pub fn revoke_upload(&self, handle: crate::upload::UploadHandle) -> bool {
+        self.inner.uploads.revoke(handle)
+    }
+
+    /// Read the text-only clipboard owned by this browser context. No host
+    /// clipboard API is called and values are not shared across contexts.
+    pub fn read_clipboard_text(
+        &self,
+        page_id: PageId,
+        confirmation: Option<ConfirmationToken>,
+    ) -> Result<String, RuntimeError> {
+        self.require_policy(
+            PolicyRequest {
+                action: ConsequentialAction::Clipboard,
+                source_origin: self.page_origin(page_id)?,
+                target_origin: None,
+                detail: Some("read context virtual clipboard".into()),
+            },
+            confirmation,
+        )?;
+        Ok(self
+            .inner
+            .virtual_clipboard
+            .lock()
+            .expect("virtual clipboard lock")
+            .clone())
+    }
+
+    /// Replace the context-owned, text-only virtual clipboard.
+    pub fn write_clipboard_text(
+        &self,
+        page_id: PageId,
+        value: impl Into<String>,
+        confirmation: Option<ConfirmationToken>,
+    ) -> Result<(), RuntimeError> {
+        self.require_policy(
+            PolicyRequest {
+                action: ConsequentialAction::Clipboard,
+                source_origin: self.page_origin(page_id)?,
+                target_origin: None,
+                detail: Some("write context virtual clipboard".into()),
+            },
+            confirmation,
+        )?;
+        *self
+            .inner
+            .virtual_clipboard
+            .lock()
+            .expect("virtual clipboard lock") = value.into();
+        Ok(())
     }
 
     pub fn quarantine_download(
@@ -1887,6 +2027,33 @@ impl BrowserContext {
             .form_submission_grants
             .lock()
             .expect("form submission grant lock")
+            .remove(&page_id);
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn grant_navigation_chain(&self, page_id: PageId) {
+        self.inner
+            .navigation_grants
+            .lock()
+            .expect("navigation grant lock")
+            .insert(page_id);
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn navigation_chain_is_preconfirmed(&self, page_id: PageId) -> bool {
+        self.inner
+            .navigation_grants
+            .lock()
+            .expect("navigation grant lock")
+            .contains(&page_id)
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn clear_navigation_chain_grant(&self, page_id: PageId) {
+        self.inner
+            .navigation_grants
+            .lock()
+            .expect("navigation grant lock")
             .remove(&page_id);
     }
 
@@ -2692,6 +2859,9 @@ impl BrowserContext {
                     PageCommand::ObserveWith { options, reply } => {
                         let _ = reply.send(state.observation_v4(options));
                     }
+                    PageCommand::ObserveSemantic { profile, reply } => {
+                        let _ = reply.send(state.semantic_observation(profile));
+                    }
                     PageCommand::ComputedStyle { target, reply } => {
                         let _ = reply.send(state.computed_style(target));
                     }
@@ -2727,6 +2897,13 @@ impl BrowserContext {
                     }
                     PageCommand::ExecuteSensitive { action, reply } => {
                         let _ = reply.send(state.execute_sensitive(action));
+                    }
+                    PageCommand::SetFiles {
+                        target,
+                        files,
+                        reply,
+                    } => {
+                        let _ = reply.send(state.set_files(target, files));
                     }
                     PageCommand::Close => break,
                 }
@@ -2808,6 +2985,10 @@ impl BrowserContext {
 }
 
 impl PageHandle {
+    pub(crate) fn owning_context(&self) -> Option<BrowserContext> {
+        self.context.upgrade().map(|inner| BrowserContext { inner })
+    }
+
     fn detached_clone(&self) -> Self {
         Self {
             id: self.id,
@@ -2924,6 +3105,8 @@ impl PageHandle {
         confirmation: Option<ConfirmationToken>,
     ) -> Result<NavigationResult, RuntimeError> {
         let url = url.into();
+        #[cfg(unix)]
+        let mut granted_context = None;
         if let Some(context) = self.context.upgrade() {
             let context = BrowserContext { inner: context };
             let source_origin = context
@@ -2942,25 +3125,37 @@ impl PageHandle {
                     },
                     confirmation,
                 )?;
+                #[cfg(unix)]
+                {
+                    context.grant_navigation_chain(self.page_id());
+                    granted_context = Some(context.clone());
+                }
             }
         }
-        #[cfg(unix)]
-        if let Some(response) = self
-            .worker_request(crate::worker::WorkerRequest::Goto { url: url.clone() })
-            .await
-        {
-            let navigation = worker_navigation(response?)?;
-            self.record_navigation(&navigation);
-            return Ok(navigation);
+        let outcome = async {
+            #[cfg(unix)]
+            if let Some(response) = self
+                .worker_request(crate::worker::WorkerRequest::Goto { url: url.clone() })
+                .await
+            {
+                return worker_navigation(response?);
+            }
+            let (reply, response) = oneshot::channel();
+            self.local_sender()?
+                .send(PageCommand::Goto { url, reply })
+                .await
+                .map_err(|_| RuntimeError::Closed)?;
+            response.await.map_err(|_| RuntimeError::Closed)?
         }
-        let (reply, response) = oneshot::channel();
-        self.local_sender()?
-            .send(PageCommand::Goto { url, reply })
-            .await
-            .map_err(|_| RuntimeError::Closed)?;
-        let navigation = response.await.map_err(|_| RuntimeError::Closed)??;
-        self.record_navigation(&navigation);
-        Ok(navigation)
+        .await;
+        #[cfg(unix)]
+        if let Some(context) = granted_context {
+            context.clear_navigation_chain_grant(self.page_id());
+        }
+        if let Ok(navigation) = &outcome {
+            self.record_navigation(navigation);
+        }
+        outcome
     }
 
     pub async fn back(&self) -> Result<NavigationResult, RuntimeError> {
@@ -3252,6 +3447,39 @@ impl PageHandle {
             .await
             .map_err(|_| RuntimeError::Closed)?;
         response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
+    /// Observe first-class semantic structures and supported accessibility
+    /// rules using additive contract v5. Contracts v2-v4 remain unchanged.
+    pub async fn observe_semantics(
+        &self,
+        profile: ProjectionProfile,
+    ) -> Result<oryn_common::v5::SemanticObservation, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::ObserveSemantic { profile })
+            .await
+        {
+            return match response? {
+                crate::worker::WorkerResponse::SemanticObservation { observation } => {
+                    if let Some(context) = self.context.upgrade() {
+                        context.group.update_observation(&observation.observation);
+                    }
+                    Ok(observation)
+                }
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::ObserveSemantic { profile, reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        let observation = response.await.map_err(|_| RuntimeError::Closed)?;
+        if let Some(context) = self.context.upgrade() {
+            context.group.update_observation(&observation.observation);
+        }
+        Ok(observation)
     }
 
     /// Frozen contract-v3 observation for compatibility callers.
@@ -3649,6 +3877,92 @@ impl PageHandle {
         .await
     }
 
+    /// Resolve an origin-scoped parent-owned secret by label and fill it
+    /// without exposing the value to OIL, JSON, Python, MCP or trace records.
+    pub async fn fill_secret_label(
+        &self,
+        target: SemanticRef,
+        label: &str,
+        confirmation: Option<ConfirmationToken>,
+    ) -> Result<ActionResult, RuntimeError> {
+        let context = self.context.upgrade().ok_or(RuntimeError::Closed)?;
+        let context = BrowserContext { inner: context };
+        let origin = context.page_origin(self.page_id())?;
+        let handle = context.secret_handle(&origin, label)?;
+        self.fill_secret(target, handle, confirmation).await
+    }
+
+    /// Select parent-imported files for an input. Opaque handles and host
+    /// paths remain in the parent; the worker receives only selected payloads.
+    pub async fn set_files(
+        &self,
+        target: SemanticRef,
+        handles: &[crate::upload::UploadHandle],
+        confirmation: Option<ConfirmationToken>,
+    ) -> Result<ActionResult, RuntimeError> {
+        let context = self.context.upgrade().ok_or(RuntimeError::Closed)?;
+        let context = BrowserContext { inner: context };
+        context.require_policy(
+            PolicyRequest {
+                action: ConsequentialAction::FileUpload,
+                source_origin: context.page_origin(self.page_id())?,
+                target_origin: None,
+                detail: Some(format!("select {} parent-owned upload(s)", handles.len())),
+            },
+            confirmation,
+        )?;
+        if handles.is_empty() {
+            return Err(RuntimeError::Upload(
+                "at least one upload handle is required".into(),
+            ));
+        }
+        let files = handles
+            .iter()
+            .map(|handle| context.inner.uploads.materialize(*handle))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| RuntimeError::Upload(error.to_string()))?;
+        #[cfg(unix)]
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::SetFiles {
+                target,
+                files: files.clone(),
+            })
+            .await
+        {
+            return match response? {
+                crate::worker::WorkerResponse::Action { result } => Ok(result),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::SetFiles {
+                target,
+                files,
+                reply,
+            })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
+    pub(crate) async fn set_files_materialized(
+        &self,
+        target: SemanticRef,
+        files: Vec<crate::upload::UploadFile>,
+    ) -> Result<ActionResult, RuntimeError> {
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::SetFiles {
+                target,
+                files,
+                reply,
+            })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
     pub(crate) async fn execute_sensitive(
         &self,
         action: NativeAction,
@@ -3831,6 +4145,8 @@ pub enum RuntimeError {
     UnknownRevision(Revision),
     #[error("native script realm failed: {0}")]
     Script(String),
+    #[error("typed agent intent failed: {0}")]
+    Intent(String),
     #[error("browser context service failed: {0}")]
     ContextService(String),
     #[error("network navigation failed: {0}")]
@@ -3865,6 +4181,8 @@ pub enum RuntimeError {
     ConfirmationRequired { action: ConsequentialAction },
     #[error("secret handle failed: {0}")]
     Secret(String),
+    #[error("upload handle failed: {0}")]
+    Upload(String),
     #[error("download quarantine failed: {0}")]
     Download(String),
     #[error("execution-domain handoff is invalid: {0}")]
@@ -4319,6 +4637,36 @@ impl PageState {
                 current = current
                     .join(location)
                     .map_err(|error| RuntimeError::Network(format!("invalid redirect: {error}")))?;
+                #[cfg(all(unix, feature = "v8-host"))]
+                if let Some(client) = &self.context_client {
+                    match client.request(
+                        crate::context_service::ContextServiceRequest::AuthorizeNavigation {
+                            page_id: self.page_id,
+                            url: current.to_string(),
+                        },
+                    )? {
+                        crate::context_service::ContextServiceResponse::NavigationAuthorized => {}
+                        crate::context_service::ContextServiceResponse::PageDenied { reason } => {
+                            self.trace.push(
+                                Revision(self.revision),
+                                None,
+                                TraceEventKind::PolicyDenied {
+                                    capability: format!(
+                                        "action.cross_origin_navigation.redirect: {reason}"
+                                    ),
+                                },
+                            );
+                            return Err(RuntimeError::PolicyDenied {
+                                action: ConsequentialAction::CrossOriginNavigation,
+                            });
+                        }
+                        _ => {
+                            return Err(RuntimeError::ProtocolViolation(
+                                "parent returned the wrong redirect-authorization response".into(),
+                            ));
+                        }
+                    }
+                }
                 redirect_chain_cross_site |=
                     crate::cookies::SchemefulSite::from_url(&current) != navigation_site;
                 continue;
@@ -5520,6 +5868,11 @@ impl PageState {
 
     #[cfg(feature = "v8-host")]
     fn refresh_layout(&mut self) -> Result<(), RuntimeError> {
+        if let Some(executable) = self.executable.as_mut() {
+            executable
+                .run_animation_frame_phase()
+                .map_err(map_host_error)?;
+        }
         let layout_document = self
             .executable
             .as_mut()
@@ -5550,7 +5903,9 @@ impl PageState {
         self.layout_revision = self.layout_revision.saturating_add(1);
         self.scroll_state = output.scroll;
         if let Some(executable) = self.executable.as_mut() {
-            executable.install_layout(&output).map_err(map_host_error)?;
+            executable
+                .install_layout(&output, self.viewport)
+                .map_err(map_host_error)?;
             executable
                 .install_media(
                     match self.color_scheme {
@@ -6061,6 +6416,10 @@ impl PageState {
             capabilities.push(legacy_layout);
             capabilities.extend([
                 supported_capability(
+                    "semantic.structures.v5",
+                    "first-class forms, tables, lists, navigation, dialogs, menus, trees, tab sets, grids, landmarks, live regions, ARIA relationships, ownership, and explicit accessibility evidence",
+                ),
+                supported_capability(
                     "computed_style",
                     "Stylo-parsed declarations with a worker-owned deterministic bounded cascade",
                 ),
@@ -6088,9 +6447,9 @@ impl PageState {
                             .into(),
                     ),
                 },
-                unsupported_capability(
+                supported_capability(
                     "layout.table",
-                    "table extraction is available, but table geometry is intentionally unavailable",
+                    "bounded common-web table, row, and cell geometry plus structured table extraction",
                 ),
                 unsupported_capability(
                     "layout.hit_testing.paint_order",
@@ -6138,19 +6497,25 @@ impl PageState {
                     "media.decode_and_playback",
                     "media resources are policy-checked and brokered, but audio/video decoding and playback remain unavailable",
                 ),
-                CapabilityDiagnostic {
-                    capability: "worker.dedicated".into(),
-                    support: SupportLevel::Partial,
-                    alternatives: vec![ExecutionDomain::Chromium, ExecutionDomain::Webkit],
-                    handoff_lossy: true,
-                    detail: Some(
-                        "dedicated worker scripts are parent-brokered and worker-src enforced, but execute in a bounded compatibility scope rather than an independent V8 realm"
-                            .into(),
-                    ),
-                },
+                supported_capability(
+                    "worker.dedicated",
+                    "parent-brokered worker-src enforcement with one persistent independent V8 context per dedicated worker and realm-owned message queues",
+                ),
                 unsupported_capability(
                     "worker.shared_and_service",
                     "SharedWorker and ServiceWorker remain outside the native profile",
+                ),
+                supported_capability(
+                    "file_input.upload",
+                    "parent-owned opaque upload handles populate native FileList/FormData after explicit policy authorization; host paths never enter the worker",
+                ),
+                supported_capability(
+                    "clipboard.context_virtual_text",
+                    "policy-controlled text clipboard isolated to the parent-owned BrowserContext; host system clipboard access remains unavailable",
+                ),
+                unsupported_capability(
+                    "clipboard.system",
+                    "host operating-system clipboard access is intentionally unavailable",
                 ),
                 CapabilityDiagnostic {
                     capability: "indexeddb.advanced".into(),
@@ -6183,6 +6548,16 @@ impl PageState {
                     ),
                 },
                 legacy_layout,
+                CapabilityDiagnostic {
+                    capability: "semantic.structures.v5".into(),
+                    support: SupportLevel::Supported,
+                    alternatives: Vec::new(),
+                    handoff_lossy: false,
+                    detail: Some(
+                        "Rust DOM projection of first-class structures and supported accessibility rules"
+                            .into(),
+                    ),
+                },
             ]
         }
     }
@@ -6350,6 +6725,23 @@ impl PageState {
         }
     }
 
+    fn semantic_observation(
+        &self,
+        profile: ProjectionProfile,
+    ) -> oryn_common::v5::SemanticObservation {
+        let observation = self.observation(profile);
+        match &self.document {
+            Some(document) => project_semantic_observation(&document.dom, observation),
+            None => oryn_common::v5::SemanticObservation {
+                contract_version: oryn_common::v5::CONTRACT_VERSION,
+                observation,
+                accessibility: Vec::new(),
+                structures: Vec::new(),
+                diagnostics: Vec::new(),
+            },
+        }
+    }
+
     fn record_snapshot(&mut self) {
         let nodes = self
             .document
@@ -6430,6 +6822,31 @@ impl PageState {
 
     fn execute_sensitive(&mut self, action: NativeAction) -> Result<ActionResult, RuntimeError> {
         self.execute_with_interactability(action, true, true)
+    }
+
+    fn set_files(
+        &mut self,
+        target: SemanticRef,
+        files: Vec<crate::upload::UploadFile>,
+    ) -> Result<ActionResult, RuntimeError> {
+        self.validate_target(target)?;
+        #[cfg(not(feature = "v8-host"))]
+        let _ = &files;
+        #[cfg(feature = "v8-host")]
+        if let Some(executable) = self.executable.as_mut() {
+            let node = crate::semantic::unpack_node_ref(target.node);
+            executable.set_files(node, &files).map_err(map_host_error)?;
+            self.document = Some(executable.document.clone());
+            return self.execute_in_realm(
+                NativeAction {
+                    target,
+                    action: SemanticAction::Type,
+                    value: files.first().map(|file| file.filename.clone()),
+                },
+                false,
+            );
+        }
+        Err(RuntimeError::EvaluationUnavailable)
     }
 
     fn execute_with_interactability(
@@ -7834,7 +8251,7 @@ mod tests {
                         request_id: request.request_id,
                         status: 200,
                         headers: vec![("content-type".into(), "text/javascript".into())],
-                        body: b"self.onmessage=event=>postMessage(event.data+'-reply')".to_vec(),
+                        body: b"globalThis.workerOnly='worker-realm';self.onmessage=event=>postMessage({reply:event.data+'-reply',documentType:typeof document,pageLeak:typeof pageOnly,workerOnly})".to_vec(),
                     });
                 }
                 Ok(NetworkResponse {
@@ -7847,7 +8264,7 @@ mod tests {
                             "script-src 'unsafe-inline' 'unsafe-eval'; worker-src 'self'".into(),
                         ),
                     ],
-                    body: br#"<output id='result'></output><script>const worker=new Worker('/worker.js');worker.onmessage=event=>document.querySelector('#result').textContent=event.data;worker.postMessage('worker')</script>"#.to_vec(),
+                    body: br#"<output id='result'></output><script>globalThis.pageOnly='page-realm';const worker=new Worker('/worker.js');worker.onmessage=event=>document.querySelector('#result').textContent=JSON.stringify(event.data);worker.postMessage('worker')</script>"#.to_vec(),
                 })
             }
         }
@@ -7863,12 +8280,21 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            result,
-            "worker-reply",
-            "worker state: {}",
-            page.evaluate("JSON.stringify([typeof Worker,typeof worker,worker&&typeof worker.__scope,worker&&worker.__closed,worker&&typeof worker.__scope.onmessage,worker&&typeof worker.onmessage])")
-                .await
-                .unwrap()
+            serde_json::from_str::<serde_json::Value>(&result).unwrap(),
+            serde_json::json!({
+                "reply": "worker-reply",
+                "documentType": "undefined",
+                "pageLeak": "undefined",
+                "workerOnly": "worker-realm",
+            })
+        );
+        assert_eq!(
+            page.evaluate("typeof workerOnly").await.unwrap(),
+            "undefined"
+        );
+        assert_eq!(
+            page.evaluate("typeof worker.__scope").await.unwrap(),
+            "undefined"
         );
     }
 
@@ -9802,10 +10228,9 @@ mod tests {
             .semantic_ref;
         let scroll = page.scroll_into_view(end).await.expect("scroll into view");
         assert!(scroll.y > 0.0);
-        assert!(matches!(
-            page.box_model(table).await,
-            Err(RuntimeError::UnsupportedGeometry(_))
-        ));
+        let table_box = page.box_model(table).await.expect("bounded table geometry");
+        assert!(table_box.border_box.width > 0.0);
+        assert!(table_box.border_box.height > 0.0);
     }
 
     #[cfg(feature = "v8-host")]
@@ -9907,6 +10332,16 @@ mod tests {
             .await
             .expect("observe all geometry");
         assert!(all.nodes.iter().all(|node| node.semantic.name != "Secret"));
+        let semantic = page
+            .observe_semantics(ProjectionProfile::Full)
+            .await
+            .expect("observe structured semantics");
+        assert!(
+            semantic
+                .accessibility
+                .iter()
+                .all(|node| node.name != "Secret")
+        );
         let find = |name: &str| {
             all.nodes
                 .iter()
@@ -10419,6 +10854,64 @@ mod tests {
                         ..
                     }
                 ))
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test]
+    async fn parent_owned_upload_populates_file_list_and_form_data() {
+        let mut options = ContextOptions::default();
+        options.action_policy.rules.insert(
+            ConsequentialAction::FileUpload,
+            crate::security::PolicyRule::Allow,
+        );
+        let context = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context_with_options(options);
+        let page = context.new_page();
+        page.load_html(
+            "https://upload.test/",
+            "<form id=form><input id=file type=file name=proof></form>",
+        )
+        .await
+        .expect("load upload fixture");
+        let handle =
+            context.import_upload_as("proof", "proof.txt", "text/plain", b"verified".to_vec());
+        let target = page
+            .resolve_selector("#file", SemanticAction::Type)
+            .await
+            .expect("resolve file input");
+        page.set_files(target, &[handle], None)
+            .await
+            .expect("select upload");
+        assert_eq!(
+            page.evaluate("document.querySelector('#file').files[0].name+':'+new FormData(document.querySelector('#form')).get('proof').name")
+                .await
+                .expect("inspect selected file"),
+            "proof.txt:proof.txt"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test]
+    async fn rendering_opportunity_orders_animation_resize_and_intersection_observers() {
+        let context = Browser::in_process_with_config(BrowserConfig::default()).new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://observer.test/",
+            r#"<div id=box style="width:40px;height:20px"></div><script>
+            globalThis.order=[];const box=document.querySelector('#box');
+            requestAnimationFrame(()=>order.push('raf'));
+            new ResizeObserver(()=>order.push('resize')).observe(box);
+            new IntersectionObserver(()=>order.push('intersection')).observe(box);
+            </script>"#,
+        )
+        .await
+        .expect("load observer fixture");
+        assert_eq!(
+            page.evaluate("order.join(',')")
+                .await
+                .expect("observer order"),
+            "raf,resize,intersection"
         );
     }
 }

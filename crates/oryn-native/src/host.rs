@@ -54,7 +54,7 @@ mod raw_v8 {
             atomic::{AtomicBool, Ordering},
             mpsc,
         },
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -71,9 +71,10 @@ mod raw_v8 {
     use oryn_common::v3::PageId;
     use oryn_dom::NodeId;
     use oryn_js::realm::{RealmDescriptor, RealmId, RealmRegistry};
+    use oryn_js::scheduler::{PageScheduler, Task, TaskSource};
     use oryn_js::v8_bindings::{
-        BindingLayout, SharedDom, V8BindingState, install_generated_bindings,
-        install_generated_bindings_with_root, wrap_node,
+        BindingLayout, SharedDom, V8BindingState, deliver_mutation_observers,
+        install_generated_bindings, install_generated_bindings_with_root, wrap_node,
     };
 
     static INITIALIZE_V8: Once = Once::new();
@@ -163,7 +164,7 @@ mod raw_v8 {
     }
 
     struct PendingFetch {
-        realm: RealmId,
+        context: v8::Global<v8::Context>,
         resolver: v8::Global<v8::PromiseResolver>,
     }
 
@@ -197,6 +198,51 @@ mod raw_v8 {
         body: Vec<u8>,
         headers: Vec<(String, String)>,
         credentials_mode: String,
+    }
+
+    struct DedicatedWorker {
+        owner_identity: i32,
+        context: v8::Global<v8::Context>,
+        closed: bool,
+    }
+
+    struct DedicatedWorkers {
+        next_id: u64,
+        workers: BTreeMap<u64, DedicatedWorker>,
+        outbound: BTreeMap<u64, Vec<String>>,
+    }
+
+    struct ScheduledTimer {
+        context: v8::Global<v8::Context>,
+        callback: v8::Global<v8::Function>,
+        arguments: Vec<v8::Global<v8::Value>>,
+        repeating: bool,
+    }
+
+    struct TimerRegistry {
+        started: Instant,
+        scheduler: PageScheduler<u64>,
+        callbacks: BTreeMap<u64, ScheduledTimer>,
+    }
+
+    impl Default for TimerRegistry {
+        fn default() -> Self {
+            Self {
+                started: Instant::now(),
+                scheduler: PageScheduler::default(),
+                callbacks: BTreeMap::new(),
+            }
+        }
+    }
+
+    impl Default for DedicatedWorkers {
+        fn default() -> Self {
+            Self {
+                next_id: 1,
+                workers: BTreeMap::new(),
+                outbound: BTreeMap::new(),
+            }
+        }
     }
 
     macro_rules! install_host_functions {
@@ -235,9 +281,133 @@ mod raw_v8 {
             $context
                 .global(context_scope)
                 .set(context_scope, name.into(), function.into());
+            let function = v8::Function::new(context_scope, timer_schedule_callback)
+                .expect("allocate native timer schedule callback");
+            let name = v8::String::new(context_scope, "__oryn_timer_schedule")
+                .expect("allocate native timer schedule name");
+            $context
+                .global(context_scope)
+                .set(context_scope, name.into(), function.into());
+            let function = v8::Function::new(context_scope, timer_cancel_callback)
+                .expect("allocate native timer cancel callback");
+            let name = v8::String::new(context_scope, "__oryn_timer_cancel")
+                .expect("allocate native timer cancel name");
+            $context
+                .global(context_scope)
+                .set(context_scope, name.into(), function.into());
+            let function = v8::Function::new(context_scope, dedicated_worker_create_callback)
+                .expect("allocate dedicated-worker create callback");
+            let name = v8::String::new(context_scope, "__oryn_worker_create")
+                .expect("allocate dedicated-worker create name");
+            $context
+                .global(context_scope)
+                .set(context_scope, name.into(), function.into());
+            let function = v8::Function::new(context_scope, dedicated_worker_post_callback)
+                .expect("allocate dedicated-worker post callback");
+            let name = v8::String::new(context_scope, "__oryn_worker_post")
+                .expect("allocate dedicated-worker post name");
+            $context
+                .global(context_scope)
+                .set(context_scope, name.into(), function.into());
+            let function = v8::Function::new(context_scope, dedicated_worker_take_callback)
+                .expect("allocate dedicated-worker take callback");
+            let name = v8::String::new(context_scope, "__oryn_worker_take")
+                .expect("allocate dedicated-worker take name");
+            $context
+                .global(context_scope)
+                .set(context_scope, name.into(), function.into());
+            let function = v8::Function::new(context_scope, dedicated_worker_terminate_callback)
+                .expect("allocate dedicated-worker terminate callback");
+            let name = v8::String::new(context_scope, "__oryn_worker_terminate")
+                .expect("allocate dedicated-worker terminate name");
+            $context
+                .global(context_scope)
+                .set(context_scope, name.into(), function.into());
             install_runtime_profile(context_scope);
             install_generated_binding_metadata(context_scope);
         }};
+    }
+
+    fn timer_schedule_callback(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        mut return_value: v8::ReturnValue<v8::Value>,
+    ) {
+        let result = (|| -> Result<u64, String> {
+            let callback = v8::Local::<v8::Function>::try_from(args.get(0))
+                .map_err(|_| "timer callback must be callable".to_string())?;
+            let delay = args
+                .get(1)
+                .number_value(scope)
+                .unwrap_or(0.0)
+                .clamp(0.0, 2_147_483_647.0) as u64;
+            let repeating = args.get(2).boolean_value(scope);
+            let values = v8::Local::<v8::Array>::try_from(args.get(3))
+                .map_err(|_| "timer arguments must be an array".to_string())?;
+            let mut arguments = Vec::with_capacity(values.length() as usize);
+            for index in 0..values.length() {
+                let value = values
+                    .get_index(scope, index)
+                    .ok_or_else(|| "timer argument is unavailable".to_string())?;
+                arguments.push(v8::Global::new(scope, value));
+            }
+            let context = v8::Global::new(scope, scope.get_current_context());
+            let callback = v8::Global::new(scope, callback);
+            let registry = scope
+                .get_slot_mut::<TimerRegistry>()
+                .ok_or_else(|| "timer scheduler is unavailable".to_string())?;
+            let now_ms = registry.started.elapsed().as_millis() as u64;
+            registry.scheduler.advance_to(now_ms);
+            let delay = Duration::from_millis(if repeating { delay.max(1) } else { delay });
+            let timer_id = if repeating {
+                registry
+                    .scheduler
+                    .set_interval_with(delay, |timer_id| Task {
+                        source: TaskSource::Timer,
+                        realm: RealmId(0),
+                        document_generation: 1,
+                        action_id: None,
+                        payload: timer_id,
+                    })
+            } else {
+                registry.scheduler.set_timeout_with(delay, |timer_id| Task {
+                    source: TaskSource::Timer,
+                    realm: RealmId(0),
+                    document_generation: 1,
+                    action_id: None,
+                    payload: timer_id,
+                })
+            };
+            registry.callbacks.insert(
+                timer_id,
+                ScheduledTimer {
+                    context,
+                    callback,
+                    arguments,
+                    repeating,
+                },
+            );
+            Ok(timer_id)
+        })();
+        match result {
+            Ok(timer_id) => return_value.set(v8::Number::new(scope, timer_id as f64).into()),
+            Err(error) => throw_type_error(scope, &error),
+        }
+    }
+
+    fn timer_cancel_callback(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        _return_value: v8::ReturnValue<v8::Value>,
+    ) {
+        let Some(timer_id) = args.get(0).integer_value(scope).filter(|id| *id > 0) else {
+            return;
+        };
+        if let Some(registry) = scope.get_slot_mut::<TimerRegistry>() {
+            let timer_id = timer_id as u64;
+            registry.scheduler.cancel_timer(timer_id);
+            registry.callbacks.remove(&timer_id);
+        }
     }
 
     fn install_generated_binding_metadata(scope: &mut v8::ContextScope<v8::HandleScope>) {
@@ -401,6 +571,8 @@ mod raw_v8 {
             isolate.set_host_initialize_import_meta_object_callback(initialize_import_meta);
             isolate.set_slot(PromiseRejections::default());
             isolate.set_slot(AsyncFetches::default());
+            isolate.set_slot(DedicatedWorkers::default());
+            isolate.set_slot(TimerRegistry::default());
             isolate.set_slot(ModuleNames::default());
             isolate.set_slot(ModuleCache::default());
             isolate.set_slot(ModuleResolutionFailures::default());
@@ -547,6 +719,13 @@ mod raw_v8 {
                 .map(|state| state.dom())
         }
 
+        pub fn take_pending_dynamic_scripts(&self) -> Result<Vec<NodeId>, HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))
+                .map(|state| state.take_pending_dynamic_scripts())
+        }
+
         pub fn install_layout(&mut self, layout: BindingLayout) -> Result<(), HostError> {
             self.binding_states
                 .get(&self.active_realm)
@@ -605,6 +784,122 @@ mod raw_v8 {
                         .map(|released| total + released)
                         .map_err(|error| HostError::Execution(error.to_string()))
                 })
+        }
+
+        /// Deliver Rust DOM mutation journals after V8's microtask checkpoint.
+        /// Observer callbacks may mutate again, so repeat to a bounded stable
+        /// point before style/semantic publication.
+        pub fn run_dom_observer_checkpoint(&mut self) -> Result<usize, HostError> {
+            let mut delivered = 0_usize;
+            for _ in 0..1024 {
+                let Some(dom) = self.active_dom() else {
+                    return Ok(delivered);
+                };
+                let mutations = dom.borrow_mut().drain_mutations();
+                if mutations.is_empty() {
+                    return Ok(delivered);
+                }
+                let realms = self.binding_states.keys().copied().collect::<Vec<_>>();
+                for realm in realms {
+                    let Some(state) = self.binding_states.get(&realm).cloned() else {
+                        continue;
+                    };
+                    let Some(context) = self.contexts.get(&realm).cloned() else {
+                        continue;
+                    };
+                    v8::scope!(let handle_scope, &mut self.isolate);
+                    let context = v8::Local::new(handle_scope, &context);
+                    let scope = &mut v8::ContextScope::new(handle_scope, context);
+                    delivered += deliver_mutation_observers(scope, &state, &mutations)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    scope.perform_microtask_checkpoint();
+                }
+            }
+            Err(HostError::LimitExceeded {
+                resource: "mutation observer checkpoint iterations".into(),
+            })
+        }
+
+        pub fn next_timer_delay(&mut self) -> Option<Duration> {
+            let registry = self.isolate.get_slot_mut::<TimerRegistry>()?;
+            registry
+                .scheduler
+                .advance_to(registry.started.elapsed().as_millis() as u64);
+            registry
+                .scheduler
+                .next_timer_delay_ms()
+                .map(Duration::from_millis)
+        }
+
+        pub fn drain_scheduled_timers(&mut self, wait: bool) -> Result<usize, HostError> {
+            if wait
+                && let Some(delay) = self.next_timer_delay()
+                && !delay.is_zero()
+                && delay <= self.execution_wall_limit
+            {
+                std::thread::sleep(delay);
+            }
+            let now_ms = self
+                .isolate
+                .get_slot::<TimerRegistry>()
+                .map(|registry| registry.started.elapsed().as_millis() as u64)
+                .unwrap_or(0);
+            if let Some(registry) = self.isolate.get_slot_mut::<TimerRegistry>() {
+                registry.scheduler.advance_to(now_ms);
+            }
+            let mut delivered = 0_usize;
+            while delivered < 1024 {
+                let mut timer_id = None;
+                if let Some(registry) = self.isolate.get_slot_mut::<TimerRegistry>() {
+                    registry
+                        .scheduler
+                        .run_checkpoint(|task| timer_id = Some(task.payload));
+                }
+                let Some(timer_id) = timer_id else { break };
+                let timer = self
+                    .isolate
+                    .get_slot::<TimerRegistry>()
+                    .and_then(|registry| registry.callbacks.get(&timer_id))
+                    .map(|timer| {
+                        (
+                            timer.context.clone(),
+                            timer.callback.clone(),
+                            timer.arguments.clone(),
+                            timer.repeating,
+                        )
+                    });
+                let Some((context, callback, arguments, repeating)) = timer else {
+                    continue;
+                };
+                {
+                    let _deadline =
+                        ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
+                    v8::scope!(let handle_scope, &mut self.isolate);
+                    let context = v8::Local::new(handle_scope, &context);
+                    let scope = &mut v8::ContextScope::new(handle_scope, context);
+                    v8::tc_scope!(let scope, scope);
+                    let callback = v8::Local::new(scope, &callback);
+                    let arguments = arguments
+                        .iter()
+                        .map(|value| v8::Local::new(scope, value))
+                        .collect::<Vec<_>>();
+                    let receiver = v8::undefined(scope).into();
+                    if callback.call(scope, receiver, &arguments).is_none() {
+                        let detail = scope
+                            .exception()
+                            .and_then(|value| value.to_string(scope))
+                            .map(|value| value.to_rust_string_lossy(scope))
+                            .unwrap_or_else(|| "timer callback failed".into());
+                        return Err(HostError::Execution(detail));
+                    }
+                    scope.perform_microtask_checkpoint();
+                }
+                if !repeating && let Some(registry) = self.isolate.get_slot_mut::<TimerRegistry>() {
+                    registry.callbacks.remove(&timer_id);
+                }
+                delivered += 1;
+            }
+            Ok(delivered)
         }
 
         /// Deliver parent-broker completions outside the originating V8
@@ -669,13 +964,8 @@ mod raw_v8 {
                             completion.operation_id
                         ))
                     })?;
-                let context = self
-                    .contexts
-                    .get(&pending.realm)
-                    .ok_or_else(|| HostError::Execution("fetch realm was replaced".into()))?
-                    .clone();
                 v8::scope!(let handle_scope, &mut self.isolate);
-                let context = v8::Local::new(handle_scope, &context);
+                let context = v8::Local::new(handle_scope, &pending.context);
                 let scope = &mut v8::ContextScope::new(handle_scope, context);
                 let resolver = v8::Local::new(scope, &pending.resolver);
                 match completion.result {
@@ -1070,6 +1360,370 @@ mod raw_v8 {
         parts.join("/")
     }
 
+    const DEDICATED_WORKER_BOOTSTRAP: &str = r#"
+        (() => {
+          const listeners = new Map();
+          class WorkerEvent {
+            constructor(type, init = {}) { this.type = String(type); Object.assign(this, init); }
+          }
+          const cloneJson = value => {
+            const encoded = JSON.stringify(value);
+            if (encoded === undefined) {
+              const error = new TypeError('dedicated-worker messages must be structured-cloneable JSON values');
+              error.name = 'DataCloneError';
+              throw error;
+            }
+            return encoded;
+          };
+          globalThis.self = globalThis;
+          globalThis.Event = WorkerEvent;
+          globalThis.MessageEvent = WorkerEvent;
+          globalThis.onmessage = null;
+          globalThis.onerror = null;
+          globalThis.addEventListener = (type, callback) => {
+            const key = String(type), list = listeners.get(key) || [];
+            list.push(callback); listeners.set(key, list);
+          };
+          globalThis.removeEventListener = (type, callback) => {
+            const key = String(type);
+            listeners.set(key, (listeners.get(key) || []).filter(item => item !== callback));
+          };
+          globalThis.dispatchEvent = event => {
+            for (const callback of listeners.get(event.type) || []) callback.call(globalThis, event);
+            const handler = globalThis['on' + event.type];
+            if (typeof handler === 'function') handler.call(globalThis, event);
+            return true;
+          };
+          globalThis.postMessage = value => __oryn_worker_emit(cloneJson(value));
+          globalThis.close = () => __oryn_worker_close();
+          globalThis.__oryn_dispatch_message = encoded => {
+            const event = new MessageEvent('message', { data: JSON.parse(encoded) });
+            dispatchEvent(event);
+          };
+        })();
+    "#;
+
+    fn worker_id_argument(
+        scope: &mut v8::PinScope,
+        args: &v8::FunctionCallbackArguments,
+    ) -> Result<u64, String> {
+        args.get(0)
+            .integer_value(scope)
+            .filter(|value| *value > 0)
+            .map(|value| value as u64)
+            .ok_or_else(|| "invalid dedicated-worker id".into())
+    }
+
+    fn current_global_identity(scope: &mut v8::PinScope) -> i32 {
+        scope
+            .get_current_context()
+            .global(scope)
+            .get_identity_hash()
+            .get()
+    }
+
+    fn throw_type_error(scope: &mut v8::PinScope, detail: &str) {
+        if let Some(message) = v8::String::new(scope, detail) {
+            let exception = v8::Exception::type_error(scope, message);
+            scope.throw_exception(exception);
+        }
+    }
+
+    fn dedicated_worker_create_callback(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        mut return_value: v8::ReturnValue<v8::Value>,
+    ) {
+        let created = (|| -> Result<u64, String> {
+            let source = args
+                .get(0)
+                .to_string(scope)
+                .map(|value| value.to_rust_string_lossy(scope))
+                .ok_or_else(|| "worker source is not string-convertible".to_string())?;
+            let resource_name = args
+                .get(1)
+                .to_string(scope)
+                .map(|value| value.to_rust_string_lossy(scope))
+                .unwrap_or_else(|| "oryn:dedicated-worker".into());
+            let module = args.get(2).boolean_value(scope);
+            let owner_identity = current_global_identity(scope);
+            let worker_id = {
+                let registry = scope
+                    .get_slot_mut::<DedicatedWorkers>()
+                    .ok_or_else(|| "dedicated-worker registry unavailable".to_string())?;
+                if registry.workers.len() >= 32 {
+                    return Err("dedicated-worker limit exceeded".into());
+                }
+                let worker_id = registry.next_id;
+                registry.next_id = worker_id.saturating_add(1);
+                worker_id
+            };
+            let context = v8::Context::new(scope, Default::default());
+            install_host_functions!(scope, context);
+            let context_global = v8::Global::new(scope, context);
+            scope
+                .get_slot_mut::<DedicatedWorkers>()
+                .expect("dedicated-worker registry installed")
+                .workers
+                .insert(
+                    worker_id,
+                    DedicatedWorker {
+                        owner_identity,
+                        context: context_global,
+                        closed: false,
+                    },
+                );
+
+            let executed = (|| -> Result<(), String> {
+                let worker_scope = &mut v8::ContextScope::new(scope, context);
+                let id_name = v8::String::new(worker_scope, "__oryn_worker_id")
+                    .ok_or_else(|| "worker id allocation failed".to_string())?;
+                worker_scope.get_current_context().global(worker_scope).set(
+                    worker_scope,
+                    id_name.into(),
+                    v8::Number::new(worker_scope, worker_id as f64).into(),
+                );
+                let emit = v8::Function::new(worker_scope, dedicated_worker_emit_callback)
+                    .ok_or_else(|| "worker emit callback allocation failed".to_string())?;
+                let name = v8::String::new(worker_scope, "__oryn_worker_emit")
+                    .ok_or_else(|| "worker emit name allocation failed".to_string())?;
+                worker_scope.get_current_context().global(worker_scope).set(
+                    worker_scope,
+                    name.into(),
+                    emit.into(),
+                );
+                let close = v8::Function::new(worker_scope, dedicated_worker_close_callback)
+                    .ok_or_else(|| "worker close callback allocation failed".to_string())?;
+                let name = v8::String::new(worker_scope, "__oryn_worker_close")
+                    .ok_or_else(|| "worker close name allocation failed".to_string())?;
+                worker_scope.get_current_context().global(worker_scope).set(
+                    worker_scope,
+                    name.into(),
+                    close.into(),
+                );
+                let url = serde_json::to_string(&resource_name).map_err(|e| e.to_string())?;
+                let bootstrap = format!(
+                    "globalThis.location=Object.freeze({{href:{url}}});{}",
+                    DEDICATED_WORKER_BOOTSTRAP
+                );
+                let bootstrap = v8::String::new(worker_scope, &bootstrap)
+                    .ok_or_else(|| "worker bootstrap allocation failed".to_string())?;
+                let bootstrap = v8::Script::compile(worker_scope, bootstrap, None)
+                    .ok_or_else(|| "worker bootstrap compilation failed".to_string())?;
+                bootstrap
+                    .run(worker_scope)
+                    .ok_or_else(|| "worker bootstrap execution failed".to_string())?;
+                if module {
+                    let mut source = module_source(worker_scope, &resource_name, &source)
+                        .map_err(|error| error.to_string())?;
+                    let module = v8::script_compiler::compile_module(worker_scope, &mut source)
+                        .ok_or_else(|| "worker module compilation failed".to_string())?;
+                    if !module
+                        .instantiate_module(worker_scope, resolve_module)
+                        .ok_or_else(|| "worker module linking failed".to_string())?
+                    {
+                        return Err("worker module linking failed".into());
+                    }
+                    module
+                        .evaluate(worker_scope)
+                        .ok_or_else(|| "worker module evaluation failed".to_string())?;
+                } else {
+                    let source = v8::String::new(worker_scope, &source)
+                        .ok_or_else(|| "worker source allocation failed".to_string())?;
+                    let script = v8::Script::compile(worker_scope, source, None)
+                        .ok_or_else(|| "worker source compilation failed".to_string())?;
+                    script
+                        .run(worker_scope)
+                        .ok_or_else(|| "worker source execution failed".to_string())?;
+                }
+                worker_scope.perform_microtask_checkpoint();
+                Ok(())
+            })();
+            if let Err(error) = executed {
+                if let Some(registry) = scope.get_slot_mut::<DedicatedWorkers>() {
+                    registry.workers.remove(&worker_id);
+                    registry.outbound.remove(&worker_id);
+                }
+                return Err(error);
+            }
+            Ok(worker_id)
+        })();
+        match created {
+            Ok(worker_id) => return_value.set(v8::Number::new(scope, worker_id as f64).into()),
+            Err(error) => throw_type_error(scope, &error),
+        }
+    }
+
+    fn dedicated_worker_post_callback(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        mut return_value: v8::ReturnValue<v8::Value>,
+    ) {
+        let result = (|| -> Result<bool, String> {
+            let worker_id = worker_id_argument(scope, &args)?;
+            let encoded = args
+                .get(1)
+                .to_string(scope)
+                .map(|value| value.to_rust_string_lossy(scope))
+                .ok_or_else(|| "worker message is not string-convertible".to_string())?;
+            let owner_identity = current_global_identity(scope);
+            let context = {
+                let registry = scope
+                    .get_slot::<DedicatedWorkers>()
+                    .ok_or_else(|| "dedicated-worker registry unavailable".to_string())?;
+                let worker = registry
+                    .workers
+                    .get(&worker_id)
+                    .ok_or_else(|| "dedicated worker is unavailable".to_string())?;
+                if worker.owner_identity != owner_identity {
+                    return Err("dedicated worker belongs to another realm".into());
+                }
+                if worker.closed {
+                    return Ok(false);
+                }
+                worker.context.clone()
+            };
+            let context = v8::Local::new(scope, &context);
+            let worker_scope = &mut v8::ContextScope::new(scope, context);
+            let encoded = serde_json::to_string(&encoded).map_err(|error| error.to_string())?;
+            let source =
+                v8::String::new(worker_scope, &format!("__oryn_dispatch_message({encoded})"))
+                    .ok_or_else(|| "worker message allocation failed".to_string())?;
+            let script = v8::Script::compile(worker_scope, source, None)
+                .ok_or_else(|| "worker message compilation failed".to_string())?;
+            script
+                .run(worker_scope)
+                .ok_or_else(|| "worker message dispatch failed".to_string())?;
+            worker_scope.perform_microtask_checkpoint();
+            Ok(true)
+        })();
+        match result {
+            Ok(value) => return_value.set(v8::Boolean::new(scope, value).into()),
+            Err(error) => throw_type_error(scope, &error),
+        }
+    }
+
+    fn dedicated_worker_take_callback(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        mut return_value: v8::ReturnValue<v8::Value>,
+    ) {
+        let result = (|| -> Result<String, String> {
+            let worker_id = worker_id_argument(scope, &args)?;
+            let owner_identity = current_global_identity(scope);
+            let registry = scope
+                .get_slot_mut::<DedicatedWorkers>()
+                .ok_or_else(|| "dedicated-worker registry unavailable".to_string())?;
+            let worker = registry
+                .workers
+                .get(&worker_id)
+                .ok_or_else(|| "dedicated worker is unavailable".to_string())?;
+            if worker.owner_identity != owner_identity {
+                return Err("dedicated worker belongs to another realm".into());
+            }
+            serde_json::to_string(&registry.outbound.remove(&worker_id).unwrap_or_default())
+                .map_err(|error| error.to_string())
+        })();
+        match result {
+            Ok(encoded) => {
+                if let Some(encoded) = v8::String::new(scope, &encoded) {
+                    return_value.set(encoded.into());
+                }
+            }
+            Err(error) => throw_type_error(scope, &error),
+        }
+    }
+
+    fn dedicated_worker_terminate_callback(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        _return_value: v8::ReturnValue<v8::Value>,
+    ) {
+        let result = (|| -> Result<(), String> {
+            let worker_id = worker_id_argument(scope, &args)?;
+            let owner_identity = current_global_identity(scope);
+            let registry = scope
+                .get_slot_mut::<DedicatedWorkers>()
+                .ok_or_else(|| "dedicated-worker registry unavailable".to_string())?;
+            if registry
+                .workers
+                .get(&worker_id)
+                .is_some_and(|worker| worker.owner_identity != owner_identity)
+            {
+                return Err("dedicated worker belongs to another realm".into());
+            }
+            registry.workers.remove(&worker_id);
+            registry.outbound.remove(&worker_id);
+            Ok(())
+        })();
+        if let Err(error) = result {
+            throw_type_error(scope, &error);
+        }
+    }
+
+    fn dedicated_worker_emit_callback(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        _return_value: v8::ReturnValue<v8::Value>,
+    ) {
+        let result = (|| -> Result<(), String> {
+            let global = scope.get_current_context().global(scope);
+            let name = v8::String::new(scope, "__oryn_worker_id")
+                .ok_or_else(|| "worker id name allocation failed".to_string())?;
+            let worker_id = global
+                .get(scope, name.into())
+                .and_then(|value| value.integer_value(scope))
+                .filter(|value| *value > 0)
+                .map(|value| value as u64)
+                .ok_or_else(|| "worker realm has no identity".to_string())?;
+            let encoded = args
+                .get(0)
+                .to_string(scope)
+                .map(|value| value.to_rust_string_lossy(scope))
+                .ok_or_else(|| "worker message is not string-convertible".to_string())?;
+            let registry = scope
+                .get_slot_mut::<DedicatedWorkers>()
+                .ok_or_else(|| "dedicated-worker registry unavailable".to_string())?;
+            if registry
+                .workers
+                .get(&worker_id)
+                .is_some_and(|worker| !worker.closed)
+            {
+                registry
+                    .outbound
+                    .entry(worker_id)
+                    .or_default()
+                    .push(encoded);
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            throw_type_error(scope, &error);
+        }
+    }
+
+    fn dedicated_worker_close_callback(
+        scope: &mut v8::PinScope,
+        _args: v8::FunctionCallbackArguments,
+        _return_value: v8::ReturnValue<v8::Value>,
+    ) {
+        let global = scope.get_current_context().global(scope);
+        let Some(name) = v8::String::new(scope, "__oryn_worker_id") else {
+            return;
+        };
+        let worker_id = global
+            .get(scope, name.into())
+            .and_then(|value| value.integer_value(scope))
+            .filter(|value| *value > 0)
+            .map(|value| value as u64);
+        if let Some(worker_id) = worker_id
+            && let Some(registry) = scope.get_slot_mut::<DedicatedWorkers>()
+            && let Some(worker) = registry.workers.get_mut(&worker_id)
+        {
+            worker.closed = true;
+        }
+    }
+
     fn crypto_callback(
         scope: &mut v8::PinScope,
         args: v8::FunctionCallbackArguments,
@@ -1201,7 +1855,7 @@ mod raw_v8 {
         mut return_value: v8::ReturnValue<v8::Value>,
     ) {
         let started = (|| -> Result<v8::Local<v8::Promise>, String> {
-            let context = scope
+            let context_state = scope
                 .get_slot::<ContextState>()
                 .cloned()
                 .ok_or_else(|| "context service unavailable".to_string())?;
@@ -1213,11 +1867,7 @@ mod raw_v8 {
             let resolver = v8::PromiseResolver::new(scope)
                 .ok_or_else(|| "failed to allocate stream promise".to_string())?;
             let promise = resolver.get_promise(scope);
-            let realm = scope
-                .get_current_context()
-                .get_slot::<V8BindingState>()
-                .map(|state| state.realm())
-                .unwrap_or(RealmId(0));
+            let context = v8::Global::new(scope, scope.get_current_context());
             let resolver = v8::Global::new(scope, resolver);
             let operations = scope
                 .get_slot_mut::<AsyncFetches>()
@@ -1229,13 +1879,13 @@ mod raw_v8 {
             }
             operations
                 .pending
-                .insert(operation_id, PendingFetch { realm, resolver });
+                .insert(operation_id, PendingFetch { context, resolver });
             let sender = operations.sender.clone();
             std::thread::spawn(move || {
-                let result = context
+                let result = context_state
                     .client
                     .request(ContextServiceRequest::HttpStreamRead {
-                        page_id: context.page_id,
+                        page_id: context_state.page_id,
                         stream_id,
                         max_bytes: 64 * 1024,
                     })
@@ -1325,11 +1975,7 @@ mod raw_v8 {
             let resolver = v8::PromiseResolver::new(scope)
                 .ok_or_else(|| "failed to allocate fetch promise".to_string())?;
             let promise = resolver.get_promise(scope);
-            let realm = scope
-                .get_current_context()
-                .get_slot::<V8BindingState>()
-                .map(|state| state.realm())
-                .unwrap_or(RealmId(0));
+            let context = v8::Global::new(scope, scope.get_current_context());
             let resolver = v8::Global::new(scope, resolver);
             let async_fetches = scope
                 .get_slot_mut::<AsyncFetches>()
@@ -1341,7 +1987,7 @@ mod raw_v8 {
             }
             async_fetches
                 .pending
-                .insert(operation_id, PendingFetch { realm, resolver });
+                .insert(operation_id, PendingFetch { context, resolver });
             let sender = async_fetches.sender.clone();
             std::thread::spawn(move || {
                 let result = perform_fetch(

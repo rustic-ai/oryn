@@ -2334,6 +2334,7 @@ dependencies = [
  "oryn-native",
  "oryn-r",
  "oryn-render",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",

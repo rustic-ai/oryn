@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "capability": "production-profile-equivalence",
+  "required_profiles": ["default-core-full", "core-full", "core-lite", "no-v8-probe"],
+  "required_paths": ["in-process-worker-engine", "worker-protocol-v6", "parent-context-service-v9"],
+  "cases": [
+    {"id": "generated-webidl-clean", "required": true},
+    {"id": "scheduler-stable-checkpoint", "required": true},
+    {"id": "custom-elements-before-mutation-observers", "required": true},
+    {"id": "rendering-observer-order", "required": true},
+    {"id": "opaque-upload-worker-roundtrip", "required": true},
+    {"id": "context-virtual-clipboard-isolation", "required": true},
+    {"id": "agent-critical-accessibility-pin", "required": true},
+    {"id": "common-web-table-layout", "required": true},
+    {"id": "python-inherited-secret-fd", "required": true},
+    {"id": "mcp-inherited-secret-fd", "required": true},
+    {"id": "no-v8-production-rejection", "required": true}
+  ]
+}

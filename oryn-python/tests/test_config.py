@@ -45,6 +45,16 @@ class TestOrynConfig:
 
         assert config.get_cli_args() == ["native", "--sdk-repl", "--allow-loopback"]
 
+    def test_native_upload_paths_are_parent_cli_imports(self):
+        config = OrynConfig(mode="native", upload_paths={"proof": "/tmp/proof.txt"})
+
+        assert config.get_cli_args() == [
+            "native",
+            "--sdk-repl",
+            "--upload",
+            "proof=/tmp/proof.txt",
+        ]
+
     def test_get_cli_args_embedded(self):
         """Test CLI args for embedded mode."""
         config = OrynConfig(mode="embedded")

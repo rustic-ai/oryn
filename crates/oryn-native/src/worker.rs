@@ -19,7 +19,7 @@ use crate::{
     runtime::NativeAction,
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 5;
+pub const WORKER_PROTOCOL_VERSION: u32 = 6;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
 static WORKER_BINARY_SHA256: OnceLock<String> = OnceLock::new();
 
@@ -159,6 +159,9 @@ pub enum WorkerRequest {
     ObserveWith {
         options: oryn_common::v4::ObservationOptions,
     },
+    ObserveSemantic {
+        profile: ProjectionProfile,
+    },
     ComputedStyle {
         target: SemanticRef,
     },
@@ -183,6 +186,10 @@ pub enum WorkerRequest {
     },
     Execute {
         action: NativeActionRequest,
+    },
+    SetFiles {
+        target: SemanticRef,
+        files: Vec<crate::upload::UploadFile>,
     },
     Oil {
         input: String,
@@ -231,6 +238,9 @@ pub enum WorkerResponse {
     },
     ObservationV4 {
         observation: oryn_common::v4::Observation,
+    },
+    SemanticObservation {
+        observation: oryn_common::v5::SemanticObservation,
     },
     ComputedStyle {
         style: oryn_common::v4::ComputedStyle,
@@ -589,6 +599,12 @@ async fn dispatch(
             Ok(observation) => WorkerResponse::ObservationV4 { observation },
             Err(value) => error(value),
         },
+        WorkerRequest::ObserveSemantic { profile } => {
+            match session.page.observe_semantics(profile).await {
+                Ok(observation) => WorkerResponse::SemanticObservation { observation },
+                Err(value) => error(value),
+            }
+        }
         WorkerRequest::ComputedStyle { target } => {
             match session.page.computed_style(target).await {
                 Ok(style) => WorkerResponse::ComputedStyle { style },
@@ -643,6 +659,12 @@ async fn dispatch(
                 session.page.execute(native_action).await
             };
             match result {
+                Ok(result) => WorkerResponse::Action { result },
+                Err(value) => error(value),
+            }
+        }
+        WorkerRequest::SetFiles { target, files } => {
+            match session.page.set_files_materialized(target, files).await {
                 Ok(result) => WorkerResponse::Action { result },
                 Err(value) => error(value),
             }
@@ -747,6 +769,9 @@ mod tests {
                 html: "<button>Save</button>".into(),
             },
             WorkerRequest::Observe { profile: None },
+            WorkerRequest::ObserveSemantic {
+                profile: ProjectionProfile::Full,
+            },
             WorkerRequest::Oil {
                 input: "observe\nclick \"Save\"".into(),
             },
@@ -777,16 +802,20 @@ mod tests {
             .map(|line| serde_json::from_slice(line).expect("valid response"))
             .collect();
 
-        assert_eq!(lines.len(), 6);
+        assert_eq!(lines.len(), 7);
         assert!(matches!(lines[0].response, WorkerResponse::Ready { .. }));
         assert!(matches!(lines[1].response, WorkerResponse::Loaded { .. }));
         assert!(matches!(
             lines[2].response,
             WorkerResponse::Observation { .. }
         ));
-        assert!(matches!(lines[3].response, WorkerResponse::Oil { .. }));
-        assert!(matches!(lines[4].response, WorkerResponse::Trace { .. }));
-        assert!(matches!(lines[5].response, WorkerResponse::Exiting));
+        assert!(matches!(
+            lines[3].response,
+            WorkerResponse::SemanticObservation { .. }
+        ));
+        assert!(matches!(lines[4].response, WorkerResponse::Oil { .. }));
+        assert!(matches!(lines[5].response, WorkerResponse::Trace { .. }));
+        assert!(matches!(lines[6].response, WorkerResponse::Exiting));
     }
 
     #[tokio::test(flavor = "current_thread")]

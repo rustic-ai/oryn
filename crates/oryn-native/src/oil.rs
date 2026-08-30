@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, time::Duration};
 
+use oryn_common::agent::{Intent, IntentRequest};
 use oryn_common::v3::{
     ActionResult, CapabilityDiagnostic, ExecutionDomain, Observation, ObservationDelta,
     PageDescriptor, PageId, PagePredicate, ProjectionProfile, Revision, SemanticAction,
@@ -12,10 +13,13 @@ use oryn_common::{
 use oryn_core::ast::{Command, ExtractWhat, RelationKind, Target, TargetAtomic, WaitCondition};
 use serde::{Deserialize, Serialize};
 
+use crate::IntentResult;
 use crate::runtime::{
     BrowserContext, ContentKind, LifecycleState, NativeAction, NavigationResult, PageHandle,
     RuntimeError, ScrollRequest, WaitPredicate,
 };
+
+pub const TYPED_INTENT_PREFIX: &str = "@oryn-intent ";
 
 pub struct NativeOilSession {
     page: PageHandle,
@@ -82,6 +86,9 @@ pub enum NativeOilOutput {
     Unsupported {
         diagnostic: CapabilityDiagnostic,
     },
+    Intent {
+        result: IntentResult,
+    },
     Exit,
 }
 
@@ -114,6 +121,36 @@ impl NativeContextOilSession {
         for line in input.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(payload) = line.strip_prefix(TYPED_INTENT_PREFIX) {
+                let request: IntentRequest = serde_json::from_str(payload)
+                    .map_err(|error| NativeOilError::Parse(error.to_string()))?;
+                let intent = request.validate().map_err(NativeOilError::Parse)?;
+                outputs.push(NativeOilOutput::Intent {
+                    result: self.perform(intent).await?,
+                });
+                continue;
+            }
+            if line.starts_with("upload ") {
+                let page = self.context.active_page().ok_or_else(|| {
+                    NativeOilError::PageCommand("browser context has no active page".into())
+                })?;
+                let page_id = page.page_id();
+                let before = self.revision(page_id);
+                let session = self
+                    .sessions
+                    .entry(page_id)
+                    .or_insert_with(|| NativeOilSession::new(page));
+                let result = session.execute_upload(line, &self.context).await?;
+                self.context.record_intent(
+                    Some(page_id),
+                    "upload [TARGET] [FILE_LABELS]".into(),
+                    before,
+                    self.revision(page_id),
+                    "completed".into(),
+                );
+                outputs.push(NativeOilOutput::Action { result });
                 continue;
             }
             if line == "pages" || line.starts_with("page ") {
@@ -181,6 +218,41 @@ impl NativeContextOilSession {
             }
         }
         Ok(outputs)
+    }
+
+    /// Execute the stable typed agent contract against the active page.
+    /// The page implementation delegates to the same semantic resolver and
+    /// native action engine as OIL.
+    pub async fn perform(&mut self, intent: Intent) -> Result<IntentResult, NativeOilError> {
+        let page = self.context.active_page().ok_or_else(|| {
+            NativeOilError::PageCommand("browser context has no active page".into())
+        })?;
+        let page_id = page.page_id();
+        let before = self.revision(page_id);
+        let audit_label = intent_audit_label(&intent);
+        match page.perform(intent).await {
+            Ok(result) => {
+                let after = self.revision(page_id);
+                self.context.record_intent(
+                    Some(page_id),
+                    audit_label,
+                    before,
+                    after,
+                    "completed".into(),
+                );
+                Ok(result)
+            }
+            Err(error) => {
+                self.context.record_intent(
+                    Some(page_id),
+                    audit_label,
+                    before,
+                    self.revision(page_id),
+                    format!("failed:{error}"),
+                );
+                Err(error.into())
+            }
+        }
     }
 
     fn revision(&self, page_id: PageId) -> Option<oryn_common::v3::Revision> {
@@ -280,6 +352,30 @@ impl NativeContextOilSession {
     }
 }
 
+fn intent_audit_label(intent: &Intent) -> String {
+    let name = match intent {
+        Intent::Navigate { .. } => "navigate",
+        Intent::Back => "back",
+        Intent::Forward => "forward",
+        Intent::Refresh => "refresh",
+        Intent::Observe { .. } => "observe",
+        Intent::Click { .. } => "click",
+        Intent::Type { .. } => "type",
+        Intent::Clear { .. } => "clear",
+        Intent::Check { .. } => "check",
+        Intent::Select { .. } => "select",
+        Intent::Submit { .. } => "submit",
+        Intent::Focus { .. } => "focus",
+        Intent::Hover { .. } => "hover",
+        Intent::ClipboardRead => "clipboard_read",
+        Intent::ClipboardWrite { .. } => "clipboard_write",
+        Intent::Upload { .. } => "upload",
+        Intent::Extract { .. } => "extract",
+        Intent::WaitRevision { .. } => "wait_revision",
+    };
+    format!("intent:{name}")
+}
+
 fn scrub_oil_input(input: &str) -> String {
     let mut parts = input.split_whitespace();
     let command = parts.next().unwrap_or_default();
@@ -367,6 +463,72 @@ impl NativeOilSession {
             }
         }
         Ok(outputs)
+    }
+
+    pub(crate) async fn resolve_typed_target(
+        &mut self,
+        target: &oryn_common::agent::Target,
+        action: SemanticAction,
+        force: bool,
+    ) -> Result<SemanticRef, NativeOilError> {
+        if let oryn_common::agent::Target::Reference { reference } = target {
+            return Ok(*reference);
+        }
+        self.resolve_for_action(agent_target_to_oil(target), action, force)
+            .await
+    }
+
+    async fn execute_upload(
+        &mut self,
+        input: &str,
+        context: &BrowserContext,
+    ) -> Result<ActionResult, NativeOilError> {
+        let tokens = input.split_whitespace().collect::<Vec<_>>();
+        let file_index = tokens
+            .iter()
+            .position(|token| token.starts_with("$file:"))
+            .ok_or_else(|| {
+                NativeOilError::Parse("upload requires at least one $file:LABEL".into())
+            })?;
+        if file_index <= 1 {
+            return Err(NativeOilError::Parse(
+                "upload requires a target before $file:LABEL".into(),
+            ));
+        }
+        let target_text = tokens[1..file_index].join(" ");
+        let synthetic = format!("type {target_text} \"__oryn_upload__\"");
+        let parsed = oryn_core::parse(&oryn_core::normalize(&synthetic))
+            .map_err(|error| NativeOilError::Parse(error.to_string()))?;
+        let target = parsed
+            .lines
+            .into_iter()
+            .find_map(|line| match line.command {
+                Some(Command::Type(command)) => Some(command.target),
+                _ => None,
+            })
+            .ok_or_else(|| NativeOilError::Parse("upload target is invalid".into()))?;
+        let reference = self
+            .resolve_for_action(target, SemanticAction::Type, false)
+            .await?;
+        let handles = tokens[file_index..]
+            .iter()
+            .map(|token| {
+                token
+                    .strip_prefix("$file:")
+                    .filter(|label| !label.is_empty())
+                    .ok_or_else(|| {
+                        NativeOilError::Parse("upload file operands must use $file:LABEL".into())
+                    })
+                    .and_then(|label| {
+                        context
+                            .upload_handle(label)
+                            .map_err(NativeOilError::Runtime)
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let result = self.page.set_files(reference, &handles, None).await?;
+        self.last_observation = Some(self.page.observe().await?);
+        Ok(result)
     }
 
     async fn execute_command(
@@ -536,6 +698,14 @@ impl NativeOilSession {
                 .await
             }
             Command::Type(command) => {
+                if let Some(label) = command.secret {
+                    let target = self
+                        .resolve_for_action(command.target, SemanticAction::Type, false)
+                        .await?;
+                    let result = self.page.fill_secret_label(target, &label, None).await?;
+                    self.last_observation = Some(self.page.observe().await?);
+                    return Ok(NativeOilOutput::Action { result });
+                }
                 self.run_action(command.target, SemanticAction::Type, Some(command.text))
                     .await
             }
@@ -856,6 +1026,27 @@ impl NativeOilSession {
         value: Option<String>,
         force: bool,
     ) -> Result<NativeOilOutput, NativeOilError> {
+        let semantic_ref = self.resolve_for_action(target, action, force).await?;
+        let native_action = NativeAction {
+            target: semantic_ref,
+            action,
+            value,
+        };
+        let result = if force {
+            self.page.execute_forced(native_action).await?
+        } else {
+            self.page.execute(native_action).await?
+        };
+        self.last_observation = Some(self.page.observe().await?);
+        Ok(NativeOilOutput::Action { result })
+    }
+
+    async fn resolve_for_action(
+        &mut self,
+        target: Target,
+        action: SemanticAction,
+        force: bool,
+    ) -> Result<SemanticRef, NativeOilError> {
         // Compact observations intentionally omit non-actionable landmarks. A
         // relational target (for example `"+" near "Wireless Mouse"`) needs
         // those landmarks, so resolve it against a fresh full projection.
@@ -871,25 +1062,13 @@ impl NativeOilSession {
                 .await?;
             self.cache_v4_observation(&observation);
         }
-        let semantic_ref = if force {
+        Ok(if force {
             self.resolve_any_target(&target).await?
         } else if let TargetAtomic::Selector { value, .. } = &target.atomic {
             self.page.resolve_selector(value, action).await?
         } else {
             self.resolve_target(&target, action)?
-        };
-        let native_action = NativeAction {
-            target: semantic_ref,
-            action,
-            value,
-        };
-        let result = if force {
-            self.page.execute_forced(native_action).await?
-        } else {
-            self.page.execute(native_action).await?
-        };
-        self.last_observation = Some(self.page.observe().await?);
-        Ok(NativeOilOutput::Action { result })
+        })
     }
 
     fn cache_v4_observation(&mut self, observation: &oryn_common::v4::Observation) {
@@ -1080,6 +1259,59 @@ impl NativeOilSession {
             }
         })
     }
+}
+
+fn agent_target_to_oil(target: &oryn_common::agent::Target) -> Target {
+    use oryn_common::agent::Target as AgentTarget;
+    let (atomic, relation) = match target {
+        AgentTarget::Reference { .. } => unreachable!("references bypass OIL resolution"),
+        AgentTarget::Alias { alias } => (TargetAtomic::Id(*alias as usize), None),
+        AgentTarget::Text { text } => (TargetAtomic::Text(text.clone()), None),
+        AgentTarget::Role { role } => (TargetAtomic::Role(role.clone()), None),
+        AgentTarget::Css { selector } => (
+            TargetAtomic::Selector {
+                kind: "css".into(),
+                value: selector.clone(),
+            },
+            None,
+        ),
+        AgentTarget::XPath { expression } => (
+            TargetAtomic::Selector {
+                kind: "xpath".into(),
+                value: expression.clone(),
+            },
+            None,
+        ),
+        AgentTarget::Near { target, anchor } => agent_relation(target, RelationKind::Near, anchor),
+        AgentTarget::Inside { target, container } => {
+            agent_relation(target, RelationKind::Inside, container)
+        }
+        AgentTarget::After { target, anchor } => {
+            agent_relation(target, RelationKind::After, anchor)
+        }
+        AgentTarget::Before { target, anchor } => {
+            agent_relation(target, RelationKind::Before, anchor)
+        }
+        AgentTarget::Contains { target, content } => {
+            agent_relation(target, RelationKind::Contains, content)
+        }
+    };
+    Target { atomic, relation }
+}
+
+fn agent_relation(
+    target: &oryn_common::agent::Target,
+    kind: RelationKind,
+    related: &oryn_common::agent::Target,
+) -> (TargetAtomic, Option<Box<oryn_core::ast::TargetRelation>>) {
+    let target = agent_target_to_oil(target);
+    (
+        target.atomic,
+        Some(Box::new(oryn_core::ast::TargetRelation {
+            kind,
+            target: agent_target_to_oil(related),
+        })),
+    )
 }
 
 fn resolve_structural_target(
@@ -1464,6 +1696,46 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn secret_label_oil_uses_parent_store_and_never_types_the_label() {
+        let mut options = crate::runtime::ContextOptions::default();
+        options.action_policy.rules.insert(
+            crate::security::ConsequentialAction::CredentialFill,
+            crate::security::PolicyRule::Allow,
+        );
+        let context = crate::runtime::Browser::in_process_with_config(
+            crate::runtime::BrowserConfig::default(),
+        )
+        .new_context_with_options(options);
+        context.import_secret(
+            "https://secret.example",
+            "account-password",
+            b"correct horse".to_vec(),
+        );
+        let page = context.new_page();
+        page.load_html(
+            "https://secret.example/form",
+            "<label>Password <input type=password></label>",
+        )
+        .await
+        .unwrap();
+        let mut session = NativeOilSession::new(page.clone());
+        session
+            .execute("type \"Password\" $secret:account-password")
+            .await
+            .unwrap();
+        assert_eq!(
+            page.evaluate("document.querySelector('input').value")
+                .await
+                .unwrap(),
+            "correct horse"
+        );
+        let observation = page.observe().await.unwrap();
+        assert_eq!(observation.nodes[0].value.as_deref(), Some("[REDACTED]"));
+        assert!(!format!("{observation:?}").contains("correct horse"));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn wait_visible_distinguishes_unsupported_geometry_from_hidden_content() {
         let page = Browser::new().new_context().new_page();
         page.load_html(
@@ -1548,6 +1820,66 @@ mod tests {
                 .intents
                 .iter()
                 .any(|intent| intent.input.contains("[REDACTED]"))
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn context_session_executes_the_versioned_typed_intent_envelope() {
+        let context =
+            Browser::in_process_with_config(crate::BrowserConfig::default()).new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://intent.example/",
+            "<button id=continue>Continue</button>",
+        )
+        .await
+        .unwrap();
+        let request = oryn_common::agent::IntentRequest::new(Intent::Observe {
+            options: oryn_common::agent::ObserveOptions::default(),
+        });
+        let input = format!(
+            "{TYPED_INTENT_PREFIX}{}",
+            serde_json::to_string(&request).unwrap()
+        );
+        let mut session = NativeContextOilSession::new(context.clone());
+
+        let outputs = session.execute(&input).await.unwrap();
+
+        assert!(matches!(
+            &outputs[0],
+            NativeOilOutput::Intent {
+                result: IntentResult::Observation { observation }
+            } if observation.nodes.iter().any(|node| node.name == "Continue")
+        ));
+        let trace = context.trace_archive(Vec::new()).await.unwrap();
+        assert!(
+            trace
+                .intents
+                .iter()
+                .any(|record| record.input == "intent:observe")
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn context_session_rejects_an_unknown_typed_intent_contract() {
+        let context =
+            Browser::in_process_with_config(crate::BrowserConfig::default()).new_context();
+        context.new_page();
+        let input = format!(
+            "{TYPED_INTENT_PREFIX}{}",
+            serde_json::json!({
+                "contract_version": oryn_common::agent::AGENT_INTENT_CONTRACT_VERSION + 1,
+                "intent": {"intent": "back"}
+            })
+        );
+        let mut session = NativeContextOilSession::new(context);
+
+        let error = session.execute(&input).await.unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported agent intent contract version")
         );
     }
 }

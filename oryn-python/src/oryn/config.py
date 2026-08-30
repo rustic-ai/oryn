@@ -17,6 +17,8 @@ class OrynConfig:
         port: WebSocket port for remote mode
         env: Additional environment variables for subprocess
         cli_args: Additional CLI arguments to pass to oryn binary
+        secret_values: Origin -> label -> value records provisioned through an
+            inherited pipe. Values never enter argv or the environment.
     """
 
     mode: Literal["native", "headless", "embedded", "remote"] = "native"
@@ -28,6 +30,8 @@ class OrynConfig:
     env: dict[str, str] = field(default_factory=dict)
     log_file: str | None = None
     cli_args: list[str] = field(default_factory=list)
+    secret_values: dict[str, dict[str, str]] = field(default_factory=dict, repr=False)
+    upload_paths: dict[str, str] = field(default_factory=dict)
 
     def get_cli_args(self) -> list[str]:
         """Generate CLI arguments for oryn binary."""
@@ -35,6 +39,10 @@ class OrynConfig:
 
         if self.mode == "native":
             args.append("--sdk-repl")
+            for label, path in self.upload_paths.items():
+                if not label or "=" in label:
+                    raise ValueError("upload labels must be non-empty and cannot contain '='")
+                args.extend(["--upload", f"{label}={path}"])
 
         if self.mode == "embedded" and self.driver_url:
             args.extend(["--driver-url", self.driver_url])

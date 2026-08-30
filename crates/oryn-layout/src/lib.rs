@@ -40,7 +40,7 @@ pub const DEFAULT_FONT_FAMILY: &str = "Oryn Noto Sans";
 pub const DEFAULT_FONT_SHA256: &str =
     "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5";
 pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("../assets/NotoSans-Regular.ttf");
-pub const STYLE_ENGINE_VERSION: &str = "stylo-declarations-0.20+oryn-cascade-v1";
+pub const STYLE_ENGINE_VERSION: &str = "stylo-declarations-0.20+oryn-common-web-cascade-v2";
 pub const BOX_ENGINE_VERSION: &str = "taffy-0.14";
 pub const INLINE_ENGINE_VERSION: &str = "parley-0.11.1";
 
@@ -327,6 +327,17 @@ pub fn compute(input: &LayoutInput, limits: &LayoutLimits) -> Result<LayoutOutpu
         content_width,
         content_height,
     };
+    apply_ancestor_clipping(
+        &by_id,
+        &computed_styles,
+        &mut geometry,
+        CssRect {
+            x: 0.0,
+            y: 0.0,
+            width: input.viewport.width,
+            height: input.viewport.height,
+        },
+    );
     Ok(LayoutOutput {
         computed_styles,
         geometry,
@@ -335,6 +346,85 @@ pub fn compute(input: &LayoutInput, limits: &LayoutLimits) -> Result<LayoutOutpu
         diagnostics,
         loaded_fonts,
     })
+}
+
+fn apply_ancestor_clipping(
+    by_id: &BTreeMap<u64, &LayoutNode>,
+    styles: &BTreeMap<u64, BTreeMap<String, String>>,
+    geometry: &mut BTreeMap<u64, NodeGeometry>,
+    viewport: CssRect,
+) {
+    let ids = geometry.keys().copied().collect::<Vec<_>>();
+    for id in ids {
+        let Some(rect) = geometry
+            .get(&id)
+            .and_then(|value| value.box_model.as_ref())
+            .map(|model| model.border_box)
+        else {
+            continue;
+        };
+        let mut visible = rect.intersects(viewport);
+        let mut ancestor = by_id.get(&id).and_then(|node| node.parent);
+        while visible {
+            let Some(parent_id) = ancestor else {
+                break;
+            };
+            let Some(parent_node) = by_id.get(&parent_id).copied() else {
+                visible = false;
+                break;
+            };
+            let Some(parent_geometry) = geometry.get(&parent_id) else {
+                visible = false;
+                break;
+            };
+            if parent_geometry.availability != GeometryAvailability::Available {
+                visible = false;
+                break;
+            }
+            let Some(parent_box) = parent_geometry.box_model.as_ref() else {
+                visible = false;
+                break;
+            };
+            let style = styles.get(&parent_id);
+            let (clip_x, clip_y) = style.map_or((false, false), overflow_clip_axes);
+            if clip_x || clip_y {
+                let clip = parent_box.padding_box;
+                visible = (!clip_x || horizontal_overlap(rect, clip))
+                    && (!clip_y || vertical_overlap(rect, clip));
+            }
+            ancestor = parent_node.parent;
+        }
+        if let Some(value) = geometry.get_mut(&id) {
+            value.in_viewport = visible;
+            value.interactable &= visible;
+        }
+    }
+}
+
+fn overflow_clip_axes(style: &BTreeMap<String, String>) -> (bool, bool) {
+    let mut x = style_value(style, "overflow-x", "visible");
+    let mut y = style_value(style, "overflow-y", "visible");
+    // CSS Overflow converts a lone `visible` axis to `auto` when the other
+    // axis establishes a scroll container.
+    if x == "visible" && y != "visible" {
+        x = "auto";
+    }
+    if y == "visible" && x != "visible" {
+        y = "auto";
+    }
+    (overflow_clips(x), overflow_clips(y))
+}
+
+fn overflow_clips(value: &str) -> bool {
+    matches!(value, "hidden" | "clip" | "scroll" | "auto")
+}
+
+fn horizontal_overlap(rect: CssRect, clip: CssRect) -> bool {
+    rect.width > 0.0 && clip.width > 0.0 && rect.x < clip.right() && rect.right() > clip.x
+}
+
+fn vertical_overlap(rect: CssRect, clip: CssRect) -> bool {
+    rect.height > 0.0 && clip.height > 0.0 && rect.y < clip.bottom() && rect.bottom() > clip.y
 }
 
 fn prepare_web_fonts(input: &LayoutInput, limits: &LayoutLimits) -> PreparedFonts {
@@ -615,6 +705,17 @@ fn declarations(input: &str) -> BTreeMap<String, String> {
         .expect("writing canonical CSS to a String cannot fail");
     let mut parsed = raw_declarations(&canonical);
     let raw = raw_declarations(input);
+    if let Some(value) = parsed
+        .get("overflow")
+        .or_else(|| raw.get("overflow"))
+        .cloned()
+    {
+        let axes = value.split_whitespace().collect::<Vec<_>>();
+        if let Some(x) = axes.first() {
+            parsed.insert("overflow-x".into(), (*x).into());
+            parsed.insert("overflow-y".into(), axes.get(1).unwrap_or(x).to_string());
+        }
+    }
     for property in ["display", "grid-template-columns"] {
         if parsed.contains_key(property) {
             continue;
@@ -625,7 +726,15 @@ fn declarations(input: &str) -> BTreeMap<String, String> {
         let accepted = match property {
             "display" => matches!(
                 value.as_str(),
-                "none" | "block" | "inline" | "inline-block" | "flex" | "grid"
+                "none"
+                    | "block"
+                    | "inline"
+                    | "inline-block"
+                    | "flex"
+                    | "grid"
+                    | "table"
+                    | "table-row"
+                    | "table-cell"
             ),
             "grid-template-columns" => bounded_grid_template(value),
             _ => false,
@@ -842,17 +951,6 @@ fn layout_node(
         }
         return 0.0;
     }
-    if style
-        .get("display")
-        .is_some_and(|value| value.starts_with("table"))
-    {
-        let diagnostic =
-            "layout.table geometry is unsupported; structured table extraction remains available";
-        diagnostics.push(format!("node {id}: {diagnostic}"));
-        mark_unsupported_subtree(id, diagnostic, by_id, geometry);
-        return 0.0;
-    }
-
     let font_size = length(
         style_value(style, "font-size", "16px"),
         16.0,
@@ -972,7 +1070,7 @@ fn layout_node(
                 || style_value(child_style, "clear", "none") != "none"
         })
     });
-    if matches!(display, "flex" | "grid") || has_float_or_clear {
+    if matches!(display, "flex" | "grid" | "table-row") || has_float_or_clear {
         let Some(placements) =
             taffy_child_placements(node, style, styles, content_width, input.viewport)
         else {
@@ -1174,9 +1272,10 @@ fn taffy_child_placements(
     if node.children.is_empty() {
         return Some(Vec::new());
     }
-    let display = match style_value(parent_style, "display", "block") {
+    let parent_display = style_value(parent_style, "display", "block");
+    let display = match parent_display {
         "flex" => Display::Flex,
-        "grid" => Display::Grid,
+        "grid" | "table-row" => Display::Grid,
         _ => Display::Block,
     };
     let font_size = length(
@@ -1243,7 +1342,11 @@ fn taffy_child_placements(
             .ok()?;
         children.push(leaf);
     }
-    let columns = grid_column_count(style_value(parent_style, "grid-template-columns", "1fr"));
+    let columns = if parent_display == "table-row" {
+        node.children.len().clamp(1, 64)
+    } else {
+        grid_column_count(style_value(parent_style, "grid-template-columns", "1fr"))
+    };
     let root = tree
         .new_with_children(
             TaffyStyle {
@@ -1592,11 +1695,20 @@ mod tests {
     }
 
     #[test]
-    fn table_geometry_is_explicitly_unavailable() {
+    fn bounded_table_rows_and_cells_have_common_web_geometry() {
+        let mut table = node(1, None, "table", "");
+        table.children.push(2);
+        let mut row = node(2, Some(1), "tr", "");
+        row.children.extend([3, 4]);
         let output = compute(
             &LayoutInput {
-                nodes: vec![node(1, None, "table", "")],
-                stylesheets: Vec::new(),
+                nodes: vec![
+                    table,
+                    row,
+                    node(3, Some(2), "td", "Name"),
+                    node(4, Some(2), "td", "Value"),
+                ],
+                stylesheets: vec!["table{width:300px} td{padding:4px}".into()],
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -1608,9 +1720,12 @@ mod tests {
         .expect("layout");
         assert_eq!(
             output.geometry[&1].availability,
-            GeometryAvailability::Unsupported
+            GeometryAvailability::Available
         );
-        assert!(output.geometry[&1].box_model.is_none());
+        let left = output.geometry[&3].box_model.as_ref().unwrap().border_box;
+        let right = output.geometry[&4].box_model.as_ref().unwrap().border_box;
+        assert!(left.width > 0.0);
+        assert!(right.x >= left.right());
     }
 
     #[test]
@@ -1638,6 +1753,44 @@ mod tests {
             GeometryAvailability::Available
         );
         assert!(output.geometry[&2].box_model.is_some());
+    }
+
+    #[test]
+    fn overflow_ancestors_clip_interactability_on_both_axes() {
+        let mut root = node(1, None, "div", "");
+        root.attributes.insert(
+            "style".into(),
+            "position:relative;width:100px;height:100px;overflow:hidden".into(),
+        );
+        root.children = vec![2, 3];
+        let mut outside = node(2, Some(1), "button", "Outside");
+        outside.attributes.insert(
+            "style".into(),
+            "position:absolute;left:150px;top:10px;width:20px;height:20px".into(),
+        );
+        let mut inside = node(3, Some(1), "button", "Inside");
+        inside.attributes.insert(
+            "style".into(),
+            "position:absolute;left:90px;top:90px;width:20px;height:20px".into(),
+        );
+        let output = compute(
+            &LayoutInput {
+                nodes: vec![root, outside, inside],
+                stylesheets: Vec::new(),
+                viewport: ViewportState::default(),
+                scroll: ScrollState::default(),
+                color_scheme: ColorScheme::Light,
+                reduced_motion: false,
+                web_fonts: Vec::new(),
+            },
+            &LayoutLimits::default(),
+        )
+        .expect("layout");
+
+        assert!(!output.geometry[&2].in_viewport);
+        assert!(!output.geometry[&2].interactable);
+        assert!(output.geometry[&3].in_viewport);
+        assert!(output.geometry[&3].interactable);
     }
 
     #[test]

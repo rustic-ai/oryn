@@ -29,12 +29,12 @@ oryn embedded --driver-url http://localhost:8080
 oryn remote --port 9001
 ```
 
-The Oryn2 native runtime is under gated implementation. It reuses the existing
-OIL parser and evaluation assets while replacing the browser dependency with a
-native semantic loop and sandboxed raw-V8 worker. Executable pages currently
-use a JavaScript-canonical DOM synchronized into a Rust mirror. See the
-[implementation status](docs/oryn2/IMPLEMENTATION_STATUS.md) for exactly what is
-available today.
+The Oryn2 native runtime uses a Rust-owned live DOM, generated WebIDL bindings,
+multi-context raw V8, asynchronous parent-brokered networking, and a sandboxed
+page worker. The existing OIL parser remains an adapter over the same native
+resolver and action engine. See the
+[implementation status](docs/oryn2/IMPLEMENTATION_STATUS.md) for the distinction
+between implemented software and exact-artifact release attestation.
 
 ```bash
 # Native remains an explicit compatibility alias for existing scripts
@@ -48,6 +48,9 @@ oryn native --runtime-info
 
 # Build the deliberately non-production no-V8 probe only when measuring it
 cargo build --release -p oryn --no-default-features --target-dir target/no-v8-probe
+
+# Run the first-party MCP stdio server over the typed Intent/Target contract
+oryn-mcp
 ```
 
 See the [User Guide](docs/USER_GUIDE.md) for full usage instructions.

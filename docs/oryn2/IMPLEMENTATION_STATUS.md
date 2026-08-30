@@ -242,6 +242,55 @@ rewrite those historical payloads or present them as a new validation run.
   V8-host and no-default tests, Python SDK, IntentGym, scanner, extension, and
   corpus/executable document/semantic loop/schema-v4 validators pass against the closure tree.
 
+## Agent interface and semantic convergence — implemented in working tree; adapter secret provisioning pending
+
+- `oryn-common` defines a versioned, serializable `Intent`/`Target` contract
+  covering navigation, observation and deltas, semantic actions, extraction,
+  and revision waits. `oryn` re-exports the contract as part of its stable Rust
+  facade.
+- `PageHandle::perform` executes the shared IR through the existing native OIL
+  target resolver and typed action engine. It does not add a second selector,
+  scoring, or mutation implementation.
+- The canonical OIL grammar accepts `type <target> $secret:<label>`. The label
+  resolves through the parent-owned origin-scoped secret store and the existing
+  secret-fill policy path. Normalization and serialization retain only the
+  label; compatibility backends reject the native-only form rather than typing
+  it as plaintext.
+- Focused parser, normalizer, native action, and secret-serialization tests
+  cover these additions. They are working-tree software evidence and are not
+  part of a signed release attestation yet.
+- Python `perform()` sends the same versioned JSON envelope and returns typed
+  results; legacy `execute()` remains an OIL compatibility path. Typed requests
+  fail closed outside native mode instead of being reinterpreted by a different
+  backend.
+- `oryn-mcp` is a first-party MCP stdio server. Its sole browser tool,
+  `oryn_perform`, publishes the complete shared Intent/Target JSON schema and
+  delegates directly to the same context session. It exposes neither an OIL
+  tunnel nor raw JavaScript. Secret intent schema contains a label only.
+- Rust embedding can provision origin-scoped labels with
+  `BrowserContext::import_secret`. Standalone CLI/Python and MCP sessions use a
+  bounded inherited descriptor consumed by the parent before page work.
+  Plaintext secret values remain forbidden in argv, environment variables, the
+  typed envelope, OIL, JSON-RPC, traces, observations, and worker initialization.
+- Additive contract v5 preserves frozen v2-v4 observations and publishes
+  first-class forms, tables, lists, navigation, dialogs, menus, trees, tab sets,
+  grids, landmarks, live regions and repeated collections. Accessibility nodes
+  carry supported name/description evidence, role/state properties, IDREF
+  relationships, conservative `aria-owns`, exclusion reasons, trust and
+  provenance. Closed-shadow tree scopes remain isolated and missing/cyclic
+  relationships produce diagnostics instead of fabricated links.
+- The v5 surface includes a pinned agent-critical Accessible Name/ARIA corpus
+  for referenced names, hidden descendants, host alternatives, role fallback
+  and presentation conflicts. It does not claim complete long-tail Accessible
+  Name, ARIA or changing-site conformance.
+  Exact packaged-worker and release evidence remains provisional.
+- Local verification on the current working tree passed 178/178 native V8
+  library tests, all common/core tests, six MCP tests, all-feature binary
+  checking, strict all-target Clippy, formatting, 26 Python tests (19 skipped
+  for unavailable optional environments), Ruff, MCP stdio smoke testing, and
+  `git diff --check`. These results do not replace signed-package, Linux, or
+  corrected model-panel evidence.
+
 ## application compatibility — complete
 
 - Contract v3 adds page-scoped semantic references, `PageId`, page descriptors,
@@ -353,10 +402,13 @@ rewrite those historical payloads or present them as a new validation run.
 ## security — complete
 
 - Every native context now owns an explicit policy engine for cross-origin
-  navigation, form submission, popups, uploads, downloads, clipboard access,
-  credential fills, protected requests, and user-browser delegation. Exact
+  navigation, form submission, popups, downloads, credential fills, protected
+  requests, and user-browser delegation. Exact
   request confirmations are random and one-use; all decisions are recorded in
-  a structured parent audit log.
+  a structured parent audit log. File-input upload is implemented through
+  parent-owned opaque handles and explicit selection; the worker never receives
+  host paths. Clipboard access is a text-only `BrowserContext` virtual buffer.
+  Host system clipboard access remains explicitly unsupported.
 - Credentials enter parent-owned memory as opaque, origin-scoped, revocable
   handles. Secret storage is zeroized on removal, handle debug output is
   redacted, password observations never expose values, and the production
@@ -384,9 +436,9 @@ rewrite those historical payloads or present them as a new validation run.
   storage, CORS, frames, opener messaging, and navigation policy; and active
   `worker-src`, `media-src`, `object-src`, and `manifest-src` resource paths.
   `security.csp` is supported for Oryn's exposed native platform surface.
-  Dedicated-worker script loading is policy-complete but remains a separately
-  declared partial API because its compatibility scope is not yet an
-  independent V8 realm. Media decoding/playback, SharedWorker, ServiceWorker,
+  Dedicated-worker script loading is policy-complete and each worker executes
+  in an independent persistent V8 context with realm-owned message queues and
+  no page-global or DOM access. Media decoding/playback, SharedWorker, ServiceWorker,
   WebRTC/media capture, and ReportingObserver remain separate explicit
   capabilities rather than CSP omissions.
 - Four immutable libFuzzer entrypoints and curated seeds cover HTML tree

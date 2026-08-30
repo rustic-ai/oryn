@@ -208,6 +208,11 @@ pub fn translate(command: &Command) -> Result<Action, TranslationError> {
             })))
         }
         Command::Type(cmd) => {
+            if cmd.secret.is_some() {
+                return Err(TranslationError::Unsupported(
+                    "$secret: labels require the native parent-owned secret store".into(),
+                ));
+            }
             let target = extract_action_target(&cmd.target, "Type")?;
             Ok(Action::Scanner(ScannerAction::Type(TypeRequest {
                 id: target.id,

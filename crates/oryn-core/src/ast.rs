@@ -186,6 +186,8 @@ pub struct ClickCmd {
 pub struct TypeCmd {
     pub target: Target,
     pub text: String,
+    #[serde(default)]
+    pub secret: Option<String>,
     pub append: bool,
     pub enter: bool,
     pub delay: Option<f64>,

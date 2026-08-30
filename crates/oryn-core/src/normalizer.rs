@@ -346,6 +346,7 @@ fn normalize_command_part(input: &str) -> String {
                 "type" => {
                     if !arg.starts_with('"')
                         && !arg.starts_with('\'')
+                        && !arg.starts_with("$secret:")
                         && !arg.starts_with('#')
                         && !arg.starts_with('@')
                         && !arg.starts_with("css(")
@@ -626,6 +627,14 @@ mod tests {
         assert_eq!(
             normalize("type field1 test@example.com"),
             "type \"field1\" \"test@example.com\""
+        );
+    }
+
+    #[test]
+    fn secret_labels_are_not_converted_to_plain_text() {
+        assert_eq!(
+            normalize("type password $secret:account-password"),
+            "type password $secret:account-password"
         );
     }
 

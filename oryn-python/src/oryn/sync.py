@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 from .client import OrynClient
 
 if TYPE_CHECKING:
-    from .types import OrynObservation, OrynResult
+    from .types import OrynIntent, OrynIntentResult, OrynObservation, OrynResult
 
 
 class OrynClientSync:
@@ -38,6 +38,8 @@ class OrynClientSync:
         env: dict[str, str] | None = None,
         log_file: str | None = None,
         cli_args: list[str] | None = None,
+        secret_values: dict[str, dict[str, str]] | None = None,
+        upload_paths: dict[str, str] | None = None,
     ):
         """Initialize OrynClientSync.
 
@@ -51,6 +53,9 @@ class OrynClientSync:
             env: Additional environment variables for subprocess
             log_file: Path to file for redirecting Oryn output (optional)
             cli_args: Additional CLI arguments to pass to oryn binary (optional)
+            secret_values: Origin -> label -> secret values provisioned through
+                an inherited pipe
+            upload_paths: Upload label -> parent-readable host path
         """
         self._client = OrynClient(
             mode=mode,
@@ -62,6 +67,8 @@ class OrynClientSync:
             env=env,
             log_file=log_file,
             cli_args=cli_args,
+            secret_values=secret_values,
+            upload_paths=upload_paths,
         )
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._owns_loop = False
@@ -127,6 +134,10 @@ class OrynClientSync:
     def execute_typed(self, command: str) -> "OrynResult":
         """Execute OIL and decode a structured result when native mode is active."""
         return self._run(self._client.execute_typed(command))
+
+    def perform(self, intent: "OrynIntent") -> "OrynIntentResult":
+        """Execute the shared typed agent contract in native mode."""
+        return self._run(self._client.perform(intent))
 
     def observe(self, **options) -> "OrynObservation":
         """Get structured observation of current page.

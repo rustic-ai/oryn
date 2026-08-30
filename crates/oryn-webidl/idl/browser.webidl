@@ -18,6 +18,33 @@ interface Event {
   undefined stopImmediatePropagation();
 };
 
+callback MutationCallback = undefined (sequence<MutationRecord> mutations, MutationObserver observer);
+
+dictionary MutationObserverInit {
+  boolean childList = false;
+  boolean attributes = false;
+  boolean characterData = false;
+  boolean subtree = false;
+  boolean attributeOldValue = false;
+  boolean characterDataOldValue = false;
+};
+
+[Exposed=Window]
+interface MutationRecord {
+  readonly attribute DOMString type;
+  readonly attribute Node target;
+  readonly attribute DOMString? attributeName;
+  readonly attribute DOMString? oldValue;
+};
+
+[Exposed=Window]
+interface MutationObserver {
+  constructor(MutationCallback callback);
+  undefined observe(Node target, MutationObserverInit options);
+  undefined disconnect();
+  sequence<MutationRecord> takeRecords();
+};
+
 enum SecurityPolicyViolationEventDisposition { "enforce", "report" };
 
 dictionary SecurityPolicyViolationEventInit {

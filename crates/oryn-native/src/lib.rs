@@ -24,6 +24,7 @@ pub mod executable;
 pub mod execution;
 pub mod host;
 pub mod html;
+pub mod intent;
 #[cfg(target_os = "linux")]
 pub mod linux_sandbox;
 pub mod network;
@@ -34,6 +35,7 @@ pub mod security;
 pub mod semantic;
 pub mod storage;
 pub mod trace;
+pub mod upload;
 pub mod worker;
 #[cfg(unix)]
 pub mod worker_client;
@@ -57,6 +59,7 @@ pub use execution::{
     ExecutionRequirements, FormValueState, HandoffBundle, HandoffLoss, HandoffOptions,
     HandoffReceipt, OriginStorageState, select_execution_domain,
 };
+pub use intent::IntentResult;
 pub use oryn_common::v3::{PageDescriptor, PageId, PageLifecycleEvent, PagePredicate, PageStatus};
 pub use replay::{
     CheckpointPage, CheckpointPayload, CheckpointRestore, ContextCheckpoint, DeterminismConfig,
@@ -75,6 +78,7 @@ pub use security::{
     PolicyRequest, PolicyRule, SecretHandle, SecurityAuditRecord,
 };
 pub use storage::{PersistentProfile, StorageLimits};
+pub use upload::{UploadDescriptor, UploadFile, UploadHandle};
 
 /// Machine-readable fingerprint for callers that must prove they launched the
 /// production native runtime rather than the deliberately small no-V8 probe.

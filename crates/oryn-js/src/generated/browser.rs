@@ -602,6 +602,58 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
 ];
+pub const MUTATION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "constructor",
+        kind: GeneratedMemberKind::Constructor,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "observe",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "disconnect",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "takeRecords",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+];
+pub const MUTATION_RECORD_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "type",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "target",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "attributeName",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "oldValue",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+];
 pub const NODE_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "nodeName",
@@ -1020,6 +1072,16 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         name: "HTMLTextAreaElement",
         parent: Some("HTMLElement"),
         members: H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "MutationObserver",
+        parent: None,
+        members: MUTATION_OBSERVER_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "MutationRecord",
+        parent: None,
+        members: MUTATION_RECORD_MEMBERS,
     },
     GeneratedInterface {
         name: "Node",

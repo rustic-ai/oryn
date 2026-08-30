@@ -53,12 +53,20 @@ from .errors import (
 from .script import parse_oil_file, run_oil_file_async, run_oil_file_sync
 from .sync import OrynClientSync
 from .types import (
+    AGENT_INTENT_CONTRACT_VERSION,
+    OrynAccessibilityNode,
     OrynCapabilityDiagnostic,
     OrynDelta,
     OrynEffect,
+    OrynInput,
+    OrynIntent,
+    OrynIntentResult,
     OrynObservation,
     OrynResult,
     OrynScroll,
+    OrynSemanticObservation,
+    OrynSemanticStructure,
+    OrynTarget,
     OrynViewport,
 )
 
@@ -94,4 +102,12 @@ __all__ = [
     "OrynDelta",
     "OrynViewport",
     "OrynScroll",
+    "OrynAccessibilityNode",
+    "OrynSemanticObservation",
+    "OrynSemanticStructure",
+    "AGENT_INTENT_CONTRACT_VERSION",
+    "OrynTarget",
+    "OrynInput",
+    "OrynIntent",
+    "OrynIntentResult",
 ]

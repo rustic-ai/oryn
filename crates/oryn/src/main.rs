@@ -118,6 +118,13 @@ struct NativeArgs {
     /// Raster scale; defaults to the page device-pixel ratio
     #[arg(long)]
     render_scale: Option<f64>,
+    /// Read origin-scoped secret records from this inherited descriptor.
+    /// The descriptor is consumed and closed before any page is loaded.
+    #[arg(long, value_name = "FD")]
+    secret_fd: Option<i32>,
+    /// Import a host file into the parent upload store as LABEL=PATH.
+    #[arg(long = "upload", value_name = "LABEL=PATH")]
+    uploads: Vec<String>,
 }
 
 #[tokio::main]
@@ -167,6 +174,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             screenshot_out,
             pdf_out,
             render_scale,
+            secret_fd,
+            uploads,
         } = native.as_ref();
         if *runtime_info {
             let runtime_info = if *in_process_probe {
@@ -213,6 +222,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 screenshot_out: screenshot_out.clone(),
                 pdf_out: pdf_out.clone(),
                 render_scale: *render_scale,
+                secret_fd: *secret_fd,
+                uploads: uploads.clone(),
             },
         )
         .await;
@@ -307,6 +318,12 @@ async fn run_native(
         ContextOptions::default()
     };
     options.determinism = session_options.determinism.clone();
+    if !session_options.uploads.is_empty() {
+        options.action_policy.rules.insert(
+            oryn_native::ConsequentialAction::FileUpload,
+            oryn_native::PolicyRule::Allow,
+        );
+    }
     let browser = Browser::new();
     if let Some(artifact_path) = &session_options.replay_failure {
         let artifact: oryn_native::FailureArtifact =
@@ -376,6 +393,24 @@ async fn run_native(
         }
         (context, page)
     };
+    if let Some(descriptor) = session_options.secret_fd {
+        oryn::secret_input::provision_context_from_fd(&context, descriptor)?;
+    }
+    for upload in &session_options.uploads {
+        let (label, path) = upload
+            .split_once('=')
+            .ok_or("--upload must use LABEL=PATH")?;
+        if label.is_empty() || path.is_empty() {
+            return Err("--upload requires non-empty LABEL and PATH".into());
+        }
+        let path = std::path::Path::new(path);
+        let bytes = std::fs::read(path)?;
+        let filename = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("upload.bin");
+        context.import_upload_as(label, filename, "application/octet-stream", bytes);
+    }
     if let Some(source) = evaluate {
         println!("{}", page.evaluate(source).await?);
     }
@@ -480,6 +515,8 @@ struct NativeSessionOptions {
     screenshot_out: Option<String>,
     pdf_out: Option<String>,
     render_scale: Option<f64>,
+    secret_fd: Option<i32>,
+    uploads: Vec<String>,
 }
 
 #[cfg(feature = "render")]

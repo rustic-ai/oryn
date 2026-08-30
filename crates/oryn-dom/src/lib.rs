@@ -843,6 +843,15 @@ impl DomRuntime {
         Ok(self.arena.get(node)?.parent)
     }
 
+    /// Whether `node` currently participates in this runtime's connected
+    /// document tree. Script preparation, custom-element reactions, focus and
+    /// semantic invalidation use this instead of guessing from parent links;
+    /// detached subtrees may still have complete internal ancestry.
+    pub fn is_connected(&self, node: NodeId) -> Result<bool, DomError> {
+        self.arena.get(node)?;
+        Ok(self.connected.contains(&node))
+    }
+
     pub fn children(&self, node: NodeId) -> Result<&[NodeId], DomError> {
         Ok(&self.arena.get(node)?.children)
     }

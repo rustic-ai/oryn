@@ -3,8 +3,9 @@
 import json
 
 import pytest
-
 from oryn.client import OrynClient
+from oryn.errors import CommandError
+from oryn.types import OrynInput, OrynIntent, OrynTarget
 
 
 class _NativeTransport:
@@ -144,6 +145,84 @@ class _NativeGeometryTransport:
         )
 
 
+class _TypedIntentTransport:
+    def __init__(self):
+        self.request = None
+
+    async def send(self, command: str) -> str:
+        prefix = "@oryn-intent "
+        assert command.startswith(prefix)
+        self.request = json.loads(command[len(prefix) :])
+        return json.dumps(
+            {
+                "kind": "intent",
+                "result": {
+                    "kind": "action",
+                    "result": {
+                        "contract_version": 3,
+                        "action_id": 9,
+                        "page_id": 1,
+                        "revision_before": 4,
+                        "revision_after": 5,
+                        "effects": [{"kind": "dom_mutation", "summary": "changed"}],
+                        "diagnostics": [],
+                        "execution_domain": "native",
+                    },
+                },
+            }
+        )
+
+
+class _SemanticIntentTransport:
+    async def send(self, command: str) -> str:
+        request = json.loads(command.removeprefix("@oryn-intent "))
+        assert request["intent"]["options"]["include_structures"] is True
+        return json.dumps(
+            {
+                "kind": "intent",
+                "result": {
+                    "kind": "semantic_observation",
+                    "observation": {
+                        "contract_version": 5,
+                        "observation": {
+                            "contract_version": 3,
+                            "revision": 1,
+                            "profile": "compact",
+                            "source": "native_dom",
+                            "execution_domain": "native",
+                            "page": {
+                                "page_id": 1,
+                                "url": "https://semantic.test/",
+                                "title": "Semantic",
+                                "document_generation": 1,
+                            },
+                            "nodes": [],
+                        },
+                        "accessibility": [],
+                        "structures": [
+                            {
+                                "structure_id": "navigation:2",
+                                "kind": "navigation",
+                                "root": {
+                                    "page_id": 1,
+                                    "document_generation": 1,
+                                    "node": 2,
+                                },
+                                "name": "Primary",
+                                "members": [],
+                                "groups": [],
+                                "properties": {"member_count": 0},
+                                "content_trust": "page_authored",
+                                "provenance": {"kind": "browser_deterministic"},
+                                "evidence": [],
+                            }
+                        ],
+                    },
+                },
+            }
+        )
+
+
 @pytest.mark.asyncio
 async def test_native_observation_uses_existing_json_oil_contract():
     client = OrynClient(mode="native")
@@ -208,3 +287,67 @@ async def test_native_v4_geometry_observation_is_typed_without_losing_nodes():
     assert observation.scroll.y == 40.0
     assert observation.elements[0]["geometry"]["interactable"] is True
     assert observation.elements[0]["content_trust"] == "page_authored"
+
+
+@pytest.mark.asyncio
+async def test_perform_sends_the_versioned_typed_contract_without_oil_translation():
+    client = OrynClient(mode="native")
+    transport = _TypedIntentTransport()
+    client._transport = transport
+
+    result = await client.perform(OrynIntent.click(OrynTarget.text("Continue")))
+
+    assert transport.request == {
+        "contract_version": 2,
+        "intent": {
+            "intent": "click",
+            "target": {"kind": "text", "text": "Continue"},
+            "force": False,
+        },
+    }
+    assert result.kind == "action"
+    assert result.action is not None
+    assert result.action.classification == "state_changed"
+    assert result.action.revision_after == 5
+
+
+@pytest.mark.asyncio
+async def test_typed_secret_input_serializes_a_label_and_no_value_field():
+    client = OrynClient(mode="native")
+    transport = _TypedIntentTransport()
+    client._transport = transport
+
+    await client.perform(
+        OrynIntent.type(
+            OrynTarget.role("textbox"),
+            OrynInput.secret("login-password"),
+        )
+    )
+
+    encoded_input = transport.request["intent"]["input"]
+    assert encoded_input == {"kind": "secret", "label": "login-password"}
+    assert "value" not in encoded_input
+
+
+@pytest.mark.asyncio
+async def test_typed_intents_fail_closed_in_compatibility_modes():
+    client = OrynClient(mode="headless")
+    client._transport = _CompatibilityObservationTransport()
+
+    with pytest.raises(CommandError, match="require native mode"):
+        await client.perform(OrynIntent.back())
+
+
+@pytest.mark.asyncio
+async def test_typed_semantic_observation_decodes_structures():
+    client = OrynClient(mode="native")
+    client._transport = _SemanticIntentTransport()
+
+    result = await client.perform(OrynIntent.observe(include_structures=True))
+
+    assert result.kind == "semantic_observation"
+    assert result.semantic_observation is not None
+    assert result.semantic_observation.contract_version == 5
+    assert result.semantic_observation.observation.url == "https://semantic.test/"
+    assert result.semantic_observation.structures[0].kind == "navigation"
+    assert result.semantic_observation.structures[0].name == "Primary"

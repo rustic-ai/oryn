@@ -2,8 +2,11 @@
 //!
 //! This module never exports or reconstructs a JavaScript-owned node graph.
 
+#[cfg(test)]
+use std::time::Duration;
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
+use base64::Engine as _;
 use oryn_common::v3::SemanticAction;
 use oryn_dom::{DomRuntime, NodeId, NodeKind, html};
 use oryn_js::realm::RealmId;
@@ -12,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     host::{HostError, JavaScriptHost, RawV8Host},
     html::ParsedDocument,
-    network::SharedNetworkBroker,
+    network::{NetworkBroker, SharedNetworkBroker},
 };
 use url::Url;
 
@@ -31,9 +34,25 @@ globalThis.console={
 globalThis.__oryn_take_console=()=>__oryn_console.splice(0);
 globalThis.__oryn_context_trace=[];
 globalThis.__oryn_take_context_trace=()=>__oryn_context_trace.splice(0);
+globalThis.__oryn_custom_reactions=[];
+globalThis.__oryn_run_custom_reactions=()=>{for(let rounds=0;__oryn_custom_reactions.length&&rounds<1024;rounds++){const reactions=__oryn_custom_reactions.splice(0);for(const reaction of reactions)reaction()}if(__oryn_custom_reactions.length)throw new Error('custom-element reaction limit exceeded')};
+globalThis.__oryn_custom_definitions=new Map();
+const __oryn_upgrade_custom_element=node=>{if(!node||!node.tagName)return node;const definition=__oryn_custom_definitions.get(String(node.tagName).toLowerCase());if(!definition||node.__orynCustomDefinition===definition)return node;node.__orynCustomDefinition=definition;try{Object.setPrototypeOf(node,definition.prototype);const constructed=Reflect.construct(definition,[],definition);for(const key of Reflect.ownKeys(constructed))try{node[key]=constructed[key]}catch(_){}}catch(error){__oryn_console.push({level:'error',message:'custom element constructor: '+String(error)})}return node};
+globalThis.customElements={define(name,constructor){name=String(name).toLowerCase();if(!name.includes('-'))throw new Error('custom element name must contain a hyphen');if(__oryn_custom_definitions.has(name))throw new Error('custom element already defined');__oryn_custom_definitions.set(name,constructor);for(const node of document.querySelectorAll(name)){__oryn_upgrade_custom_element(node);if(typeof node.connectedCallback==='function')__oryn_custom_reactions.push(()=>node.connectedCallback())}},get(name){return __oryn_custom_definitions.get(String(name).toLowerCase())},whenDefined(name){name=String(name).toLowerCase();if(this.get(name))return Promise.resolve(this.get(name));return new Promise(resolve=>{const timer=setInterval(()=>{if(this.get(name)){clearInterval(timer);resolve(this.get(name))}},1)})},upgrade(root){if(root&&root.tagName)__oryn_upgrade_custom_element(root);if(root&&root.querySelectorAll)for(const node of root.querySelectorAll('*'))__oryn_upgrade_custom_element(node)}};
+for(const [owner,method] of [[Document.prototype,'createElement'],[Node.prototype,'appendChild'],[Node.prototype,'insertBefore'],[Node.prototype,'replaceChild']]){const native=owner[method];if(typeof native!=='function')continue;Object.defineProperty(owner,method,{configurable:true,writable:true,value:function(...args){const result=native.apply(this,args);const node=method==='createElement'?result:args[0];__oryn_upgrade_custom_element(node);if(method!=='createElement'&&node&&typeof node.connectedCallback==='function')__oryn_custom_reactions.push(()=>node.connectedCallback());return result}})}
+globalThis.__oryn_animation_frames=new Map();globalThis.__oryn_next_animation_frame=1;
+globalThis.requestAnimationFrame=callback=>{const id=__oryn_next_animation_frame++;__oryn_animation_frames.set(id,callback);return id};
+globalThis.cancelAnimationFrame=id=>__oryn_animation_frames.delete(Number(id));
+globalThis.__oryn_run_animation_frames=()=>{const callbacks=[...__oryn_animation_frames.values()];__oryn_animation_frames.clear();const timestamp=Date.now();for(const callback of callbacks)callback(timestamp)};
+globalThis.__oryn_resize_observers=new Set();globalThis.__oryn_intersection_observers=new Set();
+class OrynResizeObserver{constructor(callback){if(typeof callback!=='function')throw new TypeError('callback must be callable');this.callback=callback;this.targets=new Map();__oryn_resize_observers.add(this)}observe(target){this.targets.set(target,null)}unobserve(target){this.targets.delete(target)}disconnect(){this.targets.clear();__oryn_resize_observers.delete(this)}}
+class OrynIntersectionObserver{constructor(callback,options={}){if(typeof callback!=='function')throw new TypeError('callback must be callable');this.callback=callback;this.root=options.root||null;this.rootMargin=String(options.rootMargin||'0px');this.thresholds=Array.isArray(options.threshold)?options.threshold.map(Number):[Number(options.threshold||0)];this.targets=new Map();__oryn_intersection_observers.add(this)}observe(target){this.targets.set(target,null)}unobserve(target){this.targets.delete(target)}disconnect(){this.targets.clear();__oryn_intersection_observers.delete(this)}takeRecords(){return []}}
+globalThis.ResizeObserver=OrynResizeObserver;globalThis.IntersectionObserver=OrynIntersectionObserver;
+const __oryn_rect_key=rect=>[rect.x,rect.y,rect.width,rect.height].join(':');
+globalThis.__oryn_run_geometry_observers=()=>{for(const observer of __oryn_resize_observers){const entries=[];for(const target of observer.targets.keys())try{const rect=target.getBoundingClientRect(),key=__oryn_rect_key(rect);if(observer.targets.get(target)!==key){observer.targets.set(target,key);entries.push({target,contentRect:rect,borderBoxSize:[{inlineSize:rect.width,blockSize:rect.height}],contentBoxSize:[{inlineSize:rect.width,blockSize:rect.height}]})}}catch(_){}if(entries.length)observer.callback(entries,observer)}for(const observer of __oryn_intersection_observers){const entries=[];for(const target of observer.targets.keys())try{const rect=target.getBoundingClientRect(),viewport={x:0,y:0,width:innerWidth||0,height:innerHeight||0},width=Math.max(0,Math.min(rect.right,viewport.width)-Math.max(rect.left,0)),height=Math.max(0,Math.min(rect.bottom,viewport.height)-Math.max(rect.top,0)),area=rect.width*rect.height,ratio=area>0?(width*height)/area:0,key=__oryn_rect_key(rect)+':'+ratio;if(observer.targets.get(target)!==key){observer.targets.set(target,key);entries.push({target,boundingClientRect:rect,intersectionRect:{x:Math.max(rect.x,0),y:Math.max(rect.y,0),width,height},rootBounds:viewport,isIntersecting:ratio>0,intersectionRatio:ratio,time:Date.now()})}}catch(_){}if(entries.length)observer.callback(entries,observer)}};
 globalThis.location={href:'about:blank'};
 globalThis.__oryn_layout={styles:{},geometry:{},viewport:{},scroll:{},media:{}};
-globalThis.__oryn_install_layout=value=>{globalThis.__oryn_layout=value};
+globalThis.__oryn_install_layout=value=>{globalThis.__oryn_layout=value;globalThis.innerWidth=Number(value.viewport?.width||0);globalThis.innerHeight=Number(value.viewport?.height||0)};
 globalThis.__oryn_media={color_scheme:'light',reduced_motion:'no_preference'};
 globalThis.matchMedia=query=>{query=String(query);const result={media:query,onchange:null,addEventListener(){},removeEventListener(){},addListener(){},removeListener(){}};Object.defineProperty(result,'matches',{get(){if(/prefers-color-scheme\s*:\s*dark/i.test(query))return __oryn_media.color_scheme==='dark';if(/prefers-color-scheme\s*:\s*light/i.test(query))return __oryn_media.color_scheme==='light';if(/prefers-reduced-motion\s*:\s*reduce/i.test(query))return __oryn_media.reduced_motion==='reduce';if(/prefers-reduced-motion\s*:\s*no-preference/i.test(query))return __oryn_media.reduced_motion==='no_preference';return true}});return result};
 class OrynStorage {
@@ -54,28 +73,11 @@ globalThis.__oryn_restore_storage=(localItems,sessionItems)=>{
   globalThis.localStorage=new OrynStorage('local',localItems||[]);
   globalThis.sessionStorage=new OrynStorage('session',sessionItems||[]);
 };
-globalThis.__oryn_timers=[];
-globalThis.setTimeout=(callback,_delay=0,...args)=>{
-  const id=__oryn_timers.length+1;
-  __oryn_timers.push({id,callback,args,cancelled:false,interval:false});
-  return id;
-};
-globalThis.clearTimeout=id=>{const timer=__oryn_timers.find(timer=>timer.id===id);if(timer)timer.cancelled=true};
-globalThis.setInterval=(callback,_delay=0,...args)=>{
-  const id=__oryn_timers.length+1;
-  __oryn_timers.push({id,callback,args,cancelled:false,interval:true});
-  return id;
-};
+globalThis.setTimeout=(callback,delay=0,...args)=>{if(typeof callback!=='function')callback=Function(String(callback));return __oryn_timer_schedule(callback,delay,false,args)};
+globalThis.setInterval=(callback,delay=0,...args)=>{if(typeof callback!=='function')callback=Function(String(callback));return __oryn_timer_schedule(callback,delay,true,args)};
+globalThis.clearTimeout=id=>{__oryn_timer_cancel(Number(id))};
 globalThis.clearInterval=globalThis.clearTimeout;
-globalThis.__oryn_drain_timers=()=>{
-  const ready=__oryn_timers.splice(0);
-  for(const timer of ready){
-    if(timer.cancelled)continue;
-    timer.callback(...timer.args);
-    if(timer.interval&&!timer.cancelled)__oryn_timers.push(timer);
-  }
-};
-globalThis.__oryn_drain=()=>{__oryn_drain_timers();if(typeof __oryn_poll_context==='function')__oryn_poll_context()};
+globalThis.__oryn_drain=()=>{if(typeof __oryn_poll_context==='function')__oryn_poll_context()};
 class OrynURLSearchParams {
   constructor(init=''){this.items=[];for(const part of String(init).replace(/^\?/,'').split('&'))if(part){const [key,value='']=part.split('=');this.append(decodeURIComponent(key.replace(/\+/g,' ')),decodeURIComponent(value.replace(/\+/g,' ')))}}
   append(key,value){this.items.push([String(key),String(value)])}
@@ -110,9 +112,11 @@ globalThis.dispatchEvent=event=>{for(const callback of __oryn_global_listeners.g
 globalThis.__oryn_poll_context=()=>{if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return;const response=contextCall({operation:'poll_events',page_id:__oryn_page_id,after_event_id:__oryn_context_event_id,max_events:32});if(response.result==='events')for(const record of response.events||[]){__oryn_context_event_id=Math.max(__oryn_context_event_id,record.event_id);const item=record.event;if(!item)continue;if(item.kind==='storage'){const change=item.change||{};const event=new Event('storage',{});event.key=change.key??null;event.oldValue=change.old_value??null;event.newValue=change.new_value??null;event.storageArea=change.area==='local'?localStorage:sessionStorage;event.url=location.href;dispatchEvent(event)}else if(item.kind==='message'){const event=new Event('message',{});event.data=item.data;event.origin=item.source_origin||'';event.source=__oryn_page_proxy(item.source_page_id);dispatchEvent(event)}else if(item.kind==='csp_violation'){const value=item.violation||{};const event=new SecurityPolicyViolationEvent('securitypolicyviolation',{documentURI:value.document_uri||'',referrer:value.referrer||'',blockedURI:value.blocked_uri||'',violatedDirective:value.effective_directive||'',effectiveDirective:value.effective_directive||'',originalPolicy:value.original_policy||'',sourceFile:value.source_file||'',sample:value.sample||'',disposition:value.disposition||'enforce',statusCode:value.status_code||0,lineNumber:value.line_number||0,columnNumber:value.column_number||0});document.dispatchEvent(event);dispatchEvent(event)}else if(item.kind==='csp_report'){__oryn_context_trace.push({kind:'csp_report',detail:{endpoint:item.endpoint||'',format:item.format||'',outcome:item.outcome||''}})}}for(const socket of [...__oryn_websockets])socket.__poll()};
 class OrynWebSocket {constructor(url,protocols=[]){this.url=new OrynURL(url,location.href).href;this.protocol='';this.binaryType='blob';this.readyState=0;this.__listeners=new Map();if(typeof protocols==='string')protocols=[protocols];const response=contextCall({operation:'web_socket_open',page_id:__oryn_page_id,url:this.url,protocols:[...protocols].map(String)});if(response.result!=='web_socket_opened')throw new Error('WebSocket open failed');this.__id=response.socket_id;this.protocol=response.protocol;__oryn_websockets.add(this);queueMicrotask(()=>{this.readyState=1;this.__event('open')})}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}send(data){const frame=typeof data==='string'?{kind:'text',value:data}:{kind:'binary',base64:bytesToBase64(bodyBytes(data))};const bytes=typeof data==='string'?new TextEncoder().encode(data).length:bodyBytes(data).length;contextCall({operation:'web_socket_send',page_id:__oryn_page_id,socket_id:this.__id,frame});__oryn_context_trace.push({kind:'web_socket_frame',detail:{socket_id:this.__id,direction:'outbound',frame_type:frame.kind,bytes,url:this.url}})}close(code=1000,reason=''){contextCall({operation:'web_socket_close',page_id:__oryn_page_id,socket_id:this.__id,code,reason:String(reason)});this.readyState=3;__oryn_websockets.delete(this);this.__event('close',{code,reason:String(reason),wasClean:true})}__poll(){if(this.readyState!==1)return;const response=contextCall({operation:'web_socket_poll',page_id:__oryn_page_id,socket_id:this.__id,max_frames:32});if(response.result!=='web_socket_events')return;for(const frame of response.frames||[]){let bytes=0;if(frame.kind==='text'){bytes=new TextEncoder().encode(frame.value).length;this.__event('message',{data:frame.value})}else if(frame.kind==='binary'){const value=base64ToBytes(frame.base64);bytes=value.length;this.__event('message',{data:this.binaryType==='arraybuffer'?value.buffer:new Blob([value])})}else if(frame.kind==='close'){this.readyState=3;__oryn_websockets.delete(this);this.__event('close',{code:frame.code??1005,reason:frame.reason||'',wasClean:true})}__oryn_context_trace.push({kind:'web_socket_frame',detail:{socket_id:this.__id,direction:'inbound',frame_type:frame.kind,bytes,url:this.url}})}}}
 Object.assign(OrynWebSocket,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});Object.assign(OrynWebSocket.prototype,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});globalThis.WebSocket=OrynWebSocket;
-const __oryn_worker_compile=Function;
-class OrynWorker {constructor(url,options={}){this.onmessage=null;this.onerror=null;this.__listeners=new Map();this.__closed=false;const target=new OrynURL(url,location.href).href;const response=contextCall({operation:'load_worker_script',page_id:__oryn_page_id,url:target,module:String(options.type||'classic')==='module'});if(response.result!=='worker_script')throw new Error('Worker script load failed');const owner=this;const scope={onmessage:null,onerror:null,close(){owner.__closed=true},postMessage(data){if(owner.__closed)return;queueMicrotask(()=>owner.__event('message',{data}))},addEventListener(type,callback){const list=scope.__listeners.get(String(type))||[];list.push(callback);scope.__listeners.set(String(type),list)},removeEventListener(type,callback){scope.__listeners.set(String(type),(scope.__listeners.get(String(type))||[]).filter(item=>item!==callback))},__listeners:new Map()};scope.self=scope;scope.globalThis=scope;try{let source=response.source;if(response.module)source=source.replace(/\bexport\s+(?=(?:default\s+)?(?:const|let|var|function|class))/g,'');__oryn_worker_compile('self','globalThis','postMessage',source)(scope,scope,scope.postMessage.bind(scope))}catch(error){queueMicrotask(()=>this.__event('error',{error,message:String(error)}))}this.__scope=scope}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}postMessage(data){if(this.__closed)return;const scope=this.__scope;queueMicrotask(()=>{const event=new Event('message',{});event.data=data;for(const callback of scope.__listeners.get('message')||[])callback.call(scope,event);if(typeof scope.onmessage==='function')scope.onmessage.call(scope,event)})}terminate(){this.__closed=true;this.__scope=null}}
+const __oryn_workers=new Set();
+const __oryn_worker_clone=value=>{const encoded=JSON.stringify(value);if(encoded===undefined){const error=new TypeError('dedicated-worker messages must be structured-cloneable JSON values');error.name='DataCloneError';throw error}return encoded};
+class OrynWorker {constructor(url,options={}){this.onmessage=null;this.onerror=null;this.__listeners=new Map();this.__closed=false;const target=new OrynURL(url,location.href).href;const response=contextCall({operation:'load_worker_script',page_id:__oryn_page_id,url:target,module:String(options.type||'classic')==='module'});if(response.result!=='worker_script')throw new Error('Worker script load failed');try{this.__id=__oryn_worker_create(response.source,response.url,!!response.module);__oryn_workers.add(this);queueMicrotask(()=>this.__poll())}catch(error){this.__closed=true;queueMicrotask(()=>this.__event('error',{error,message:String(error)}))}}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}__poll(){if(this.__closed||!this.__id)return;for(const encoded of JSON.parse(__oryn_worker_take(this.__id))){this.__event('message',{data:JSON.parse(encoded)})}}postMessage(data){if(this.__closed||!this.__id)return;__oryn_worker_post(this.__id,__oryn_worker_clone(data));this.__poll()}terminate(){if(this.__id)__oryn_worker_terminate(this.__id);this.__closed=true;this.__id=0;__oryn_workers.delete(this)}}
 globalThis.Worker=OrynWorker;
+const __oryn_context_poll_without_workers=globalThis.__oryn_poll_context;globalThis.__oryn_poll_context=()=>{__oryn_context_poll_without_workers();for(const worker of [...__oryn_workers])worker.__poll()};
 class OrynTextEncoder {encode(value=''){const encoded=unescape(encodeURIComponent(String(value)));return Uint8Array.from(encoded,char=>char.charCodeAt(0))}}
 class OrynTextDecoder {decode(value=new Uint8Array()){let encoded='';for(const byte of new Uint8Array(value.buffer||value,value.byteOffset||0,value.byteLength??value.length))encoded+=String.fromCharCode(byte);return decodeURIComponent(escape(encoded))}}
 globalThis.TextEncoder=OrynTextEncoder;globalThis.TextDecoder=OrynTextDecoder;
@@ -154,7 +158,9 @@ globalThis.Headers=OrynHeaders;
 globalThis.Response=OrynResponse;
 class OrynRequest {constructor(input,init={}){this.url=new OrynURL(input&&input.url?input.url:String(input),location.href).href;this.method=String(init.method||'GET').toUpperCase();this.headers=new OrynHeaders(init.headers||[]);this.body=init.body??null;this.signal=init.signal||new OrynAbortSignal();this.credentials=init.credentials||'same-origin'}}
 globalThis.Request=OrynRequest;
-class OrynFormData {constructor(form){this.items=[];if(form)for(const node of [...form.querySelectorAll('input'),...form.querySelectorAll('textarea'),...form.querySelectorAll('select')]){const name=node.getAttribute('name');if(!name||node.disabled)continue;const type=(node.getAttribute('type')||'').toLowerCase();if((type==='checkbox'||type==='radio')&&!node.checked)continue;this.append(name,node.value)}}append(name,value,filename){if(filename!==undefined&&value instanceof OrynBlob)value=new OrynFile([value.__bytes],filename,{type:value.type});this.items.push([String(name),value instanceof OrynBlob?value:String(value)])}set(name,value,filename){this.delete(name);this.append(name,value,filename)}get(name){const item=this.items.find(item=>item[0]===String(name));return item?item[1]:null}getAll(name){return this.items.filter(item=>item[0]===String(name)).map(item=>item[1])}has(name){return this.items.some(item=>item[0]===String(name))}delete(name){this.items=this.items.filter(item=>item[0]!==String(name))}[Symbol.iterator](){return this.items[Symbol.iterator]()}}
+const __orynInputFiles=node=>{const encoded=node.getAttribute('data-oryn-upload-files');if(!encoded)return [];try{return JSON.parse(encoded).map(file=>new OrynFile([base64ToBytes(file.body_base64)],file.filename,{type:file.media_type,lastModified:file.last_modified}))}catch(_){return []}};
+if(globalThis.HTMLInputElement)Object.defineProperty(HTMLInputElement.prototype,'files',{configurable:true,get(){return __orynInputFiles(this)}});
+class OrynFormData {constructor(form){this.items=[];if(form)for(const node of [...form.querySelectorAll('input'),...form.querySelectorAll('textarea'),...form.querySelectorAll('select')]){const name=node.getAttribute('name');if(!name||node.disabled)continue;const type=(node.getAttribute('type')||'').toLowerCase();if((type==='checkbox'||type==='radio')&&!node.checked)continue;if(type==='file'){for(const file of __orynInputFiles(node))this.append(name,file);continue}this.append(name,node.value)}}append(name,value,filename){if(filename!==undefined&&value instanceof OrynBlob)value=new OrynFile([value.__bytes],filename,{type:value.type});this.items.push([String(name),value instanceof OrynBlob?value:String(value)])}set(name,value,filename){this.delete(name);this.append(name,value,filename)}get(name){const item=this.items.find(item=>item[0]===String(name));return item?item[1]:null}getAll(name){return this.items.filter(item=>item[0]===String(name)).map(item=>item[1])}has(name){return this.items.some(item=>item[0]===String(name))}delete(name){this.items=this.items.filter(item=>item[0]!==String(name))}[Symbol.iterator](){return this.items[Symbol.iterator]()}}
 globalThis.FormData=OrynFormData;
 globalThis.crypto={getRandomValues(array){const encoded=__oryn_crypto_sync('random',String(array.byteLength));array.set(base64ToBytes(encoded));return array},randomUUID(){const bytes=new Uint8Array(16);this.getRandomValues(bytes);bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;const hex=[...bytes].map(value=>value.toString(16).padStart(2,'0')).join('');return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`},subtle:{digest(algorithm,value){if(String(algorithm).toUpperCase()!=='SHA-256')return Promise.reject(new Error('unsupported digest'));const result=base64ToBytes(__oryn_crypto_sync('sha256',bytesToBase64(bodyBytes(value))));return Promise.resolve(result.buffer)}}};
 const __oryn_idb_call=command=>{const outer=contextCall({operation:'storage',request:{operation:'indexed_db',origin:location.origin,command}});if(outer.result!=='storage'||outer.response.result!=='indexed_db')throw new Error('invalid IndexedDB response');return outer.response.response};
@@ -216,6 +222,9 @@ pub struct RustExecutableDocument {
     top_realm: RealmId,
     node_realms: BTreeMap<NodeId, RealmId>,
     base_url: Option<Url>,
+    resources: BTreeMap<String, String>,
+    broker: Option<SharedNetworkBroker>,
+    next_dynamic_request_id: u64,
     #[cfg(unix)]
     context: Option<(
         crate::context_service::SharedContextClient,
@@ -304,6 +313,7 @@ impl RustExecutableDocument {
             .map(|(_, page_id, opener_page_id)| (*page_id, *opener_page_id));
         #[cfg(unix)]
         let context_handle = context.clone();
+        let broker_handle = broker.clone();
         let parsed = html::parse_streamed(html_source, 4 * 1024);
         let scripts = parsed
             .dom
@@ -599,17 +609,8 @@ impl RustExecutableDocument {
         }
         host.set_document_write_anchor(None)?;
         host.drain_async_fetches(true)?;
-        host.execute("document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))")?;
-        host.drain_async_fetches(true)?;
-        host.execute("void 0")?;
-        for rejection in host.take_unhandled_promise_rejections() {
-            diagnostics.push(script_diagnostic(HostError::Execution(format!(
-                "unhandled promise rejection: {rejection}"
-            ))));
-        }
-        host.process_binding_releases()?;
         let (dom, document) = live_dom.borrow().snapshot();
-        Ok(Self {
+        let mut page = Self {
             document: ParsedDocument {
                 dom,
                 document,
@@ -623,9 +624,21 @@ impl RustExecutableDocument {
             top_realm,
             node_realms,
             base_url,
+            resources: resources.clone(),
+            broker: broker_handle,
+            next_dynamic_request_id: 1,
             #[cfg(unix)]
             context: context_handle,
-        })
+        };
+        // Dynamic external/module scripts inserted by parser-time JavaScript
+        // are force-async but still participate in the document load barrier.
+        page.drain_dynamic_scripts()?;
+        page.host.drain_async_fetches(true)?;
+        page.host.execute(
+            "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
+        )?;
+        page.checkpoint()?;
+        Ok(page)
     }
 
     pub fn execute(&mut self, source: &str) -> Result<(), HostError> {
@@ -694,8 +707,8 @@ impl RustExecutableDocument {
     }
 
     pub fn drain_tasks(&mut self) -> Result<(), HostError> {
-        self.host
-            .execute("__oryn_drain_timers();__oryn_poll_context()")?;
+        self.host.drain_scheduled_timers(true)?;
+        self.host.execute("__oryn_poll_context()")?;
         self.checkpoint()
     }
 
@@ -720,6 +733,71 @@ impl RustExecutableDocument {
         value: Option<&str>,
     ) -> Result<(), HostError> {
         self.apply_action_with_sensitivity(target, action, value, true)
+    }
+
+    pub fn set_files(
+        &mut self,
+        target: NodeId,
+        files: &[crate::upload::UploadFile],
+    ) -> Result<(), HostError> {
+        #[derive(Serialize)]
+        struct PageFile<'a> {
+            filename: &'a str,
+            media_type: &'a str,
+            body_base64: String,
+            last_modified: u64,
+        }
+        let is_file_input = {
+            let dom = self.live_dom.borrow();
+            dom.node_name(target)
+                .is_ok_and(|name| name.eq_ignore_ascii_case("input"))
+                && dom
+                    .attribute(target, "type")
+                    .ok()
+                    .flatten()
+                    .is_some_and(|kind| kind.eq_ignore_ascii_case("file"))
+        };
+        if !is_file_input {
+            return Err(HostError::Execution(
+                "file selection target is not an input[type=file]".into(),
+            ));
+        }
+        let page_files = files
+            .iter()
+            .map(|file| PageFile {
+                filename: &file.filename,
+                media_type: &file.media_type,
+                body_base64: base64::engine::general_purpose::STANDARD.encode(&file.bytes),
+                last_modified: 0,
+            })
+            .collect::<Vec<_>>();
+        let encoded = serde_json::to_string(&page_files)
+            .map_err(|error| HostError::Execution(error.to_string()))?;
+        {
+            let mut dom = self.live_dom.borrow_mut();
+            dom.set_attribute(target, "data-oryn-upload-files", encoded)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            dom.set_value(
+                target,
+                files.first().map_or("", |file| file.filename.as_str()),
+                false,
+            )
+            .map_err(|error| HostError::Execution(error.to_string()))?;
+        }
+        let realm = self
+            .node_realms
+            .get(&target)
+            .copied()
+            .unwrap_or(self.top_realm);
+        self.host.activate_realm(realm)?;
+        let result = self.host.execute_with_node(
+            target,
+            "__oryn_action_target",
+            "__oryn_action_target.dispatchEvent(new Event('input',{bubbles:true}));__oryn_action_target.dispatchEvent(new Event('change',{bubbles:true}))",
+        );
+        self.host.activate_realm(self.top_realm)?;
+        result?;
+        self.checkpoint()
     }
 
     fn apply_action_with_sensitivity(
@@ -817,30 +895,64 @@ impl RustExecutableDocument {
         Ok(self.document.clone())
     }
 
-    pub fn install_layout(&mut self, output: &oryn_layout::LayoutOutput) -> Result<(), HostError> {
-        let rects = output
+    pub fn install_layout(
+        &mut self,
+        output: &oryn_layout::LayoutOutput,
+        viewport: oryn_common::v4::ViewportState,
+    ) -> Result<(), HostError> {
+        let geometry = output
             .geometry
             .iter()
-            .filter_map(|(node, geometry)| {
-                geometry.box_model.as_ref().map(|model| {
-                    let rect = model.border_box;
-                    (
-                        *node,
-                        oryn_js::v8_bindings::BindingRect {
-                            x: rect.x,
-                            y: rect.y,
-                            width: rect.width,
-                            height: rect.height,
+            .map(|(node, value)| {
+                use oryn_common::v4::GeometryAvailability;
+                let value = match value.availability {
+                    GeometryAvailability::Available => value.box_model.as_ref().map_or_else(
+                        || {
+                            oryn_js::v8_bindings::BindingGeometry::Unsupported(
+                                "layout reported available geometry without a box".into(),
+                            )
                         },
-                    )
-                })
+                        |model| {
+                            let rect = model.border_box;
+                            oryn_js::v8_bindings::BindingGeometry::Available(
+                                oryn_js::v8_bindings::BindingRect {
+                                    x: rect.x,
+                                    y: rect.y,
+                                    width: rect.width,
+                                    height: rect.height,
+                                },
+                            )
+                        },
+                    ),
+                    GeometryAvailability::Hidden => oryn_js::v8_bindings::BindingGeometry::Hidden,
+                    GeometryAvailability::Unsupported => {
+                        oryn_js::v8_bindings::BindingGeometry::Unsupported(
+                            value
+                                .diagnostic
+                                .clone()
+                                .unwrap_or_else(|| "geometry is unsupported".into()),
+                        )
+                    }
+                };
+                (*node, value)
             })
             .collect();
         self.host
             .install_layout(oryn_js::v8_bindings::BindingLayout {
                 styles: output.computed_styles.clone(),
-                rects,
-            })
+                geometry,
+            })?;
+        self.host.execute(&format!(
+            "globalThis.innerWidth={};globalThis.innerHeight={}",
+            viewport.width, viewport.height
+        ))?;
+        self.host.execute("__oryn_run_geometry_observers()")?;
+        self.checkpoint()
+    }
+
+    pub fn run_animation_frame_phase(&mut self) -> Result<(), HostError> {
+        self.host.execute("__oryn_run_animation_frames()")?;
+        self.checkpoint()
     }
 
     pub fn install_media(
@@ -859,7 +971,10 @@ impl RustExecutableDocument {
 
     fn checkpoint(&mut self) -> Result<(), HostError> {
         self.host.drain_async_fetches(true)?;
+        self.drain_dynamic_scripts()?;
         self.host.execute("void 0")?;
+        self.host.execute("__oryn_run_custom_reactions()")?;
+        self.host.run_dom_observer_checkpoint()?;
         for rejection in self.host.take_unhandled_promise_rejections() {
             self.diagnostics
                 .push(script_diagnostic(HostError::Execution(format!(
@@ -871,6 +986,182 @@ impl RustExecutableDocument {
         self.document.dom = dom;
         self.document.document = document;
         Ok(())
+    }
+
+    fn drain_dynamic_scripts(&mut self) -> Result<(), HostError> {
+        // Script execution may itself connect another script. Keep one bounded
+        // preparation loop so recursive insertion is deterministic and cannot
+        // monopolize the page worker indefinitely.
+        for _ in 0..1024 {
+            let pending = self.host.take_pending_dynamic_scripts()?;
+            if pending.is_empty() {
+                return Ok(());
+            }
+            for script in pending {
+                let (script_type, src, nonce, inline) = {
+                    let dom = self.live_dom.borrow();
+                    let script_type = dom
+                        .attribute(script, "type")
+                        .map_err(|error| HostError::Execution(error.to_string()))?
+                        .unwrap_or_default()
+                        .to_owned();
+                    let src = dom
+                        .attribute(script, "src")
+                        .map_err(|error| HostError::Execution(error.to_string()))?
+                        .map(str::to_owned);
+                    let nonce = dom
+                        .attribute(script, "nonce")
+                        .map_err(|error| HostError::Execution(error.to_string()))?
+                        .map(str::to_owned);
+                    let inline = dom
+                        .arena()
+                        .text_content(script)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    (script_type, src, nonce, inline)
+                };
+                let module = script_type.trim().eq_ignore_ascii_case("module");
+                let loaded = self.load_dynamic_script_source(
+                    src.as_deref(),
+                    module,
+                    nonce.as_deref(),
+                    &inline,
+                );
+                let result = loaded.and_then(|(resource_name, source)| {
+                    if module {
+                        self.host
+                            .execute_module(&resource_name, &source, &self.resources)
+                    } else {
+                        self.host.execute(&source)
+                    }
+                });
+                match result {
+                    Ok(()) => {
+                        self.host.execute_with_node(
+                            script,
+                            "__oryn_dynamic_script",
+                            "__oryn_dynamic_script.dispatchEvent(new Event('load'))",
+                        )?;
+                    }
+                    Err(error) => {
+                        self.diagnostics
+                            .push(script_diagnostic(HostError::Execution(format!(
+                                "dynamic script failed: {error}"
+                            ))));
+                        // Resource/script errors are reported to the element
+                        // and diagnostics but do not turn appendChild into an
+                        // exception after it has already returned.
+                        let _ = self.host.execute_with_node(
+                            script,
+                            "__oryn_dynamic_script",
+                            "__oryn_dynamic_script.dispatchEvent(new Event('error'))",
+                        );
+                    }
+                }
+            }
+        }
+        Err(HostError::LimitExceeded {
+            resource: "dynamic script preparation queue".into(),
+        })
+    }
+
+    fn load_dynamic_script_source(
+        &mut self,
+        src: Option<&str>,
+        module: bool,
+        nonce: Option<&str>,
+        inline: &str,
+    ) -> Result<(String, String), HostError> {
+        let Some(src) = src.filter(|src| !src.trim().is_empty()) else {
+            #[cfg(unix)]
+            if let Some((client, page_id, _)) = &self.context {
+                client
+                    .request(
+                        crate::context_service::ContextServiceRequest::AuthorizeInlineScript {
+                            page_id: *page_id,
+                            source: inline.to_owned(),
+                            nonce: nonce.map(str::to_owned),
+                        },
+                    )
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+            }
+            return Ok(("oryn:dynamic-inline-module".into(), inline.to_owned()));
+        };
+
+        #[cfg(unix)]
+        if let Some((client, page_id, _)) = &self.context {
+            let response = client
+                .request(crate::context_service::ContextServiceRequest::LoadScript {
+                    page_id: *page_id,
+                    url: src.to_owned(),
+                    module,
+                    nonce: nonce.map(str::to_owned),
+                })
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            let crate::context_service::ContextServiceResponse::ScriptSource {
+                url, source, ..
+            } = response
+            else {
+                return Err(HostError::Execution(
+                    "parent returned an invalid dynamic-script response".into(),
+                ));
+            };
+            return Ok((url, source));
+        }
+
+        let resolved = self
+            .base_url
+            .as_ref()
+            .and_then(|base| base.join(src).ok())
+            .or_else(|| Url::parse(src).ok());
+        if let Some(source) = self.resources.get(src).cloned().or_else(|| {
+            resolved
+                .as_ref()
+                .and_then(|url| self.resources.get(url.as_str()).cloned())
+        }) {
+            return Ok((
+                resolved.map_or_else(|| src.to_owned(), |url| url.to_string()),
+                source,
+            ));
+        }
+        let url = resolved.ok_or_else(|| {
+            HostError::Execution(format!("dynamic script URL {src:?} is invalid"))
+        })?;
+        let broker = self.broker.as_ref().ok_or_else(|| {
+            HostError::Execution(format!("dynamic script resource {url} is unavailable"))
+        })?;
+        let request_id = self.next_dynamic_request_id;
+        self.next_dynamic_request_id = request_id.saturating_add(1);
+        let response = broker
+            .send(crate::network::NetworkRequest {
+                request_id,
+                method: "GET".into(),
+                url: url.to_string(),
+                headers: vec![(
+                    "accept".into(),
+                    "text/javascript,application/javascript,*/*;q=0.1".into(),
+                )],
+                body: Vec::new(),
+                credentials: true,
+                security: crate::cookies::CookieRequestContext {
+                    kind: crate::cookies::CookieRequestKind::Script,
+                    initiator_url: self.base_url.as_ref().map(ToString::to_string),
+                    top_level_url: self.base_url.as_ref().map(ToString::to_string),
+                    ..Default::default()
+                },
+                resolved_addrs: Vec::new(),
+            })
+            .map_err(|error| HostError::Execution(error.to_string()))?;
+        let content_type = response
+            .headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+            .map(|(_, value)| value.as_str());
+        let (source, _) = oryn_net::decode_resource_text(
+            &response.body,
+            content_type,
+            oryn_net::TextResourceKind::JavaScript,
+        );
+        Ok((url.to_string(), source))
     }
 
     pub fn node_by_id(&self, id: &str) -> Option<NodeId> {
@@ -1008,6 +1299,48 @@ mod tests {
     }
 
     #[test]
+    fn connected_inline_dynamic_script_executes_before_append_child_returns() {
+        let mut page = RustExecutableDocument::load(
+            "<body><main></main><script>globalThis.order=[];const dynamic=document.createElement('script');dynamic.textContent=\"order.push('dynamic')\";document.querySelector('body').appendChild(dynamic);order.push('after')</script></body>",
+        )
+        .unwrap();
+        assert_eq!(page.evaluate("order.join(',')").unwrap(), "dynamic,after");
+    }
+
+    #[test]
+    fn connected_external_dynamic_script_uses_the_resource_scheduler_once() {
+        let resources = BTreeMap::from([(
+            "dynamic.js".into(),
+            "globalThis.dynamicRuns=(globalThis.dynamicRuns||0)+1".into(),
+        )]);
+        let mut page = RustExecutableDocument::load_with_resources(
+            "<body><main></main><script>const dynamic=document.createElement('script');dynamic.setAttribute('src','dynamic.js');dynamic.addEventListener('load',()=>globalThis.dynamicLoaded=true);const body=document.querySelector('body');body.appendChild(dynamic);body.removeChild(dynamic);body.appendChild(dynamic)</script></body>",
+            &resources,
+        )
+        .unwrap();
+        assert_eq!(page.evaluate("String(dynamicRuns)").unwrap(), "1");
+        assert_eq!(page.evaluate("String(dynamicLoaded)").unwrap(), "true");
+    }
+
+    #[test]
+    fn inner_html_scripts_remain_inert_when_the_subtree_is_connected() {
+        let mut page = RustExecutableDocument::load(
+            "<body><main></main><script>globalThis.ran=false;const holder=document.createElement('div');holder.innerHTML='<script>ran=true<\\/script>';document.querySelector('body').appendChild(holder)</script></body>",
+        )
+        .unwrap();
+        assert_eq!(page.evaluate("String(ran)").unwrap(), "false");
+    }
+
+    #[test]
+    fn connected_dynamic_module_uses_v8_module_evaluation() {
+        let mut page = RustExecutableDocument::load(
+            "<body><main></main><script>const dynamic=document.createElement('script');dynamic.setAttribute('type','module');dynamic.textContent='globalThis.dynamicModule=41+1;export const value=42';document.querySelector('body').appendChild(dynamic)</script></body>",
+        )
+        .unwrap();
+        assert_eq!(page.evaluate("String(dynamicModule)").unwrap(), "42");
+    }
+
+    #[test]
     fn event_current_target_is_the_generated_rust_dom_wrapper() {
         let mut page = RustExecutableDocument::load(
             "<button id=go>Run</button><script>const button=document.getElementById('go');button.addEventListener('click',event=>globalThis.__sameTarget=event.currentTarget===button)</script>",
@@ -1099,6 +1432,37 @@ mod tests {
         );
     }
 
+    #[test]
+    fn timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks() {
+        let mut page = RustExecutableDocument::load(
+            "<output id=state>pending</output><script>globalThis.order=[];setTimeout(()=>{order.push('timer-1');Promise.resolve().then(()=>order.push('microtask-1'))},15);setTimeout(()=>order.push('timer-2'),15)</script>",
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("document.querySelector('#state').textContent")
+                .unwrap(),
+            "pending"
+        );
+        let started = std::time::Instant::now();
+        page.drain_tasks().unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(10));
+        assert_eq!(
+            page.evaluate("order.join(',')").unwrap(),
+            "timer-1,microtask-1,timer-2"
+        );
+    }
+
+    #[test]
+    fn interval_can_cancel_itself_without_becoming_an_infinite_drain() {
+        let mut page = RustExecutableDocument::load(
+            "<script>globalThis.count=0;const id=setInterval(()=>{count++;clearInterval(id)},1)</script>",
+        )
+        .unwrap();
+        page.drain_tasks().unwrap();
+        page.drain_tasks().unwrap();
+        assert_eq!(page.evaluate("String(count)").unwrap(), "1");
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn context_owned_storage_is_visible_to_page_scripts() {
         let page = crate::runtime::Browser::new().new_context().new_page();
@@ -1149,6 +1513,52 @@ mod tests {
             page.evaluate("document.querySelector('#result').textContent")
                 .unwrap(),
             "3:3"
+        );
+    }
+
+    #[test]
+    fn mutation_observers_run_after_microtasks_and_reach_a_stable_checkpoint() {
+        let mut page = RustExecutableDocument::load(
+            r#"<div id=root></div><script>
+            globalThis.order=[];
+            const root=document.querySelector('#root');
+            new MutationObserver(records=>{
+              order.push('observer:'+records[0].type);
+              if(!document.querySelector('#child')){
+                const child=document.createElement('span');child.id='child';root.appendChild(child);
+              }
+            }).observe(root,{childList:true,subtree:true});
+            Promise.resolve().then(()=>order.push('microtask'));
+            root.appendChild(document.createElement('b'));
+            </script>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("order.join(',')").unwrap(),
+            "microtask,observer:childList,observer:childList"
+        );
+        assert_eq!(
+            page.evaluate("String(!!document.querySelector('#child'))")
+                .unwrap(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn custom_element_reactions_precede_mutation_observer_delivery() {
+        let mut page = RustExecutableDocument::load(
+            r#"<x-state></x-state><script>
+            globalThis.order=[];
+            const node=document.querySelector('x-state');
+            new MutationObserver(()=>order.push('observer')).observe(node,{attributes:true});
+            customElements.define('x-state',class extends HTMLElement{connectedCallback(){order.push('reaction');this.setAttribute('ready','')}});
+            Promise.resolve().then(()=>order.push('microtask'));
+            </script>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("order.join(',')").unwrap(),
+            "microtask,reaction,observer"
         );
     }
 }

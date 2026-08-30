@@ -16,10 +16,14 @@ enters the host instruction channel.
 ## Action policy
 
 Every context owns an explicit policy for cross-origin navigation, submission,
-popups, uploads, downloads, clipboard use, credential fill, protected requests,
-and user-browser delegation. Decisions are allow, deny, or require-confirmation.
-Confirmations are random, exact-request-scoped, one-use tokens. Every decision
-is appended to a structured context audit record independently of the model.
+popups, downloads, credential fill, protected requests, and user-browser
+delegation. Decisions are allow, deny, or require-confirmation. Confirmations
+are random, exact-request-scoped, one-use tokens. Every decision is appended to
+a structured context audit record independently of the model. File-input
+upload accepts only parent-imported opaque handles and transfers only the
+selected bytes into a page worker after policy authorization. Clipboard access
+is a text-only, context-owned virtual clipboard; Oryn never reads or writes the
+host system clipboard.
 
 Network policy includes scheme, resolved-address, redirect-hop, hostname and
 port controls. Host allow/deny patterns match exact hosts and subdomains; DNS
@@ -33,6 +37,10 @@ revocable, redact their debug form, and require a confirmed credential-fill
 operation before materialization. Secret memory is zeroized on removal. Native
 semantic observations replace password values with `[REDACTED]`; trace and
 policy records contain labels and decisions, never secret bytes.
+
+Standalone CLI, Python, and MCP sessions provision labelled values through an
+inherited descriptor consumed by the parent. Secret values never enter argv,
+the environment, JSON-RPC, OIL, worker initialization, observations, or traces.
 
 ## Download quarantine
 

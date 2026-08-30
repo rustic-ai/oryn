@@ -105,26 +105,57 @@ impl<T> Default for PageScheduler<T> {
 }
 
 impl<T> PageScheduler<T> {
+    pub const fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+
+    pub fn next_timer_delay_ms(&self) -> Option<u64> {
+        self.timers
+            .peek()
+            .map(|timer| timer.0.due_ms.saturating_sub(self.now_ms))
+    }
+
+    pub fn has_ready_task(&self) -> bool {
+        !self.tasks.is_empty()
+    }
+
     pub fn queue(&mut self, task: Task<T>) {
         self.tasks.push_back(task);
     }
 
     pub fn set_timeout(&mut self, delay: Duration, task: Task<T>) -> u64 {
-        self.add_timer(delay, None, task)
+        self.add_timer_with(delay, None, |_| task)
     }
 
     pub fn set_interval(&mut self, interval: Duration, task: Task<T>) -> u64 {
-        self.add_timer(interval, Some(interval.as_millis() as u64), task)
+        self.add_timer_with(interval, Some(interval.as_millis() as u64), |_| task)
     }
 
-    fn add_timer(&mut self, delay: Duration, interval_ms: Option<u64>, task: Task<T>) -> u64 {
+    pub fn set_timeout_with<F>(&mut self, delay: Duration, task: F) -> u64
+    where
+        F: FnOnce(u64) -> Task<T>,
+    {
+        self.add_timer_with(delay, None, task)
+    }
+
+    pub fn set_interval_with<F>(&mut self, interval: Duration, task: F) -> u64
+    where
+        F: FnOnce(u64) -> Task<T>,
+    {
+        self.add_timer_with(interval, Some(interval.as_millis() as u64), task)
+    }
+
+    fn add_timer_with<F>(&mut self, delay: Duration, interval_ms: Option<u64>, task: F) -> u64
+    where
+        F: FnOnce(u64) -> Task<T>,
+    {
         let id = self.next_sequence;
         self.next_sequence = self.next_sequence.saturating_add(1);
         self.timers.push(Reverse(Timer {
             due_ms: self.now_ms.saturating_add(delay.as_millis() as u64),
             sequence: id,
             interval_ms,
-            task,
+            task: task(id),
         }));
         id
     }
