@@ -94,13 +94,13 @@ def main() -> int:
         if case["disposition"] == "declared_limitation"
     ]
     require(
-        len(required) == 28 and all(case["status"] == "passed" for case in required),
-        "required layout cases are not 28/28",
+        len(required) == 29 and all(case["status"] == "passed" for case in required),
+        "required layout cases are not 29/29",
     )
     require(
-        len(limited) == 5
+        len(limited) == 4
         and all(case["status"] == "expected_limitation" for case in limited),
-        "layout limitations are not 5/5 explicit",
+        "layout limitations are not 4/4 explicit",
     )
     require(
         result["metrics"]["false_semantic_reference_preservations"] == 0,
