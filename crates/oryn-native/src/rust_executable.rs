@@ -19,6 +19,20 @@ use crate::{
 };
 use url::Url;
 
+fn resource_entry<'a>(
+    resources: &'a BTreeMap<String, String>,
+    name: &str,
+) -> Option<(&'a str, &'a str)> {
+    if let Some(canonical) = resources.get(&format!("oryn:module-alias:{name}")) {
+        return resources
+            .get_key_value(canonical)
+            .map(|(name, source)| (name.as_str(), source.as_str()));
+    }
+    resources
+        .get_key_value(name)
+        .map(|(name, source)| (name.as_str(), source.as_str()))
+}
+
 const RUST_RUNTIME_GLOBALS: &str = r#"
 globalThis.window=globalThis;
 globalThis.self=globalThis;
@@ -556,12 +570,11 @@ impl RustExecutableDocument {
                 .map_err(|error| HostError::Execution(error.to_string()))?;
             host.set_document_write_anchor(Some(script))?;
             if script_type.as_deref() == Some("module") {
-                let name = src.as_deref().unwrap_or("oryn:inline-module");
-                let source = src
-                    .as_ref()
-                    .and_then(|src| resources.get(src))
-                    .map(String::as_str)
-                    .unwrap_or(&inline);
+                let resource = src.as_ref().and_then(|src| resource_entry(resources, src));
+                let name = resource
+                    .map(|(name, _)| name)
+                    .unwrap_or("oryn:inline-module");
+                let source = resource.map(|(_, source)| source).unwrap_or(&inline);
                 if let Err(error) = host.execute_module(name, source, resources) {
                     diagnostics.push(script_diagnostic_at(error, name));
                 }
@@ -589,8 +602,8 @@ impl RustExecutableDocument {
             }
             let source = src
                 .as_ref()
-                .and_then(|src| resources.get(src))
-                .map(String::as_str)
+                .and_then(|src| resource_entry(resources, src))
+                .map(|(_, source)| source)
                 .unwrap_or(&inline);
             let transformed;
             let source = if script_type.as_deref() == Some("text/babel") {

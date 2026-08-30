@@ -5420,12 +5420,16 @@ impl PageState {
             .map(|(source, frame, module)| (base_url.clone(), source, frame, module))
             .collect::<Vec<_>>();
         while let Some((parent, source, frame, module)) = pending.pop() {
-            if resources.contains_key(&source) {
-                continue;
-            }
             let absolute = parent.join(&source).map_err(|error| {
                 RuntimeError::Network(format!("invalid external script URL {source}: {error}"))
             })?;
+            let canonical = absolute.to_string();
+            if resources.contains_key(&canonical) {
+                if module {
+                    resources.insert(format!("oryn:module-alias:{source}"), canonical);
+                }
+                continue;
+            }
             if frame && origin_key(&absolute) != origin_key(base_url) {
                 continue;
             }
@@ -5462,11 +5466,20 @@ impl PageState {
                     }
                 }
             }
-            resources.insert(source, body);
+            resources.insert(canonical.clone(), body.clone());
+            if module {
+                resources.insert(format!("oryn:module-alias:{source}"), canonical);
+            } else {
+                resources.insert(source, body);
+            }
         }
         for (specifier, target) in import_map {
-            if resources.contains_key(&target) {
-                resources.insert(format!("oryn:module-alias:{specifier}"), target);
+            let canonical = resources
+                .get(&format!("oryn:module-alias:{target}"))
+                .cloned()
+                .or_else(|| resources.contains_key(&target).then_some(target));
+            if let Some(canonical) = canonical {
+                resources.insert(format!("oryn:module-alias:{specifier}"), canonical);
             }
         }
         Ok(resources)
