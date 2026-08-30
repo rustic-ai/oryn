@@ -337,6 +337,12 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: true,
     },
     GeneratedMember {
+        name: "attributes",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
         name: "id",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,

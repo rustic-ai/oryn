@@ -113,6 +113,7 @@ dictionary ShadowRootInit {
 interface Element : Node {
   readonly attribute DOMString tagName;
   readonly attribute DOMString? namespaceURI;
+  readonly attribute sequence<any> attributes;
   attribute DOMString id;
   attribute DOMString className;
   readonly attribute DOMTokenList classList;

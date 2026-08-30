@@ -1575,6 +1575,27 @@ fn get_attribute_value<'s>(
         }
         return Ok(dataset.into());
     }
+    if interface == "Element" && member == "attributes" {
+        let entries = state
+            .dom
+            .borrow()
+            .arena()
+            .get(node)?
+            .attributes
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect::<Vec<_>>();
+        let attributes = v8::Array::new(scope, entries.len() as i32);
+        for (index, (name, value)) in entries.into_iter().enumerate() {
+            let attribute = v8::Object::new(scope);
+            let name = v8_string(scope, &name)?;
+            set_object_property(scope, attribute, "name", name)?;
+            let value = v8_string(scope, &value)?;
+            set_object_property(scope, attribute, "value", value)?;
+            attributes.set_index(scope, index as u32, attribute.into());
+        }
+        return Ok(attributes.into());
+    }
     if interface == "Document" && member == "styleSheets" {
         let styles = state.dom.borrow().query_selector_all(node, "style")?;
         return associated_node_array(scope, state, &styles, "CSSStyleSheet");
@@ -3006,7 +3027,7 @@ mod tests {
         install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "const root=document.getElementById('root');const listener=()=>{};root.addEventListener('click',listener);const clean=!root.outerHTML.includes('oryn-click');root.removeEventListener('click',listener);clean",
+            "const root=document.getElementById('root');const listener=()=>{};root.addEventListener('click',listener);const attributes=root.attributes;const clean=!root.outerHTML.includes('oryn-click')&&attributes.length===1&&attributes[0].name==='id'&&attributes[0].value==='root';root.removeEventListener('click',listener);clean",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
