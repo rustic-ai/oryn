@@ -1676,11 +1676,18 @@ fn get_attribute_value<'s>(
         let attributes = v8::Array::new(scope, entries.len() as i32);
         for (index, (name, value)) in entries.into_iter().enumerate() {
             let attribute = v8::Object::new(scope);
-            let name = v8_string(scope, &name)?;
-            set_object_property(scope, attribute, "name", name)?;
+            let property_name = v8_string(scope, &name)?;
+            set_object_property(scope, attribute, "name", property_name)?;
             let value = v8_string(scope, &value)?;
             set_object_property(scope, attribute, "value", value)?;
+            set_object_property(
+                scope,
+                attribute,
+                "expando",
+                v8::Boolean::new(scope, false).into(),
+            )?;
             attributes.set_index(scope, index as u32, attribute.into());
+            attributes.set(scope, property_name, attribute.into());
         }
         return Ok(attributes.into());
     }
@@ -2856,12 +2863,24 @@ fn call_operation<'s>(
             Ok(Some(v8_string(scope, &previous)?))
         }
         ("HTMLElement", "focus") => {
-            state.dom.borrow_mut().focus(Some(node))?;
+            let previous = state.dom.borrow().focused();
+            if previous != Some(node) {
+                if let Some(previous) = previous {
+                    state.dom.borrow_mut().focus(None)?;
+                    let event = create_event_object(scope, state, "blur", false, false)?;
+                    dispatch_event(scope, state, previous, event)?;
+                }
+                state.dom.borrow_mut().focus(Some(node))?;
+                let event = create_event_object(scope, state, "focus", false, false)?;
+                dispatch_event(scope, state, node, event)?;
+            }
             Ok(None)
         }
         ("HTMLElement", "blur") => {
             if state.dom.borrow().focused() == Some(node) {
                 state.dom.borrow_mut().focus(None)?;
+                let event = create_event_object(scope, state, "blur", false, false)?;
+                dispatch_event(scope, state, node, event)?;
             }
             Ok(None)
         }
@@ -3678,6 +3697,25 @@ mod tests {
     }
 
     #[test]
+    fn element_attributes_support_named_legacy_feature_detection() {
+        initialize_v8();
+        let parsed = html::parse("<div id='probe'></div>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const div=document.getElementById('probe');div.setAttribute('onsubmit','t');div.attributes.onsubmit.name==='onsubmit'&&div.attributes.onsubmit.value==='t'&&div.attributes.onsubmit.expando===false",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().boolean_value(scope));
+    }
+
+    #[test]
     fn document_url_focus_and_scroll_surface_support_router_bootstrap() {
         initialize_v8();
         let parsed = html::parse("<body><button id='go'></button></body>");
@@ -3689,13 +3727,13 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "globalThis.location={href:'https://fixture.test/app'};const button=document.getElementById('go');button.focus();const focused=document.activeElement===button;button.scrollIntoView();button.blur();document.URL+'|'+document.baseURI+'|'+focused+'|'+(document.activeElement===null)",
+            "globalThis.location={href:'https://fixture.test/app'};const button=document.getElementById('go');let events='';button.onfocus=()=>events+='focus';button.onblur=()=>events+=':blur';button.focus();const focused=document.activeElement===button;button.scrollIntoView();button.blur();document.URL+'|'+document.baseURI+'|'+focused+'|'+(document.activeElement===null)+'|'+events",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
-            "https://fixture.test/app|https://fixture.test/app|true|true"
+            "https://fixture.test/app|https://fixture.test/app|true|true|focus:blur"
         );
     }
 
