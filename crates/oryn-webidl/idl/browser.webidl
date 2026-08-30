@@ -18,6 +18,40 @@ interface Event {
   undefined stopImmediatePropagation();
 };
 
+enum SecurityPolicyViolationEventDisposition { "enforce", "report" };
+
+dictionary SecurityPolicyViolationEventInit {
+  DOMString documentURI = "";
+  DOMString referrer = "";
+  DOMString blockedURI = "";
+  DOMString violatedDirective = "";
+  DOMString effectiveDirective = "";
+  DOMString originalPolicy = "";
+  DOMString sourceFile = "";
+  DOMString sample = "";
+  SecurityPolicyViolationEventDisposition disposition = "enforce";
+  unsigned short statusCode = 0;
+  unsigned long lineNumber = 0;
+  unsigned long columnNumber = 0;
+};
+
+[Exposed=Window]
+interface SecurityPolicyViolationEvent : Event {
+  constructor(DOMString type, optional SecurityPolicyViolationEventInit eventInitDict);
+  readonly attribute DOMString documentURI;
+  readonly attribute DOMString referrer;
+  readonly attribute DOMString blockedURI;
+  readonly attribute DOMString violatedDirective;
+  readonly attribute DOMString effectiveDirective;
+  readonly attribute DOMString originalPolicy;
+  readonly attribute DOMString sourceFile;
+  readonly attribute DOMString sample;
+  readonly attribute SecurityPolicyViolationEventDisposition disposition;
+  readonly attribute unsigned short statusCode;
+  readonly attribute unsigned long lineNumber;
+  readonly attribute unsigned long columnNumber;
+};
+
 [Exposed=Window]
 interface Node : EventTarget {
   readonly attribute DOMString nodeName;
@@ -189,6 +223,19 @@ interface XMLHttpRequest : EventTarget {
   undefined open(DOMString method, DOMString url, optional boolean async = true);
   undefined send(optional DOMString? body = null);
   undefined abort();
+};
+
+dictionary WorkerOptions {
+  DOMString type = "classic";
+  DOMString name = "";
+  DOMString credentials = "same-origin";
+};
+
+[Exposed=Window]
+interface Worker : EventTarget {
+  constructor(DOMString scriptURL, optional WorkerOptions options);
+  undefined terminate();
+  undefined postMessage(any message);
 };
 
 [Exposed=Window]

@@ -159,12 +159,18 @@ has since replaced each affected authority boundary:
   `upgrade-insecure-requests`, sandbox action restrictions, report-only trace
   records, and unforgeable core Trusted Types values and sinks.
 
-The broad `security.csp` capability is intentionally reported as `Partial`:
-report delivery endpoints, `SecurityPolicyViolationEvent`, full sandbox opaque
-origins, and long-tail worker/media directives still require alternate-domain
-execution when a workflow depends on them. This item is implementation-resolved
-but must not be release-attested until a clean signed-worker policy run publishes
-new compact evidence.
+The `csp3-agent-browser-2` profile closes the former partial boundaries:
+violation reports are redacted, bounded, and delivered by the parent through
+modern and legacy endpoints; generated `SecurityPolicyViolationEvent` records
+reach the affected document; sandboxed documents receive unique parent-owned
+opaque origins; and worker, media, object, and manifest requests exercise their
+actual CSP directive fallbacks. `security.csp` is therefore supported for the
+native platform surface. Dedicated-worker script loading is parent-brokered and
+`worker-src` complete, but `worker.dedicated` remains separately marked partial
+because its compatibility scope is not yet an independent V8 realm. Media
+decoding, plugin execution, SharedWorker, ServiceWorker, WebRTC, and
+ReportingObserver remain separately declared capabilities. Release attestation
+still requires a clean signed-worker policy run publishing new compact evidence.
 
 ---
 

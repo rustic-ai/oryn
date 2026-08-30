@@ -708,6 +708,86 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
 ];
+pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "constructor",
+        kind: GeneratedMemberKind::Constructor,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "documentURI",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "referrer",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "blockedURI",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "violatedDirective",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "effectiveDirective",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "originalPolicy",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "sourceFile",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "sample",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "disposition",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "statusCode",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "lineNumber",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "columnNumber",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+];
 pub const TEXT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "data",
@@ -801,6 +881,26 @@ pub const TRUSTED_TYPE_POLICY_FACTORY_MEMBERS: &[GeneratedMember] = &[
         name: "getPropertyType",
         kind: GeneratedMemberKind::Operation,
         arity: 3,
+        readonly: false,
+    },
+];
+pub const WORKER_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "constructor",
+        kind: GeneratedMemberKind::Constructor,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "terminate",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "postMessage",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
         readonly: false,
     },
 ];
@@ -932,6 +1032,11 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         members: RESPONSE_MEMBERS,
     },
     GeneratedInterface {
+        name: "SecurityPolicyViolationEvent",
+        parent: Some("Event"),
+        members: SECURITY_POLICY_VIOLATION_EVENT_MEMBERS,
+    },
+    GeneratedInterface {
         name: "Text",
         parent: Some("Node"),
         members: TEXT_MEMBERS,
@@ -960,6 +1065,11 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         name: "TrustedTypePolicyFactory",
         parent: None,
         members: TRUSTED_TYPE_POLICY_FACTORY_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "Worker",
+        parent: Some("EventTarget"),
+        members: WORKER_MEMBERS,
     },
     GeneratedInterface {
         name: "XMLHttpRequest",

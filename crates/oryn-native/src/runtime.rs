@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     sync::{
         Arc, Mutex, Weak,
         atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -68,7 +68,44 @@ use crate::network::NetworkResponse;
 static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_PAGE_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_WORKER_GENERATION: AtomicU64 = AtomicU64::new(1);
+static NEXT_CSP_REPORT_REQUEST_ID: AtomicU64 = AtomicU64::new(1_u64 << 61);
+static NEXT_OPAQUE_ORIGIN_ID: AtomicU64 = AtomicU64::new(1);
 const NETWORK_IDLE_QUIET_PERIOD: Duration = Duration::from_millis(500);
+
+#[derive(Default)]
+struct CspReportingState {
+    pending: usize,
+    deliveries: BTreeMap<String, VecDeque<Instant>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SecurityOrigin {
+    Tuple(String),
+    Opaque(u64),
+}
+
+impl SecurityOrigin {
+    fn from_url(url: &str) -> Self {
+        Url::parse(url)
+            .map(|url| Self::Tuple(url.origin().ascii_serialization()))
+            .unwrap_or_else(|_| Self::opaque())
+    }
+
+    fn opaque() -> Self {
+        Self::Opaque(NEXT_OPAQUE_ORIGIN_ID.fetch_add(1, Ordering::Relaxed))
+    }
+
+    fn serialize(&self) -> String {
+        match self {
+            Self::Tuple(value) => value.clone(),
+            Self::Opaque(_) => "null".into(),
+        }
+    }
+
+    fn is_opaque(&self) -> bool {
+        matches!(self, Self::Opaque(_))
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Browser {
@@ -97,7 +134,9 @@ struct BrowserContextInner {
     intent_trace: Mutex<Vec<crate::replay::IntentTraceRecord>>,
     domain_decisions: Mutex<Vec<crate::execution::DomainDecision>>,
     document_security: Mutex<BTreeMap<PageId, crate::csp::CspPolicySet>>,
+    security_origins: Mutex<BTreeMap<PageId, SecurityOrigin>>,
     expected_meta_security: Mutex<BTreeMap<PageId, std::collections::VecDeque<String>>>,
+    csp_reporting: Arc<Mutex<CspReportingState>>,
     /// One-shot parent authorizations consumed only by the corresponding
     /// worker-originated form effect.
     form_submission_grants: Mutex<BTreeMap<PageId, usize>>,
@@ -1261,7 +1300,9 @@ impl Browser {
                 intent_trace: Mutex::new(Vec::new()),
                 domain_decisions: Mutex::new(Vec::new()),
                 document_security: Mutex::new(BTreeMap::new()),
+                security_origins: Mutex::new(BTreeMap::new()),
                 expected_meta_security: Mutex::new(BTreeMap::new()),
+                csp_reporting: Arc::new(Mutex::new(CspReportingState::default())),
                 form_submission_grants: Mutex::new(BTreeMap::new()),
                 #[cfg(unix)]
                 context_events: Mutex::new(Vec::new()),
@@ -1300,7 +1341,9 @@ impl Browser {
                 intent_trace: Mutex::new(Vec::new()),
                 domain_decisions: Mutex::new(Vec::new()),
                 document_security: Mutex::new(BTreeMap::new()),
+                security_origins: Mutex::new(BTreeMap::new()),
                 expected_meta_security: Mutex::new(BTreeMap::new()),
+                csp_reporting: Arc::new(Mutex::new(CspReportingState::default())),
                 form_submission_grants: Mutex::new(BTreeMap::new()),
                 #[cfg(unix)]
                 context_events: Mutex::new(Vec::new()),
@@ -1339,7 +1382,9 @@ impl Browser {
                 intent_trace: Mutex::new(Vec::new()),
                 domain_decisions: Mutex::new(Vec::new()),
                 document_security: Mutex::new(BTreeMap::new()),
+                security_origins: Mutex::new(BTreeMap::new()),
                 expected_meta_security: Mutex::new(BTreeMap::new()),
+                csp_reporting: Arc::new(Mutex::new(CspReportingState::default())),
                 form_submission_grants: Mutex::new(BTreeMap::new()),
                 context_events: Mutex::new(Vec::new()),
                 next_context_event_id: AtomicU64::new(1),
@@ -1591,6 +1636,16 @@ impl BrowserContext {
         let parsed =
             Url::parse(&source_url).map_err(|error| RuntimeError::Network(error.to_string()))?;
         let source_origin = parsed.origin().ascii_serialization();
+        if let Some(page_id) = self.pages().into_iter().find_map(|page| {
+            same_document_url(&page.page.url, &source_url).then_some(page.page.page_id)
+        }) && self
+            .csp_sandbox(page_id)?
+            .is_some_and(|sandbox| !sandbox.allow_downloads)
+        {
+            return Err(RuntimeError::ContextService(
+                "Content-Security-Policy sandbox denied download".into(),
+            ));
+        }
         self.require_policy(
             PolicyRequest {
                 action: ConsequentialAction::Download,
@@ -1903,6 +1958,11 @@ impl BrowserContext {
 
     #[cfg(unix)]
     pub(crate) fn document_cookie(&self, page_id: PageId) -> Result<String, RuntimeError> {
+        if self.is_opaque_origin(page_id)? {
+            return Err(RuntimeError::ContextService(
+                "SecurityError: sandboxed opaque origins cannot access document.cookie".into(),
+            ));
+        }
         let url = Url::parse(&self.page_url(page_id)?)
             .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
         Ok(self
@@ -1919,6 +1979,11 @@ impl BrowserContext {
         page_id: PageId,
         value: String,
     ) -> Result<(), RuntimeError> {
+        if self.is_opaque_origin(page_id)? {
+            return Err(RuntimeError::ContextService(
+                "SecurityError: sandboxed opaque origins cannot access document.cookie".into(),
+            ));
+        }
         let url = Url::parse(&self.page_url(page_id)?)
             .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
         self.inner
@@ -1979,6 +2044,8 @@ impl BrowserContext {
                             || change.scope.top_level_page_id == page_id)
                 }
                 ContextEvent::Message { target_page_id, .. } => *target_page_id == page_id,
+                ContextEvent::CspViolation { target_page_id, .. } => *target_page_id == page_id,
+                ContextEvent::CspReport { target_page_id, .. } => *target_page_id == page_id,
                 ContextEvent::PageLifecycle { .. } => true,
             })
             .take(max_events)
@@ -1987,21 +2054,23 @@ impl BrowserContext {
     }
 
     pub(crate) fn page_origin(&self, page_id: PageId) -> Result<String, RuntimeError> {
-        let descriptor = self
-            .pages()
-            .into_iter()
-            .find(|page| page.page.page_id == page_id)
-            .ok_or(RuntimeError::PageNotFound(page_id))?;
-        if descriptor.page.url == "about:blank"
-            && let Some(opener) = descriptor.page.opener_page_id
-        {
-            return self.page_origin(opener);
-        }
-        Url::parse(&descriptor.page.url)
-            .map(|url| url.origin().ascii_serialization())
-            .map_err(|error| {
-                RuntimeError::ContextService(format!("page has no valid origin: {error}"))
-            })
+        self.security_origin(page_id)
+            .map(|origin| origin.serialize())
+    }
+
+    fn security_origin(&self, page_id: PageId) -> Result<SecurityOrigin, RuntimeError> {
+        self.inner
+            .security_origins
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("security origin lock poisoned".into()))?
+            .get(&page_id)
+            .cloned()
+            .ok_or(RuntimeError::PageNotFound(page_id))
+    }
+
+    pub(crate) fn is_opaque_origin(&self, page_id: PageId) -> Result<bool, RuntimeError> {
+        self.security_origin(page_id)
+            .map(|origin| origin.is_opaque())
     }
 
     pub(crate) fn page_url(&self, page_id: PageId) -> Result<String, RuntimeError> {
@@ -2021,14 +2090,25 @@ impl BrowserContext {
         if !self.pages().iter().any(|page| page.page.page_id == page_id) {
             return Err(RuntimeError::PageNotFound(page_id));
         }
+        let policy = crate::csp::CspPolicySet::from_headers(document_url.clone(), headers);
+        let origin = if policy
+            .sandbox()
+            .is_some_and(|sandbox| !sandbox.allow_same_origin)
+        {
+            SecurityOrigin::opaque()
+        } else {
+            SecurityOrigin::from_url(&document_url)
+        };
+        self.inner
+            .security_origins
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("security origin lock poisoned".into()))?
+            .insert(page_id, origin);
         self.inner
             .document_security
             .lock()
             .map_err(|_| RuntimeError::ContextService("document security lock poisoned".into()))?
-            .insert(
-                page_id,
-                crate::csp::CspPolicySet::from_headers(document_url, headers),
-            );
+            .insert(page_id, policy);
         Ok(())
     }
 
@@ -2105,6 +2185,127 @@ impl BrowserContext {
             },
             |policy| policy.authorize(request),
         ))
+    }
+
+    pub(crate) fn handle_csp_violations(
+        &self,
+        page_id: PageId,
+        violations: Vec<crate::csp::CspViolation>,
+    ) -> Result<(), RuntimeError> {
+        for violation in violations {
+            #[cfg(unix)]
+            self.push_context_event(ContextEvent::CspViolation {
+                target_page_id: page_id,
+                violation: violation.clone(),
+            });
+            let targets = self
+                .inner
+                .document_security
+                .lock()
+                .map_err(|_| {
+                    RuntimeError::ContextService("document security lock poisoned".into())
+                })?
+                .get(&page_id)
+                .map(|policy| policy.report_targets(&violation))
+                .unwrap_or_default();
+            for target in targets {
+                self.queue_csp_report(page_id, target, violation.clone())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn queue_csp_report(
+        &self,
+        page_id: PageId,
+        target: crate::csp::CspReportTarget,
+        violation: crate::csp::CspViolation,
+    ) -> Result<(), RuntimeError> {
+        let Some(broker) = self.inner.broker.clone() else {
+            return Ok(());
+        };
+        let now = Instant::now();
+        {
+            let mut state =
+                self.inner.csp_reporting.lock().map_err(|_| {
+                    RuntimeError::ContextService("CSP reporting lock poisoned".into())
+                })?;
+            if state.pending >= 128 {
+                #[cfg(unix)]
+                self.push_context_event(ContextEvent::CspReport {
+                    target_page_id: page_id,
+                    endpoint: target.url,
+                    format: target.format,
+                    outcome: "queue_limited".into(),
+                });
+                return Ok(());
+            }
+            let deliveries = state.deliveries.entry(target.url.clone()).or_default();
+            while deliveries
+                .front()
+                .is_some_and(|instant| now.duration_since(*instant) >= Duration::from_secs(60))
+            {
+                deliveries.pop_front();
+            }
+            if deliveries.len() >= 10 {
+                #[cfg(unix)]
+                self.push_context_event(ContextEvent::CspReport {
+                    target_page_id: page_id,
+                    endpoint: target.url,
+                    format: target.format,
+                    outcome: "rate_limited".into(),
+                });
+                return Ok(());
+            }
+            deliveries.push_back(now);
+            state.pending += 1;
+        }
+        let reporting = self.inner.csp_reporting.clone();
+        let top_level_url = self.page_url(page_id)?;
+        let context = self.clone();
+        std::thread::spawn(move || {
+            let (content_type, body) = serialize_csp_report(target.format, &violation);
+            let endpoint = target.url.clone();
+            let outcome = if body.len() > 32 * 1024 {
+                "size_limited".into()
+            } else {
+                match broker.send(NetworkRequest {
+                    request_id: NEXT_CSP_REPORT_REQUEST_ID.fetch_add(1, Ordering::Relaxed),
+                    method: "POST".into(),
+                    url: endpoint.clone(),
+                    headers: vec![
+                        ("content-type".into(), content_type.into()),
+                        ("cache-control".into(), "no-store".into()),
+                    ],
+                    body,
+                    credentials: false,
+                    security: crate::cookies::CookieRequestContext {
+                        credentials: crate::cookies::CookieCredentials::Omit,
+                        kind: crate::cookies::CookieRequestKind::Other,
+                        initiator_url: Some(violation.document_uri),
+                        top_level_url: Some(top_level_url),
+                        ..Default::default()
+                    },
+                    resolved_addrs: Vec::new(),
+                }) {
+                    Ok(response) if (200..300).contains(&response.status) => "delivered".into(),
+                    Ok(response) if response.status == 410 => "endpoint_removed".into(),
+                    Ok(response) => format!("http_{}", response.status),
+                    Err(error) => format!("failed:{error}"),
+                }
+            };
+            #[cfg(unix)]
+            context.push_context_event(ContextEvent::CspReport {
+                target_page_id: page_id,
+                endpoint,
+                format: target.format,
+                outcome,
+            });
+            if let Ok(mut state) = reporting.lock() {
+                state.pending = state.pending.saturating_sub(1);
+            }
+        });
+        Ok(())
     }
 
     pub(crate) fn upgrade_csp_url(
@@ -2308,6 +2509,49 @@ impl BrowserContext {
         activate: bool,
         attention_required: bool,
     ) -> PageHandle {
+        let inherited_policy = opener_page_id.and_then(|opener| {
+            self.inner
+                .document_security
+                .lock()
+                .ok()?
+                .get(&opener)
+                .cloned()
+                .filter(|policy| {
+                    policy
+                        .sandbox()
+                        .is_some_and(|sandbox| !sandbox.allow_popups_to_escape_sandbox)
+                })
+        });
+        let initial_origin = if inherited_policy
+            .as_ref()
+            .and_then(crate::csp::CspPolicySet::sandbox)
+            .is_some_and(|sandbox| !sandbox.allow_same_origin)
+        {
+            SecurityOrigin::opaque()
+        } else {
+            opener_page_id
+                .and_then(|opener| {
+                    self.inner
+                        .security_origins
+                        .lock()
+                        .ok()?
+                        .get(&opener)
+                        .cloned()
+                })
+                .unwrap_or_else(SecurityOrigin::opaque)
+        };
+        self.inner
+            .security_origins
+            .lock()
+            .expect("security origin lock")
+            .insert(page_id, initial_origin);
+        if let Some(policy) = inherited_policy {
+            self.inner
+                .document_security
+                .lock()
+                .expect("document security lock")
+                .insert(page_id, policy);
+        }
         #[cfg(unix)]
         if self.inner.worker_process {
             let handle = PageHandle {
@@ -2339,6 +2583,9 @@ impl BrowserContext {
         let config = self.inner.config.clone();
         let context_options = self.inner.options.clone();
         let broker = self.inner.broker.clone();
+        let context_owner = BrowserContext {
+            inner: self.inner.clone(),
+        };
         #[cfg(all(unix, feature = "v8-host"))]
         let context_client = self.inner.context_client.clone().or_else(|| {
             Some(SharedContextClient::direct(
@@ -2367,6 +2614,26 @@ impl BrowserContext {
                             TraceEventKind::NavigationStarted { url: url.clone() },
                         );
                         state.set_challenge_assessment(assess_challenge(200, &[], &html));
+                        state.csp = crate::csp::CspPolicySet::new(url.clone());
+                        if let Err(error) =
+                            context_owner.install_document_security(state.page_id, url.clone(), &[])
+                        {
+                            let _ = reply.send(Err(error));
+                            continue;
+                        }
+                        #[cfg(all(unix, feature = "v8-host"))]
+                        if let Some(client) = &state.context_client
+                            && let Err(error) = client.request(
+                                crate::context_service::ContextServiceRequest::InstallDocumentSecurity {
+                                    page_id: state.page_id,
+                                    document_url: url.clone(),
+                                    headers: Vec::new(),
+                                },
+                            )
+                        {
+                            let _ = reply.send(Err(error));
+                            continue;
+                        }
                         if let Err(error) = state.load_document(
                             url.clone(),
                             &html,
@@ -2755,6 +3022,28 @@ impl PageHandle {
     fn record_navigation(&self, navigation: &NavigationResult) {
         if let Some(context) = self.context.upgrade() {
             context.group.update_navigation(navigation);
+            let keep_opaque = context
+                .document_security
+                .lock()
+                .ok()
+                .and_then(|policies| policies.get(&navigation.page_id).cloned())
+                .and_then(|policy| policy.sandbox())
+                .is_some_and(|sandbox| !sandbox.allow_same_origin);
+            if let Ok(mut origins) = context.security_origins.lock() {
+                if keep_opaque {
+                    if !origins
+                        .get(&navigation.page_id)
+                        .is_some_and(SecurityOrigin::is_opaque)
+                    {
+                        origins.insert(navigation.page_id, SecurityOrigin::opaque());
+                    }
+                } else {
+                    origins.insert(
+                        navigation.page_id,
+                        SecurityOrigin::from_url(&navigation.final_url),
+                    );
+                }
+            }
         }
     }
 
@@ -3789,7 +4078,7 @@ impl PageState {
                 self.csp.allows_eval(false).allowed.to_string(),
             );
             #[cfg(unix)]
-            let executable = match self.context_client.clone() {
+            let mut executable = match self.context_client.clone() {
                 Some(context_client) => {
                     crate::executable::RustExecutableDocument::load_with_context_and_limits(
                         html,
@@ -3810,7 +4099,7 @@ impl PageState {
             }
             .map_err(map_host_error)?;
             #[cfg(not(unix))]
-            let executable = crate::executable::RustExecutableDocument::load_with_limits(
+            let mut executable = crate::executable::RustExecutableDocument::load_with_limits(
                 html,
                 &resources,
                 self.broker.clone(),
@@ -3818,6 +4107,7 @@ impl PageState {
                 self.config.max_v8_heap_bytes,
             )
             .map_err(map_host_error)?;
+            executable.poll_context_events().map_err(map_host_error)?;
             for diagnostic in &executable.diagnostics {
                 self.trace.push(
                     Revision(self.revision),
@@ -4072,6 +4362,7 @@ impl PageState {
         let html = self.enforce_csp_html(&html);
         self.set_challenge_assessment(assess_challenge(status, &response_headers, &html));
         let html = self.inline_external_stylesheets(&current, &html)?;
+        self.load_auxiliary_resources(&current, &html);
         #[cfg(feature = "v8-host")]
         let web_fonts = self.load_web_fonts(&current, &html)?;
         let resources = self.load_external_scripts(&current, &html)?;
@@ -4319,6 +4610,17 @@ impl PageState {
                 },
             );
         }
+        #[cfg(all(unix, feature = "v8-host"))]
+        if !decision.violations.is_empty()
+            && let Some(client) = &self.context_client
+        {
+            let _ = client.request(
+                crate::context_service::ContextServiceRequest::ReportCspViolations {
+                    page_id: self.page_id,
+                    violations: decision.violations.clone(),
+                },
+            );
+        }
     }
 
     #[cfg(feature = "v8-host")]
@@ -4329,6 +4631,10 @@ impl PageState {
             "font" | "web font" => crate::csp::CspDestination::Font,
             "frame" => crate::csp::CspDestination::Frame,
             "image" => crate::csp::CspDestination::Image,
+            "media" => crate::csp::CspDestination::Media,
+            "object" => crate::csp::CspDestination::Object,
+            "manifest" => crate::csp::CspDestination::Manifest,
+            "worker" => crate::csp::CspDestination::Worker,
             _ => crate::csp::CspDestination::Connect,
         };
         let decision = self.csp.authorize(&crate::csp::CspRequest {
@@ -4342,6 +4648,65 @@ impl PageState {
         self.record_csp_decision(&decision);
         decision.allowed
     }
+
+    #[cfg(feature = "v8-host")]
+    fn load_auxiliary_resources(&mut self, base_url: &Url, html: &str) {
+        let parsed = parse(html);
+        let resources = parsed.dom.iter().filter_map(|(_, node)| {
+            let crate::dom::NodeKind::Element { name } = &node.kind else {
+                return None;
+            };
+            match name.local.as_ref() {
+                "audio" | "video" | "source" | "track" => node
+                    .attributes
+                    .get("src")
+                    .map(|url| (url.clone(), "media", "audio/*,video/*,text/vtt,*/*;q=0.1")),
+                "object" => node
+                    .attributes
+                    .get("data")
+                    .map(|url| (url.clone(), "object", "*/*")),
+                "embed" => node
+                    .attributes
+                    .get("src")
+                    .map(|url| (url.clone(), "object", "*/*")),
+                "link"
+                    if node.attributes.get("rel").is_some_and(|value| {
+                        value
+                            .split_ascii_whitespace()
+                            .any(|token| token.eq_ignore_ascii_case("manifest"))
+                    }) =>
+                {
+                    node.attributes.get("href").map(|url| {
+                        (
+                            url.clone(),
+                            "manifest",
+                            "application/manifest+json,application/json,*/*;q=0.1",
+                        )
+                    })
+                }
+                _ => None,
+            }
+        });
+        for (source, kind, accept) in resources {
+            let result = base_url
+                .join(&source)
+                .map_err(|error| RuntimeError::Network(error.to_string()))
+                .and_then(|url| self.fetch_external_resource_response(url, accept, kind));
+            if let Err(error) = result {
+                self.trace.push(
+                    Revision(self.revision),
+                    None,
+                    TraceEventKind::ScriptDiagnostic {
+                        capability: format!("html.resource.{kind}"),
+                        detail: error.to_string(),
+                    },
+                );
+            }
+        }
+    }
+
+    #[cfg(not(feature = "v8-host"))]
+    fn load_auxiliary_resources(&mut self, _base_url: &Url, _html: &str) {}
 
     #[cfg(feature = "v8-host")]
     fn inline_external_stylesheets(
@@ -4843,8 +5208,12 @@ impl PageState {
                         kind: match resource_kind {
                             "script" | "module" => crate::cookies::CookieRequestKind::Script,
                             "stylesheet" => crate::cookies::CookieRequestKind::Style,
-                            "font" => crate::cookies::CookieRequestKind::Font,
+                            "font" | "web font" => crate::cookies::CookieRequestKind::Font,
                             "frame" => crate::cookies::CookieRequestKind::Frame,
+                            "media" => crate::cookies::CookieRequestKind::Media,
+                            "object" => crate::cookies::CookieRequestKind::Object,
+                            "manifest" => crate::cookies::CookieRequestKind::Manifest,
+                            "worker" => crate::cookies::CookieRequestKind::Worker,
                             _ => crate::cookies::CookieRequestKind::Other,
                         },
                         initiator_url: Some(self.url.clone()),
@@ -5761,16 +6130,28 @@ impl PageState {
                     "cookie.same_site",
                     "parent-owned schemeful SameSite enforcement with Lax-by-default and bounded Lax-allowing-unsafe compatibility",
                 ),
+                supported_capability(
+                    "security.csp",
+                    "parent-enforced CSP3 agent-browser profile with reporting endpoints, violation DOM events, opaque sandbox origins, worker/media/object/manifest fetch directives, upgrades, and Trusted Types sinks",
+                ),
+                unsupported_capability(
+                    "media.decode_and_playback",
+                    "media resources are policy-checked and brokered, but audio/video decoding and playback remain unavailable",
+                ),
                 CapabilityDiagnostic {
-                    capability: "security.csp".into(),
+                    capability: "worker.dedicated".into(),
                     support: SupportLevel::Partial,
                     alternatives: vec![ExecutionDomain::Chromium, ExecutionDomain::Webkit],
                     handoff_lossy: true,
                     detail: Some(
-                        "parent-enforced CSP3 agent-critical profile: source lists, inline nonce/hash checks, frame ancestors, base/form/connect restrictions, upgrades, report-only trace events, sandbox action restrictions, and core Trusted Types sinks; reporting endpoints and the long-tail worker/media directives remain unavailable"
+                        "dedicated worker scripts are parent-brokered and worker-src enforced, but execute in a bounded compatibility scope rather than an independent V8 realm"
                             .into(),
                     ),
                 },
+                unsupported_capability(
+                    "worker.shared_and_service",
+                    "SharedWorker and ServiceWorker remain outside the native profile",
+                ),
                 CapabilityDiagnostic {
                     capability: "indexeddb.advanced".into(),
                     support: SupportLevel::Partial,
@@ -6582,6 +6963,11 @@ fn context_trace_kind(entry: crate::executable::ContextTraceEntry) -> Option<Tra
             frame_type: string("frame_type"),
             bytes: number("bytes")? as usize,
         }),
+        "csp_report" => Some(TraceEventKind::CspReport {
+            endpoint: string("endpoint"),
+            format: string("format"),
+            outcome: string("outcome"),
+        }),
         "capability_failure" => Some(TraceEventKind::PolicyDenied {
             capability: string("capability"),
         }),
@@ -7018,6 +7404,57 @@ fn pinned_resource(url: &Url) -> Option<(&'static str, &'static str)> {
     }
 }
 
+fn serialize_csp_report(
+    format: crate::csp::CspReportFormat,
+    violation: &crate::csp::CspViolation,
+) -> (&'static str, Vec<u8>) {
+    let disposition = format!("{:?}", violation.disposition).to_ascii_lowercase();
+    match format {
+        crate::csp::CspReportFormat::ReportingApi => (
+            "application/reports+json",
+            serde_json::to_vec(&serde_json::json!([{
+                "age": 0,
+                "type": "csp-violation",
+                "url": violation.document_uri,
+                "body": {
+                    "documentURL": violation.document_uri,
+                    "referrer": violation.referrer,
+                    "blockedURL": violation.blocked_uri,
+                    "effectiveDirective": violation.effective_directive,
+                    "originalPolicy": violation.original_policy,
+                    "sourceFile": violation.source_file,
+                    "sample": violation.sample,
+                    "disposition": disposition,
+                    "statusCode": violation.status_code,
+                    "lineNumber": violation.line_number,
+                    "columnNumber": violation.column_number,
+                }
+            }]))
+            .unwrap_or_default(),
+        ),
+        crate::csp::CspReportFormat::LegacyReportUri => (
+            "application/csp-report",
+            serde_json::to_vec(&serde_json::json!({
+                "csp-report": {
+                    "document-uri": violation.document_uri,
+                    "referrer": violation.referrer,
+                    "blocked-uri": violation.blocked_uri,
+                    "effective-directive": violation.effective_directive,
+                    "violated-directive": violation.effective_directive,
+                    "original-policy": violation.original_policy,
+                    "source-file": violation.source_file,
+                    "script-sample": violation.sample,
+                    "disposition": disposition,
+                    "status-code": violation.status_code,
+                    "line-number": violation.line_number,
+                    "column-number": violation.column_number,
+                }
+            }))
+            .unwrap_or_default(),
+        ),
+    }
+}
+
 #[cfg(feature = "v8-host")]
 fn origin_key(url: &Url) -> (String, Option<String>, Option<u16>) {
     (
@@ -7190,6 +7627,249 @@ mod tests {
         assert!(directives.contains(&"base-uri"));
         assert!(directives.contains(&"script-src-attr"));
         assert!(directives.contains(&"style-src-attr"));
+    }
+
+    #[test]
+    fn csp_sandbox_uses_unique_opaque_security_origins() {
+        let context = Browser::in_process_with_config(BrowserConfig::default()).new_context();
+        let first = context.new_page();
+        let second = context.new_page();
+        let headers = vec![(
+            "content-security-policy".into(),
+            "sandbox allow-scripts".into(),
+        )];
+        context
+            .install_document_security(first.page_id(), "https://app.example/one".into(), &headers)
+            .unwrap();
+        context
+            .install_document_security(second.page_id(), "https://app.example/two".into(), &headers)
+            .unwrap();
+        assert_eq!(context.page_origin(first.page_id()).unwrap(), "null");
+        assert_eq!(context.page_origin(second.page_id()).unwrap(), "null");
+        assert_ne!(
+            context.security_origin(first.page_id()).unwrap(),
+            context.security_origin(second.page_id()).unwrap()
+        );
+        #[cfg(unix)]
+        assert!(context.document_cookie(first.page_id()).is_err());
+    }
+
+    #[test]
+    fn csp_allow_same_origin_preserves_tuple_origin() {
+        let context = Browser::in_process_with_config(BrowserConfig::default()).new_context();
+        let page = context.new_page();
+        context
+            .install_document_security(
+                page.page_id(),
+                "https://app.example/path".into(),
+                &[(
+                    "content-security-policy".into(),
+                    "sandbox allow-scripts allow-same-origin".into(),
+                )],
+            )
+            .unwrap();
+        assert_eq!(
+            context.page_origin(page.page_id()).unwrap(),
+            "https://app.example"
+        );
+    }
+
+    #[test]
+    fn csp_report_serializers_do_not_expose_credentials() {
+        let violation = crate::csp::CspViolation {
+            disposition: crate::csp::CspDisposition::Report,
+            effective_directive: "script-src".into(),
+            blocked_uri: "https://cdn.example/app.js".into(),
+            document_uri: "https://app.example/private".into(),
+            source: "header".into(),
+            original_policy: "script-src 'none'; report-uri /csp".into(),
+            referrer: String::new(),
+            source_file: String::new(),
+            sample: String::new(),
+            status_code: 200,
+            line_number: 0,
+            column_number: 0,
+        };
+        for format in [
+            crate::csp::CspReportFormat::ReportingApi,
+            crate::csp::CspReportFormat::LegacyReportUri,
+        ] {
+            let (_, body) = serialize_csp_report(format, &violation);
+            let body = String::from_utf8(body).unwrap();
+            assert!(body.contains("script-src"));
+            assert!(!body.contains("token="));
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn report_only_policy_dispatches_dom_event_and_parent_report() {
+        #[derive(Clone)]
+        struct ReportingFixture {
+            requests: Arc<Mutex<Vec<NetworkRequest>>>,
+        }
+        impl NetworkBroker for ReportingFixture {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                self.requests.lock().unwrap().push(request.clone());
+                if request.url.ends_with("/csp-report") {
+                    return Ok(NetworkResponse {
+                        request_id: request.request_id,
+                        status: 204,
+                        headers: Vec::new(),
+                        body: Vec::new(),
+                    });
+                }
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![
+                        ("content-type".into(), "text/html".into()),
+                        (
+                            "content-security-policy-report-only".into(),
+                            "script-src 'none'; report-uri /csp-report".into(),
+                        ),
+                    ],
+                    body: br#"<script>globalThis.cspEvents=[];addEventListener('securitypolicyviolation',event=>cspEvents.push(event.effectiveDirective+':'+event.disposition))</script>"#.to_vec(),
+                })
+            }
+        }
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let context = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context_with_broker(
+                ContextOptions::default(),
+                SharedNetworkBroker::new(ReportingFixture {
+                    requests: requests.clone(),
+                }),
+            );
+        let page = context.new_page();
+        page.goto("https://app.example/")
+            .await
+            .expect("report-only navigation");
+        assert_eq!(
+            page.evaluate("JSON.stringify(cspEvents)").await.unwrap(),
+            r#"["script-src:report"]"#
+        );
+        for _ in 0..50 {
+            if requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|request| request.url.ends_with("/csp-report"))
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let requests = requests.lock().unwrap();
+        let report = requests
+            .iter()
+            .find(|request| request.url.ends_with("/csp-report"))
+            .expect("parent CSP report request");
+        assert!(!report.credentials);
+        assert!(String::from_utf8_lossy(&report.body).contains("script-src"));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn media_object_and_manifest_resources_use_their_csp_directives() {
+        struct ResourceFixture;
+        impl NetworkBroker for ResourceFixture {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![(
+                        "content-security-policy".into(),
+                        "media-src 'none'; object-src 'none'; manifest-src 'none'".into(),
+                    )],
+                    body: br#"<video src='/movie.mp4'></video><object data='/item.bin'></object><link rel='manifest' href='/app.webmanifest'>"#.to_vec(),
+                })
+            }
+        }
+        let mut page = PageState::new(
+            PageId(94),
+            None,
+            BrowserConfig::default(),
+            ContextOptions::default(),
+            Some(SharedNetworkBroker::new(ResourceFixture)),
+            #[cfg(all(unix, feature = "v8-host"))]
+            None,
+        );
+        page.navigate("https://app.example/".into(), HistoryUpdate::Push)
+            .unwrap();
+        let directives = page
+            .trace
+            .events()
+            .iter()
+            .filter_map(|event| match &event.kind {
+                TraceEventKind::CspViolation {
+                    effective_directive,
+                    ..
+                } => Some(effective_directive.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(directives.contains(&"media-src"));
+        assert!(directives.contains(&"object-src"));
+        assert!(directives.contains(&"manifest-src"));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn dedicated_worker_is_brokered_through_worker_src() {
+        struct WorkerFixture;
+        impl NetworkBroker for WorkerFixture {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                if request.url.ends_with("/worker.js") {
+                    return Ok(NetworkResponse {
+                        request_id: request.request_id,
+                        status: 200,
+                        headers: vec![("content-type".into(), "text/javascript".into())],
+                        body: b"self.onmessage=event=>postMessage(event.data+'-reply')".to_vec(),
+                    });
+                }
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![
+                        ("content-type".into(), "text/html".into()),
+                        (
+                            "content-security-policy".into(),
+                            "script-src 'unsafe-inline' 'unsafe-eval'; worker-src 'self'".into(),
+                        ),
+                    ],
+                    body: br#"<output id='result'></output><script>const worker=new Worker('/worker.js');worker.onmessage=event=>document.querySelector('#result').textContent=event.data;worker.postMessage('worker')</script>"#.to_vec(),
+                })
+            }
+        }
+        let context = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context_with_broker(
+                ContextOptions::default(),
+                SharedNetworkBroker::new(WorkerFixture),
+            );
+        let page = context.new_page();
+        page.goto("https://app.example/").await.unwrap();
+        let result = page
+            .evaluate("document.querySelector('#result').textContent")
+            .await
+            .unwrap();
+        assert_eq!(
+            result,
+            "worker-reply",
+            "worker state: {}",
+            page.evaluate("JSON.stringify([typeof Worker,typeof worker,worker&&typeof worker.__scope,worker&&worker.__closed,worker&&typeof worker.__scope.onmessage,worker&&typeof worker.onmessage])")
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -47,8 +47,8 @@ pub use cookies::{
     SchemefulSite,
 };
 pub use csp::{
-    CspDecision, CspDestination, CspDisposition, CspPolicySet, CspRequest, CspViolation,
-    SandboxFlags, TrustedTypesDirective,
+    CspDecision, CspDestination, CspDisposition, CspPolicySet, CspReportFormat, CspReportTarget,
+    CspRequest, CspViolation, SandboxFlags, TrustedTypesDirective,
 };
 pub use download::{DownloadDescriptor, DownloadId};
 pub use execution::{

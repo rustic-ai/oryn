@@ -88,6 +88,11 @@ pub enum TraceEventKind {
         effective_directive: String,
         blocked_uri: String,
     },
+    CspReport {
+        endpoint: String,
+        format: String,
+        outcome: String,
+    },
     TrustedTypesViolation {
         sink: String,
         required_type: String,

@@ -57,6 +57,10 @@ impl NetworkBroker for PageNetworkBroker {
             CookieRequestKind::Style => Some(CspDestination::Style),
             CookieRequestKind::Image => Some(CspDestination::Image),
             CookieRequestKind::Font => Some(CspDestination::Font),
+            CookieRequestKind::Media => Some(CspDestination::Media),
+            CookieRequestKind::Object => Some(CspDestination::Object),
+            CookieRequestKind::Manifest => Some(CspDestination::Manifest),
+            CookieRequestKind::Worker => Some(CspDestination::Worker),
             CookieRequestKind::Frame => Some(CspDestination::Frame),
             CookieRequestKind::Form => Some(CspDestination::Form),
             CookieRequestKind::Fetch | CookieRequestKind::Xhr | CookieRequestKind::WebSocket => {

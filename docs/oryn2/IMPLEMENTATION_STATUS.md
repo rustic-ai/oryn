@@ -378,12 +378,17 @@ rewrite those historical payloads or present them as a new validation run.
 - The parent broker compiles response-header CSP, verifies the worker snapshot,
   validates ordered meta policies against the accepted response body, and
   fails closed on an omitted meta checkpoint before the next network effect.
-  The native agent-critical profile covers source directives and fallbacks,
-  nonces/hashes, strict-dynamic propagation, base/form/frame/connect checks,
-  mixed content, insecure-request upgrades, sandbox action restrictions,
-  report-only trace records, and core Trusted Types HTML/script/script-URL
-  sinks. Capability metadata remains `Partial` because reporting endpoints and
-  long-tail worker/media directives are not part of this bounded profile.
+  The `csp3-agent-browser-2` profile adds parent-delivered `report-uri`,
+  `Reporting-Endpoints`, `report-to`, and legacy `Report-To` reports; generated
+  `SecurityPolicyViolationEvent`; unique opaque sandbox origins across cookies,
+  storage, CORS, frames, opener messaging, and navigation policy; and active
+  `worker-src`, `media-src`, `object-src`, and `manifest-src` resource paths.
+  `security.csp` is supported for Oryn's exposed native platform surface.
+  Dedicated-worker script loading is policy-complete but remains a separately
+  declared partial API because its compatibility scope is not yet an
+  independent V8 realm. Media decoding/playback, SharedWorker, ServiceWorker,
+  WebRTC/media capture, and ReportingObserver remain separate explicit
+  capabilities rather than CSP omissions.
 - Four immutable libFuzzer entrypoints and curated seeds cover HTML tree
   construction, DOM mutation/stale identity, URL policy, and bounded worker
   protocol parsing. The pinned V8 update policy fixes version/checksum,

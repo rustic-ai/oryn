@@ -39,7 +39,7 @@ use crate::{
     storage::{StorageArea, StorageChange, StorageRequest, StorageResponse, StorageScope},
 };
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 7;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 8;
 pub const MAX_CONTEXT_FRAME_BYTES: usize = 24 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,12 +82,19 @@ pub enum ContextServiceRequest {
         page_id: PageId,
         serialized: String,
     },
+    ReportCspViolations {
+        page_id: PageId,
+        violations: Vec<crate::csp::CspViolation>,
+    },
     GetDocumentCookie {
         page_id: PageId,
     },
     SetDocumentCookie {
         page_id: PageId,
         value: String,
+    },
+    GetSecurityOrigin {
+        page_id: PageId,
     },
     NavigatePage {
         page_id: PageId,
@@ -121,6 +128,11 @@ pub enum ContextServiceRequest {
         page_id: PageId,
         after_event_id: u64,
         max_events: usize,
+    },
+    LoadWorkerScript {
+        page_id: PageId,
+        url: String,
+        module: bool,
     },
     WebSocketOpen {
         page_id: PageId,
@@ -199,16 +211,26 @@ pub enum ContextServiceResponse {
     PageClosed,
     PageCommitted,
     DocumentSecurityInstalled,
+    CspViolationsAccepted,
     DocumentCookie {
         value: String,
     },
     DocumentCookieSet,
+    SecurityOrigin {
+        serialized: String,
+        opaque: bool,
+    },
     NavigationQueued,
     NavigationAuthorized,
     FormSubmissionAuthorized,
     MessageQueued,
     Events {
         events: Vec<ContextEventRecord>,
+    },
+    WorkerScript {
+        url: String,
+        source: String,
+        module: bool,
     },
     WebSocketOpened {
         socket_id: u64,
@@ -239,6 +261,16 @@ pub enum ContextEvent {
         target_page_id: PageId,
         source_origin: String,
         data: serde_json::Value,
+    },
+    CspViolation {
+        target_page_id: PageId,
+        violation: crate::csp::CspViolation,
+    },
+    CspReport {
+        target_page_id: PageId,
+        endpoint: String,
+        format: crate::csp::CspReportFormat,
+        outcome: String,
     },
     PageLifecycle {
         event: PageLifecycleEvent,
@@ -682,6 +714,23 @@ impl ParentContextService {
                 self.context.install_meta_security(page_id, &serialized)?;
                 Ok(ContextServiceResponse::DocumentSecurityInstalled)
             }
+            ContextServiceRequest::ReportCspViolations {
+                page_id,
+                violations,
+            } => {
+                if page_id != self.source_page_id {
+                    return Err(RuntimeError::ContextService(
+                        "worker cannot report violations for another page".into(),
+                    ));
+                }
+                if violations.len() > 32 {
+                    return Err(RuntimeError::WorkerLimitExceeded {
+                        resource: "CSP violation batch".into(),
+                    });
+                }
+                self.context.handle_csp_violations(page_id, violations)?;
+                Ok(ContextServiceResponse::CspViolationsAccepted)
+            }
             ContextServiceRequest::GetDocumentCookie { page_id } => {
                 if page_id != self.source_page_id {
                     return Err(RuntimeError::ContextService(
@@ -700,6 +749,17 @@ impl ParentContextService {
                 }
                 self.context.set_document_cookie(page_id, value)?;
                 Ok(ContextServiceResponse::DocumentCookieSet)
+            }
+            ContextServiceRequest::GetSecurityOrigin { page_id } => {
+                if page_id != self.source_page_id {
+                    return Err(RuntimeError::ContextService(
+                        "worker cannot read another page's security origin".into(),
+                    ));
+                }
+                Ok(ContextServiceResponse::SecurityOrigin {
+                    serialized: self.context.page_origin(page_id)?,
+                    opaque: self.context.is_opaque_origin(page_id)?,
+                })
             }
             ContextServiceRequest::NavigatePage { page_id, url } => {
                 if page_id != self.source_page_id {
@@ -856,7 +916,10 @@ impl ParentContextService {
                 }
                 let source_origin = self.context.page_origin(source_page_id)?;
                 let actual_target_origin = self.context.page_origin(target_page_id)?;
-                if target_origin != "*" && target_origin != actual_target_origin {
+                if target_origin != "*"
+                    && (self.context.is_opaque_origin(target_page_id)?
+                        || target_origin != actual_target_origin)
+                {
                     return Err(RuntimeError::ContextService(
                         "postMessage target origin did not match".into(),
                     ));
@@ -887,6 +950,11 @@ impl ParentContextService {
                     )?,
                 })
             }
+            ContextServiceRequest::LoadWorkerScript {
+                page_id,
+                url,
+                module,
+            } => self.load_worker_script(page_id, &url, module),
             ContextServiceRequest::WebSocketOpen {
                 page_id,
                 url,
@@ -956,12 +1024,16 @@ impl ParentContextService {
                 initiated_by_trusted_script: false,
             },
         )?;
+        if !csp.violations.is_empty() {
+            self.context
+                .handle_csp_violations(page_id, csp.violations.clone())?;
+        }
         if !csp.allowed {
             return Err(RuntimeError::ContextService(
                 "request blocked by Content-Security-Policy connect-src".into(),
             ));
         }
-        enforce_mixed_content(&source_origin, &target)?;
+        enforce_mixed_content(&self.context.page_url(page_id)?, &target)?;
         let cross_origin = target.origin().ascii_serialization() != source_origin;
         let mut headers = sanitize_worker_headers(request.headers);
         headers.push(("origin".into(), source_origin.clone()));
@@ -1145,6 +1217,119 @@ impl ParentContextService {
         Ok(ContextServiceResponse::HttpStreamAborted)
     }
 
+    fn load_worker_script(
+        &self,
+        page_id: PageId,
+        requested_url: &str,
+        module: bool,
+    ) -> Result<ContextServiceResponse, RuntimeError> {
+        self.validate_socket_owner(page_id)?;
+        let network = self.network.clone().ok_or_else(|| {
+            RuntimeError::ContextService("worker-script broker is unavailable".into())
+        })?;
+        let source_origin = self.context.page_origin(page_id)?;
+        if source_origin == "null" {
+            return Err(RuntimeError::ContextService(
+                "SecurityError: an opaque-origin document cannot create an external worker".into(),
+            ));
+        }
+        let mut url = self.context.resolve_page_url(page_id, requested_url)?;
+        if url.origin().ascii_serialization() != source_origin {
+            return Err(RuntimeError::ContextService(
+                "SecurityError: dedicated worker scripts must be same-origin".into(),
+            ));
+        }
+        for redirect in 0..=10 {
+            let decision = self.context.authorize_csp(
+                page_id,
+                &crate::csp::CspRequest {
+                    destination: crate::csp::CspDestination::Worker,
+                    url: url.to_string(),
+                    nonce: None,
+                    inline_source: None,
+                    parser_inserted: false,
+                    initiated_by_trusted_script: true,
+                },
+            )?;
+            if !decision.violations.is_empty() {
+                self.context
+                    .handle_csp_violations(page_id, decision.violations.clone())?;
+            }
+            if !decision.allowed {
+                return Err(RuntimeError::ContextService(
+                    "worker script blocked by Content-Security-Policy worker-src".into(),
+                ));
+            }
+            let response = network
+                .send(NetworkRequest {
+                    request_id: self.next_http_stream_id.fetch_add(1, Ordering::Relaxed),
+                    method: "GET".into(),
+                    url: url.to_string(),
+                    headers: vec![(
+                        "accept".into(),
+                        "text/javascript,application/javascript,*/*;q=0.1".into(),
+                    )],
+                    body: Vec::new(),
+                    credentials: true,
+                    security: crate::cookies::CookieRequestContext {
+                        kind: crate::cookies::CookieRequestKind::Worker,
+                        initiator_url: Some(self.context.page_url(page_id)?),
+                        top_level_url: Some(self.context.page_url(page_id)?),
+                        ..Default::default()
+                    },
+                    resolved_addrs: Vec::new(),
+                })
+                .map_err(|error| RuntimeError::Network(error.to_string()))?;
+            if (300..400).contains(&response.status) {
+                if redirect == 10 {
+                    return Err(RuntimeError::Network(
+                        "worker redirect limit exceeded".into(),
+                    ));
+                }
+                let location = response
+                    .headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+                    .map(|(_, value)| value)
+                    .ok_or_else(|| {
+                        RuntimeError::Network("worker redirect omitted Location".into())
+                    })?;
+                url = url
+                    .join(location)
+                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                if url.origin().ascii_serialization() != source_origin {
+                    return Err(RuntimeError::ContextService(
+                        "SecurityError: worker redirect crossed origins".into(),
+                    ));
+                }
+                continue;
+            }
+            if response.body.len() > 1024 * 1024 {
+                return Err(RuntimeError::WorkerLimitExceeded {
+                    resource: "dedicated worker script".into(),
+                });
+            }
+            let content_type = response
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                .map(|(_, value)| value.as_str());
+            let (source, _) = oryn_net::decode_resource_text(
+                &response.body,
+                content_type,
+                oryn_net::TextResourceKind::JavaScript,
+            );
+            return Ok(ContextServiceResponse::WorkerScript {
+                url: url.to_string(),
+                source,
+                module,
+            });
+        }
+        Err(RuntimeError::Network(
+            "worker request did not produce a response".into(),
+        ))
+    }
+
     fn open_websocket(
         &self,
         page_id: PageId,
@@ -1161,26 +1346,27 @@ impl ParentContextService {
                 "WebSocket URL must use ws or wss".into(),
             ));
         }
-        if !self
-            .context
-            .authorize_csp(
-                page_id,
-                &crate::csp::CspRequest {
-                    destination: crate::csp::CspDestination::Connect,
-                    url: url.to_string(),
-                    nonce: None,
-                    inline_source: None,
-                    parser_inserted: false,
-                    initiated_by_trusted_script: false,
-                },
-            )?
-            .allowed
-        {
+        let decision = self.context.authorize_csp(
+            page_id,
+            &crate::csp::CspRequest {
+                destination: crate::csp::CspDestination::Connect,
+                url: url.to_string(),
+                nonce: None,
+                inline_source: None,
+                parser_inserted: false,
+                initiated_by_trusted_script: false,
+            },
+        )?;
+        if !decision.violations.is_empty() {
+            self.context
+                .handle_csp_violations(page_id, decision.violations.clone())?;
+        }
+        if !decision.allowed {
             return Err(RuntimeError::ContextService(
                 "WebSocket blocked by Content-Security-Policy connect-src".into(),
             ));
         }
-        enforce_mixed_content(&self.context.page_origin(page_id)?, &url)?;
+        enforce_mixed_content(&self.context.page_url(page_id)?, &url)?;
         let addresses = crate::network::resolve_and_authorize(self.context.network_policy(), &url)
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
         let timeout = self.context.request_timeout();
@@ -1405,6 +1591,11 @@ impl ParentContextService {
     }
 
     fn validate_storage_scope(&self, request: &StorageRequest) -> Result<(), RuntimeError> {
+        if self.context.is_opaque_origin(self.source_page_id)? {
+            return Err(RuntimeError::ContextService(
+                "SecurityError: sandboxed opaque origins cannot access storage".into(),
+            ));
+        }
         let (scope, area) = match request {
             StorageRequest::Get { area, scope, .. }
             | StorageRequest::Set { area, scope, .. }

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256, Sha384, Sha512};
 use url::Url;
 
-pub const CSP_POLICY_VERSION: &str = "csp3-agent-critical-1";
+pub const CSP_POLICY_VERSION: &str = "csp3-agent-browser-2";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -61,6 +61,32 @@ pub struct CspViolation {
     pub blocked_uri: String,
     pub document_uri: String,
     pub source: String,
+    pub original_policy: String,
+    #[serde(default)]
+    pub referrer: String,
+    #[serde(default)]
+    pub source_file: String,
+    #[serde(default)]
+    pub sample: String,
+    #[serde(default)]
+    pub status_code: u16,
+    #[serde(default)]
+    pub line_number: u32,
+    #[serde(default)]
+    pub column_number: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CspReportFormat {
+    ReportingApi,
+    LegacyReportUri,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CspReportTarget {
+    pub url: String,
+    pub format: CspReportFormat,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,12 +132,15 @@ struct CspPolicy {
     disposition: CspDisposition,
     directives: BTreeMap<String, Vec<String>>,
     source: String,
+    serialized: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CspPolicySet {
     document_url: String,
     policies: Vec<CspPolicy>,
+    #[serde(default)]
+    reporting_endpoints: BTreeMap<String, String>,
 }
 
 impl CspPolicySet {
@@ -119,11 +148,13 @@ impl CspPolicySet {
         Self {
             document_url: document_url.into(),
             policies: Vec::new(),
+            reporting_endpoints: BTreeMap::new(),
         }
     }
 
     pub fn from_headers(document_url: impl Into<String>, headers: &[(String, String)]) -> Self {
         let mut set = Self::new(document_url);
+        set.reporting_endpoints = parse_reporting_endpoints(headers, &set.document_url);
         for (name, value) in headers {
             let disposition = if name.eq_ignore_ascii_case("content-security-policy") {
                 Some(CspDisposition::Enforce)
@@ -179,6 +210,7 @@ impl CspPolicySet {
 
     pub fn equivalent_policy(&self, other: &Self) -> bool {
         self.policies == other.policies
+            && self.reporting_endpoints == other.reporting_endpoints
             && (self.policies.is_empty()
                 || Url::parse(&self.document_url).ok().map(|url| url.origin())
                     == Url::parse(&other.document_url).ok().map(|url| url.origin()))
@@ -197,13 +229,12 @@ impl CspPolicySet {
                 if policy.disposition == CspDisposition::Enforce {
                     allowed = false;
                 }
-                violations.push(CspViolation {
-                    disposition: policy.disposition,
-                    effective_directive: directive.into(),
-                    blocked_uri: blocked_uri(request),
-                    document_uri: scrubbed_uri(&self.document_url),
-                    source: policy.source.clone(),
-                });
+                violations.push(self.violation(
+                    policy,
+                    directive,
+                    blocked_uri(request),
+                    request.inline_source.as_deref().unwrap_or_default(),
+                ));
             }
         }
         CspDecision {
@@ -239,13 +270,7 @@ impl CspPolicySet {
                 if policy.disposition == CspDisposition::Enforce {
                     allowed = false;
                 }
-                violations.push(CspViolation {
-                    disposition: policy.disposition,
-                    effective_directive: directive.into(),
-                    blocked_uri: request.url.clone(),
-                    document_uri: scrubbed_uri(&self.document_url),
-                    source: policy.source.clone(),
-                });
+                violations.push(self.violation(policy, directive, request.url.clone(), ""));
             }
         }
         CspDecision {
@@ -280,15 +305,16 @@ impl CspPolicySet {
                 if policy.disposition == CspDisposition::Enforce {
                     allowed = false;
                 }
-                violations.push(CspViolation {
-                    disposition: policy.disposition,
-                    effective_directive: "frame-ancestors".into(),
-                    blocked_uri: ancestors
-                        .last()
-                        .map_or_else(|| "opaque".into(), |url| scrubbed_uri(url)),
-                    document_uri: scrubbed_uri(&self.document_url),
-                    source: policy.source.clone(),
-                });
+                violations.push(
+                    self.violation(
+                        policy,
+                        "frame-ancestors",
+                        ancestors
+                            .last()
+                            .map_or_else(|| "opaque".into(), |url| scrubbed_uri(url)),
+                        "",
+                    ),
+                );
             }
         }
         CspDecision {
@@ -358,6 +384,75 @@ impl CspPolicySet {
         result
     }
 
+    /// Resolve the reporting destinations for the policy which produced a
+    /// violation. A valid `report-to` destination takes precedence over the
+    /// deprecated `report-uri` directive so a violation is never duplicated.
+    pub fn report_targets(&self, violation: &CspViolation) -> Vec<CspReportTarget> {
+        let Some(policy) = self.policies.iter().find(|policy| {
+            policy.serialized == violation.original_policy
+                && policy.disposition == violation.disposition
+        }) else {
+            return Vec::new();
+        };
+        if let Some(groups) = policy.directives.get("report-to") {
+            let targets = groups
+                .iter()
+                .filter_map(|group| self.reporting_endpoints.get(group))
+                .take(16)
+                .map(|url| CspReportTarget {
+                    url: url.clone(),
+                    format: CspReportFormat::ReportingApi,
+                })
+                .collect::<Vec<_>>();
+            if !targets.is_empty() {
+                return targets;
+            }
+        }
+        policy
+            .directives
+            .get("report-uri")
+            .into_iter()
+            .flatten()
+            .filter_map(|value| resolve_endpoint(&self.document_url, value))
+            .take(16)
+            .map(|url| CspReportTarget {
+                url,
+                format: CspReportFormat::LegacyReportUri,
+            })
+            .collect()
+    }
+
+    fn violation(
+        &self,
+        policy: &CspPolicy,
+        effective_directive: &str,
+        blocked_uri: String,
+        inline_source: &str,
+    ) -> CspViolation {
+        let report_sample = policy
+            .directives
+            .get(effective_directive)
+            .is_some_and(|sources| sources.iter().any(|source| source == "'report-sample'"));
+        CspViolation {
+            disposition: policy.disposition,
+            effective_directive: effective_directive.into(),
+            blocked_uri,
+            document_uri: scrubbed_uri(&self.document_url),
+            source: policy.source.clone(),
+            original_policy: policy.serialized.clone(),
+            referrer: String::new(),
+            source_file: String::new(),
+            sample: if report_sample {
+                inline_source.chars().take(40).collect()
+            } else {
+                String::new()
+            },
+            status_code: 0,
+            line_number: 0,
+            column_number: 0,
+        }
+    }
+
     pub fn trusted_types(&self) -> TrustedTypesDirective {
         let mut result = TrustedTypesDirective::default();
         let mut configurations = Vec::new();
@@ -423,7 +518,74 @@ fn parse_policy(serialized: &str, disposition: CspDisposition, source: &str) -> 
         disposition,
         directives,
         source: source.into(),
+        serialized: serialized.trim().into(),
     }
+}
+
+fn parse_reporting_endpoints(
+    headers: &[(String, String)],
+    document_url: &str,
+) -> BTreeMap<String, String> {
+    let mut endpoints = BTreeMap::new();
+    for (_, value) in headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("reporting-endpoints"))
+    {
+        for entry in value.split(',').take(16) {
+            let Some((name, url)) = entry.split_once('=') else {
+                continue;
+            };
+            if let Some(url) = resolve_endpoint(document_url, url.trim().trim_matches('"')) {
+                endpoints.insert(name.trim().to_string(), url);
+            }
+        }
+    }
+    for (_, value) in headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("report-to"))
+    {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(value) else {
+            continue;
+        };
+        let groups: Vec<_> = value
+            .as_array()
+            .map_or_else(|| vec![&value], |items| items.iter().collect());
+        for group in groups.into_iter().take(16) {
+            let Some(name) = group.get("group").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            if group.get("max_age").and_then(serde_json::Value::as_u64) == Some(0) {
+                continue;
+            }
+            let Some(url) = group
+                .get("endpoints")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|items| {
+                    items.iter().find_map(|item| {
+                        item.get("url")
+                            .and_then(serde_json::Value::as_str)
+                            .and_then(|url| resolve_endpoint(document_url, url))
+                    })
+                })
+            else {
+                continue;
+            };
+            endpoints.entry(name.to_string()).or_insert(url);
+        }
+    }
+    endpoints
+}
+
+fn resolve_endpoint(document_url: &str, value: &str) -> Option<String> {
+    let document = Url::parse(document_url).ok()?;
+    let endpoint = document.join(value).ok()?;
+    let secure = endpoint.scheme() == "https"
+        || endpoint.scheme() == "http"
+            && (document.scheme() == "http"
+                || endpoint
+                    .host_str()
+                    .is_some_and(|host| matches!(host, "localhost" | "127.0.0.1" | "::1")));
+    secure.then(|| endpoint.to_string())
 }
 
 fn split_policy_list(value: &str) -> impl Iterator<Item = &str> {
@@ -741,6 +903,68 @@ mod tests {
                 r#"<meta http-equiv="content-security-policy" content="script-src 'none'">"#,
             ),
             vec!["script-src 'none'"]
+        );
+    }
+
+    #[test]
+    fn modern_reporting_endpoint_precedes_legacy_report_uri() {
+        let policies = CspPolicySet::from_headers(
+            "https://app.example/private?token=secret#fragment",
+            &[
+                (
+                    "Reporting-Endpoints".into(),
+                    "csp=\"https://reports.example/csp\"".into(),
+                ),
+                (
+                    "Content-Security-Policy-Report-Only".into(),
+                    "script-src 'none'; report-to csp; report-uri /legacy".into(),
+                ),
+            ],
+        );
+        let decision = policies.authorize(&request(
+            CspDestination::Script,
+            "https://app.example/app.js?secret=yes",
+        ));
+        assert!(decision.allowed);
+        assert_eq!(
+            decision.violations[0].document_uri,
+            "https://app.example/private"
+        );
+        assert_eq!(
+            decision.violations[0].blocked_uri,
+            "https://app.example/app.js"
+        );
+        assert_eq!(
+            policies.report_targets(&decision.violations[0]),
+            vec![CspReportTarget {
+                url: "https://reports.example/csp".into(),
+                format: CspReportFormat::ReportingApi,
+            }]
+        );
+    }
+
+    #[test]
+    fn legacy_report_to_header_is_accepted() {
+        let policies = CspPolicySet::from_headers(
+            "https://app.example/",
+            &[
+                (
+                    "Report-To".into(),
+                    r#"{"group":"legacy","max_age":60,"endpoints":[{"url":"/reports"}]}"#.into(),
+                ),
+                (
+                    "Content-Security-Policy".into(),
+                    "img-src 'none'; report-to legacy".into(),
+                ),
+            ],
+        );
+        let decision = policies.authorize(&request(
+            CspDestination::Image,
+            "https://app.example/image.png",
+        ));
+        assert_eq!(
+            policies.report_targets(&decision.violations[0])[0].url,
+            "https://app.example/reports"
         );
     }
 }
