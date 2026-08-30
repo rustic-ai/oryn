@@ -391,6 +391,12 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: true,
     },
     GeneratedMember {
+        name: "localName",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
         name: "namespaceURI",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,

@@ -120,6 +120,7 @@ dictionary ShadowRootInit {
 [Exposed=Window]
 interface Element : Node {
   readonly attribute DOMString tagName;
+  readonly attribute DOMString localName;
   readonly attribute DOMString? namespaceURI;
   readonly attribute sequence<any> attributes;
   readonly attribute sequence<Element> children;

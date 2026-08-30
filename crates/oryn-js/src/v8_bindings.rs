@@ -1856,6 +1856,10 @@ fn get_attribute_value<'s>(
             v8_string(scope, &dom.arena().text_content(node)?)?
         }
         ("Element", "tagName") => v8_string(scope, &dom.node_name(node)?)?,
+        ("Element", "localName") => match &record.kind {
+            NodeKind::Element { name } => v8_string(scope, name.local.as_ref())?,
+            _ => return Err(DomError::StaleNode(node).into()),
+        },
         ("Element", "namespaceURI") => match &record.kind {
             NodeKind::Element { name } => v8_string(scope, name.ns.as_ref())?,
             _ => v8::null(scope).into(),
@@ -3577,13 +3581,13 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),link=document.createElementNS('http://www.w3.org/2000/svg','a');svg.appendChild(link);document.getElementById('root').appendChild(svg);(svg instanceof SVGElement)+'|'+svg.namespaceURI+'|'+(link instanceof SVGAElement)",
+            "const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),link=document.createElementNS('http://www.w3.org/2000/svg','a');svg.appendChild(link);document.getElementById('root').appendChild(svg);(svg instanceof SVGElement)+'|'+svg.namespaceURI+'|'+svg.localName+'|'+(link instanceof SVGAElement)",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
-            "true|http://www.w3.org/2000/svg|true"
+            "true|http://www.w3.org/2000/svg|svg|true"
         );
     }
 
