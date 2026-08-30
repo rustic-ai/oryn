@@ -8,7 +8,7 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 use oryn_common::v4::{
@@ -886,9 +886,10 @@ fn simple_selector_matches(node: &LayoutNode, selector: &str) -> bool {
     {
         return false;
     }
-    let attributes =
-        Regex::new(r#"\[([\w-]+)(?:\s*=\s*['\"]?([^'\"\]]+)['\"]?)?\]"#).expect("constant regex");
-    for capture in attributes.captures_iter(selector) {
+    static ATTRIBUTE_SELECTOR: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"\[([\w-]+)(?:\s*=\s*['\"]?([^'\"\]]+)['\"]?)?\]"#).expect("constant regex")
+    });
+    for capture in ATTRIBUTE_SELECTOR.captures_iter(selector) {
         let Some(value) = node.attributes.get(&capture[1]) else {
             return false;
         };
