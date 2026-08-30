@@ -9544,6 +9544,52 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn popup_global_close_alias_closes_its_current_page() {
+        let context = Browser::new().new_context();
+        let opener = context.new_page();
+        opener
+            .load_html(
+                "https://app.example.test/start",
+                "<script>globalThis.child=window.open()</script>",
+            )
+            .await
+            .expect("load opener");
+        let popup = context
+            .wait_for_page(
+                PagePredicate::Opener {
+                    page_id: opener.page_id(),
+                },
+                Duration::from_secs(1),
+            )
+            .await
+            .expect("popup");
+        popup
+            .load_html("https://app.example.test/popup", "<main>Popup</main>")
+            .await
+            .expect("load popup");
+        assert_eq!(
+            popup
+                .evaluate("typeof close+'|'+closed+'|'+(close(),closed)")
+                .await
+                .expect("close popup through global alias"),
+            "function|false|true"
+        );
+        for _ in 0..100 {
+            if context
+                .pages()
+                .iter()
+                .find(|page| page.page.page_id == popup.page_id())
+                .is_some_and(|page| page.status == PageStatus::Closed)
+            {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("popup remained registered after global close()")
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn popup_policy_denial_returns_null_without_creating_a_page() {
         let context =
             Browser::new().new_context_with_options(ContextOptions::default().with_popups(false));
