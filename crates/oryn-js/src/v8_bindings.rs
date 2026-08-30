@@ -817,6 +817,29 @@ fn node_key(node: NodeId) -> u64 {
     (u64::from(node.generation) << 32) | u64::from(node.slot)
 }
 
+fn dom_rect_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    rect: BindingRect,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let object = v8::Object::new(scope);
+    for (name, value) in [
+        ("x", rect.x),
+        ("y", rect.y),
+        ("width", rect.width),
+        ("height", rect.height),
+        ("top", rect.y),
+        ("right", rect.x + rect.width),
+        ("bottom", rect.y + rect.height),
+        ("left", rect.x),
+    ] {
+        let name =
+            v8::String::new(scope, name).ok_or(V8BindingError::Allocation("DOMRect property"))?;
+        let value = v8::Number::new(scope, value);
+        object.create_data_property(scope, name.into(), value.into());
+    }
+    Ok(object)
+}
+
 fn member_token(interface: usize, member: usize) -> i32 {
     ((interface as i32) << 16) | member as i32
 }
@@ -2784,26 +2807,30 @@ fn call_operation<'s>(
                     });
                 }
             };
-            let object = v8::Object::new(scope);
-            for (name, value) in [
-                ("x", rect.x),
-                ("y", rect.y),
-                ("width", rect.width),
-                ("height", rect.height),
-                ("top", rect.y),
-                ("right", rect.x + rect.width),
-                ("bottom", rect.y + rect.height),
-                ("left", rect.x),
-            ] {
-                let name = v8::String::new(scope, name)
-                    .ok_or(V8BindingError::Allocation("DOMRect property"))?;
-                object.create_data_property(
-                    scope,
-                    name.into(),
-                    v8::Number::new(scope, value).into(),
-                );
-            }
-            Ok(Some(object.into()))
+            Ok(Some(dom_rect_object(scope, rect)?.into()))
+        }
+        ("Element", "getClientRects") => {
+            let layout = state.layout.borrow();
+            let values = match layout.geometry.get(&node_key(node)) {
+                Some(BindingGeometry::Available(rect)) => {
+                    vec![dom_rect_object(scope, *rect)?.into()]
+                }
+                Some(BindingGeometry::Hidden) => Vec::new(),
+                Some(BindingGeometry::Unsupported(detail)) => {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Element".into(),
+                        member: format!("getClientRects: {detail}"),
+                    });
+                }
+                None => {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Element".into(),
+                        member: "getClientRects: geometry is not available at this checkpoint"
+                            .into(),
+                    });
+                }
+            };
+            Ok(Some(v8::Array::new_with_elements(scope, &values).into()))
         }
         ("DOMTokenList", "add") => {
             let token = required_string(scope, args, 0)?;
@@ -3798,9 +3825,11 @@ mod tests {
     #[test]
     fn generated_geometry_distinguishes_hidden_from_unsupported() {
         initialize_v8();
-        let parsed =
-            html::parse("<main><div id='hidden'></div><table id='unsupported'></table></main>");
+        let parsed = html::parse(
+            "<main><div id='visible'></div><div id='hidden'></div><table id='unsupported'></table></main>",
+        );
         let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let visible = dom.borrow().find_by_id("visible").unwrap();
         let hidden = dom.borrow().find_by_id("hidden").unwrap();
         let unsupported = dom.borrow().find_by_id("unsupported").unwrap();
         let mut isolate = v8::Isolate::new(Default::default());
@@ -3811,6 +3840,15 @@ mod tests {
         state.set_layout(BindingLayout {
             styles: BTreeMap::new(),
             geometry: BTreeMap::from([
+                (
+                    node_key(visible),
+                    BindingGeometry::Available(BindingRect {
+                        x: 1.0,
+                        y: 2.0,
+                        width: 3.0,
+                        height: 4.0,
+                    }),
+                ),
                 (node_key(hidden), BindingGeometry::Hidden),
                 (
                     node_key(unsupported),
@@ -3820,7 +3858,7 @@ mod tests {
         });
         let source = v8::String::new(
             scope,
-            "const hidden=document.getElementById('hidden').getBoundingClientRect();let rejected=false;try{document.getElementById('unsupported').getBoundingClientRect()}catch(error){rejected=error instanceof TypeError&&String(error).includes('table geometry is unavailable')}hidden.width===0&&hidden.height===0&&rejected",
+            "const hidden=document.getElementById('hidden'),visible=document.getElementById('visible');const rect=hidden.getBoundingClientRect();let rejected=false;try{document.getElementById('unsupported').getClientRects()}catch(error){rejected=error instanceof TypeError&&String(error).includes('table geometry is unavailable')}rect.width===0&&rect.height===0&&hidden.getClientRects().length===0&&visible.getClientRects().length===1&&visible.getClientRects()[0].width===3&&rejected",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();

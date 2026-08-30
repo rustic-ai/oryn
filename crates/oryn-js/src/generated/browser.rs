@@ -643,6 +643,12 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
     GeneratedMember {
+        name: "getClientRects",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
         name: "scrollIntoView",
         kind: GeneratedMemberKind::Operation,
         arity: 1,

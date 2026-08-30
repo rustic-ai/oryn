@@ -150,6 +150,7 @@ interface Element : Node {
   boolean matches(DOMString selectors);
   Element? closest(DOMString selectors);
   DOMRect getBoundingClientRect();
+  sequence<DOMRect> getClientRects();
   undefined scrollIntoView(optional boolean alignToTop = true);
   undefined remove();
 };
