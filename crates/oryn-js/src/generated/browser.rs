@@ -1162,6 +1162,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
 ];
+pub const S_V_G_A_ELEMENT_MEMBERS: &[GeneratedMember] = &[];
 pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[];
 pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
@@ -1541,6 +1542,11 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         name: "Response",
         parent: None,
         members: RESPONSE_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "SVGAElement",
+        parent: Some("SVGElement"),
+        members: S_V_G_A_ELEMENT_MEMBERS,
     },
     GeneratedInterface {
         name: "SVGElement",

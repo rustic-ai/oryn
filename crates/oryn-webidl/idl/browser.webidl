@@ -157,6 +157,10 @@ interface SVGElement : Element {
 };
 
 [Exposed=Window]
+interface SVGAElement : SVGElement {
+};
+
+[Exposed=Window]
 interface DOMRect {
   readonly attribute double x;
   readonly attribute double y;

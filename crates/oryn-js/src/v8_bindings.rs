@@ -1113,6 +1113,11 @@ fn most_derived_brand(kind: &NodeKind) -> InterfaceBrand {
 fn interface_for_node(kind: &NodeKind) -> &'static str {
     match kind {
         NodeKind::Document => "Document",
+        NodeKind::Element { name }
+            if name.ns.as_ref() != "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "a" =>
+        {
+            "SVGAElement"
+        }
         NodeKind::Element { name } if name.ns.as_ref() != "http://www.w3.org/1999/xhtml" => {
             "SVGElement"
         }
@@ -3525,13 +3530,13 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');document.getElementById('root').appendChild(svg);(svg instanceof SVGElement)+'|'+svg.namespaceURI",
+            "const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),link=document.createElementNS('http://www.w3.org/2000/svg','a');svg.appendChild(link);document.getElementById('root').appendChild(svg);(svg instanceof SVGElement)+'|'+svg.namespaceURI+'|'+(link instanceof SVGAElement)",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
-            "true|http://www.w3.org/2000/svg"
+            "true|http://www.w3.org/2000/svg|true"
         );
     }
 
