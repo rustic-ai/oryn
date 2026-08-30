@@ -1041,12 +1041,8 @@ fn resolve_receiver(
     object: v8::Local<v8::Object>,
     interface: &str,
 ) -> Result<NodeId, V8BindingError> {
-    let value = object
-        .get_internal_field(scope, 0)
-        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+    let wrapper = receiver_wrapper_id(scope, object)
         .ok_or(BindingError::UnknownWrapper(WrapperId(u64::MAX)))?;
-    let wrapper =
-        exact_wrapper_id(value).ok_or(BindingError::UnknownWrapper(WrapperId(u64::MAX)))?;
     let brand = brand_for_interface(interface);
     let node = state.wrappers.borrow().resolve(
         &state.dom.borrow(),
@@ -1247,6 +1243,31 @@ fn receiver_wrapper_id(
     scope: &mut v8::PinScope,
     object: v8::Local<v8::Object>,
 ) -> Option<WrapperId> {
+    receiver_wrapper_id_at_depth(scope, object, 0)
+}
+
+fn receiver_wrapper_id_at_depth(
+    scope: &mut v8::PinScope,
+    object: v8::Local<v8::Object>,
+    depth: u8,
+) -> Option<WrapperId> {
+    // Framework reactivity layers can place transparent JavaScript Proxies
+    // around host objects. Web-platform receivers retain the target's DOM
+    // identity in that case; never treat the Proxy object itself as a wrapper
+    // and never invoke its traps a second time while performing the brand
+    // check. Bound the chain so adversarial nested proxies cannot turn a DOM
+    // access into unbounded host work.
+    if object.internal_field_count() == 0 {
+        if depth >= 8 || !object.is_proxy() {
+            return None;
+        }
+        let proxy = v8::Local::<v8::Proxy>::try_from(v8::Local::<v8::Value>::from(object)).ok()?;
+        if proxy.is_revoked() {
+            return None;
+        }
+        let target = v8::Local::<v8::Object>::try_from(proxy.get_target(scope)).ok()?;
+        return receiver_wrapper_id_at_depth(scope, target, depth + 1);
+    }
     let field = object.get_internal_field(scope, 0)?;
     let value = v8::Local::<v8::Value>::try_from(field).ok()?;
     exact_wrapper_id(value)
@@ -3454,6 +3475,39 @@ mod tests {
         assert!(script.run(scope).unwrap().boolean_value(scope));
         let button = dom.borrow().find_by_id("go").unwrap();
         assert_eq!(dom.borrow().arena().text_content(button).unwrap(), "Run");
+    }
+
+    #[test]
+    fn transparent_proxy_receivers_preserve_generated_dom_branding() {
+        initialize_v8();
+        let parsed = html::parse("<main id='root'></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const element=document.getElementById('root');const proxy=new Proxy(new Proxy(element,{}),{});proxy.setAttribute('data-proxy','yes');proxy.tagName+'|'+proxy.id+'|'+proxy.getAttribute('data-proxy')",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "MAIN|root|yes"
+        );
+        let root = dom.borrow().find_by_id("root").unwrap();
+        assert_eq!(
+            dom.borrow()
+                .arena()
+                .get(root)
+                .unwrap()
+                .attributes
+                .get("data-proxy")
+                .map(String::as_str),
+            Some("yes")
+        );
     }
 
     #[test]
