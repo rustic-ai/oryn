@@ -10,7 +10,7 @@ use std::{
     rc::{Rc, Weak as RcWeak},
 };
 
-use oryn_dom::{DomError, DomRuntime, Mutation, NodeId, NodeKind};
+use oryn_dom::{DomError, DomRuntime, Mutation, NodeId, NodeKind, ShadowMode};
 
 use crate::{
     bindings::{BindingError, InterfaceBrand, WrapperId, WrapperRegistry},
@@ -27,6 +27,8 @@ pub enum V8BindingError {
     MissingInterface(&'static str),
     #[error("V8 failed to allocate {0}")]
     Allocation(&'static str),
+    #[error("event callback failed: {0}")]
+    EventCallback(String),
     #[error(transparent)]
     Binding(#[from] BindingError),
     #[error(transparent)]
@@ -792,7 +794,7 @@ fn generated_constructor(
     let name = interface
         .map(|interface| interface.name)
         .unwrap_or("interface");
-    if name == "Event" && args.is_construct_call() {
+    if matches!(name, "Event" | "CustomEvent") && args.is_construct_call() {
         let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
             throw_type_error(scope, "generated binding state is unavailable");
             return;
@@ -831,6 +833,28 @@ fn generated_constructor(
         );
         let id = v8::Number::new(scope, event_id as f64);
         args.this().set_internal_field(0, id.into());
+        if name == "CustomEvent" {
+            let detail = init
+                .and_then(|init| {
+                    let key = v8::String::new(scope, "detail")?;
+                    init.get(scope, key.into())
+                })
+                .unwrap_or_else(|| v8::null(scope).into());
+            if let Some(key) = v8::String::new(scope, "detail") {
+                args.this().create_data_property(scope, key.into(), detail);
+            }
+            let composed = init
+                .and_then(|init| {
+                    let key = v8::String::new(scope, "composed")?;
+                    init.get(scope, key.into())
+                })
+                .is_some_and(|value| value.boolean_value(scope));
+            if let Some(key) = v8::String::new(scope, "composed") {
+                let value = v8::Boolean::new(scope, composed);
+                args.this()
+                    .create_data_property(scope, key.into(), value.into());
+            }
+        }
         return;
     }
     if name == "MutationObserver" && args.is_construct_call() {
@@ -858,6 +882,14 @@ fn generated_constructor(
         );
         let id = v8::Number::new(scope, observer_id as f64);
         args.this().set_internal_field(0, id.into());
+        return;
+    }
+    // Custom-element upgrade uses Reflect.construct(definition, [],
+    // definition) to execute the user constructor and then transfers its own
+    // initialized fields onto the existing Rust-backed element wrapper. Its
+    // `super()` reaches this generated constructor; the temporary shell never
+    // escapes and deliberately receives no Rust node identity.
+    if name == "HTMLElement" && args.is_construct_call() {
         return;
     }
     throw_type_error(scope, &format!("Illegal constructor: {name}"));
@@ -931,7 +963,7 @@ fn generated_operation(
         return;
     };
     if interface == "Event" {
-        match call_event_operation(scope, &state, args.this(), member) {
+        match call_event_operation(scope, &state, args.this(), member, &args) {
             Ok(Some(value)) => return_value.set(value),
             Ok(None) => return_value.set(v8::undefined(scope).into()),
             Err(error) => throw_type_error(scope, &error.to_string()),
@@ -1048,7 +1080,8 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
         },
         NodeKind::Text { .. } => "Text",
         NodeKind::Comment { .. } => "Comment",
-        NodeKind::DocumentFragment | NodeKind::ShadowRoot { .. } => "DocumentFragment",
+        NodeKind::DocumentFragment => "DocumentFragment",
+        NodeKind::ShadowRoot { .. } => "ShadowRoot",
         NodeKind::DocumentType { .. } => "Node",
     }
 }
@@ -1092,6 +1125,41 @@ pub fn wrap_node<'s>(
         .ok_or(V8BindingError::Allocation("wrapper object"))?;
     let id = v8::BigInt::new_from_u64(scope, wrapper.0);
     object.set_internal_field(0, id.into());
+    // Inline event-handler content attributes are reflected as properties on
+    // the Rust-backed wrapper. Event dispatch already invokes the `on*`
+    // property, which gives parser-created and fragment-created elements the
+    // same receiver, event argument, and cancellation semantics as handlers
+    // assigned from JavaScript. The Rust DOM remains the attribute authority;
+    // this is only the realm-local compiled callback.
+    let inline_handlers = state
+        .dom
+        .borrow()
+        .arena()
+        .get(node)?
+        .attributes
+        .iter()
+        .filter(|(name, _)| name.starts_with("on"))
+        .map(|(name, source)| (name.clone(), source.clone()))
+        .collect::<Vec<_>>();
+    for (name, source) in inline_handlers {
+        let function_source = format!("(function(event){{{source}}})");
+        let function_source = v8::String::new(scope, &function_source)
+            .ok_or(V8BindingError::Allocation("inline event handler"))?;
+        let function = v8::Script::compile(scope, function_source, None)
+            .and_then(|script| script.run(scope))
+            .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+            .ok_or_else(|| {
+                V8BindingError::EventCallback("inline event handler compilation failed".into())
+            })?;
+        let key = v8::String::new(scope, &name)
+            .ok_or(V8BindingError::Allocation("inline event property"))?;
+        if !object
+            .set(scope, key.into(), function.into())
+            .unwrap_or(false)
+        {
+            return Err(V8BindingError::Allocation("inline event property"));
+        }
+    }
     let registry: RcWeak<RefCell<WrapperRegistry>> = Rc::downgrade(&state.wrappers);
     let weak = v8::Weak::with_finalizer(
         scope,
@@ -1374,6 +1442,52 @@ pub fn deliver_mutation_observers(
     Ok(delivered)
 }
 
+fn css_property_name(member: &str) -> &str {
+    match member {
+        "cssText" => "css-text",
+        _ => member,
+    }
+}
+
+fn inline_style_entries(style: &str) -> BTreeMap<String, String> {
+    style
+        .split(';')
+        .filter_map(|declaration| declaration.split_once(':'))
+        .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim().to_string()))
+        .filter(|(name, _)| !name.is_empty())
+        .collect()
+}
+
+fn set_inline_style_property(
+    dom: &mut DomRuntime,
+    node: NodeId,
+    property: &str,
+    value: &str,
+) -> Result<String, DomError> {
+    let current = dom
+        .arena()
+        .get(node)?
+        .attributes
+        .get("style")
+        .cloned()
+        .unwrap_or_default();
+    let mut entries = inline_style_entries(&current);
+    let previous = if value.is_empty() {
+        entries.remove(property).unwrap_or_default()
+    } else {
+        entries
+            .insert(property.to_ascii_lowercase(), value.to_string())
+            .unwrap_or_default()
+    };
+    let serialized = entries
+        .into_iter()
+        .map(|(name, value)| format!("{name}: {value}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    dom.set_attribute(node, "style", serialized)?;
+    Ok(previous)
+}
+
 fn get_attribute_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
@@ -1384,6 +1498,45 @@ fn get_attribute_value<'s>(
     if interface == "Element" && member == "classList" {
         return associated_wrapper(scope, state, node, "DOMTokenList");
     }
+    if interface == "HTMLElement" && member == "style" {
+        return associated_wrapper(scope, state, node, "CSSStyleDeclaration");
+    }
+    if interface == "HTMLElement" && member == "dataset" {
+        let entries = state
+            .dom
+            .borrow()
+            .arena()
+            .get(node)?
+            .attributes
+            .iter()
+            .filter_map(|(name, value)| {
+                let suffix = name.strip_prefix("data-")?;
+                let mut property = String::new();
+                let mut uppercase = false;
+                for character in suffix.chars() {
+                    if character == '-' {
+                        uppercase = true;
+                    } else if uppercase {
+                        property.extend(character.to_uppercase());
+                        uppercase = false;
+                    } else {
+                        property.push(character);
+                    }
+                }
+                Some((property, value.clone()))
+            })
+            .collect::<Vec<_>>();
+        let dataset = v8::Object::new(scope);
+        for (name, value) in entries {
+            let name = v8::String::new(scope, &name)
+                .ok_or(V8BindingError::Allocation("dataset property"))?;
+            let value = v8_string(scope, &value)?;
+            if !dataset.set(scope, name.into(), value).unwrap_or(false) {
+                return Err(V8BindingError::Allocation("dataset property"));
+            }
+        }
+        return Ok(dataset.into());
+    }
     if interface == "Document" && member == "styleSheets" {
         let styles = state.dom.borrow().query_selector_all(node, "style")?;
         return associated_node_array(scope, state, &styles, "CSSStyleSheet");
@@ -1392,6 +1545,57 @@ fn get_attribute_value<'s>(
         let document = state.frame_roots.borrow().get(&node).copied();
         return optional_node(scope, state, document);
     }
+    if matches!(member, "parentNode" | "firstChild" | "lastChild") {
+        let related = {
+            let dom = state.dom.borrow();
+            let record = dom.arena().get(node)?;
+            match member {
+                "parentNode" => record.parent,
+                "firstChild" => record.children.first().copied(),
+                "lastChild" => record.children.last().copied(),
+                _ => unreachable!(),
+            }
+        };
+        return optional_node(scope, state, related);
+    }
+    if member == "childNodes" {
+        let children = state.dom.borrow().arena().get(node)?.children.clone();
+        return node_array(scope, state, &children);
+    }
+    if interface == "Document" && member == "documentElement" {
+        let document_element = state.dom.borrow().document_element();
+        return optional_node(scope, state, document_element);
+    }
+    if interface == "Node" && member == "ownerDocument" {
+        let owner = {
+            let dom = state.dom.borrow();
+            (!matches!(dom.arena().get(node)?.kind, NodeKind::Document)).then_some(dom.document())
+        };
+        return optional_node(scope, state, owner);
+    }
+    if interface == "Element" && member == "shadowRoot" {
+        let root = {
+            let dom = state.dom.borrow();
+            dom.arena()
+                .get(node)?
+                .children
+                .iter()
+                .copied()
+                .find(|child| {
+                    matches!(
+                        dom.arena().get(*child).ok().map(|record| &record.kind),
+                        Some(NodeKind::ShadowRoot {
+                            mode: ShadowMode::Open
+                        })
+                    )
+                })
+        };
+        return optional_node(scope, state, root);
+    }
+    if interface == "ShadowRoot" && member == "host" {
+        let host = state.dom.borrow().arena().get(node)?.parent;
+        return optional_node(scope, state, host);
+    }
     let dom = state.dom.borrow();
     let record = dom.arena().get(node)?;
     let value = match (interface, member) {
@@ -1399,13 +1603,6 @@ fn get_attribute_value<'s>(
         (_, "nodeType") => v8::Integer::new(scope, node_type(&record.kind)).into(),
         (_, "textContent") | ("HTMLElement", "innerText") => {
             v8_string(scope, &dom.arena().text_content(node)?)?
-        }
-        (_, "parentNode") => return optional_node(scope, state, record.parent),
-        (_, "firstChild") => return optional_node(scope, state, record.children.first().copied()),
-        (_, "lastChild") => return optional_node(scope, state, record.children.last().copied()),
-        (_, "childNodes") => return node_array(scope, state, &record.children),
-        ("Document", "documentElement") => {
-            return optional_node(scope, state, dom.document_element());
         }
         ("Element", "tagName") => v8_string(scope, &dom.node_name(node)?)?,
         ("Element", "id") => v8_string(
@@ -1420,7 +1617,17 @@ fn get_attribute_value<'s>(
             scope,
             record.attributes.get("class").map_or("", String::as_str),
         )?,
-        ("Element", "innerHTML") => {
+        ("CSSStyleDeclaration", "cssText") => v8_string(
+            scope,
+            record.attributes.get("style").map_or("", String::as_str),
+        )?,
+        ("CSSStyleDeclaration", member) => {
+            let property = css_property_name(member);
+            let styles =
+                inline_style_entries(record.attributes.get("style").map_or("", String::as_str));
+            v8_string(scope, styles.get(property).map_or("", String::as_str))?
+        }
+        ("Element" | "ShadowRoot", "innerHTML") => {
             let mut html = String::new();
             for child in &record.children {
                 html.push_str(&dom.serialize(*child)?);
@@ -1428,6 +1635,38 @@ fn get_attribute_value<'s>(
             v8_string(scope, &html)?
         }
         ("Element", "outerHTML") => v8_string(scope, &dom.serialize(node)?)?,
+        ("ShadowRoot", "mode") => match record.kind {
+            NodeKind::ShadowRoot {
+                mode: ShadowMode::Open,
+            } => v8_string(scope, "open")?,
+            NodeKind::ShadowRoot {
+                mode: ShadowMode::Closed,
+            } => v8_string(scope, "closed")?,
+            _ => return Err(DomError::StaleNode(node).into()),
+        },
+        ("HTMLSelectElement", "value") => {
+            let options = dom.query_selector_all(node, "option")?;
+            let option = options
+                .iter()
+                .copied()
+                .find(|option| {
+                    dom.arena()
+                        .get(*option)
+                        .is_ok_and(|record| record.attributes.contains_key("selected"))
+                })
+                .or_else(|| options.first().copied());
+            let value = option
+                .and_then(|option| dom.arena().get(option).ok().map(|record| (option, record)))
+                .map(|(option, record)| {
+                    record
+                        .attributes
+                        .get("value")
+                        .cloned()
+                        .unwrap_or_else(|| dom.arena().text_content(option).unwrap_or_default())
+                })
+                .unwrap_or_default();
+            v8_string(scope, &value)?
+        }
         (interface, "value") if interface.starts_with("HTML") => v8_string(
             scope,
             dom.value(node)?
@@ -1489,7 +1728,10 @@ fn set_attribute_value(
     member: &str,
     value: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
-    let value = if matches!((interface, member), ("Element", "innerHTML" | "outerHTML")) {
+    let value = if matches!(
+        (interface, member),
+        ("Element", "innerHTML" | "outerHTML") | ("ShadowRoot", "innerHTML")
+    ) {
         trusted_string(
             scope,
             state,
@@ -1525,7 +1767,28 @@ fn set_attribute_value(
         ("Element", "id") => dom.set_attribute(node, "id", value)?,
         ("Element", "className") => dom.set_attribute(node, "class", value)?,
         ("DOMTokenList", "value") => dom.set_attribute(node, "class", value)?,
+        ("CSSStyleDeclaration", "cssText") => dom.set_attribute(node, "style", value)?,
+        ("CSSStyleDeclaration", member) => {
+            set_inline_style_property(&mut dom, node, css_property_name(member), &value)?;
+        }
         ("Text" | "Comment", "data") => dom.set_text(node, value)?,
+        ("HTMLSelectElement", "value") => {
+            let options = dom.query_selector_all(node, "option")?;
+            for option in options {
+                let matches = dom
+                    .attribute(option, "value")?
+                    .is_some_and(|candidate| candidate == value)
+                    || dom
+                        .arena()
+                        .text_content(option)
+                        .is_ok_and(|text| text.trim() == value);
+                if matches {
+                    dom.set_attribute(option, "selected", "")?;
+                } else {
+                    dom.remove_attribute(option, "selected")?;
+                }
+            }
+        }
         (interface, "value") if interface.starts_with("HTML") => {
             dom.set_value(node, value, false)?
         }
@@ -1552,7 +1815,7 @@ fn set_attribute_value(
                 }
             }
         }
-        ("Element", "innerHTML") => {
+        ("Element" | "ShadowRoot", "innerHTML") => {
             dom.set_inner_html(node, &value)?;
             drop(dom);
             // HTML fragment parsing marks script elements already-started;
@@ -1591,22 +1854,51 @@ fn call_operation<'s>(
             state
                 .listeners
                 .borrow_mut()
-                .entry((node, event_type))
+                .entry((node, event_type.clone()))
                 .or_default()
                 .push(EventListener {
                     callback: v8::Global::new(scope, callback),
                 });
+            if event_type.eq_ignore_ascii_case("click")
+                && matches!(
+                    state.dom.borrow().arena().get(node)?.kind,
+                    NodeKind::Element { .. }
+                )
+            {
+                state
+                    .dom
+                    .borrow_mut()
+                    .set_attribute(node, "data-oryn-click-listener", "")?;
+            }
             Ok(None)
         }
         ("EventTarget", "removeEventListener") => {
             let event_type = required_string(scope, args, 0)?;
             let candidate = v8::Local::<v8::Function>::try_from(args.get(1)).ok();
-            if let Some(listeners) = state.listeners.borrow_mut().get_mut(&(node, event_type)) {
+            let is_click = event_type.eq_ignore_ascii_case("click");
+            let mut listener_map = state.listeners.borrow_mut();
+            if let Some(listeners) = listener_map.get_mut(&(node, event_type.clone())) {
                 listeners.retain(|listener| {
                     candidate.is_none_or(|candidate| {
                         !v8::Local::new(scope, &listener.callback).strict_equals(candidate.into())
                     })
                 });
+            }
+            let no_click_listeners = is_click
+                && listener_map
+                    .get(&(node, event_type))
+                    .is_none_or(Vec::is_empty);
+            drop(listener_map);
+            if no_click_listeners
+                && matches!(
+                    state.dom.borrow().arena().get(node)?.kind,
+                    NodeKind::Element { .. }
+                )
+            {
+                state
+                    .dom
+                    .borrow_mut()
+                    .remove_attribute(node, "data-oryn-click-listener")?;
             }
             Ok(None)
         }
@@ -1642,9 +1934,48 @@ fn call_operation<'s>(
             let event = create_event_object(scope, state, "", false, false)?;
             Ok(Some(event.into()))
         }
-        ("Document", "getElementById") => {
+        ("Element", "attachShadow") => {
+            let options = args
+                .get(0)
+                .to_object(scope)
+                .ok_or(V8BindingError::Allocation("ShadowRootInit"))?;
+            let mode_key = v8::String::new(scope, "mode")
+                .ok_or(V8BindingError::Allocation("ShadowRootInit.mode"))?;
+            let mode = options
+                .get(scope, mode_key.into())
+                .map(|value| value.to_rust_string_lossy(scope))
+                .unwrap_or_else(|| "open".into());
+            let mode = if mode.eq_ignore_ascii_case("closed") {
+                ShadowMode::Closed
+            } else {
+                ShadowMode::Open
+            };
+            let created = {
+                let mut dom = state.dom.borrow_mut();
+                if dom.arena().get(node)?.children.iter().any(|child| {
+                    matches!(
+                        dom.arena().get(*child).ok().map(|record| &record.kind),
+                        Some(NodeKind::ShadowRoot { .. })
+                    )
+                }) {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Element".into(),
+                        member: "attachShadow called more than once".into(),
+                    });
+                }
+                let root = dom.create(NodeKind::ShadowRoot { mode });
+                dom.append_child(node, root)?;
+                root
+            };
+            Ok(Some(wrap_node(scope, state, created)?.into()))
+        }
+        ("Document" | "ShadowRoot", "getElementById") => {
             let id = required_string(scope, args, 0)?;
-            let found = state.dom.borrow().find_by_id(&id);
+            let found = if interface == "Document" {
+                state.dom.borrow().find_by_id(&id)
+            } else {
+                state.dom.borrow().query_selector(node, &format!("#{id}"))?
+            };
             optional_node(scope, state, found).map(Some)
         }
         ("Document", "open") => {
@@ -1904,6 +2235,33 @@ fn call_operation<'s>(
                 v8::Integer::new_from_unsigned(scope, index as u32).into(),
             ))
         }
+        ("CSSStyleDeclaration", "getPropertyValue") => {
+            let property = required_string(scope, args, 0)?.to_ascii_lowercase();
+            let dom = state.dom.borrow();
+            let style = dom
+                .arena()
+                .get(node)?
+                .attributes
+                .get("style")
+                .cloned()
+                .unwrap_or_default();
+            let value = inline_style_entries(&style)
+                .remove(&property)
+                .unwrap_or_default();
+            Ok(Some(v8_string(scope, &value)?))
+        }
+        ("CSSStyleDeclaration", "setProperty") => {
+            let property = required_string(scope, args, 0)?.to_ascii_lowercase();
+            let value = required_string(scope, args, 1)?;
+            set_inline_style_property(&mut state.dom.borrow_mut(), node, &property, &value)?;
+            Ok(None)
+        }
+        ("CSSStyleDeclaration", "removeProperty") => {
+            let property = required_string(scope, args, 0)?.to_ascii_lowercase();
+            let previous =
+                set_inline_style_property(&mut state.dom.borrow_mut(), node, &property, "")?;
+            Ok(Some(v8_string(scope, &previous)?))
+        }
         ("HTMLElement", "focus") => {
             state.dom.borrow_mut().focus(Some(node))?;
             Ok(None)
@@ -1919,6 +2277,32 @@ fn call_operation<'s>(
         }
         ("HTMLFormElement", "requestSubmit" | "submit") => {
             let event = create_event_object(scope, state, "submit", true, true)?;
+            dispatch_event(scope, state, node, event)?;
+            Ok(None)
+        }
+        ("HTMLFormElement", "reset") => {
+            let controls = {
+                let dom = state.dom.borrow();
+                ["input", "textarea"]
+                    .into_iter()
+                    .flat_map(|selector| dom.query_selector_all(node, selector).unwrap_or_default())
+                    .map(|control| {
+                        let record = dom.arena().get(control)?;
+                        let value = if matches!(&record.kind, NodeKind::Element { name } if name.local.as_ref() == "textarea") {
+                            dom.arena().text_content(control).unwrap_or_default()
+                        } else {
+                            record.attributes.get("value").cloned().unwrap_or_default()
+                        };
+                        Ok((control, value))
+                    })
+                    .collect::<Result<Vec<_>, DomError>>()?
+            };
+            let mut dom = state.dom.borrow_mut();
+            for (control, value) in controls {
+                dom.set_value(control, value, false)?;
+            }
+            drop(dom);
+            let event = create_event_object(scope, state, "reset", true, false)?;
             dispatch_event(scope, state, node, event)?;
             Ok(None)
         }
@@ -2231,6 +2615,7 @@ fn call_event_operation<'s>(
     state: &Rc<V8BindingState>,
     object: v8::Local<v8::Object>,
     member: &str,
+    args: &v8::FunctionCallbackArguments,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let id = event_id(scope, object)?;
     let mut events = state.events.borrow_mut();
@@ -2238,6 +2623,12 @@ fn call_event_operation<'s>(
         .get_mut(&id)
         .ok_or(V8BindingError::Allocation("event record"))?;
     match member {
+        "initEvent" => {
+            event.event_type = required_string(scope, args, 0)?;
+            event.bubbles = args.get(1).boolean_value(scope);
+            event.cancelable = args.get(2).boolean_value(scope);
+            event.default_prevented = false;
+        }
         "preventDefault" if event.cancelable => event.default_prevented = true,
         "stopPropagation" => event.propagation_stopped = true,
         "stopImmediatePropagation" => {
@@ -2255,6 +2646,7 @@ fn dispatch_event(
     target: NodeId,
     object: v8::Local<v8::Object>,
 ) -> Result<bool, V8BindingError> {
+    v8::tc_scope!(let scope, scope);
     let id = event_id(scope, object)?;
     {
         let mut events = state.events.borrow_mut();
@@ -2299,7 +2691,18 @@ fn dispatch_event(
         let receiver = wrap_node(scope, state, current)?;
         for callback in callbacks {
             let callback = v8::Local::new(scope, &callback);
-            callback.call(scope, receiver.into(), &[object.into()]);
+            if callback
+                .call(scope, receiver.into(), &[object.into()])
+                .is_none()
+            {
+                let detail = scope
+                    .stack_trace()
+                    .or_else(|| scope.exception())
+                    .and_then(|value| value.to_string(scope))
+                    .map(|value| value.to_rust_string_lossy(scope))
+                    .unwrap_or_else(|| "JavaScript listener raised an exception".into());
+                return Err(V8BindingError::EventCallback(detail));
+            }
             if state
                 .events
                 .borrow()
@@ -2309,18 +2712,34 @@ fn dispatch_event(
                 break;
             }
         }
+        let event_type = state.events.borrow().get(&id).unwrap().event_type.clone();
+        let property = format!("on{event_type}");
         if !state
             .events
             .borrow()
             .get(&id)
             .is_some_and(|event| event.immediate_stopped)
+            && let Some(property) = v8::String::new(scope, &property)
+            && let Some(handler) = receiver.get(scope, property.into())
+            && let Ok(handler) = v8::Local::<v8::Function>::try_from(handler)
         {
-            let property = format!("on{}", state.events.borrow().get(&id).unwrap().event_type);
-            if let Some(property) = v8::String::new(scope, &property)
-                && let Some(handler) = receiver.get(scope, property.into())
-                && let Ok(handler) = v8::Local::<v8::Function>::try_from(handler)
-            {
-                handler.call(scope, receiver.into(), &[object.into()]);
+            let result = handler
+                .call(scope, receiver.into(), &[object.into()])
+                .ok_or_else(|| {
+                    let detail = scope
+                        .stack_trace()
+                        .or_else(|| scope.exception())
+                        .and_then(|value| value.to_string(scope))
+                        .map(|value| value.to_rust_string_lossy(scope))
+                        .unwrap_or_else(|| "event property handler raised an exception".into());
+                    V8BindingError::EventCallback(detail)
+                })?;
+            if result.is_false() {
+                let mut events = state.events.borrow_mut();
+                let event = events.get_mut(&id).unwrap();
+                if event.cancelable {
+                    event.default_prevented = true;
+                }
             }
         }
     }

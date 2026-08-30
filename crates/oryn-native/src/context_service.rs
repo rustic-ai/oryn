@@ -508,7 +508,10 @@ impl SharedContextClient {
 
     #[cfg(feature = "v8-host")]
     pub(crate) fn direct(context: BrowserContext, source_page_id: PageId) -> Self {
-        Self(Arc::new(ParentContextService::new(context, source_page_id)))
+        Self(Arc::new(ParentContextService::new_direct(
+            context,
+            source_page_id,
+        )))
     }
 
     pub fn request(
@@ -527,6 +530,7 @@ pub struct ParentContextService {
     network: Option<SharedNetworkBroker>,
     next_http_stream_id: AtomicU64,
     http_streams: Mutex<BTreeMap<u64, HttpStreamState>>,
+    trusted_in_process_runtime: bool,
 }
 
 struct HttpStreamState {
@@ -555,7 +559,16 @@ impl ParentContextService {
             network,
             next_http_stream_id: AtomicU64::new(1),
             http_streams: Mutex::new(BTreeMap::new()),
+            trusted_in_process_runtime: false,
         }
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn new_direct(context: BrowserContext, source_page_id: PageId) -> Self {
+        let network = context.shared_network_broker();
+        let mut service = Self::new_with_network(context, source_page_id, network);
+        service.trusted_in_process_runtime = true;
+        service
     }
 
     pub(crate) fn handle(
@@ -711,12 +724,17 @@ impl ParentContextService {
                         "worker cannot install policy for another page".into(),
                     ));
                 }
-                #[cfg(test)]
-                self.context
-                    .install_document_security(page_id, document_url, &headers)?;
-                #[cfg(not(test))]
-                self.context
-                    .verify_document_security(page_id, &document_url, &headers)?;
+                if self.trusted_in_process_runtime {
+                    self.context
+                        .install_document_security(page_id, document_url, &headers)?;
+                } else {
+                    #[cfg(test)]
+                    self.context
+                        .install_document_security(page_id, document_url, &headers)?;
+                    #[cfg(not(test))]
+                    self.context
+                        .verify_document_security(page_id, &document_url, &headers)?;
+                }
                 Ok(ContextServiceResponse::DocumentSecurityInstalled)
             }
             ContextServiceRequest::InstallMetaSecurity {
@@ -1132,9 +1150,10 @@ impl ParentContextService {
         if cross_origin
             && !cors_headers_allowed(&source_origin, request.credentials, &response.headers)
         {
-            return Err(RuntimeError::ContextService(
-                "cross-origin response denied by CORS".into(),
-            ));
+            return Err(RuntimeError::ContextService(format!(
+                "cross-origin response denied by CORS: initiator={source_origin}, response={}",
+                target.origin().ascii_serialization()
+            )));
         }
         if response
             .content_length

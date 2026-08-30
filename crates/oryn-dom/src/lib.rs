@@ -428,6 +428,17 @@ impl DomRuntime {
     pub fn set_inner_html(&mut self, node: NodeId, markup: &str) -> Result<(), DomError> {
         let context_name = match &self.arena.get(node)?.kind {
             NodeKind::Element { name } => name.local.to_string(),
+            NodeKind::ShadowRoot { .. } => self
+                .arena
+                .get(node)?
+                .parent
+                .and_then(|host| self.arena.get(host).ok())
+                .and_then(|host| match &host.kind {
+                    NodeKind::Element { name } => Some(name.local.to_string()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| "div".into()),
+            NodeKind::DocumentFragment => "div".into(),
             _ => return Err(DomError::NotAnElement(node)),
         };
         let parsed = html::parse_fragment(markup, &context_name);

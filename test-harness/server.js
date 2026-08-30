@@ -3,6 +3,7 @@ const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '127.0.0.1';
 
 app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} [HARNESS] ${req.method} ${req.url}`);
@@ -64,6 +65,6 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Test harness running at http://0.0.0.0:${PORT}`);
+app.listen(PORT, HOST, () => {
+    console.log(`Test harness running at http://${HOST}:${PORT}`);
 });

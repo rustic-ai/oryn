@@ -20,6 +20,98 @@ pub struct GeneratedInterface {
     pub parent: Option<&'static str>,
     pub members: &'static [GeneratedMember],
 }
+pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "cssText",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "display",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "visibility",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "width",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "height",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "position",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "top",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "left",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "right",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "bottom",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "overflow",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "opacity",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "getPropertyValue",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "setProperty",
+        kind: GeneratedMemberKind::Operation,
+        arity: 3,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "removeProperty",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+];
 pub const C_S_S_STYLE_SHEET_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "insertRule",
@@ -36,6 +128,7 @@ pub const COMMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
 ];
+pub const CUSTOM_EVENT_MEMBERS: &[GeneratedMember] = &[];
 pub const D_O_M_RECT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "x",
@@ -262,6 +355,18 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
     GeneratedMember {
+        name: "shadowRoot",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "attachShadow",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
         name: "getAttribute",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -360,6 +465,12 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         readonly: true,
     },
     GeneratedMember {
+        name: "initEvent",
+        kind: GeneratedMemberKind::Operation,
+        arity: 3,
+        readonly: false,
+    },
+    GeneratedMember {
         name: "preventDefault",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -446,6 +557,18 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
     GeneratedMember {
+        name: "style",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "dataset",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
         name: "click",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -491,6 +614,12 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         name: "submit",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "reset",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
         readonly: false,
@@ -668,6 +797,12 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         readonly: true,
     },
     GeneratedMember {
+        name: "ownerDocument",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
         name: "parentNode",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -840,6 +975,32 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         readonly: true,
     },
 ];
+pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "innerHTML",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "mode",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "host",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "getElementById",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+];
 pub const TEXT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "data",
@@ -984,6 +1145,11 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
 ];
 pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
     GeneratedInterface {
+        name: "CSSStyleDeclaration",
+        parent: None,
+        members: C_S_S_STYLE_DECLARATION_MEMBERS,
+    },
+    GeneratedInterface {
         name: "CSSStyleSheet",
         parent: None,
         members: C_S_S_STYLE_SHEET_MEMBERS,
@@ -992,6 +1158,11 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         name: "Comment",
         parent: Some("Node"),
         members: COMMENT_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "CustomEvent",
+        parent: Some("Event"),
+        members: CUSTOM_EVENT_MEMBERS,
     },
     GeneratedInterface {
         name: "DOMRect",
@@ -1097,6 +1268,11 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         name: "SecurityPolicyViolationEvent",
         parent: Some("Event"),
         members: SECURITY_POLICY_VIOLATION_EVENT_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "ShadowRoot",
+        parent: Some("DocumentFragment"),
+        members: SHADOW_ROOT_MEMBERS,
     },
     GeneratedInterface {
         name: "Text",

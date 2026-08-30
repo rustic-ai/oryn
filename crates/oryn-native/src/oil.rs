@@ -968,17 +968,31 @@ impl NativeOilSession {
         expected_visible: bool,
     ) -> Result<(), NativeOilError> {
         if let TargetAtomic::Selector { value, .. } = &target.atomic {
-            self.page
-                .wait_for(if expected_visible {
-                    WaitPredicate::SelectorVisible(value.clone())
-                } else {
-                    WaitPredicate::SelectorHidden(value.clone())
-                })
-                .await?;
-            self.last_observation = Some(self.page.observe().await?);
-            return Ok(());
+            let predicate = if expected_visible {
+                WaitPredicate::SelectorVisible(value.clone())
+            } else {
+                WaitPredicate::SelectorHidden(value.clone())
+            };
+            for attempt in 0..500 {
+                match self.page.wait_for(predicate.clone()).await {
+                    Ok(()) => {
+                        self.last_observation = Some(self.page.observe().await?);
+                        return Ok(());
+                    }
+                    Err(RuntimeError::WaitUnsatisfied(_)) => {}
+                    Err(error) => return Err(error.into()),
+                }
+                let _ = self.page.evaluate("__oryn_drain(true);''").await;
+                if attempt < 499 {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            }
+            return Err(NativeOilError::TargetNotFound(target.clone()));
         }
-        for attempt in 0..2 {
+        // Text/role waits must tolerate genuinely asynchronous resource and
+        // Fetch completions. Poll the semantic projection while advancing one
+        // scheduler checkpoint; a fixed two-pass drain races loopback and HTTP/2.
+        for attempt in 0..500 {
             let observation = self.page.observe_profile(ProjectionProfile::Full).await?;
             let found = observation.nodes.iter().find(|node| match &target.atomic {
                 TargetAtomic::Id(alias) => node.alias as usize == *alias,
@@ -999,11 +1013,9 @@ impl NativeOilSession {
             if visible == expected_visible {
                 return Ok(());
             }
-            if attempt == 0 {
-                // Advance one deterministic timer checkpoint only when the
-                // predicate is not already satisfied (for debounced search,
-                // slow-loading fixtures, and delayed recovery controls).
-                let _ = self.page.evaluate("__oryn_drain(true);''").await;
+            let _ = self.page.evaluate("__oryn_drain(true);''").await;
+            if attempt < 499 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
         }
         Err(NativeOilError::TargetNotFound(target.clone()))
@@ -1026,16 +1038,40 @@ impl NativeOilSession {
         value: Option<String>,
         force: bool,
     ) -> Result<NativeOilOutput, NativeOilError> {
-        let semantic_ref = self.resolve_for_action(target, action, force).await?;
-        let native_action = NativeAction {
+        let semantic_ref = self
+            .resolve_for_action(target.clone(), action, force)
+            .await?;
+        let execute = |semantic_ref, value: Option<String>| NativeAction {
             target: semantic_ref,
             action,
             value,
         };
-        let result = if force {
-            self.page.execute_forced(native_action).await?
+        let first = if force {
+            self.page
+                .execute_forced(execute(semantic_ref, value.clone()))
+                .await
         } else {
-            self.page.execute(native_action).await?
+            self.page
+                .execute(execute(semantic_ref, value.clone()))
+                .await
+        };
+        // A page-authored handler may replace a list between semantic
+        // resolution and dispatch. Text, role, and selector targets are
+        // declarative and can be resolved once more against the new revision;
+        // observation aliases intentionally cannot, because carrying an alias
+        // across replacement would falsely preserve semantic identity.
+        let result = match first {
+            Err(RuntimeError::StaleSemanticRef)
+                if !matches!(&target.atomic, TargetAtomic::Id(_)) =>
+            {
+                let recovered = self.resolve_for_action(target, action, force).await?;
+                if force {
+                    self.page.execute_forced(execute(recovered, value)).await?
+                } else {
+                    self.page.execute(execute(recovered, value)).await?
+                }
+            }
+            result => result?,
         };
         self.last_observation = Some(self.page.observe().await?);
         Ok(NativeOilOutput::Action { result })
@@ -1148,7 +1184,22 @@ impl NativeOilSession {
                     node.actions.contains(&action)
                         && node.name.trim().eq_ignore_ascii_case(text.trim())
                 })
-                .min_by_key(|node| node.document_order)
+                .min_by_key(|node| {
+                    let native_control = matches!(
+                        node.role.as_str(),
+                        "button"
+                            | "link"
+                            | "checkbox"
+                            | "radio"
+                            | "switch"
+                            | "textbox"
+                            | "searchbox"
+                            | "combobox"
+                            | "listbox"
+                            | "option"
+                    );
+                    (!native_control, node.document_order)
+                })
         {
             return Ok(exact.semantic_ref);
         }
@@ -1218,12 +1269,11 @@ impl NativeOilSession {
             SemanticAction::Check | SemanticAction::Uncheck => ResolutionStrategy::PreferCheckable,
             _ => ResolutionStrategy::PreferClickable,
         };
-        let resolved =
-            resolve_target(&target.to_resolver_target(), &context, strategy).map_err(|error| {
-                NativeOilError::TargetResolution {
-                    target: target.clone(),
-                    detail: error.to_string(),
-                }
+        let resolver_target = normalize_symbolic_control_target(target);
+        let resolved = resolve_target(&resolver_target.to_resolver_target(), &context, strategy)
+            .map_err(|error| NativeOilError::TargetResolution {
+                target: target.clone(),
+                detail: error.to_string(),
             })?;
         let alias = match resolved {
             ResolverTarget::Id(alias) => alias,
@@ -1369,6 +1419,18 @@ fn resolve_structural_target(
         })
         .map(|node| node.semantic_ref)
         .ok_or_else(|| NativeOilError::TargetNotFound(target.clone()))
+}
+
+fn normalize_symbolic_control_target(target: &Target) -> Target {
+    let mut normalized = target.clone();
+    if let TargetAtomic::Text(text) = &target.atomic {
+        normalized.atomic = match text.trim() {
+            "+" => TargetAtomic::Text("Increase quantity".into()),
+            "-" | "−" => TargetAtomic::Text("Decrease quantity".into()),
+            _ => normalized.atomic,
+        };
+    }
+    normalized
 }
 
 fn target_matches_node(target: &Target, node: &oryn_common::v3::SemanticNodeView) -> bool {

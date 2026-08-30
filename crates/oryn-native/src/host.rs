@@ -775,6 +775,48 @@ mod raw_v8 {
             result.and(cleanup_result)
         }
 
+        /// Evaluate a boolean expression with a Rust-owned node exposed through
+        /// the same short-lived task global used by generated action bindings.
+        pub fn evaluate_bool_with_node(
+            &mut self,
+            node: NodeId,
+            global_name: &str,
+            source: &str,
+        ) -> Result<bool, HostError> {
+            let realm = self.active_realm;
+            let state = self
+                .binding_states
+                .get(&realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?;
+            let context = self
+                .contexts
+                .get(&realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active realm is unavailable".into()))?;
+            {
+                v8::scope!(let handle_scope, &mut self.isolate);
+                let context = v8::Local::new(handle_scope, &context);
+                let scope = &mut v8::ContextScope::new(handle_scope, context);
+                let wrapper = wrap_node(scope, &state, node)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                let name = v8::String::new(scope, global_name).ok_or_else(|| {
+                    HostError::Execution("action global allocation failed".into())
+                })?;
+                context.global(scope).define_own_property(
+                    scope,
+                    name.into(),
+                    wrapper.into(),
+                    v8::PropertyAttribute::DONT_ENUM,
+                );
+            }
+            let result = self.evaluate_string(source);
+            let cleanup = format!("delete globalThis[{global_name:?}]");
+            let cleanup_result = self.execute(&cleanup);
+            cleanup_result?;
+            Ok(result? == "true")
+        }
+
         pub fn process_binding_releases(&mut self) -> Result<usize, HostError> {
             self.binding_states
                 .values()
@@ -2136,7 +2178,10 @@ mod raw_v8 {
                     || (!includes_credentials && allowed_origin == "*"))
                     && credentials_allowed)
                 {
-                    return Err("cross-origin fetch denied by CORS".into());
+                    return Err(format!(
+                        "cross-origin fetch denied by CORS: initiator={request_origin}, response={}",
+                        origin(&url)
+                    ));
                 }
             }
             return serde_json::to_string(&FetchResult {

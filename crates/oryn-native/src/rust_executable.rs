@@ -32,14 +32,18 @@ globalThis.console={
   error:(...values)=>__oryn_console.push({level:'error',message:values.map(String).join(' ')})
 };
 globalThis.__oryn_take_console=()=>__oryn_console.splice(0);
+globalThis.alert=value=>{__oryn_console.push({level:'info',message:'alert: '+String(value)})};
+globalThis.confirm=value=>{__oryn_console.push({level:'info',message:'confirm dismissed: '+String(value)});return false};
+globalThis.prompt=value=>{__oryn_console.push({level:'info',message:'prompt dismissed: '+String(value)});return null};
 globalThis.__oryn_context_trace=[];
 globalThis.__oryn_take_context_trace=()=>__oryn_context_trace.splice(0);
 globalThis.__oryn_custom_reactions=[];
 globalThis.__oryn_run_custom_reactions=()=>{for(let rounds=0;__oryn_custom_reactions.length&&rounds<1024;rounds++){const reactions=__oryn_custom_reactions.splice(0);for(const reaction of reactions)reaction()}if(__oryn_custom_reactions.length)throw new Error('custom-element reaction limit exceeded')};
 globalThis.__oryn_custom_definitions=new Map();
-const __oryn_upgrade_custom_element=node=>{if(!node||!node.tagName)return node;const definition=__oryn_custom_definitions.get(String(node.tagName).toLowerCase());if(!definition||node.__orynCustomDefinition===definition)return node;node.__orynCustomDefinition=definition;try{Object.setPrototypeOf(node,definition.prototype);const constructed=Reflect.construct(definition,[],definition);for(const key of Reflect.ownKeys(constructed))try{node[key]=constructed[key]}catch(_){}}catch(error){__oryn_console.push({level:'error',message:'custom element constructor: '+String(error)})}return node};
-globalThis.customElements={define(name,constructor){name=String(name).toLowerCase();if(!name.includes('-'))throw new Error('custom element name must contain a hyphen');if(__oryn_custom_definitions.has(name))throw new Error('custom element already defined');__oryn_custom_definitions.set(name,constructor);for(const node of document.querySelectorAll(name)){__oryn_upgrade_custom_element(node);if(typeof node.connectedCallback==='function')__oryn_custom_reactions.push(()=>node.connectedCallback())}},get(name){return __oryn_custom_definitions.get(String(name).toLowerCase())},whenDefined(name){name=String(name).toLowerCase();if(this.get(name))return Promise.resolve(this.get(name));return new Promise(resolve=>{const timer=setInterval(()=>{if(this.get(name)){clearInterval(timer);resolve(this.get(name))}},1)})},upgrade(root){if(root&&root.tagName)__oryn_upgrade_custom_element(root);if(root&&root.querySelectorAll)for(const node of root.querySelectorAll('*'))__oryn_upgrade_custom_element(node)}};
-for(const [owner,method] of [[Document.prototype,'createElement'],[Node.prototype,'appendChild'],[Node.prototype,'insertBefore'],[Node.prototype,'replaceChild']]){const native=owner[method];if(typeof native!=='function')continue;Object.defineProperty(owner,method,{configurable:true,writable:true,value:function(...args){const result=native.apply(this,args);const node=method==='createElement'?result:args[0];__oryn_upgrade_custom_element(node);if(method!=='createElement'&&node&&typeof node.connectedCallback==='function')__oryn_custom_reactions.push(()=>node.connectedCallback());return result}})}
+const __oryn_upgrade_custom_element=node=>{if(!node||!node.tagName)return false;const definition=__oryn_custom_definitions.get(String(node.tagName).toLowerCase());if(!definition||node.__orynCustomDefinition===definition)return false;node.__orynCustomDefinition=definition;try{Object.setPrototypeOf(node,definition.prototype);const constructed=Reflect.construct(definition,[],definition);for(const key of Reflect.ownKeys(constructed))try{node[key]=constructed[key]}catch(_){}}catch(error){__oryn_console.push({level:'error',message:'custom element constructor: '+String(error)})}return true};
+const __oryn_queue_connected=node=>{if(node&&typeof node.connectedCallback==='function'&&!node.__orynConnected){node.__orynConnected=true;__oryn_custom_reactions.push(()=>node.connectedCallback())}};
+globalThis.customElements={define(name,constructor){name=String(name).toLowerCase();if(!name.includes('-'))throw new Error('custom element name must contain a hyphen');if(__oryn_custom_definitions.has(name))throw new Error('custom element already defined');__oryn_custom_definitions.set(name,constructor);for(const node of document.querySelectorAll(name))if(__oryn_upgrade_custom_element(node))__oryn_queue_connected(node)},get(name){return __oryn_custom_definitions.get(String(name).toLowerCase())},whenDefined(name){name=String(name).toLowerCase();if(this.get(name))return Promise.resolve(this.get(name));return new Promise(resolve=>{const timer=setInterval(()=>{if(this.get(name)){clearInterval(timer);resolve(this.get(name))}},1)})},upgrade(root){const apply=node=>{if(__oryn_upgrade_custom_element(node))__oryn_queue_connected(node)};if(root&&root.tagName)apply(root);if(root&&root.querySelectorAll)for(const node of root.querySelectorAll('*'))apply(node)}};
+for(const [owner,method] of [[Document.prototype,'createElement'],[Node.prototype,'appendChild'],[Node.prototype,'insertBefore'],[Node.prototype,'replaceChild']]){const native=owner[method];if(typeof native!=='function')continue;Object.defineProperty(owner,method,{configurable:true,writable:true,value:function(...args){const result=native.apply(this,args);const node=method==='createElement'?result:args[0];__oryn_upgrade_custom_element(node);if(method!=='createElement')__oryn_queue_connected(node);return result}})}
 globalThis.__oryn_animation_frames=new Map();globalThis.__oryn_next_animation_frame=1;
 globalThis.requestAnimationFrame=callback=>{const id=__oryn_next_animation_frame++;__oryn_animation_frames.set(id,callback);return id};
 globalThis.cancelAnimationFrame=id=>__oryn_animation_frames.delete(Number(id));
@@ -161,7 +165,7 @@ class OrynRequest {constructor(input,init={}){this.url=new OrynURL(input&&input.
 globalThis.Request=OrynRequest;
 const __orynInputFiles=node=>{const encoded=node.getAttribute('data-oryn-upload-files');if(!encoded)return [];try{return JSON.parse(encoded).map(file=>new OrynFile([base64ToBytes(file.body_base64)],file.filename,{type:file.media_type,lastModified:file.last_modified}))}catch(_){return []}};
 if(globalThis.HTMLInputElement)Object.defineProperty(HTMLInputElement.prototype,'files',{configurable:true,get(){return __orynInputFiles(this)}});
-class OrynFormData {constructor(form){this.items=[];if(form)for(const node of [...form.querySelectorAll('input'),...form.querySelectorAll('textarea'),...form.querySelectorAll('select')]){const name=node.getAttribute('name');if(!name||node.disabled)continue;const type=(node.getAttribute('type')||'').toLowerCase();if((type==='checkbox'||type==='radio')&&!node.checked)continue;if(type==='file'){for(const file of __orynInputFiles(node))this.append(name,file);continue}this.append(name,node.value)}}append(name,value,filename){if(filename!==undefined&&value instanceof OrynBlob)value=new OrynFile([value.__bytes],filename,{type:value.type});this.items.push([String(name),value instanceof OrynBlob?value:String(value)])}set(name,value,filename){this.delete(name);this.append(name,value,filename)}get(name){const item=this.items.find(item=>item[0]===String(name));return item?item[1]:null}getAll(name){return this.items.filter(item=>item[0]===String(name)).map(item=>item[1])}has(name){return this.items.some(item=>item[0]===String(name))}delete(name){this.items=this.items.filter(item=>item[0]!==String(name))}[Symbol.iterator](){return this.items[Symbol.iterator]()}}
+class OrynFormData {constructor(form){this.items=[];if(form)for(const node of [...form.querySelectorAll('input'),...form.querySelectorAll('textarea'),...form.querySelectorAll('select')]){const name=node.getAttribute('name');if(!name||node.disabled)continue;const type=(node.getAttribute('type')||'').toLowerCase();if((type==='checkbox'||type==='radio')&&!node.checked)continue;if(type==='file'){for(const file of __orynInputFiles(node))this.append(name,file);continue}this.append(name,node.value)}}append(name,value,filename){if(filename!==undefined&&value instanceof OrynBlob)value=new OrynFile([value.__bytes],filename,{type:value.type});this.items.push([String(name),value instanceof OrynBlob?value:String(value)])}set(name,value,filename){this.delete(name);this.append(name,value,filename)}get(name){const item=this.items.find(item=>item[0]===String(name));return item?item[1]:null}getAll(name){return this.items.filter(item=>item[0]===String(name)).map(item=>item[1])}has(name){return this.items.some(item=>item[0]===String(name))}delete(name){this.items=this.items.filter(item=>item[0]!==String(name))}entries(){return this.items[Symbol.iterator]()}keys(){return this.items.map(item=>item[0])[Symbol.iterator]()}values(){return this.items.map(item=>item[1])[Symbol.iterator]()}[Symbol.iterator](){return this.entries()}}
 globalThis.FormData=OrynFormData;
 globalThis.crypto={getRandomValues(array){const encoded=__oryn_crypto_sync('random',String(array.byteLength));array.set(base64ToBytes(encoded));return array},randomUUID(){const bytes=new Uint8Array(16);this.getRandomValues(bytes);bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;const hex=[...bytes].map(value=>value.toString(16).padStart(2,'0')).join('');return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`},subtle:{digest(algorithm,value){if(String(algorithm).toUpperCase()!=='SHA-256')return Promise.reject(new Error('unsupported digest'));const result=base64ToBytes(__oryn_crypto_sync('sha256',bytesToBase64(bodyBytes(value))));return Promise.resolve(result.buffer)}}};
 const __oryn_idb_call=command=>{const outer=contextCall({operation:'storage',request:{operation:'indexed_db',origin:location.origin,command}});if(outer.result!=='storage'||outer.response.result!=='indexed_db')throw new Error('invalid IndexedDB response');return outer.response.response};
@@ -174,12 +178,11 @@ class OrynIDBTransaction {constructor(db,names,mode='readonly'){this.db=db;this.
 class OrynIDBDatabase {constructor(name,version,stores=[]){this.name=String(name);this.version=version;this.objectStoreNames=stores}createObjectStore(name,options={}){const response=__oryn_idb_call({command:'create_object_store',database:this.name,definition:{name:String(name),key_path:options.keyPath??null,auto_increment:!!options.autoIncrement}});this.objectStoreNames=response.object_stores;return new OrynIDBObjectStore(new OrynIDBTransaction(this,[name],'versionchange'),name)}transaction(names,mode='readonly'){return new OrynIDBTransaction(this,names,mode)}close(){}}
 globalThis.indexedDB={open(name,version=0){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'open',name:String(name),version:Number(version)||0});const db=new OrynIDBDatabase(name,response.version,response.object_stores);queueMicrotask(()=>{request.result=db;if(response.upgrade_needed)request.__fire('upgradeneeded',{oldVersion:response.old_version,newVersion:response.version});request.__fire('success')})}catch(error){request.__failure(error)}return request},deleteDatabase(name){const request=new OrynIDBRequest();try{__oryn_idb_call({command:'delete_database',name:String(name)});request.__success(undefined)}catch(error){request.__failure(error)}return request}};
 if(typeof globalThis.__oryn_fetch_async==='function')globalThis.fetch=(input,init={})=>{
-  const method=String(init.method||'GET').toUpperCase();
-  const headers=[...new OrynHeaders(init.headers||[])];
-  const signal=init.signal||null;if(signal&&signal.aborted)return Promise.reject(signal.reason||new Error('AbortError'));
-  const bytes=bodyBytes(init.body);
-  __oryn_context_trace.push({kind:'request_started',detail:{method,url:String(input),bytes:bytes.length}});
-  return globalThis.__oryn_fetch_async(String(input),method,bytesToBase64(bytes),JSON.stringify(headers),'base64',init.credentials||'same-origin').then(raw=>{
+  const request=input instanceof OrynRequest?new OrynRequest(input.url,{method:init.method||input.method,headers:init.headers||input.headers,body:init.body??input.body,signal:init.signal||input.signal,credentials:init.credentials||input.credentials}):new OrynRequest(input,init);
+  const method=request.method,headers=[...request.headers],signal=request.signal||null;if(signal&&signal.aborted)return Promise.reject(signal.reason||new Error('AbortError'));
+  const bytes=bodyBytes(request.body);
+  __oryn_context_trace.push({kind:'request_started',detail:{method,url:request.url,bytes:bytes.length}});
+  return globalThis.__oryn_fetch_async(request.url,method,bytesToBase64(bytes),JSON.stringify(headers),'base64',request.credentials).then(raw=>{
     if(signal&&signal.aborted)throw signal.reason||new Error('AbortError');
     const result=JSON.parse(raw);let encoded=atob(result.body_base64||'');const responseBytes=Uint8Array.from(encoded,value=>value.charCodeAt(0));
     const chunks=(result.body_chunks_base64||[]).map(base64ToBytes);__oryn_context_trace.push({kind:'response_received',detail:{url:result.url,status:result.status,bytes:result.stream_id===null?responseBytes.length:null}});for(const chunk of chunks)__oryn_context_trace.push({kind:'stream_chunk',detail:{direction:'response',bytes:chunk.length}});
@@ -338,16 +341,6 @@ impl RustExecutableDocument {
                     parsed.dom.text_content(id).unwrap_or_default(),
                     parser_blocking,
                 )
-            })
-            .collect::<Vec<_>>();
-        let inline_handlers = parsed
-            .dom
-            .iter()
-            .flat_map(|(id, node)| {
-                node.attributes.iter().filter_map(move |(name, source)| {
-                    name.strip_prefix("on")
-                        .map(|event| (id, event.to_string(), source.clone()))
-                })
             })
             .collect::<Vec<_>>();
         let frame_sources = parsed
@@ -513,35 +506,6 @@ impl RustExecutableDocument {
             if let Some((page_id, _)) = context_identity {
                 host.execute(&format!("__oryn_configure_context({}, null)", page_id.0))?;
             }
-            let child_handlers = subtree_nodes(&live_dom.borrow(), child_document)?
-                .into_iter()
-                .flat_map(|node| {
-                    live_dom
-                        .borrow()
-                        .arena()
-                        .get(node)
-                        .ok()
-                        .into_iter()
-                        .flat_map(move |record| {
-                            record.attributes.iter().filter_map(move |(name, source)| {
-                                name.strip_prefix("on")
-                                    .map(|event| (node, event.to_string(), source.clone()))
-                            })
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .collect::<Vec<_>>();
-            for (node, event, source) in child_handlers {
-                let event = serde_json::to_string(&event)
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                host.execute_with_node(
-                    node,
-                    "__oryn_inline_target",
-                    &format!(
-                        "__oryn_inline_target.addEventListener({event},function(event){{{source}}})"
-                    ),
-                )?;
-            }
             let imported_scripts = live_dom
                 .borrow()
                 .query_selector_all(child_document, "script")
@@ -555,17 +519,6 @@ impl RustExecutableDocument {
             host.set_document_write_anchor(None)?;
             host.activate_realm(top_realm)?;
             host.set_frame_document(frame, child_document)?;
-        }
-        for (node, event, source) in inline_handlers {
-            let event = serde_json::to_string(&event)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            host.execute_with_node(
-                node,
-                "__oryn_inline_target",
-                &format!(
-                    "__oryn_inline_target.addEventListener({event},function(event){{{source}}})"
-                ),
-            )?;
         }
         for (script, src, script_type, inline, parser_blocking) in scripts {
             let parser_suspension = parser_blocking
@@ -592,7 +545,10 @@ impl RustExecutableDocument {
                 continue;
             }
             if script_type.as_deref().is_some_and(|kind| {
-                !matches!(kind, "" | "text/javascript" | "application/javascript")
+                !matches!(
+                    kind,
+                    "" | "text/javascript" | "application/javascript" | "text/babel"
+                )
             }) {
                 if let Some(suspension) = parser_suspension {
                     live_dom
@@ -607,6 +563,17 @@ impl RustExecutableDocument {
                 .and_then(|src| resources.get(src))
                 .map(String::as_str)
                 .unwrap_or(&inline);
+            let transformed;
+            let source = if script_type.as_deref() == Some("text/babel") {
+                let encoded = serde_json::to_string(source)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                transformed = host.evaluate_string(&format!(
+                    "Babel.transform({encoded},{{presets:['react']}}).code"
+                ))?;
+                transformed.as_str()
+            } else {
+                source
+            };
             if let Err(error) = host.execute(source) {
                 diagnostics.push(script_diagnostic(error));
             }
@@ -644,9 +611,15 @@ impl RustExecutableDocument {
         // are force-async but still participate in the document load barrier.
         page.drain_dynamic_scripts()?;
         page.host.drain_async_fetches(true)?;
+        // Zero-delay framework commits queued before load run at this
+        // checkpoint. Future timers retain their deadlines and must not be
+        // pulled forward merely because navigation reached the load barrier.
+        page.host.drain_scheduled_timers(false)?;
+        page.checkpoint()?;
         page.host.execute(
             "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
         )?;
+        page.host.drain_scheduled_timers(false)?;
         page.checkpoint()?;
         Ok(page)
     }
@@ -657,6 +630,9 @@ impl RustExecutableDocument {
     }
 
     pub fn evaluate(&mut self, source: &str) -> Result<String, HostError> {
+        if source.contains("__oryn_drain(true)") {
+            self.drain_tasks()?;
+        }
         let value = self.host.evaluate_string(source)?;
         self.checkpoint()?;
         Ok(value)
@@ -817,8 +793,39 @@ impl RustExecutableDocument {
         value: Option<&str>,
         sensitive: bool,
     ) -> Result<(), HostError> {
+        let submission_form = self.submission_form(target, action)?;
+        let submits_form = submission_form.is_some();
         let event_source = match action {
-            SemanticAction::Click => "__oryn_action_target.click()",
+            SemanticAction::Click => {
+                let input_kind = {
+                    let dom = self.live_dom.borrow();
+                    dom.node_name(target)
+                        .is_ok_and(|name| name.eq_ignore_ascii_case("input"))
+                        .then(|| {
+                            dom.attribute(target, "type")
+                                .ok()
+                                .flatten()
+                                .unwrap_or("")
+                                .to_ascii_lowercase()
+                        })
+                };
+                if matches!(input_kind.as_deref(), Some("checkbox" | "radio")) {
+                    let mut dom = self.live_dom.borrow_mut();
+                    if input_kind.as_deref() == Some("checkbox")
+                        && dom
+                            .attribute(target, "checked")
+                            .map_err(|error| HostError::Execution(error.to_string()))?
+                            .is_some()
+                    {
+                        dom.remove_attribute(target, "checked")
+                            .map_err(|error| HostError::Execution(error.to_string()))?;
+                    } else {
+                        dom.set_attribute(target, "checked", "")
+                            .map_err(|error| HostError::Execution(error.to_string()))?;
+                    }
+                }
+                ""
+            }
             SemanticAction::Type | SemanticAction::Clear => {
                 self.live_dom
                     .borrow_mut()
@@ -876,7 +883,7 @@ impl RustExecutableDocument {
             SemanticAction::Hover => {
                 "__oryn_action_target.dispatchEvent(new Event('mouseover',{bubbles:true}))"
             }
-            SemanticAction::Submit => "__oryn_action_target.requestSubmit()",
+            SemanticAction::Submit => "",
             _ => {
                 return Err(HostError::Execution(format!(
                     "unsupported native executable action {action:?}"
@@ -889,15 +896,78 @@ impl RustExecutableDocument {
             .copied()
             .unwrap_or(self.top_realm);
         self.host.activate_realm(action_realm)?;
-        let action_result =
+        let action_accepted = if action == SemanticAction::Click {
+            self.host.evaluate_bool_with_node(
+                target,
+                "__oryn_action_target",
+                "__oryn_action_target.dispatchEvent(new Event('click',{bubbles:true,cancelable:true}))",
+            )
+        } else {
             self.host
-                .execute_with_node(target, "__oryn_action_target", event_source);
+                .execute_with_node(target, "__oryn_action_target", event_source)
+                .map(|()| true)
+        };
         self.host.activate_realm(self.top_realm)?;
-        action_result?;
-        if matches!(action, SemanticAction::Click | SemanticAction::Submit) {
-            self.apply_default_navigation(target, action)?;
+        let mut default_accepted = action_accepted?;
+        if default_accepted && let Some(form) = submission_form {
+            self.host.activate_realm(action_realm)?;
+            let submit_accepted = self.host.evaluate_bool_with_node(
+                form,
+                "__oryn_submit_form",
+                "__oryn_submit_form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))",
+            );
+            self.host.activate_realm(self.top_realm)?;
+            default_accepted = submit_accepted?;
+        }
+        if default_accepted && matches!(action, SemanticAction::Click | SemanticAction::Submit) {
+            self.apply_default_navigation(target, action, submits_form)?;
         }
         self.checkpoint()
+    }
+
+    fn submission_form(
+        &self,
+        target: NodeId,
+        action: SemanticAction,
+    ) -> Result<Option<NodeId>, HostError> {
+        let dom = self.live_dom.borrow();
+        let target_record = dom
+            .arena()
+            .get(target)
+            .map_err(|error| HostError::Execution(error.to_string()))?;
+        let submits = match (&target_record.kind, action) {
+            (NodeKind::Element { name }, SemanticAction::Submit) => name.local.as_ref() == "form",
+            (NodeKind::Element { name }, SemanticAction::Click)
+                if name.local.as_ref() == "button" =>
+            {
+                !target_record.attributes.get("type").is_some_and(|value| {
+                    value.eq_ignore_ascii_case("button") || value.eq_ignore_ascii_case("reset")
+                })
+            }
+            (NodeKind::Element { name }, SemanticAction::Click)
+                if name.local.as_ref() == "input" =>
+            {
+                target_record.attributes.get("type").is_some_and(|value| {
+                    value.eq_ignore_ascii_case("submit") || value.eq_ignore_ascii_case("image")
+                })
+            }
+            _ => false,
+        };
+        if !submits {
+            return Ok(None);
+        }
+        let mut candidate = Some(target);
+        while let Some(node) = candidate {
+            let record = dom
+                .arena()
+                .get(node)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            if matches!(&record.kind, NodeKind::Element { name } if name.local.as_ref() == "form") {
+                return Ok(Some(node));
+            }
+            candidate = record.parent;
+        }
+        Ok(None)
     }
 
     pub fn layout_snapshot(&mut self) -> Result<ParsedDocument, HostError> {
@@ -983,6 +1053,7 @@ impl RustExecutableDocument {
         self.host.drain_async_fetches(true)?;
         self.drain_dynamic_scripts()?;
         self.host.execute("void 0")?;
+        self.host.execute("customElements.upgrade(document)")?;
         self.host.execute("__oryn_run_custom_reactions()")?;
         self.host.run_dom_observer_checkpoint()?;
         for rejection in self.host.take_unhandled_promise_rejections() {
@@ -1182,6 +1253,7 @@ impl RustExecutableDocument {
         &mut self,
         target: NodeId,
         action: SemanticAction,
+        submits_form: bool,
     ) -> Result<(), HostError> {
         let (href, target_name) = {
             let dom = self.live_dom.borrow();
@@ -1204,7 +1276,7 @@ impl RustExecutableDocument {
                         break;
                     }
                     if name.local.as_ref() == "form"
-                        && matches!(action, SemanticAction::Click | SemanticAction::Submit)
+                        && (action == SemanticAction::Submit || submits_form)
                     {
                         result = Some((
                             record.attributes.get("action").cloned().unwrap_or_default(),
@@ -1492,6 +1564,52 @@ mod tests {
     }
 
     #[test]
+    fn parsed_inline_location_assignment_updates_the_committed_url() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<button type=button id=go onclick=\"window.location.href='/next.html'\">Next</button>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://example.test/start.html").unwrap()),
+        )
+        .unwrap();
+        let button = page.node_by_id("go").expect("button");
+        page.apply_action(button, SemanticAction::Click, None)
+            .expect("inline navigation handler");
+        assert_eq!(page.location().unwrap(), "https://example.test/next.html");
+    }
+
+    #[test]
+    fn shipping_fixture_back_button_updates_location() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            include_str!("../../../test-harness/scenarios/intent-tests/flow-shipping.html"),
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("http://localhost:3000/intent-tests/flow-shipping.html").unwrap()),
+        )
+        .unwrap();
+        let button = {
+            let dom = page.live_dom.borrow();
+            dom.arena()
+                .iter()
+                .find(|(id, node)| {
+                    dom.is_connected(*id).unwrap_or(false)
+                        && node
+                            .attributes
+                            .get("onclick")
+                            .is_some_and(|source| source.contains("flow-cart.html"))
+                })
+                .map(|(node, _)| node)
+                .expect("back button")
+        };
+        page.apply_action(button, SemanticAction::Click, None)
+            .expect("inline back navigation");
+        assert_eq!(
+            page.location().unwrap(),
+            "http://localhost:3000/intent-tests/flow-cart.html"
+        );
+    }
+
+    #[test]
     fn document_title_reflects_the_rust_owned_title_element() {
         let mut page = RustExecutableDocument::load("<title>Initial</title><main>Body</main>")
             .expect("document");
@@ -1502,6 +1620,25 @@ mod tests {
             page.evaluate("document.querySelector('title').textContent")
                 .unwrap(),
             "Updated"
+        );
+    }
+
+    #[test]
+    fn prevented_submit_event_keeps_the_document_and_publishes_handler_mutations() {
+        let mut page = RustExecutableDocument::load(
+            r#"<form id=form action=/charged><button id=submit type=submit>Sign In</button></form>
+            <div id=modal style="display:none"></div>
+            <script>document.getElementById('form').onsubmit=e=>{e.preventDefault();document.getElementById('modal').style.display='flex'}</script>"#,
+        )
+        .expect("document");
+        let button = page.node_by_id("submit").expect("submit button");
+        page.apply_action(button, SemanticAction::Click, None)
+            .expect("prevented submit must not navigate");
+        assert_eq!(page.evaluate("location.href").unwrap(), "about:blank");
+        assert_eq!(
+            page.evaluate("document.getElementById('modal').style.display")
+                .unwrap(),
+            "flex"
         );
     }
 

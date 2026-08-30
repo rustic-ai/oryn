@@ -13,9 +13,14 @@ interface Event {
   readonly attribute boolean bubbles;
   readonly attribute boolean cancelable;
   readonly attribute boolean defaultPrevented;
+  undefined initEvent(DOMString type, optional boolean bubbles = false, optional boolean cancelable = false);
   undefined preventDefault();
   undefined stopPropagation();
   undefined stopImmediatePropagation();
+};
+
+[Exposed=Window]
+interface CustomEvent : Event {
 };
 
 callback MutationCallback = undefined (sequence<MutationRecord> mutations, MutationObserver observer);
@@ -83,6 +88,7 @@ interface SecurityPolicyViolationEvent : Event {
 interface Node : EventTarget {
   readonly attribute DOMString nodeName;
   readonly attribute unsigned short nodeType;
+  readonly attribute Document? ownerDocument;
   readonly attribute Node? parentNode;
   readonly attribute Node? firstChild;
   readonly attribute Node? lastChild;
@@ -96,6 +102,10 @@ interface Node : EventTarget {
   boolean contains(Node? other);
 };
 
+dictionary ShadowRootInit {
+  DOMString mode = "open";
+};
+
 [Exposed=Window]
 interface Element : Node {
   readonly attribute DOMString tagName;
@@ -104,6 +114,8 @@ interface Element : Node {
   readonly attribute DOMTokenList classList;
   attribute DOMString innerHTML;
   attribute DOMString outerHTML;
+  readonly attribute ShadowRoot? shadowRoot;
+  ShadowRoot attachShadow(ShadowRootInit init);
   DOMString? getAttribute(DOMString name);
   undefined setAttribute(DOMString name, DOMString value);
   undefined removeAttribute(DOMString name);
@@ -140,6 +152,8 @@ interface DOMTokenList {
 [Exposed=Window]
 interface HTMLElement : Element {
   attribute DOMString innerText;
+  readonly attribute CSSStyleDeclaration style;
+  readonly attribute any dataset;
   undefined click();
   undefined focus();
 };
@@ -191,6 +205,7 @@ interface HTMLFormElement : HTMLElement {
   boolean reportValidity();
   undefined requestSubmit(optional HTMLElement? submitter = null);
   undefined submit();
+  undefined reset();
 };
 
 [Exposed=Window]
@@ -229,9 +244,36 @@ interface CSSStyleSheet {
 };
 
 [Exposed=Window]
+interface CSSStyleDeclaration {
+  attribute DOMString cssText;
+  attribute DOMString display;
+  attribute DOMString visibility;
+  attribute DOMString width;
+  attribute DOMString height;
+  attribute DOMString position;
+  attribute DOMString top;
+  attribute DOMString left;
+  attribute DOMString right;
+  attribute DOMString bottom;
+  attribute DOMString overflow;
+  attribute DOMString opacity;
+  DOMString getPropertyValue(DOMString property);
+  undefined setProperty(DOMString property, DOMString value, optional DOMString priority = "");
+  DOMString removeProperty(DOMString property);
+};
+
+[Exposed=Window]
 interface DocumentFragment : Node {
   Element? querySelector(DOMString selectors);
   sequence<Element> querySelectorAll(DOMString selectors);
+};
+
+[Exposed=Window]
+interface ShadowRoot : DocumentFragment {
+  attribute DOMString innerHTML;
+  readonly attribute DOMString mode;
+  readonly attribute Element host;
+  Element? getElementById(DOMString id);
 };
 
 [Exposed=Window]

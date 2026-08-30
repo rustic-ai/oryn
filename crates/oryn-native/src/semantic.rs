@@ -30,7 +30,20 @@ pub fn project_element(
     let NodeKind::Element { name } = &node.kind else {
         return None;
     };
-    if dom.ancestors(id).ok()?.iter().any(|ancestor| {
+    let ancestors = dom.ancestors(id).ok()?;
+    // Wrapper leases deliberately keep detached nodes alive, but detached
+    // records are not part of the document's semantic projection. Publishing
+    // them allowed OIL to resolve a freshly replaced list item to an old,
+    // disconnected NodeId and then correctly reject it as stale at dispatch.
+    if !ancestors.iter().any(|ancestor| {
+        matches!(
+            dom.get(*ancestor).ok().map(|node| &node.kind),
+            Some(NodeKind::Document)
+        )
+    }) {
+        return None;
+    }
+    if ancestors.iter().any(|ancestor| {
         matches!(
             dom.get(*ancestor).ok().map(|node| &node.kind),
             Some(NodeKind::ShadowRoot {
@@ -41,7 +54,7 @@ pub fn project_element(
         return None;
     }
     let local_name = name.local.as_ref();
-    let parent = dom.ancestors(id).ok()?.into_iter().find_map(|ancestor| {
+    let parent = ancestors.into_iter().find_map(|ancestor| {
         matches!(dom.get(ancestor).ok()?.kind, NodeKind::Element { .. }).then_some(SemanticRef {
             page_id,
             document_generation,
@@ -153,6 +166,23 @@ pub fn project_element(
                 SemanticAction::Select,
                 SemanticAction::Focus,
             ]);
+        }
+        // A visible label that wraps a visually-hidden checkbox or radio is
+        // the actual pointer affordance used by many component libraries.
+        // Keep the hidden control out of the compact visual projection, but
+        // expose the label as clickable so OIL does not resolve its text-only
+        // descendant and then report a non-actionable alias.
+        if local_name == "label"
+            && descendants(dom, id).into_iter().any(|input| {
+                dom.get(input).is_ok_and(|input| {
+                matches!(&input.kind, NodeKind::Element { name } if name.local.as_ref() == "input")
+                    && input.attributes.get("type").is_some_and(|kind| {
+                        kind.eq_ignore_ascii_case("checkbox") || kind.eq_ignore_ascii_case("radio")
+                    })
+            })
+            })
+        {
+            actions.extend([SemanticAction::Click, SemanticAction::Focus]);
         }
         if local_name == "form"
             || matches!(
@@ -536,7 +566,10 @@ fn host_language_name(
             return Some((text, source.into()));
         }
     }
-    if name_from_content(local_name, role) {
+    if name_from_content(local_name, role)
+        || node.attributes.contains_key("onclick")
+        || node.attributes.contains_key("data-oryn-click-listener")
+    {
         let text = normalize_text(&accessible_text_content(dom, id, true));
         if !text.is_empty() {
             return Some((text, "text-content".into()));
@@ -600,15 +633,33 @@ fn accessible_text_content(dom: &DomArena, id: NodeId, include_hidden_root: bool
 fn name_from_content(local_name: &str, role: &str) -> bool {
     matches!(
         local_name,
-        "button" | "a" | "summary" | "option" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+        "button"
+            | "a"
+            | "label"
+            | "summary"
+            | "option"
+            | "li"
+            | "strong"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
     ) || matches!(
         role,
         "button"
             | "link"
             | "tab"
             | "menuitem"
+            | "checkbox"
+            | "radio"
+            | "switch"
+            | "menuitemcheckbox"
+            | "menuitemradio"
             | "treeitem"
             | "option"
+            | "listitem"
             | "heading"
             | "cell"
             | "rowheader"
