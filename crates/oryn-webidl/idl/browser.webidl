@@ -133,9 +133,12 @@ interface Element : Node {
   readonly attribute ShadowRoot? shadowRoot;
   ShadowRoot attachShadow(ShadowRootInit init);
   DOMString? getAttribute(DOMString name);
+  sequence<DOMString> getAttributeNames();
   undefined setAttribute(DOMString name, DOMString value);
   undefined removeAttribute(DOMString name);
   boolean hasAttribute(DOMString name);
+  boolean hasAttributes();
+  boolean toggleAttribute(DOMString name, optional boolean force);
   Element? querySelector(DOMString selectors);
   sequence<Element> querySelectorAll(DOMString selectors);
   boolean matches(DOMString selectors);

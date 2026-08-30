@@ -445,6 +445,12 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
     GeneratedMember {
+        name: "getAttributeNames",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
         name: "setAttribute",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -460,6 +466,18 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         name: "hasAttribute",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "hasAttributes",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "toggleAttribute",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
         readonly: false,
     },
     GeneratedMember {

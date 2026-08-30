@@ -2336,6 +2336,22 @@ fn call_operation<'s>(
                 None => Ok(Some(v8::null(scope).into())),
             }
         }
+        ("Element", "getAttributeNames") => {
+            let names = state
+                .dom
+                .borrow()
+                .arena()
+                .get(node)?
+                .attributes
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+            let values = names
+                .iter()
+                .map(|name| v8_string(scope, name))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Some(v8::Array::new_with_elements(scope, &values).into()))
+        }
         ("Element", "setAttribute") => {
             let name = required_string(scope, args, 0)?;
             let tag = state.dom.borrow().node_name(node)?.to_ascii_lowercase();
@@ -2371,6 +2387,24 @@ fn call_operation<'s>(
             let name = required_string(scope, args, 0)?;
             let present = state.dom.borrow().attribute(node, &name)?.is_some();
             Ok(Some(v8::Boolean::new(scope, present).into()))
+        }
+        ("Element", "hasAttributes") => {
+            let has_attributes = !state.dom.borrow().arena().get(node)?.attributes.is_empty();
+            Ok(Some(v8::Boolean::new(scope, has_attributes).into()))
+        }
+        ("Element", "toggleAttribute") => {
+            let name = required_string(scope, args, 0)?;
+            let present = state.dom.borrow().attribute(node, &name)?.is_some();
+            let force = (!args.get(1).is_undefined()).then(|| args.get(1).boolean_value(scope));
+            let next = force.unwrap_or(!present);
+            if next {
+                if !present {
+                    state.dom.borrow_mut().set_attribute(node, &name, "")?;
+                }
+            } else if present {
+                state.dom.borrow_mut().remove_attribute(node, &name)?;
+            }
+            Ok(Some(v8::Boolean::new(scope, next).into()))
         }
         (_, "querySelector") => {
             let selector = required_string(scope, args, 0)?;
@@ -3215,13 +3249,13 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "const main=document.getElementById('root');main.appendChild(document.createElement('span'));const clone=main.cloneNode(true);String(document.head.tagName)+'|'+document.body.tagName+'|'+main.isEqualNode(clone)+'|'+main.hasChildNodes()+'|'+main.childElementCount+'|'+(main.firstElementChild===main.lastElementChild)+'|'+(main.getRootNode()===document)",
+            "const main=document.getElementById('root');main.appendChild(document.createElement('span'));const clone=main.cloneNode(true);const names=main.getAttributeNames().join(',');const toggled=main.toggleAttribute('hidden',true)&&main.hasAttributes();main.toggleAttribute('hidden',false);String(document.head.tagName)+'|'+document.body.tagName+'|'+main.isEqualNode(clone)+'|'+main.hasChildNodes()+'|'+main.childElementCount+'|'+(main.firstElementChild===main.lastElementChild)+'|'+(main.getRootNode()===document)+'|'+names+'|'+toggled",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
-            "HEAD|BODY|true|true|1|true|true"
+            "HEAD|BODY|true|true|1|true|true|id|true"
         );
     }
 
