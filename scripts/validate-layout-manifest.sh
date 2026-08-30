@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 manifest="$repo_root/benchmarks/conformance/layout-manifest-v2.json"
-schema="$repo_root/benchmarks/schema/layout-result-v1.schema.json"
+schema="$repo_root/benchmarks/schema/layout-result-v2.schema.json"
 
 jq -e '
   .schema_version == 2 and .profile == "layout-production" and

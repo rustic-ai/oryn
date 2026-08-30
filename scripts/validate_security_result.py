@@ -175,7 +175,7 @@ def main() -> int:
             "raw limit/churn evidence failed",
         )
         require(
-            load(raw / "layout/layout-result-v1.json").get("outcome", {}).get("status")
+            load(raw / "layout/layout-result-v2.json").get("outcome", {}).get("status")
             == "passed",
             "raw layout regression result failed",
         )

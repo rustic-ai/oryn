@@ -73,7 +73,7 @@ def main() -> int:
     fuzz = load(raw / "fuzz/summary.json")
     audit = load(raw / "software/cargo-audit.json")
     benchmarks = load(raw / "benchmarks/result.json")
-    layout_result = load(raw / "layout/layout-result-v1.json")
+    layout_result = load(raw / "layout/layout-result-v2.json")
 
     require(
         production.get("outcome", {}).get("status") == "passed",

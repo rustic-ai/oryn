@@ -792,7 +792,7 @@ def security_regressions() -> dict[str, list[dict[str, Any]]]:
                 text_contains("OAuth corpus passed"),
             ),
         ],
-        "g4": status_json("layout result passed", "layout/layout-result-v1.json"),
+        "g4": status_json("layout result passed", "layout/layout-result-v2.json"),
         "native_miniwob_24": [
             check(
                 "native MiniWoB 24/24",

@@ -45,7 +45,7 @@ def main() -> int:
     args = parser.parse_args()
     root = args.repo_root.resolve()
     result = load(args.result.resolve())
-    schema = load(root / "benchmarks/schema/layout-result-v1.schema.json")
+    schema = load(root / "benchmarks/schema/layout-result-v2.schema.json")
     require(
         "$defs" in schema and "$defs" not in schema.get("properties", {}),
         "schema definitions must be top-level",

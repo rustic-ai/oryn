@@ -75,7 +75,7 @@ jq -n \
   --slurpfile churn "$output_dir/churn.json" \
   --slurpfile fuzz "$output_dir/fuzz/summary.json" \
   --slurpfile benchmark "$output_dir/benchmarks/result.json" \
-  --slurpfile layout "$output_dir/layout/layout-result-v1.json" \
+  --slurpfile layout "$output_dir/layout/layout-result-v2.json" \
   '{schema_version:1,suite:"oryn2-security-production",recorded_at:$recorded_at,
     source_commit:$source_commit,source_tree_sha256:$source_tree_sha256,runtime:$runtime,
     security:$security[0],churn:$churn[0],fuzz:$fuzz[0],benchmark:$benchmark[0],

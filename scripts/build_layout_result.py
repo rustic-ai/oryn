@@ -160,8 +160,8 @@ def main() -> int:
         if case["domains"]["chromium_differential"] != "not_applicable"
     ]
     criteria = {
-        "required_native_cases_pass": required_passed == 28,
-        "declared_limitations_are_explicit": limitations_reported == 5,
+        "required_native_cases_pass": required_passed == 29,
+        "declared_limitations_are_explicit": limitations_reported == 4,
         "native_chromium_relations_match": bool(differential_cases)
         and all(
             case["domains"]["chromium_differential"] == "passed"
@@ -177,8 +177,8 @@ def main() -> int:
     }
     reason_codes = [name for name, passed in criteria.items() if not passed]
     result = {
-        "schema_version": 1,
-        "gate": "G4",
+        "schema_version": 2,
+        "profile": "layout-production",
         "run_id": f"layout-{source_commit[:12]}-macos-arm64",
         "recorded_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "fingerprint": {
@@ -223,9 +223,9 @@ def main() -> int:
         "regressions": regressions,
         "metrics": {
             "required_passed": required_passed,
-            "required_total": 28,
+            "required_total": 29,
             "limitations_reported": limitations_reported,
-            "limitations_total": 5,
+            "limitations_total": 4,
             "false_semantic_reference_preservations": false_preservations,
         },
         "benchmarks": benchmarks,

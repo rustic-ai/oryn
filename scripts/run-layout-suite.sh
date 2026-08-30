@@ -137,7 +137,7 @@ jq -n \
 python3 "$repo_root/scripts/emit_suite_evidence_ledgers.py" layout \
   --artifact-root "$output_dir"
 
-result="$output_dir/layout-result-v1.json"
+result="$output_dir/layout-result-v2.json"
 "$repo_root/scripts/build_layout_result.py" --repo-root "$repo_root" --artifact-root "$output_dir" --output "$result"
 "$repo_root/scripts/validate-layout-result.sh" "$result" --artifact-root "$output_dir" --require-raw
 jq . "$output_dir/production-gate.json"
