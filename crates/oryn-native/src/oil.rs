@@ -1664,6 +1664,31 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn repeated_custom_element_renders_release_detached_wrapper_graphs() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/angular-shop",
+            include_str!("../../../test-harness/scenarios/spa/angular-shop.html"),
+        )
+        .await
+        .expect("load custom-element fixture");
+        let mut session = NativeOilSession::new(page);
+        for command in [
+            "type css(#search) \"wireless\"",
+            "type css(#search) \"\"",
+            "click css(#sort-price)",
+            "click css(#sort-rating)",
+            "click css(#sort-name)",
+        ] {
+            session
+                .execute(command)
+                .await
+                .unwrap_or_else(|error| panic!("{command} failed: {error}"));
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn unsupported_table_geometry_does_not_poison_unrelated_target_resolution() {
         let page = Browser::new().new_context().new_page();
         page.load_html(

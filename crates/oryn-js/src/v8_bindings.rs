@@ -41,6 +41,7 @@ pub enum V8BindingError {
 
 struct WrapperObject {
     handle: v8::Weak<v8::Object>,
+    connected_root: Option<v8::Global<v8::Object>>,
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +148,34 @@ impl V8BindingState {
         self.wrappers
             .borrow_mut()
             .process_weak_releases(&mut self.dom.borrow_mut())
+    }
+
+    /// Keep wrappers for connected nodes alive and release that embedder root
+    /// as soon as the node becomes detached. This mirrors browser wrapper
+    /// tracing: connected custom elements retain their JavaScript identity and
+    /// expando state, while unreachable detached subtrees remain collectable.
+    /// Returns the number of roots released so the host can request GC only
+    /// when it can reclaim detached wrapper graphs.
+    pub fn refresh_connected_wrapper_roots(&self, scope: &mut v8::PinScope<'_, '_>) -> usize {
+        let dom = self.dom.borrow();
+        let wrappers = self.wrappers.borrow();
+        let mut objects = self.objects.borrow_mut();
+        let mut released = 0;
+        for (wrapper, object) in objects.iter_mut() {
+            let connected = wrappers
+                .metadata(*wrapper)
+                .is_some_and(|metadata| dom.is_connected(metadata.node).unwrap_or(false));
+            if connected {
+                if object.connected_root.is_none()
+                    && let Some(local) = object.handle.to_local(scope)
+                {
+                    object.connected_root = Some(v8::Global::new(scope, local));
+                }
+            } else if object.connected_root.take().is_some() {
+                released += 1;
+            }
+        }
+        released
     }
 
     pub fn set_layout(&self, layout: BindingLayout) {
@@ -1170,10 +1199,18 @@ pub fn wrap_node<'s>(
             }
         }),
     );
-    state
-        .objects
-        .borrow_mut()
-        .insert(wrapper, WrapperObject { handle: weak });
+    let connected_root = state
+        .dom
+        .borrow()
+        .is_connected(node)?
+        .then(|| v8::Global::new(scope, object));
+    state.objects.borrow_mut().insert(
+        wrapper,
+        WrapperObject {
+            handle: weak,
+            connected_root,
+        },
+    );
     Ok(object)
 }
 

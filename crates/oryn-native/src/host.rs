@@ -818,6 +818,24 @@ mod raw_v8 {
         }
 
         pub fn process_binding_releases(&mut self) -> Result<usize, HostError> {
+            let released_connected_roots = {
+                v8::scope!(let handle_scope, &mut self.isolate);
+                let mut released = 0;
+                for (realm, state) in &self.binding_states {
+                    let context = v8::Local::new(
+                        handle_scope,
+                        self.contexts
+                            .get(realm)
+                            .expect("binding realm context exists"),
+                    );
+                    let scope = &mut v8::ContextScope::new(handle_scope, context);
+                    released += state.refresh_connected_wrapper_roots(scope);
+                }
+                released
+            };
+            if released_connected_roots > 0 {
+                self.isolate.low_memory_notification();
+            }
             self.binding_states
                 .values()
                 .try_fold(0_usize, |total, state| {
