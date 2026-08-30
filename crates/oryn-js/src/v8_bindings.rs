@@ -795,7 +795,16 @@ fn get_computed_style_callback(
             .get(&key)
             .cloned()
             .unwrap_or_default();
-        let object = v8::Object::new(scope);
+        let template = state
+            .instance_templates
+            .borrow()
+            .get("CSSStyleDeclaration")
+            .cloned()
+            .ok_or(V8BindingError::MissingInterface("CSSStyleDeclaration"))?;
+        let object = v8::Local::new(scope, template)
+            .new_instance(scope)
+            .ok_or(V8BindingError::Allocation("computed CSSStyleDeclaration"))?;
+        object.set_internal_field(0, v8::BigInt::new_from_u64(scope, node_key(node)).into());
         for (name, value) in styles {
             let Some(name) = v8::String::new(scope, &name) else {
                 continue;
@@ -805,11 +814,51 @@ fn get_computed_style_callback(
             };
             object.create_data_property(scope, name.into(), value.into());
         }
+        let getter = v8::Function::builder(computed_style_get_property_value)
+            .data(v8::BigInt::new_from_u64(scope, node_key(node)).into())
+            .build(scope)
+            .ok_or(V8BindingError::Allocation(
+                "computed CSSStyleDeclaration.getPropertyValue",
+            ))?;
+        let name = v8::String::new(scope, "getPropertyValue")
+            .ok_or(V8BindingError::Allocation("getPropertyValue name"))?;
+        object.create_data_property(scope, name.into(), getter.into());
         Ok(object)
     })();
     match result {
         Ok(object) => return_value.set(object.into()),
         Err(error) => throw_type_error(scope, &error.to_string()),
+    }
+}
+
+fn computed_style_get_property_value(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+        throw_type_error(scope, "generated binding state is unavailable");
+        return;
+    };
+    let Some(key) = exact_u64(args.data()) else {
+        throw_type_error(scope, "computed style target is unavailable");
+        return;
+    };
+    let Some(property) = args.get(0).to_string(scope) else {
+        throw_type_error(scope, "property must be a string");
+        return;
+    };
+    let property = property.to_rust_string_lossy(scope).to_ascii_lowercase();
+    let value = state
+        .layout
+        .borrow()
+        .styles
+        .get(&key)
+        .and_then(|styles| styles.get(&property))
+        .cloned()
+        .unwrap_or_default();
+    if let Some(value) = v8::String::new(scope, &value) {
+        return_value.set(value.into());
     }
 }
 
@@ -3746,6 +3795,33 @@ mod tests {
         let source = v8::String::new(
             scope,
             "const div=document.getElementById('probe');div.setAttribute('onsubmit','t');div.style.cssText='background-color:rgba(1,1,1,.5);max-height:10px';div.attributes.onsubmit.name==='onsubmit'&&div.attributes.onsubmit.value==='t'&&div.attributes.onsubmit.expando===false&&div.style.backgroundColor.indexOf('rgba')===0&&div.style.maxHeight==='10px'",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().boolean_value(scope));
+    }
+
+    #[test]
+    fn computed_style_uses_the_generated_declaration_surface() {
+        initialize_v8();
+        let parsed = html::parse("<div id='probe'></div>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let probe = dom.borrow().find_by_id("probe").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_layout(BindingLayout {
+            styles: BTreeMap::from([(
+                node_key(probe),
+                BTreeMap::from([("display".to_string(), "block".to_string())]),
+            )]),
+            geometry: BTreeMap::new(),
+        });
+        let source = v8::String::new(
+            scope,
+            "const computed=getComputedStyle(document.getElementById('probe'));computed instanceof CSSStyleDeclaration&&computed.display==='block'&&computed.getPropertyValue('display')==='block'",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
