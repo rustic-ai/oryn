@@ -74,6 +74,9 @@ globalThis.__oryn_run_geometry_observers=()=>{for(const observer of __oryn_resiz
 Object.defineProperty(globalThis,'location',{value:{href:'about:blank'},writable:true,enumerable:true,configurable:true});
 globalThis.__oryn_layout={styles:{},geometry:{},viewport:{},scroll:{},media:{}};
 globalThis.__oryn_install_layout=value=>{globalThis.__oryn_layout=value;globalThis.innerWidth=Number(value.viewport?.width||0);globalThis.innerHeight=Number(value.viewport?.height||0)};
+globalThis.scrollX=globalThis.pageXOffset=0;globalThis.scrollY=globalThis.pageYOffset=0;
+globalThis.scrollTo=(x=0,y=0)=>{if(x&&typeof x==='object'){y=x.top??scrollY;x=x.left??scrollX}scrollX=pageXOffset=Number(x)||0;scrollY=pageYOffset=Number(y)||0};
+globalThis.scrollBy=(x=0,y=0)=>{if(x&&typeof x==='object'){y=x.top??0;x=x.left??0}scrollTo(scrollX+(Number(x)||0),scrollY+(Number(y)||0))};
 globalThis.__oryn_media={color_scheme:'light',reduced_motion:'no_preference'};
 globalThis.matchMedia=query=>{query=String(query);const result={media:query,onchange:null,addEventListener(){},removeEventListener(){},addListener(){},removeListener(){}};Object.defineProperty(result,'matches',{get(){if(/prefers-color-scheme\s*:\s*dark/i.test(query))return __oryn_media.color_scheme==='dark';if(/prefers-color-scheme\s*:\s*light/i.test(query))return __oryn_media.color_scheme==='light';if(/prefers-reduced-motion\s*:\s*reduce/i.test(query))return __oryn_media.reduced_motion==='reduce';if(/prefers-reduced-motion\s*:\s*no-preference/i.test(query))return __oryn_media.reduced_motion==='no_preference';return true}});return result};
 class OrynStorage {
@@ -1471,6 +1474,18 @@ mod tests {
             )
             .unwrap(),
             "en-US|en-US,en|true|true"
+        );
+    }
+
+    #[test]
+    fn window_scroll_offsets_track_scroll_operations() {
+        let mut page = RustExecutableDocument::load("<main></main>").unwrap();
+        assert_eq!(
+            page.evaluate(
+                "scrollTo({left:4,top:7});scrollBy(3,5);scrollX+'|'+scrollY+'|'+pageXOffset+'|'+pageYOffset"
+            )
+            .unwrap(),
+            "7|12|7|12"
         );
     }
 
