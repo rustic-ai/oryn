@@ -142,7 +142,7 @@ pub struct ControlledNetworkBroker {
 }
 
 impl NetworkBroker for ControlledNetworkBroker {
-    fn send(&mut self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+    fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
         let mode = self
             .controller
             .0
@@ -475,7 +475,7 @@ mod tests {
     struct FixtureBroker;
 
     impl NetworkBroker for FixtureBroker {
-        fn send(&mut self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+        fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             Ok(NetworkResponse {
                 request_id: request.request_id,
                 status: 200,
@@ -506,7 +506,7 @@ mod tests {
     #[test]
     fn recorded_network_is_scrubbed_and_replays_exactly() {
         let recorder = NetworkReplayController::recording(true);
-        let mut broker = recorder.wrap(FixtureBroker);
+        let broker = recorder.wrap(FixtureBroker);
         let response = broker.send(request(1)).expect("record request");
         assert_eq!(response.body, b"captured");
         let archive = recorder.archive();
@@ -527,7 +527,7 @@ mod tests {
         );
 
         let replay = NetworkReplayController::replay(archive).expect("valid archive");
-        let mut broker = replay.wrap(FixtureBroker);
+        let broker = replay.wrap(FixtureBroker);
         let response = broker.send(request(99)).expect("replayed request");
         assert_eq!(response.request_id, 99);
         assert_eq!(response.body, b"captured");
@@ -537,10 +537,10 @@ mod tests {
     #[test]
     fn replay_rejects_divergent_requests() {
         let recorder = NetworkReplayController::recording(true);
-        let mut broker = recorder.wrap(FixtureBroker);
+        let broker = recorder.wrap(FixtureBroker);
         broker.send(request(1)).expect("record request");
         let replay = NetworkReplayController::replay(recorder.archive()).expect("valid archive");
-        let mut broker = replay.wrap(FixtureBroker);
+        let broker = replay.wrap(FixtureBroker);
         let mut divergent = request(2);
         divergent.url = "https://example.test/other".into();
         assert!(matches!(
@@ -553,12 +553,12 @@ mod tests {
     #[test]
     fn current_network_policy_is_enforced_before_captured_replay() {
         let recorder = NetworkReplayController::recording(true);
-        let mut recording = recorder.wrap(FixtureBroker);
+        let recording = recorder.wrap(FixtureBroker);
         let mut loopback = request(1);
         loopback.url = "http://127.0.0.1/private".into();
         recording.send(loopback.clone()).expect("record fixture");
         let replay = NetworkReplayController::replay(recorder.archive()).expect("archive");
-        let mut broker = PolicyBroker::new(NetworkPolicy::default(), replay.wrap(FixtureBroker));
+        let broker = PolicyBroker::new(NetworkPolicy::default(), replay.wrap(FixtureBroker));
         assert!(matches!(
             broker.send(loopback),
             Err(NetworkError::Policy(_))

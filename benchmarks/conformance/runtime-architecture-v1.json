@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "capability": "proposal-v1-runtime",
+  "frozen_before_validation": true,
+  "shadow_side_effect_policy": "fixtures_and_recorded_network_only",
+  "cases": [
+    { "id": "rust-dom-arena-authority", "category": "dom", "required": true, "status": "passed" },
+    { "id": "generation-checked-wrapper-lifetimes", "category": "bindings", "required": true, "status": "passed" },
+    { "id": "deterministic-webidl-regeneration", "category": "bindings", "required": true, "status": "passed" },
+    { "id": "generated-v8-template-installation", "category": "bindings", "required": true, "status": "passed" },
+    { "id": "one-isolate-multi-context-realms", "category": "realms", "required": true, "status": "passed" },
+    { "id": "production-frame-realm-cutover", "category": "realms", "required": true, "status": "passed" },
+    { "id": "explicit-microtask-checkpoints", "category": "scheduler", "required": true, "status": "passed" },
+    { "id": "streaming-html5ever-pause-resume", "category": "parser", "required": true, "status": "passed" },
+    { "id": "production-parser-script-reentry", "category": "parser", "required": true, "status": "passed" },
+    { "id": "async-rustls-http2-streaming", "category": "network", "required": true, "status": "passed", "detail": "The multiplexed context channel starts 32 concurrent policy-brokered streams, the production transport exchanges HTTP/2 frames with HTTP/2 enabled on its rustls client, and response bodies remain parent-owned and demand-driven." },
+    { "id": "policy-withhold-before-body", "category": "network", "required": true, "status": "passed" },
+    { "id": "production-fetch-xhr-promise-cutover", "category": "network", "required": true, "status": "passed" },
+    { "id": "gzip-deflate-brotli-zstd-stream-limits", "category": "network", "required": true, "status": "passed" },
+    { "id": "browser-charset-precedence", "category": "encoding", "required": true, "status": "passed" },
+    { "id": "partitioned-bounded-memory-cache", "category": "cache", "required": true, "status": "passed" },
+    { "id": "production-http-cache-cutover", "category": "cache", "required": true, "status": "passed" },
+    { "id": "webassembly-full-profile", "category": "profiles", "required": true, "status": "passed" },
+    { "id": "english-lite-intl-diagnostics", "category": "profiles", "required": true, "status": "passed" },
+    { "id": "macos-app-sandbox", "category": "security", "gate": "release", "required": true, "status": "requires_private_attestation" },
+    { "id": "linux-namespaces-landlock-seccomp", "category": "security", "gate": "release", "required": true, "status": "implemented_unverified_on_host" },
+    { "id": "legacy-js-dom-removed-from-production", "category": "cutover", "required": true, "status": "passed" },
+    { "id": "synchronous-host-bridges-removed", "category": "cutover", "required": true, "status": "passed" },
+    { "id": "shadow-manifest-passes", "category": "cutover", "required": true, "status": "passed" }
+  ]
+}

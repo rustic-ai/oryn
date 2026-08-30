@@ -9,6 +9,9 @@ use std::{os::fd::FromRawFd, os::unix::net::UnixStream};
 
 fn main() -> std::io::Result<()> {
     clear_environment();
+    oryn_native::worker::precompute_binary_sha256()?;
+    #[cfg(target_os = "linux")]
+    oryn_native::linux_sandbox::install()?;
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
@@ -21,10 +24,19 @@ async fn async_main() -> std::io::Result<()> {
         return Ok(());
     }
     if std::env::args().any(|argument| argument == "--runtime-info") {
-        println!(
-            "{}",
-            serde_json::to_string(&oryn_native::runtime_build_info())?
-        );
+        let mut runtime = oryn_native::runtime_build_info();
+        runtime.execution_mode = "sandboxed_worker".into();
+        runtime.sandboxed = cfg!(any(target_os = "macos", target_os = "linux"));
+        runtime.worker_protocol_version = Some(oryn_native::worker::WORKER_PROTOCOL_VERSION);
+        runtime.worker_binary_sha256 = Some(oryn_native::worker::current_binary_sha256()?);
+        runtime.sandbox_state = if cfg!(target_os = "macos") {
+            "app_sandbox".into()
+        } else if cfg!(target_os = "linux") {
+            "linux_namespaces_landlock_seccomp".into()
+        } else {
+            "process_isolated_unsandboxed".into()
+        };
+        println!("{}", serde_json::to_string(&runtime)?);
         return Ok(());
     }
     #[cfg(unix)]

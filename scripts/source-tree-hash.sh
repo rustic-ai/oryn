@@ -4,12 +4,13 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-git ls-files \
+git ls-files --cached --others --exclude-standard \
   | LC_ALL=C sort \
   | while IFS= read -r path; do
       case "$path" in
         benchmarks/evidence/*|docs/oryn2/IMPLEMENTATION_STATUS.md|docs/oryn2/CAPABILITY_MILESTONES.md) continue ;;
       esac
+      [[ -f "$path" ]] || continue
       printf '%s\0' "$path"
       shasum -a 256 "$path" | awk '{print $1}'
     done \

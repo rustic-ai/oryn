@@ -10,11 +10,11 @@ pub use oryn_common::v3::{
     SemanticRef,
 };
 pub use oryn_native::{
-    ActionPolicy, Browser, BrowserConfig, BrowserContext, ConfirmationToken, ConsequentialAction,
-    ContentKind, ContextOptions, LifecycleState, NativeAction, NavigationResult, PageHandle,
-    PersistentProfile, PolicyDecision, PolicyRequest, PolicyRule, RuntimeBuildInfo, RuntimeError,
-    ScrollRequest, SecretHandle, StorageLimits, WaitPredicate, production_runtime_build_info,
-    production_runtime_build_info_with_options,
+    ActionPolicy, Browser, BrowserConfig, BrowserContext, CacheMode, ConfirmationToken,
+    ConsequentialAction, ContentKind, ContextOptions, LifecycleState, NativeAction,
+    NavigationResult, PageHandle, PersistentProfile, PolicyDecision, PolicyRequest, PolicyRule,
+    RuntimeBuildInfo, RuntimeError, RuntimeProfile, ScrollRequest, SecretHandle, StorageLimits,
+    WaitPredicate, production_runtime_build_info, production_runtime_build_info_with_options,
 };
 
 /// The versioned OIL adapter used by compatibility callers.

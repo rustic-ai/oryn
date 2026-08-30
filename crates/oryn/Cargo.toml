@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["native"]
+default = ["native", "native-v8", "core-full"]
 native = []
+core-full = ["oryn-native/core-full"]
+core-lite = ["oryn-native/core-lite"]
 native-v8 = ["oryn-native/v8-host"]
 render = ["dep:oryn-render"]
 in-process-probe = ["oryn-native/in-process-probe"]

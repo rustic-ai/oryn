@@ -9,11 +9,12 @@
 use std::{
     collections::BTreeMap,
     io::{BufRead, BufReader, Read, Write},
-    net::TcpStream,
+    net::{Shutdown, TcpStream},
     os::unix::net::UnixStream,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
+        mpsc,
     },
     time::Duration,
 };
@@ -38,7 +39,7 @@ use crate::{
     storage::{StorageArea, StorageChange, StorageRequest, StorageResponse, StorageScope},
 };
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 3;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 5;
 pub const MAX_CONTEXT_FRAME_BYTES: usize = 24 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,7 +160,7 @@ pub enum ContextServiceResponse {
         request_id: u64,
         status: u16,
         headers: Vec<(String, String)>,
-        total_bytes: usize,
+        total_bytes: Option<usize>,
     },
     HttpStreamChunk {
         stream_id: u64,
@@ -307,17 +308,121 @@ trait ContextTransport: Send + Sync {
     ) -> Result<ContextServiceResponse, RuntimeError>;
 }
 
-struct IpcContextTransport(Mutex<IpcContextClient>);
+type ContextReply = Result<ContextServiceResponse, String>;
+type PendingContextReplies = BTreeMap<u64, mpsc::Sender<ContextReply>>;
+
+struct IpcContextTransport {
+    writer: Mutex<UnixStream>,
+    next_message_id: AtomicU64,
+    pending: Arc<Mutex<PendingContextReplies>>,
+}
+
+impl IpcContextTransport {
+    fn new(client: IpcContextClient) -> Result<Self, RuntimeError> {
+        let reader_stream = client
+            .stream
+            .try_clone()
+            .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+        let pending = Arc::new(Mutex::new(PendingContextReplies::new()));
+        let reader_pending = pending.clone();
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(reader_stream);
+            loop {
+                let mut line = Vec::new();
+                let read = read_bounded_line(&mut reader, &mut line, MAX_CONTEXT_FRAME_BYTES);
+                let Ok(read) = read else { break };
+                if read == 0 {
+                    break;
+                }
+                let Ok(response) = serde_json::from_slice::<ResponseEnvelope>(&line) else {
+                    continue;
+                };
+                let sender = reader_pending
+                    .lock()
+                    .ok()
+                    .and_then(|mut pending| pending.remove(&response.correlation_id));
+                if let Some(sender) = sender {
+                    let result = if response.protocol_version != CONTEXT_SERVICE_PROTOCOL_VERSION {
+                        Err("context response protocol mismatch".into())
+                    } else if let Some(error) = response.error {
+                        Err(error)
+                    } else {
+                        response
+                            .response
+                            .ok_or_else(|| "context service returned no response".into())
+                    };
+                    let _ = sender.send(result);
+                }
+            }
+            if let Ok(mut pending) = reader_pending.lock() {
+                for (_, sender) in std::mem::take(&mut *pending) {
+                    let _ = sender.send(Err("context service connection closed".into()));
+                }
+            }
+        });
+        Ok(Self {
+            writer: Mutex::new(client.stream),
+            next_message_id: AtomicU64::new(client.next_message_id),
+            pending,
+        })
+    }
+}
+
+impl Drop for IpcContextTransport {
+    fn drop(&mut self) {
+        if let Ok(writer) = self.writer.get_mut() {
+            let _ = writer.shutdown(Shutdown::Both);
+        }
+    }
+}
 
 impl ContextTransport for IpcContextTransport {
     fn request(
         &self,
         request: ContextServiceRequest,
     ) -> Result<ContextServiceResponse, RuntimeError> {
-        self.0
+        let (sender, receiver) = mpsc::channel();
+        let mut writer = self
+            .writer
             .lock()
-            .map_err(|_| RuntimeError::ContextService("context client lock poisoned".into()))?
-            .request(request)
+            .map_err(|_| RuntimeError::ContextService("context writer lock poisoned".into()))?;
+        let message_id = self.next_message_id.fetch_add(1, Ordering::Relaxed);
+        let mut pending = self
+            .pending
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("context pending lock poisoned".into()))?;
+        if pending.len() >= 32 {
+            return Err(RuntimeError::WorkerLimitExceeded {
+                resource: "pending context operations".into(),
+            });
+        }
+        pending.insert(message_id, sender);
+        drop(pending);
+        let envelope = RequestEnvelope {
+            protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
+            message_id,
+            request,
+        };
+        let written = (|| {
+            serde_json::to_writer(&mut *writer, &envelope)
+                .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
+            writer
+                .write_all(b"\n")
+                .and_then(|_| writer.flush())
+                .map_err(|error| RuntimeError::ContextService(error.to_string()))
+        })();
+        drop(writer);
+        if let Err(error) = written {
+            self.pending
+                .lock()
+                .ok()
+                .and_then(|mut pending| pending.remove(&message_id));
+            return Err(error);
+        }
+        receiver
+            .recv()
+            .map_err(|_| RuntimeError::ContextService("context response channel closed".into()))?
+            .map_err(RuntimeError::ContextService)
     }
 }
 
@@ -326,7 +431,9 @@ pub struct SharedContextClient(Arc<dyn ContextTransport>);
 
 impl SharedContextClient {
     pub fn new(client: IpcContextClient) -> Self {
-        Self(Arc::new(IpcContextTransport(Mutex::new(client))))
+        Self(Arc::new(
+            IpcContextTransport::new(client).expect("context transport initialization"),
+        ))
     }
 
     #[cfg(feature = "v8-host")]
@@ -354,8 +461,9 @@ pub struct ParentContextService {
 
 struct HttpStreamState {
     page_id: PageId,
-    body: Vec<u8>,
-    offset: usize,
+    body: Box<dyn Read + Send>,
+    bytes_read: usize,
+    content_length: Option<usize>,
 }
 
 impl ParentContextService {
@@ -720,7 +828,7 @@ impl ParentContextService {
                 resource: "HTTP request body".into(),
             });
         }
-        let mut network = self.network.clone().ok_or_else(|| {
+        let network = self.network.clone().ok_or_else(|| {
             RuntimeError::ContextService("HTTP streaming broker is unavailable".into())
         })?;
         let source_origin = self.context.page_origin(page_id)?;
@@ -764,7 +872,7 @@ impl ParentContextService {
             )?;
         }
         let response = network
-            .send(NetworkRequest {
+            .start_stream(NetworkRequest {
                 request_id: request.request_id,
                 method: request.method,
                 url: request.url,
@@ -774,15 +882,22 @@ impl ParentContextService {
                 resolved_addrs: Vec::new(),
             })
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
-        if cross_origin {
-            enforce_cors_response(&source_origin, request.credentials, &response)?;
+        if cross_origin
+            && !cors_headers_allowed(&source_origin, request.credentials, &response.headers)
+        {
+            return Err(RuntimeError::ContextService(
+                "cross-origin response denied by CORS".into(),
+            ));
         }
-        if response.body.len() > 16 * 1024 * 1024 {
+        if response
+            .content_length
+            .is_some_and(|length| length > 16 * 1024 * 1024)
+        {
             return Err(RuntimeError::WorkerLimitExceeded {
                 resource: "decoded HTTP response body".into(),
             });
         }
-        let total_bytes = response.body.len();
+        let total_bytes = response.content_length;
         let stream_id = self.next_http_stream_id.fetch_add(1, Ordering::Relaxed);
         let mut streams = self
             .http_streams
@@ -798,7 +913,8 @@ impl ParentContextService {
             HttpStreamState {
                 page_id,
                 body: response.body,
-                offset: 0,
+                bytes_read: 0,
+                content_length: total_bytes,
             },
         );
         Ok(ContextServiceResponse::HttpStreamStarted {
@@ -831,13 +947,28 @@ impl ParentContextService {
                 ));
             }
             let read_bytes = max_bytes.clamp(1, 64 * 1024);
-            let end = stream
-                .offset
-                .saturating_add(read_bytes)
-                .min(stream.body.len());
-            let chunk = stream.body[stream.offset..end].to_vec();
-            stream.offset = end;
-            (chunk, stream.offset == stream.body.len())
+            let remaining = (16 * 1024 * 1024_usize)
+                .saturating_add(1)
+                .saturating_sub(stream.bytes_read);
+            let mut chunk = vec![0_u8; read_bytes.min(remaining)];
+            let read = stream
+                .body
+                .read(&mut chunk)
+                .map_err(|error| RuntimeError::Network(error.to_string()))?;
+            chunk.truncate(read);
+            stream.bytes_read = stream.bytes_read.saturating_add(read);
+            if stream.bytes_read > 16 * 1024 * 1024 {
+                return Err(RuntimeError::WorkerLimitExceeded {
+                    resource: "decoded HTTP response body".into(),
+                });
+            }
+            (
+                chunk,
+                read == 0
+                    || stream
+                        .content_length
+                        .is_some_and(|length| stream.bytes_read >= length),
+            )
         };
         if done {
             streams.remove(&stream_id);
@@ -1152,26 +1283,24 @@ pub fn serve_context_service(
         .try_clone()
         .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
     let mut reader = BufReader::new(reader_stream);
-    let mut writer = stream;
+    let writer = Arc::new(Mutex::new(stream));
+    let service = Arc::new(service);
     let mut last_message_id = 0_u64;
     loop {
         let mut line = Vec::new();
         let read = read_bounded_line(&mut reader, &mut line, MAX_CONTEXT_FRAME_BYTES)
             .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
         if read == 0 {
-            return Ok(());
+            break;
         }
         let request = serde_json::from_slice::<RequestEnvelope>(&line);
-        let (message_id, response, error) = match request {
+        let (message_id, request, error) = match request {
             Ok(envelope)
                 if envelope.protocol_version == CONTEXT_SERVICE_PROTOCOL_VERSION
                     && envelope.message_id > last_message_id =>
             {
                 last_message_id = envelope.message_id;
-                match service.handle(envelope.request) {
-                    Ok(response) => (envelope.message_id, Some(response), None),
-                    Err(error) => (envelope.message_id, None, Some(error.to_string())),
-                }
+                (envelope.message_id, Some(envelope.request), None)
             }
             Ok(envelope) => (
                 envelope.message_id,
@@ -1180,21 +1309,37 @@ pub fn serve_context_service(
             ),
             Err(error) => (0, None, Some(format!("malformed context request: {error}"))),
         };
-        serde_json::to_writer(
-            &mut writer,
-            &ResponseEnvelope {
-                protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
-                correlation_id: message_id,
-                response,
-                error,
-            },
-        )
-        .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
-        writer
-            .write_all(b"\n")
-            .and_then(|_| writer.flush())
-            .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+        let service = service.clone();
+        let writer = writer.clone();
+        std::thread::spawn(move || -> Result<(), RuntimeError> {
+            let (response, error) = if let Some(request) = request {
+                match service.handle(request) {
+                    Ok(response) => (Some(response), None),
+                    Err(error) => (None, Some(error.to_string())),
+                }
+            } else {
+                (None, error)
+            };
+            let mut writer = writer
+                .lock()
+                .map_err(|_| RuntimeError::ContextService("context writer lock poisoned".into()))?;
+            serde_json::to_writer(
+                &mut *writer,
+                &ResponseEnvelope {
+                    protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
+                    correlation_id: message_id,
+                    response,
+                    error,
+                },
+            )
+            .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
+            writer
+                .write_all(b"\n")
+                .and_then(|_| writer.flush())
+                .map_err(|error| RuntimeError::ContextService(error.to_string()))
+        });
     }
+    Ok(())
 }
 
 fn read_bounded_line(
@@ -1265,10 +1410,24 @@ fn response_header<'a>(response: &'a NetworkResponse, requested: &str) -> Option
 }
 
 fn cors_origin_allowed(source_origin: &str, credentials: bool, response: &NetworkResponse) -> bool {
-    response_header(response, "access-control-allow-origin")
+    cors_headers_allowed(source_origin, credentials, &response.headers)
+}
+
+fn cors_headers_allowed(
+    source_origin: &str,
+    credentials: bool,
+    headers: &[(String, String)],
+) -> bool {
+    let header = |requested: &str| {
+        headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(requested))
+            .map(|(_, value)| value.as_str())
+    };
+    header("access-control-allow-origin")
         .is_some_and(|allowed| allowed == source_origin || (!credentials && allowed == "*"))
         && (!credentials
-            || response_header(response, "access-control-allow-credentials")
+            || header("access-control-allow-credentials")
                 .is_some_and(|value| value.eq_ignore_ascii_case("true")))
 }
 
@@ -1304,29 +1463,34 @@ fn enforce_cors_preflight(
     Ok(())
 }
 
+#[cfg(all(test, feature = "in-process-probe"))]
 fn enforce_cors_response(
     source_origin: &str,
     credentials: bool,
     response: &NetworkResponse,
 ) -> Result<(), RuntimeError> {
-    if !cors_origin_allowed(source_origin, credentials, response) {
-        return Err(RuntimeError::ContextService(
+    if cors_origin_allowed(source_origin, credentials, response) {
+        Ok(())
+    } else {
+        Err(RuntimeError::ContextService(
             "cross-origin response denied by CORS".into(),
-        ));
+        ))
     }
-    Ok(())
 }
 
 #[cfg(all(test, feature = "in-process-probe"))]
 mod tests {
     use super::*;
-    use crate::{Browser, ContextOptions, PolicyRule, network::NetworkError};
+    use crate::{
+        Browser, ContextOptions, PolicyRule,
+        network::{NetworkError, NetworkStreamResponse, SharedNetworkBroker},
+    };
 
     struct FixtureNetwork;
 
     impl NetworkBroker for FixtureNetwork {
         fn send(
-            &mut self,
+            &self,
             request: NetworkRequest,
         ) -> Result<crate::network::NetworkResponse, NetworkError> {
             assert!(
@@ -1355,6 +1519,175 @@ mod tests {
                 body: vec![7; 150_000],
             })
         }
+    }
+
+    struct CountingReader {
+        reads: Arc<AtomicU64>,
+        body: std::io::Cursor<Vec<u8>>,
+    }
+
+    impl Read for CountingReader {
+        fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+            self.reads.fetch_add(1, Ordering::Relaxed);
+            self.body.read(output)
+        }
+    }
+
+    struct PullNetwork {
+        reads: Arc<AtomicU64>,
+    }
+
+    impl NetworkBroker for PullNetwork {
+        fn send(
+            &self,
+            _request: NetworkRequest,
+        ) -> Result<crate::network::NetworkResponse, NetworkError> {
+            unreachable!("streaming path must not buffer through send")
+        }
+
+        fn start_stream(
+            &self,
+            request: NetworkRequest,
+        ) -> Result<NetworkStreamResponse, NetworkError> {
+            Ok(NetworkStreamResponse {
+                request_id: request.request_id,
+                status: 200,
+                headers: vec![("content-type".into(), "text/plain".into())],
+                content_length: Some(5),
+                body: Box::new(CountingReader {
+                    reads: self.reads.clone(),
+                    body: std::io::Cursor::new(b"hello".to_vec()),
+                }),
+            })
+        }
+    }
+
+    struct ConcurrentStartNetwork {
+        active: Arc<AtomicU64>,
+        peak: Arc<AtomicU64>,
+    }
+
+    impl NetworkBroker for ConcurrentStartNetwork {
+        fn send(
+            &self,
+            _request: NetworkRequest,
+        ) -> Result<crate::network::NetworkResponse, NetworkError> {
+            unreachable!("concurrency fixture uses streaming starts")
+        }
+
+        fn start_stream(
+            &self,
+            request: NetworkRequest,
+        ) -> Result<NetworkStreamResponse, NetworkError> {
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(active, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(25));
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            Ok(NetworkStreamResponse {
+                request_id: request.request_id,
+                status: 200,
+                headers: vec![("content-type".into(), "text/plain".into())],
+                content_length: Some(2),
+                body: Box::new(std::io::Cursor::new(b"ok".to_vec())),
+            })
+        }
+    }
+
+    #[test]
+    fn multiplexed_context_channel_starts_thirty_two_requests_concurrently() {
+        let context = Browser::new().new_context_with_options(ContextOptions::loopback_test());
+        let page = context.new_page();
+        context
+            .commit_page_url(page.page_id(), "https://example.test/".into())
+            .unwrap();
+        let active = Arc::new(AtomicU64::new(0));
+        let peak = Arc::new(AtomicU64::new(0));
+        let (worker, parent) = UnixStream::pair().unwrap();
+        let service = ParentContextService::new_with_network(
+            context,
+            page.page_id(),
+            Some(SharedNetworkBroker::new(ConcurrentStartNetwork {
+                active: active.clone(),
+                peak: peak.clone(),
+            })),
+        );
+        let server = std::thread::spawn(move || serve_context_service(parent, service));
+        let client = SharedContextClient::new(IpcContextClient::new(worker));
+        let callers = (0..32)
+            .map(|index| {
+                let client = client.clone();
+                let page_id = page.page_id();
+                std::thread::spawn(move || {
+                    client.request(ContextServiceRequest::HttpStreamStart {
+                        page_id,
+                        request: HttpStreamRequest {
+                            request_id: index + 1,
+                            method: "GET".into(),
+                            url: format!("https://example.test/{index}"),
+                            headers: Vec::new(),
+                            body_base64: String::new(),
+                            credentials: true,
+                        },
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        for caller in callers {
+            assert!(matches!(
+                caller.join().unwrap().unwrap(),
+                ContextServiceResponse::HttpStreamStarted { .. }
+            ));
+        }
+        assert_eq!(peak.load(Ordering::SeqCst), 32);
+        drop(client);
+        server.join().unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn accepted_headers_do_not_pull_response_bytes_until_worker_demand() {
+        let context = Browser::in_process_probe().new_context();
+        let page = context.new_page();
+        page.load_html("https://example.test/app", "<p>ready</p>")
+            .await
+            .unwrap();
+        let page_id = page.page_id();
+        let reads = Arc::new(AtomicU64::new(0));
+        let service = ParentContextService::new_with_network(
+            context,
+            page_id,
+            Some(SharedNetworkBroker::new(PullNetwork {
+                reads: reads.clone(),
+            })),
+        );
+        let started = service
+            .handle(ContextServiceRequest::HttpStreamStart {
+                page_id,
+                request: HttpStreamRequest {
+                    request_id: 8,
+                    method: "GET".into(),
+                    url: "https://example.test/pull".into(),
+                    headers: Vec::new(),
+                    body_base64: String::new(),
+                    credentials: true,
+                },
+            })
+            .expect("accept response headers");
+        assert_eq!(reads.load(Ordering::Relaxed), 0);
+        let ContextServiceResponse::HttpStreamStarted { stream_id, .. } = started else {
+            panic!("unexpected stream response");
+        };
+        let chunk = service
+            .handle(ContextServiceRequest::HttpStreamRead {
+                page_id,
+                stream_id,
+                max_bytes: 2,
+            })
+            .expect("pull response bytes");
+        assert!(matches!(
+            chunk,
+            ContextServiceResponse::HttpStreamChunk { done: false, .. }
+        ));
+        assert_eq!(reads.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]
@@ -1395,7 +1728,7 @@ mod tests {
         else {
             panic!("unexpected stream response");
         };
-        assert_eq!(total_bytes, 150_000);
+        assert_eq!(total_bytes, Some(150_000));
         assert_eq!(
             headers,
             vec![("Content-Type".into(), "application/octet-stream".into())]

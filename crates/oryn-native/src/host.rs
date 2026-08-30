@@ -46,7 +46,9 @@ impl JavaScriptHost for DisabledHost {
 #[cfg(feature = "v8-host")]
 mod raw_v8 {
     use std::{
+        cell::RefCell,
         collections::BTreeMap,
+        rc::Rc,
         sync::{
             Arc, Once,
             atomic::{AtomicBool, Ordering},
@@ -64,15 +66,24 @@ mod raw_v8 {
     use crate::context_service::{
         ContextServiceRequest, ContextServiceResponse, HttpStreamRequest, SharedContextClient,
     };
-    use crate::network::{NetworkRequest, NetworkResponse, SharedNetworkBroker};
+    use crate::network::{NetworkBroker, NetworkRequest, SharedNetworkBroker};
     #[cfg(unix)]
     use oryn_common::v3::PageId;
+    use oryn_dom::NodeId;
+    use oryn_js::realm::{RealmDescriptor, RealmId, RealmRegistry};
+    use oryn_js::v8_bindings::{
+        BindingLayout, SharedDom, V8BindingState, install_generated_bindings,
+        install_generated_bindings_with_root, wrap_node,
+    };
 
     static INITIALIZE_V8: Once = Once::new();
 
     pub struct RawV8Host {
         isolate: v8::OwnedIsolate,
-        context: v8::Global<v8::Context>,
+        contexts: BTreeMap<RealmId, v8::Global<v8::Context>>,
+        realms: RealmRegistry,
+        active_realm: RealmId,
+        binding_states: BTreeMap<RealmId, Rc<V8BindingState>>,
         execution_wall_limit: Duration,
     }
 
@@ -145,8 +156,165 @@ mod raw_v8 {
         url: String,
         status: u16,
         headers: Vec<(String, String)>,
+        stream_id: Option<u64>,
         body_base64: String,
         body_chunks_base64: Vec<String>,
+    }
+
+    struct PendingFetch {
+        realm: RealmId,
+        resolver: v8::Global<v8::PromiseResolver>,
+    }
+
+    struct FetchCompletion {
+        operation_id: u64,
+        result: Result<String, String>,
+    }
+
+    struct AsyncFetches {
+        next_operation_id: u64,
+        sender: mpsc::Sender<FetchCompletion>,
+        receiver: mpsc::Receiver<FetchCompletion>,
+        pending: BTreeMap<u64, PendingFetch>,
+    }
+
+    impl Default for AsyncFetches {
+        fn default() -> Self {
+            let (sender, receiver) = mpsc::channel();
+            Self {
+                next_operation_id: 1,
+                sender,
+                receiver,
+                pending: BTreeMap::new(),
+            }
+        }
+    }
+
+    struct FetchRequest {
+        input: String,
+        method: String,
+        body: Vec<u8>,
+        headers: Vec<(String, String)>,
+        credentials_mode: String,
+    }
+
+    macro_rules! install_host_functions {
+        ($scope:expr, $context:expr) => {{
+            let context_scope = &mut v8::ContextScope::new($scope, $context);
+            if context_scope.get_slot::<FetchState>().is_some() {
+                let function = v8::Function::new(context_scope, fetch_async_callback)
+                    .expect("allocate native fetch callback");
+                let name = v8::String::new(context_scope, "__oryn_fetch_async")
+                    .expect("allocate native fetch name");
+                $context
+                    .global(context_scope)
+                    .set(context_scope, name.into(), function.into());
+            }
+            #[cfg(unix)]
+            if context_scope.get_slot::<ContextState>().is_some() {
+                let function = v8::Function::new(context_scope, context_callback)
+                    .expect("allocate native context callback");
+                let name = v8::String::new(context_scope, "__oryn_context_call")
+                    .expect("allocate native context callback name");
+                $context
+                    .global(context_scope)
+                    .set(context_scope, name.into(), function.into());
+                let function = v8::Function::new(context_scope, stream_read_async_callback)
+                    .expect("allocate native stream callback");
+                let name = v8::String::new(context_scope, "__oryn_stream_read_async")
+                    .expect("allocate native stream callback name");
+                $context
+                    .global(context_scope)
+                    .set(context_scope, name.into(), function.into());
+            }
+            let function = v8::Function::new(context_scope, crypto_callback)
+                .expect("allocate native crypto callback");
+            let name = v8::String::new(context_scope, "__oryn_crypto_sync")
+                .expect("allocate native crypto callback name");
+            $context
+                .global(context_scope)
+                .set(context_scope, name.into(), function.into());
+            install_runtime_profile(context_scope);
+            install_generated_binding_metadata(context_scope);
+        }};
+    }
+
+    fn install_generated_binding_metadata(scope: &mut v8::ContextScope<v8::HandleScope>) {
+        let interfaces = oryn_js::generated::GENERATED_INTERFACES
+            .iter()
+            .map(|interface| {
+                serde_json::json!({
+                    "name": interface.name,
+                    "parent": interface.parent,
+                    "members": interface.members.iter().map(|member| member.name).collect::<Vec<_>>(),
+                })
+            })
+            .collect::<Vec<_>>();
+        let encoded =
+            serde_json::to_string(&interfaces).expect("generated binding metadata is serializable");
+        let source = format!(
+            "Object.defineProperty(globalThis,'__oryn_generated_bindings',{{value:Object.freeze({encoded}),enumerable:false}});"
+        );
+        let source = v8::String::new(scope, &source).expect("allocate generated binding metadata");
+        let script = v8::Script::compile(scope, source, None)
+            .expect("compile generated binding metadata installer");
+        script
+            .run(scope)
+            .expect("install generated binding metadata");
+    }
+
+    fn install_runtime_profile(scope: &mut v8::ContextScope<v8::HandleScope>) {
+        #[cfg(feature = "core-lite")]
+        {
+            const SOURCE: &str = r#"
+                (() => {
+                  const allowed = locale => locale === undefined || locale === null ||
+                    ['', 'root', 'en', 'en-US', 'en-us'].includes(String(locale));
+                  const validate = locales => {
+                    if (locales === undefined) return;
+                    const values = Array.isArray(locales) ? locales : [locales];
+                    for (const locale of values) {
+                      if (!allowed(locale)) throw new RangeError(
+                        `Intl locale ${String(locale)} is unavailable in core-lite; supported locales are root, en, and en-US`
+                      );
+                    }
+                  };
+                  for (const name of ['Collator','DateTimeFormat','DisplayNames','ListFormat','Locale','NumberFormat','PluralRules','RelativeTimeFormat','Segmenter']) {
+                    const Native = Intl[name];
+                    if (typeof Native !== 'function') continue;
+                    const Wrapped = new Proxy(Native, {
+                      apply(target, self, args) { validate(args[0]); return Reflect.apply(target, self, args); },
+                      construct(target, args, receiver) { validate(args[0]); return Reflect.construct(target, args, receiver); }
+                    });
+                    if (typeof Native.supportedLocalesOf === 'function') {
+                      Wrapped.supportedLocalesOf = locales => {
+                        validate(locales);
+                        return Native.supportedLocalesOf(locales);
+                      };
+                    }
+                    Intl[name] = Wrapped;
+                  }
+                  Object.defineProperty(globalThis, '__oryn_runtime_profile', { value: 'core-lite' });
+                })();
+            "#;
+            let source = v8::String::new(scope, SOURCE).expect("allocate core-lite startup source");
+            let script = v8::Script::compile(scope, source, None)
+                .expect("compile core-lite Intl capability guard");
+            script
+                .run(scope)
+                .expect("install core-lite Intl capability guard");
+        }
+        #[cfg(not(feature = "core-lite"))]
+        {
+            let name = v8::String::new(scope, "__oryn_runtime_profile")
+                .expect("allocate runtime profile name");
+            let value =
+                v8::String::new(scope, "core-full").expect("allocate runtime profile value");
+            scope
+                .get_current_context()
+                .global(scope)
+                .create_data_property(scope, name.into(), value.into());
+        }
     }
 
     impl RawV8Host {
@@ -227,9 +395,11 @@ mod raw_v8 {
             });
             let mut isolate =
                 v8::Isolate::new(v8::CreateParams::default().heap_limits(0, max_heap_bytes));
+            isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
             isolate.set_host_import_module_dynamically_callback(dynamic_import);
             isolate.set_host_initialize_import_meta_object_callback(initialize_import_meta);
             isolate.set_slot(PromiseRejections::default());
+            isolate.set_slot(AsyncFetches::default());
             isolate.set_slot(ModuleNames::default());
             isolate.set_slot(ModuleCache::default());
             isolate.set_slot(ModuleResolutionFailures::default());
@@ -241,47 +411,357 @@ mod raw_v8 {
             if let Some(context_state) = context_state {
                 isolate.set_slot(context_state);
             }
+            let origin = isolate
+                .get_slot::<FetchState>()
+                .map(|state| state.base_url.origin().ascii_serialization())
+                .unwrap_or_else(|| "null".into());
+            let mut realms = RealmRegistry::default();
+            let active_realm = realms.create(origin, 1, None);
             let context = {
                 v8::scope!(let scope, &mut isolate);
                 let context = v8::Context::new(scope, Default::default());
-                if scope.get_slot::<FetchState>().is_some() {
-                    let context_scope = &mut v8::ContextScope::new(scope, context);
-                    let function = v8::Function::new(context_scope, fetch_callback)
-                        .expect("allocate native fetch callback");
-                    let name = v8::String::new(context_scope, "__oryn_fetch_sync")
-                        .expect("allocate native fetch name");
-                    context
-                        .global(context_scope)
-                        .set(context_scope, name.into(), function.into());
-                }
-                #[cfg(unix)]
-                if scope.get_slot::<ContextState>().is_some() {
-                    let context_scope = &mut v8::ContextScope::new(scope, context);
-                    let function = v8::Function::new(context_scope, context_callback)
-                        .expect("allocate native context callback");
-                    let name = v8::String::new(context_scope, "__oryn_context_sync")
-                        .expect("allocate native context callback name");
-                    context
-                        .global(context_scope)
-                        .set(context_scope, name.into(), function.into());
-                }
-                {
-                    let context_scope = &mut v8::ContextScope::new(scope, context);
-                    let function = v8::Function::new(context_scope, crypto_callback)
-                        .expect("allocate native crypto callback");
-                    let name = v8::String::new(context_scope, "__oryn_crypto_sync")
-                        .expect("allocate native crypto callback name");
-                    context
-                        .global(context_scope)
-                        .set(context_scope, name.into(), function.into());
-                }
+                install_host_functions!(scope, context);
                 v8::Global::new(scope, context)
             };
+            let mut contexts = BTreeMap::new();
+            contexts.insert(active_realm, context);
             Self {
                 isolate,
-                context,
+                contexts,
+                realms,
+                active_realm,
+                binding_states: BTreeMap::new(),
                 execution_wall_limit: Duration::from_millis(9_500),
             }
+        }
+
+        /// Install the generated browser interfaces and a Rust-owned document
+        /// into the active realm. Calling this twice replaces the realm's
+        /// binding state and therefore requires a new document generation.
+        pub fn install_dom(
+            &mut self,
+            dom: SharedDom,
+            document_generation: u64,
+        ) -> Result<(), HostError> {
+            let realm = self.active_realm;
+            let context = self
+                .contexts
+                .get(&realm)
+                .ok_or_else(|| HostError::Execution("active realm context is unavailable".into()))?
+                .clone();
+            v8::scope!(let handle_scope, &mut self.isolate);
+            let context = v8::Local::new(handle_scope, &context);
+            let scope = &mut v8::ContextScope::new(handle_scope, context);
+            let state = install_generated_bindings(scope, context, dom, realm, document_generation)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            self.binding_states.insert(realm, state);
+            Ok(())
+        }
+
+        pub fn install_dom_root(
+            &mut self,
+            dom: SharedDom,
+            document_generation: u64,
+            document: NodeId,
+        ) -> Result<(), HostError> {
+            let realm = self.active_realm;
+            let context = self
+                .contexts
+                .get(&realm)
+                .ok_or_else(|| HostError::Execution("active realm context is unavailable".into()))?
+                .clone();
+            v8::scope!(let handle_scope, &mut self.isolate);
+            let context = v8::Local::new(handle_scope, &context);
+            let scope = &mut v8::ContextScope::new(handle_scope, context);
+            let state = install_generated_bindings_with_root(
+                scope,
+                context,
+                dom,
+                realm,
+                document_generation,
+                document,
+            )
+            .map_err(|error| HostError::Execution(error.to_string()))?;
+            self.binding_states.insert(realm, state);
+            Ok(())
+        }
+
+        pub fn set_frame_document(
+            &mut self,
+            frame: NodeId,
+            document: NodeId,
+        ) -> Result<(), HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
+                .set_frame_document(frame, document);
+            Ok(())
+        }
+
+        pub fn set_document_write_anchor(
+            &mut self,
+            anchor: Option<NodeId>,
+        ) -> Result<(), HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
+                .set_document_write_anchor(anchor);
+            Ok(())
+        }
+
+        pub fn active_dom(&self) -> Option<SharedDom> {
+            self.binding_states
+                .get(&self.active_realm)
+                .map(|state| state.dom())
+        }
+
+        pub fn install_layout(&mut self, layout: BindingLayout) -> Result<(), HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
+                .set_layout(layout);
+            Ok(())
+        }
+
+        /// Invoke generated JavaScript behavior with a Rust-owned node exposed
+        /// through a short-lived, non-enumerable task global.
+        pub fn execute_with_node(
+            &mut self,
+            node: NodeId,
+            global_name: &str,
+            source: &str,
+        ) -> Result<(), HostError> {
+            let realm = self.active_realm;
+            let state = self
+                .binding_states
+                .get(&realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?;
+            let context = self
+                .contexts
+                .get(&realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active realm is unavailable".into()))?;
+            {
+                v8::scope!(let handle_scope, &mut self.isolate);
+                let context = v8::Local::new(handle_scope, &context);
+                let scope = &mut v8::ContextScope::new(handle_scope, context);
+                let wrapper = wrap_node(scope, &state, node)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                let name = v8::String::new(scope, global_name).ok_or_else(|| {
+                    HostError::Execution("action global allocation failed".into())
+                })?;
+                context.global(scope).define_own_property(
+                    scope,
+                    name.into(),
+                    wrapper.into(),
+                    v8::PropertyAttribute::DONT_ENUM,
+                );
+            }
+            let result = self.execute(source);
+            let cleanup = format!("delete globalThis[{global_name:?}]");
+            let cleanup_result = self.execute(&cleanup);
+            result.and(cleanup_result)
+        }
+
+        pub fn process_binding_releases(&mut self) -> Result<usize, HostError> {
+            self.binding_states
+                .values()
+                .try_fold(0_usize, |total, state| {
+                    state
+                        .process_weak_releases()
+                        .map(|released| total + released)
+                        .map_err(|error| HostError::Execution(error.to_string()))
+                })
+        }
+
+        /// Deliver parent-broker completions outside the originating V8
+        /// callback. Waiting is bounded by the page execution wall limit and
+        /// all ready completions run a real V8 microtask checkpoint.
+        pub fn drain_async_fetches(&mut self, wait: bool) -> Result<usize, HostError> {
+            let deadline = std::time::Instant::now() + self.execution_wall_limit;
+            let mut delivered = 0_usize;
+            loop {
+                let completion = {
+                    let fetches = self
+                        .isolate
+                        .get_slot_mut::<AsyncFetches>()
+                        .expect("asynchronous fetch registry installed");
+                    if fetches.pending.is_empty() {
+                        break;
+                    }
+                    if wait {
+                        let remaining =
+                            deadline.saturating_duration_since(std::time::Instant::now());
+                        if remaining.is_zero() {
+                            return Err(HostError::LimitExceeded {
+                                resource: "asynchronous fetch wall time".into(),
+                            });
+                        }
+                        match fetches
+                            .receiver
+                            .recv_timeout(remaining.min(Duration::from_millis(50)))
+                        {
+                            Ok(completion) => Some(completion),
+                            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                                return Err(HostError::Execution(
+                                    "asynchronous fetch completion channel closed".into(),
+                                ));
+                            }
+                        }
+                    } else {
+                        match fetches.receiver.try_recv() {
+                            Ok(completion) => Some(completion),
+                            Err(mpsc::TryRecvError::Empty) => None,
+                            Err(mpsc::TryRecvError::Disconnected) => {
+                                return Err(HostError::Execution(
+                                    "asynchronous fetch completion channel closed".into(),
+                                ));
+                            }
+                        }
+                    }
+                };
+                let Some(completion) = completion else {
+                    break;
+                };
+                let pending = self
+                    .isolate
+                    .get_slot_mut::<AsyncFetches>()
+                    .expect("asynchronous fetch registry installed")
+                    .pending
+                    .remove(&completion.operation_id)
+                    .ok_or_else(|| {
+                        HostError::Execution(format!(
+                            "unmatched asynchronous fetch completion {}",
+                            completion.operation_id
+                        ))
+                    })?;
+                let context = self
+                    .contexts
+                    .get(&pending.realm)
+                    .ok_or_else(|| HostError::Execution("fetch realm was replaced".into()))?
+                    .clone();
+                v8::scope!(let handle_scope, &mut self.isolate);
+                let context = v8::Local::new(handle_scope, &context);
+                let scope = &mut v8::ContextScope::new(handle_scope, context);
+                let resolver = v8::Local::new(scope, &pending.resolver);
+                match completion.result {
+                    Ok(result) => {
+                        let value = v8::String::new(scope, &result).ok_or_else(|| {
+                            HostError::Execution("fetch result allocation failed".into())
+                        })?;
+                        resolver.resolve(scope, value.into());
+                    }
+                    Err(error) => {
+                        let message = v8::String::new(scope, &error).ok_or_else(|| {
+                            HostError::Execution("fetch error allocation failed".into())
+                        })?;
+                        let exception = v8::Exception::error(scope, message);
+                        resolver.reject(scope, exception);
+                    }
+                }
+                scope.perform_microtask_checkpoint();
+                delivered += 1;
+            }
+            Ok(delivered)
+        }
+
+        pub fn has_pending_async_fetches(&self) -> bool {
+            self.isolate
+                .get_slot::<AsyncFetches>()
+                .is_some_and(|fetches| !fetches.pending.is_empty())
+        }
+
+        /// Create another global realm in this page's isolate. DOM wrappers are
+        /// still installed separately; this method only establishes the V8
+        /// context and its immutable security identity.
+        pub fn create_realm(
+            &mut self,
+            origin: impl Into<String>,
+            document_generation: u64,
+            frame_id: Option<u64>,
+        ) -> RealmId {
+            let realm = self.realms.create(origin, document_generation, frame_id);
+            let context = {
+                v8::scope!(let scope, &mut self.isolate);
+                let context = v8::Context::new(scope, Default::default());
+                install_host_functions!(scope, context);
+                v8::Global::new(scope, context)
+            };
+            self.contexts.insert(realm, context);
+            realm
+        }
+
+        pub fn create_realm_with_dom(
+            &mut self,
+            origin: impl Into<String>,
+            document_generation: u64,
+            frame_id: Option<u64>,
+            dom: Rc<RefCell<oryn_dom::DomRuntime>>,
+        ) -> Result<RealmId, HostError> {
+            let previous = self.active_realm;
+            let realm = self.create_realm(origin, document_generation, frame_id);
+            self.activate_realm(realm)?;
+            let installed = self.install_dom(dom, document_generation);
+            self.activate_realm(previous)?;
+            installed.map(|()| realm)
+        }
+
+        pub fn create_realm_with_dom_root(
+            &mut self,
+            origin: impl Into<String>,
+            document_generation: u64,
+            frame_id: Option<u64>,
+            dom: Rc<RefCell<oryn_dom::DomRuntime>>,
+            document: NodeId,
+        ) -> Result<RealmId, HostError> {
+            let previous = self.active_realm;
+            let realm = self.create_realm(origin, document_generation, frame_id);
+            self.activate_realm(realm)?;
+            let installed = self.install_dom_root(dom, document_generation, document);
+            self.activate_realm(previous)?;
+            installed.map(|()| realm)
+        }
+
+        pub fn activate_realm(&mut self, realm: RealmId) -> Result<(), HostError> {
+            if !self.contexts.contains_key(&realm) {
+                return Err(HostError::Execution(format!(
+                    "unknown JavaScript realm {}",
+                    realm.0
+                )));
+            }
+            self.active_realm = realm;
+            Ok(())
+        }
+
+        pub fn active_realm(&self) -> RealmId {
+            self.active_realm
+        }
+
+        pub fn realm_descriptor(&self, realm: RealmId) -> Option<&RealmDescriptor> {
+            self.realms.get(realm)
+        }
+
+        /// Replace or remove a frame realm after navigation. The top-level
+        /// realm cannot be removed because callers always need an active
+        /// execution context.
+        pub fn remove_realm(&mut self, realm: RealmId) -> Result<RealmDescriptor, HostError> {
+            if self.contexts.len() == 1 || realm == RealmId(0) {
+                return Err(HostError::Execution(
+                    "the top-level JavaScript realm cannot be removed".into(),
+                ));
+            }
+            self.contexts.remove(&realm).ok_or_else(|| {
+                HostError::Execution(format!("unknown JavaScript realm {}", realm.0))
+            })?;
+            self.binding_states.remove(&realm);
+            if self.active_realm == realm {
+                self.active_realm = RealmId(0);
+            }
+            self.realms.remove(realm).ok_or_else(|| {
+                HostError::Execution(format!("missing descriptor for realm {}", realm.0))
+            })
         }
 
         pub fn execute_module(
@@ -293,7 +773,12 @@ mod raw_v8 {
             let _deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
             self.isolate.set_slot(ModuleSources(dependencies.clone()));
             v8::scope!(let handle_scope, &mut self.isolate);
-            let context = v8::Local::new(handle_scope, &self.context);
+            let context = v8::Local::new(
+                handle_scope,
+                self.contexts
+                    .get(&self.active_realm)
+                    .expect("active realm context exists"),
+            );
             let scope = &mut v8::ContextScope::new(handle_scope, context);
             let cached = scope
                 .get_slot::<ModuleCache>()
@@ -643,10 +1128,12 @@ mod raw_v8 {
     }
 
     #[cfg(unix)]
-    fn send_streamed_request(
+    type StartedStream = (u64, u16, Vec<(String, String)>);
+
+    fn start_streamed_request(
         state: &ContextState,
         request: NetworkRequest,
-    ) -> Result<(NetworkResponse, Vec<Vec<u8>>), String> {
+    ) -> Result<StartedStream, String> {
         let started = state
             .client
             .request(ContextServiceRequest::HttpStreamStart {
@@ -666,79 +1153,101 @@ mod raw_v8 {
             request_id,
             status,
             headers,
-            total_bytes,
+            ..
         } = started
         else {
             return Err("context service returned an invalid HTTP start response".into());
         };
-        let mut body = Vec::with_capacity(total_bytes);
-        let mut chunks = Vec::new();
-        loop {
-            let response = state
-                .client
-                .request(ContextServiceRequest::HttpStreamRead {
-                    page_id: state.page_id,
-                    stream_id,
-                    max_bytes: 64 * 1024,
-                })
-                .map_err(|error| error.to_string())?;
-            let ContextServiceResponse::HttpStreamChunk {
-                stream_id: returned_stream_id,
-                body_base64,
-                done,
-            } = response
-            else {
-                let _ = state
-                    .client
-                    .request(ContextServiceRequest::HttpStreamAbort {
-                        page_id: state.page_id,
-                        stream_id,
-                    });
-                return Err("context service returned an invalid HTTP chunk response".into());
-            };
-            if returned_stream_id != stream_id {
-                return Err("context service returned the wrong HTTP stream".into());
-            }
-            let chunk = BASE64
-                .decode(body_base64)
-                .map_err(|error| error.to_string())?;
-            body.extend_from_slice(&chunk);
-            if !chunk.is_empty() {
-                chunks.push(chunk);
-            }
-            if body.len() > 16 * 1024 * 1024 {
-                return Err("streamed HTTP response exceeded 16 MiB".into());
-            }
-            if done {
-                break;
-            }
-        }
-        if body.len() != total_bytes {
-            return Err(format!(
-                "streamed HTTP response length mismatch: expected {total_bytes}, got {}",
-                body.len()
-            ));
-        }
-        Ok((
-            NetworkResponse {
-                request_id,
-                status,
-                headers,
-                body,
-            },
-            chunks,
-        ))
+        let _ = request_id;
+        Ok((stream_id, status, headers))
     }
 
-    fn fetch_callback(
+    #[cfg(unix)]
+    fn stream_read_async_callback(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        mut return_value: v8::ReturnValue<v8::Value>,
+    ) {
+        let started = (|| -> Result<v8::Local<v8::Promise>, String> {
+            let context = scope
+                .get_slot::<ContextState>()
+                .cloned()
+                .ok_or_else(|| "context service unavailable".to_string())?;
+            let stream_id = args
+                .get(0)
+                .integer_value(scope)
+                .ok_or_else(|| "stream identifier is invalid".to_string())?
+                as u64;
+            let resolver = v8::PromiseResolver::new(scope)
+                .ok_or_else(|| "failed to allocate stream promise".to_string())?;
+            let promise = resolver.get_promise(scope);
+            let realm = scope
+                .get_current_context()
+                .get_slot::<V8BindingState>()
+                .map(|state| state.realm())
+                .unwrap_or(RealmId(0));
+            let resolver = v8::Global::new(scope, resolver);
+            let operations = scope
+                .get_slot_mut::<AsyncFetches>()
+                .ok_or_else(|| "asynchronous operation registry unavailable".to_string())?;
+            let operation_id = operations.next_operation_id;
+            operations.next_operation_id = operation_id.saturating_add(1);
+            if operations.pending.len() >= 32 {
+                return Err("pending host operation limit exceeded".into());
+            }
+            operations
+                .pending
+                .insert(operation_id, PendingFetch { realm, resolver });
+            let sender = operations.sender.clone();
+            std::thread::spawn(move || {
+                let result = context
+                    .client
+                    .request(ContextServiceRequest::HttpStreamRead {
+                        page_id: context.page_id,
+                        stream_id,
+                        max_bytes: 64 * 1024,
+                    })
+                    .map_err(|error| error.to_string())
+                    .and_then(|response| match response {
+                        ContextServiceResponse::HttpStreamChunk {
+                            stream_id: returned,
+                            body_base64,
+                            done,
+                        } if returned == stream_id => serde_json::to_string(&serde_json::json!({
+                            "stream_id": stream_id,
+                            "body_base64": body_base64,
+                            "done": done,
+                        }))
+                        .map_err(|error| error.to_string()),
+                        _ => Err("context service returned an invalid HTTP chunk".into()),
+                    });
+                let _ = sender.send(FetchCompletion {
+                    operation_id,
+                    result,
+                });
+            });
+            Ok(promise)
+        })();
+        match started {
+            Ok(promise) => return_value.set(promise.into()),
+            Err(error) => {
+                if let Some(error) = v8::String::new(scope, &error) {
+                    let exception = v8::Exception::type_error(scope, error);
+                    scope.throw_exception(exception);
+                }
+            }
+        }
+    }
+
+    fn fetch_async_callback(
         scope: &mut v8::PinScope,
         args: v8::FunctionCallbackArguments,
         mut return_value: v8::ReturnValue<v8::Value>,
     ) {
         #[cfg(unix)]
         let context_state = scope.get_slot::<ContextState>().cloned();
-        let result = (|| -> Result<String, String> {
-            let state = scope
+        let started = (|| -> Result<v8::Local<v8::Promise>, String> {
+            let fetch_state = scope
                 .get_slot::<FetchState>()
                 .cloned()
                 .ok_or_else(|| "network broker unavailable".to_string())?;
@@ -774,117 +1283,186 @@ mod raw_v8 {
                 .to_string(scope)
                 .map(|value| value.to_rust_string_lossy(scope))
                 .unwrap_or_else(|| "[]".into());
-            let mut request_headers =
+            let headers =
                 serde_json::from_str::<Vec<(String, String)>>(&header_json).unwrap_or_default();
             let credentials_mode = args
                 .get(5)
                 .to_string(scope)
                 .map(|value| value.to_rust_string_lossy(scope))
                 .unwrap_or_else(|| "same-origin".into());
-            let mut url = Url::parse(&input)
-                .or_else(|_| state.base_url.join(&input))
-                .map_err(|error| format!("invalid fetch URL: {error}"))?;
-            let request_origin = origin(&state.base_url);
-            for redirect in 0..=10_u64 {
-                request_headers.retain(|(name, _)| {
-                    !name.eq_ignore_ascii_case("origin")
-                        && !name.eq_ignore_ascii_case("referer")
-                        && !name.eq_ignore_ascii_case("cookie")
-                        && !name.eq_ignore_ascii_case("authorization")
+            let resolver = v8::PromiseResolver::new(scope)
+                .ok_or_else(|| "failed to allocate fetch promise".to_string())?;
+            let promise = resolver.get_promise(scope);
+            let realm = scope
+                .get_current_context()
+                .get_slot::<V8BindingState>()
+                .map(|state| state.realm())
+                .unwrap_or(RealmId(0));
+            let resolver = v8::Global::new(scope, resolver);
+            let async_fetches = scope
+                .get_slot_mut::<AsyncFetches>()
+                .ok_or_else(|| "asynchronous fetch registry unavailable".to_string())?;
+            let operation_id = async_fetches.next_operation_id;
+            async_fetches.next_operation_id = operation_id.saturating_add(1);
+            if async_fetches.pending.len() >= 32 {
+                return Err("pending fetch limit exceeded".into());
+            }
+            async_fetches
+                .pending
+                .insert(operation_id, PendingFetch { realm, resolver });
+            let sender = async_fetches.sender.clone();
+            std::thread::spawn(move || {
+                let result = perform_fetch(
+                    fetch_state,
+                    #[cfg(unix)]
+                    context_state,
+                    operation_id,
+                    FetchRequest {
+                        input,
+                        method,
+                        body,
+                        headers,
+                        credentials_mode,
+                    },
+                );
+                let _ = sender.send(FetchCompletion {
+                    operation_id,
+                    result,
                 });
-                request_headers.push(("origin".into(), request_origin.clone()));
-                let request = NetworkRequest {
-                    request_id: 1_000_000 + redirect,
-                    method: method.clone(),
-                    url: url.to_string(),
-                    headers: request_headers.clone(),
-                    body: body.clone(),
-                    credentials: credentials_mode == "include"
-                        || (credentials_mode != "omit" && origin(&url) == request_origin),
-                    resolved_addrs: Vec::new(),
-                };
-                #[cfg(unix)]
-                let (response, response_chunks) = if let Some(context) = &context_state {
-                    send_streamed_request(context, request)?
-                } else {
-                    let response = state
-                        .broker
-                        .lock()
-                        .map_err(|_| "network broker lock poisoned".to_string())?
-                        .send(request)
-                        .map_err(|error| error.to_string())?;
-                    let chunks = vec![response.body.clone()];
-                    (response, chunks)
-                };
-                #[cfg(not(unix))]
-                let (response, response_chunks) = {
-                    let response = state
-                        .broker
-                        .lock()
-                        .map_err(|_| "network broker lock poisoned".to_string())?
-                        .send(request)
-                        .map_err(|error| error.to_string())?;
-                    let chunks = vec![response.body.clone()];
-                    (response, chunks)
-                };
-                if (300..400).contains(&response.status) {
-                    let location = response
-                        .headers
-                        .iter()
-                        .find(|(name, _)| name.eq_ignore_ascii_case("location"))
-                        .map(|(_, value)| value)
-                        .ok_or_else(|| "fetch redirect omitted Location".to_string())?;
-                    url = url
-                        .join(location)
-                        .map_err(|error| format!("invalid fetch redirect: {error}"))?;
-                    continue;
-                }
-                if origin(&url) != request_origin {
-                    let allowed_origin = response
-                        .headers
-                        .iter()
-                        .find(|(name, _)| name.eq_ignore_ascii_case("access-control-allow-origin"))
-                        .map(|(_, value)| value.as_str())
-                        .unwrap_or_default();
-                    let includes_credentials = credentials_mode == "include";
-                    let credentials_allowed = !includes_credentials
-                        || response.headers.iter().any(|(name, value)| {
-                            name.eq_ignore_ascii_case("access-control-allow-credentials")
-                                && value.eq_ignore_ascii_case("true")
-                        });
-                    let allowed = (allowed_origin == request_origin
-                        || (!includes_credentials && allowed_origin == "*"))
-                        && credentials_allowed;
-                    if !allowed {
-                        return Err("cross-origin fetch denied by CORS".into());
-                    }
-                }
-                return serde_json::to_string(&FetchResult {
-                    url: url.to_string(),
-                    status: response.status,
-                    headers: response.headers,
-                    body_base64: BASE64.encode(response.body),
-                    body_chunks_base64: response_chunks
-                        .into_iter()
-                        .map(|chunk| BASE64.encode(chunk))
-                        .collect(),
-                })
-                .map_err(|error| error.to_string());
-            }
-            Err("fetch redirect limit exceeded".into())
+            });
+            Ok(promise)
         })();
-        match result {
-            Ok(result) => {
-                if let Some(value) = v8::String::new(scope, &result) {
-                    return_value.set(value.into());
-                }
-            }
+        match started {
+            Ok(promise) => return_value.set(promise.into()),
             Err(error) => {
                 if let Some(error) = v8::String::new(scope, &error) {
-                    scope.throw_exception(error.into());
+                    let exception = v8::Exception::type_error(scope, error);
+                    scope.throw_exception(exception);
                 }
             }
         }
+    }
+
+    fn perform_fetch(
+        state: FetchState,
+        #[cfg(unix)] context_state: Option<ContextState>,
+        operation_id: u64,
+        request: FetchRequest,
+    ) -> Result<String, String> {
+        let mut url = Url::parse(&request.input)
+            .or_else(|_| state.base_url.join(&request.input))
+            .map_err(|error| format!("invalid fetch URL: {error}"))?;
+        let request_origin = origin(&state.base_url);
+        let mut request_headers = request.headers;
+        for redirect in 0..=10_u64 {
+            request_headers.retain(|(name, _)| {
+                !name.eq_ignore_ascii_case("origin")
+                    && !name.eq_ignore_ascii_case("referer")
+                    && !name.eq_ignore_ascii_case("cookie")
+                    && !name.eq_ignore_ascii_case("authorization")
+            });
+            request_headers.push(("origin".into(), request_origin.clone()));
+            let network_request = NetworkRequest {
+                request_id: operation_id.saturating_mul(32).saturating_add(redirect),
+                method: request.method.clone(),
+                url: url.to_string(),
+                headers: request_headers.clone(),
+                body: request.body.clone(),
+                credentials: request.credentials_mode == "include"
+                    || (request.credentials_mode != "omit" && origin(&url) == request_origin),
+                resolved_addrs: Vec::new(),
+            };
+            #[cfg(unix)]
+            let (status, headers, body, response_chunks, stream_id) =
+                if let Some(context) = &context_state {
+                    let (stream_id, status, headers) =
+                        start_streamed_request(context, network_request)?;
+                    (status, headers, Vec::new(), Vec::new(), Some(stream_id))
+                } else {
+                    let response = state
+                        .broker
+                        .send(network_request)
+                        .map_err(|error| error.to_string())?;
+                    let chunks = vec![response.body.clone()];
+                    (
+                        response.status,
+                        response.headers,
+                        response.body,
+                        chunks,
+                        None,
+                    )
+                };
+            #[cfg(not(unix))]
+            let (status, headers, body, response_chunks, stream_id) = {
+                let response = state
+                    .broker
+                    .lock()
+                    .map_err(|_| "network broker lock poisoned".to_string())?
+                    .send(network_request)
+                    .map_err(|error| error.to_string())?;
+                let chunks = vec![response.body.clone()];
+                (
+                    response.status,
+                    response.headers,
+                    response.body,
+                    chunks,
+                    None,
+                )
+            };
+            if (300..400).contains(&status) {
+                let location = headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+                    .map(|(_, value)| value)
+                    .ok_or_else(|| "fetch redirect omitted Location".to_string())?;
+                url = url
+                    .join(location)
+                    .map_err(|error| format!("invalid fetch redirect: {error}"))?;
+                #[cfg(unix)]
+                if let (Some(context), Some(stream_id)) = (&context_state, stream_id) {
+                    context
+                        .client
+                        .request(ContextServiceRequest::HttpStreamAbort {
+                            page_id: context.page_id,
+                            stream_id,
+                        })
+                        .map_err(|error| error.to_string())?;
+                }
+                continue;
+            }
+            if origin(&url) != request_origin {
+                let allowed_origin = headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("access-control-allow-origin"))
+                    .map(|(_, value)| value.as_str())
+                    .unwrap_or_default();
+                let includes_credentials = request.credentials_mode == "include";
+                let credentials_allowed = !includes_credentials
+                    || headers.iter().any(|(name, value)| {
+                        name.eq_ignore_ascii_case("access-control-allow-credentials")
+                            && value.eq_ignore_ascii_case("true")
+                    });
+                if !((allowed_origin == request_origin
+                    || (!includes_credentials && allowed_origin == "*"))
+                    && credentials_allowed)
+                {
+                    return Err("cross-origin fetch denied by CORS".into());
+                }
+            }
+            return serde_json::to_string(&FetchResult {
+                url: url.to_string(),
+                status,
+                headers,
+                stream_id,
+                body_base64: BASE64.encode(body),
+                body_chunks_base64: response_chunks
+                    .into_iter()
+                    .map(|chunk| BASE64.encode(chunk))
+                    .collect(),
+            })
+            .map_err(|error| error.to_string());
+        }
+        Err("fetch redirect limit exceeded".into())
     }
 
     fn origin(url: &Url) -> String {
@@ -995,8 +1573,6 @@ mod raw_v8 {
         let url = base.join(specifier).ok()?;
         let response = fetch
             .broker
-            .lock()
-            .ok()?
             .send(NetworkRequest {
                 request_id: 900_000,
                 method: "GET".into(),
@@ -1033,7 +1609,12 @@ mod raw_v8 {
         fn execute(&mut self, source: &str) -> Result<(), HostError> {
             let _deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
             v8::scope!(let handle_scope, &mut self.isolate);
-            let context = v8::Local::new(handle_scope, &self.context);
+            let context = v8::Local::new(
+                handle_scope,
+                self.contexts
+                    .get(&self.active_realm)
+                    .expect("active realm context exists"),
+            );
             let scope = &mut v8::ContextScope::new(handle_scope, context);
             v8::tc_scope!(let scope, scope);
             let source = v8::String::new(scope, source)
@@ -1075,8 +1656,14 @@ mod raw_v8 {
         fn evaluate_string(&mut self, source: &str) -> Result<String, HostError> {
             let _deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
             v8::scope!(let handle_scope, &mut self.isolate);
-            let context = v8::Local::new(handle_scope, &self.context);
+            let context = v8::Local::new(
+                handle_scope,
+                self.contexts
+                    .get(&self.active_realm)
+                    .expect("active realm context exists"),
+            );
             let scope = &mut v8::ContextScope::new(handle_scope, context);
+            v8::tc_scope!(let scope, scope);
             let source = v8::String::new(scope, source)
                 .ok_or_else(|| HostError::Execution("source allocation failed".into()))?;
             let script = v8::Script::compile(scope, source, None)
@@ -1089,7 +1676,15 @@ mod raw_v8 {
                         resource: "wall time".into(),
                     });
                 }
-                None => return Err(HostError::Execution("execution failed".into())),
+                None => {
+                    let detail = scope
+                        .stack_trace()
+                        .or_else(|| scope.exception())
+                        .and_then(|value| value.to_string(scope))
+                        .map(|value| value.to_rust_string_lossy(scope))
+                        .unwrap_or_else(|| "execution failed".into());
+                    return Err(HostError::Execution(detail));
+                }
             };
             let value = value
                 .to_string(scope)
@@ -1108,9 +1703,43 @@ pub use raw_v8::RawV8Host;
 
 #[cfg(all(test, feature = "v8-host"))]
 mod tests {
-    use std::{collections::BTreeMap, time::Duration};
+    use std::{cell::RefCell, collections::BTreeMap, rc::Rc, time::Duration};
 
     use super::{HostError, JavaScriptHost, RawV8Host};
+    use crate::network::{
+        NetworkBroker, NetworkError, NetworkRequest, NetworkResponse, SharedNetworkBroker,
+    };
+    use url::Url;
+
+    struct SlowFixtureBroker;
+
+    impl NetworkBroker for SlowFixtureBroker {
+        fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            std::thread::sleep(Duration::from_millis(10));
+            Ok(NetworkResponse {
+                request_id: request.request_id,
+                status: 201,
+                headers: vec![("content-type".into(), "text/plain".into())],
+                body: b"created".to_vec(),
+            })
+        }
+    }
+
+    #[test]
+    fn fetch_host_callback_returns_a_promise_before_broker_completion() {
+        let mut host = RawV8Host::new_with_network(
+            SharedNetworkBroker::new(SlowFixtureBroker),
+            Url::parse("https://example.test/").unwrap(),
+        );
+        host.execute(
+            "globalThis.fetchState='pending';__oryn_fetch_async('/item','POST','','[]','base64','same-origin').then(value=>fetchState=String(JSON.parse(value).status))",
+        )
+        .unwrap();
+        assert_eq!(host.evaluate_string("fetchState").unwrap(), "pending");
+        assert!(host.has_pending_async_fetches());
+        assert_eq!(host.drain_async_fetches(true).unwrap(), 1);
+        assert_eq!(host.evaluate_string("fetchState").unwrap(), "201");
+    }
 
     #[test]
     fn v8_watchdog_terminates_execution_before_process_replacement() {
@@ -1121,6 +1750,120 @@ mod tests {
             "{result:?}"
         );
         assert_eq!(host.evaluate_string("1 + 1").unwrap(), "2");
+    }
+
+    #[test]
+    fn frame_realms_share_an_isolate_but_not_global_state() {
+        let mut host = RawV8Host::new();
+        host.execute("globalThis.marker='top'").unwrap();
+        let frame = host.create_realm("https://example.test", 4, Some(7));
+        host.activate_realm(frame).unwrap();
+        assert_eq!(host.evaluate_string("typeof marker").unwrap(), "undefined");
+        host.execute("globalThis.marker='frame'").unwrap();
+        assert_eq!(host.evaluate_string("marker").unwrap(), "frame");
+        assert_eq!(host.realm_descriptor(frame).unwrap().document_generation, 4);
+        host.activate_realm(oryn_js::realm::RealmId(0)).unwrap();
+        assert_eq!(host.evaluate_string("marker").unwrap(), "top");
+        assert_eq!(
+            host.evaluate_string(
+                "__oryn_generated_bindings.some(binding=>binding.name==='Document'&&binding.members.includes('createElement'))"
+            )
+            .unwrap(),
+            "true"
+        );
+        host.remove_realm(frame).unwrap();
+        assert!(host.activate_realm(frame).is_err());
+    }
+
+    #[test]
+    fn generated_bindings_are_installed_as_executable_v8_templates() {
+        let parsed = oryn_dom::html::parse("<main id='root'></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut host = RawV8Host::new();
+        host.install_dom(dom.clone(), 1).unwrap();
+        assert_eq!(
+            host.evaluate_string(
+                "const n=document.createElement('button');n.id='go';n.textContent='Run';document.querySelector('#root').appendChild(n);String(n===document.getElementById('go'))"
+            )
+            .unwrap(),
+            "true"
+        );
+        let button = dom.borrow().find_by_id("go").unwrap();
+        assert_eq!(dom.borrow().arena().text_content(button).unwrap(), "Run");
+    }
+
+    #[test]
+    fn frame_documents_use_generated_bindings_in_contexts_of_one_isolate() {
+        let top = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<main id='top'></main>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let frame = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<main id='frame'></main>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut host = RawV8Host::new();
+        host.install_dom(top.clone(), 1).unwrap();
+        let frame_realm = host
+            .create_realm_with_dom("https://example.test", 1, Some(7), frame.clone())
+            .unwrap();
+        host.activate_realm(frame_realm).unwrap();
+        host.execute("document.getElementById('frame').textContent='child'")
+            .unwrap();
+        host.activate_realm(oryn_js::realm::RealmId(0)).unwrap();
+        host.execute("document.getElementById('top').textContent='parent'")
+            .unwrap();
+        assert_eq!(
+            top.borrow()
+                .arena()
+                .text_content(top.borrow().find_by_id("top").unwrap())
+                .unwrap(),
+            "parent"
+        );
+        assert_eq!(
+            frame
+                .borrow()
+                .arena()
+                .text_content(frame.borrow().find_by_id("frame").unwrap())
+                .unwrap(),
+            "child"
+        );
+    }
+
+    #[test]
+    fn webassembly_is_available_in_the_v8_runtime_profile() {
+        let mut host = RawV8Host::new();
+        assert_eq!(
+            host.evaluate_string("typeof WebAssembly + ':' + __oryn_runtime_profile")
+                .unwrap(),
+            if cfg!(feature = "core-lite") {
+                "object:core-lite"
+            } else {
+                "object:core-full"
+            }
+        );
+        assert_eq!(
+            host.evaluate_string("WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0]))")
+                .unwrap(),
+            "true"
+        );
+    }
+
+    #[cfg(feature = "core-lite")]
+    #[test]
+    fn core_lite_rejects_unavailable_intl_locales_explicitly() {
+        let mut host = RawV8Host::new();
+        assert_eq!(
+            host.evaluate_string("new Intl.NumberFormat('en-US').format(12)")
+                .unwrap(),
+            "12"
+        );
+        let error = host
+            .evaluate_string("new Intl.NumberFormat('fr-FR').format(12)")
+            .unwrap_err();
+        assert!(error.to_string().contains("core-lite"), "{error}");
     }
 
     #[test]

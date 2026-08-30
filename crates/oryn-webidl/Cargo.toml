@@ -6,4 +6,10 @@ license = "MIT OR Apache-2.0"
 description = "Narrow, testable WebIDL compiler for Oryn browser bindings"
 
 [dependencies]
+prettyplease = "0.2"
+syn = { version = "2", features = ["full"] }
 thiserror = "2"
+
+[[bin]]
+name = "oryn-webidl"
+path = "src/main.rs"

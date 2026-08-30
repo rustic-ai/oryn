@@ -1,0 +1,12 @@
+[package]
+name = "oryn-dom"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Rust-owned live DOM and mutation journal for Oryn"
+
+[dependencies]
+markup5ever = "0.39"
+html5ever = "0.39"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"

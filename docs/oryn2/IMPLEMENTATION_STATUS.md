@@ -29,14 +29,15 @@ rewrite those historical payloads or present them as a new validation run.
   corpus validator checks counts, unique IDs, read-only canary policy, and all
   required local sources.
 
-## Runtime foundation — provisional
+## Runtime foundation — implemented, release evidence provisional
 
 - Raw V8 and `deno_core` host probes use the same V8 revision. Their historical
   startup/size comparison selected raw V8, but the mandatory concurrent-page
   evidence used a no-V8 probe and must be rerun with the shipped worker bundle.
-- `html5ever` builds an initial generation-safe Rust DOM, but executable pages
-  currently mutate a JavaScript-canonical tree and synchronize a Rust mirror.
-  Restoring the proposal's Rust-canonical `NodeId`/wrapper model remains open.
+- `html5ever` builds the generation-safe live `DomRuntime`. Generated V8
+  wrappers carry `NodeId`, realm, brand, and document generation; JavaScript
+  DOM operations call Rust directly. The former JavaScript-owned graph and
+  full-document export/synchronization implementation has been deleted.
 - Host-broker network policy, trace spine, and typed page actor are implemented.
 - The JSONL page worker supports load, observe, direct semantic actions, OIL,
   and orderly shutdown without exposing filesystem or network commands.
@@ -53,23 +54,52 @@ rewrite those historical payloads or present them as a new validation run.
   creation, concurrency, RSS, and size evidence is committed at
   `benchmarks/evidence/runtime-foundation-macos-arm64.json`; raw samples remain ignored.
 
+## Proposal-v1 runtime cutover — software cutover complete
+
+- `oryn-dom`, `oryn-js`, and `oryn-net` now provide the Rust-owned live arena,
+  exact generation-checked V8 wrapper identities, generated interface metadata
+  and templates, multi-context realm registry, resumable html5ever driver, and
+  asynchronous rustls/HTTP2 transport foundation.
+- Generated V8 prototypes execute Rust DOM, event, form, selector, fragment,
+  serialization, and wrapper-lifetime behavior. `oryn-webidl check` proves the
+  committed generated output is reproducible from the pinned WebIDL input.
+- Production Fetch/XHR enters the parent broker through Promise-returning V8
+  callbacks, resolves at accepted headers, and exposes demand-driven bounded
+  body chunks. Regression coverage includes abort, timeout, binary bodies,
+  independent compressed/decoded limits, all four declared content encodings,
+  charset precedence, cache partitioning, and HTTP/2 framing.
+- `runtime-shadow-v1.json` compares deterministic repository fixtures against
+  the legacy and Rust-owned engines sequentially, preventing duplicated network
+  traffic and consequential actions.
+- The production engine is `rust_executable.rs`; the legacy executable and
+  shadow implementation are absent from production. Parser-blocking scripts
+  cannot observe later source markup, nested `document.write` re-entry is
+  bounded, and same-origin frames use separate contexts in one page isolate.
+- The worker context channel correlates out-of-order replies and starts 32
+  policy-brokered streams concurrently. The broker surface is thread-safe,
+  HTTP/2 and bounded demand-driven bodies are tested, and late/unmatched
+  replies remain rejected.
+- macOS signing and Linux sandbox execution remain release attestations. They
+  do not reintroduce the deleted legacy runtime and will be exercised only in
+  the private release environment and a Linux host/VM respectively.
+
 ## executable document — complete
 
 - Classic inline scripts execute in document order in a persistent raw-V8 realm.
-- A narrow document realm now provides Oryn-owned element/text nodes,
+- The generated document realm provides Oryn-owned element/text nodes,
   `querySelector`/`querySelectorAll`, element creation and mutation, attributes,
   values and boolean form state, event listeners and bubbling, click/input/change
   dispatch, `DOMContentLoaded`, microtasks, and deterministic timers. Mutations
-  are synchronized back into Oryn's DOM after each interaction.
+  occur directly in the Rust DOM and publish one causal revision checkpoint.
 - The controlled Vue-style task and Svelte-style counter fixtures execute and
   mutate native DOM state in feature-gated tests. Forms, event ordering, and
   persistent-realm behavior also have executable tests.
 - External classic scripts, V8 module graphs, pinned resources, promise-based
   fetch, redirects, request bodies/headers, compression, cookies, URL and text
   encoding primitives all execute through the context-owned rustls broker.
-- Executable-DOM synchronization preserves retained generation-stamped node
-  identities, retires removed identities, and assigns fresh identities to new
-  nodes. A structural-churn regression test prevents false preservation.
+- Generation-stamped Rust wrappers preserve retained node identities, retire
+  removed identities, and assign fresh identities to new nodes. Structural
+  churn regressions prevent false preservation.
 - The typed page actor owns V8 on a dedicated page thread. Existing async page
   handles and OIL sessions dispatch actions into registered JavaScript handlers
   and receive versioned semantic deltas without moving an isolate across

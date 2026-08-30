@@ -8,7 +8,7 @@ use std::{
 };
 
 #[cfg(feature = "v8-host")]
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::BTreeSet;
 
 #[cfg(feature = "v8-host")]
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -48,7 +48,10 @@ use crate::{
         FormValueState, HandoffBundle, HandoffLoss, HandoffOptions, OriginStorageState,
         SensitiveCookieHeader,
     },
-    network::{NetworkRequest, PolicyBroker, RustlsTransport, SharedNetworkBroker},
+    network::{
+        MemoryCachingBroker, NetworkRequest, PersistentCachingBroker, PolicyBroker,
+        RustlsTransport, SharedNetworkBroker,
+    },
     security::{
         ActionPolicy, ConfirmationToken, ConsequentialAction, NetworkPolicy, PolicyDecision,
         PolicyEngine, PolicyRequest, SecretError, SecretHandle, SecretStore, SecurityAuditRecord,
@@ -58,6 +61,9 @@ use crate::{
         StorageResponse, StorageScope,
     },
 };
+
+#[cfg(feature = "v8-host")]
+use crate::network::NetworkResponse;
 
 static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_PAGE_ID: AtomicU64 = AtomicU64::new(1);
@@ -134,7 +140,6 @@ struct WorkerPage {
     client: std::sync::Mutex<Option<crate::worker_client::WorkerClient>>,
     config: BrowserConfig,
     options: ContextOptions,
-    parent_cookies: std::sync::Arc<dyn reqwest::cookie::CookieStore>,
     pending: AtomicUsize,
 }
 
@@ -465,7 +470,6 @@ impl WorkerPage {
             *client = Some(crate::worker_client::WorkerClient::spawn(
                 &config,
                 &self.options,
-                self.parent_cookies.clone(),
                 self.page_id,
                 self.opener_page_id,
                 context_owner,
@@ -494,6 +498,8 @@ impl WorkerPage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserConfig {
+    #[serde(default)]
+    pub runtime_profile: RuntimeProfile,
     pub worker_queue_capacity: usize,
     pub request_timeout: Duration,
     pub max_response_bytes: usize,
@@ -517,11 +523,14 @@ pub struct BrowserConfig {
     pub max_resource_cache_entries: usize,
     /// Combined UTF-8 byte ceiling for pinned page resources.
     pub max_resource_cache_bytes: usize,
+    /// Maximum size of one cacheable response body.
+    pub max_resource_cache_entry_bytes: usize,
 }
 
 impl Default for BrowserConfig {
     fn default() -> Self {
         Self {
+            runtime_profile: RuntimeProfile::compiled(),
             worker_queue_capacity: 32,
             request_timeout: Duration::from_secs(30),
             max_response_bytes: 16 * 1024 * 1024,
@@ -541,8 +550,57 @@ impl Default for BrowserConfig {
             max_revision_bytes: 16 * 1024 * 1024,
             max_resource_cache_entries: 256,
             max_resource_cache_bytes: 32 * 1024 * 1024,
+            max_resource_cache_entry_bytes: 8 * 1024 * 1024,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeProfile {
+    #[default]
+    Full,
+    LiteEnglish,
+}
+
+impl RuntimeProfile {
+    pub const fn compiled() -> Self {
+        if cfg!(feature = "core-lite") {
+            Self::LiteEnglish
+        } else {
+            Self::Full
+        }
+    }
+
+    pub const fn available_in_build(self) -> bool {
+        matches!(
+            (self, Self::compiled()),
+            (Self::Full, Self::Full) | (Self::LiteEnglish, Self::LiteEnglish)
+        )
+    }
+
+    pub const fn supported_locales(self) -> &'static [&'static str] {
+        match self {
+            Self::Full => &[],
+            Self::LiteEnglish => &["root", "en", "en-US"],
+        }
+    }
+
+    pub const fn capability_name(self) -> &'static str {
+        match self {
+            Self::Full => "core_full",
+            Self::LiteEnglish => "core_lite_english",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum CacheMode {
+    Disabled,
+    #[default]
+    Memory,
+    Persistent,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -565,6 +623,10 @@ pub struct ContextOptions {
     /// replay and evaluation. Live contexts leave this unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub determinism: Option<crate::replay::DeterminismConfig>,
+    /// Parent-owned HTTP cache policy. Persistent mode requires an explicitly
+    /// opened persistent profile; workers never receive a cache path.
+    #[serde(default)]
+    pub cache_mode: CacheMode,
 }
 
 const fn default_allow_popups() -> bool {
@@ -582,6 +644,7 @@ impl Default for ContextOptions {
             color_scheme: PreferredColorScheme::Light,
             reduced_motion: ReducedMotion::NoPreference,
             determinism: None,
+            cache_mode: CacheMode::Memory,
         }
     }
 }
@@ -601,6 +664,7 @@ impl ContextOptions {
             color_scheme: PreferredColorScheme::Light,
             reduced_motion: ReducedMotion::NoPreference,
             determinism: None,
+            cache_mode: CacheMode::Memory,
         }
     }
 
@@ -1114,68 +1178,71 @@ impl Browser {
 
     fn new_context_with_store(
         &self,
-        options: ContextOptions,
+        mut options: ContextOptions,
         store: SharedContextStore,
         persistent_profile: Option<PersistentProfile>,
         network_replay: crate::replay::NetworkReplayController,
     ) -> BrowserContext {
+        let context_id = NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed);
+        if options.cache_mode == CacheMode::Persistent && persistent_profile.is_none() {
+            options.cache_mode = CacheMode::Memory;
+        }
         let policy = Arc::new(PolicyEngine::new(options.action_policy.clone()));
         let secrets = Arc::new(SecretStore::default());
         let context_cookies: Arc<dyn reqwest::cookie::CookieStore> = persistent_profile
             .as_ref()
             .map(PersistentProfile::cookie_store)
             .unwrap_or_else(|| Arc::new(reqwest::cookie::Jar::default()));
-        if self.worker_process {
-            return BrowserContext {
-                inner: Arc::new(BrowserContextInner {
-                    id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
-                    config: self.config.clone(),
-                    broker: None,
-                    worker_process: true,
-                    options,
-                    group: ContextGroup::new(),
-                    store,
-                    persistent_profile,
-                    policy,
-                    secrets,
-                    downloads: Arc::new(DownloadStore::default()),
-                    network_replay,
-                    intent_trace: Mutex::new(Vec::new()),
-                    domain_decisions: Mutex::new(Vec::new()),
-                    form_submission_grants: Mutex::new(BTreeMap::new()),
-                    #[cfg(unix)]
-                    context_events: Mutex::new(Vec::new()),
-                    #[cfg(unix)]
-                    next_context_event_id: AtomicU64::new(1),
-                    parent_cookies: Some(context_cookies),
-                    #[cfg(all(unix, feature = "v8-host"))]
-                    context_client: None,
-                }),
-            };
-        }
         let timeout = self.config.request_timeout;
         let max_response_bytes = self.config.max_response_bytes;
         let network_policy = options.network_policy.clone();
         let transport_cookies = context_cookies.clone();
         let replay = network_replay.clone();
+        let cache_mode = options.cache_mode.clone();
+        let persistent_cache_path = persistent_profile
+            .as_ref()
+            .map(|profile| profile.path().to_path_buf());
+        let cache_config = self.config.clone();
         let broker = std::thread::spawn(move || {
             RustlsTransport::with_cookie_store(timeout, max_response_bytes, transport_cookies)
                 .ok()
-                .map(|transport| {
-                    SharedNetworkBroker::new(PolicyBroker::new(
+                .and_then(|transport| {
+                    let transport = replay.wrap(transport);
+                    let transport: Box<dyn crate::network::NetworkBroker> = match cache_mode {
+                        CacheMode::Disabled => Box::new(transport),
+                        CacheMode::Memory => Box::new(MemoryCachingBroker::new(
+                            transport,
+                            format!("context-{context_id}"),
+                            cache_config.max_resource_cache_entries,
+                            cache_config.max_resource_cache_bytes,
+                            cache_config.max_resource_cache_entry_bytes,
+                        )),
+                        CacheMode::Persistent => Box::new(
+                            PersistentCachingBroker::open(
+                                transport,
+                                persistent_cache_path.as_deref()?,
+                                "profile",
+                                cache_config.max_resource_cache_entries,
+                                cache_config.max_resource_cache_bytes,
+                                cache_config.max_resource_cache_entry_bytes,
+                            )
+                            .ok()?,
+                        ),
+                    };
+                    Some(SharedNetworkBroker::new(PolicyBroker::new(
                         network_policy,
-                        replay.wrap(transport),
-                    ))
+                        transport,
+                    )))
                 })
         })
         .join()
         .unwrap_or(None);
         BrowserContext {
             inner: Arc::new(BrowserContextInner {
-                id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
+                id: context_id,
                 config: self.config.clone(),
                 broker,
-                worker_process: false,
+                worker_process: self.worker_process,
                 options,
                 group: ContextGroup::new(),
                 store,
@@ -1449,10 +1516,6 @@ impl BrowserContext {
             nondeterministic_regions,
         })
         .map_err(|error| RuntimeError::Replay(error.to_string()))
-    }
-
-    pub(crate) fn network_replay_controller(&self) -> crate::replay::NetworkReplayController {
-        self.inner.network_replay.clone()
     }
 
     pub(crate) fn record_intent(
@@ -2028,12 +2091,6 @@ impl BrowserContext {
                     client: std::sync::Mutex::new(None),
                     config: self.inner.config.clone(),
                     options: self.inner.options.clone(),
-                    parent_cookies: self
-                        .inner
-                        .parent_cookies
-                        .as_ref()
-                        .expect("worker context owns a cookie jar")
-                        .clone(),
                     pending: AtomicUsize::new(0),
                 })),
             };
@@ -3305,7 +3362,7 @@ struct PageState {
     network_quiet_since: Option<Instant>,
     document: Option<ParsedDocument>,
     #[cfg(feature = "v8-host")]
-    executable: Option<crate::executable::ExecutableDocument>,
+    executable: Option<crate::executable::RustExecutableDocument>,
     snapshots: BTreeMap<u64, Vec<oryn_common::v3::SemanticNodeView>>,
     snapshot_bytes: usize,
     trace: TraceLog,
@@ -3314,12 +3371,6 @@ struct PageState {
     broker: Option<SharedNetworkBroker>,
     #[cfg(all(unix, feature = "v8-host"))]
     context_client: Option<crate::context_service::SharedContextClient>,
-    #[cfg(feature = "v8-host")]
-    resource_cache: BTreeMap<String, String>,
-    #[cfg(feature = "v8-host")]
-    resource_cache_order: VecDeque<String>,
-    #[cfg(feature = "v8-host")]
-    resource_cache_bytes: usize,
     #[cfg(feature = "v8-host")]
     web_fonts: Vec<oryn_layout::WebFont>,
     #[cfg(feature = "v8-host")]
@@ -3380,12 +3431,6 @@ impl PageState {
             broker,
             #[cfg(all(unix, feature = "v8-host"))]
             context_client,
-            #[cfg(feature = "v8-host")]
-            resource_cache: BTreeMap::new(),
-            #[cfg(feature = "v8-host")]
-            resource_cache_order: VecDeque::new(),
-            #[cfg(feature = "v8-host")]
-            resource_cache_bytes: 0,
             #[cfg(feature = "v8-host")]
             web_fonts: Vec::new(),
             #[cfg(feature = "v8-host")]
@@ -3452,7 +3497,7 @@ impl PageState {
             #[cfg(unix)]
             let executable = match self.context_client.clone() {
                 Some(context_client) => {
-                    crate::executable::ExecutableDocument::load_with_context_and_limits(
+                    crate::executable::RustExecutableDocument::load_with_context_and_limits(
                         html,
                         &resources,
                         self.broker.clone(),
@@ -3461,7 +3506,7 @@ impl PageState {
                         (context_client, self.page_id, self.opener_page_id),
                     )
                 }
-                None => crate::executable::ExecutableDocument::load_with_limits(
+                None => crate::executable::RustExecutableDocument::load_with_limits(
                     html,
                     &resources,
                     self.broker.clone(),
@@ -3471,7 +3516,7 @@ impl PageState {
             }
             .map_err(map_host_error)?;
             #[cfg(not(unix))]
-            let executable = crate::executable::ExecutableDocument::load_with_limits(
+            let executable = crate::executable::RustExecutableDocument::load_with_limits(
                 html,
                 &resources,
                 self.broker.clone(),
@@ -3620,7 +3665,7 @@ impl PageState {
                 lifecycle: self.lifecycle.clone(),
             });
         }
-        let (status, body) = loop {
+        let (status, response_headers, body) = loop {
             self.trace.push(
                 Revision(self.revision),
                 None,
@@ -3633,8 +3678,6 @@ impl PageState {
                 RuntimeError::Network("network transport initialization failed".into())
             })?;
             let response = broker
-                .lock()
-                .map_err(|_| RuntimeError::Network("network broker lock poisoned".into()))?
                 .send(NetworkRequest {
                     request_id: self.revision + redirects as u64 + 1,
                     method: "GET".into(),
@@ -3685,9 +3728,14 @@ impl PageState {
                     .map_err(|error| RuntimeError::Network(format!("invalid redirect: {error}")))?;
                 continue;
             }
-            break (response.status, response.body);
+            break (response.status, response.headers, response.body);
         };
-        let html = String::from_utf8_lossy(&body).into_owned();
+        let content_type = response_headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+            .map(|(_, value)| value.as_str());
+        let (html, _) =
+            oryn_net::decode_resource_text(&body, content_type, oryn_net::TextResourceKind::Html);
         let html = self.inline_external_stylesheets(&current, &html)?;
         #[cfg(feature = "v8-host")]
         let web_fonts = self.load_web_fonts(&current, &html)?;
@@ -3802,18 +3850,10 @@ impl PageState {
                 self.config.max_redirects
             )));
         }
-        let cache_key = url.to_string();
-        if !visited.insert(cache_key.clone()) {
+        if !visited.insert(url.to_string()) {
             return Ok(String::new());
         }
-        let css = if let Some(cached) = self.resource_cache.get(&cache_key) {
-            cached.clone()
-        } else {
-            let css =
-                self.fetch_external_resource(url.clone(), "text/css,*/*;q=0.1", "stylesheet")?;
-            self.cache_resource(cache_key, css.clone());
-            css
-        };
+        let css = self.fetch_external_resource(url.clone(), "text/css,*/*;q=0.1", "stylesheet")?;
         self.expand_css_imports(url, &css, depth, visited)
     }
 
@@ -4076,29 +4116,19 @@ impl PageState {
             if frame && origin_key(&absolute) != origin_key(base_url) {
                 continue;
             }
-            let cache_key = absolute.to_string();
             let (request_url, expected_digest) = pinned_resource(&absolute)
                 .map(|(url, digest)| (Url::parse(url).expect("valid pinned URL"), Some(digest)))
                 .unwrap_or_else(|| (absolute.clone(), None));
-            let body = if let Some(cached) = self.resource_cache.get(&cache_key) {
-                cached.clone()
-            } else {
-                let body = self.fetch_external_resource(
-                    request_url,
-                    "text/javascript,*/*;q=0.1",
-                    "script",
-                )?;
-                if let Some(expected) = expected_digest {
-                    let actual = format!("{:x}", Sha256::digest(body.as_bytes()));
-                    if actual != expected {
-                        return Err(RuntimeError::Network(format!(
-                            "pinned resource integrity failure for {absolute}: expected {expected}, got {actual}"
-                        )));
-                    }
+            let body =
+                self.fetch_external_resource(request_url, "text/javascript,*/*;q=0.1", "script")?;
+            if let Some(expected) = expected_digest {
+                let actual = format!("{:x}", Sha256::digest(body.as_bytes()));
+                if actual != expected {
+                    return Err(RuntimeError::Network(format!(
+                        "pinned resource integrity failure for {absolute}: expected {expected}, got {actual}"
+                    )));
                 }
-                self.cache_resource(cache_key, body.clone());
-                body
-            };
+            }
             if module {
                 for dependency in module_specifiers(&body) {
                     let dependency = import_map.get(&dependency).cloned().unwrap_or(dependency);
@@ -4133,17 +4163,38 @@ impl PageState {
         accept: &str,
         resource_kind: &str,
     ) -> Result<String, RuntimeError> {
-        self.fetch_external_resource_bytes(url, accept, resource_kind)
-            .map(|body| String::from_utf8_lossy(&body).into_owned())
+        let response = self.fetch_external_resource_response(url, accept, resource_kind)?;
+        let content_type = response
+            .headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+            .map(|(_, value)| value.as_str());
+        let kind = if resource_kind == "stylesheet" {
+            oryn_net::TextResourceKind::Css
+        } else {
+            oryn_net::TextResourceKind::JavaScript
+        };
+        Ok(oryn_net::decode_resource_text(&response.body, content_type, kind).0)
     }
 
     #[cfg(feature = "v8-host")]
     fn fetch_external_resource_bytes(
         &mut self,
-        mut url: Url,
+        url: Url,
         accept: &str,
         resource_kind: &str,
     ) -> Result<Vec<u8>, RuntimeError> {
+        self.fetch_external_resource_response(url, accept, resource_kind)
+            .map(|response| response.body)
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn fetch_external_resource_response(
+        &mut self,
+        mut url: Url,
+        accept: &str,
+        resource_kind: &str,
+    ) -> Result<NetworkResponse, RuntimeError> {
         for redirect in 0..=self.config.max_redirects {
             self.network_quiet_since = None;
             self.trace.push(
@@ -4160,8 +4211,6 @@ impl PageState {
                 .ok_or_else(|| {
                     RuntimeError::Network("network transport initialization failed".into())
                 })?
-                .lock()
-                .map_err(|_| RuntimeError::Network("network broker lock poisoned".into()))?
                 .send(NetworkRequest {
                     request_id: self.revision + redirect as u64 + 10_000,
                     method: "GET".into(),
@@ -4202,7 +4251,7 @@ impl PageState {
                     response.status,
                 )));
             }
-            return Ok(response.body);
+            return Ok(response);
         }
         Err(RuntimeError::Network(format!(
             "{resource_kind} redirect limit ({}) exceeded",
@@ -4483,20 +4532,18 @@ impl PageState {
         self.layout_revision = self.layout_revision.saturating_add(1);
         self.scroll_state = output.scroll;
         if let Some(executable) = self.executable.as_mut() {
-            let payload = serde_json::json!({
-                "styles": output.computed_styles,
-                "geometry": output.geometry,
-                "viewport": self.viewport,
-                "scroll": self.scroll_state,
-                "media": MediaState {
-                    color_scheme: self.color_scheme,
-                    reduced_motion: self.reduced_motion,
-                },
-            });
-            let payload = serde_json::to_string(&payload)
-                .map_err(|error| RuntimeError::Script(error.to_string()))?;
+            executable.install_layout(&output).map_err(map_host_error)?;
             executable
-                .evaluate(&format!("__oryn_install_layout({payload});undefined"))
+                .install_media(
+                    match self.color_scheme {
+                        PreferredColorScheme::Light => "light",
+                        PreferredColorScheme::Dark => "dark",
+                    },
+                    match self.reduced_motion {
+                        ReducedMotion::Reduce => "reduce",
+                        ReducedMotion::NoPreference => "no_preference",
+                    },
+                )
                 .map_err(map_host_error)?;
             self.document = Some(executable.document.clone());
         }
@@ -5289,38 +5336,6 @@ impl PageState {
         }
     }
 
-    #[cfg(feature = "v8-host")]
-    fn cache_resource(&mut self, key: String, body: String) {
-        let entry_bytes = key.len().saturating_add(body.len());
-        if entry_bytes > self.config.max_resource_cache_bytes
-            || self.config.max_resource_cache_entries == 0
-        {
-            return;
-        }
-        if let Some(previous) = self.resource_cache.remove(&key) {
-            self.resource_cache_bytes = self
-                .resource_cache_bytes
-                .saturating_sub(key.len().saturating_add(previous.len()));
-            self.resource_cache_order.retain(|cached| cached != &key);
-        }
-        while self.resource_cache.len() >= self.config.max_resource_cache_entries
-            || self.resource_cache_bytes.saturating_add(entry_bytes)
-                > self.config.max_resource_cache_bytes
-        {
-            let Some(oldest) = self.resource_cache_order.pop_front() else {
-                break;
-            };
-            if let Some(removed) = self.resource_cache.remove(&oldest) {
-                self.resource_cache_bytes = self
-                    .resource_cache_bytes
-                    .saturating_sub(oldest.len().saturating_add(removed.len()));
-            }
-        }
-        self.resource_cache_bytes = self.resource_cache_bytes.saturating_add(entry_bytes);
-        self.resource_cache_order.push_back(key.clone());
-        self.resource_cache.insert(key, body);
-    }
-
     fn delta_from(&self, from: Revision) -> Result<ObservationDelta, RuntimeError> {
         let old = if from.0 == 0 {
             &[][..]
@@ -5606,6 +5621,22 @@ impl PageState {
             .dom
             .get(node_id)
             .map_err(|_| RuntimeError::StaleSemanticRef)?;
+        let mut connected = node_id == document.document;
+        let mut ancestor = node.parent;
+        while let Some(parent) = ancestor {
+            if parent == document.document {
+                connected = true;
+                break;
+            }
+            ancestor = document
+                .dom
+                .get(parent)
+                .map_err(|_| RuntimeError::StaleSemanticRef)?
+                .parent;
+        }
+        if !connected {
+            return Err(RuntimeError::StaleSemanticRef);
+        }
         if node.attributes.contains_key("disabled") {
             return Err(RuntimeError::Disabled);
         }
@@ -5954,16 +5985,24 @@ fn layout_input(
                         .is_ok_and(|node| matches!(node.kind, NodeKind::Element { .. }))
                 })
                 .map(pack_node_id);
-            let children = node
-                .children
+            let children = elements
                 .iter()
-                .filter(|child| {
+                .copied()
+                .filter(|candidate| {
                     document
                         .dom
-                        .get(**child)
-                        .is_ok_and(|node| matches!(node.kind, NodeKind::Element { .. }))
+                        .ancestors(*candidate)
+                        .ok()
+                        .and_then(|ancestors| {
+                            ancestors.into_iter().find(|ancestor| {
+                                document
+                                    .dom
+                                    .get(*ancestor)
+                                    .is_ok_and(|node| matches!(node.kind, NodeKind::Element { .. }))
+                            })
+                        })
+                        == Some(*id)
                 })
-                .copied()
                 .map(pack_node_id)
                 .collect();
             let text = node
@@ -6164,7 +6203,9 @@ fn serialize_dom_node(dom: &crate::dom::DomArena, id: crate::dom::NodeId) -> Str
         return String::new();
     };
     match &node.kind {
-        crate::dom::NodeKind::Document | crate::dom::NodeKind::DocumentFragment => node
+        crate::dom::NodeKind::Document
+        | crate::dom::NodeKind::DocumentFragment
+        | crate::dom::NodeKind::ShadowRoot { .. } => node
             .children
             .iter()
             .map(|child| serialize_dom_node(dom, *child))
@@ -6343,6 +6384,19 @@ mod tests {
     use oryn_common::v3::{ExecutionDomain, ObservationSource};
 
     use super::*;
+
+    #[test]
+    fn runtime_profile_default_matches_the_compiled_icu_payload() {
+        assert_eq!(
+            BrowserConfig::default().runtime_profile,
+            RuntimeProfile::compiled()
+        );
+        assert!(RuntimeProfile::compiled().available_in_build());
+        assert_ne!(
+            RuntimeProfile::Full.available_in_build(),
+            RuntimeProfile::LiteEnglish.available_in_build()
+        );
+    }
     use crate::security::PolicyRule;
 
     #[tokio::test(flavor = "current_thread")]
@@ -6598,10 +6652,15 @@ mod tests {
                 let body = if path == "/app.js" {
                     "document.querySelector('#result').textContent='External loaded';"
                 } else {
-                    "<title>External</title><script src=/app.js></script><output id=result>Pending</output>"
+                    "<title>External</title><output id=result>Pending</output><script src=/app.js></script>"
                 };
+                let mut response = fixture_response(body);
+                if path == "/app.js" {
+                    response =
+                        response.replacen("\r\n", "\r\nCache-Control: public, max-age=60\r\n", 1);
+                }
                 stream
-                    .write_all(fixture_response(body).as_bytes())
+                    .write_all(response.as_bytes())
                     .expect("write response");
             }
         });
@@ -6629,7 +6688,7 @@ mod tests {
         struct CssBroker;
         impl crate::network::NetworkBroker for CssBroker {
             fn send(
-                &mut self,
+                &self,
                 request: NetworkRequest,
             ) -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
                 let path = Url::parse(&request.url)
@@ -7212,7 +7271,7 @@ mod tests {
         assert!(!html.to_string().contains("do-not-observe"));
     }
 
-    #[cfg(feature = "v8-host")]
+    #[cfg(all(feature = "v8-host", feature = "in-process-probe"))]
     #[tokio::test(flavor = "current_thread")]
     async fn raw_page_inspection_is_audited_without_recording_page_content() {
         let context = Browser::in_process_probe().new_context();

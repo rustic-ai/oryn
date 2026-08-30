@@ -6,8 +6,17 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Definition {
     Interface(Interface),
+    InterfaceMixin(Interface),
     Dictionary(Dictionary),
     Callback(Callback),
+    Enumeration(Enumeration),
+    Includes { target: String, mixin: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Enumeration {
+    pub name: String,
+    pub values: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +58,9 @@ pub enum TypeDescriptor {
     Nullable(Box<TypeDescriptor>),
     Sequence(Box<TypeDescriptor>),
     Promise(Box<TypeDescriptor>),
+    FrozenArray(Box<TypeDescriptor>),
+    Record(Box<TypeDescriptor>, Box<TypeDescriptor>),
+    Union(Vec<TypeDescriptor>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +76,18 @@ pub enum Member {
         return_type: String,
         return_type_descriptor: TypeDescriptor,
         arguments: Vec<Argument>,
+    },
+    Constructor {
+        arguments: Vec<Argument>,
+    },
+    Constant {
+        name: String,
+        type_name: String,
+        value: String,
+    },
+    Iterable {
+        key: Option<TypeDescriptor>,
+        value: TypeDescriptor,
     },
 }
 
@@ -91,7 +115,7 @@ pub enum ParseError {
 }
 
 pub fn parse_interface(input: &str) -> Result<Interface, ParseError> {
-    let source = strip_line_comments(input);
+    let source = strip_extended_attributes(&strip_line_comments(input));
     let partial = source.trim_start().starts_with("partial interface");
     let declaration = source
         .split_once("interface")
@@ -130,11 +154,14 @@ pub fn parse_interface(input: &str) -> Result<Interface, ParseError> {
 }
 
 pub fn parse_definitions(input: &str) -> Result<Vec<Definition>, ParseError> {
-    split_definitions(&strip_line_comments(input))
+    split_definitions(&strip_extended_attributes(&strip_line_comments(input)))
         .into_iter()
         .map(|definition| {
             let trimmed = definition.trim();
-            if trimmed.starts_with("interface ") || trimmed.starts_with("partial interface ") {
+            if trimmed.starts_with("interface mixin ") {
+                parse_interface_mixin(trimmed).map(Definition::InterfaceMixin)
+            } else if trimmed.starts_with("interface ") || trimmed.starts_with("partial interface ")
+            {
                 parse_interface(trimmed).map(Definition::Interface)
             } else if trimmed.starts_with("dictionary ")
                 || trimmed.starts_with("partial dictionary ")
@@ -142,6 +169,10 @@ pub fn parse_definitions(input: &str) -> Result<Vec<Definition>, ParseError> {
                 parse_dictionary(trimmed).map(Definition::Dictionary)
             } else if trimmed.starts_with("callback ") {
                 parse_callback(trimmed).map(Definition::Callback)
+            } else if trimmed.starts_with("enum ") {
+                parse_enumeration(trimmed).map(Definition::Enumeration)
+            } else if trimmed.contains(" includes ") {
+                parse_includes(trimmed)
             } else {
                 Err(ParseError::UnsupportedDefinition(trimmed.to_string()))
             }
@@ -151,9 +182,15 @@ pub fn parse_definitions(input: &str) -> Result<Vec<Definition>, ParseError> {
 
 pub fn merge_partial_interfaces(definitions: &[Definition]) -> Result<Vec<Interface>, ParseError> {
     let mut merged = std::collections::BTreeMap::<String, Interface>::new();
+    let mut mixins = std::collections::BTreeMap::<String, Interface>::new();
     for definition in definitions {
-        let Definition::Interface(interface) = definition else {
-            continue;
+        let interface = match definition {
+            Definition::InterfaceMixin(interface) => {
+                mixins.insert(interface.name.clone(), interface.clone());
+                continue;
+            }
+            Definition::Interface(interface) => interface,
+            _ => continue,
         };
         if let Some(existing) = merged.get_mut(&interface.name) {
             if !interface.partial && !existing.partial {
@@ -171,6 +208,25 @@ pub fn merge_partial_interfaces(definitions: &[Definition]) -> Result<Vec<Interf
             merged.insert(interface.name.clone(), interface.clone());
         }
     }
+    for definition in definitions {
+        let Definition::Includes { target, mixin } = definition else {
+            continue;
+        };
+        let members = mixins
+            .get(mixin)
+            .ok_or_else(|| {
+                ParseError::UnsupportedDefinition(format!("unknown interface mixin {mixin}"))
+            })?
+            .members
+            .clone();
+        merged
+            .get_mut(target)
+            .ok_or_else(|| {
+                ParseError::UnsupportedDefinition(format!("unknown includes target {target}"))
+            })?
+            .members
+            .extend(members);
+    }
     Ok(merged.into_values().collect())
 }
 
@@ -183,7 +239,11 @@ pub fn emit_rust_metadata(interface: &Interface) -> String {
     output.push_str("pub const MEMBERS: &[&str] = &[\n");
     for member in &interface.members {
         let name = match member {
-            Member::Attribute { name, .. } | Member::Operation { name, .. } => name,
+            Member::Attribute { name, .. }
+            | Member::Operation { name, .. }
+            | Member::Constant { name, .. } => name,
+            Member::Constructor { .. } => "constructor",
+            Member::Iterable { .. } => "@@iterator",
         };
         output.push_str(&format!("    {:?},\n", name));
     }
@@ -191,10 +251,127 @@ pub fn emit_rust_metadata(interface: &Interface) -> String {
     output
 }
 
+/// Emit the deterministic, checked-in interface registry consumed by the V8
+/// template installer. Behavioral callbacks remain handwritten Rust.
+pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, ParseError> {
+    let interfaces = merge_partial_interfaces(definitions)?;
+    let mut output = String::from(
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub enum GeneratedMemberKind { Attribute, Operation, Constructor, Constant, Iterable }\n\
+         #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub struct GeneratedMember {\n\
+             pub name: &'static str,\n\
+             pub kind: GeneratedMemberKind,\n\
+             pub arity: u8,\n\
+             pub readonly: bool,\n\
+         }\n\
+         #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub struct GeneratedInterface {\n\
+             pub name: &'static str,\n\
+             pub parent: Option<&'static str>,\n\
+             pub members: &'static [GeneratedMember],\n\
+         }\n\n",
+    );
+    for interface in &interfaces {
+        output.push_str(&format!(
+            "pub const {}_MEMBERS: &[GeneratedMember] = &[",
+            rust_constant(&interface.name)
+        ));
+        for member in &interface.members {
+            let (name, kind, arity, readonly) = match member {
+                Member::Attribute { name, readonly, .. } => {
+                    (name.as_str(), "Attribute", 0, *readonly)
+                }
+                Member::Operation {
+                    name, arguments, ..
+                } => (name.as_str(), "Operation", arguments.len(), false),
+                Member::Constant { name, .. } => (name.as_str(), "Constant", 0, true),
+                Member::Constructor { arguments } => {
+                    ("constructor", "Constructor", arguments.len(), false)
+                }
+                Member::Iterable { .. } => ("@@iterator", "Iterable", 0, true),
+            };
+            output.push_str(&format!(
+                "GeneratedMember {{ name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly} }},"
+            ));
+        }
+        output.push_str("];\n");
+    }
+    output.push_str("\npub const GENERATED_INTERFACES: &[GeneratedInterface] = &[\n");
+    for interface in &interfaces {
+        output.push_str(&format!(
+            "    GeneratedInterface {{ name: {:?}, parent: {}, members: {}_MEMBERS }},\n",
+            interface.name,
+            interface
+                .inherits
+                .as_ref()
+                .map(|parent| format!("Some({parent:?})"))
+                .unwrap_or_else(|| "None".into()),
+            rust_constant(&interface.name)
+        ));
+    }
+    output.push_str("];\n\n");
+    output.push_str(
+        "pub fn generated_interface(name: &str) -> Option<&'static GeneratedInterface> {\n\
+             GENERATED_INTERFACES.iter().find(|interface| interface.name == name)\n\
+         }\n\n\
+         pub fn generated_member(interface: &str, member: &str) -> Option<&'static GeneratedMember> {\n\
+             generated_interface(interface)?.members.iter().find(|candidate| candidate.name == member)\n\
+         }\n",
+    );
+    let syntax = syn::parse_file(&output).map_err(|error| {
+        ParseError::UnsupportedDefinition(format!("generated Rust did not parse: {error}"))
+    })?;
+    Ok(format!(
+        "// @generated by oryn-webidl; do not edit.\n{}",
+        prettyplease::unparse(&syntax)
+    ))
+}
+
 fn parse_member(member: &str) -> Result<Member, ParseError> {
     let (readonly, member) = member
         .strip_prefix("readonly ")
         .map_or((false, member), |rest| (true, rest.trim()));
+
+    if let Some(arguments) = member
+        .strip_prefix("constructor(")
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        return Ok(Member::Constructor {
+            arguments: parse_arguments(arguments)?,
+        });
+    }
+
+    if let Some(value) = member.strip_prefix("const ")
+        && let Some((declaration, constant)) = value.split_once('=')
+        && let Some((type_name, name)) = split_type_and_name(declaration.trim())
+    {
+        validate_identifier(name)?;
+        parse_type(type_name)?;
+        return Ok(Member::Constant {
+            name: name.into(),
+            type_name: type_name.into(),
+            value: constant.trim().into(),
+        });
+    }
+
+    if let Some(types) = member
+        .strip_prefix("iterable<")
+        .and_then(|value| value.strip_suffix('>'))
+    {
+        let types = split_top_level(types, ',');
+        return match types.as_slice() {
+            [value] => Ok(Member::Iterable {
+                key: None,
+                value: parse_type(value)?,
+            }),
+            [key, value] => Ok(Member::Iterable {
+                key: Some(parse_type(key)?),
+                value: parse_type(value)?,
+            }),
+            _ => Err(ParseError::UnsupportedMember(member.into())),
+        };
+    }
 
     if let Some(attribute) = member.strip_prefix("attribute ")
         && let Some((type_name, name)) = split_type_and_name(attribute)
@@ -342,12 +519,39 @@ fn parse_type(input: &str) -> Result<TypeDescriptor, ParseError> {
     if let Some(inner) = input.strip_suffix('?') {
         return Ok(TypeDescriptor::Nullable(Box::new(parse_type(inner)?)));
     }
+    if let Some(inner) = input
+        .strip_prefix('(')
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        let members = inner
+            .split(" or ")
+            .map(parse_type)
+            .collect::<Result<Vec<_>, _>>()?;
+        if members.len() < 2 {
+            return Err(ParseError::UnsupportedMember(input.into()));
+        }
+        return Ok(TypeDescriptor::Union(members));
+    }
+    if let Some(inner) = input
+        .strip_prefix("record<")
+        .and_then(|value| value.strip_suffix('>'))
+    {
+        let members = split_top_level(inner, ',');
+        if let [key, value] = members.as_slice() {
+            return Ok(TypeDescriptor::Record(
+                Box::new(parse_type(key)?),
+                Box::new(parse_type(value)?),
+            ));
+        }
+        return Err(ParseError::UnsupportedMember(input.into()));
+    }
     for (prefix, constructor) in [
         (
             "sequence<",
             TypeDescriptor::Sequence as fn(Box<TypeDescriptor>) -> TypeDescriptor,
         ),
         ("Promise<", TypeDescriptor::Promise),
+        ("FrozenArray<", TypeDescriptor::FrozenArray),
     ] {
         if let Some(inner) = input
             .strip_prefix(prefix)
@@ -365,6 +569,45 @@ fn parse_type(input: &str) -> Result<TypeDescriptor, ParseError> {
         return Err(ParseError::UnsupportedMember(input.to_string()));
     }
     Ok(TypeDescriptor::Named(input.to_string()))
+}
+
+fn parse_interface_mixin(input: &str) -> Result<Interface, ParseError> {
+    parse_interface(&input.replacen("interface mixin", "interface", 1))
+}
+
+fn parse_enumeration(input: &str) -> Result<Enumeration, ParseError> {
+    let declaration = input
+        .trim()
+        .strip_prefix("enum ")
+        .ok_or_else(|| ParseError::UnsupportedDefinition(input.into()))?;
+    let (name, body) = declaration
+        .split_once('{')
+        .ok_or(ParseError::UnterminatedBody)?;
+    let body = body.split_once('}').ok_or(ParseError::UnterminatedBody)?.0;
+    let name = name.trim();
+    validate_identifier(name)?;
+    let values = split_top_level(body, ',')
+        .into_iter()
+        .map(|value| value.trim().trim_matches('"').to_string())
+        .filter(|value| !value.is_empty())
+        .collect();
+    Ok(Enumeration {
+        name: name.into(),
+        values,
+    })
+}
+
+fn parse_includes(input: &str) -> Result<Definition, ParseError> {
+    let value = input.trim().trim_end_matches(';');
+    let (target, mixin) = value
+        .split_once(" includes ")
+        .ok_or_else(|| ParseError::UnsupportedDefinition(input.into()))?;
+    validate_identifier(target.trim())?;
+    validate_identifier(mixin.trim())?;
+    Ok(Definition::Includes {
+        target: target.trim().into(),
+        mixin: mixin.trim().into(),
+    })
 }
 
 fn split_type_and_name(input: &str) -> Option<(&str, &str)> {
@@ -443,6 +686,32 @@ fn strip_line_comments(input: &str) -> String {
         .join("\n")
 }
 
+fn strip_extended_attributes(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut depth = 0_u32;
+    for character in input.chars() {
+        match character {
+            '[' if depth == 0 => depth = 1,
+            '[' if depth > 0 => depth += 1,
+            ']' if depth > 0 => depth -= 1,
+            _ if depth == 0 => output.push(character),
+            _ => {}
+        }
+    }
+    output
+}
+
+fn rust_constant(value: &str) -> String {
+    let mut output = String::new();
+    for (index, character) in value.chars().enumerate() {
+        if character.is_ascii_uppercase() && index > 0 {
+            output.push('_');
+        }
+        output.push(character.to_ascii_uppercase());
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,8 +737,8 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_constructs() {
-        let error = parse_interface("interface Node { iterable<Node>; };")
-            .expect_err("iterable is outside the initial interface subset");
+        let error = parse_interface("interface Node { maplike<DOMString, Node>; };")
+            .expect_err("maplike is outside the supported interface set");
         assert!(matches!(error, ParseError::UnsupportedMember(_)));
     }
 
@@ -515,5 +784,45 @@ mod tests {
             callback.return_type_descriptor,
             TypeDescriptor::Promise(_)
         ));
+    }
+
+    #[test]
+    fn extended_attributes_do_not_change_interface_shape() {
+        let interfaces = parse_definitions(
+            "[Exposed=Window] interface EventTarget { undefined addEventListener(DOMString type); };",
+        )
+        .expect("extended attributes");
+        let generated = emit_binding_registry(&interfaces).expect("generate registry");
+        assert!(generated.contains("EVENT_TARGET_MEMBERS"));
+        assert!(generated.contains("addEventListener"));
+    }
+
+    #[test]
+    fn parses_unions_records_enums_mixins_and_iterables() {
+        let definitions = parse_definitions(
+            r#"
+            interface mixin ParentNode { iterable<Element>; };
+            interface Element { constructor(optional (DOMString or long)? value = null); };
+            Element includes ParentNode;
+            dictionary Bag { record<DOMString, DOMString> values; };
+            enum Mode { "open", "closed" };
+            "#,
+        )
+        .expect("expanded WebIDL surface");
+        assert!(
+            definitions
+                .iter()
+                .any(|definition| matches!(definition, Definition::InterfaceMixin(_)))
+        );
+        assert!(
+            definitions
+                .iter()
+                .any(|definition| matches!(definition, Definition::Includes { .. }))
+        );
+        assert!(
+            definitions
+                .iter()
+                .any(|definition| matches!(definition, Definition::Enumeration(_)))
+        );
     }
 }

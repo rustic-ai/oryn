@@ -4,10 +4,10 @@ These tests execute the same .oil scripts used by the Rust E2E tests,
 verifying that the Python client can run them successfully.
 """
 
-
 import os
 
 import pytest
+
 from oryn import OrynClientSync, run_oil_file_sync
 
 # List of .oil scripts to test

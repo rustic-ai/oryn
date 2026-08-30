@@ -38,6 +38,17 @@ Load-bearing only.
 
 ## 3. Findings
 
+> **Superseding implementation update (2026-08-29):** F1 and F14 describe the
+> source at the review commit and are retained as historical findings. They no
+> longer describe production HEAD. `rust_executable.rs` now uses `oryn-dom` as
+> the sole live DOM, installs deterministic generated V8 templates from
+> `oryn-js`, preserves realm/brand/generation-checked wrapper identity, and uses
+> separate V8 contexts in one page isolate. The JavaScript-owned DOM,
+> full-document export/synchronization, handwritten interface graph, and old
+> frame-document implementation have been deleted. The frozen shadow ledger
+> passes without duplicated live traffic. Runtime cutover remains provisional
+> only for the separate private-platform release attestations.
+
 Ranked by severity. Where several reviewers hit the same underlying issue from different sides, they are merged and the merge is stated.
 
 ---
@@ -677,7 +688,7 @@ macOS fail-closed worker, parent-owned SSRF controls, conservative semantic
 references, replay, typed worker protocol, compatibility-backend separation, and
 the explicit refusal mechanism used for unsupported table geometry.
 
-The current milestone narrative is nevertheless materially ahead of the product
+At the assessed commit, the milestone narrative was nevertheless materially ahead of the product
 in several places. The most urgent problem is epistemic: some evidence builders
 and KPIs cannot establish the claims attached to them. The most consequential
 runtime problems are the reversed DOM ownership model, fabricated lifecycle
@@ -699,3 +710,11 @@ measurement layer capable of detecting failure, repair the execution and
 security foundations, decide the remaining architectural divergences explicitly,
 finish the public and semantic product contracts, broaden representative
 compatibility, secure Linux, and then re-attest one exact release candidate.
+
+The 2026-08-29 runtime cutover closes the review's central DOM-ownership,
+generated-binding, parser visibility, frame-realm, response-streaming, charset,
+compression, and HTTP-cache implementation gaps. It does not retroactively
+alter the audit evidence above. Current proposal-v1 software status is tracked
+by `runtime-architecture-v1.json`; its local software cases pass. Platform
+signing/sandbox execution and exact-artifact performance/model evidence remain
+release attestations.

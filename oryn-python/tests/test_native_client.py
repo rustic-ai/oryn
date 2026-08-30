@@ -3,6 +3,7 @@
 import json
 
 import pytest
+
 from oryn.client import OrynClient
 
 

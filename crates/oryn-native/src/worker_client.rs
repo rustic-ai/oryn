@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     BrowserConfig, BrowserContext, ContextOptions, RuntimeBuildInfo,
     context_service::{ParentContextService, serve_context_service},
-    network::{PolicyBroker, RustlsTransport, SharedNetworkBroker, serve_ipc_broker},
+    network::serve_ipc_broker,
     runtime::RuntimeError,
     worker::{
         HostEnvelope, WORKER_PROTOCOL_VERSION, WorkerEnvelope, WorkerLimits, WorkerRequest,
@@ -85,7 +85,6 @@ impl WorkerClient {
     pub fn spawn(
         config: &BrowserConfig,
         context: &ContextOptions,
-        parent_cookies: std::sync::Arc<dyn reqwest::cookie::CookieStore>,
         page_id: PageId,
         opener_page_id: Option<PageId>,
         context_owner: BrowserContext,
@@ -136,16 +135,9 @@ impl WorkerClient {
         drop(child_broker);
         drop(child_context);
 
-        let transport = RustlsTransport::with_cookie_store(
-            config.request_timeout,
-            config.max_response_bytes.min(16 * 1024 * 1024),
-            parent_cookies,
-        )
-        .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
-        let policy = context.network_policy.clone();
-        let replay = context_owner.network_replay_controller();
-        let parent_network =
-            SharedNetworkBroker::new(PolicyBroker::new(policy, replay.wrap(transport)));
+        let parent_network = context_owner.shared_network_broker().ok_or_else(|| {
+            RuntimeError::SandboxUnavailable("parent network broker is unavailable".into())
+        })?;
         let broker_network = parent_network.clone();
         let frame_limit = config.max_ipc_frame_bytes;
         std::thread::Builder::new()
@@ -229,6 +221,8 @@ impl WorkerClient {
             || !runtime.native_v8
             || runtime.v8_version.is_none()
             || runtime.contract_version != oryn_common::v4::CONTRACT_VERSION
+            || runtime.runtime_profile != config.runtime_profile.capability_name()
+            || runtime.binding_abi_version != oryn_js::BINDING_ABI_VERSION
             || !runtime.capabilities.iter().any(|item| item == "layout_box")
             || runtime.style_engine_version.as_deref()
                 != Some("stylo-declarations-0.20+oryn-cascade-v1")
@@ -242,6 +236,8 @@ impl WorkerClient {
             || sandbox_state
                 != if cfg!(target_os = "macos") {
                     "app_sandbox"
+                } else if cfg!(target_os = "linux") {
+                    "linux_namespaces_landlock_seccomp"
                 } else {
                     "process_isolated_unsandboxed"
                 }
@@ -503,21 +499,22 @@ pub fn runtime_report(
     let client = WorkerClient::spawn(
         config,
         context,
-        std::sync::Arc::new(reqwest::cookie::Jar::default()),
         PageId::LEGACY,
         None,
         crate::Browser::in_process_with_config(config.clone())
             .new_context_with_options(context.clone()),
     )?;
     let mut runtime = client.runtime().clone();
-    runtime.execution_mode = if client.verification().is_some() {
+    runtime.execution_mode = if client.verification().is_some() || cfg!(target_os = "linux") {
         "sandboxed_worker".into()
     } else {
         "process_isolated_unsandboxed".into()
     };
-    runtime.sandboxed = client.verification().is_some();
-    runtime.sandbox_state = if runtime.sandboxed {
+    runtime.sandboxed = client.verification().is_some() || cfg!(target_os = "linux");
+    runtime.sandbox_state = if cfg!(target_os = "macos") && runtime.sandboxed {
         "app_sandbox".into()
+    } else if cfg!(target_os = "linux") {
+        "linux_namespaces_landlock_seccomp".into()
     } else {
         "process_isolated_unsandboxed".into()
     };

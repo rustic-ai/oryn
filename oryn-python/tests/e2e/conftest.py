@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import pytest
+
 from oryn import OrynClientSync
 from oryn.errors import BinaryNotFoundError
 

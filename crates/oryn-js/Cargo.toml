@@ -1,0 +1,21 @@
+[package]
+name = "oryn-js"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "V8 realm and generated binding boundary for Oryn"
+
+[features]
+default = []
+v8-host = ["dep:v8"]
+
+[dependencies]
+oryn-dom = { path = "../oryn-dom" }
+oryn-webidl = { path = "../oryn-webidl" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+v8 = { version = "150.4", optional = true }
+
+[dev-dependencies]
+markup5ever = "0.39"

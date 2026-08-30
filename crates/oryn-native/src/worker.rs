@@ -1,5 +1,6 @@
 use std::{
     io::{BufRead, Write},
+    sync::OnceLock,
     time::Duration,
 };
 
@@ -18,11 +19,13 @@ use crate::{
     runtime::NativeAction,
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 4;
+pub const WORKER_PROTOCOL_VERSION: u32 = 5;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
+static WORKER_BINARY_SHA256: OnceLock<String> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkerLimits {
+    pub runtime_profile: crate::runtime::RuntimeProfile,
     pub v8_heap_bytes: usize,
     pub worker_rss_bytes: usize,
     pub ipc_frame_bytes: usize,
@@ -33,6 +36,9 @@ pub struct WorkerLimits {
     pub max_font_bytes: usize,
     pub max_page_font_bytes: usize,
     pub max_viewport_css_px: u32,
+    pub max_resource_cache_entries: usize,
+    pub max_resource_cache_bytes: usize,
+    pub max_resource_cache_entry_bytes: usize,
 }
 
 impl Default for WorkerLimits {
@@ -44,6 +50,7 @@ impl Default for WorkerLimits {
 impl From<&BrowserConfig> for WorkerLimits {
     fn from(config: &BrowserConfig) -> Self {
         Self {
+            runtime_profile: config.runtime_profile,
             v8_heap_bytes: config.max_v8_heap_bytes,
             worker_rss_bytes: config.max_worker_rss_bytes,
             ipc_frame_bytes: config.max_ipc_frame_bytes,
@@ -54,6 +61,9 @@ impl From<&BrowserConfig> for WorkerLimits {
             max_font_bytes: config.max_font_bytes,
             max_page_font_bytes: config.max_page_font_bytes,
             max_viewport_css_px: config.max_viewport_css_px,
+            max_resource_cache_entries: config.max_resource_cache_entries,
+            max_resource_cache_bytes: config.max_resource_cache_bytes,
+            max_resource_cache_entry_bytes: config.max_resource_cache_entry_bytes,
         }
     }
 }
@@ -61,6 +71,7 @@ impl From<&BrowserConfig> for WorkerLimits {
 impl WorkerLimits {
     pub fn browser_config(&self) -> BrowserConfig {
         BrowserConfig {
+            runtime_profile: self.runtime_profile,
             worker_queue_capacity: self.queue_capacity.min(32),
             request_timeout: Duration::from_millis(self.navigation_wall_ms.min(30_000)),
             max_response_bytes: 16 * 1024 * 1024,
@@ -78,8 +89,11 @@ impl WorkerLimits {
             max_viewport_css_px: self.max_viewport_css_px.min(16_384),
             max_revision_snapshots: 128,
             max_revision_bytes: 16 * 1024 * 1024,
-            max_resource_cache_entries: 256,
-            max_resource_cache_bytes: 32 * 1024 * 1024,
+            max_resource_cache_entries: self.max_resource_cache_entries.min(256),
+            max_resource_cache_bytes: self.max_resource_cache_bytes.min(32 * 1024 * 1024),
+            max_resource_cache_entry_bytes: self
+                .max_resource_cache_entry_bytes
+                .min(8 * 1024 * 1024),
         }
     }
 }
@@ -416,7 +430,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             Ok(WorkerRequest::Exit) => WorkerResponse::Exiting,
             Ok(_) => WorkerResponse::Error {
                 error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
-                    "page commands require worker protocol v4 initialization".into(),
+                    "page commands require worker protocol v5 initialization".into(),
                 )),
             },
             Err(error) => WorkerResponse::Error {
@@ -458,10 +472,19 @@ async fn dispatch(
         document_generation_base,
     } = request
     {
+        if !limits.runtime_profile.available_in_build() {
+            return WorkerResponse::Error {
+                error: Box::new(crate::runtime::RuntimeError::SandboxUnavailable(format!(
+                    "runtime profile {} is not present in this worker build",
+                    limits.runtime_profile.capability_name()
+                ))),
+            };
+        }
         let policy_digest = policy_digest(&context);
         let effective = WorkerLimits::from(&limits.browser_config());
         let mut config = effective.browser_config();
         config.document_generation_base = document_generation_base;
+        let runtime_profile = config.runtime_profile;
         *session = Some(PageSession::new(
             config,
             *context,
@@ -471,14 +494,18 @@ async fn dispatch(
             page_id,
             opener_page_id,
         ));
+        let mut runtime = crate::runtime_build_info();
+        runtime.runtime_profile = runtime_profile.capability_name().into();
         return WorkerResponse::Ready {
             nonce,
             protocol_version: WORKER_PROTOCOL_VERSION,
-            runtime: Box::new(crate::runtime_build_info()),
+            runtime: Box::new(runtime),
             binary_sha256: current_binary_sha256().unwrap_or_default(),
             policy_digest,
             sandbox_state: if cfg!(target_os = "macos") {
                 "app_sandbox".into()
+            } else if cfg!(target_os = "linux") {
+                "linux_namespaces_landlock_seccomp".into()
             } else {
                 "process_isolated_unsandboxed".into()
             },
@@ -649,10 +676,22 @@ fn error(value: crate::runtime::RuntimeError) -> WorkerResponse {
     }
 }
 
-fn current_binary_sha256() -> std::io::Result<String> {
+pub fn current_binary_sha256() -> std::io::Result<String> {
+    if let Some(value) = WORKER_BINARY_SHA256.get() {
+        return Ok(value.clone());
+    }
+    precompute_binary_sha256()?;
+    Ok(WORKER_BINARY_SHA256
+        .get()
+        .expect("worker hash initialized")
+        .clone())
+}
+
+pub fn precompute_binary_sha256() -> std::io::Result<()> {
     use sha2::{Digest, Sha256};
     let bytes = std::fs::read(std::env::current_exe()?)?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
+    let _ = WORKER_BINARY_SHA256.set(format!("{:x}", Sha256::digest(bytes)));
+    Ok(())
 }
 
 pub fn policy_digest(context: &ContextOptions) -> String {
@@ -685,7 +724,7 @@ mod tests {
     use super::*;
 
     #[tokio::test(flavor = "current_thread")]
-    async fn serves_initialized_page_requests_over_v4_json_lines() {
+    async fn serves_initialized_page_requests_over_v5_json_lines() {
         let requests = vec![
             WorkerRequest::Initialize {
                 nonce: "test-nonce".into(),
@@ -763,7 +802,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn rejects_duplicate_unmatched_and_reinitialized_v4_messages() {
+    async fn rejects_duplicate_unmatched_and_reinitialized_v5_messages() {
         let commands = [
             (
                 9,

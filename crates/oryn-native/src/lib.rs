@@ -4,6 +4,10 @@
 //! scheduling, security policy, semantics, and tracing live here until
 //! measurements justify narrower packages.
 
+// Cargo's `--all-features` validation intentionally enables both profile
+// markers. In that tooling-only combination the stricter `core-lite` guards
+// take precedence; release builds select exactly one profile.
+
 use serde::{Deserialize, Serialize};
 
 #[cfg(unix)]
@@ -12,10 +16,13 @@ pub mod dom;
 pub mod download;
 pub mod event_loop;
 #[cfg(feature = "v8-host")]
+#[path = "rust_executable.rs"]
 pub mod executable;
 pub mod execution;
 pub mod host;
 pub mod html;
+#[cfg(target_os = "linux")]
+pub mod linux_sandbox;
 pub mod network;
 pub mod oil;
 pub mod replay;
@@ -44,8 +51,9 @@ pub use replay::{
     TaskTraceArchive,
 };
 pub use runtime::{
-    Browser, BrowserConfig, BrowserContext, ContentKind, ContextOptions, LifecycleState,
-    NativeAction, NavigationResult, PageHandle, RuntimeError, ScrollRequest, WaitPredicate,
+    Browser, BrowserConfig, BrowserContext, CacheMode, ContentKind, ContextOptions, LifecycleState,
+    NativeAction, NavigationResult, PageHandle, RuntimeError, RuntimeProfile, ScrollRequest,
+    WaitPredicate,
 };
 pub use security::{
     ActionPolicy, ConfirmationToken, ConsequentialAction, NetworkPolicy, PolicyDecision,
@@ -76,6 +84,8 @@ pub struct RuntimeBuildInfo {
     pub box_engine_version: Option<String>,
     pub inline_engine_version: Option<String>,
     pub embedded_font_sha256: Option<String>,
+    pub runtime_profile: String,
+    pub binding_abi_version: u16,
 }
 
 pub fn runtime_build_info() -> RuntimeBuildInfo {
@@ -96,6 +106,16 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
     let capabilities = {
         let mut capabilities = capabilities;
         capabilities.push("v8_javascript".into());
+        capabilities.push("generated_webidl_registry".into());
+        capabilities.push("webassembly".into());
+        capabilities.push(
+            if cfg!(feature = "core-lite") {
+                "intl_root_en_en_us"
+            } else {
+                "intl_full_icu"
+            }
+            .into(),
+        );
         capabilities.extend([
             "computed_style".into(),
             "layout_box".into(),
@@ -146,6 +166,12 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
         embedded_font_sha256: Some(oryn_layout::DEFAULT_FONT_SHA256.into()),
         #[cfg(not(feature = "v8-host"))]
         embedded_font_sha256: None,
+        runtime_profile: if cfg!(feature = "core-lite") {
+            "core_lite_english".into()
+        } else {
+            "core_full".into()
+        },
+        binding_abi_version: oryn_js::BINDING_ABI_VERSION,
     }
 }
 
