@@ -126,7 +126,7 @@ jq -n \
   --slurpfile benchmarks "$output_dir/benchmarks/layout-benchmarks-v1.json" \
   '{schema_version:1,suite:"oryn2-layout-production",recorded_at:$recorded_at,
     source_commit:$source_commit,source_tree_sha256:$source_tree_sha256,runtime:$runtime,
-    layout:{required_passed:28,required_total:28,limitations_reported:5,limitations_total:5},
+    layout:{required_passed:29,required_total:29,limitations_reported:4,limitations_total:4},
     regressions:{executable_document:"passed",semantic_controlled:"passed",app_frameworks:"passed",auth_flows:"passed",native_miniwob:"24/24"},
     churn:$churn[0],native_miniwob:$miniwob[0],benchmarks:$benchmarks[0],outcome:{status:"passed"}}' \
   >"$output_dir/production-gate.json"

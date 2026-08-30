@@ -189,7 +189,7 @@ def layout_specs() -> list[dict[str, Any]]:
             ),
         ),
         assertion(
-            "worker-protocol-v4-layout-fingerprint",
+            "worker-protocol-v6-layout-fingerprint",
             check(
                 "protocol v6 signed runtime",
                 "runtime.json",
@@ -346,6 +346,18 @@ def layout_specs() -> list[dict[str, Any]]:
             ),
             chromium="passed",
         ),
+        assertion(
+            "table-bounded-geometry-and-structured-extraction",
+            relation("table_geometry_unavailable", lambda v: v is False),
+            native_test("viewport_scroll_and_table_geometry_are_truthful"),
+            check(
+                "structures_cover_agent_relevant_composites_and_landmarks",
+                workspace,
+                rust_test(
+                    "semantic::tests::structures_cover_agent_relevant_composites_and_landmarks"
+                ),
+            ),
+        ),
         *[
             assertion(
                 case_id,
@@ -366,7 +378,6 @@ def layout_specs() -> list[dict[str, Any]]:
                 status="expected_limitation",
             )
             for case_id, capability in (
-                ("table-structured-extraction-no-geometry", "layout.table"),
                 ("paint-screenshot-pdf", "paint"),
                 ("paint-order-hit-testing", "layout.hit_testing.paint_order"),
                 ("three-dimensional-transforms", "layout.transform.3d"),

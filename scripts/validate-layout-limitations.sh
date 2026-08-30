@@ -18,13 +18,13 @@ jq -s -e '
     | .capability
   ] as $capabilities
   | [
-      "layout.table",
       "paint",
       "layout.hit_testing.paint_order",
       "layout.transform.3d",
       "layout.float.complex"
     ] as $expected
-  | all($expected[]; ($capabilities | index(.)) != null)
+  | [$expected[] as $capability | ($capabilities | index($capability)) != null]
+  | all
 ' "$artifact_dir/capabilities.jsonl" >/dev/null
 
-echo "layout deferred capability diagnostics passed: 5/5 declared cases"
+echo "layout deferred capability diagnostics passed: 4/4 declared cases"

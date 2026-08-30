@@ -105,7 +105,7 @@ def main() -> int:
             raise ValueError(f"missing raw evidence: {missing}")
         return [by_path[path] for path in paths]
 
-    manifest_path = root / "benchmarks/conformance/layout-manifest-v1.json"
+    manifest_path = root / "benchmarks/conformance/layout-manifest-v2.json"
     wpt_path = root / "benchmarks/layout/wpt-subset-v1.json"
     manifest = load(manifest_path)
     case_ledger = assertion_bound_cases(
