@@ -217,8 +217,8 @@ def main() -> int:
         },
         "corpus": {
             "manifest_cases": 33,
-            "required_cases": 28,
-            "declared_limitations": 5,
+            "required_cases": 29,
+            "declared_limitations": 4,
         },
         "regressions": regressions,
         "metrics": {
