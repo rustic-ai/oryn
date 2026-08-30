@@ -961,7 +961,7 @@ fn generated_attribute_getter(
         .and_then(|node| get_attribute_value(scope, &state, node, interface, member));
     match result {
         Ok(value) => return_value.set(value),
-        Err(error) => throw_type_error(scope, &error.to_string()),
+        Err(error) => throw_type_error(scope, &format!("{interface}.{member}: {error}")),
     }
 }
 
@@ -982,7 +982,7 @@ fn generated_attribute_setter(
     let result = resolve_receiver(scope, &state, args.this(), interface)
         .and_then(|node| set_attribute_value(scope, &state, node, interface, member, args.get(0)));
     if let Err(error) = result {
-        throw_type_error(scope, &error.to_string());
+        throw_type_error(scope, &format!("{interface}.{member}: {error}"));
     }
 }
 
@@ -1018,6 +1018,12 @@ fn generated_operation(
     }
     let result = resolve_receiver(scope, &state, args.this(), interface)
         .and_then(|node| call_operation(scope, &state, node, interface, member, &args));
+    // A DOM operation can connect a wrapper that was created while detached.
+    // Promote it to an embedder root before V8 reaches another allocation/GC
+    // point; waiting for the page-level checkpoint leaves a narrow race where
+    // a framework can receive a fresh wrapper whose predecessor finalizer
+    // subsequently releases the shared registry identity.
+    state.refresh_connected_wrapper_roots(scope);
     match result {
         Ok(Some(value)) => return_value.set(value),
         Ok(None) => return_value.set(v8::undefined(scope).into()),
