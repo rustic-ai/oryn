@@ -90,11 +90,13 @@ interface Node : EventTarget {
   readonly attribute unsigned short nodeType;
   readonly attribute Document? ownerDocument;
   readonly attribute Node? parentNode;
+  readonly attribute Element? parentElement;
   readonly attribute Node? firstChild;
   readonly attribute Node? lastChild;
   readonly attribute Node? previousSibling;
   readonly attribute Node? nextSibling;
   readonly attribute sequence<Node> childNodes;
+  readonly attribute boolean isConnected;
   attribute DOMString? nodeValue;
   attribute DOMString? textContent;
   Node appendChild(Node child);
@@ -104,6 +106,8 @@ interface Node : EventTarget {
   Node cloneNode(optional boolean deep = false);
   boolean contains(Node? other);
   boolean isEqualNode(Node? other);
+  boolean hasChildNodes();
+  Node getRootNode();
 };
 
 dictionary ShadowRootInit {
@@ -115,6 +119,12 @@ interface Element : Node {
   readonly attribute DOMString tagName;
   readonly attribute DOMString? namespaceURI;
   readonly attribute sequence<any> attributes;
+  readonly attribute sequence<Element> children;
+  readonly attribute unsigned long childElementCount;
+  readonly attribute Element? firstElementChild;
+  readonly attribute Element? lastElementChild;
+  readonly attribute Element? previousElementSibling;
+  readonly attribute Element? nextElementSibling;
   attribute DOMString id;
   attribute DOMString className;
   readonly attribute DOMTokenList classList;

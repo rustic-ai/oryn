@@ -1616,15 +1616,42 @@ fn get_attribute_value<'s>(
     }
     if matches!(
         member,
-        "parentNode" | "firstChild" | "lastChild" | "previousSibling" | "nextSibling"
+        "parentNode"
+            | "parentElement"
+            | "firstChild"
+            | "lastChild"
+            | "previousSibling"
+            | "nextSibling"
+            | "firstElementChild"
+            | "lastElementChild"
+            | "previousElementSibling"
+            | "nextElementSibling"
     ) {
         let related = {
             let dom = state.dom.borrow();
             let record = dom.arena().get(node)?;
             match member {
                 "parentNode" => record.parent,
+                "parentElement" => record.parent.filter(|parent| {
+                    matches!(
+                        dom.arena().get(*parent).ok().map(|record| &record.kind),
+                        Some(NodeKind::Element { .. })
+                    )
+                }),
                 "firstChild" => record.children.first().copied(),
                 "lastChild" => record.children.last().copied(),
+                "firstElementChild" => record.children.iter().copied().find(|child| {
+                    matches!(
+                        dom.arena().get(*child).ok().map(|record| &record.kind),
+                        Some(NodeKind::Element { .. })
+                    )
+                }),
+                "lastElementChild" => record.children.iter().rev().copied().find(|child| {
+                    matches!(
+                        dom.arena().get(*child).ok().map(|record| &record.kind),
+                        Some(NodeKind::Element { .. })
+                    )
+                }),
                 "previousSibling" | "nextSibling" => record.parent.and_then(|parent| {
                     let siblings = &dom.arena().get(parent).ok()?.children;
                     let index = siblings.iter().position(|candidate| *candidate == node)?;
@@ -1637,6 +1664,24 @@ fn get_attribute_value<'s>(
                         siblings.get(index + 1).copied()
                     }
                 }),
+                "previousElementSibling" | "nextElementSibling" => {
+                    record.parent.and_then(|parent| {
+                        let siblings = &dom.arena().get(parent).ok()?.children;
+                        let index = siblings.iter().position(|candidate| *candidate == node)?;
+                        let candidates: Box<dyn Iterator<Item = &NodeId>> =
+                            if member == "previousElementSibling" {
+                                Box::new(siblings[..index].iter().rev())
+                            } else {
+                                Box::new(siblings[index + 1..].iter())
+                            };
+                        candidates.copied().find(|candidate| {
+                            matches!(
+                                dom.arena().get(*candidate).ok().map(|record| &record.kind),
+                                Some(NodeKind::Element { .. })
+                            )
+                        })
+                    })
+                }
                 _ => unreachable!(),
             }
         };
@@ -1644,6 +1689,30 @@ fn get_attribute_value<'s>(
     }
     if member == "childNodes" {
         let children = state.dom.borrow().arena().get(node)?.children.clone();
+        return node_array(scope, state, &children);
+    }
+    if interface == "Element" && member == "children" {
+        let children = state
+            .dom
+            .borrow()
+            .arena()
+            .get(node)?
+            .children
+            .iter()
+            .copied()
+            .filter(|child| {
+                matches!(
+                    state
+                        .dom
+                        .borrow()
+                        .arena()
+                        .get(*child)
+                        .ok()
+                        .map(|record| &record.kind),
+                    Some(NodeKind::Element { .. })
+                )
+            })
+            .collect::<Vec<_>>();
         return node_array(scope, state, &children);
     }
     if interface == "Document" && member == "documentElement" {
@@ -1689,6 +1758,11 @@ fn get_attribute_value<'s>(
     let value = match (interface, member) {
         (_, "nodeName") => v8_string(scope, &dom.node_name(node)?)?,
         (_, "nodeType") => v8::Integer::new(scope, node_type(&record.kind)).into(),
+        ("Node", "isConnected") => {
+            let connected =
+                node == dom.document() || dom.arena().ancestors(node)?.contains(&dom.document());
+            v8::Boolean::new(scope, connected).into()
+        }
         ("Node", "nodeValue") => match &record.kind {
             NodeKind::Text { data } | NodeKind::Comment { data } => v8_string(scope, data)?,
             _ => v8::null(scope).into(),
@@ -1701,6 +1775,19 @@ fn get_attribute_value<'s>(
             NodeKind::Element { name } => v8_string(scope, name.ns.as_ref())?,
             _ => v8::null(scope).into(),
         },
+        ("Element", "childElementCount") => {
+            let count = record
+                .children
+                .iter()
+                .filter(|child| {
+                    matches!(
+                        dom.arena().get(**child).ok().map(|record| &record.kind),
+                        Some(NodeKind::Element { .. })
+                    )
+                })
+                .count();
+            v8::Integer::new_from_unsigned(scope, count as u32).into()
+        }
         ("Element", "id") => v8_string(
             scope,
             record.attributes.get("id").map_or("", String::as_str),
@@ -2226,6 +2313,21 @@ fn call_operation<'s>(
             let dom = state.dom.borrow();
             let equal = dom.serialize(node)? == dom.serialize(other)?;
             Ok(Some(v8::Boolean::new(scope, equal).into()))
+        }
+        ("Node", "hasChildNodes") => {
+            let has_children = !state.dom.borrow().arena().get(node)?.children.is_empty();
+            Ok(Some(v8::Boolean::new(scope, has_children).into()))
+        }
+        ("Node", "getRootNode") => {
+            let root = {
+                let dom = state.dom.borrow();
+                let mut root = node;
+                while let Some(parent) = dom.arena().get(root)?.parent {
+                    root = parent;
+                }
+                root
+            };
+            Ok(Some(wrap_node(scope, state, root)?.into()))
         }
         ("Element", "getAttribute") => {
             let name = required_string(scope, args, 0)?;
@@ -3113,13 +3215,13 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "const main=document.getElementById('root');const clone=main.cloneNode(true);String(document.head.tagName)+'|'+document.body.tagName+'|'+main.isEqualNode(clone)",
+            "const main=document.getElementById('root');main.appendChild(document.createElement('span'));const clone=main.cloneNode(true);String(document.head.tagName)+'|'+document.body.tagName+'|'+main.isEqualNode(clone)+'|'+main.hasChildNodes()+'|'+main.childElementCount+'|'+(main.firstElementChild===main.lastElementChild)+'|'+(main.getRootNode()===document)",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
-            "HEAD|BODY|true"
+            "HEAD|BODY|true|true|1|true|true"
         );
     }
 

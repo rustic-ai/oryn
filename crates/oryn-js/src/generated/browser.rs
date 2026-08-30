@@ -361,6 +361,42 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: true,
     },
     GeneratedMember {
+        name: "children",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "childElementCount",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "firstElementChild",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "lastElementChild",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "previousElementSibling",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "nextElementSibling",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
         name: "id",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -851,6 +887,12 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         readonly: true,
     },
     GeneratedMember {
+        name: "parentElement",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
         name: "firstChild",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -876,6 +918,12 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         name: "childNodes",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "isConnected",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: true,
@@ -932,6 +980,18 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         name: "isEqualNode",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "hasChildNodes",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "getRootNode",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
         readonly: false,
     },
 ];
