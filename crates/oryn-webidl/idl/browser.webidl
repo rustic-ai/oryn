@@ -211,6 +211,11 @@ interface HTMLMediaElement : HTMLElement {
 };
 
 [Exposed=Window]
+interface HTMLCanvasElement : HTMLElement {
+  any getContext(DOMString contextId);
+};
+
+[Exposed=Window]
 interface HTMLInputElement : HTMLElement {
   attribute DOMString value;
   attribute DOMString defaultValue;

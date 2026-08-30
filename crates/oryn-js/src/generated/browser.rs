@@ -705,6 +705,14 @@ pub const H_T_M_L_BUTTON_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
 ];
+pub const H_T_M_L_CANVAS_ELEMENT_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "getContext",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+];
 pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "innerText",
@@ -1561,6 +1569,11 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         name: "HTMLButtonElement",
         parent: Some("HTMLElement"),
         members: H_T_M_L_BUTTON_ELEMENT_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "HTMLCanvasElement",
+        parent: Some("HTMLElement"),
+        members: H_T_M_L_CANVAS_ELEMENT_MEMBERS,
     },
     GeneratedInterface {
         name: "HTMLElement",

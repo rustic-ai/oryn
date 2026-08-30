@@ -1079,6 +1079,7 @@ fn validate_interface_node(
         "HTMLButtonElement" => Some("button"),
         "HTMLFormElement" => Some("form"),
         "HTMLAnchorElement" => Some("a"),
+        "HTMLCanvasElement" => Some("canvas"),
         _ => None,
     };
     if let Some(expected_tag) = expected_tag {
@@ -1122,6 +1123,7 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
         NodeKind::Element { name } => match name.local.as_ref() {
             "template" => "HTMLTemplateElement",
             "audio" | "video" => "HTMLMediaElement",
+            "canvas" => "HTMLCanvasElement",
             "input" => "HTMLInputElement",
             "textarea" => "HTMLTextAreaElement",
             "select" => "HTMLSelectElement",
@@ -2864,6 +2866,19 @@ fn call_operation<'s>(
             Ok(None)
         }
         ("Element", "scrollIntoView") => Ok(None),
+        ("HTMLCanvasElement", "getContext") => {
+            let context_id = required_string(scope, args, 0)?;
+            if context_id != "2d" {
+                return Ok(Some(v8::null(scope).into()));
+            }
+            let context = v8::Object::new(scope);
+            for name in ["beginPath", "arc", "fill", "fillRect", "clearRect"] {
+                let function = v8::Function::new(scope, canvas_noop)
+                    .ok_or(V8BindingError::Allocation("canvas no-op function"))?;
+                set_object_property(scope, context, name, function.into())?;
+            }
+            Ok(Some(context.into()))
+        }
         ("HTMLElement", "click") => {
             let event = create_event_object(scope, state, "click", true, true)?;
             dispatch_event(scope, state, node, event)?;
@@ -2909,6 +2924,13 @@ fn call_operation<'s>(
             member: member.into(),
         }),
     }
+}
+
+fn canvas_noop(
+    _scope: &mut v8::PinScope,
+    _args: v8::FunctionCallbackArguments,
+    _return_value: v8::ReturnValue,
+) {
 }
 
 fn trusted_string(
@@ -3475,6 +3497,28 @@ mod tests {
         assert!(script.run(scope).unwrap().boolean_value(scope));
         let button = dom.borrow().find_by_id("go").unwrap();
         assert_eq!(dom.borrow().arena().text_content(button).unwrap(), "Run");
+    }
+
+    #[test]
+    fn canvas_exposes_non_rendering_two_dimensional_bookkeeping_context() {
+        initialize_v8();
+        let parsed = html::parse("<canvas id='click-canvas'></canvas>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const canvas=document.getElementById('click-canvas');const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.beginPath();ctx.arc(1,2,3,0,6.28);ctx.fill();ctx.fillRect(0,0,160,210);String(canvas instanceof HTMLCanvasElement&&ctx.fillStyle==='white'&&canvas.getContext('webgl')===null)",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "true"
+        );
     }
 
     #[test]
