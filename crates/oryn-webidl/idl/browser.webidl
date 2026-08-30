@@ -274,6 +274,7 @@ interface Document : Node {
   readonly attribute HTMLElement? documentElement;
   readonly attribute HTMLElement? head;
   readonly attribute HTMLElement? body;
+  readonly attribute HTMLElement? currentScript;
   readonly attribute sequence<CSSStyleSheet> styleSheets;
   Element createElement(DOMString localName);
   Element createElementNS(DOMString? namespace, DOMString qualifiedName);

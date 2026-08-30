@@ -243,6 +243,12 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: true,
     },
     GeneratedMember {
+        name: "currentScript",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
         name: "styleSheets",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
