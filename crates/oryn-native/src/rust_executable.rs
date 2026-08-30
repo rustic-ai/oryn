@@ -329,7 +329,7 @@ impl RustExecutableDocument {
         let context_handle = context.clone();
         let broker_handle = broker.clone();
         let parsed = html::parse_streamed(html_source, 4 * 1024);
-        let scripts = parsed
+        let mut scripts = parsed
             .dom
             .iter()
             .filter(|(_, node)| {
@@ -337,6 +337,9 @@ impl RustExecutableDocument {
             })
             .map(|(id, node)| {
                 let script_type = node.attributes.get("type").cloned();
+                let deferred = (script_type.as_deref() == Some("module")
+                    && !node.attributes.contains_key("async"))
+                    || node.attributes.contains_key("defer");
                 let parser_blocking = script_type.as_deref().is_none_or(|kind| {
                     matches!(
                         kind,
@@ -351,9 +354,15 @@ impl RustExecutableDocument {
                     parsed.dom.text_content(id).unwrap_or_default(),
                     parser_blocking,
                     node.attributes.contains_key("nomodule"),
+                    deferred,
                 )
             })
             .collect::<Vec<_>>();
+        // Deferred and module scripts run after parsing, so later parser-time
+        // classic scripts (for example Nuxt's serialized runtime config) are
+        // visible before module evaluation begins. Stable sorting preserves
+        // document order within both execution classes.
+        scripts.sort_by_key(|script| script.6);
         let frame_sources = parsed
             .dom
             .iter()
@@ -531,7 +540,7 @@ impl RustExecutableDocument {
             host.activate_realm(top_realm)?;
             host.set_frame_document(frame, child_document)?;
         }
-        for (script, src, script_type, inline, parser_blocking, no_module) in scripts {
+        for (script, src, script_type, inline, parser_blocking, no_module, _deferred) in scripts {
             // V8 provides module-script support, so the HTML `nomodule`
             // fallback must not execute. Modern framework exports commonly
             // include a legacy polyfill bundle behind this attribute.
@@ -1414,6 +1423,15 @@ mod tests {
                 .unwrap(),
             "modern"
         );
+    }
+
+    #[test]
+    fn module_scripts_run_after_later_parser_time_classic_scripts() {
+        let mut page = RustExecutableDocument::load(
+            "<script type='module'>globalThis.moduleResult=globalThis.runtimeConfig</script><main></main><script>globalThis.runtimeConfig='ready'</script>",
+        )
+        .unwrap();
+        assert_eq!(page.evaluate("moduleResult").unwrap(), "ready");
     }
 
     #[test]
