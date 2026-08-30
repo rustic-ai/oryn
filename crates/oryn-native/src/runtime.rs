@@ -9597,6 +9597,13 @@ mod tests {
         assert!(result.effects.iter().any(
             |effect| matches!(effect, Effect::PageClosed { page_id } if *page_id == popup.page_id())
         ));
+        assert_eq!(
+            opener
+                .evaluate("__oryn_drain(false);String(child.closed)")
+                .await
+                .expect("poll popup closure in opener"),
+            "true"
+        );
         assert!(
             context
                 .pages()
