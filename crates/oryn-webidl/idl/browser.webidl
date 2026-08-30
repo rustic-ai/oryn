@@ -135,6 +135,10 @@ interface Element : Node {
 };
 
 [Exposed=Window]
+interface SVGElement : Element {
+};
+
+[Exposed=Window]
 interface DOMRect {
   readonly attribute double x;
   readonly attribute double y;
@@ -235,6 +239,7 @@ interface Document : Node {
   readonly attribute HTMLElement? body;
   readonly attribute sequence<CSSStyleSheet> styleSheets;
   Element createElement(DOMString localName);
+  Element createElementNS(DOMString? namespace, DOMString qualifiedName);
   Text createTextNode(DOMString data);
   Comment createComment(DOMString data);
   DocumentFragment createDocumentFragment();

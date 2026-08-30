@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use markup5ever::{LocalName, QualName, ns};
+use markup5ever::{LocalName, Namespace, QualName, ns};
 use serde::{Deserialize, Serialize};
 
 pub mod html;
@@ -403,6 +403,16 @@ impl DomRuntime {
     pub fn create_element(&mut self, local_name: &str) -> NodeId {
         self.create(NodeKind::Element {
             name: QualName::new(None, ns!(html), LocalName::from(local_name)),
+        })
+    }
+
+    pub fn create_element_ns(&mut self, namespace: &str, local_name: &str) -> NodeId {
+        self.create(NodeKind::Element {
+            name: QualName::new(
+                None,
+                Namespace::from(namespace),
+                LocalName::from(local_name),
+            ),
         })
     }
 

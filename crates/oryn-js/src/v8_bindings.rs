@@ -1043,7 +1043,7 @@ fn resolve_receiver(
 fn brand_for_interface(interface: &str) -> InterfaceBrand {
     match interface {
         "Document" => InterfaceBrand::Document,
-        "Element" => InterfaceBrand::Element,
+        "Element" | "SVGElement" => InterfaceBrand::Element,
         interface if interface == "HTMLElement" || interface.starts_with("HTML") => {
             InterfaceBrand::HtmlElement
         }
@@ -1096,6 +1096,9 @@ fn most_derived_brand(kind: &NodeKind) -> InterfaceBrand {
 fn interface_for_node(kind: &NodeKind) -> &'static str {
     match kind {
         NodeKind::Document => "Document",
+        NodeKind::Element { name } if name.ns.as_ref() != "http://www.w3.org/1999/xhtml" => {
+            "SVGElement"
+        }
         NodeKind::Element { name } => match name.local.as_ref() {
             "input" => "HTMLInputElement",
             "textarea" => "HTMLTextAreaElement",
@@ -2036,6 +2039,19 @@ fn call_operation<'s>(
                 .dom
                 .borrow_mut()
                 .create_element(&name.to_ascii_lowercase());
+            Ok(Some(wrap_node(scope, state, created)?.into()))
+        }
+        ("Document", "createElementNS") => {
+            let namespace = if args.get(0).is_null_or_undefined() {
+                String::new()
+            } else {
+                required_string(scope, args, 0)?
+            };
+            let name = required_string(scope, args, 1)?;
+            let created = state
+                .dom
+                .borrow_mut()
+                .create_element_ns(&namespace, &name.to_ascii_lowercase());
             Ok(Some(wrap_node(scope, state, created)?.into()))
         }
         ("Document", "createTextNode") => {
@@ -3104,6 +3120,28 @@ mod tests {
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
             "HEAD|BODY|true"
+        );
+    }
+
+    #[test]
+    fn namespace_creation_exposes_svg_element_brand() {
+        initialize_v8();
+        let parsed = html::parse("<main id='root'></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');document.getElementById('root').appendChild(svg);(svg instanceof SVGElement)+'|'+svg.namespaceURI",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "true|http://www.w3.org/2000/svg"
         );
     }
 

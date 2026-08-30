@@ -255,6 +255,12 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
     GeneratedMember {
+        name: "createElementNS",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
         name: "createTextNode",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -955,6 +961,7 @@ pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
 ];
+pub const S_V_G_ELEMENT_MEMBERS: &[GeneratedMember] = &[];
 pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "constructor",
@@ -1323,6 +1330,11 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         name: "Response",
         parent: None,
         members: RESPONSE_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "SVGElement",
+        parent: Some("Element"),
+        members: S_V_G_ELEMENT_MEMBERS,
     },
     GeneratedInterface {
         name: "SecurityPolicyViolationEvent",
