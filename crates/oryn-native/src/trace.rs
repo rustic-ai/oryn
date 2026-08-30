@@ -79,6 +79,28 @@ pub enum TraceEventKind {
     PolicyDenied {
         capability: String,
     },
+    CspPolicyInstalled {
+        disposition: String,
+        source: String,
+    },
+    CspViolation {
+        disposition: String,
+        effective_directive: String,
+        blocked_uri: String,
+    },
+    TrustedTypesViolation {
+        sink: String,
+        required_type: String,
+    },
+    CookiePolicyDecision {
+        included: usize,
+        withheld: usize,
+        reasons: Vec<String>,
+    },
+    InsecureRequestUpgraded {
+        from: String,
+        to: String,
+    },
     ChallengeAssessed {
         disposition: crate::challenge::ChallengeDisposition,
         provider: Option<String>,

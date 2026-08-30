@@ -16,6 +16,7 @@ use crate::{
     bindings::{BindingError, InterfaceBrand, WrapperId, WrapperRegistry},
     generated::{GENERATED_INTERFACES, GeneratedMemberKind},
     realm::RealmId,
+    trusted_types::{TrustedKind, TrustedTypesConfig, TrustedTypesRegistry, TrustedValue},
 };
 
 pub type SharedDom = Rc<RefCell<DomRuntime>>;
@@ -56,6 +57,13 @@ struct EventListener {
     callback: v8::Global<v8::Function>,
 }
 
+struct TrustedPolicyCallbacks {
+    name: String,
+    create_html: Option<v8::Global<v8::Function>>,
+    create_script: Option<v8::Global<v8::Function>>,
+    create_script_url: Option<v8::Global<v8::Function>>,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BindingRect {
     pub x: f64,
@@ -88,6 +96,10 @@ pub struct V8BindingState {
     document_open: Cell<bool>,
     document_write_buffer: RefCell<String>,
     document_write_depth: Cell<u32>,
+    trusted_registry: RefCell<TrustedTypesRegistry>,
+    trusted_policies: RefCell<BTreeMap<u64, TrustedPolicyCallbacks>>,
+    trusted_values: RefCell<BTreeMap<u64, TrustedValue>>,
+    next_trusted_id: Cell<u64>,
 }
 
 impl V8BindingState {
@@ -118,6 +130,10 @@ impl V8BindingState {
 
     pub fn set_document_write_anchor(&self, anchor: Option<NodeId>) {
         self.document_write_anchor.set(anchor);
+    }
+
+    pub fn configure_trusted_types(&self, config: TrustedTypesConfig) {
+        *self.trusted_registry.borrow_mut() = TrustedTypesRegistry::new(config);
     }
 }
 
@@ -165,6 +181,13 @@ pub fn install_generated_bindings_with_root(
         document_open: Cell::new(false),
         document_write_buffer: RefCell::new(String::new()),
         document_write_depth: Cell::new(0),
+        trusted_registry: RefCell::new(TrustedTypesRegistry::new(TrustedTypesConfig {
+            allow_any_policy: true,
+            ..TrustedTypesConfig::default()
+        })),
+        trusted_policies: RefCell::new(BTreeMap::new()),
+        trusted_values: RefCell::new(BTreeMap::new()),
+        next_trusted_id: Cell::new(1),
     });
     context.set_slot(state.clone());
 
@@ -264,7 +287,356 @@ pub fn install_generated_bindings_with_root(
     context
         .global(scope)
         .set(scope, name.into(), get_computed_style.into());
+    install_trusted_types(scope, context)?;
     Ok(state)
+}
+
+fn install_trusted_types(
+    scope: &mut v8::PinScope,
+    context: v8::Local<v8::Context>,
+) -> Result<(), V8BindingError> {
+    let factory = v8::Object::new(scope);
+    set_generated_prototype(scope, context, factory, "TrustedTypePolicyFactory")?;
+    macro_rules! install {
+        ($name:literal, $callback:ident) => {{
+            let function = v8::Function::new(scope, $callback)
+                .ok_or(V8BindingError::Allocation("Trusted Types function"))?;
+            let name = v8::String::new(scope, $name)
+                .ok_or(V8BindingError::Allocation("Trusted Types member name"))?;
+            factory.create_data_property(scope, name.into(), function.into());
+        }};
+    }
+    install!("createPolicy", trusted_create_policy);
+    install!("isHTML", trusted_is_html);
+    install!("isScript", trusted_is_script);
+    install!("isScriptURL", trusted_is_script_url);
+    install!("getAttributeType", trusted_get_attribute_type);
+    install!("getPropertyType", trusted_get_property_type);
+    let Some(state) = context.get_slot::<V8BindingState>() else {
+        return Err(V8BindingError::Allocation("Trusted Types state"));
+    };
+    let empty_html = make_trusted_value(
+        scope,
+        &state,
+        TrustedKind::Html,
+        String::new(),
+        String::new(),
+    )?;
+    let empty_script = make_trusted_value(
+        scope,
+        &state,
+        TrustedKind::Script,
+        String::new(),
+        String::new(),
+    )?;
+    for (name, value) in [("emptyHTML", empty_html), ("emptyScript", empty_script)] {
+        let key = v8::String::new(scope, name)
+            .ok_or(V8BindingError::Allocation("Trusted Types constant name"))?;
+        factory.create_data_property(scope, key.into(), value.into());
+    }
+    let name = v8::String::new(scope, "trustedTypes")
+        .ok_or(V8BindingError::Allocation("trustedTypes global"))?;
+    context
+        .global(scope)
+        .create_data_property(scope, name.into(), factory.into());
+    Ok(())
+}
+
+fn trusted_create_policy(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+        throw_type_error(scope, "Trusted Types state is unavailable");
+        return;
+    };
+    let name = args.get(0).to_rust_string_lossy(scope);
+    if let Err(error) = state.trusted_registry.borrow_mut().create_policy(&name) {
+        throw_type_error(scope, &error.to_string());
+        return;
+    }
+    let options = args.get(1).to_object(scope);
+    let callback = |scope: &mut v8::PinScope, name: &str| {
+        let options = options?;
+        let key = v8::String::new(scope, name)?;
+        v8::Local::<v8::Function>::try_from(options.get(scope, key.into())?)
+            .ok()
+            .map(|function| v8::Global::new(scope, function))
+    };
+    let policy_id = state.next_trusted_id.get();
+    state.next_trusted_id.set(policy_id.saturating_add(1));
+    state.trusted_policies.borrow_mut().insert(
+        policy_id,
+        TrustedPolicyCallbacks {
+            name: name.clone(),
+            create_html: callback(scope, "createHTML"),
+            create_script: callback(scope, "createScript"),
+            create_script_url: callback(scope, "createScriptURL"),
+        },
+    );
+    let policy = v8::Object::new(scope);
+    if let Err(error) = set_generated_prototype(
+        scope,
+        scope.get_current_context(),
+        policy,
+        "TrustedTypePolicy",
+    ) {
+        throw_type_error(scope, &error.to_string());
+        return;
+    }
+    if let (Some(key), Some(value)) = (
+        v8::String::new(scope, "name"),
+        v8::String::new(scope, &name),
+    ) {
+        policy.create_data_property(scope, key.into(), value.into());
+    }
+    for (member, kind) in [
+        ("createHTML", TrustedKind::Html),
+        ("createScript", TrustedKind::Script),
+        ("createScriptURL", TrustedKind::ScriptUrl),
+    ] {
+        let token = policy_id.saturating_mul(4).saturating_add(kind_token(kind));
+        let data = v8::BigInt::new_from_u64(scope, token);
+        let function = v8::Function::builder(trusted_policy_create)
+            .data(data.into())
+            .build(scope)
+            .expect("allocate Trusted Types policy function");
+        let key = v8::String::new(scope, member).expect("allocate Trusted Types method name");
+        policy.create_data_property(scope, key.into(), function.into());
+    }
+    return_value.set(policy.into());
+}
+
+fn trusted_policy_create(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+        return;
+    };
+    let Some(token) = exact_u64(args.data()) else {
+        throw_type_error(scope, "invalid Trusted Types policy token");
+        return;
+    };
+    let policy_id = token / 4;
+    let kind = match token % 4 {
+        1 => TrustedKind::Html,
+        2 => TrustedKind::Script,
+        3 => TrustedKind::ScriptUrl,
+        _ => return,
+    };
+    let (policy_name, callback) = {
+        let policies = state.trusted_policies.borrow();
+        let Some(policy) = policies.get(&policy_id) else {
+            throw_type_error(scope, "unknown Trusted Types policy");
+            return;
+        };
+        let callback = match kind {
+            TrustedKind::Html => policy.create_html.clone(),
+            TrustedKind::Script => policy.create_script.clone(),
+            TrustedKind::ScriptUrl => policy.create_script_url.clone(),
+        };
+        (policy.name.clone(), callback)
+    };
+    let input = args.get(0);
+    let value = if let Some(callback) = callback {
+        let callback = v8::Local::new(scope, &callback);
+        let undefined = v8::undefined(scope).into();
+        match callback.call(scope, undefined, &[input]) {
+            Some(value) => value.to_rust_string_lossy(scope),
+            None => return,
+        }
+    } else {
+        input.to_rust_string_lossy(scope)
+    };
+    match make_trusted_value(scope, &state, kind, value, policy_name) {
+        Ok(value) => return_value.set(value.into()),
+        Err(error) => throw_type_error(scope, &error.to_string()),
+    }
+}
+
+fn make_trusted_value<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    kind: TrustedKind,
+    value: String,
+    policy_name: String,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let id = state.next_trusted_id.get();
+    state.next_trusted_id.set(id.saturating_add(1));
+    state
+        .trusted_values
+        .borrow_mut()
+        .insert(id, TrustedValue::new(kind, value, policy_name));
+    let template = v8::ObjectTemplate::new(scope);
+    template.set_internal_field_count(2);
+    let object = template
+        .new_instance(scope)
+        .ok_or(V8BindingError::Allocation("Trusted Type value"))?;
+    set_generated_prototype(
+        scope,
+        scope.get_current_context(),
+        object,
+        kind.interface_name(),
+    )?;
+    object.set_internal_field(0, v8::Integer::new(scope, kind_token(kind) as i32).into());
+    object.set_internal_field(1, v8::BigInt::new_from_u64(scope, id).into());
+    let function = v8::Function::builder(trusted_value_to_string)
+        .data(v8::BigInt::new_from_u64(scope, id).into())
+        .build(scope)
+        .ok_or(V8BindingError::Allocation("Trusted Type toString"))?;
+    let key =
+        v8::String::new(scope, "toString").ok_or(V8BindingError::Allocation("toString name"))?;
+    object.create_data_property(scope, key.into(), function.into());
+    Ok(object)
+}
+
+fn set_generated_prototype(
+    scope: &mut v8::PinScope,
+    context: v8::Local<v8::Context>,
+    object: v8::Local<v8::Object>,
+    interface: &str,
+) -> Result<(), V8BindingError> {
+    let name = v8::String::new(scope, interface)
+        .ok_or(V8BindingError::Allocation("generated interface name"))?;
+    let constructor = context
+        .global(scope)
+        .get(scope, name.into())
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+        .ok_or(V8BindingError::Allocation(
+            "generated interface constructor",
+        ))?;
+    let prototype_name =
+        v8::String::new(scope, "prototype").ok_or(V8BindingError::Allocation("prototype name"))?;
+    let prototype = constructor
+        .get(scope, prototype_name.into())
+        .ok_or(V8BindingError::Allocation("generated interface prototype"))?;
+    object.set_prototype(scope, prototype);
+    Ok(())
+}
+
+fn trusted_value_to_string(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+        return;
+    };
+    let Some(id) = exact_u64(args.data()) else {
+        return;
+    };
+    if let Some(value) = state.trusted_values.borrow().get(&id)
+        && let Some(value) = v8::String::new(scope, value.value())
+    {
+        return_value.set(value.into());
+    }
+}
+
+fn trusted_is_html(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    return_value: v8::ReturnValue,
+) {
+    trusted_is(scope, args, return_value, TrustedKind::Html);
+}
+fn trusted_is_script(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    return_value: v8::ReturnValue,
+) {
+    trusted_is(scope, args, return_value, TrustedKind::Script);
+}
+fn trusted_is_script_url(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    return_value: v8::ReturnValue,
+) {
+    trusted_is(scope, args, return_value, TrustedKind::ScriptUrl);
+}
+
+fn trusted_is(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+    kind: TrustedKind,
+) {
+    let matches = trusted_value_id(scope, args.get(0), kind).is_some();
+    return_value.set(v8::Boolean::new(scope, matches).into());
+}
+
+fn trusted_get_attribute_type(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    let tag = args.get(0).to_rust_string_lossy(scope).to_ascii_lowercase();
+    let attribute = args.get(1).to_rust_string_lossy(scope).to_ascii_lowercase();
+    let kind = if tag == "script" && attribute == "src" {
+        Some(TrustedKind::ScriptUrl)
+    } else if tag == "iframe" && attribute == "srcdoc" {
+        Some(TrustedKind::Html)
+    } else if attribute.starts_with("on") {
+        Some(TrustedKind::Script)
+    } else {
+        None
+    };
+    if let Some(kind) = kind {
+        return_value.set(
+            v8::String::new(scope, kind.interface_name())
+                .unwrap()
+                .into(),
+        );
+    } else {
+        return_value.set(v8::null(scope).into());
+    }
+}
+
+fn trusted_get_property_type(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    return_value: v8::ReturnValue,
+) {
+    trusted_get_attribute_type(scope, args, return_value)
+}
+
+fn trusted_value_id(
+    scope: &mut v8::PinScope,
+    value: v8::Local<v8::Value>,
+    kind: TrustedKind,
+) -> Option<u64> {
+    let object = v8::Local::<v8::Object>::try_from(value).ok()?;
+    if object.internal_field_count() < 2 {
+        return None;
+    }
+    let tag = object.get_internal_field(scope, 0)?;
+    let tag = v8::Local::<v8::Value>::try_from(tag)
+        .ok()?
+        .int32_value(scope)? as u64;
+    (tag == kind_token(kind))
+        .then(|| {
+            object
+                .get_internal_field(scope, 1)
+                .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+                .and_then(exact_u64)
+        })
+        .flatten()
+}
+
+fn exact_u64(value: v8::Local<v8::Value>) -> Option<u64> {
+    let bigint = v8::Local::<v8::BigInt>::try_from(value).ok()?;
+    let (value, lossless) = bigint.u64_value();
+    lossless.then_some(value)
+}
+
+const fn kind_token(kind: TrustedKind) -> u64 {
+    match kind {
+        TrustedKind::Html => 1,
+        TrustedKind::Script => 2,
+        TrustedKind::ScriptUrl => 3,
+    }
 }
 
 fn get_computed_style_callback(
@@ -742,7 +1114,31 @@ fn set_attribute_value(
     member: &str,
     value: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
-    let value = value.to_rust_string_lossy(scope);
+    let value = if matches!((interface, member), ("Element", "innerHTML" | "outerHTML")) {
+        trusted_string(
+            scope,
+            state,
+            value,
+            TrustedKind::Html,
+            &format!("{interface}.{member}"),
+        )?
+    } else if matches!(member, "textContent" | "innerText")
+        && state
+            .dom
+            .borrow()
+            .node_name(node)
+            .is_ok_and(|name| name.eq_ignore_ascii_case("script"))
+    {
+        trusted_string(
+            scope,
+            state,
+            value,
+            TrustedKind::Script,
+            "HTMLScriptElement.text",
+        )?
+    } else {
+        value.to_rust_string_lossy(scope)
+    };
     let mut dom = state.dom.borrow_mut();
     match (interface, member) {
         (_, "textContent") | ("HTMLElement", "innerText") => dom.set_text_content(node, value)?,
@@ -777,6 +1173,7 @@ fn set_attribute_value(
             }
         }
         ("Element", "innerHTML") => dom.set_inner_html(node, &value)?,
+        ("Element", "outerHTML") => dom.set_outer_html(node, &value)?,
         _ => {
             return Err(V8BindingError::Unsupported {
                 interface: interface.into(),
@@ -870,7 +1267,13 @@ fn call_operation<'s>(
             Ok(Some(wrap_node(scope, state, node)?.into()))
         }
         ("Document", "write" | "writeln") => {
-            let mut markup = required_string(scope, args, 0)?;
+            let mut markup = trusted_string(
+                scope,
+                state,
+                args.get(0),
+                TrustedKind::Html,
+                &format!("Document.{member}"),
+            )?;
             if member == "writeln" {
                 markup.push('\n');
             }
@@ -965,7 +1368,26 @@ fn call_operation<'s>(
         }
         ("Element", "setAttribute") => {
             let name = required_string(scope, args, 0)?;
-            let value = required_string(scope, args, 1)?;
+            let tag = state.dom.borrow().node_name(node)?.to_ascii_lowercase();
+            let required = if tag == "script" && name.eq_ignore_ascii_case("src") {
+                Some(TrustedKind::ScriptUrl)
+            } else if tag == "iframe" && name.eq_ignore_ascii_case("srcdoc") {
+                Some(TrustedKind::Html)
+            } else if name.to_ascii_lowercase().starts_with("on") {
+                Some(TrustedKind::Script)
+            } else {
+                None
+            };
+            let value = match required {
+                Some(kind) => trusted_string(
+                    scope,
+                    state,
+                    args.get(1),
+                    kind,
+                    &format!("Element.setAttribute({name})"),
+                )?,
+                None => required_string(scope, args, 1)?,
+            };
             state.dom.borrow_mut().set_attribute(node, name, value)?;
             Ok(None)
         }
@@ -1101,6 +1523,44 @@ fn call_operation<'s>(
             member: member.into(),
         }),
     }
+}
+
+fn trusted_string(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    value: v8::Local<v8::Value>,
+    required: TrustedKind,
+    sink: &str,
+) -> Result<String, V8BindingError> {
+    if !state.trusted_registry.borrow().requires(required) {
+        return Ok(value.to_rust_string_lossy(scope));
+    }
+    if let Some(id) = trusted_value_id(scope, value, required)
+        && let Some(value) = state.trusted_values.borrow().get(&id)
+    {
+        return Ok(value.value().to_string());
+    }
+    let default_callback = state
+        .trusted_policies
+        .borrow()
+        .values()
+        .find(|policy| policy.name == "default")
+        .and_then(|policy| match required {
+            TrustedKind::Html => policy.create_html.clone(),
+            TrustedKind::Script => policy.create_script.clone(),
+            TrustedKind::ScriptUrl => policy.create_script_url.clone(),
+        });
+    if let Some(callback) = default_callback {
+        let callback = v8::Local::new(scope, &callback);
+        let undefined = v8::undefined(scope).into();
+        if let Some(result) = callback.call(scope, undefined, &[value]) {
+            return Ok(result.to_rust_string_lossy(scope));
+        }
+    }
+    Err(V8BindingError::Unsupported {
+        interface: required.interface_name().into(),
+        member: format!("required by {sink}"),
+    })
 }
 
 fn execute_parser_inserted_scripts(
@@ -1608,5 +2068,35 @@ mod tests {
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert!(script.run(scope).unwrap().boolean_value(scope));
+    }
+
+    #[test]
+    fn trusted_types_are_unforgeable_and_guard_html_sinks() {
+        initialize_v8();
+        let parsed = html::parse("<main id='root'></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        state.configure_trusted_types(TrustedTypesConfig {
+            require_script: true,
+            allowed_policy_names: ["sanitizer".into()].into(),
+            ..TrustedTypesConfig::default()
+        });
+        let source = v8::String::new(
+            scope,
+            "const root=document.getElementById('root');let raw=false;try{root.innerHTML='<b>raw</b>'}catch(e){raw=e instanceof TypeError}const policy=trustedTypes.createPolicy('sanitizer',{createHTML:s=>s.replace('unsafe','safe')});const value=policy.createHTML('<b>unsafe</b>');root.innerHTML=value;raw&&trustedTypes instanceof TrustedTypePolicyFactory&&policy instanceof TrustedTypePolicy&&value instanceof TrustedHTML&&trustedTypes.emptyHTML instanceof TrustedHTML&&trustedTypes.isHTML(value)&&!trustedTypes.isHTML({toString(){return '<i>fake</i>'}})&&root.textContent==='safe'",
+        ).unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().boolean_value(scope));
+        assert_eq!(
+            dom.borrow()
+                .arena()
+                .text_content(dom.borrow().find_by_id("root").unwrap())
+                .unwrap(),
+            "safe"
+        );
     }
 }

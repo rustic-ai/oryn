@@ -499,6 +499,7 @@ mod tests {
             ],
             body: Vec::new(),
             credentials: true,
+            security: crate::cookies::CookieRequestContext::default(),
             resolved_addrs: Vec::new(),
         }
     }

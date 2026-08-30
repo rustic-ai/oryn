@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "profile": "oryn-agent-critical-web-security",
+  "same_site_policy": "rfc6265bis-22-chromium-lax-unsafe-120s",
+  "csp_policy": "csp3-agent-critical-1",
+  "required_cases": [
+    "schemeful-psl-site",
+    "strict-lax-none-default-selection",
+    "lax-allowing-unsafe-120s",
+    "redirect-chain-taint",
+    "secure-httponly-cookie-prefixes",
+    "document-cookie-parent-owned",
+    "persistent-cookie-migration-no-invented-age",
+    "header-policy-parent-authority",
+    "ordered-meta-policy-validation",
+    "source-list-fallback-and-intersection",
+    "nonce-hash-and-strict-dynamic",
+    "base-form-frame-connect-policy",
+    "mixed-content-and-insecure-upgrade",
+    "sandbox-script-form-popup-restrictions",
+    "report-only-trace",
+    "trusted-types-policy-allowlist",
+    "trusted-types-unforgeable-brands",
+    "trusted-types-core-html-script-url-sinks"
+  ],
+  "explicitly_partial": [
+    "csp-report-delivery",
+    "security-policy-violation-dom-event",
+    "sandbox-opaque-origin",
+    "long-tail-worker-and-media-directives"
+  ]
+}

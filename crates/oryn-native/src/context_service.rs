@@ -39,7 +39,7 @@ use crate::{
     storage::{StorageArea, StorageChange, StorageRequest, StorageResponse, StorageScope},
 };
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 5;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 7;
 pub const MAX_CONTEXT_FRAME_BYTES: usize = 24 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +72,22 @@ pub enum ContextServiceRequest {
     CommitPage {
         page_id: PageId,
         url: String,
+    },
+    InstallDocumentSecurity {
+        page_id: PageId,
+        document_url: String,
+        headers: Vec<(String, String)>,
+    },
+    InstallMetaSecurity {
+        page_id: PageId,
+        serialized: String,
+    },
+    GetDocumentCookie {
+        page_id: PageId,
+    },
+    SetDocumentCookie {
+        page_id: PageId,
+        value: String,
     },
     NavigatePage {
         page_id: PageId,
@@ -182,6 +198,11 @@ pub enum ContextServiceResponse {
     },
     PageClosed,
     PageCommitted,
+    DocumentSecurityInstalled,
+    DocumentCookie {
+        value: String,
+    },
+    DocumentCookieSet,
     NavigationQueued,
     NavigationAuthorized,
     FormSubmissionAuthorized,
@@ -535,6 +556,15 @@ impl ParentContextService {
                         reason: "popup policy denied page creation".into(),
                     });
                 }
+                if self
+                    .context
+                    .csp_sandbox(opener_page_id)?
+                    .is_some_and(|sandbox| !sandbox.allow_popups)
+                {
+                    return Ok(ContextServiceResponse::PageDenied {
+                        reason: "Content-Security-Policy sandbox denied popup creation".into(),
+                    });
+                }
                 let opener_origin = self.context.page_origin(opener_page_id)?;
                 let target_origin = url.as_deref().and_then(|value| {
                     self.context
@@ -622,6 +652,55 @@ impl ParentContextService {
                 self.context.commit_page_url(page_id, url)?;
                 Ok(ContextServiceResponse::PageCommitted)
             }
+            ContextServiceRequest::InstallDocumentSecurity {
+                page_id,
+                document_url,
+                headers,
+            } => {
+                if page_id != self.source_page_id {
+                    return Err(RuntimeError::ContextService(
+                        "worker cannot install policy for another page".into(),
+                    ));
+                }
+                #[cfg(test)]
+                self.context
+                    .install_document_security(page_id, document_url, &headers)?;
+                #[cfg(not(test))]
+                self.context
+                    .verify_document_security(page_id, &document_url, &headers)?;
+                Ok(ContextServiceResponse::DocumentSecurityInstalled)
+            }
+            ContextServiceRequest::InstallMetaSecurity {
+                page_id,
+                serialized,
+            } => {
+                if page_id != self.source_page_id {
+                    return Err(RuntimeError::ContextService(
+                        "worker cannot install meta policy for another page".into(),
+                    ));
+                }
+                self.context.install_meta_security(page_id, &serialized)?;
+                Ok(ContextServiceResponse::DocumentSecurityInstalled)
+            }
+            ContextServiceRequest::GetDocumentCookie { page_id } => {
+                if page_id != self.source_page_id {
+                    return Err(RuntimeError::ContextService(
+                        "worker cannot read another page's cookies".into(),
+                    ));
+                }
+                Ok(ContextServiceResponse::DocumentCookie {
+                    value: self.context.document_cookie(page_id)?,
+                })
+            }
+            ContextServiceRequest::SetDocumentCookie { page_id, value } => {
+                if page_id != self.source_page_id {
+                    return Err(RuntimeError::ContextService(
+                        "worker cannot write another page's cookies".into(),
+                    ));
+                }
+                self.context.set_document_cookie(page_id, value)?;
+                Ok(ContextServiceResponse::DocumentCookieSet)
+            }
             ContextServiceRequest::NavigatePage { page_id, url } => {
                 if page_id != self.source_page_id {
                     return Err(RuntimeError::ContextService(
@@ -690,8 +769,37 @@ impl ParentContextService {
                     ));
                 }
                 self.context.validate_page_url(page_id, &url)?;
+                if self
+                    .context
+                    .csp_sandbox(page_id)?
+                    .is_some_and(|sandbox| !sandbox.allow_forms)
+                {
+                    return Ok(ContextServiceResponse::PageDenied {
+                        reason: "Content-Security-Policy sandbox denied form submission".into(),
+                    });
+                }
                 let source_origin = self.context.page_origin(page_id)?;
                 let resolved = self.context.resolve_page_url(page_id, &url)?;
+                if !self
+                    .context
+                    .authorize_csp(
+                        page_id,
+                        &crate::csp::CspRequest {
+                            destination: crate::csp::CspDestination::Form,
+                            url: resolved.to_string(),
+                            nonce: None,
+                            inline_source: None,
+                            parser_inserted: false,
+                            initiated_by_trusted_script: false,
+                        },
+                    )?
+                    .allowed
+                {
+                    return Ok(ContextServiceResponse::PageDenied {
+                        reason: "form submission blocked by Content-Security-Policy form-action"
+                            .into(),
+                    });
+                }
                 let target_origin = resolved.origin().ascii_serialization();
                 let policy_request = PolicyRequest {
                     action: ConsequentialAction::FormSubmission,
@@ -832,8 +940,27 @@ impl ParentContextService {
             RuntimeError::ContextService("HTTP streaming broker is unavailable".into())
         })?;
         let source_origin = self.context.page_origin(page_id)?;
-        let target =
+        let mut target =
             Url::parse(&request.url).map_err(|error| RuntimeError::Network(error.to_string()))?;
+        if let Some(upgraded) = self.context.upgrade_csp_url(page_id, &target)? {
+            target = upgraded;
+        }
+        let csp = self.context.authorize_csp(
+            page_id,
+            &crate::csp::CspRequest {
+                destination: crate::csp::CspDestination::Connect,
+                url: target.to_string(),
+                nonce: None,
+                inline_source: None,
+                parser_inserted: false,
+                initiated_by_trusted_script: false,
+            },
+        )?;
+        if !csp.allowed {
+            return Err(RuntimeError::ContextService(
+                "request blocked by Content-Security-Policy connect-src".into(),
+            ));
+        }
         enforce_mixed_content(&source_origin, &target)?;
         let cross_origin = target.origin().ascii_serialization() != source_origin;
         let mut headers = sanitize_worker_headers(request.headers);
@@ -861,6 +988,13 @@ impl ParentContextService {
                     headers: preflight_headers,
                     body: Vec::new(),
                     credentials: false,
+                    security: crate::cookies::CookieRequestContext {
+                        credentials: crate::cookies::CookieCredentials::Omit,
+                        kind: crate::cookies::CookieRequestKind::Fetch,
+                        initiator_url: Some(source_origin.clone()),
+                        top_level_url: Some(self.context.page_url(page_id)?),
+                        ..Default::default()
+                    },
                     resolved_addrs: Vec::new(),
                 })
                 .map_err(|error| RuntimeError::Network(error.to_string()))?;
@@ -879,6 +1013,17 @@ impl ParentContextService {
                 headers,
                 body,
                 credentials: request.credentials,
+                security: crate::cookies::CookieRequestContext {
+                    credentials: if request.credentials {
+                        crate::cookies::CookieCredentials::Include
+                    } else {
+                        crate::cookies::CookieCredentials::Omit
+                    },
+                    kind: crate::cookies::CookieRequestKind::Fetch,
+                    initiator_url: Some(source_origin.clone()),
+                    top_level_url: Some(self.context.page_url(page_id)?),
+                    ..Default::default()
+                },
                 resolved_addrs: Vec::new(),
             })
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
@@ -1007,10 +1152,32 @@ impl ParentContextService {
         protocols: &[String],
     ) -> Result<ContextServiceResponse, RuntimeError> {
         self.validate_socket_owner(page_id)?;
-        let url = Url::parse(url).map_err(|error| RuntimeError::Network(error.to_string()))?;
+        let mut url = Url::parse(url).map_err(|error| RuntimeError::Network(error.to_string()))?;
+        if let Some(upgraded) = self.context.upgrade_csp_url(page_id, &url)? {
+            url = upgraded;
+        }
         if !matches!(url.scheme(), "ws" | "wss") {
             return Err(RuntimeError::ContextService(
                 "WebSocket URL must use ws or wss".into(),
+            ));
+        }
+        if !self
+            .context
+            .authorize_csp(
+                page_id,
+                &crate::csp::CspRequest {
+                    destination: crate::csp::CspDestination::Connect,
+                    url: url.to_string(),
+                    nonce: None,
+                    inline_source: None,
+                    parser_inserted: false,
+                    initiated_by_trusted_script: false,
+                },
+            )?
+            .allowed
+        {
+            return Err(RuntimeError::ContextService(
+                "WebSocket blocked by Content-Security-Policy connect-src".into(),
             ));
         }
         enforce_mixed_content(&self.context.page_origin(page_id)?, &url)?;
@@ -1050,7 +1217,12 @@ impl ParentContextService {
                 .parse()
                 .map_err(|error| RuntimeError::Network(format!("invalid Origin: {error}")))?,
         );
-        if let Some(cookie) = self.context.cookie_header(&url) {
+        if let Some(cookie) = self.context.cookie_header_for_request(
+            page_id,
+            &url,
+            "GET",
+            crate::cookies::CookieRequestKind::WebSocket,
+        )? {
             request.headers_mut().insert(
                 "cookie",
                 cookie

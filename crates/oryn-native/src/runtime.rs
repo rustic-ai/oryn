@@ -37,7 +37,6 @@ use crate::context_service::{ContextEvent, ContextEventRecord};
 
 use crate::challenge::{ChallengeAssessment, assess_challenge};
 use crate::html::{ParsedDocument, parse};
-#[cfg(feature = "v8-host")]
 use crate::network::NetworkBroker;
 use crate::semantic::{
     empty_observation, is_hidden, project_document, project_document_full, project_element,
@@ -50,7 +49,7 @@ use crate::{
         SensitiveCookieHeader,
     },
     network::{
-        MemoryCachingBroker, NetworkRequest, PersistentCachingBroker, PolicyBroker,
+        CookieBroker, MemoryCachingBroker, NetworkRequest, PersistentCachingBroker, PolicyBroker,
         RustlsTransport, SharedNetworkBroker,
     },
     security::{
@@ -97,6 +96,8 @@ struct BrowserContextInner {
     network_replay: crate::replay::NetworkReplayController,
     intent_trace: Mutex<Vec<crate::replay::IntentTraceRecord>>,
     domain_decisions: Mutex<Vec<crate::execution::DomainDecision>>,
+    document_security: Mutex<BTreeMap<PageId, crate::csp::CspPolicySet>>,
+    expected_meta_security: Mutex<BTreeMap<PageId, std::collections::VecDeque<String>>>,
     /// One-shot parent authorizations consumed only by the corresponding
     /// worker-originated form effect.
     form_submission_grants: Mutex<BTreeMap<PageId, usize>>,
@@ -105,7 +106,7 @@ struct BrowserContextInner {
     #[cfg(unix)]
     next_context_event_id: AtomicU64,
     #[cfg(unix)]
-    parent_cookies: Option<std::sync::Arc<dyn reqwest::cookie::CookieStore>>,
+    parent_cookies: Option<std::sync::Arc<crate::cookies::ContextCookieStore>>,
     #[cfg(all(unix, feature = "v8-host"))]
     context_client: Option<crate::context_service::SharedContextClient>,
 }
@@ -1195,10 +1196,10 @@ impl Browser {
         }
         let policy = Arc::new(PolicyEngine::new(options.action_policy.clone()));
         let secrets = Arc::new(SecretStore::default());
-        let context_cookies: Arc<dyn reqwest::cookie::CookieStore> = persistent_profile
+        let context_cookies = persistent_profile
             .as_ref()
             .map(PersistentProfile::cookie_store)
-            .unwrap_or_else(|| Arc::new(reqwest::cookie::Jar::default()));
+            .unwrap_or_else(crate::cookies::ContextCookieStore::memory);
         let timeout = self.config.request_timeout;
         let max_response_bytes = self.config.max_response_bytes;
         let network_policy = options.network_policy.clone();
@@ -1210,7 +1211,7 @@ impl Browser {
             .map(|profile| profile.path().to_path_buf());
         let cache_config = self.config.clone();
         let broker = std::thread::spawn(move || {
-            RustlsTransport::with_cookie_store(timeout, max_response_bytes, transport_cookies)
+            RustlsTransport::new(timeout, max_response_bytes)
                 .ok()
                 .and_then(|transport| {
                     let transport = replay.wrap(transport);
@@ -1237,7 +1238,7 @@ impl Browser {
                     };
                     Some(SharedNetworkBroker::new(PolicyBroker::new(
                         network_policy,
-                        transport,
+                        CookieBroker::new(transport, transport_cookies),
                     )))
                 })
         })
@@ -1259,6 +1260,8 @@ impl Browser {
                 network_replay,
                 intent_trace: Mutex::new(Vec::new()),
                 domain_decisions: Mutex::new(Vec::new()),
+                document_security: Mutex::new(BTreeMap::new()),
+                expected_meta_security: Mutex::new(BTreeMap::new()),
                 form_submission_grants: Mutex::new(BTreeMap::new()),
                 #[cfg(unix)]
                 context_events: Mutex::new(Vec::new()),
@@ -1296,6 +1299,8 @@ impl Browser {
                 network_replay: crate::replay::NetworkReplayController::live(),
                 intent_trace: Mutex::new(Vec::new()),
                 domain_decisions: Mutex::new(Vec::new()),
+                document_security: Mutex::new(BTreeMap::new()),
+                expected_meta_security: Mutex::new(BTreeMap::new()),
                 form_submission_grants: Mutex::new(BTreeMap::new()),
                 #[cfg(unix)]
                 context_events: Mutex::new(Vec::new()),
@@ -1333,6 +1338,8 @@ impl Browser {
                 network_replay: crate::replay::NetworkReplayController::live(),
                 intent_trace: Mutex::new(Vec::new()),
                 domain_decisions: Mutex::new(Vec::new()),
+                document_security: Mutex::new(BTreeMap::new()),
+                expected_meta_security: Mutex::new(BTreeMap::new()),
                 form_submission_grants: Mutex::new(BTreeMap::new()),
                 context_events: Mutex::new(Vec::new()),
                 next_context_event_id: AtomicU64::new(1),
@@ -1866,8 +1873,60 @@ impl BrowserContext {
         self.inner
             .parent_cookies
             .as_ref()
-            .and_then(|cookies| reqwest::cookie::CookieStore::cookies(cookies.as_ref(), url))
-            .and_then(|value| value.to_str().ok().map(str::to_string))
+            .and_then(|cookies| cookies.document_header(url))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn cookie_header_for_request(
+        &self,
+        page_id: PageId,
+        url: &Url,
+        method: &str,
+        kind: crate::cookies::CookieRequestKind,
+    ) -> Result<Option<String>, RuntimeError> {
+        let top_level_url = self.page_url(page_id)?;
+        Ok(self.inner.parent_cookies.as_ref().and_then(|cookies| {
+            cookies
+                .header_for_method(
+                    url,
+                    method,
+                    &crate::cookies::CookieRequestContext {
+                        kind,
+                        initiator_url: Some(top_level_url.clone()),
+                        top_level_url: Some(top_level_url),
+                        ..Default::default()
+                    },
+                )
+                .0
+        }))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn document_cookie(&self, page_id: PageId) -> Result<String, RuntimeError> {
+        let url = Url::parse(&self.page_url(page_id)?)
+            .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+        Ok(self
+            .inner
+            .parent_cookies
+            .as_ref()
+            .and_then(|cookies| cookies.document_header(&url))
+            .unwrap_or_default())
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn set_document_cookie(
+        &self,
+        page_id: PageId,
+        value: String,
+    ) -> Result<(), RuntimeError> {
+        let url = Url::parse(&self.page_url(page_id)?)
+            .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+        self.inner
+            .parent_cookies
+            .as_ref()
+            .ok_or_else(|| RuntimeError::ContextService("cookie store is unavailable".into()))?
+            .store_document_cookie(&url, value)
+            .map_err(|error| RuntimeError::ContextService(error.to_string()))
     }
 
     pub fn persistent_profile_path(&self) -> Option<&std::path::Path> {
@@ -1943,6 +2002,173 @@ impl BrowserContext {
             .map_err(|error| {
                 RuntimeError::ContextService(format!("page has no valid origin: {error}"))
             })
+    }
+
+    pub(crate) fn page_url(&self, page_id: PageId) -> Result<String, RuntimeError> {
+        self.pages()
+            .into_iter()
+            .find(|page| page.page.page_id == page_id)
+            .map(|descriptor| descriptor.page.url)
+            .ok_or(RuntimeError::PageNotFound(page_id))
+    }
+
+    pub(crate) fn install_document_security(
+        &self,
+        page_id: PageId,
+        document_url: String,
+        headers: &[(String, String)],
+    ) -> Result<(), RuntimeError> {
+        if !self.pages().iter().any(|page| page.page.page_id == page_id) {
+            return Err(RuntimeError::PageNotFound(page_id));
+        }
+        self.inner
+            .document_security
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("document security lock poisoned".into()))?
+            .insert(
+                page_id,
+                crate::csp::CspPolicySet::from_headers(document_url, headers),
+            );
+        Ok(())
+    }
+
+    pub(crate) fn prepare_document_security(
+        &self,
+        page_id: PageId,
+        document_url: String,
+        headers: &[(String, String)],
+        html: &str,
+    ) -> Result<(), RuntimeError> {
+        self.install_document_security(page_id, document_url, headers)?;
+        self.inner
+            .expected_meta_security
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("meta security lock poisoned".into()))?
+            .insert(
+                page_id,
+                crate::csp::CspPolicySet::meta_policies_from_html(html).into(),
+            );
+        Ok(())
+    }
+
+    #[cfg(not(test))]
+    pub(crate) fn verify_document_security(
+        &self,
+        page_id: PageId,
+        document_url: &str,
+        headers: &[(String, String)],
+    ) -> Result<(), RuntimeError> {
+        let expected = crate::csp::CspPolicySet::from_headers(document_url, headers);
+        let policies =
+            self.inner.document_security.lock().map_err(|_| {
+                RuntimeError::ContextService("document security lock poisoned".into())
+            })?;
+        let installed = policies.get(&page_id).ok_or_else(|| {
+            RuntimeError::ProtocolViolation(
+                "worker attempted to confirm document security before the parent installed it"
+                    .into(),
+            )
+        })?;
+        if !installed.equivalent_policy(&expected) {
+            return Err(RuntimeError::ProtocolViolation(format!(
+                "worker document-security snapshot did not match parent response headers: parent={installed:?}, worker={expected:?}"
+            )));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn authorize_csp(
+        &self,
+        page_id: PageId,
+        request: &crate::csp::CspRequest,
+    ) -> Result<crate::csp::CspDecision, RuntimeError> {
+        let pending = self
+            .inner
+            .expected_meta_security
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("meta security lock poisoned".into()))?
+            .remove(&page_id)
+            .unwrap_or_default();
+        let mut policies =
+            self.inner.document_security.lock().map_err(|_| {
+                RuntimeError::ContextService("document security lock poisoned".into())
+            })?;
+        if let Some(policy) = policies.get_mut(&page_id) {
+            for serialized in pending {
+                policy.install_meta(&serialized);
+            }
+        }
+        Ok(policies.get(&page_id).map_or(
+            crate::csp::CspDecision {
+                allowed: true,
+                violations: Vec::new(),
+            },
+            |policy| policy.authorize(request),
+        ))
+    }
+
+    pub(crate) fn upgrade_csp_url(
+        &self,
+        page_id: PageId,
+        url: &Url,
+    ) -> Result<Option<Url>, RuntimeError> {
+        let policies =
+            self.inner.document_security.lock().map_err(|_| {
+                RuntimeError::ContextService("document security lock poisoned".into())
+            })?;
+        Ok(policies
+            .get(&page_id)
+            .and_then(|policy| policy.upgraded_url(url)))
+    }
+
+    pub(crate) fn csp_sandbox(
+        &self,
+        page_id: PageId,
+    ) -> Result<Option<crate::csp::SandboxFlags>, RuntimeError> {
+        let policies =
+            self.inner.document_security.lock().map_err(|_| {
+                RuntimeError::ContextService("document security lock poisoned".into())
+            })?;
+        Ok(policies
+            .get(&page_id)
+            .and_then(crate::csp::CspPolicySet::sandbox))
+    }
+
+    pub(crate) fn install_meta_security(
+        &self,
+        page_id: PageId,
+        serialized: &str,
+    ) -> Result<(), RuntimeError> {
+        #[cfg(not(test))]
+        {
+            let mut expected =
+                self.inner.expected_meta_security.lock().map_err(|_| {
+                    RuntimeError::ContextService("meta security lock poisoned".into())
+                })?;
+            let next = expected
+                .get_mut(&page_id)
+                .and_then(std::collections::VecDeque::pop_front)
+                .ok_or_else(|| {
+                    RuntimeError::ProtocolViolation(
+                        "worker reported a CSP meta policy not present in the parent response"
+                            .into(),
+                    )
+                })?;
+            if next != serialized {
+                return Err(RuntimeError::ProtocolViolation(
+                    "worker CSP meta policy did not match parent response order".into(),
+                ));
+            }
+        }
+        let mut policies =
+            self.inner.document_security.lock().map_err(|_| {
+                RuntimeError::ContextService("document security lock poisoned".into())
+            })?;
+        let policy = policies.get_mut(&page_id).ok_or_else(|| {
+            RuntimeError::ContextService("document policy is not installed".into())
+        })?;
+        policy.install_meta(serialized);
+        Ok(())
     }
 
     pub(crate) fn validate_page_url(
@@ -3413,6 +3639,7 @@ struct PageState {
     #[cfg(feature = "v8-host")]
     determinism: Option<crate::replay::DeterminismConfig>,
     last_challenge: ChallengeAssessment,
+    csp: crate::csp::CspPolicySet,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3474,6 +3701,7 @@ impl PageState {
             #[cfg(feature = "v8-host")]
             determinism: context_options.determinism,
             last_challenge: ChallengeAssessment::default(),
+            csp: crate::csp::CspPolicySet::new("about:blank"),
         }
     }
 
@@ -3544,6 +3772,22 @@ impl PageState {
                         .map_err(|error| RuntimeError::Replay(error.to_string()))?,
                 );
             }
+            let trusted = self.csp.trusted_types();
+            resources.insert(
+                "oryn:trusted-types".into(),
+                serde_json::to_string(&oryn_js::trusted_types::TrustedTypesConfig {
+                    require_script: trusted.require_script,
+                    allowed_policy_names: trusted.policy_names,
+                    allow_any_policy: trusted.allow_any_policy,
+                    allow_duplicates: trusted.allow_duplicates,
+                    deny_policy_creation: trusted.deny_policy_creation,
+                })
+                .map_err(|error| RuntimeError::Script(error.to_string()))?,
+            );
+            resources.insert(
+                "oryn:csp-allow-eval".into(),
+                self.csp.allows_eval(false).allowed.to_string(),
+            );
             #[cfg(unix)]
             let executable = match self.context_client.clone() {
                 Some(context_client) => {
@@ -3652,6 +3896,8 @@ impl PageState {
     ) -> Result<NavigationResult, RuntimeError> {
         let mut current = Url::parse(&requested_url)
             .map_err(|error| RuntimeError::Network(format!("invalid URL: {error}")))?;
+        let navigation_site = crate::cookies::SchemefulSite::from_url(&current);
+        let mut redirect_chain_cross_site = false;
         let mut redirects = 0_usize;
         self.trace.push(
             Revision(self.revision),
@@ -3741,6 +3987,10 @@ impl PageState {
                     )],
                     body: Vec::new(),
                     credentials: true,
+                    security: crate::cookies::CookieRequestContext {
+                        redirect_chain_cross_site,
+                        ..crate::cookies::CookieRequestContext::navigation(Some(self.url.clone()))
+                    },
                     resolved_addrs: Vec::new(),
                 })
                 .map_err(|error| {
@@ -3779,6 +4029,8 @@ impl PageState {
                 current = current
                     .join(location)
                     .map_err(|error| RuntimeError::Network(format!("invalid redirect: {error}")))?;
+                redirect_chain_cross_site |=
+                    crate::cookies::SchemefulSite::from_url(&current) != navigation_site;
                 continue;
             }
             break (response.status, response.headers, response.body);
@@ -3789,6 +4041,35 @@ impl PageState {
             .map(|(_, value)| value.as_str());
         let (html, _) =
             oryn_net::decode_resource_text(&body, content_type, oryn_net::TextResourceKind::Html);
+        self.csp = crate::csp::CspPolicySet::from_headers(current.to_string(), &response_headers);
+        #[cfg(all(unix, feature = "v8-host"))]
+        if let Some(client) = &self.context_client {
+            match client.request(
+                crate::context_service::ContextServiceRequest::InstallDocumentSecurity {
+                    page_id: self.page_id,
+                    document_url: current.to_string(),
+                    headers: response_headers.clone(),
+                },
+            )? {
+                crate::context_service::ContextServiceResponse::DocumentSecurityInstalled => {}
+                _ => {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "parent returned the wrong document-security acknowledgement".into(),
+                    ));
+                }
+            }
+        }
+        if !self.csp.is_empty() {
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::CspPolicyInstalled {
+                    disposition: "enforce_or_report".into(),
+                    source: "response_header".into(),
+                },
+            );
+        }
+        let html = self.enforce_csp_html(&html);
         self.set_challenge_assessment(assess_challenge(status, &response_headers, &html));
         let html = self.inline_external_stylesheets(&current, &html)?;
         #[cfg(feature = "v8-host")]
@@ -3820,6 +4101,249 @@ impl PageState {
     }
 
     #[cfg(feature = "v8-host")]
+    fn enforce_csp_html(&mut self, html: &str) -> String {
+        let token = regex::Regex::new(
+            r#"(?is)<meta\b[^>]*http-equiv\s*=\s*['\"]?content-security-policy['\"]?[^>]*>|<script\b([^>]*)>(.*?)</script\s*>|<style\b([^>]*)>(.*?)</style\s*>"#,
+        )
+        .expect("constant CSP token regex");
+        let content = regex::Regex::new(r#"(?is)\bcontent\s*=\s*(?:\"([^\"]*)\"|'([^']*)')"#)
+            .expect("constant CSP meta content regex");
+        let nonce = regex::Regex::new(r#"(?is)\bnonce\s*=\s*['\"]([^'\"]*)['\"]"#)
+            .expect("constant nonce regex");
+        let source = regex::Regex::new(r#"(?is)\bsrc\s*=\s*['\"]([^'\"]*)['\"]"#)
+            .expect("constant script src regex");
+        let mut output = String::with_capacity(html.len());
+        let mut cursor = 0;
+        for capture in token.captures_iter(html) {
+            let whole = capture.get(0).expect("whole CSP token");
+            output.push_str(&html[cursor..whole.start()]);
+            let rendered = whole.as_str();
+            if rendered.to_ascii_lowercase().starts_with("<meta") {
+                if let Some(policy) = content.captures(rendered).and_then(|capture| {
+                    capture
+                        .get(1)
+                        .or_else(|| capture.get(2))
+                        .map(|value| value.as_str().to_string())
+                }) {
+                    self.csp.install_meta(&policy);
+                    #[cfg(all(unix, feature = "v8-host"))]
+                    if let Some(client) = &self.context_client {
+                        let _ = client.request(
+                            crate::context_service::ContextServiceRequest::InstallMetaSecurity {
+                                page_id: self.page_id,
+                                serialized: policy.clone(),
+                            },
+                        );
+                    }
+                    self.trace.push(
+                        Revision(self.revision),
+                        None,
+                        TraceEventKind::CspPolicyInstalled {
+                            disposition: "enforce".into(),
+                            source: "meta".into(),
+                        },
+                    );
+                }
+                output.push_str(rendered);
+            } else {
+                let is_script = rendered.to_ascii_lowercase().starts_with("<script");
+                let attributes = capture
+                    .get(if is_script { 1 } else { 3 })
+                    .map_or("", |value| value.as_str());
+                let inline = capture
+                    .get(if is_script { 2 } else { 4 })
+                    .map(|value| value.as_str());
+                let external = source
+                    .captures(attributes)
+                    .map(|capture| capture[1].to_string());
+                let request = crate::csp::CspRequest {
+                    destination: if is_script {
+                        crate::csp::CspDestination::Script
+                    } else {
+                        crate::csp::CspDestination::Style
+                    },
+                    url: external
+                        .as_ref()
+                        .and_then(|value| Url::parse(&self.url).ok()?.join(value).ok())
+                        .map_or_else(|| "inline".into(), |url| url.to_string()),
+                    nonce: nonce
+                        .captures(attributes)
+                        .map(|capture| capture[1].to_string()),
+                    inline_source: external
+                        .is_none()
+                        .then(|| inline.unwrap_or_default().to_string()),
+                    parser_inserted: true,
+                    initiated_by_trusted_script: false,
+                };
+                let decision = self.csp.authorize(&request);
+                self.record_csp_decision(&decision);
+                let sandbox_blocks_script = is_script
+                    && self
+                        .csp
+                        .sandbox()
+                        .is_some_and(|sandbox| !sandbox.allow_scripts);
+                if sandbox_blocks_script {
+                    self.trace.push(
+                        Revision(self.revision),
+                        None,
+                        TraceEventKind::CspViolation {
+                            disposition: "enforce".into(),
+                            effective_directive: "sandbox".into(),
+                            blocked_uri: "inline".into(),
+                        },
+                    );
+                }
+                if decision.allowed && !sandbox_blocks_script {
+                    output.push_str(rendered);
+                }
+            }
+            cursor = whole.end();
+        }
+        output.push_str(&html[cursor..]);
+        self.enforce_csp_attributes_and_base(&output)
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn enforce_csp_attributes_and_base(&mut self, html: &str) -> String {
+        let base = regex::Regex::new(
+            r#"(?is)<base\b[^>]*\bhref\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s>]+))[^>]*>"#,
+        )
+        .expect("constant base element regex");
+        let mut with_base = String::with_capacity(html.len());
+        let mut cursor = 0;
+        for capture in base.captures_iter(html) {
+            let whole = capture.get(0).expect("whole base element");
+            with_base.push_str(&html[cursor..whole.start()]);
+            let href = capture
+                .get(1)
+                .or_else(|| capture.get(2))
+                .or_else(|| capture.get(3))
+                .map_or("", |value| value.as_str());
+            let resolved = Url::parse(&self.url)
+                .ok()
+                .and_then(|document| document.join(href).ok())
+                .map_or_else(|| href.to_string(), |url| url.to_string());
+            let decision = self.csp.authorize(&crate::csp::CspRequest {
+                destination: crate::csp::CspDestination::Base,
+                url: resolved,
+                nonce: None,
+                inline_source: None,
+                parser_inserted: true,
+                initiated_by_trusted_script: false,
+            });
+            self.record_csp_decision(&decision);
+            if decision.allowed {
+                with_base.push_str(whole.as_str());
+            }
+            cursor = whole.end();
+        }
+        with_base.push_str(&html[cursor..]);
+
+        let attribute = regex::Regex::new(
+            r#"(?is)\s+(on[\w:-]+|style)\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s>]+))"#,
+        )
+        .expect("constant CSP attribute regex");
+        let sandbox_blocks_scripts = self
+            .csp
+            .sandbox()
+            .is_some_and(|sandbox| !sandbox.allow_scripts);
+        let tag = regex::Regex::new(r#"(?is)<[^>]+>"#).expect("constant HTML tag regex");
+        let mut output = String::with_capacity(with_base.len());
+        let mut cursor = 0;
+        for tag_match in tag.find_iter(&with_base) {
+            output.push_str(&with_base[cursor..tag_match.start()]);
+            let rendered = tag_match.as_str();
+            let mut rewritten = String::with_capacity(rendered.len());
+            let mut attribute_cursor = 0;
+            for capture in attribute.captures_iter(rendered) {
+                let whole = capture.get(0).expect("whole inline attribute");
+                rewritten.push_str(&rendered[attribute_cursor..whole.start()]);
+                let name = capture.get(1).expect("attribute name").as_str();
+                let source = capture
+                    .get(2)
+                    .or_else(|| capture.get(3))
+                    .or_else(|| capture.get(4))
+                    .map_or("", |value| value.as_str());
+                let script = name.to_ascii_lowercase().starts_with("on");
+                let decision = self.csp.authorize(&crate::csp::CspRequest {
+                    destination: if script {
+                        crate::csp::CspDestination::ScriptAttribute
+                    } else {
+                        crate::csp::CspDestination::StyleAttribute
+                    },
+                    url: "inline".into(),
+                    nonce: None,
+                    inline_source: Some(source.to_string()),
+                    parser_inserted: true,
+                    initiated_by_trusted_script: false,
+                });
+                self.record_csp_decision(&decision);
+                if decision.allowed && !(script && sandbox_blocks_scripts) {
+                    rewritten.push_str(whole.as_str());
+                } else if script && sandbox_blocks_scripts {
+                    self.trace.push(
+                        Revision(self.revision),
+                        None,
+                        TraceEventKind::CspViolation {
+                            disposition: "enforce".into(),
+                            effective_directive: "sandbox".into(),
+                            blocked_uri: "inline".into(),
+                        },
+                    );
+                }
+                attribute_cursor = whole.end();
+            }
+            rewritten.push_str(&rendered[attribute_cursor..]);
+            output.push_str(&rewritten);
+            cursor = tag_match.end();
+        }
+        output.push_str(&with_base[cursor..]);
+        output
+    }
+
+    #[cfg(not(feature = "v8-host"))]
+    fn enforce_csp_html(&mut self, html: &str) -> String {
+        html.to_string()
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn record_csp_decision(&mut self, decision: &crate::csp::CspDecision) {
+        for violation in &decision.violations {
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::CspViolation {
+                    disposition: format!("{:?}", violation.disposition).to_ascii_lowercase(),
+                    effective_directive: violation.effective_directive.clone(),
+                    blocked_uri: violation.blocked_uri.clone(),
+                },
+            );
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn csp_allows_resource(&mut self, url: &Url, resource_kind: &str) -> bool {
+        let destination = match resource_kind {
+            "script" | "module" => crate::csp::CspDestination::Script,
+            "stylesheet" => crate::csp::CspDestination::Style,
+            "font" | "web font" => crate::csp::CspDestination::Font,
+            "frame" => crate::csp::CspDestination::Frame,
+            "image" => crate::csp::CspDestination::Image,
+            _ => crate::csp::CspDestination::Connect,
+        };
+        let decision = self.csp.authorize(&crate::csp::CspRequest {
+            destination,
+            url: url.to_string(),
+            nonce: None,
+            inline_source: None,
+            parser_inserted: true,
+            initiated_by_trusted_script: false,
+        });
+        self.record_csp_decision(&decision);
+        decision.allowed
+    }
+
+    #[cfg(feature = "v8-host")]
     fn inline_external_stylesheets(
         &mut self,
         base_url: &Url,
@@ -3848,6 +4372,9 @@ impl PageState {
             let absolute = base_url.join(&href).map_err(|error| {
                 RuntimeError::Network(format!("invalid stylesheet URL {href}: {error}"))
             })?;
+            if !self.csp_allows_resource(&absolute, "stylesheet") {
+                continue;
+            }
             let css = self.load_stylesheet_recursive(&absolute, 0, &mut BTreeSet::new())?;
             styles.push_str("\n<style data-oryn-external=\"");
             styles.push_str(&href.replace('&', "&amp;").replace('"', "&quot;"));
@@ -3906,6 +4433,9 @@ impl PageState {
             )));
         }
         if !visited.insert(url.to_string()) {
+            return Ok(String::new());
+        }
+        if !self.csp_allows_resource(url, "stylesheet") {
             return Ok(String::new());
         }
         let css = self.fetch_external_resource(url.clone(), "text/css,*/*;q=0.1", "stylesheet")?;
@@ -4014,6 +4544,9 @@ impl PageState {
             let absolute = base_url.join(&source).map_err(|error| {
                 RuntimeError::Network(format!("invalid web-font URL {source}: {error}"))
             })?;
+            if !self.csp_allows_resource(&absolute, "font") {
+                continue;
+            }
             let bytes = self.fetch_external_resource_bytes(
                 absolute.clone(),
                 "font/woff2,font/woff,application/font-sfnt,*/*;q=0.1",
@@ -4174,6 +4707,18 @@ impl PageState {
             let (request_url, expected_digest) = pinned_resource(&absolute)
                 .map(|(url, digest)| (Url::parse(url).expect("valid pinned URL"), Some(digest)))
                 .unwrap_or_else(|| (absolute.clone(), None));
+            if !self.csp_allows_resource(
+                &request_url,
+                if frame {
+                    "frame"
+                } else if module {
+                    "module"
+                } else {
+                    "script"
+                },
+            ) {
+                continue;
+            }
             let body =
                 self.fetch_external_resource(request_url, "text/javascript,*/*;q=0.1", "script")?;
             if let Some(expected) = expected_digest {
@@ -4250,7 +4795,28 @@ impl PageState {
         accept: &str,
         resource_kind: &str,
     ) -> Result<NetworkResponse, RuntimeError> {
+        if let Some(upgraded) = self.csp.upgraded_url(&url) {
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::InsecureRequestUpgraded {
+                    from: url.to_string(),
+                    to: upgraded.to_string(),
+                },
+            );
+            url = upgraded;
+        }
+        if !self.csp_allows_resource(&url, resource_kind) {
+            return Err(RuntimeError::Network(format!(
+                "Content-Security-Policy blocked {resource_kind} resource"
+            )));
+        }
         for redirect in 0..=self.config.max_redirects {
+            if redirect > 0 && !self.csp_allows_resource(&url, resource_kind) {
+                return Err(RuntimeError::Network(format!(
+                    "Content-Security-Policy blocked redirected {resource_kind} resource"
+                )));
+            }
             self.network_quiet_since = None;
             self.trace.push(
                 Revision(self.revision),
@@ -4273,6 +4839,23 @@ impl PageState {
                     headers: vec![("accept".into(), accept.into())],
                     body: Vec::new(),
                     credentials: true,
+                    security: crate::cookies::CookieRequestContext {
+                        kind: match resource_kind {
+                            "script" | "module" => crate::cookies::CookieRequestKind::Script,
+                            "stylesheet" => crate::cookies::CookieRequestKind::Style,
+                            "font" => crate::cookies::CookieRequestKind::Font,
+                            "frame" => crate::cookies::CookieRequestKind::Frame,
+                            _ => crate::cookies::CookieRequestKind::Other,
+                        },
+                        initiator_url: Some(self.url.clone()),
+                        top_level_url: Some(self.url.clone()),
+                        redirect_chain_cross_site: redirect > 0
+                            && Url::parse(&self.url).ok().is_some_and(|source| {
+                                crate::cookies::SchemefulSite::from_url(&source)
+                                    != crate::cookies::SchemefulSite::from_url(&url)
+                            }),
+                        ..Default::default()
+                    },
                     resolved_addrs: Vec::new(),
                 })
                 .map_err(|error| RuntimeError::Network(error.to_string()))?;
@@ -4298,6 +4881,17 @@ impl PageState {
                 url = url.join(location).map_err(|error| {
                     RuntimeError::Network(format!("invalid {resource_kind} redirect: {error}"))
                 })?;
+                if let Some(upgraded) = self.csp.upgraded_url(&url) {
+                    self.trace.push(
+                        Revision(self.revision),
+                        None,
+                        TraceEventKind::InsecureRequestUpgraded {
+                            from: url.to_string(),
+                            to: upgraded.to_string(),
+                        },
+                    );
+                    url = upgraded;
+                }
                 continue;
             }
             if !(200..300).contains(&response.status) {
@@ -4945,6 +5539,17 @@ impl PageState {
                     headers: vec![("accept".into(), "image/png,image/jpeg,image/*;q=0.8".into())],
                     body: Vec::new(),
                     credentials: true,
+                    security: crate::cookies::CookieRequestContext {
+                        kind: crate::cookies::CookieRequestKind::Image,
+                        initiator_url: Some(self.url.clone()),
+                        top_level_url: Some(self.url.clone()),
+                        redirect_chain_cross_site: redirect > 0
+                            && Url::parse(&self.url).ok().is_some_and(|source| {
+                                crate::cookies::SchemefulSite::from_url(&source)
+                                    != crate::cookies::SchemefulSite::from_url(&current)
+                            }),
+                        ..Default::default()
+                    },
                     resolved_addrs: Vec::new(),
                 })
                 .map_err(|error| RuntimeError::PaintUnavailable(error.to_string()))?;
@@ -5152,14 +5757,20 @@ impl PageState {
                     "xhr.synchronous_main_thread",
                     "synchronous main-thread XHR is intentionally unsupported",
                 ),
-                unsupported_capability(
+                supported_capability(
                     "cookie.same_site",
-                    "SameSite cookie context is not yet modeled; workflows requiring cross-site cookie semantics must use a compatibility domain",
+                    "parent-owned schemeful SameSite enforcement with Lax-by-default and bounded Lax-allowing-unsafe compatibility",
                 ),
-                unsupported_capability(
-                    "security.csp",
-                    "Content-Security-Policy is not yet enforced by the native application profile",
-                ),
+                CapabilityDiagnostic {
+                    capability: "security.csp".into(),
+                    support: SupportLevel::Partial,
+                    alternatives: vec![ExecutionDomain::Chromium, ExecutionDomain::Webkit],
+                    handoff_lossy: true,
+                    detail: Some(
+                        "parent-enforced CSP3 agent-critical profile: source lists, inline nonce/hash checks, frame ancestors, base/form/connect restrictions, upgrades, report-only trace events, sandbox action restrictions, and core Trusted Types sinks; reporting endpoints and the long-tail worker/media directives remain unavailable"
+                            .into(),
+                    ),
+                },
                 CapabilityDiagnostic {
                     capability: "indexeddb.advanced".into(),
                     support: SupportLevel::Partial,
@@ -6482,6 +7093,103 @@ mod tests {
         assert_eq!(observation.page.title, "Form");
         assert_eq!(observation.page.document_generation, 1);
         assert!(observation.nodes.iter().any(|node| node.name == "Send"));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn navigation_enforces_csp_before_inline_script_execution() {
+        struct CspFixture;
+        impl NetworkBroker for CspFixture {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![
+                        ("content-type".into(), "text/html".into()),
+                        ("content-security-policy".into(), "script-src 'none'".into()),
+                    ],
+                    body: b"<main id='state'>blocked</main><script>document.getElementById('state').textContent='ran'</script>".to_vec(),
+                })
+            }
+        }
+        let mut page = PageState::new(
+            PageId(91),
+            None,
+            BrowserConfig::default(),
+            ContextOptions::default(),
+            Some(SharedNetworkBroker::new(CspFixture)),
+            #[cfg(all(unix, feature = "v8-host"))]
+            None,
+        );
+        page.navigate("https://app.example/".into(), HistoryUpdate::Push)
+            .expect("CSP-protected navigation");
+        let state = page
+            .document
+            .as_ref()
+            .unwrap()
+            .dom
+            .iter()
+            .find(|(_, node)| node.attributes.get("id").is_some_and(|id| id == "state"))
+            .map(|(id, _)| id)
+            .unwrap();
+        assert_eq!(
+            page.document
+                .as_ref()
+                .unwrap()
+                .dom
+                .text_content(state)
+                .unwrap(),
+            "blocked"
+        );
+        assert!(page.trace.events().iter().any(|event| matches!(
+            event.kind,
+            TraceEventKind::CspViolation { ref effective_directive, .. }
+                if effective_directive == "script-src"
+        )));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn csp_meta_order_guards_base_and_inline_attributes() {
+        let mut page = PageState::new(
+            PageId(92),
+            None,
+            BrowserConfig::default(),
+            ContextOptions::default(),
+            None,
+            #[cfg(all(unix, feature = "v8-host"))]
+            None,
+        );
+        page.url = "https://app.example/".into();
+        page.csp = crate::csp::CspPolicySet::new(page.url.clone());
+        let filtered = page.enforce_csp_html(
+            r#"<script>globalThis.beforeMeta=true</script>
+               <meta http-equiv="content-security-policy" content="base-uri 'none'; script-src-attr 'none'; style-src-attr 'none'">
+               <base href="https://evil.example/">
+               <button onclick="attack()" style="display:none">Safe</button>"#,
+        );
+        assert!(filtered.contains("beforeMeta"));
+        assert!(!filtered.contains("evil.example"));
+        assert!(!filtered.contains("onclick"));
+        assert!(!filtered.contains("display:none"));
+        let directives = page
+            .trace
+            .events()
+            .iter()
+            .filter_map(|event| match &event.kind {
+                TraceEventKind::CspViolation {
+                    effective_directive,
+                    ..
+                } => Some(effective_directive.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(directives.contains(&"base-uri"));
+        assert!(directives.contains(&"script-src-attr"));
+        assert!(directives.contains(&"style-src-attr"));
     }
 
     #[tokio::test(flavor = "current_thread")]

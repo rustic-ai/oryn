@@ -450,6 +450,33 @@ impl DomRuntime {
         Ok(())
     }
 
+    pub fn set_outer_html(&mut self, node: NodeId, markup: &str) -> Result<(), DomError> {
+        let parent = self
+            .arena
+            .get(node)?
+            .parent
+            .ok_or(DomError::NotAnElement(node))?;
+        let context_name = match &self.arena.get(parent)?.kind {
+            NodeKind::Element { name } => name.local.to_string(),
+            _ => "body".into(),
+        };
+        let parsed = html::parse_fragment(markup, &context_name);
+        let document_children = parsed.dom.get(parsed.document)?.children.clone();
+        let fragment_children = document_children
+            .first()
+            .and_then(|root| parsed.dom.get(*root).ok())
+            .filter(|root| matches!(&root.kind, NodeKind::Element { name } if name.local.as_ref() == "html"))
+            .map(|root| root.children.clone())
+            .unwrap_or(document_children);
+        let mut reference = Some(node);
+        for child in fragment_children {
+            let imported = self.import_subtree(&parsed.dom, child)?;
+            self.insert_before(parent, imported, reference)?;
+            reference = Some(node);
+        }
+        self.remove_child(parent, node)
+    }
+
     /// Insert a contextual HTML fragment immediately after a parser-inserted
     /// script. This is the Rust-owned insertion primitive used by
     /// `document.write` while that script is executing.

@@ -84,6 +84,7 @@ mod raw_v8 {
         realms: RealmRegistry,
         active_realm: RealmId,
         binding_states: BTreeMap<RealmId, Rc<V8BindingState>>,
+        trusted_types_config: Option<(oryn_js::trusted_types::TrustedTypesConfig, bool)>,
         execution_wall_limit: Duration,
     }
 
@@ -431,6 +432,7 @@ mod raw_v8 {
                 realms,
                 active_realm,
                 binding_states: BTreeMap::new(),
+                trusted_types_config: None,
                 execution_wall_limit: Duration::from_millis(9_500),
             }
         }
@@ -454,6 +456,10 @@ mod raw_v8 {
             let scope = &mut v8::ContextScope::new(handle_scope, context);
             let state = install_generated_bindings(scope, context, dom, realm, document_generation)
                 .map_err(|error| HostError::Execution(error.to_string()))?;
+            if let Some((config, allow_eval)) = &self.trusted_types_config {
+                state.configure_trusted_types(config.clone());
+                context.set_allow_generation_from_strings(*allow_eval);
+            }
             self.binding_states.insert(realm, state);
             Ok(())
         }
@@ -482,6 +488,10 @@ mod raw_v8 {
                 document,
             )
             .map_err(|error| HostError::Execution(error.to_string()))?;
+            if let Some((config, allow_eval)) = &self.trusted_types_config {
+                state.configure_trusted_types(config.clone());
+                context.set_allow_generation_from_strings(*allow_eval);
+            }
             self.binding_states.insert(realm, state);
             Ok(())
         }
@@ -506,6 +516,28 @@ mod raw_v8 {
                 .get(&self.active_realm)
                 .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
                 .set_document_write_anchor(anchor);
+            Ok(())
+        }
+
+        pub fn configure_trusted_types(
+            &mut self,
+            config: oryn_js::trusted_types::TrustedTypesConfig,
+            allow_string_code_generation: bool,
+        ) -> Result<(), HostError> {
+            let realm = self.active_realm;
+            self.trusted_types_config = Some((config.clone(), allow_string_code_generation));
+            self.binding_states
+                .get(&realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
+                .configure_trusted_types(config);
+            let context = self
+                .contexts
+                .get(&realm)
+                .ok_or_else(|| HostError::Execution("active realm context is unavailable".into()))?
+                .clone();
+            v8::scope!(let handle_scope, &mut self.isolate);
+            let context = v8::Local::new(handle_scope, &context);
+            context.set_allow_generation_from_strings(allow_string_code_generation);
             Ok(())
         }
 
@@ -1370,6 +1402,18 @@ mod raw_v8 {
                 body: request.body.clone(),
                 credentials: request.credentials_mode == "include"
                     || (request.credentials_mode != "omit" && origin(&url) == request_origin),
+                security: crate::cookies::CookieRequestContext {
+                    credentials: match request.credentials_mode.as_str() {
+                        "omit" => crate::cookies::CookieCredentials::Omit,
+                        "include" => crate::cookies::CookieCredentials::Include,
+                        _ => crate::cookies::CookieCredentials::SameOrigin,
+                    },
+                    kind: crate::cookies::CookieRequestKind::Fetch,
+                    initiator_url: Some(state.base_url.to_string()),
+                    top_level_url: Some(state.base_url.to_string()),
+                    redirect_chain_cross_site: redirect > 0 && origin(&url) != request_origin,
+                    ..Default::default()
+                },
                 resolved_addrs: Vec::new(),
             };
             #[cfg(unix)]
@@ -1580,6 +1624,12 @@ mod raw_v8 {
                 headers: vec![("accept".into(), "text/javascript,*/*;q=0.1".into())],
                 body: Vec::new(),
                 credentials: true,
+                security: crate::cookies::CookieRequestContext {
+                    kind: crate::cookies::CookieRequestKind::Script,
+                    initiator_url: Some(fetch.base_url.to_string()),
+                    top_level_url: Some(fetch.base_url.to_string()),
+                    ..Default::default()
+                },
                 resolved_addrs: Vec::new(),
             })
             .ok()?;

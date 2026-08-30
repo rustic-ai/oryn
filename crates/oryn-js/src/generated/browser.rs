@@ -120,6 +120,12 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
 ];
 pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
+        name: "cookie",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
         name: "documentElement",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -253,7 +259,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         name: "outerHTML",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
-        readonly: true,
+        readonly: false,
     },
     GeneratedMember {
         name: "getAttribute",
@@ -710,6 +716,94 @@ pub const TEXT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
 ];
+pub const TRUSTED_H_T_M_L_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "toString",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+];
+pub const TRUSTED_SCRIPT_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "toString",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+];
+pub const TRUSTED_SCRIPT_U_R_L_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "toString",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+];
+pub const TRUSTED_TYPE_POLICY_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "name",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "createHTML",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "createScript",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "createScriptURL",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+];
+pub const TRUSTED_TYPE_POLICY_FACTORY_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "createPolicy",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "isHTML",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "isScript",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "isScriptURL",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "getAttributeType",
+        kind: GeneratedMemberKind::Operation,
+        arity: 4,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "getPropertyType",
+        kind: GeneratedMemberKind::Operation,
+        arity: 3,
+        readonly: false,
+    },
+];
 pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "readyState",
@@ -841,6 +935,31 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         name: "Text",
         parent: Some("Node"),
         members: TEXT_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "TrustedHTML",
+        parent: None,
+        members: TRUSTED_H_T_M_L_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "TrustedScript",
+        parent: None,
+        members: TRUSTED_SCRIPT_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "TrustedScriptURL",
+        parent: None,
+        members: TRUSTED_SCRIPT_U_R_L_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "TrustedTypePolicy",
+        parent: None,
+        members: TRUSTED_TYPE_POLICY_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "TrustedTypePolicyFactory",
+        parent: None,
+        members: TRUSTED_TYPE_POLICY_FACTORY_MEMBERS,
     },
     GeneratedInterface {
         name: "XMLHttpRequest",

@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 pub mod challenge;
 #[cfg(unix)]
 pub mod context_service;
+pub mod cookies;
+pub mod csp;
 pub mod dom;
 pub mod download;
 pub mod event_loop;
@@ -39,6 +41,14 @@ pub mod worker_client;
 pub use challenge::{
     CHALLENGE_DETECTOR_VERSION, ChallengeAssessment, ChallengeDisposition, ChallengeSignal,
     ChallengeSignalSource,
+};
+pub use cookies::{
+    CookieCredentials, CookieDecision, CookieRequestContext, CookieRequestKind, SameSiteProfile,
+    SchemefulSite,
+};
+pub use csp::{
+    CspDecision, CspDestination, CspDisposition, CspPolicySet, CspRequest, CspViolation,
+    SandboxFlags, TrustedTypesDirective,
 };
 pub use download::{DownloadDescriptor, DownloadId};
 pub use execution::{
@@ -113,6 +123,9 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
         capabilities.push("v8_javascript".into());
         capabilities.push("generated_webidl_registry".into());
         capabilities.push("webassembly".into());
+        capabilities.push("same_site_cookies".into());
+        capabilities.push("csp3_agent_critical".into());
+        capabilities.push("trusted_types_core".into());
         capabilities.push(
             if cfg!(feature = "core-lite") {
                 "intl_root_en_en_us"

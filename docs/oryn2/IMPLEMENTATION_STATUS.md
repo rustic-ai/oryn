@@ -369,6 +369,21 @@ rewrite those historical payloads or present them as a new validation run.
   addition to per-hop scheme, DNS/IP, redirect, header, cookie, response, and
   decompression enforcement. Worker-originated popup and cross-origin
   navigation requests are checked by the parent.
+- Cookies are now owned by an Oryn `ContextCookieStore`, not reqwest. It uses
+  schemeful registrable sites from an embedded PSL, Strict/Lax/None and
+  Lax-by-default selection, the bounded 120-second compatibility exception,
+  redirect-chain taint, Secure/HttpOnly/prefix rules, parent-owned
+  `document.cookie`, and a persistent-record migration that cannot invent a
+  cookie creation time.
+- The parent broker compiles response-header CSP, verifies the worker snapshot,
+  validates ordered meta policies against the accepted response body, and
+  fails closed on an omitted meta checkpoint before the next network effect.
+  The native agent-critical profile covers source directives and fallbacks,
+  nonces/hashes, strict-dynamic propagation, base/form/frame/connect checks,
+  mixed content, insecure-request upgrades, sandbox action restrictions,
+  report-only trace records, and core Trusted Types HTML/script/script-URL
+  sinks. Capability metadata remains `Partial` because reporting endpoints and
+  long-tail worker/media directives are not part of this bounded profile.
 - Four immutable libFuzzer entrypoints and curated seeds cover HTML tree
   construction, DOM mutation/stale identity, URL policy, and bounded worker
   protocol parsing. The pinned V8 update policy fixes version/checksum,

@@ -97,6 +97,7 @@ class OrynURL {
 globalThis.URL=OrynURL;globalThis.URLSearchParams=OrynURLSearchParams;
 globalThis.location=new OrynURL(location.href);
 const contextCall=request=>JSON.parse(globalThis.__oryn_context_call(JSON.stringify(request)));
+Object.defineProperty(Document.prototype,'cookie',{configurable:true,enumerable:true,get(){if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return '';const response=contextCall({operation:'get_document_cookie',page_id:__oryn_page_id});return response.result==='document_cookie'?response.value:''},set(value){if(typeof globalThis.__oryn_context_call==='function'&&__oryn_page_id!==null)contextCall({operation:'set_document_cookie',page_id:__oryn_page_id,value:String(value)})}});
 const __oryn_page_proxy=pageId=>pageId==null?null:({__orynPageId:pageId,__closed:false,get closed(){return this.__closed},focus(){contextCall({operation:'activate_page',source_page_id:__oryn_page_id,target_page_id:pageId})},close(){contextCall({operation:'close_page',source_page_id:__oryn_page_id,target_page_id:pageId});this.__closed=true},postMessage(data,targetOrigin='*'){contextCall({operation:'post_message',source_page_id:__oryn_page_id,target_page_id:pageId,target_origin:String(targetOrigin),data})}});
 globalThis.__oryn_configure_context=(pageId,openerPageId)=>{__oryn_page_id=pageId;globalThis.opener=__oryn_page_proxy(openerPageId)};
 globalThis.open=(url='')=>{if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return null;const target=url?new OrynURL(url,location.href).href:null;const response=contextCall({operation:'open_page',opener_page_id:__oryn_page_id,url:target});if(response.result==='page_opened'){__oryn_context_trace.push({kind:'page_created',detail:{page_id:response.page_id,opener_page_id:__oryn_page_id}});return __oryn_page_proxy(response.page_id)}if(response.result==='page_denied')__oryn_context_trace.push({kind:'capability_failure',detail:{capability:'popup.open',detail:response.reason}});return null};
@@ -372,6 +373,15 @@ impl RustExecutableDocument {
             _ => RawV8Host::new_with_heap_limit(max_heap_bytes),
         };
         host.install_dom(live_dom.clone(), 1)?;
+        if let Some(config) = resources.get("oryn:trusted-types") {
+            let config = serde_json::from_str(config).map_err(|error| {
+                HostError::Execution(format!("invalid Trusted Types policy snapshot: {error}"))
+            })?;
+            let allow_eval = resources
+                .get("oryn:csp-allow-eval")
+                .is_none_or(|value| value == "true");
+            host.configure_trusted_types(config, allow_eval)?;
+        }
         let top_realm = host.active_realm();
         host.execute(RUST_RUNTIME_GLOBALS)?;
         #[cfg(unix)]

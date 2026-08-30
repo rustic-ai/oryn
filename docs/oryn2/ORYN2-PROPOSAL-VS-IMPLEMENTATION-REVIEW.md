@@ -134,17 +134,37 @@ This is the finding to act on first, because these numbers are what the proposal
 
 ---
 
-### F6 — High. The §11.2 fetch pipeline stops after SSRF: CORS runs in the worker, and there is no preflight, SameSite, CSP or mixed-content check
-*Merged: four network findings. The SSRF/redirect/partitioning work is excellent (§2 above); everything downstream of it is missing.*
+### F6 — Resolved in implementation; release evidence pending. Parent-enforced cross-origin, SameSite, mixed-content, and CSP policy
 
-- **CORS is enforced on the wrong side of the trust boundary.** The only CORS logic in the tree is `host.rs:841-859`, reading `access-control-allow-origin` off an already-received response — inside the sandboxed page worker (`bin/page_worker.rs:30-55`). The parent (`network.rs:575-580` → `:233-300`) attaches the cookie jar (`:243-245`) and ships the full cross-origin body over IPC (`context_service.rs:659-690`) before any decision. It is native Rust, so page JS cannot skip it — but cross-origin bytes reach page-controlled memory before the check, which is what response filtering exists to prevent. **There is no preflight anywhere** (`grep -rni preflight crates/` is empty), so a `PUT`/`DELETE` or non-simple `Content-Type` takes effect on the cross-origin server before anything is checked. CORS provides zero CSRF protection here.
-- **The worker can forge `Origin` and `Referer` and force credentialed requests.** `sanitize_worker_headers` (`network.rs:529-548`) allows both through verbatim, and `context_service.rs:653-657` forwards the worker-supplied `credentials` boolean into `NetworkRequest`. The WebSocket path does it correctly — `context_service.rs:794-800` overwrites Origin with `page_origin(page_id)` — the HTTP path just doesn't. Worse than the reviewer reported: `host.rs:788-793` only appends Origin *if absent*, the JS `fetch` shim serializes caller headers straight through (`executable.rs:1135`), and `OrynHeaders` implements no forbidden-header list (`:1060`) — so **ordinary page JavaScript**, not merely a compromised worker, can send `fetch(url, {credentials:'include', headers:{Origin:'https://bank.example'}})` and have the parent attach its real jar cookies.
-- **SameSite is not implemented and cannot be.** The whole cookie layer is `reqwest::cookie::Jar` (`storage.rs:262`, `:314-332`; `network.rs:48-73` is a pass-through). `grep -rni same_site crates/` hits only a test fixture string. `Jar::cookies` calls `get_request_values(url)` — a URL-only signature that structurally cannot express site-for-cookies. Every cross-site subresource fetch, form navigation and WebSocket handshake carries Lax and Strict cookies as if they were None. §11.5 states the requirement plainly and `IMPLEMENTATION_STATUS.md:284` heads the section "security — complete".
-- **CSP, mixed content: absent and invisible.** No `http-equiv` handling, no scheme-downgrade check (`runtime.rs:3884-3917` sends subresources with `credentials: true` and an `accept` header), and none of the three appears in any `CapabilityDiagnostic`. That is the P7 failure mode precisely: an evaluation corpus silently scores a strictly more permissive browser than the one each site was written for, with nothing in the ledger to correct for it.
+The original finding was valid for the reviewed revision, but the implementation
+has since replaced each affected authority boundary:
 
-**Why it matters:** These compound. Missing SameSite + forgeable Origin + no preflight means an autonomous agent driving an authenticated session on a hostile page has no cookie-side and no origin-side CSRF protection left, and F7 removes the policy-side one.
+- Fetch/XHR preflight and CORS response filtering run in the parent context
+  service before denied response bytes enter the worker. Worker `Origin`,
+  `Referer`, `Cookie`, and forwarding headers are stripped and authoritative
+  request provenance is derived from the parent page registry.
+- `ContextCookieStore` is an Oryn-owned RFC6265bis store. It accepts an explicit
+  site-for-cookies/request context, uses schemeful PSL sites, implements
+  Strict/Lax/None plus Lax-by-default and the bounded Lax-allowing-unsafe window,
+  taints cross-site redirect chains, enforces Secure/HttpOnly/prefix rules, and
+  persists only parent-owned records. reqwest no longer has its cookie feature.
+- `PageNetworkBroker` compiles response-header CSP before returning a document,
+  derives network destinations, enforces redirects and `frame-ancestors`, and
+  validates the worker's policy snapshot. Meta policies are extracted from the
+  accepted parent response, consumed in document order, and applied
+  conservatively before the next effect if a worker omits its parser checkpoint.
+- The native CSP profile implements directive fallback/intersection,
+  nonce/hash/strict-dynamic decisions, inline script/style attributes,
+  base/form/frame/connect policy, mixed-content rejection,
+  `upgrade-insecure-requests`, sandbox action restrictions, report-only trace
+  records, and unforgeable core Trusted Types values and sinks.
 
-**Recommendation — change the code.** Move the CORS decision into the parent so a denied response becomes a network error or opaque response before the body crosses IPC, and implement preflight. Strip `origin`/`referer` from the worker allowlist and stamp both from `page_origin(source_page_id)`; derive `credentials` in the parent. Own the cookie store so SameSite and site-for-cookies can be expressed. Add a scheme-downgrade check in the broker now, and emit an `Unsupported` diagnostic the first time a document carries a CSP header or meta so the gap enters the ledger. Until this lands, `SECURITY_POLICY.md` and `IMPLEMENTATION_STATUS.md` must stop implying cookie and cross-origin semantics are complete.
+The broad `security.csp` capability is intentionally reported as `Partial`:
+report delivery endpoints, `SecurityPolicyViolationEvent`, full sandbox opaque
+origins, and long-tail worker/media directives still require alternate-domain
+execution when a workflow depends on them. This item is implementation-resolved
+but must not be release-attested until a clean signed-worker policy run publishes
+new compact evidence.
 
 ---
 

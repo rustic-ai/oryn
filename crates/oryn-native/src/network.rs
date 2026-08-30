@@ -15,9 +15,12 @@ use url::Url;
 use oryn_net::cache::{CacheEntry, CacheKey, MemoryCache};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 
-use crate::security::{NetworkPolicy, PolicyDenied};
+use crate::{
+    cookies::{ContextCookieStore, CookieRequestContext},
+    security::{NetworkPolicy, PolicyDenied},
+};
 
-const BROKER_PROTOCOL_VERSION: u32 = 2;
+const BROKER_PROTOCOL_VERSION: u32 = 3;
 const MAX_BROKER_FRAME_BYTES: usize = 24 * 1024 * 1024;
 const MAX_DECODED_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const PERSISTENT_HTTP_CACHE: TableDefinition<&str, &[u8]> = TableDefinition::new("http_cache_v1");
@@ -31,6 +34,8 @@ pub struct NetworkRequest {
     pub body: Vec<u8>,
     #[serde(default = "default_credentials")]
     pub credentials: bool,
+    #[serde(default)]
+    pub security: CookieRequestContext,
     #[serde(default, skip_serializing, skip_deserializing)]
     pub resolved_addrs: Vec<SocketAddr>,
 }
@@ -83,33 +88,6 @@ impl NetworkBroker for Box<dyn NetworkBroker> {
     }
 }
 
-#[derive(Clone)]
-pub struct SharedCookieStore(Arc<dyn reqwest::cookie::CookieStore>);
-
-impl SharedCookieStore {
-    pub fn new(store: Arc<dyn reqwest::cookie::CookieStore>) -> Self {
-        Self(store)
-    }
-
-    pub fn memory() -> Self {
-        Self(Arc::new(reqwest::cookie::Jar::default()))
-    }
-}
-
-impl reqwest::cookie::CookieStore for SharedCookieStore {
-    fn set_cookies(
-        &self,
-        cookie_headers: &mut dyn Iterator<Item = &reqwest::header::HeaderValue>,
-        url: &Url,
-    ) {
-        self.0.set_cookies(cookie_headers, url);
-    }
-
-    fn cookies(&self, url: &Url) -> Option<reqwest::header::HeaderValue> {
-        self.0.cookies(url)
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum NetworkError {
     #[error("invalid URL: {0}")]
@@ -133,6 +111,75 @@ pub enum NetworkError {
 pub struct PolicyBroker<B> {
     policy: NetworkPolicy,
     inner: B,
+}
+
+/// Browser cookie semantics around any transport/cache stack. This adapter is
+/// deliberately outside reqwest so every cache hit and redirect is evaluated
+/// with the current site-for-cookies context.
+pub struct CookieBroker<B> {
+    inner: B,
+    store: Arc<ContextCookieStore>,
+}
+
+impl<B> CookieBroker<B> {
+    pub fn new(inner: B, store: Arc<ContextCookieStore>) -> Self {
+        Self { inner, store }
+    }
+
+    fn prepare(&self, mut request: NetworkRequest) -> Result<(NetworkRequest, Url), NetworkError> {
+        let url = Url::parse(&request.url)
+            .map_err(|error| NetworkError::InvalidUrl(error.to_string()))?;
+        let mut context = request.security.clone();
+        if !request.credentials {
+            context.credentials = crate::cookies::CookieCredentials::Omit;
+        }
+        request
+            .headers
+            .retain(|(name, _)| !name.eq_ignore_ascii_case("cookie"));
+        if let Some(header) = self
+            .store
+            .header_for_method(&url, &request.method, &context)
+            .0
+        {
+            request.headers.push(("cookie".into(), header));
+        }
+        request.security = context;
+        Ok((request, url))
+    }
+
+    fn store_response(
+        &self,
+        request: &NetworkRequest,
+        url: &Url,
+        headers: &[(String, String)],
+    ) -> Result<(), NetworkError> {
+        self.store
+            .store_response(
+                url,
+                &request.security,
+                headers
+                    .iter()
+                    .filter(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
+                    .map(|(_, value)| value.clone()),
+            )
+            .map_err(|error| NetworkError::Transport(error.to_string()))
+    }
+}
+
+impl<B: NetworkBroker> NetworkBroker for CookieBroker<B> {
+    fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+        let (request, url) = self.prepare(request)?;
+        let response = self.inner.send(request.clone())?;
+        self.store_response(&request, &url, &response.headers)?;
+        Ok(response)
+    }
+
+    fn start_stream(&self, request: NetworkRequest) -> Result<NetworkStreamResponse, NetworkError> {
+        let (request, url) = self.prepare(request)?;
+        let response = self.inner.start_stream(request.clone())?;
+        self.store_response(&request, &url, &response.headers)?;
+        Ok(response)
+    }
 }
 
 pub struct SharedNetworkBroker {
@@ -885,7 +932,6 @@ pub(crate) fn resolve_and_authorize(
 /// callers can send every hop back through `PolicyBroker`.
 pub struct RustlsTransport {
     timeout: Duration,
-    cookies: Arc<SharedCookieStore>,
     max_response_bytes: usize,
     clients: Mutex<BTreeMap<String, reqwest::blocking::Client>>,
     #[cfg(test)]
@@ -943,29 +989,8 @@ fn decoded_body_reader(
 
 impl RustlsTransport {
     pub fn new(timeout: Duration, max_response_bytes: usize) -> Result<Self, NetworkError> {
-        Self::with_cookie_jar(
-            timeout,
-            max_response_bytes,
-            Arc::new(reqwest::cookie::Jar::default()),
-        )
-    }
-
-    pub fn with_cookie_jar(
-        timeout: Duration,
-        max_response_bytes: usize,
-        cookies: Arc<reqwest::cookie::Jar>,
-    ) -> Result<Self, NetworkError> {
-        Self::with_cookie_store(timeout, max_response_bytes, cookies)
-    }
-
-    pub fn with_cookie_store(
-        timeout: Duration,
-        max_response_bytes: usize,
-        cookies: Arc<dyn reqwest::cookie::CookieStore>,
-    ) -> Result<Self, NetworkError> {
         Ok(Self {
             timeout,
-            cookies: Arc::new(SharedCookieStore::new(cookies)),
             max_response_bytes,
             clients: Mutex::new(BTreeMap::new()),
             #[cfg(test)]
@@ -985,9 +1010,8 @@ impl RustlsTransport {
         request: &NetworkRequest,
     ) -> Result<reqwest::blocking::Client, NetworkError> {
         let key = format!(
-            "{}|{}|{}",
+            "{}|{}",
             url.host_str().unwrap_or_default().to_ascii_lowercase(),
-            request.credentials,
             request
                 .resolved_addrs
                 .iter()
@@ -1009,9 +1033,6 @@ impl RustlsTransport {
         #[cfg(test)]
         if self.test_force_http2 {
             builder = builder.http2_prior_knowledge();
-        }
-        if request.credentials {
-            builder = builder.cookie_provider(self.cookies.clone());
         }
         if let Some(host) = url.host_str()
             && !request.resolved_addrs.is_empty()
@@ -1144,6 +1165,8 @@ struct EncodedNetworkRequest {
     body_base64: String,
     #[serde(default = "default_credentials")]
     credentials: bool,
+    #[serde(default)]
+    security: CookieRequestContext,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1184,6 +1207,7 @@ impl NetworkBroker for IpcNetworkBroker {
                 headers: request.headers,
                 body_base64: BASE64.encode(request.body),
                 credentials: request.credentials,
+                security: request.security,
             },
         };
         serde_json::to_writer(&mut state.stream, &envelope)
@@ -1292,6 +1316,7 @@ pub fn serve_ipc_broker(
                                     headers: sanitize_worker_headers(request.headers),
                                     body,
                                     credentials: request.credentials,
+                                    security: request.security,
                                     resolved_addrs: Vec::new(),
                                 })
                                 .map_err(|error| error.to_string())
@@ -1447,6 +1472,7 @@ mod tests {
             headers: Vec::new(),
             body: Vec::new(),
             credentials: true,
+            security: CookieRequestContext::default(),
             resolved_addrs: Vec::new(),
         }
     }
@@ -1470,6 +1496,74 @@ mod tests {
             broker.send(request("https://1.1.1.1/")),
             Err(NetworkError::Unavailable)
         ));
+    }
+
+    #[test]
+    fn cookie_broker_applies_same_site_before_transport_and_hides_set_cookie() {
+        struct CookieFixture {
+            requests: Arc<Mutex<Vec<NetworkRequest>>>,
+        }
+        impl NetworkBroker for CookieFixture {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                self.requests.lock().unwrap().push(request.clone());
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: if request.request_id == 1 {
+                        vec![
+                            (
+                                "set-cookie".into(),
+                                "strict=1; SameSite=Strict; Secure; Path=/".into(),
+                            ),
+                            (
+                                "set-cookie".into(),
+                                "lax=1; SameSite=Lax; Secure; Path=/".into(),
+                            ),
+                            (
+                                "set-cookie".into(),
+                                "none=1; SameSite=None; Secure; Path=/".into(),
+                            ),
+                        ]
+                    } else {
+                        Vec::new()
+                    },
+                    body: Vec::new(),
+                })
+            }
+        }
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let broker = CookieBroker::new(
+            CookieFixture {
+                requests: requests.clone(),
+            },
+            ContextCookieStore::memory(),
+        );
+        let mut initial = request("https://auth.example.test/set");
+        initial.security = CookieRequestContext::navigation(Some(initial.url.clone()));
+        broker.send(initial).unwrap();
+
+        let mut subresource = request("https://auth.example.test/data");
+        subresource.request_id = 2;
+        subresource.security = CookieRequestContext {
+            kind: crate::cookies::CookieRequestKind::Fetch,
+            initiator_url: Some("https://rp.other.test/".into()),
+            top_level_url: Some("https://rp.other.test/".into()),
+            ..Default::default()
+        };
+        broker.send(subresource).unwrap();
+
+        let captured = requests.lock().unwrap();
+        let cookie = captured[1]
+            .headers
+            .iter()
+            .find(|(name, _)| name == "cookie")
+            .map(|(_, value)| value.as_str());
+        assert_eq!(cookie, Some("none=1"));
+        let visible = sanitize_parent_response_headers(vec![
+            ("content-type".into(), "text/plain".into()),
+            ("set-cookie".into(), "secret=1".into()),
+        ]);
+        assert_eq!(visible, vec![("content-type".into(), "text/plain".into())]);
     }
 
     #[test]
@@ -1601,7 +1695,7 @@ mod tests {
     }
 
     #[test]
-    fn rustls_transport_reuses_clients_by_pinned_route_and_credentials_partition() {
+    fn rustls_transport_reuses_clients_by_pinned_route() {
         let transport = RustlsTransport::new(Duration::from_secs(1), 1024).unwrap();
         let url = Url::parse("https://example.test/data").unwrap();
         let mut first = request(url.as_str());
@@ -1612,7 +1706,10 @@ mod tests {
         assert_eq!(transport.clients.lock().unwrap().len(), 1);
         first.credentials = false;
         transport.client_for(&url, &first).unwrap();
-        assert_eq!(transport.clients.lock().unwrap().len(), 2);
+        // Cookie credentials are now selected by the parent-owned CookieBroker
+        // and never alter transport state, so both requests safely reuse the
+        // same pinned-route client.
+        assert_eq!(transport.clients.lock().unwrap().len(), 1);
     }
 
     #[test]
@@ -1804,6 +1901,7 @@ mod tests {
                 headers: Vec::new(),
                 body_base64: String::new(),
                 credentials: true,
+                security: CookieRequestContext::default(),
             },
         };
         for attempt in 0..2 {

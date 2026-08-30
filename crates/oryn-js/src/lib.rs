@@ -5,6 +5,7 @@ pub mod bindings;
 pub mod generated;
 pub mod realm;
 pub mod scheduler;
+pub mod trusted_types;
 
 #[cfg(feature = "v8-host")]
 pub mod v8_bindings;

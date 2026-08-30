@@ -11,8 +11,9 @@ use std::{
 
 use oryn_common::v3::PageId;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use reqwest::{Url, cookie::CookieStore, header::HeaderValue};
 use serde::{Deserialize, Serialize};
+
+use crate::cookies::ContextCookieStore;
 
 const LOCAL_STORAGE: TableDefinition<&str, &[u8]> = TableDefinition::new("local_storage_v1");
 const INDEXED_DATABASES: TableDefinition<&str, &[u8]> =
@@ -249,86 +250,7 @@ impl SharedContextStore {
 pub struct PersistentProfile {
     path: PathBuf,
     database: Arc<Database>,
-    cookies: Arc<PersistentCookieStore>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct StoredCookie {
-    url: String,
-    set_cookie: String,
-}
-
-struct PersistentCookieStore {
-    jar: reqwest::cookie::Jar,
-    database: Arc<Database>,
-    records: Mutex<Vec<StoredCookie>>,
-}
-
-impl PersistentCookieStore {
-    fn open(database: Arc<Database>) -> Result<Self, StorageError> {
-        let records: Vec<StoredCookie> = {
-            let read = database
-                .begin_read()
-                .map_err(|error| StorageError::Persistent(error.to_string()))?;
-            let table = read
-                .open_table(PERSISTENT_COOKIES)
-                .map_err(|error| StorageError::Persistent(error.to_string()))?;
-            table
-                .get("state")
-                .map_err(|error| StorageError::Persistent(error.to_string()))?
-                .map(|value| serde_json::from_slice(value.value()))
-                .transpose()
-                .map_err(|error| StorageError::Persistent(error.to_string()))?
-                .unwrap_or_default()
-        };
-        let jar = reqwest::cookie::Jar::default();
-        for record in &records {
-            if let Ok(url) = Url::parse(&record.url) {
-                jar.add_cookie_str(&record.set_cookie, &url);
-            }
-        }
-        Ok(Self {
-            jar,
-            database,
-            records: Mutex::new(records),
-        })
-    }
-
-    fn persist(&self) {
-        let Ok(records) = self.records.lock() else {
-            return;
-        };
-        let Ok(encoded) = serde_json::to_vec(&*records) else {
-            return;
-        };
-        let Ok(write) = self.database.begin_write() else {
-            return;
-        };
-        if let Ok(mut table) = write.open_table(PERSISTENT_COOKIES) {
-            let _ = table.insert("state", encoded.as_slice());
-        }
-        let _ = write.commit();
-    }
-}
-
-impl CookieStore for PersistentCookieStore {
-    fn set_cookies(&self, cookie_headers: &mut dyn Iterator<Item = &HeaderValue>, url: &Url) {
-        let headers = cookie_headers.cloned().collect::<Vec<_>>();
-        self.jar.set_cookies(&mut headers.iter(), url);
-        if let Ok(mut records) = self.records.lock() {
-            records.extend(headers.iter().filter_map(|header| {
-                header.to_str().ok().map(|set_cookie| StoredCookie {
-                    url: url.to_string(),
-                    set_cookie: set_cookie.to_string(),
-                })
-            }));
-        }
-        self.persist();
-    }
-
-    fn cookies(&self, url: &Url) -> Option<HeaderValue> {
-        self.jar.cookies(url)
-    }
+    cookies: Arc<ContextCookieStore>,
 }
 
 impl std::fmt::Debug for PersistentProfile {
@@ -366,7 +288,8 @@ impl PersistentProfile {
                 .map_err(|error| StorageError::Persistent(error.to_string()))?;
         }
         let database = Arc::new(database);
-        let cookies = Arc::new(PersistentCookieStore::open(database.clone())?);
+        let cookies = ContextCookieStore::persistent(database.clone())
+            .map_err(|error| StorageError::Persistent(error.to_string()))?;
         Ok(Self {
             path: path.to_path_buf(),
             database,
@@ -378,7 +301,7 @@ impl PersistentProfile {
         &self.path
     }
 
-    pub(crate) fn cookie_store(&self) -> Arc<dyn CookieStore> {
+    pub(crate) fn cookie_store(&self) -> Arc<ContextCookieStore> {
         self.cookies.clone()
     }
 }
@@ -1447,11 +1370,15 @@ mod tests {
                     },
                 })
                 .unwrap();
-            let cookie = HeaderValue::from_static("session=persisted; Path=/; HttpOnly");
-            profile.cookie_store().set_cookies(
-                &mut std::iter::once(&cookie),
-                &Url::parse("https://example.test/login").unwrap(),
-            );
+            let url = url::Url::parse("https://example.test/login").unwrap();
+            profile
+                .cookie_store()
+                .store_response(
+                    &url,
+                    &crate::cookies::CookieRequestContext::navigation(Some(url.to_string())),
+                    ["session=persisted; Path=/; HttpOnly; Secure; Max-Age=3600".into()],
+                )
+                .unwrap();
         }
         {
             let profile = PersistentProfile::open(&directory).unwrap();
@@ -1469,8 +1396,13 @@ mod tests {
             assert_eq!(
                 profile
                     .cookie_store()
-                    .cookies(&Url::parse("https://example.test/account").unwrap())
-                    .and_then(|value| value.to_str().ok().map(str::to_string))
+                    .header(
+                        &url::Url::parse("https://example.test/account").unwrap(),
+                        &crate::cookies::CookieRequestContext::navigation(Some(
+                            "https://example.test/account".into(),
+                        )),
+                    )
+                    .0
                     .as_deref(),
                 Some("session=persisted")
             );

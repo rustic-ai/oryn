@@ -42,7 +42,7 @@ interface Element : Node {
   attribute DOMString className;
   readonly attribute DOMTokenList classList;
   attribute DOMString innerHTML;
-  readonly attribute DOMString outerHTML;
+  attribute DOMString outerHTML;
   DOMString? getAttribute(DOMString name);
   undefined setAttribute(DOMString name, DOMString value);
   undefined removeAttribute(DOMString name);
@@ -145,6 +145,7 @@ interface HTMLIFrameElement : HTMLElement {
 
 [Exposed=Window]
 interface Document : Node {
+  attribute DOMString cookie;
   readonly attribute HTMLElement? documentElement;
   readonly attribute sequence<CSSStyleSheet> styleSheets;
   Element createElement(DOMString localName);
@@ -196,6 +197,47 @@ interface Response {
   readonly attribute boolean ok;
   Promise<DOMString> text();
   Promise<ArrayBuffer> arrayBuffer();
+};
+
+[Exposed=Window]
+interface TrustedHTML {
+  DOMString toString();
+};
+
+[Exposed=Window]
+interface TrustedScript {
+  DOMString toString();
+};
+
+[Exposed=Window]
+interface TrustedScriptURL {
+  DOMString toString();
+};
+
+dictionary TrustedTypePolicyOptions {
+  TrustedTypePolicyCallback? createHTML = null;
+  TrustedTypePolicyCallback? createScript = null;
+  TrustedTypePolicyCallback? createScriptURL = null;
+};
+
+callback TrustedTypePolicyCallback = DOMString (DOMString input);
+
+[Exposed=Window]
+interface TrustedTypePolicy {
+  readonly attribute DOMString name;
+  TrustedHTML createHTML(DOMString input);
+  TrustedScript createScript(DOMString input);
+  TrustedScriptURL createScriptURL(DOMString input);
+};
+
+[Exposed=Window]
+interface TrustedTypePolicyFactory {
+  TrustedTypePolicy createPolicy(DOMString policyName, optional TrustedTypePolicyOptions? policyOptions = null);
+  boolean isHTML(any value);
+  boolean isScript(any value);
+  boolean isScriptURL(any value);
+  DOMString? getAttributeType(DOMString tagName, DOMString attribute, optional DOMString? elementNamespace = null, optional DOMString? attributeNamespace = null);
+  DOMString? getPropertyType(DOMString tagName, DOMString property, optional DOMString? elementNamespace = null);
 };
 
 dictionary RequestInit {

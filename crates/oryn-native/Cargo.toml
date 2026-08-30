@@ -27,7 +27,9 @@ tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 html5ever = "0.39"
 markup5ever = "0.39"
 url = "2"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "gzip", "brotli", "deflate", "zstd", "cookies", "http2"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "gzip", "brotli", "deflate", "zstd", "http2"] }
+cookie = "0.18"
+psl = "2"
 sha2 = "0.10"
 sha1 = "0.10"
 base64 = "0.22"

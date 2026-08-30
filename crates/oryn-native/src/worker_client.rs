@@ -19,13 +19,113 @@ use sha2::{Digest, Sha256};
 use crate::{
     BrowserConfig, BrowserContext, ContextOptions, RuntimeBuildInfo,
     context_service::{ParentContextService, serve_context_service},
-    network::serve_ipc_broker,
+    cookies::{CookieRequestContext, CookieRequestKind},
+    csp::{CspDestination, CspRequest},
+    network::{NetworkBroker, NetworkError, NetworkRequest, NetworkResponse, serve_ipc_broker},
     runtime::RuntimeError,
     worker::{
         HostEnvelope, WORKER_PROTOCOL_VERSION, WorkerEnvelope, WorkerLimits, WorkerRequest,
         WorkerResponse,
     },
 };
+
+#[derive(Clone)]
+struct PageNetworkBroker {
+    inner: crate::network::SharedNetworkBroker,
+    context: BrowserContext,
+    page_id: PageId,
+}
+
+impl NetworkBroker for PageNetworkBroker {
+    fn send(&self, mut request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+        let page_url = self
+            .context
+            .page_url(self.page_id)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?;
+        let target = url::Url::parse(&request.url)
+            .map_err(|error| NetworkError::InvalidUrl(error.to_string()))?;
+        if let Some(upgraded) = self
+            .context
+            .upgrade_csp_url(self.page_id, &target)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?
+        {
+            request.url = upgraded.to_string();
+        }
+        let destination = match request.security.kind {
+            CookieRequestKind::Document => None,
+            CookieRequestKind::Script => Some(CspDestination::Script),
+            CookieRequestKind::Style => Some(CspDestination::Style),
+            CookieRequestKind::Image => Some(CspDestination::Image),
+            CookieRequestKind::Font => Some(CspDestination::Font),
+            CookieRequestKind::Frame => Some(CspDestination::Frame),
+            CookieRequestKind::Form => Some(CspDestination::Form),
+            CookieRequestKind::Fetch | CookieRequestKind::Xhr | CookieRequestKind::WebSocket => {
+                Some(CspDestination::Connect)
+            }
+            CookieRequestKind::Other => Some(CspDestination::Connect),
+        };
+        if let Some(destination) = destination {
+            let decision = self
+                .context
+                .authorize_csp(
+                    self.page_id,
+                    &CspRequest {
+                        destination,
+                        url: request.url.clone(),
+                        nonce: None,
+                        inline_source: None,
+                        parser_inserted: true,
+                        initiated_by_trusted_script: false,
+                    },
+                )
+                .map_err(|error| NetworkError::Transport(error.to_string()))?;
+            if !decision.allowed {
+                return Err(NetworkError::Transport(format!(
+                    "Content-Security-Policy blocked {:?} request",
+                    destination
+                )));
+            }
+        }
+        request.security = CookieRequestContext {
+            kind: request.security.kind,
+            initiator_url: Some(page_url.clone()),
+            top_level_url: Some(page_url.clone()),
+            ancestor_urls: request.security.ancestor_urls,
+            top_level_navigation: request.security.top_level_navigation,
+            credentials: request.security.credentials,
+            redirect_chain_cross_site: request.security.redirect_chain_cross_site,
+        };
+        let response = self.inner.send(request.clone())?;
+        if request.security.kind == CookieRequestKind::Frame {
+            let frame_policy =
+                crate::csp::CspPolicySet::from_headers(request.url.clone(), &response.headers);
+            let decision = frame_policy.authorize_frame_ancestors(&[page_url]);
+            if !decision.allowed {
+                return Err(NetworkError::Transport(
+                    "Content-Security-Policy frame-ancestors blocked the embedded document".into(),
+                ));
+            }
+        }
+        if request.security.kind == CookieRequestKind::Document
+            && !(300..400).contains(&response.status)
+        {
+            let content_type = response
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                .map(|(_, value)| value.as_str());
+            let (html, _) = oryn_net::decode_resource_text(
+                &response.body,
+                content_type,
+                oryn_net::TextResourceKind::Html,
+            );
+            self.context
+                .prepare_document_security(self.page_id, request.url, &response.headers, &html)
+                .map_err(|error| NetworkError::Transport(error.to_string()))?;
+        }
+        Ok(response)
+    }
+}
 
 const BROKER_FD: RawFd = 3;
 const CONTEXT_FD: RawFd = 4;
@@ -138,7 +238,11 @@ impl WorkerClient {
         let parent_network = context_owner.shared_network_broker().ok_or_else(|| {
             RuntimeError::SandboxUnavailable("parent network broker is unavailable".into())
         })?;
-        let broker_network = parent_network.clone();
+        let broker_network = PageNetworkBroker {
+            inner: parent_network.clone(),
+            context: context_owner.clone(),
+            page_id,
+        };
         let frame_limit = config.max_ipc_frame_bytes;
         std::thread::Builder::new()
             .name("oryn-worker-network-broker".into())
@@ -843,7 +947,83 @@ fn resident_bytes(pid: u32) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use crate::Browser;
+
     use super::*;
+
+    struct CaptureBroker {
+        requests: Arc<Mutex<Vec<NetworkRequest>>>,
+    }
+
+    impl NetworkBroker for CaptureBroker {
+        fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            self.requests.lock().unwrap().push(request.clone());
+            Ok(NetworkResponse {
+                request_id: request.request_id,
+                status: 200,
+                headers: vec![("content-type".into(), "text/html".into())],
+                body: br#"<meta http-equiv="content-security-policy" content="script-src 'none'">"#
+                    .to_vec(),
+            })
+        }
+    }
+
+    #[test]
+    fn parent_derives_request_provenance_and_fails_closed_on_omitted_meta_policy() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        context
+            .commit_page_url(page.page_id(), "https://app.example/".into())
+            .unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let broker = PageNetworkBroker {
+            inner: crate::network::SharedNetworkBroker::new(CaptureBroker {
+                requests: requests.clone(),
+            }),
+            context: context.clone(),
+            page_id: page.page_id(),
+        };
+        broker
+            .send(NetworkRequest {
+                request_id: 1,
+                method: "GET".into(),
+                url: "https://app.example/next".into(),
+                headers: Vec::new(),
+                body: Vec::new(),
+                credentials: true,
+                security: CookieRequestContext {
+                    kind: CookieRequestKind::Document,
+                    initiator_url: Some("https://forged.example/".into()),
+                    top_level_url: Some("https://forged.example/".into()),
+                    ..CookieRequestContext::default()
+                },
+                resolved_addrs: Vec::new(),
+            })
+            .unwrap();
+        let sent = requests.lock().unwrap().first().cloned().unwrap();
+        assert_eq!(
+            sent.security.initiator_url.as_deref(),
+            Some("https://app.example/")
+        );
+        assert!(
+            !context
+                .authorize_csp(
+                    page.page_id(),
+                    &CspRequest {
+                        destination: CspDestination::Script,
+                        url: "https://app.example/app.js".into(),
+                        nonce: None,
+                        inline_source: None,
+                        parser_inserted: true,
+                        initiated_by_trusted_script: false,
+                    },
+                )
+                .unwrap()
+                .allowed
+        );
+    }
 
     #[test]
     fn extracts_codesign_detail_values() {
