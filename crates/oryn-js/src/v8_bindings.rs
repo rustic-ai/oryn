@@ -1535,6 +1535,16 @@ pub fn deliver_mutation_observers(
 fn css_property_name(member: &str) -> &str {
     match member {
         "cssText" => "css-text",
+        "backgroundClip" => "background-clip",
+        "backgroundColor" => "background-color",
+        "borderCollapse" => "border-collapse",
+        "boxSizing" => "box-sizing",
+        "cssFloat" => "float",
+        "marginRight" => "margin-right",
+        "maxHeight" => "max-height",
+        "minHeight" => "min-height",
+        "MozBoxSizing" => "-moz-box-sizing",
+        "WebkitBoxSizing" => "-webkit-box-sizing",
         _ => member,
     }
 }
@@ -3708,7 +3718,7 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "const div=document.getElementById('probe');div.setAttribute('onsubmit','t');div.attributes.onsubmit.name==='onsubmit'&&div.attributes.onsubmit.value==='t'&&div.attributes.onsubmit.expando===false",
+            "const div=document.getElementById('probe');div.setAttribute('onsubmit','t');div.style.cssText='background-color:rgba(1,1,1,.5);max-height:10px';div.attributes.onsubmit.name==='onsubmit'&&div.attributes.onsubmit.value==='t'&&div.attributes.onsubmit.expando===false&&div.style.backgroundColor.indexOf('rgba')===0&&div.style.maxHeight==='10px'",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();

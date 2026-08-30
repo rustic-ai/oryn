@@ -336,6 +336,18 @@ interface CSSStyleDeclaration {
   attribute DOMString bottom;
   attribute DOMString overflow;
   attribute DOMString opacity;
+  attribute DOMString backgroundClip;
+  attribute DOMString backgroundColor;
+  attribute DOMString borderCollapse;
+  attribute DOMString boxSizing;
+  attribute DOMString cssFloat;
+  attribute DOMString filter;
+  attribute DOMString marginRight;
+  attribute DOMString maxHeight;
+  attribute DOMString minHeight;
+  attribute DOMString MozBoxSizing;
+  attribute DOMString WebkitBoxSizing;
+  attribute DOMString zoom;
   DOMString getPropertyValue(DOMString property);
   undefined setProperty(DOMString property, DOMString value, optional DOMString priority = "");
   DOMString removeProperty(DOMString property);
