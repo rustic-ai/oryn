@@ -186,17 +186,24 @@ interface HTMLElement : Element {
 [Exposed=Window]
 interface HTMLInputElement : HTMLElement {
   attribute DOMString value;
+  attribute DOMString defaultValue;
   attribute DOMString type;
   attribute DOMString name;
   attribute boolean checked;
+  attribute boolean defaultChecked;
   attribute boolean disabled;
+  attribute boolean readOnly;
+  attribute boolean required;
 };
 
 [Exposed=Window]
 interface HTMLTextAreaElement : HTMLElement {
   attribute DOMString value;
+  attribute DOMString defaultValue;
   attribute DOMString name;
   attribute boolean disabled;
+  attribute boolean readOnly;
+  attribute boolean required;
 };
 
 [Exposed=Window]
@@ -206,12 +213,15 @@ interface HTMLSelectElement : HTMLElement {
   attribute long selectedIndex;
   attribute DOMString name;
   attribute boolean disabled;
+  attribute boolean multiple;
+  attribute boolean required;
 };
 
 [Exposed=Window]
 interface HTMLOptionElement : HTMLElement {
   attribute DOMString value;
   attribute boolean selected;
+  attribute boolean defaultSelected;
   attribute boolean disabled;
 };
 

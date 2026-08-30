@@ -1850,14 +1850,28 @@ fn get_attribute_value<'s>(
                 .unwrap_or_default();
             v8_string(scope, &value)?
         }
+        (interface, "defaultValue") if interface.starts_with("HTML") => v8_string(
+            scope,
+            record.attributes.get("value").map_or("", String::as_str),
+        )?,
         (interface, "value") if interface.starts_with("HTML") => v8_string(
             scope,
             dom.value(node)?
                 .or_else(|| record.attributes.get("value").map(String::as_str))
                 .unwrap_or(""),
         )?,
-        (interface, "checked" | "selected" | "disabled") if interface.starts_with("HTML") => {
-            v8::Boolean::new(scope, record.attributes.contains_key(member)).into()
+        (
+            interface,
+            "checked" | "defaultChecked" | "selected" | "defaultSelected" | "disabled" | "readOnly"
+            | "required" | "multiple",
+        ) if interface.starts_with("HTML") => {
+            let attribute = match member {
+                "defaultChecked" => "checked",
+                "defaultSelected" => "selected",
+                "readOnly" => "readonly",
+                _ => member,
+            };
+            v8::Boolean::new(scope, record.attributes.contains_key(attribute)).into()
         }
         (interface, "type" | "name" | "action" | "method" | "href" | "target")
             if interface.starts_with("HTML") =>
@@ -1983,11 +1997,24 @@ fn set_attribute_value(
         (interface, "value") if interface.starts_with("HTML") => {
             dom.set_value(node, value, false)?
         }
-        (interface, "checked" | "selected" | "disabled") if interface.starts_with("HTML") => {
+        (interface, "defaultValue") if interface.starts_with("HTML") => {
+            dom.set_attribute(node, "value", value)?
+        }
+        (
+            interface,
+            "checked" | "defaultChecked" | "selected" | "defaultSelected" | "disabled" | "readOnly"
+            | "required" | "multiple",
+        ) if interface.starts_with("HTML") => {
+            let attribute = match member {
+                "defaultChecked" => "checked",
+                "defaultSelected" => "selected",
+                "readOnly" => "readonly",
+                _ => member,
+            };
             if value == "true" {
-                dom.set_attribute(node, member, "")?;
+                dom.set_attribute(node, attribute, "")?;
             } else {
-                dom.remove_attribute(node, member)?;
+                dom.remove_attribute(node, attribute)?;
             }
         }
         (interface, "type" | "name" | "action" | "method" | "href" | "target")
@@ -3322,13 +3349,13 @@ mod tests {
         install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "const form=document.getElementById('form'),name=document.getElementById('name');const before=form.checkValidity();name.value='Ada';const after=form.checkValidity();before+'|'+after+'|'+(name instanceof HTMLInputElement)",
+            "const form=document.getElementById('form'),name=document.getElementById('name');const before=form.checkValidity();name.defaultValue='initial';name.defaultChecked=true;name.readOnly=true;name.value='Ada';const after=form.checkValidity();before+'|'+after+'|'+(name instanceof HTMLInputElement)+'|'+name.defaultValue+'|'+name.defaultChecked+'|'+name.readOnly+'|'+name.required",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
-            "false|true|true"
+            "false|true|true|initial|true|true|true"
         );
         let input = dom.borrow().find_by_id("name").unwrap();
         assert_eq!(dom.borrow().value(input).unwrap(), Some("Ada"));

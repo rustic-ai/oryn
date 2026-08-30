@@ -761,6 +761,12 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
     GeneratedMember {
+        name: "defaultValue",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
         name: "type",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -779,7 +785,25 @@ pub const H_T_M_L_INPUT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
     GeneratedMember {
+        name: "defaultChecked",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
         name: "disabled",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "readOnly",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "required",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: false,
@@ -794,6 +818,12 @@ pub const H_T_M_L_OPTION_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         name: "selected",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "defaultSelected",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: false,
@@ -836,10 +866,28 @@ pub const H_T_M_L_SELECT_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         arity: 0,
         readonly: false,
     },
+    GeneratedMember {
+        name: "multiple",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "required",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
 ];
 pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "value",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "defaultValue",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: false,
@@ -852,6 +900,18 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         name: "disabled",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "readOnly",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "required",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: false,
