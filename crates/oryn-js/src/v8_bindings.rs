@@ -1658,8 +1658,26 @@ fn get_attribute_value<'s>(
     if interface == "Document" && member == "defaultView" {
         return Ok(scope.get_current_context().global(scope).into());
     }
+    if interface == "Document" && matches!(member, "URL" | "baseURI") {
+        let global = scope.get_current_context().global(scope);
+        let location_key =
+            v8::String::new(scope, "location").ok_or(V8BindingError::Allocation("location key"))?;
+        let location = global
+            .get(scope, location_key.into())
+            .and_then(|value| value.to_object(scope))
+            .ok_or(V8BindingError::Allocation("location object"))?;
+        let href_key =
+            v8::String::new(scope, "href").ok_or(V8BindingError::Allocation("href key"))?;
+        return location
+            .get(scope, href_key.into())
+            .ok_or(V8BindingError::Allocation("location href"));
+    }
     if interface == "Document" && member == "currentScript" {
         return optional_node(scope, state, state.document_write_anchor.get());
+    }
+    if interface == "Document" && member == "activeElement" {
+        let focused = state.dom.borrow().focused();
+        return optional_node(scope, state, focused);
     }
     if interface == "HTMLSelectElement" && member == "options" {
         let options = state.dom.borrow().query_selector_all(node, "option")?;
@@ -2782,6 +2800,13 @@ fn call_operation<'s>(
             state.dom.borrow_mut().focus(Some(node))?;
             Ok(None)
         }
+        ("HTMLElement", "blur") => {
+            if state.dom.borrow().focused() == Some(node) {
+                state.dom.borrow_mut().focus(None)?;
+            }
+            Ok(None)
+        }
+        ("Element", "scrollIntoView") => Ok(None),
         ("HTMLElement", "click") => {
             let event = create_event_object(scope, state, "click", true, true)?;
             dispatch_event(scope, state, node, event)?;
@@ -3516,6 +3541,28 @@ mod tests {
         let source = v8::String::new(scope, "document.currentScript===null").unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert!(script.run(scope).unwrap().boolean_value(scope));
+    }
+
+    #[test]
+    fn document_url_focus_and_scroll_surface_support_router_bootstrap() {
+        initialize_v8();
+        let parsed = html::parse("<body><button id='go'></button></body>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "globalThis.location={href:'https://fixture.test/app'};const button=document.getElementById('go');button.focus();const focused=document.activeElement===button;button.scrollIntoView();button.blur();document.URL+'|'+document.baseURI+'|'+focused+'|'+(document.activeElement===null)",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "https://fixture.test/app|https://fixture.test/app|true|true"
+        );
     }
 
     #[test]

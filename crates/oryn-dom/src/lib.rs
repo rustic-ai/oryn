@@ -849,6 +849,10 @@ impl DomRuntime {
         Ok(())
     }
 
+    pub const fn focused(&self) -> Option<NodeId> {
+        self.focused
+    }
+
     pub fn set_event_listener_presence(
         &mut self,
         node: NodeId,

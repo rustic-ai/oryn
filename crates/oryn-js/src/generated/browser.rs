@@ -213,6 +213,18 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
 ];
 pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
+        name: "URL",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "baseURI",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
         name: "cookie",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -238,6 +250,12 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         name: "body",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "activeElement",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: true,
@@ -547,6 +565,12 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
     GeneratedMember {
+        name: "scrollIntoView",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
         name: "remove",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -702,6 +726,12 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         name: "focus",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "blur",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
         readonly: false,

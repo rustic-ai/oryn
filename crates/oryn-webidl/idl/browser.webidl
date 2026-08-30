@@ -149,6 +149,7 @@ interface Element : Node {
   boolean matches(DOMString selectors);
   Element? closest(DOMString selectors);
   DOMRect getBoundingClientRect();
+  undefined scrollIntoView(optional boolean alignToTop = true);
   undefined remove();
 };
 
@@ -188,6 +189,7 @@ interface HTMLElement : Element {
   readonly attribute any dataset;
   undefined click();
   undefined focus();
+  undefined blur();
 };
 
 [Exposed=Window]
@@ -273,11 +275,14 @@ interface HTMLIFrameElement : HTMLElement {
 
 [Exposed=Window]
 interface Document : Node {
+  readonly attribute DOMString URL;
+  readonly attribute DOMString baseURI;
   attribute DOMString cookie;
   readonly attribute any defaultView;
   readonly attribute HTMLElement? documentElement;
   readonly attribute HTMLElement? head;
   readonly attribute HTMLElement? body;
+  readonly attribute HTMLElement? activeElement;
   readonly attribute HTMLElement? currentScript;
   readonly attribute sequence<CSSStyleSheet> styleSheets;
   Element createElement(DOMString localName);
