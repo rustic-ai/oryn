@@ -49,7 +49,7 @@ jq -e '.outcome.status == "passed"' "$output_dir/security-probe.json" >/dev/null
 cargo run --release --locked -p oryn-native --example semantic_reference_churn \
   >"$output_dir/churn.json"
 jq -e '
-  .schema_version == 4 and .status == "passed" and
+  .schema_version == 5 and .status == "passed" and
   .false_preservation.numerator == 0 and
   .worker_replacement.status == "passed" and
   .worker_replacement.infinite_loop_terminated == true and

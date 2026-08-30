@@ -83,7 +83,7 @@ ORYN_BIN="$parent" ORYN_APP_COMPATIBILITY_DOMAIN=both ORYN_APP_COMPATIBILITY_ART
 cargo run --release --locked -p oryn-native --example sandbox_worker_integration \
   >"$output_dir/worker-integration.txt"
 cargo run --release --locked -p oryn-native --example semantic_reference_churn >"$output_dir/churn.json"
-jq -e '.schema_version == 4 and .false_preservation.numerator == 0 and .worker_replacement.status == "passed" and .status == "passed"' \
+jq -e '.schema_version == 5 and .false_preservation.numerator == 0 and .worker_replacement.status == "passed" and .status == "passed"' \
   "$output_dir/churn.json" >/dev/null
 
 test -d "$miniwob_checkout/miniwob/html"

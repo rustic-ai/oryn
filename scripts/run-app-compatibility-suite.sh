@@ -75,7 +75,7 @@ cargo run --release --locked -p oryn-native --example sandbox_worker_integration
 cargo run --release --locked -p oryn-native --example semantic_reference_churn \
   >"$output_dir/churn.json"
 jq -e '
-  .schema_version == 4 and
+  .schema_version == 5 and
   .false_preservation.numerator == 0 and
   .recovery.value == 1 and
   .worker_replacement.status == "passed" and
