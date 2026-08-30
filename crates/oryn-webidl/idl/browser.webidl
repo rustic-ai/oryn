@@ -103,6 +103,7 @@ interface Node : EventTarget {
   Node replaceChild(Node child, Node replaced);
   Node cloneNode(optional boolean deep = false);
   boolean contains(Node? other);
+  boolean isEqualNode(Node? other);
 };
 
 dictionary ShadowRootInit {
@@ -230,6 +231,8 @@ interface Document : Node {
   attribute DOMString cookie;
   readonly attribute any defaultView;
   readonly attribute HTMLElement? documentElement;
+  readonly attribute HTMLElement? head;
+  readonly attribute HTMLElement? body;
   readonly attribute sequence<CSSStyleSheet> styleSheets;
   Element createElement(DOMString localName);
   Text createTextNode(DOMString data);

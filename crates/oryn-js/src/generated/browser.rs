@@ -231,6 +231,18 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: true,
     },
     GeneratedMember {
+        name: "head",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "body",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
         name: "styleSheets",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -906,6 +918,12 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         name: "contains",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "isEqualNode",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
         readonly: false,

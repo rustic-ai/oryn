@@ -1647,6 +1647,10 @@ fn get_attribute_value<'s>(
         let document_element = state.dom.borrow().document_element();
         return optional_node(scope, state, document_element);
     }
+    if interface == "Document" && matches!(member, "head" | "body") {
+        let element = state.dom.borrow().query_selector(node, member)?;
+        return optional_node(scope, state, element);
+    }
     if interface == "Node" && member == "ownerDocument" {
         let owner = {
             let dom = state.dom.borrow();
@@ -2198,6 +2202,14 @@ fn call_operation<'s>(
             let contains =
                 node == other || state.dom.borrow().arena().ancestors(other)?.contains(&node);
             Ok(Some(v8::Boolean::new(scope, contains).into()))
+        }
+        ("Node", "isEqualNode") => {
+            let Some(other) = optional_argument_node(scope, state, args.get(0))? else {
+                return Ok(Some(v8::Boolean::new(scope, false).into()));
+            };
+            let dom = state.dom.borrow();
+            let equal = dom.serialize(node)? == dom.serialize(other)?;
+            Ok(Some(v8::Boolean::new(scope, equal).into()))
         }
         ("Element", "getAttribute") => {
             let name = required_string(scope, args, 0)?;
@@ -3068,6 +3080,30 @@ mod tests {
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
             "2|tools|true"
+        );
+    }
+
+    #[test]
+    fn document_landmarks_and_node_equality_support_framework_bootstrap() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<!doctype html><html><head><title>App</title></head><body><main id='root'></main></body></html>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const main=document.getElementById('root');const clone=main.cloneNode(true);String(document.head.tagName)+'|'+document.body.tagName+'|'+main.isEqualNode(clone)",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "HEAD|BODY|true"
         );
     }
 
