@@ -30,7 +30,7 @@
     { "id": "inherited-fd-secret-provisioning", "category": "agent-io", "required": true, "status": "passed" },
     { "id": "agent-critical-accname-aria-pin", "category": "semantics", "required": true, "status": "passed" },
     { "id": "bounded-common-web-table-geometry", "category": "layout", "required": true, "status": "passed" },
-    { "id": "production-profile-equivalence-matrix", "category": "profiles", "required": true, "status": "software_complete_release_attestation_pending" },
+    { "id": "production-profile-equivalence-matrix", "category": "profiles", "required": true, "status": "passed", "detail": "Rust default, V8 core-full, V8 core-lite, public facade, no-default native probes, Python SDK, Ruff, and formatting checks pass on Rust 1.98.0 for the release-candidate source tree." },
     { "id": "macos-app-sandbox", "category": "security", "gate": "release", "required": true, "status": "requires_private_attestation" },
     { "id": "linux-namespaces-landlock-seccomp", "category": "security", "gate": "release", "required": true, "status": "implemented_unverified_on_host" },
     { "id": "legacy-js-dom-removed-from-production", "category": "cutover", "required": true, "status": "passed" },
