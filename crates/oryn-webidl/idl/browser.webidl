@@ -92,7 +92,10 @@ interface Node : EventTarget {
   readonly attribute Node? parentNode;
   readonly attribute Node? firstChild;
   readonly attribute Node? lastChild;
+  readonly attribute Node? previousSibling;
+  readonly attribute Node? nextSibling;
   readonly attribute sequence<Node> childNodes;
+  attribute DOMString? nodeValue;
   attribute DOMString? textContent;
   Node appendChild(Node child);
   Node insertBefore(Node child, Node? reference);
@@ -109,6 +112,7 @@ dictionary ShadowRootInit {
 [Exposed=Window]
 interface Element : Node {
   readonly attribute DOMString tagName;
+  readonly attribute DOMString? namespaceURI;
   attribute DOMString id;
   attribute DOMString className;
   readonly attribute DOMTokenList classList;
@@ -222,6 +226,7 @@ interface HTMLIFrameElement : HTMLElement {
 [Exposed=Window]
 interface Document : Node {
   attribute DOMString cookie;
+  readonly attribute any defaultView;
   readonly attribute HTMLElement? documentElement;
   readonly attribute sequence<CSSStyleSheet> styleSheets;
   Element createElement(DOMString localName);

@@ -219,6 +219,12 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
     GeneratedMember {
+        name: "defaultView",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
         name: "documentElement",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -320,6 +326,12 @@ pub const DOCUMENT_FRAGMENT_MEMBERS: &[GeneratedMember] = &[
 pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "tagName",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "namespaceURI",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: true,
@@ -821,10 +833,28 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         readonly: true,
     },
     GeneratedMember {
+        name: "previousSibling",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "nextSibling",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
         name: "childNodes",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: true,
+    },
+    GeneratedMember {
+        name: "nodeValue",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
     },
     GeneratedMember {
         name: "textContent",

@@ -1579,11 +1579,17 @@ fn get_attribute_value<'s>(
         let styles = state.dom.borrow().query_selector_all(node, "style")?;
         return associated_node_array(scope, state, &styles, "CSSStyleSheet");
     }
+    if interface == "Document" && member == "defaultView" {
+        return Ok(scope.get_current_context().global(scope).into());
+    }
     if interface == "HTMLIFrameElement" && member == "contentDocument" {
         let document = state.frame_roots.borrow().get(&node).copied();
         return optional_node(scope, state, document);
     }
-    if matches!(member, "parentNode" | "firstChild" | "lastChild") {
+    if matches!(
+        member,
+        "parentNode" | "firstChild" | "lastChild" | "previousSibling" | "nextSibling"
+    ) {
         let related = {
             let dom = state.dom.borrow();
             let record = dom.arena().get(node)?;
@@ -1591,6 +1597,18 @@ fn get_attribute_value<'s>(
                 "parentNode" => record.parent,
                 "firstChild" => record.children.first().copied(),
                 "lastChild" => record.children.last().copied(),
+                "previousSibling" | "nextSibling" => record.parent.and_then(|parent| {
+                    let siblings = &dom.arena().get(parent).ok()?.children;
+                    let index = siblings.iter().position(|candidate| *candidate == node)?;
+                    if member == "previousSibling" {
+                        index
+                            .checked_sub(1)
+                            .and_then(|index| siblings.get(index))
+                            .copied()
+                    } else {
+                        siblings.get(index + 1).copied()
+                    }
+                }),
                 _ => unreachable!(),
             }
         };
@@ -1639,10 +1657,18 @@ fn get_attribute_value<'s>(
     let value = match (interface, member) {
         (_, "nodeName") => v8_string(scope, &dom.node_name(node)?)?,
         (_, "nodeType") => v8::Integer::new(scope, node_type(&record.kind)).into(),
+        ("Node", "nodeValue") => match &record.kind {
+            NodeKind::Text { data } | NodeKind::Comment { data } => v8_string(scope, data)?,
+            _ => v8::null(scope).into(),
+        },
         (_, "textContent") | ("HTMLElement", "innerText") => {
             v8_string(scope, &dom.arena().text_content(node)?)?
         }
         ("Element", "tagName") => v8_string(scope, &dom.node_name(node)?)?,
+        ("Element", "namespaceURI") => match &record.kind {
+            NodeKind::Element { name } => v8_string(scope, name.ns.as_ref())?,
+            _ => v8::null(scope).into(),
+        },
         ("Element", "id") => v8_string(
             scope,
             record.attributes.get("id").map_or("", String::as_str),
@@ -1801,6 +1827,14 @@ fn set_attribute_value(
             drop(dom);
             prepare_dynamic_script_subtree(scope, state, node)?;
             return Ok(());
+        }
+        ("Node", "nodeValue") => {
+            if matches!(
+                dom.arena().get(node)?.kind,
+                NodeKind::Text { .. } | NodeKind::Comment { .. }
+            ) {
+                dom.set_text(node, value)?;
+            }
         }
         ("Element", "id") => dom.set_attribute(node, "id", value)?,
         ("Element", "className") => dom.set_attribute(node, "class", value)?,
