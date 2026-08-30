@@ -1311,7 +1311,8 @@ fn mutation_target(mutation: &Mutation) -> Option<NodeId> {
         Mutation::Removed { former_parent, .. } => *former_parent,
         Mutation::Attribute { node, .. }
         | Mutation::CharacterData { node, .. }
-        | Mutation::FormState { node } => Some(*node),
+        | Mutation::FormState { node }
+        | Mutation::EventListener { node, .. } => Some(*node),
         Mutation::Focus { current, previous } => current.or(*previous),
         Mutation::ShadowAttached { host, .. } => Some(*host),
     }
@@ -1339,7 +1340,7 @@ fn observer_accepts(
             | Mutation::ShadowAttached { .. } => options.child_list,
             Mutation::Attribute { .. } | Mutation::FormState { .. } => options.attributes,
             Mutation::CharacterData { .. } => options.character_data,
-            Mutation::Focus { .. } => false,
+            Mutation::Focus { .. } | Mutation::EventListener { .. } => false,
         }
 }
 
@@ -1399,7 +1400,7 @@ fn mutation_record_array<'s>(
             Mutation::ShadowAttached { host, root, .. } => {
                 ("childList", Some(*host), None, None, Some(*root), None)
             }
-            Mutation::Focus { .. } => continue,
+            Mutation::Focus { .. } | Mutation::EventListener { .. } => continue,
         };
         let kind_value = v8_string(scope, kind)?;
         set_object_property(scope, object, "type", kind_value)?;
@@ -1929,17 +1930,10 @@ fn call_operation<'s>(
                 .push(EventListener {
                     callback: v8::Global::new(scope, callback),
                 });
-            if event_type.eq_ignore_ascii_case("click")
-                && matches!(
-                    state.dom.borrow().arena().get(node)?.kind,
-                    NodeKind::Element { .. }
-                )
-            {
-                state
-                    .dom
-                    .borrow_mut()
-                    .set_attribute(node, "data-oryn-click-listener", "")?;
-            }
+            state
+                .dom
+                .borrow_mut()
+                .set_event_listener_presence(node, &event_type, true)?;
             Ok(None)
         }
         ("EventTarget", "removeEventListener") => {
@@ -1959,16 +1953,11 @@ fn call_operation<'s>(
                     .get(&(node, event_type))
                     .is_none_or(Vec::is_empty);
             drop(listener_map);
-            if no_click_listeners
-                && matches!(
-                    state.dom.borrow().arena().get(node)?.kind,
-                    NodeKind::Element { .. }
-                )
-            {
+            if no_click_listeners {
                 state
                     .dom
                     .borrow_mut()
-                    .remove_attribute(node, "data-oryn-click-listener")?;
+                    .set_event_listener_presence(node, "click", false)?;
             }
             Ok(None)
         }
@@ -2968,6 +2957,34 @@ mod tests {
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
             "go,root:go|false"
+        );
+    }
+
+    #[test]
+    fn delegated_listener_state_never_changes_html_serialization() {
+        initialize_v8();
+        let parsed = html::parse("<main id='root'></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const root=document.getElementById('root');const listener=()=>{};root.addEventListener('click',listener);const clean=!root.outerHTML.includes('oryn-click');root.removeEventListener('click',listener);clean",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().boolean_value(scope));
+        let root = dom.borrow().find_by_id("root").unwrap();
+        assert!(
+            dom.borrow()
+                .arena()
+                .get(root)
+                .unwrap()
+                .event_listeners
+                .is_empty()
         );
     }
 

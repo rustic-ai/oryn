@@ -41,6 +41,9 @@ pub struct Node {
     pub parent: Option<NodeId>,
     pub children: Vec<NodeId>,
     pub attributes: BTreeMap<String, String>,
+    /// Listener types registered through `addEventListener`. This internal
+    /// semantic state is never serialized as an HTML attribute.
+    pub event_listeners: BTreeSet<String>,
     pub value: Option<String>,
     pub sensitive_value: bool,
 }
@@ -264,6 +267,7 @@ fn new_node(kind: NodeKind) -> Node {
         parent: None,
         children: Vec::new(),
         attributes: BTreeMap::new(),
+        event_listeners: BTreeSet::new(),
         value: None,
         sensitive_value: false,
     }
@@ -293,6 +297,11 @@ pub enum Mutation {
     },
     FormState {
         node: NodeId,
+    },
+    EventListener {
+        node: NodeId,
+        event_type: String,
+        present: bool,
     },
     Focus {
         previous: Option<NodeId>,
@@ -823,6 +832,29 @@ impl DomRuntime {
         }
         let previous = std::mem::replace(&mut self.focused, current);
         self.mutations.push(Mutation::Focus { previous, current });
+        Ok(())
+    }
+
+    pub fn set_event_listener_presence(
+        &mut self,
+        node: NodeId,
+        event_type: &str,
+        present: bool,
+    ) -> Result<(), DomError> {
+        let event_type = event_type.to_ascii_lowercase();
+        let listeners = &mut self.arena.get_mut(node)?.event_listeners;
+        let changed = if present {
+            listeners.insert(event_type.clone())
+        } else {
+            listeners.remove(&event_type)
+        };
+        if changed {
+            self.mutations.push(Mutation::EventListener {
+                node,
+                event_type,
+                present,
+            });
+        }
         Ok(())
     }
 

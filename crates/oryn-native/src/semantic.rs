@@ -192,9 +192,7 @@ pub fn project_element(
         {
             actions.insert(SemanticAction::Submit);
         }
-        if node.attributes.contains_key("onclick")
-            || node.attributes.contains_key("data-oryn-click-listener")
-        {
+        if node.attributes.contains_key("onclick") || node.event_listeners.contains("click") {
             actions.extend([SemanticAction::Click, SemanticAction::Focus]);
         }
         match role.as_str() {
@@ -568,7 +566,7 @@ fn host_language_name(
     }
     if name_from_content(local_name, role)
         || node.attributes.contains_key("onclick")
-        || node.attributes.contains_key("data-oryn-click-listener")
+        || node.event_listeners.contains("click")
     {
         let text = normalize_text(&accessible_text_content(dom, id, true));
         if !text.is_empty() {
