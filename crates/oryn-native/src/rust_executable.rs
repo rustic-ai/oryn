@@ -102,6 +102,16 @@ class OrynURL {
 }
 globalThis.URL=OrynURL;globalThis.URLSearchParams=OrynURLSearchParams;
 Object.defineProperty(globalThis,'location',{value:new OrynURL(location.href),writable:true,enumerable:true,configurable:true});
+class OrynHistory {
+  constructor(){this.length=1;this.state=null;this.scrollRestoration='auto'}
+  __update(state,url,push){if(url!==undefined&&url!==null&&String(url)!==''){const next=new OrynURL(url,location.href);if(location.origin!=='null'&&next.origin!==location.origin)throw new Error('SecurityError: history URL must be same-origin');Object.assign(location,next)}this.state=state;if(push)this.length++}
+  pushState(state,_unused,url){this.__update(state,url,true)}
+  replaceState(state,_unused,url){this.__update(state,url,false)}
+  go(_delta=0){}
+  back(){this.go(-1)}
+  forward(){this.go(1)}
+}
+globalThis.history=new OrynHistory();
 const contextCall=request=>JSON.parse(globalThis.__oryn_context_call(JSON.stringify(request)));
 Object.defineProperty(Document.prototype,'cookie',{configurable:true,enumerable:true,get(){if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return '';const response=contextCall({operation:'get_document_cookie',page_id:__oryn_page_id});return response.result==='document_cookie'?response.value:''},set(value){if(typeof globalThis.__oryn_context_call==='function'&&__oryn_page_id!==null)contextCall({operation:'set_document_cookie',page_id:__oryn_page_id,value:String(value)})}});
 Object.defineProperty(Document.prototype,'title',{configurable:true,enumerable:true,get(){const node=this.querySelector('title');return node?node.textContent:''},set(value){let node=this.querySelector('title');if(!node){node=this.createElement('title');const parent=this.querySelector('head')||this.documentElement;parent.appendChild(node)}node.textContent=String(value)}});
@@ -1403,6 +1413,18 @@ mod tests {
             page.evaluate("document.getElementById('result').textContent")
                 .unwrap(),
             "modern"
+        );
+    }
+
+    #[test]
+    fn history_state_is_available_to_framework_routers() {
+        let mut page = RustExecutableDocument::load("<main></main>").unwrap();
+        assert_eq!(
+            page.evaluate(
+                "history.replaceState({route:'ready'},'', '?view=ready');history.pushState({route:'next'},'', '#next');history.length+'|'+history.state.route+'|'+location.search+'|'+location.hash"
+            )
+            .unwrap(),
+            "2|next|?view=ready|#next"
         );
     }
 
