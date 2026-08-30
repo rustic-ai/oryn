@@ -353,12 +353,24 @@ pub fn install_generated_bindings_with_root(
                     .ok_or(V8BindingError::Allocation("member name"))?;
                 match member.kind {
                     GeneratedMemberKind::Attribute => {
-                        let mut configuration =
-                            v8::AccessorConfiguration::new(generated_getter).data(data.into());
-                        if !member.readonly {
-                            configuration = configuration.setter(generated_setter);
-                        }
-                        instance.set_accessor_with_configuration(name.into(), configuration);
+                        let getter = v8::FunctionTemplate::builder(generated_attribute_getter)
+                            .data(data.into())
+                            .length(0)
+                            .constructor_behavior(v8::ConstructorBehavior::Throw)
+                            .build(scope);
+                        let setter = (!member.readonly).then(|| {
+                            v8::FunctionTemplate::builder(generated_attribute_setter)
+                                .data(data.into())
+                                .length(1)
+                                .constructor_behavior(v8::ConstructorBehavior::Throw)
+                                .build(scope)
+                        });
+                        prototype.set_accessor_property(
+                            name.into(),
+                            Some(getter),
+                            setter,
+                            v8::PropertyAttribute::NONE,
+                        );
                     }
                     GeneratedMemberKind::Operation => {
                         let function = v8::FunctionTemplate::builder(generated_operation)
@@ -924,13 +936,12 @@ fn generated_constructor(
     throw_type_error(scope, &format!("Illegal constructor: {name}"));
 }
 
-fn generated_getter(
+fn generated_attribute_getter(
     scope: &mut v8::PinScope,
-    _name: v8::Local<v8::Name>,
-    info: v8::PropertyCallbackArguments,
+    args: v8::FunctionCallbackArguments,
     mut return_value: v8::ReturnValue,
 ) {
-    let Some((interface, member)) = info.data().int32_value(scope).and_then(member_from_token)
+    let Some((interface, member)) = args.data().int32_value(scope).and_then(member_from_token)
     else {
         throw_type_error(scope, "invalid generated attribute token");
         return;
@@ -940,13 +951,13 @@ fn generated_getter(
         return;
     };
     if interface == "Event" {
-        match get_event_attribute(scope, &state, info.holder(), member) {
+        match get_event_attribute(scope, &state, args.this(), member) {
             Ok(value) => return_value.set(value),
             Err(error) => throw_type_error(scope, &error.to_string()),
         }
         return;
     }
-    let result = resolve_receiver(scope, &state, info.holder(), interface)
+    let result = resolve_receiver(scope, &state, args.this(), interface)
         .and_then(|node| get_attribute_value(scope, &state, node, interface, member));
     match result {
         Ok(value) => return_value.set(value),
@@ -954,14 +965,12 @@ fn generated_getter(
     }
 }
 
-fn generated_setter(
+fn generated_attribute_setter(
     scope: &mut v8::PinScope,
-    _name: v8::Local<v8::Name>,
-    value: v8::Local<v8::Value>,
-    info: v8::PropertyCallbackArguments,
-    _return_value: v8::ReturnValue<()>,
+    args: v8::FunctionCallbackArguments,
+    _return_value: v8::ReturnValue,
 ) {
-    let Some((interface, member)) = info.data().int32_value(scope).and_then(member_from_token)
+    let Some((interface, member)) = args.data().int32_value(scope).and_then(member_from_token)
     else {
         throw_type_error(scope, "invalid generated attribute token");
         return;
@@ -970,8 +979,8 @@ fn generated_setter(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
-    let result = resolve_receiver(scope, &state, info.holder(), interface)
-        .and_then(|node| set_attribute_value(scope, &state, node, interface, member, value));
+    let result = resolve_receiver(scope, &state, args.this(), interface)
+        .and_then(|node| set_attribute_value(scope, &state, node, interface, member, args.get(0)));
     if let Err(error) = result {
         throw_type_error(scope, &error.to_string());
     }

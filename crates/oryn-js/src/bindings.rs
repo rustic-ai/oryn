@@ -272,6 +272,8 @@ mod tests {
         wrappers.enqueue_weak_release(wrapper);
         assert!(dom.arena().get(node).is_ok());
         assert_eq!(wrappers.process_weak_releases(&mut dom).unwrap(), 1);
+        let mutations = dom.drain_mutations();
+        dom.release_mutation_roots(&mutations).unwrap();
         assert_eq!(dom.arena().get(node), Err(DomError::StaleNode(node)));
     }
 }
