@@ -6,7 +6,7 @@
   "frameworks": {
     "angular": {"version": "22.1.4", "source_hash": "683a931f5bf44e216d19c579609f69e68bf9603a82708c300d407f6ae2b5ad93"},
     "next": {"version": "16.3.3", "source_hash": "36b74452d7a315b2d028f243700d93e14c35d9bb9b68e428d376d1a1fe56446b"},
-    "nuxt": {"version": "4.5.2", "source_hash": "df13dbaf62f27fdd6951e7587e1ad5d93a5c7b1ed59b460014110477a85afb67"},
+    "nuxt": {"version": "4.5.2", "source_hash": "518afb6deae6ae1d86cb59f997d3b4d48d8de856d00b23639aaf7b830159b8aa"},
     "preact": {"version": "10.29.8", "source_hash": "74167b8c68abda01610d11e3107addf420ddca7810a2080a47e40f24d0bae302"},
     "react": {"version": "19.2.8", "source_hash": "b3782925dda6efe98119c991e560184a4086423e01aa2d247752c69946ec978d"},
     "svelte": {"version": "5.56.10", "source_hash": "ed5c7892423badc39fdf3845172a37c4912bd395bc813202eb7ccccd8698f79e"},
