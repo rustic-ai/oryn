@@ -197,6 +197,8 @@ interface HTMLElement : Element {
   attribute EventListener? onblur;
   attribute EventListener? onkeydown;
   attribute EventListener? onkeyup;
+  attribute DOMString contentEditable;
+  readonly attribute boolean isContentEditable;
   undefined click();
   undefined focus();
   undefined blur();
@@ -316,6 +318,137 @@ interface Document : Node {
   sequence<Element> getElementsByTagName(DOMString qualifiedName);
   sequence<Element> getElementsByClassName(DOMString classNames);
   sequence<Element> getElementsByName(DOMString elementName);
+  Range createRange();
+  NodeIterator createNodeIterator(Node root, optional unsigned long whatToShow = 4294967295);
+  TreeWalker createTreeWalker(Node root, optional unsigned long whatToShow = 4294967295);
+  Selection? getSelection();
+};
+
+[Exposed=Window]
+interface AbstractRange {
+  readonly attribute Node startContainer;
+  readonly attribute unsigned long startOffset;
+  readonly attribute Node endContainer;
+  readonly attribute unsigned long endOffset;
+  readonly attribute boolean collapsed;
+};
+
+[Exposed=Window]
+interface Range : AbstractRange {
+  readonly attribute Node commonAncestorContainer;
+  undefined setStart(Node node, unsigned long offset);
+  undefined setEnd(Node node, unsigned long offset);
+  undefined setStartBefore(Node node);
+  undefined setStartAfter(Node node);
+  undefined setEndBefore(Node node);
+  undefined setEndAfter(Node node);
+  undefined collapse(optional boolean toStart = false);
+  undefined selectNode(Node node);
+  undefined selectNodeContents(Node node);
+  short compareBoundaryPoints(unsigned short how, Range sourceRange);
+  undefined deleteContents();
+  DocumentFragment extractContents();
+  DocumentFragment cloneContents();
+  undefined insertNode(Node node);
+  undefined surroundContents(Node newParent);
+  Range cloneRange();
+  undefined detach();
+  boolean isPointInRange(Node node, unsigned long offset);
+  short comparePoint(Node node, unsigned long offset);
+  boolean intersectsNode(Node node);
+  DOMString toString();
+  DocumentFragment createContextualFragment(DOMString fragment);
+};
+
+[Exposed=Window]
+interface Selection {
+  readonly attribute Node? anchorNode;
+  readonly attribute unsigned long anchorOffset;
+  readonly attribute Node? focusNode;
+  readonly attribute unsigned long focusOffset;
+  readonly attribute boolean isCollapsed;
+  readonly attribute unsigned long rangeCount;
+  readonly attribute DOMString type;
+  Range getRangeAt(unsigned long index);
+  undefined addRange(Range range);
+  undefined removeRange(Range range);
+  undefined removeAllRanges();
+  undefined empty();
+  undefined collapse(Node? node, optional unsigned long offset = 0);
+  undefined setPosition(Node? node, optional unsigned long offset = 0);
+  undefined collapseToStart();
+  undefined collapseToEnd();
+  undefined selectAllChildren(Node node);
+  undefined deleteFromDocument();
+  boolean containsNode(Node node, optional boolean allowPartialContainment = false);
+  DOMString toString();
+};
+
+[Exposed=Window]
+interface NodeIterator {
+  readonly attribute Node root;
+  readonly attribute Node referenceNode;
+  readonly attribute boolean pointerBeforeReferenceNode;
+  readonly attribute unsigned long whatToShow;
+  Node? nextNode();
+  Node? previousNode();
+  undefined detach();
+};
+
+[Exposed=Window]
+interface TreeWalker {
+  readonly attribute Node root;
+  readonly attribute unsigned long whatToShow;
+  attribute Node currentNode;
+  Node? parentNode();
+  Node? firstChild();
+  Node? lastChild();
+  Node? previousSibling();
+  Node? nextSibling();
+  Node? previousNode();
+  Node? nextNode();
+};
+
+[Exposed=Window]
+interface History {
+  readonly attribute unsigned long length;
+  readonly attribute any state;
+  undefined go(optional long delta = 0);
+  undefined back();
+  undefined forward();
+  undefined pushState(any data, DOMString unused, optional DOMString? url = null);
+  undefined replaceState(any data, DOMString unused, optional DOMString? url = null);
+};
+
+[Exposed=Window]
+interface IDBKeyRange {
+  readonly attribute any lower;
+  readonly attribute any upper;
+  readonly attribute boolean lowerOpen;
+  readonly attribute boolean upperOpen;
+};
+
+[Exposed=Window]
+interface IDBCursor {
+  readonly attribute any key;
+  readonly attribute any primaryKey;
+  readonly attribute any value;
+  undefined advance(unsigned long count);
+  undefined continue(optional any key);
+  undefined delete();
+  undefined update(any value);
+};
+
+[Exposed=Window]
+interface IDBObjectStore {
+  any add(any value, optional any key);
+  any put(any value, optional any key);
+  any get(any query);
+  any getAll(optional any query, optional unsigned long count);
+  any delete(any query);
+  any clear();
+  any count(optional any query);
+  any openCursor(optional any query, optional DOMString direction = "next");
 };
 
 [Exposed=Window]

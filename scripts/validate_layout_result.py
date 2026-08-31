@@ -153,7 +153,7 @@ def main() -> int:
         runtime = load(raw / "runtime.json")
         require(
             runtime.get("contract_version") == 4
-            and runtime.get("worker_protocol_version") == 6,
+            and runtime.get("worker_protocol_version") == 7,
             "raw runtime is not v4",
         )
         require(

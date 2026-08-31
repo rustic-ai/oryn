@@ -33,7 +33,7 @@ plutil -lint "$info_plist" >/dev/null
 
 cargo build --locked --release -p oryn \
   --bin oryn --no-default-features --features "native core-full"
-cargo build --locked --release -p oryn-native --features v8-host --bin oryn-page-worker
+cargo build --locked --release -p oryn-native --features v8-host,v8-sandbox --bin oryn-page-worker
 mkdir -p "$app/Contents/MacOS" "$resources"
 cp "$worker" "$app_worker"
 cp "$info_plist" "$app/Contents/Info.plist"
@@ -73,7 +73,7 @@ jq -n \
     bundle_id: $bundle_id,
     team_id: $team_id,
     signing_cert_sha1: $signing_cert_sha1,
-    protocol_version: 6,
+    protocol_version: 7,
     v8_version: $v8_version,
     worker_build_sha256: $worker_build_sha256,
     worker_build_bytes: $worker_build_bytes,
@@ -193,7 +193,7 @@ if ! jq -e '
   .execution_mode == "sandboxed_worker" and
   .sandboxed == true and
   .sandbox_state == "app_sandbox" and
-  .worker_protocol_version == 6 and
+  .worker_protocol_version == 7 and
   .worker_bundle_id == "ai.rustic.oryn.page-worker" and
   .worker_team_id == "5HVA9VFF8K"
 ' <<<"$runtime_report" >/dev/null; then

@@ -19,7 +19,7 @@ use crate::{
     runtime::NativeAction,
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 6;
+pub const WORKER_PROTOCOL_VERSION: u32 = 7;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
 static WORKER_BINARY_SHA256: OnceLock<String> = OnceLock::new();
 
@@ -498,7 +498,6 @@ async fn dispatch(
         let effective = WorkerLimits::from(&limits.browser_config());
         let mut config = effective.browser_config();
         config.document_generation_base = document_generation_base;
-        let runtime_profile = config.runtime_profile;
         *session = Some(PageSession::new(
             config,
             *context,
@@ -508,8 +507,7 @@ async fn dispatch(
             page_id,
             opener_page_id,
         ));
-        let mut runtime = crate::runtime_build_info();
-        runtime.runtime_profile = runtime_profile.capability_name().into();
+        let runtime = crate::runtime_build_info();
         return WorkerResponse::Ready {
             nonce,
             protocol_version: WORKER_PROTOCOL_VERSION,
@@ -754,7 +752,7 @@ mod tests {
     use super::*;
 
     #[tokio::test(flavor = "current_thread")]
-    async fn serves_initialized_page_requests_over_v6_json_lines() {
+    async fn serves_initialized_page_requests_over_v7_json_lines() {
         let requests = vec![
             WorkerRequest::Initialize {
                 nonce: "test-nonce".into(),
@@ -839,7 +837,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn rejects_duplicate_unmatched_and_reinitialized_v6_messages() {
+    async fn rejects_duplicate_unmatched_and_reinitialized_v7_messages() {
         let commands = [
             (
                 9,

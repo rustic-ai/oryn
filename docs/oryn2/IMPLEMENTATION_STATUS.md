@@ -1,22 +1,17 @@
 # Oryn2 implementation status
 
-> **Current attestation status: macOS re-attestation pending; Linux pending.**
-> The exact `c5fd010` macOS candidate passed its suites, but its parent binary
-> redundantly linked V8 and full ICU. Production defaults now keep V8 only in
-> the sandboxed worker, reducing the parent from 49,456,080 to approximately
-> 6.6 million bytes. Because that changes the parent and combined fingerprints,
-> the prior exact-artifact result is historical and a replacement attestation
-> is required. A 2026-08-29 evidence audit also found
-> that the layout and security result builders could assign passing case status
-> from category-level artifacts without a case-bound executed assertion. Those
-> builders now fail closed unless every manifest case has exactly one passing
-> assertion record. The production suite runners now emit those assertion and
-> regression ledgers, and raw-mode validators independently recompute compact
-> results from them. Existing compact results remain historical records for
-> their source commits, but they are not current release attestations. The
-> replacement attestation binds exact source commit `c5fd010`, parent and signed
-> worker binaries, policies, limits, fixtures and schema-v5 results. See
-> `ORYN2-PROPOSAL-VS-IMPLEMENTATION-REVIEW.md`.
+> **Current status: runtime-completion cutover in progress; exact-artifact
+> attestation pending on macOS and Linux.** The committed baseline is `4b1f287`.
+> The current working tree adds protocol-v4/v7/v10 transport contracts,
+> streaming navigation foundations, an incremental semantic graph, expanded
+> generated WebIDL behavior, referrer and IndexedDB work, V8 profile tooling and
+> pinned upstream-conformance infrastructure. It is not yet a release candidate:
+> blocking resource paths, full semantic reprojection, incomplete generated API
+> algorithms, the handwritten CSS cascade, unattested V8/ICU/snapshot artifacts
+> and failing upstream cases remain. Historical evidence stays bound to the
+> commits and binaries that produced it. See
+> `ORYN2-PROPOSAL-VS-IMPLEMENTATION-REVIEW.md` and
+> `RUNTIME-COMPLETION-ACTION-PLAN.md`.
 
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.
@@ -62,43 +57,50 @@ rewrite those historical payloads or present them as a new validation run.
   creation, concurrency, RSS, and size evidence is committed at
   `benchmarks/evidence/runtime-foundation-macos-arm64.json`; raw samples remain ignored.
 
-## Proposal-v1 runtime cutover — software cutover complete
+## Proposal-v1 runtime completion — in progress
 
-- `oryn-dom`, `oryn-js`, and `oryn-net` now provide the Rust-owned live arena,
-  exact generation-checked V8 wrapper identities, generated interface metadata
-  and templates, multi-context realm registry, resumable html5ever driver, and
-  asynchronous rustls/HTTP2 transport foundation.
-- Generated V8 prototypes execute Rust DOM, event, form, selector, fragment,
-  serialization, and wrapper-lifetime behavior. `oryn-webidl check` proves the
-  committed generated output is reproducible from the pinned WebIDL input.
-- Production Fetch/XHR enters the parent broker through Promise-returning V8
-  callbacks, resolves at accepted headers, and exposes demand-driven bounded
-  body chunks. Regression coverage includes abort, timeout, binary bodies,
-  independent compressed/decoded limits, all four declared content encodings,
-  charset precedence, cache partitioning, and HTTP/2 framing.
-- `runtime-shadow-v1.json` compares deterministic repository fixtures against
-  the legacy and Rust-owned engines sequentially, preventing duplicated network
-  traffic and consequential actions.
-- The production engine is `rust_executable.rs`; the legacy executable and
-  shadow implementation are absent from production. Parser-blocking scripts
-  cannot observe later source markup, nested `document.write` re-entry is
-  bounded, and same-origin frames use separate contexts in one page isolate.
-- The worker context channel correlates out-of-order replies and starts 32
-  policy-brokered streams concurrently. The broker surface is thread-safe,
-  HTTP/2 and bounded demand-driven bodies are tested, and late/unmatched
-  replies remain rejected.
-- The historical exact macOS parent/worker bundle passed private signing, App Sandbox,
-  runtime cutover, scheduler, profile-equivalence, security, layout, framework,
-  churn and semantic validation. Its parent unnecessarily contained a second
-  static V8/ICU copy because `native-v8` was in the default feature set. The
-  production parent now builds explicitly as `native core-full`; a dependency-
-  graph check rejects V8 in the parent and requires it in the worker. Exact
-  signing and schema-v5 evidence must be regenerated for the smaller parent.
-  The macOS release is one outer `Oryn.app` containing that parent and an
-  independently signed nested worker. Linux uses one multicall ELF built with
-  V8; it re-executes the same immutable file into a private worker role before
-  installing namespaces, `no_new_privs`, Landlock and seccomp. Linux sandbox
-  execution remains a separate CayVM/platform attestation.
+- `oryn-dom`, `oryn-js`, and `oryn-net` provide the Rust-owned live arena,
+  generation-checked wrappers, generated interface installation, realm
+  infrastructure, resumable html5ever parsing and an async rustls/HTTP2
+  transport foundation.
+- The current work introduces a bounded multi-consumer mutation journal and a
+  persistent `SemanticGraph`. Focused graph/oracle and revision-history tests
+  pass, but parts of normal semantic projection still call the full projector.
+- Navigation now consumes correlated broker operations rather than converting
+  the live HTTP body back into `Read`. Broker v4 multiplexes header, chunk,
+  completion and failure frames across the sandbox boundary; cookie, policy,
+  cache and replay adapters preserve those streams. Parent-owned Fetch bodies
+  use explicit demand so accepted headers do not pull response bytes until the
+  worker reads. The old synchronous broker methods remain compatibility
+  adapters, and blocking script/style/frame/image/preflight call sites plus
+  page-actor scheduling still prevent an end-to-end asynchronous claim.
+- html5ever and V8 now share one live `DomRuntime` from the first parsed tag.
+  Parser-blocking scripts execute at the retained tokenizer boundary, V8
+  microtasks/reactions/observers checkpoint before parsing resumes, and
+  `document.write` re-enters the tokenizer ahead of the unconsumed suffix.
+  The former post-parse DOM-tail suspension and snapshot handoff are absent
+  from production source loads. Navigation still accumulates the decoded,
+  policy-transformed main document before creating the executable loader, so
+  direct network-chunk-to-live-parser scheduling remains open.
+- Generated bindings are authoritative for migrated DOM behavior and now cover
+  additional Range, Selection and traversal operations. Complex editing,
+  traversal filtering, history/referrer edge cases and complete IndexedDB
+  connection/transaction behavior remain.
+- The current style engine is still accurately fingerprinted as
+  `stylo-declarations-0.20+oryn-common-web-cascade-v2`: Stylo parses declarations,
+  while Oryn owns stylesheet parsing, matching, specificity and cascade. Real
+  Stylo integration remains a blocking architecture item.
+- Production V8 features require the heap sandbox and release builds fail closed
+  when profile inputs are absent. Reproducible macOS/Linux sandboxed archives,
+  real reduced ICU data, stable external references and generated-interface
+  startup snapshots have not yet been produced.
+- `runtime-completion-v1` freezes the upstream blocking scope and provides
+  cache, harness, schema and validation tooling. Its first Range smoke currently
+  times out, so no passing completion evidence exists.
+- Focused validation currently passes 114 native no-V8 tests, 30 generated V8
+  binding tests, 13 DOM tests, nine network tests, strict tested-profile Clippy,
+  formatting, WebIDL regeneration and manifest validation. These results do not
+  close the remaining cutovers or replace exact packaged-artifact validation.
 
 ## executable document — complete
 
@@ -559,10 +561,13 @@ rewrite those historical payloads or present them as a new validation run.
 
 ## Next tracks
 
-- Semantic-recovery and sandbox-worker schema-v4 release evidence is complete on the exact signed local
-  macOS ARM64 bundle. Private protected signing/model workflows remain an
-  operational release option, not an open implementation gate.
-- rendering's optional CPU reference package is complete. Broader long-running fuzzing,
+- Complete the dependency-ordered runtime cutover in
+  `RUNTIME-COMPLETION-ACTION-PLAN.md`: async resource scheduling, incremental
+  semantics, generated APIs, Stylo and sandboxed runtime profiles.
+- Run pinned upstream and deterministic product validation, then create a new
+  exact macOS/Linux artifact attestation. Historical schema-v4/v5 evidence does
+  not close this new runtime-completion result.
+- Rendering's optional CPU reference package is complete. Broader long-running fuzzing,
   V8 update automation, GPU acceleration, multi-page print layout, broader SVG
   and font support remain operational or product-driven tracks rather than
   unimplemented execution domains-rendering gates.

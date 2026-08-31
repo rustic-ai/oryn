@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oryn.dev/schema/runtime-completion-result-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "manifest_sha256", "source_tree_sha256", "runtime", "assertions", "outcome"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "manifest_sha256": {"type":"string", "pattern":"^[0-9a-f]{64}$"},
+    "source_tree_sha256": {"type":"string", "pattern":"^[0-9a-f]{64}$"},
+    "runtime": {
+      "type":"object",
+      "required":["parent_sha256","worker_sha256","v8_heap_sandbox","runtime_profile","icu_data_sha256","snapshot_sha256","webidl_manifest_sha256"],
+      "properties": {
+        "parent_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "worker_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "v8_heap_sandbox":{"const":true},
+        "runtime_profile":{"enum":["core_full","core_lite_english"]},
+        "icu_data_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "snapshot_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "webidl_manifest_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": true
+    },
+    "assertions": {
+      "type":"array",
+      "items": {
+        "type":"object",
+        "required":["id","classification","status"],
+        "properties": {
+          "id":{"type":"string","minLength":1},
+          "classification":{"enum":["required","informational","excluded"]},
+          "status":{"enum":["passed","failed","unsupported","not_run"]},
+          "diagnostics":{"type":"array","items":{"type":"string"}}
+        },
+        "additionalProperties": true
+      }
+    },
+    "outcome": {
+      "type":"object",
+      "required":["status","required_total","required_passed"],
+      "properties": {
+        "status":{"enum":["passed","failed","provisional"]},
+        "required_total":{"type":"integer","minimum":1},
+        "required_passed":{"type":"integer","minimum":0}
+      },
+      "additionalProperties": false
+    }
+  }
+}

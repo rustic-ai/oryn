@@ -8,6 +8,7 @@ description = "V8 realm and generated binding boundary for Oryn"
 [features]
 default = []
 v8-host = ["dep:v8"]
+v8-sandbox = ["v8/v8_enable_sandbox"]
 
 [dependencies]
 oryn-dom = { path = "../oryn-dom" }

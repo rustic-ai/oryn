@@ -947,7 +947,10 @@ fn execute_idb(
                     let cursor_key = index_definition
                         .and_then(|definition| record.value.get(&definition.key_path))
                         .unwrap_or(&record.key);
-                    (query.as_ref().is_none_or(|query| query == cursor_key)).then(|| IdbRecord {
+                    (query
+                        .as_ref()
+                        .is_none_or(|query| indexed_db_key_matches(query, cursor_key)))
+                    .then(|| IdbRecord {
                         key: cursor_key.clone(),
                         primary_key: record.key.clone(),
                         value: record.value.clone(),
@@ -971,6 +974,68 @@ fn execute_idb(
         });
     }
     Ok(response)
+}
+
+fn indexed_db_key_matches(query: &serde_json::Value, key: &serde_json::Value) -> bool {
+    let Some(range) = query.as_object().filter(|range| {
+        range
+            .get("__oryn_key_range")
+            .and_then(|value| value.as_bool())
+            == Some(true)
+    }) else {
+        return query == key;
+    };
+    let lower_matches = range.get("lower").is_none_or(|lower| {
+        let ordering = compare_indexed_db_keys(key, lower);
+        if range
+            .get("lower_open")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        {
+            ordering.is_gt()
+        } else {
+            ordering.is_ge()
+        }
+    });
+    let upper_matches = range.get("upper").is_none_or(|upper| {
+        let ordering = compare_indexed_db_keys(key, upper);
+        if range
+            .get("upper_open")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        {
+            ordering.is_lt()
+        } else {
+            ordering.is_le()
+        }
+    });
+    lower_matches && upper_matches
+}
+
+fn compare_indexed_db_keys(
+    left: &serde_json::Value,
+    right: &serde_json::Value,
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (left, right) {
+        (serde_json::Value::Number(left), serde_json::Value::Number(right)) => left
+            .as_f64()
+            .partial_cmp(&right.as_f64())
+            .unwrap_or(Ordering::Equal),
+        (serde_json::Value::String(left), serde_json::Value::String(right)) => left.cmp(right),
+        (serde_json::Value::Array(left), serde_json::Value::Array(right)) => {
+            for (left, right) in left.iter().zip(right) {
+                let ordering = compare_indexed_db_keys(left, right);
+                if ordering != Ordering::Equal {
+                    return ordering;
+                }
+            }
+            left.len().cmp(&right.len())
+        }
+        _ => encode_key(left)
+            .unwrap_or_default()
+            .cmp(&encode_key(right).unwrap_or_default()),
+    }
 }
 
 fn database_mut<'a>(
@@ -1422,5 +1487,34 @@ mod tests {
             ));
         }
         let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn indexed_db_key_ranges_cover_numeric_string_and_compound_keys() {
+        let range = serde_json::json!({
+            "__oryn_key_range": true,
+            "lower": 2,
+            "upper": 5,
+            "lower_open": true,
+            "upper_open": false
+        });
+        assert!(!indexed_db_key_matches(&range, &serde_json::json!(2)));
+        assert!(indexed_db_key_matches(&range, &serde_json::json!(3)));
+        assert!(indexed_db_key_matches(&range, &serde_json::json!(5)));
+        assert!(!indexed_db_key_matches(&range, &serde_json::json!(6)));
+
+        let compound = serde_json::json!({
+            "__oryn_key_range": true,
+            "lower": ["a", 1],
+            "upper": ["a", 3]
+        });
+        assert!(indexed_db_key_matches(
+            &compound,
+            &serde_json::json!(["a", 2])
+        ));
+        assert!(!indexed_db_key_matches(
+            &compound,
+            &serde_json::json!(["b", 1])
+        ));
     }
 }

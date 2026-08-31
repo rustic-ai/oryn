@@ -79,7 +79,7 @@ codesign --force --options runtime --timestamp=none --sign "$identity" \
 expect_rejected wrong-identifier \
   "$wrong_id_app/Contents/MacOS/oryn-page-worker"
 
-cargo build --locked -p oryn-native --features v8-host --bin oryn-page-worker
+cargo build --locked -p oryn-native --features v8-host,v8-sandbox --bin oryn-page-worker
 debug_app="$(copy_variant debug)"
 cp "$repo_root/target/debug/oryn-page-worker" \
   "$debug_app/Contents/MacOS/oryn-page-worker"

@@ -4,11 +4,13 @@ use std::{
     net::{IpAddr, SocketAddr, ToSocketAddrs},
     os::unix::net::UnixStream,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use futures_util::StreamExt;
+use oryn_net::HttpTransport as _;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -20,10 +22,22 @@ use crate::{
     security::{NetworkPolicy, PolicyDenied},
 };
 
-const BROKER_PROTOCOL_VERSION: u32 = 3;
+const BROKER_PROTOCOL_VERSION: u32 = 4;
 const MAX_BROKER_FRAME_BYTES: usize = 24 * 1024 * 1024;
 const MAX_DECODED_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const PERSISTENT_HTTP_CACHE: TableDefinition<&str, &[u8]> = TableDefinition::new("http_cache_v1");
+
+fn operation_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .worker_threads(2)
+            .thread_name("oryn-network-events")
+            .build()
+            .expect("network event runtime")
+    })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkRequest {
@@ -62,6 +76,139 @@ pub struct NetworkStreamResponse {
     pub body: Box<dyn Read + Send>,
 }
 
+/// Events emitted by one independently cancellable browser-network operation.
+/// Headers are always emitted before body chunks and completion.  Keeping this
+/// contract in `oryn-native` lets policy/cache/cookie adapters decorate a live
+/// body without turning it back into a blocking `Read` implementation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NetworkEvent {
+    Headers {
+        request_id: u64,
+        status: u16,
+        headers: Vec<(String, String)>,
+        content_length: Option<usize>,
+    },
+    Chunk {
+        request_id: u64,
+        bytes: bytes::Bytes,
+    },
+    Complete {
+        request_id: u64,
+    },
+    Failed {
+        request_id: u64,
+        error: String,
+    },
+}
+
+pub struct NetworkOperation {
+    pub request_id: u64,
+    pub events: tokio::sync::mpsc::Receiver<NetworkEvent>,
+    pub(crate) demand: Option<tokio::sync::mpsc::Sender<()>>,
+}
+
+impl NetworkOperation {
+    pub fn request_body_chunk(&self) {
+        if let Some(demand) = &self.demand {
+            let _ = demand.try_send(());
+        }
+    }
+}
+
+/// Compatibility collector for APIs whose public result is intentionally a
+/// complete byte buffer (for example script compilation). It still drives the
+/// asynchronous operation contract and explicit demand; production transport
+/// implementations never re-enter their blocking `send` path.
+pub fn collect_operation(
+    broker: &(impl NetworkBroker + ?Sized),
+    request: NetworkRequest,
+) -> Result<NetworkResponse, NetworkError> {
+    let mut operation = broker.start_operation(request)?;
+    let mut status = None;
+    let mut headers = Vec::new();
+    let mut body = Vec::new();
+    loop {
+        let event = loop {
+            match operation.events.try_recv() {
+                Ok(event) => break event,
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                    return Err(NetworkError::Transport(
+                        "network operation closed without completion".into(),
+                    ));
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                    std::thread::park_timeout(Duration::from_millis(1));
+                }
+            }
+        };
+        match event {
+            NetworkEvent::Headers {
+                status: value,
+                headers: values,
+                ..
+            } => {
+                status = Some(value);
+                headers = values;
+                operation.request_body_chunk();
+            }
+            NetworkEvent::Chunk { bytes, .. } => {
+                body.extend_from_slice(&bytes);
+                operation.request_body_chunk();
+            }
+            NetworkEvent::Complete { request_id } => {
+                return Ok(NetworkResponse {
+                    request_id,
+                    status: status.ok_or_else(|| {
+                        NetworkError::Transport("operation completed before headers".into())
+                    })?,
+                    headers,
+                    body,
+                });
+            }
+            NetworkEvent::Failed { error, .. } => return Err(NetworkError::Transport(error)),
+        }
+    }
+}
+
+fn operation_from_response(response: NetworkResponse) -> NetworkOperation {
+    let request_id = response.request_id;
+    let (sender, events) = tokio::sync::mpsc::channel(3);
+    let (demand, mut requested) = tokio::sync::mpsc::channel(1);
+    operation_runtime().spawn(async move {
+        let length = response.body.len();
+        if sender
+            .send(NetworkEvent::Headers {
+                request_id,
+                status: response.status,
+                headers: response.headers,
+                content_length: Some(length),
+            })
+            .await
+            .is_err()
+        {
+            return;
+        }
+        if !response.body.is_empty()
+            && requested.recv().await.is_some()
+            && sender
+                .send(NetworkEvent::Chunk {
+                    request_id,
+                    bytes: bytes::Bytes::from(response.body),
+                })
+                .await
+                .is_err()
+        {
+            return;
+        }
+        let _ = sender.send(NetworkEvent::Complete { request_id }).await;
+    });
+    NetworkOperation {
+        request_id,
+        events,
+        demand: Some(demand),
+    }
+}
+
 pub trait NetworkBroker: Send + Sync {
     fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError>;
 
@@ -76,6 +223,63 @@ pub trait NetworkBroker: Send + Sync {
             body: Box::new(std::io::Cursor::new(response.body)),
         })
     }
+
+    /// Start a bounded, event-driven request.  The default is deliberately a
+    /// compatibility adapter for fixtures and embedders which still implement
+    /// the historical blocking broker. Production transports override it.
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        let request_id = request.request_id;
+        let (sender, events) = tokio::sync::mpsc::channel(8);
+        let (demand, mut requested) = tokio::sync::mpsc::channel(1);
+        let mut response = self.start_stream(request)?;
+        std::thread::spawn(move || {
+            let _ = sender.blocking_send(NetworkEvent::Headers {
+                request_id,
+                status: response.status,
+                headers: response.headers,
+                content_length: response.content_length,
+            });
+            let mut buffer = vec![0_u8; 64 * 1024];
+            loop {
+                if requested.blocking_recv().is_none() {
+                    break;
+                }
+                match response.body.read(&mut buffer) {
+                    Ok(0) => {
+                        let _ = sender.blocking_send(NetworkEvent::Complete { request_id });
+                        break;
+                    }
+                    Ok(read) => {
+                        if sender
+                            .blocking_send(NetworkEvent::Chunk {
+                                request_id,
+                                bytes: bytes::Bytes::copy_from_slice(&buffer[..read]),
+                            })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = sender.blocking_send(NetworkEvent::Failed {
+                            request_id,
+                            error: error.to_string(),
+                        });
+                        break;
+                    }
+                }
+            }
+        });
+        Ok(NetworkOperation {
+            request_id,
+            events,
+            demand: Some(demand),
+        })
+    }
+
+    fn cancel_operation(&self, _request_id: u64) -> Result<(), NetworkError> {
+        Ok(())
+    }
 }
 
 impl NetworkBroker for Box<dyn NetworkBroker> {
@@ -85,6 +289,14 @@ impl NetworkBroker for Box<dyn NetworkBroker> {
 
     fn start_stream(&self, request: NetworkRequest) -> Result<NetworkStreamResponse, NetworkError> {
         self.as_ref().start_stream(request)
+    }
+
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        self.as_ref().start_operation(request)
+    }
+
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        self.as_ref().cancel_operation(request_id)
     }
 }
 
@@ -179,6 +391,41 @@ impl<B: NetworkBroker> NetworkBroker for CookieBroker<B> {
         let response = self.inner.start_stream(request.clone())?;
         self.store_response(&request, &url, &response.headers)?;
         Ok(response)
+    }
+
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        let (request, url) = self.prepare(request)?;
+        let request_id = request.request_id;
+        let mut operation = self.inner.start_operation(request.clone())?;
+        let demand = operation.demand.clone();
+        let store = self.store.clone();
+        let (sender, events) = tokio::sync::mpsc::channel(8);
+        operation_runtime().spawn(async move {
+            while let Some(event) = operation.events.recv().await {
+                if let NetworkEvent::Headers { headers, .. } = &event {
+                    let _ = store.store_response(
+                        &url,
+                        &request.security,
+                        headers
+                            .iter()
+                            .filter(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
+                            .map(|(_, value)| value.clone()),
+                    );
+                }
+                if sender.send(event).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(NetworkOperation {
+            request_id,
+            events,
+            demand,
+        })
+    }
+
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        self.inner.cancel_operation(request_id)
     }
 }
 
@@ -694,6 +941,20 @@ impl NetworkBroker for SharedNetworkBroker {
             .expect("broker handle is live")
             .start_stream(request)
     }
+
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        self.inner
+            .as_ref()
+            .expect("broker handle is live")
+            .start_operation(request)
+    }
+
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        self.inner
+            .as_ref()
+            .expect("broker handle is live")
+            .cancel_operation(request_id)
+    }
 }
 
 impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
@@ -743,6 +1004,82 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
                 complete: false,
             }),
         })
+    }
+
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        if let Some(response) = self.cached(&request) {
+            return Ok(operation_from_response(response));
+        }
+        self.invalidate_after_mutation(&request);
+        let request_id = request.request_id;
+        let key = self.key(&request);
+        let request_headers = request.headers.clone();
+        let cacheable_request = request.clone();
+        let eligible = matches!(request.method.as_str(), "GET" | "HEAD");
+        let cache = self.cache.clone();
+        let max_entry_bytes = self.max_entry_bytes;
+        let mut operation = self.inner.start_operation(request)?;
+        let demand = operation.demand.clone();
+        let (sender, events) = tokio::sync::mpsc::channel(8);
+        operation_runtime().spawn(async move {
+            let mut candidate: Option<CacheEntry> = None;
+            while let Some(event) = operation.events.recv().await {
+                match &event {
+                    NetworkEvent::Headers {
+                        status,
+                        headers,
+                        content_length,
+                        ..
+                    } => {
+                        if eligible
+                            && content_length.is_none_or(|length| length <= max_entry_bytes)
+                            && cache_authorized(&cacheable_request, headers)
+                        {
+                            candidate =
+                                cache_freshness_ms(headers).and_then(|freshness_lifetime_ms| {
+                                    cache_vary(headers, &request_headers).map(|vary| CacheEntry {
+                                        status: *status,
+                                        headers: headers.clone(),
+                                        body: Vec::new(),
+                                        stored_at_ms: unix_time_ms(),
+                                        freshness_lifetime_ms,
+                                        vary,
+                                    })
+                                });
+                        }
+                    }
+                    NetworkEvent::Chunk { bytes, .. } => {
+                        if let Some(entry) = &mut candidate {
+                            if entry.body.len().saturating_add(bytes.len()) <= max_entry_bytes {
+                                entry.body.extend_from_slice(bytes);
+                            } else {
+                                candidate = None;
+                            }
+                        }
+                    }
+                    NetworkEvent::Complete { .. } => {
+                        if let Some(entry) = candidate.take()
+                            && let Ok(mut cache) = cache.lock()
+                        {
+                            cache.insert(key.clone(), entry);
+                        }
+                    }
+                    NetworkEvent::Failed { .. } => candidate = None,
+                }
+                if sender.send(event).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(NetworkOperation {
+            request_id,
+            events,
+            demand,
+        })
+    }
+
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        self.inner.cancel_operation(request_id)
     }
 }
 
@@ -803,6 +1140,80 @@ impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
                 complete: false,
             }),
         })
+    }
+
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        if let Some(response) = self.cached(&request)? {
+            return Ok(operation_from_response(response));
+        }
+        if !matches!(request.method.as_str(), "GET" | "HEAD") {
+            self.store.invalidate_url(&self.partition, &request.url)?;
+        }
+        let request_id = request.request_id;
+        let key = self.key(&request);
+        let request_headers = request.headers.clone();
+        let cacheable_request = request.clone();
+        let max_entry_bytes = self.store.max_entry_bytes;
+        let store = self.store.clone();
+        let mut operation = self.inner.start_operation(request)?;
+        let demand = operation.demand.clone();
+        let (sender, events) = tokio::sync::mpsc::channel(8);
+        operation_runtime().spawn(async move {
+            let mut candidate: Option<CacheEntry> = None;
+            while let Some(event) = operation.events.recv().await {
+                match &event {
+                    NetworkEvent::Headers {
+                        status,
+                        headers,
+                        content_length,
+                        ..
+                    } => {
+                        if content_length.is_none_or(|length| length <= max_entry_bytes)
+                            && cache_authorized(&cacheable_request, headers)
+                        {
+                            candidate =
+                                cache_freshness_ms(headers).and_then(|freshness_lifetime_ms| {
+                                    cache_vary(headers, &request_headers).map(|vary| CacheEntry {
+                                        status: *status,
+                                        headers: headers.clone(),
+                                        body: Vec::new(),
+                                        stored_at_ms: unix_time_ms(),
+                                        freshness_lifetime_ms,
+                                        vary,
+                                    })
+                                });
+                        }
+                    }
+                    NetworkEvent::Chunk { bytes, .. } => {
+                        if let Some(entry) = &mut candidate {
+                            if entry.body.len().saturating_add(bytes.len()) <= max_entry_bytes {
+                                entry.body.extend_from_slice(bytes);
+                            } else {
+                                candidate = None;
+                            }
+                        }
+                    }
+                    NetworkEvent::Complete { .. } => {
+                        if let Some(entry) = candidate.take() {
+                            let _ = store.insert(key.clone(), entry);
+                        }
+                    }
+                    NetworkEvent::Failed { .. } => candidate = None,
+                }
+                if sender.send(event).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(NetworkOperation {
+            request_id,
+            events,
+            demand,
+        })
+    }
+
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        self.inner.cancel_operation(request_id)
     }
 }
 
@@ -931,11 +1342,39 @@ pub(crate) fn resolve_and_authorize(
 /// A single-request rustls transport. Redirects are intentionally disabled so
 /// callers can send every hop back through `PolicyBroker`.
 pub struct RustlsTransport {
-    timeout: Duration,
+    runtime: Arc<tokio::runtime::Runtime>,
+    transport: Arc<oryn_net::RustlsTransport>,
     max_response_bytes: usize,
-    clients: Mutex<BTreeMap<String, reqwest::blocking::Client>>,
-    #[cfg(test)]
-    test_force_http2: bool,
+}
+
+struct AsyncBodyReader {
+    runtime: Arc<tokio::runtime::Runtime>,
+    stream: oryn_net::BodyStream,
+    current: bytes::Bytes,
+    offset: usize,
+}
+
+impl Read for AsyncBodyReader {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        if output.is_empty() {
+            return Ok(0);
+        }
+        while self.offset >= self.current.len() {
+            let next = self.runtime.block_on(self.stream.next());
+            match next {
+                Some(Ok(chunk)) => {
+                    self.current = chunk;
+                    self.offset = 0;
+                }
+                Some(Err(error)) => return Err(std::io::Error::other(error.to_string())),
+                None => return Ok(0),
+            }
+        }
+        let count = output.len().min(self.current.len() - self.offset);
+        output[..count].copy_from_slice(&self.current[self.offset..self.offset + count]);
+        self.offset += count;
+        Ok(count)
+    }
 }
 
 struct CompressedLimitReader {
@@ -989,64 +1428,29 @@ fn decoded_body_reader(
 
 impl RustlsTransport {
     pub fn new(timeout: Duration, max_response_bytes: usize) -> Result<Self, NetworkError> {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .worker_threads(2)
+            .thread_name("oryn-http")
+            .build()
+            .map_err(|error| NetworkError::Transport(error.to_string()))?;
+        let transport = oryn_net::RustlsTransport::new(timeout, max_response_bytes)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?;
         Ok(Self {
-            timeout,
+            runtime: Arc::new(runtime),
+            transport: Arc::new(transport),
             max_response_bytes,
-            clients: Mutex::new(BTreeMap::new()),
-            #[cfg(test)]
-            test_force_http2: false,
         })
     }
 
     #[cfg(test)]
     fn with_test_http2_prior_knowledge(mut self) -> Self {
-        self.test_force_http2 = true;
+        let transport = Arc::try_unwrap(self.transport)
+            .ok()
+            .expect("test transport has one owner")
+            .with_http2_prior_knowledge();
+        self.transport = Arc::new(transport);
         self
-    }
-
-    fn client_for(
-        &self,
-        url: &Url,
-        request: &NetworkRequest,
-    ) -> Result<reqwest::blocking::Client, NetworkError> {
-        let key = format!(
-            "{}|{}",
-            url.host_str().unwrap_or_default().to_ascii_lowercase(),
-            request
-                .resolved_addrs
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
-        );
-        if let Some(client) = self.clients.lock().expect("client pool lock").get(&key) {
-            return Ok(client.clone());
-        }
-        let mut builder = reqwest::blocking::Client::builder()
-            .timeout(self.timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .no_proxy()
-            .no_gzip()
-            .no_brotli()
-            .no_deflate()
-            .no_zstd();
-        #[cfg(test)]
-        if self.test_force_http2 {
-            builder = builder.http2_prior_knowledge();
-        }
-        if let Some(host) = url.host_str()
-            && !request.resolved_addrs.is_empty()
-        {
-            builder = builder.resolve_to_addrs(host, &request.resolved_addrs);
-        }
-        let client = builder
-            .build()
-            .map_err(|error| NetworkError::Transport(error.to_string()))?;
-        self.clients
-            .lock()
-            .expect("client pool lock")
-            .insert(key, client.clone());
-        Ok(client)
     }
 }
 
@@ -1075,57 +1479,166 @@ impl NetworkBroker for RustlsTransport {
     }
 
     fn start_stream(&self, request: NetworkRequest) -> Result<NetworkStreamResponse, NetworkError> {
-        let method = reqwest::Method::from_bytes(request.method.as_bytes())
+        let response = self
+            .runtime
+            .block_on(self.transport.start(oryn_net::HttpRequest {
+                operation_id: request.request_id,
+                method: request.method,
+                url: request.url,
+                headers: request.headers,
+                body: request.body,
+                resolved_addrs: request.resolved_addrs,
+            }))
             .map_err(|error| NetworkError::Transport(error.to_string()))?;
-        let url = Url::parse(&request.url)
-            .map_err(|error| NetworkError::InvalidUrl(error.to_string()))?;
-        let client = self.client_for(&url, &request)?;
-        let mut builder = client.request(method, url);
-        for (name, value) in &request.headers {
-            builder = builder.header(name, value);
-        }
-        if !request.body.is_empty() {
-            builder = builder.body(request.body);
-        }
-        let response = builder
-            .send()
-            .map_err(|error| NetworkError::Transport(error.to_string()))?;
-        if response
-            .content_length()
-            .is_some_and(|length| length > self.max_response_bytes as u64)
-        {
-            return Err(NetworkError::ResponseTooLarge {
-                limit: self.max_response_bytes,
-            });
-        }
-        let status = response.status().as_u16();
-        let headers: Vec<(String, String)> = response
-            .headers()
-            .iter()
-            .map(|(name, value)| {
-                (
-                    name.as_str().to_string(),
-                    value.to_str().unwrap_or_default().to_string(),
-                )
-            })
-            .collect();
+        let status = response.status;
+        let headers = response.headers;
         let encoding = headers
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("content-encoding"))
             .map(|(_, value)| value.as_str());
         let content_length = encoding
             .is_none_or(|encoding| encoding.eq_ignore_ascii_case("identity"))
-            .then(|| response.content_length())
-            .flatten()
-            .and_then(|length| usize::try_from(length).ok());
-        let body = decoded_body_reader(Box::new(response), encoding, self.max_response_bytes)?;
+            .then(|| {
+                headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                    .and_then(|(_, value)| value.parse::<usize>().ok())
+            })
+            .flatten();
+        let body = decoded_body_reader(
+            Box::new(AsyncBodyReader {
+                runtime: self.runtime.clone(),
+                stream: response.body,
+                current: bytes::Bytes::new(),
+                offset: 0,
+            }),
+            encoding,
+            self.max_response_bytes,
+        )?;
         Ok(NetworkStreamResponse {
-            request_id: request.request_id,
+            request_id: response.operation_id,
             status,
             headers,
             content_length,
             body,
         })
+    }
+
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        let request_id = request.request_id;
+        let transport = self.transport.clone();
+        let decoded_limit = self.max_response_bytes;
+        let (sender, events) = tokio::sync::mpsc::channel(8);
+        let (demand, mut requested) = tokio::sync::mpsc::channel(1);
+        self.runtime.spawn(async move {
+            let response = transport
+                .start(oryn_net::HttpRequest {
+                    operation_id: request_id,
+                    method: request.method,
+                    url: request.url,
+                    headers: request.headers,
+                    body: request.body,
+                    resolved_addrs: request.resolved_addrs,
+                })
+                .await;
+            let response = match response {
+                Ok(response) => response,
+                Err(error) => {
+                    let _ = sender
+                        .send(NetworkEvent::Failed {
+                            request_id,
+                            error: error.to_string(),
+                        })
+                        .await;
+                    return;
+                }
+            };
+            let encoding = response
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-encoding"))
+                .map(|(_, value)| value.as_str());
+            let encoding = match oryn_net::ContentEncoding::parse(encoding) {
+                Ok(encoding) => encoding,
+                Err(error) => {
+                    let _ = sender
+                        .send(NetworkEvent::Failed {
+                            request_id,
+                            error: error.to_string(),
+                        })
+                        .await;
+                    return;
+                }
+            };
+            let content_length = (encoding == oryn_net::ContentEncoding::Identity)
+                .then(|| {
+                    response
+                        .headers
+                        .iter()
+                        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                        .and_then(|(_, value)| value.parse::<usize>().ok())
+                })
+                .flatten();
+            if sender
+                .send(NetworkEvent::Headers {
+                    request_id,
+                    status: response.status,
+                    headers: response.headers,
+                    content_length,
+                })
+                .await
+                .is_err()
+            {
+                let _ = transport.cancel(request_id).await;
+                return;
+            }
+            let mut body = oryn_net::decode_content_stream(
+                response.body,
+                encoding,
+                decoded_limit,
+                decoded_limit,
+            );
+            while requested.recv().await.is_some() {
+                let Some(chunk) = body.next().await else {
+                    let _ = sender.send(NetworkEvent::Complete { request_id }).await;
+                    return;
+                };
+                match chunk {
+                    Ok(bytes) => {
+                        if sender
+                            .send(NetworkEvent::Chunk { request_id, bytes })
+                            .await
+                            .is_err()
+                        {
+                            let _ = transport.cancel(request_id).await;
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = sender
+                            .send(NetworkEvent::Failed {
+                                request_id,
+                                error: error.to_string(),
+                            })
+                            .await;
+                        return;
+                    }
+                }
+            }
+        });
+        Ok(NetworkOperation {
+            request_id,
+            events,
+            demand: Some(demand),
+        })
+    }
+
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        let transport = self.transport.clone();
+        self.runtime.spawn(async move {
+            let _ = transport.cancel(request_id).await;
+        });
+        Ok(())
     }
 }
 
@@ -1133,12 +1646,9 @@ impl NetworkBroker for RustlsTransport {
 /// socket is inherited from the parent, so the sandboxed child needs no
 /// filesystem or network entitlement of its own.
 pub struct IpcNetworkBroker {
-    state: Mutex<IpcNetworkState>,
-}
-
-struct IpcNetworkState {
-    stream: UnixStream,
-    next_message_id: u64,
+    writer: Mutex<UnixStream>,
+    next_message_id: std::sync::atomic::AtomicU64,
+    pending: Arc<Mutex<BTreeMap<u64, tokio::sync::mpsc::Sender<NetworkEvent>>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1152,8 +1662,34 @@ struct BrokerRequestEnvelope {
 struct BrokerResponseEnvelope {
     protocol_version: u32,
     correlation_id: u64,
+    #[serde(default)]
     response: Option<EncodedNetworkResponse>,
+    #[serde(default)]
+    event: Option<EncodedNetworkEvent>,
+    #[serde(default)]
     error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum EncodedNetworkEvent {
+    Headers {
+        request_id: u64,
+        status: u16,
+        headers: Vec<(String, String)>,
+        content_length: Option<usize>,
+    },
+    Chunk {
+        request_id: u64,
+        body_base64: String,
+    },
+    Complete {
+        request_id: u64,
+    },
+    Failed {
+        request_id: u64,
+        error: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1179,29 +1715,89 @@ struct EncodedNetworkResponse {
 
 impl IpcNetworkBroker {
     pub fn new(stream: UnixStream) -> Self {
+        let reader = stream.try_clone().expect("clone broker IPC stream");
+        let pending: Arc<Mutex<BTreeMap<u64, tokio::sync::mpsc::Sender<NetworkEvent>>>> =
+            Arc::new(Mutex::new(BTreeMap::new()));
+        let reader_pending = pending.clone();
+        std::thread::Builder::new()
+            .name("oryn-worker-broker-reader".into())
+            .spawn(move || broker_response_loop(reader, reader_pending))
+            .expect("spawn broker response reader");
         Self {
-            state: Mutex::new(IpcNetworkState {
-                stream,
-                next_message_id: 1,
-            }),
+            writer: Mutex::new(stream),
+            next_message_id: std::sync::atomic::AtomicU64::new(1),
+            pending,
+        }
+    }
+}
+
+impl Drop for IpcNetworkBroker {
+    fn drop(&mut self) {
+        if let Ok(writer) = self.writer.lock() {
+            let _ = writer.shutdown(std::net::Shutdown::Both);
         }
     }
 }
 
 impl NetworkBroker for IpcNetworkBroker {
     fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| NetworkError::Transport("network IPC lock poisoned".into()))?;
-        let message_id = state.next_message_id;
-        state.next_message_id += 1;
+        let mut operation = self.start_operation(request)?;
+        let mut status = None;
+        let mut headers = Vec::new();
+        let mut body = Vec::new();
+        while let Some(event) = operation.events.blocking_recv() {
+            match event {
+                NetworkEvent::Headers {
+                    status: value,
+                    headers: values,
+                    ..
+                } => {
+                    status = Some(value);
+                    headers = values;
+                }
+                NetworkEvent::Chunk { bytes, .. } => {
+                    body.extend_from_slice(&bytes);
+                    if body.len() > MAX_DECODED_RESPONSE_BYTES {
+                        return Err(NetworkError::ResponseTooLarge {
+                            limit: MAX_DECODED_RESPONSE_BYTES,
+                        });
+                    }
+                }
+                NetworkEvent::Complete { request_id } => {
+                    return Ok(NetworkResponse {
+                        request_id,
+                        status: status.ok_or_else(|| {
+                            NetworkError::Transport("broker completed before headers".into())
+                        })?,
+                        headers,
+                        body,
+                    });
+                }
+                NetworkEvent::Failed { error, .. } => {
+                    return Err(NetworkError::Transport(error));
+                }
+            }
+        }
+        Err(NetworkError::Transport(
+            "broker operation ended before completion".into(),
+        ))
+    }
+
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        let message_id = self
+            .next_message_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let request_id = request.request_id;
+        let (sender, events) = tokio::sync::mpsc::channel(8);
+        self.pending
+            .lock()
+            .map_err(|_| NetworkError::Transport("network IPC pending lock poisoned".into()))?
+            .insert(message_id, sender);
         let envelope = BrokerRequestEnvelope {
             protocol_version: BROKER_PROTOCOL_VERSION,
             message_id,
             request: EncodedNetworkRequest {
-                request_id: request.request_id,
+                request_id,
                 method: request.method,
                 url: request.url,
                 headers: request.headers,
@@ -1210,76 +1806,152 @@ impl NetworkBroker for IpcNetworkBroker {
                 security: request.security,
             },
         };
-        serde_json::to_writer(&mut state.stream, &envelope)
-            .map_err(|error| NetworkError::Transport(error.to_string()))?;
-        state
-            .stream
-            .write_all(b"\n")
-            .and_then(|_| state.stream.flush())
-            .map_err(|error| NetworkError::Transport(error.to_string()))?;
-
-        let mut line = Vec::new();
-        let mut reader = BufReader::new(
-            state
-                .stream
-                .try_clone()
-                .map_err(|error| NetworkError::Transport(error.to_string()))?,
-        );
-        read_bounded_line(&mut reader, &mut line, MAX_BROKER_FRAME_BYTES)
-            .map_err(|error| NetworkError::Transport(error.to_string()))?;
-        if line.len() > MAX_BROKER_FRAME_BYTES {
-            return Err(NetworkError::Transport(
-                "broker response exceeded the IPC frame limit".into(),
-            ));
-        }
-        let response: BrokerResponseEnvelope = serde_json::from_slice(&line)
-            .map_err(|error| NetworkError::Transport(error.to_string()))?;
-        if response.protocol_version != BROKER_PROTOCOL_VERSION
-            || response.correlation_id != message_id
-        {
-            return Err(NetworkError::Transport(
-                "broker response correlation or protocol mismatch".into(),
-            ));
-        }
-        if let Some(error) = response.error {
-            return Err(NetworkError::Transport(error));
-        }
-        let response = response
-            .response
-            .ok_or_else(|| NetworkError::Transport("broker returned no response".into()))?;
-        if response.request_id != request_id {
-            return Err(NetworkError::Transport(
-                "broker response request identifier mismatch".into(),
-            ));
-        }
-        let body = BASE64
-            .decode(response.body_base64)
-            .map_err(|error| NetworkError::Transport(error.to_string()))?;
-        if body.len() > MAX_DECODED_RESPONSE_BYTES {
-            return Err(NetworkError::ResponseTooLarge {
-                limit: MAX_DECODED_RESPONSE_BYTES,
+        let result = self
+            .writer
+            .lock()
+            .map_err(|_| NetworkError::Transport("network IPC writer lock poisoned".into()))
+            .and_then(|mut writer| {
+                serde_json::to_writer(&mut *writer, &envelope)
+                    .map_err(|error| NetworkError::Transport(error.to_string()))?;
+                writer
+                    .write_all(b"\n")
+                    .and_then(|_| writer.flush())
+                    .map_err(|error| NetworkError::Transport(error.to_string()))
             });
+        if let Err(error) = result {
+            let _ = self
+                .pending
+                .lock()
+                .map(|mut pending| pending.remove(&message_id));
+            return Err(error);
         }
-        Ok(NetworkResponse {
-            request_id: response.request_id,
-            status: response.status,
-            headers: response.headers,
-            body,
+        Ok(NetworkOperation {
+            request_id,
+            events,
+            demand: None,
         })
     }
+}
+
+fn broker_response_loop(
+    stream: UnixStream,
+    pending: Arc<Mutex<BTreeMap<u64, tokio::sync::mpsc::Sender<NetworkEvent>>>>,
+) {
+    let mut reader = BufReader::new(stream);
+    loop {
+        let mut line = Vec::new();
+        let Ok(read) = read_bounded_line(&mut reader, &mut line, MAX_BROKER_FRAME_BYTES) else {
+            break;
+        };
+        if read == 0 || line.len() > MAX_BROKER_FRAME_BYTES {
+            break;
+        }
+        let Ok(response) = serde_json::from_slice::<BrokerResponseEnvelope>(&line) else {
+            continue;
+        };
+        if response.protocol_version != BROKER_PROTOCOL_VERSION {
+            continue;
+        }
+        let sender = pending
+            .lock()
+            .ok()
+            .and_then(|pending| pending.get(&response.correlation_id).cloned());
+        let Some(sender) = sender else { continue };
+        let event = if let Some(error) = response.error {
+            NetworkEvent::Failed {
+                request_id: 0,
+                error,
+            }
+        } else if let Some(event) = response.event {
+            match decode_network_event(event) {
+                Ok(event) => event,
+                Err(error) => NetworkEvent::Failed {
+                    request_id: 0,
+                    error: error.to_string(),
+                },
+            }
+        } else if let Some(response) = response.response {
+            let body = BASE64.decode(response.body_base64).unwrap_or_default();
+            let request_id = response.request_id;
+            let _ = sender.blocking_send(NetworkEvent::Headers {
+                request_id,
+                status: response.status,
+                headers: response.headers,
+                content_length: Some(body.len()),
+            });
+            let _ = sender.blocking_send(NetworkEvent::Chunk {
+                request_id,
+                bytes: bytes::Bytes::from(body),
+            });
+            NetworkEvent::Complete { request_id }
+        } else {
+            NetworkEvent::Failed {
+                request_id: 0,
+                error: "broker returned no event".into(),
+            }
+        };
+        let terminal = matches!(
+            event,
+            NetworkEvent::Complete { .. } | NetworkEvent::Failed { .. }
+        );
+        let _ = sender.blocking_send(event);
+        if terminal && let Ok(mut pending) = pending.lock() {
+            pending.remove(&response.correlation_id);
+        }
+    }
+    if let Ok(mut pending) = pending.lock() {
+        for (_, sender) in std::mem::take(&mut *pending) {
+            let _ = sender.blocking_send(NetworkEvent::Failed {
+                request_id: 0,
+                error: "broker IPC closed".into(),
+            });
+        }
+    }
+}
+
+fn decode_network_event(event: EncodedNetworkEvent) -> Result<NetworkEvent, NetworkError> {
+    Ok(match event {
+        EncodedNetworkEvent::Headers {
+            request_id,
+            status,
+            headers,
+            content_length,
+        } => NetworkEvent::Headers {
+            request_id,
+            status,
+            headers,
+            content_length,
+        },
+        EncodedNetworkEvent::Chunk {
+            request_id,
+            body_base64,
+        } => NetworkEvent::Chunk {
+            request_id,
+            bytes: bytes::Bytes::from(
+                BASE64
+                    .decode(body_base64)
+                    .map_err(|error| NetworkError::Transport(error.to_string()))?,
+            ),
+        },
+        EncodedNetworkEvent::Complete { request_id } => NetworkEvent::Complete { request_id },
+        EncodedNetworkEvent::Failed { request_id, error } => {
+            NetworkEvent::Failed { request_id, error }
+        }
+    })
 }
 
 /// Serve a worker's inherited broker socket from the privileged parent.
 pub fn serve_ipc_broker(
     stream: UnixStream,
-    broker: impl NetworkBroker,
+    broker: impl NetworkBroker + 'static,
     max_frame_bytes: usize,
 ) -> Result<(), NetworkError> {
     let reader_stream = stream
         .try_clone()
         .map_err(|error| NetworkError::Transport(error.to_string()))?;
     let mut reader = BufReader::new(reader_stream);
-    let mut writer = stream;
+    let writer = Arc::new(Mutex::new(stream));
+    let broker: Arc<dyn NetworkBroker> = Arc::new(broker);
     let mut last_message_id = 0_u64;
     loop {
         let mut line = Vec::new();
@@ -1289,12 +1961,13 @@ pub fn serve_ipc_broker(
             return Ok(());
         }
         let response = if line.len() > max_frame_bytes {
-            BrokerResponseEnvelope {
+            Some(BrokerResponseEnvelope {
                 protocol_version: BROKER_PROTOCOL_VERSION,
                 correlation_id: 0,
                 response: None,
+                event: None,
                 error: Some("broker request exceeded the IPC frame limit".into()),
-            }
+            })
         } else {
             match serde_json::from_slice::<BrokerRequestEnvelope>(&line) {
                 Ok(envelope)
@@ -1309,7 +1982,7 @@ pub fn serve_ipc_broker(
                         .map_err(|error| error.to_string())
                         .and_then(|body| {
                             broker
-                                .send(NetworkRequest {
+                                .start_operation(NetworkRequest {
                                     request_id: request.request_id,
                                     method: request.method,
                                     url: request.url,
@@ -1322,53 +1995,108 @@ pub fn serve_ipc_broker(
                                 .map_err(|error| error.to_string())
                         });
                     match result {
-                        Ok(response) => BrokerResponseEnvelope {
-                            protocol_version: BROKER_PROTOCOL_VERSION,
-                            correlation_id,
-                            response: Some(EncodedNetworkResponse {
-                                request_id: response.request_id,
-                                status: response.status,
-                                headers: sanitize_parent_response_headers(response.headers),
-                                body_base64: BASE64.encode(response.body),
-                            }),
-                            error: None,
-                        },
-                        Err(error) => BrokerResponseEnvelope {
+                        Ok(mut operation) => {
+                            let writer = writer.clone();
+                            operation_runtime().spawn(async move {
+                                while let Some(event) = operation.events.recv().await {
+                                    let event = encode_network_event(event);
+                                    let terminal = matches!(
+                                        event,
+                                        EncodedNetworkEvent::Complete { .. }
+                                            | EncodedNetworkEvent::Failed { .. }
+                                    );
+                                    let envelope = BrokerResponseEnvelope {
+                                        protocol_version: BROKER_PROTOCOL_VERSION,
+                                        correlation_id,
+                                        response: None,
+                                        event: Some(event),
+                                        error: None,
+                                    };
+                                    if write_broker_response(&writer, &envelope).is_err()
+                                        || terminal
+                                    {
+                                        break;
+                                    }
+                                    operation.request_body_chunk();
+                                }
+                            });
+                            None
+                        }
+                        Err(error) => Some(BrokerResponseEnvelope {
                             protocol_version: BROKER_PROTOCOL_VERSION,
                             correlation_id,
                             response: None,
+                            event: None,
                             error: Some(error.to_string()),
-                        },
+                        }),
                     }
                 }
-                Ok(envelope) => BrokerResponseEnvelope {
+                Ok(envelope) => Some(BrokerResponseEnvelope {
                     protocol_version: BROKER_PROTOCOL_VERSION,
                     correlation_id: envelope.message_id,
                     response: None,
+                    event: None,
                     error: Some(if envelope.protocol_version != BROKER_PROTOCOL_VERSION {
                         "unsupported broker protocol version".into()
                     } else {
                         "duplicate or out-of-order broker message".into()
                     }),
-                },
-                Err(error) => BrokerResponseEnvelope {
+                }),
+                Err(error) => Some(BrokerResponseEnvelope {
                     protocol_version: BROKER_PROTOCOL_VERSION,
                     correlation_id: 0,
                     response: None,
+                    event: None,
                     error: Some(format!("invalid broker request: {error}")),
-                },
+                }),
             }
         };
-        serde_json::to_writer(&mut writer, &response)
-            .map_err(|error| NetworkError::Transport(error.to_string()))?;
-        writer
-            .write_all(b"\n")
-            .and_then(|_| writer.flush())
-            .map_err(|error| NetworkError::Transport(error.to_string()))?;
+        if let Some(response) = response {
+            write_broker_response(&writer, &response)?;
+        }
         if line.len() > max_frame_bytes {
             return Ok(());
         }
     }
+}
+
+fn encode_network_event(event: NetworkEvent) -> EncodedNetworkEvent {
+    match event {
+        NetworkEvent::Headers {
+            request_id,
+            status,
+            headers,
+            content_length,
+        } => EncodedNetworkEvent::Headers {
+            request_id,
+            status,
+            headers: sanitize_parent_response_headers(headers),
+            content_length,
+        },
+        NetworkEvent::Chunk { request_id, bytes } => EncodedNetworkEvent::Chunk {
+            request_id,
+            body_base64: BASE64.encode(bytes),
+        },
+        NetworkEvent::Complete { request_id } => EncodedNetworkEvent::Complete { request_id },
+        NetworkEvent::Failed { request_id, error } => {
+            EncodedNetworkEvent::Failed { request_id, error }
+        }
+    }
+}
+
+fn write_broker_response(
+    writer: &Arc<Mutex<UnixStream>>,
+    response: &BrokerResponseEnvelope,
+) -> Result<(), NetworkError> {
+    let mut writer = writer
+        .lock()
+        .map_err(|_| NetworkError::Transport("broker response writer lock poisoned".into()))?;
+    serde_json::to_writer(&mut *writer, response)
+        .map_err(|error| NetworkError::Transport(error.to_string()))?;
+    writer
+        .write_all(b"\n")
+        .and_then(|_| writer.flush())
+        .map_err(|error| NetworkError::Transport(error.to_string()))
 }
 
 pub(crate) fn sanitize_worker_headers(headers: Vec<(String, String)>) -> Vec<(String, String)> {
@@ -1427,6 +2155,18 @@ impl<B: NetworkBroker> NetworkBroker for PolicyBroker<B> {
     ) -> Result<NetworkStreamResponse, NetworkError> {
         request.resolved_addrs = self.authorize(&request)?;
         self.inner.start_stream(request)
+    }
+
+    fn start_operation(
+        &self,
+        mut request: NetworkRequest,
+    ) -> Result<NetworkOperation, NetworkError> {
+        request.resolved_addrs = self.authorize(&request)?;
+        self.inner.start_operation(request)
+    }
+
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        self.inner.cancel_operation(request_id)
     }
 }
 
@@ -1639,6 +2379,47 @@ mod tests {
     }
 
     #[test]
+    fn worker_broker_multiplexes_independent_streams() {
+        let (worker, parent) = UnixStream::pair().expect("socket pair");
+        let server = std::thread::spawn(move || {
+            serve_ipc_broker(
+                parent,
+                RecordingBroker {
+                    requests: Arc::new(Mutex::new(Vec::new())),
+                    body: b"chunked".to_vec(),
+                },
+                MAX_BROKER_FRAME_BYTES,
+            )
+        });
+        let broker = IpcNetworkBroker::new(worker);
+        let mut first = request("https://example.test/one");
+        first.request_id = 41;
+        let mut second = request("https://example.test/two");
+        second.request_id = 42;
+        let mut first = broker.start_operation(first).expect("first operation");
+        let mut second = broker.start_operation(second).expect("second operation");
+
+        fn collect(operation: &mut NetworkOperation) -> (u16, Vec<u8>) {
+            let mut status = 0;
+            let mut body = Vec::new();
+            while let Some(event) = operation.events.blocking_recv() {
+                match event {
+                    NetworkEvent::Headers { status: value, .. } => status = value,
+                    NetworkEvent::Chunk { bytes, .. } => body.extend_from_slice(&bytes),
+                    NetworkEvent::Complete { .. } => break,
+                    NetworkEvent::Failed { error, .. } => panic!("operation failed: {error}"),
+                }
+            }
+            (status, body)
+        }
+
+        assert_eq!(collect(&mut second), (200, b"chunked".to_vec()));
+        assert_eq!(collect(&mut first), (200, b"chunked".to_vec()));
+        drop(broker);
+        server.join().unwrap().expect("broker server");
+    }
+
+    #[test]
     fn parent_cookie_headers_are_not_exposed_to_the_worker() {
         assert_eq!(
             sanitize_parent_response_headers(vec![
@@ -1692,24 +2473,6 @@ mod tests {
         first.headers[0].1 = "fr".into();
         broker.send(first).unwrap();
         assert_eq!(*requests.lock().unwrap(), 2);
-    }
-
-    #[test]
-    fn rustls_transport_reuses_clients_by_pinned_route() {
-        let transport = RustlsTransport::new(Duration::from_secs(1), 1024).unwrap();
-        let url = Url::parse("https://example.test/data").unwrap();
-        let mut first = request(url.as_str());
-        first.resolved_addrs = vec!["203.0.113.8:443".parse().unwrap()];
-        transport.client_for(&url, &first).unwrap();
-        first.request_id = 2;
-        transport.client_for(&url, &first).unwrap();
-        assert_eq!(transport.clients.lock().unwrap().len(), 1);
-        first.credentials = false;
-        transport.client_for(&url, &first).unwrap();
-        // Cookie credentials are now selected by the parent-owned CookieBroker
-        // and never alter transport state, so both requests safely reuse the
-        // same pinned-route client.
-        assert_eq!(transport.clients.lock().unwrap().len(), 1);
     }
 
     #[test]
@@ -1908,13 +2671,22 @@ mod tests {
             serde_json::to_writer(&mut worker, &envelope).expect("write request");
             worker.write_all(b"\n").expect("finish frame");
             worker.flush().expect("flush request");
-            let mut line = String::new();
-            reader.read_line(&mut line).expect("read response");
-            let response: BrokerResponseEnvelope =
-                serde_json::from_str(&line).expect("valid response");
             if attempt == 0 {
-                assert!(response.error.is_none());
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).expect("read response event");
+                    let response: BrokerResponseEnvelope =
+                        serde_json::from_str(&line).expect("valid response event");
+                    assert!(response.error.is_none());
+                    if matches!(response.event, Some(EncodedNetworkEvent::Complete { .. })) {
+                        break;
+                    }
+                }
             } else {
+                let mut line = String::new();
+                reader.read_line(&mut line).expect("read rejection");
+                let response: BrokerResponseEnvelope =
+                    serde_json::from_str(&line).expect("valid rejection");
                 assert_eq!(
                     response.error.as_deref(),
                     Some("duplicate or out-of-order broker message")

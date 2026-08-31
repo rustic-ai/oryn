@@ -19,7 +19,14 @@ use crate::{
     trusted_types::{TrustedKind, TrustedTypesConfig, TrustedTypesRegistry, TrustedValue},
 };
 
-pub type SharedDom = Rc<RefCell<DomRuntime>>;
+pub type SharedDom = oryn_dom::SharedDomRuntime;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParserInputCommand {
+    Open,
+    Write(String),
+    Close,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum V8BindingError {
@@ -76,6 +83,23 @@ struct MutationObserverEntry {
     records: Vec<Mutation>,
 }
 
+#[derive(Debug, Clone)]
+struct RangeRecord {
+    start_container: NodeId,
+    start_offset: u32,
+    end_container: NodeId,
+    end_offset: u32,
+}
+
+#[derive(Debug, Clone)]
+struct TraversalRecord {
+    root: NodeId,
+    nodes: Vec<NodeId>,
+    index: usize,
+    pointer_before: bool,
+    what_to_show: u32,
+}
+
 struct TrustedPolicyCallbacks {
     name: String,
     create_html: Option<v8::Global<v8::Function>>,
@@ -119,10 +143,18 @@ pub struct V8BindingState {
     event_handlers: RefCell<BTreeMap<(NodeId, String), v8::Global<v8::Value>>>,
     next_mutation_observer_id: Cell<u64>,
     mutation_observers: RefCell<BTreeMap<u64, MutationObserverEntry>>,
+    next_range_id: Cell<u64>,
+    ranges: RefCell<BTreeMap<u64, RangeRecord>>,
+    selection_range: Cell<Option<u64>>,
+    selection_object: RefCell<Option<v8::Global<v8::Object>>>,
+    next_traversal_id: Cell<u64>,
+    traversals: RefCell<BTreeMap<u64, TraversalRecord>>,
     layout: RefCell<BindingLayout>,
     frame_roots: RefCell<BTreeMap<NodeId, NodeId>>,
     template_contents: RefCell<BTreeMap<NodeId, NodeId>>,
-    document_write_anchor: Cell<Option<NodeId>>,
+    current_script: Cell<Option<NodeId>>,
+    parser_input_active: Cell<bool>,
+    parser_input_commands: RefCell<VecDeque<ParserInputCommand>>,
     document_open: Cell<bool>,
     document_write_buffer: RefCell<String>,
     document_write_depth: Cell<u32>,
@@ -188,8 +220,16 @@ impl V8BindingState {
         self.frame_roots.borrow_mut().insert(frame, document);
     }
 
-    pub fn set_document_write_anchor(&self, anchor: Option<NodeId>) {
-        self.document_write_anchor.set(anchor);
+    pub fn set_current_script(&self, script: Option<NodeId>) {
+        self.current_script.set(script);
+    }
+
+    pub fn set_parser_input_active(&self, active: bool) {
+        self.parser_input_active.set(active);
+    }
+
+    pub fn take_parser_input_commands(&self) -> Vec<ParserInputCommand> {
+        self.parser_input_commands.borrow_mut().drain(..).collect()
     }
 
     pub fn configure_trusted_types(&self, config: TrustedTypesConfig) {
@@ -297,10 +337,18 @@ pub fn install_generated_bindings_with_root(
         event_handlers: RefCell::new(BTreeMap::new()),
         next_mutation_observer_id: Cell::new(1),
         mutation_observers: RefCell::new(BTreeMap::new()),
+        next_range_id: Cell::new(1),
+        ranges: RefCell::new(BTreeMap::new()),
+        selection_range: Cell::new(None),
+        selection_object: RefCell::new(None),
+        next_traversal_id: Cell::new(1),
+        traversals: RefCell::new(BTreeMap::new()),
         layout: RefCell::new(BindingLayout::default()),
         frame_roots: RefCell::new(BTreeMap::new()),
         template_contents: RefCell::new(BTreeMap::new()),
-        document_write_anchor: Cell::new(None),
+        current_script: Cell::new(None),
+        parser_input_active: Cell::new(false),
+        parser_input_commands: RefCell::new(VecDeque::new()),
         document_open: Cell::new(false),
         document_write_buffer: RefCell::new(String::new()),
         document_write_depth: Cell::new(0),
@@ -1030,6 +1078,16 @@ fn generated_attribute_getter(
         }
         return;
     }
+    if matches!(
+        interface,
+        "AbstractRange" | "Range" | "Selection" | "NodeIterator" | "TreeWalker"
+    ) {
+        match get_stateful_attribute(scope, &state, args.this(), interface, member) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_type_error(scope, &format!("{interface}.{member}: {error}")),
+        }
+        return;
+    }
     let result = resolve_receiver(scope, &state, args.this(), interface)
         .and_then(|node| get_attribute_value(scope, &state, node, interface, member));
     match result {
@@ -1052,6 +1110,28 @@ fn generated_attribute_setter(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "TreeWalker" && member == "currentNode" {
+        let result = stateful_id(scope, args.this()).and_then(|id| {
+            let node = argument_node(scope, &state, args.get(0))?;
+            let mut traversals = state.traversals.borrow_mut();
+            let traversal = traversals
+                .get_mut(&id)
+                .ok_or(V8BindingError::Allocation("TreeWalker record"))?;
+            traversal.index = traversal
+                .nodes
+                .iter()
+                .position(|candidate| *candidate == node)
+                .ok_or(V8BindingError::Unsupported {
+                    interface: interface.into(),
+                    member: "currentNode outside root".into(),
+                })?;
+            Ok(())
+        });
+        if let Err(error) = result {
+            throw_type_error(scope, &format!("{interface}.{member}: {error}"));
+        }
+        return;
+    }
     let result = resolve_receiver(scope, &state, args.this(), interface)
         .and_then(|node| set_attribute_value(scope, &state, node, interface, member, args.get(0)));
     if let Err(error) = result {
@@ -1089,6 +1169,17 @@ fn generated_operation(
         }
         return;
     }
+    if matches!(
+        interface,
+        "Range" | "Selection" | "NodeIterator" | "TreeWalker"
+    ) {
+        match call_stateful_operation(scope, &state, args.this(), interface, member, &args) {
+            Ok(Some(value)) => return_value.set(value),
+            Ok(None) => return_value.set(v8::undefined(scope).into()),
+            Err(error) => throw_type_error(scope, &format!("{interface}.{member}: {error}")),
+        }
+        return;
+    }
     let result = resolve_receiver(scope, &state, args.this(), interface)
         .and_then(|node| call_operation(scope, &state, node, interface, member, &args));
     // A DOM operation can connect a wrapper that was created while detached.
@@ -1102,6 +1193,631 @@ fn generated_operation(
         Ok(None) => return_value.set(v8::undefined(scope).into()),
         Err(error) => throw_type_error(scope, &error.to_string()),
     }
+}
+
+fn stateful_id(
+    scope: &mut v8::PinScope,
+    object: v8::Local<v8::Object>,
+) -> Result<u64, V8BindingError> {
+    object
+        .get_internal_field(scope, 0)
+        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+        .and_then(|value| value.integer_value(scope))
+        .filter(|value| *value >= 1)
+        .map(|value| value as u64)
+        .ok_or(V8BindingError::Allocation("stateful interface identity"))
+}
+
+fn new_stateful_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    interface: &'static str,
+    id: u64,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let template = state
+        .instance_templates
+        .borrow()
+        .get(interface)
+        .cloned()
+        .ok_or(V8BindingError::MissingInterface(interface))?;
+    let object = v8::Local::new(scope, &template)
+        .new_instance(scope)
+        .ok_or(V8BindingError::Allocation("stateful interface object"))?;
+    object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
+    Ok(object)
+}
+
+fn traversal_nodes(dom: &DomRuntime, root: NodeId) -> Result<Vec<NodeId>, V8BindingError> {
+    fn visit(dom: &DomRuntime, node: NodeId, output: &mut Vec<NodeId>) -> Result<(), DomError> {
+        output.push(node);
+        for child in dom.children(node)? {
+            visit(dom, *child, output)?;
+        }
+        Ok(())
+    }
+    let mut nodes = Vec::new();
+    visit(dom, root, &mut nodes)?;
+    Ok(nodes)
+}
+
+fn common_ancestor(
+    dom: &DomRuntime,
+    left: NodeId,
+    right: NodeId,
+) -> Result<NodeId, V8BindingError> {
+    let mut left_ancestors = BTreeSet::new();
+    let mut cursor = Some(left);
+    while let Some(node) = cursor {
+        left_ancestors.insert(node);
+        cursor = dom.parent(node)?;
+    }
+    let mut cursor = Some(right);
+    while let Some(node) = cursor {
+        if left_ancestors.contains(&node) {
+            return Ok(node);
+        }
+        cursor = dom.parent(node)?;
+    }
+    Err(V8BindingError::Unsupported {
+        interface: "Range".into(),
+        member: "WrongDocumentError".into(),
+    })
+}
+
+fn relative_boundary(
+    dom: &DomRuntime,
+    node: NodeId,
+    after: bool,
+) -> Result<(NodeId, u32), V8BindingError> {
+    let parent = dom.parent(node)?.ok_or(V8BindingError::Unsupported {
+        interface: "Range".into(),
+        member: "InvalidNodeTypeError".into(),
+    })?;
+    let offset = dom
+        .children(parent)?
+        .iter()
+        .position(|candidate| *candidate == node)
+        .ok_or(V8BindingError::Allocation("range boundary child"))?
+        + usize::from(after);
+    Ok((parent, offset as u32))
+}
+
+fn traversal_position(dom: &DomRuntime, node: NodeId) -> Result<usize, V8BindingError> {
+    let mut root = node;
+    while let Some(parent) = dom.parent(root)? {
+        root = parent;
+    }
+    traversal_nodes(dom, root)?
+        .iter()
+        .position(|candidate| *candidate == node)
+        .ok_or(V8BindingError::Allocation("range traversal position"))
+}
+
+fn direct_child_offset(
+    dom: &DomRuntime,
+    ancestor: NodeId,
+    descendant: NodeId,
+) -> Result<Option<u32>, V8BindingError> {
+    let mut child = descendant;
+    loop {
+        let Some(parent) = dom.parent(child)? else {
+            return Ok(None);
+        };
+        if parent == ancestor {
+            return Ok(dom
+                .children(ancestor)?
+                .iter()
+                .position(|candidate| *candidate == child)
+                .map(|offset| offset as u32));
+        }
+        child = parent;
+    }
+}
+
+fn get_stateful_attribute<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    object: v8::Local<v8::Object>,
+    interface: &str,
+    member: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if matches!(interface, "AbstractRange" | "Range") {
+        let id = stateful_id(scope, object)?;
+        let ranges = state.ranges.borrow();
+        let range = ranges
+            .get(&id)
+            .ok_or(V8BindingError::Allocation("Range record"))?;
+        return match member {
+            "startContainer" => Ok(wrap_node(scope, state, range.start_container)?.into()),
+            "startOffset" => Ok(v8::Integer::new_from_unsigned(scope, range.start_offset).into()),
+            "endContainer" => Ok(wrap_node(scope, state, range.end_container)?.into()),
+            "endOffset" => Ok(v8::Integer::new_from_unsigned(scope, range.end_offset).into()),
+            "collapsed" => Ok(v8::Boolean::new(
+                scope,
+                range.start_container == range.end_container
+                    && range.start_offset == range.end_offset,
+            )
+            .into()),
+            "commonAncestorContainer" => {
+                let ancestor = {
+                    let dom = state.dom.borrow();
+                    common_ancestor(&dom, range.start_container, range.end_container)?
+                };
+                Ok(wrap_node(scope, state, ancestor)?.into())
+            }
+            _ => Err(V8BindingError::Unsupported {
+                interface: interface.into(),
+                member: member.into(),
+            }),
+        };
+    }
+    if interface == "Selection" {
+        let selected = state
+            .selection_range
+            .get()
+            .and_then(|id| state.ranges.borrow().get(&id).cloned());
+        return match member {
+            "anchorNode" => optional_node(
+                scope,
+                state,
+                selected.as_ref().map(|range| range.start_container),
+            ),
+            "anchorOffset" => Ok(v8::Integer::new_from_unsigned(
+                scope,
+                selected.as_ref().map_or(0, |range| range.start_offset),
+            )
+            .into()),
+            "focusNode" => optional_node(
+                scope,
+                state,
+                selected.as_ref().map(|range| range.end_container),
+            ),
+            "focusOffset" => Ok(v8::Integer::new_from_unsigned(
+                scope,
+                selected.as_ref().map_or(0, |range| range.end_offset),
+            )
+            .into()),
+            "isCollapsed" => Ok(v8::Boolean::new(
+                scope,
+                selected.as_ref().is_none_or(|range| {
+                    range.start_container == range.end_container
+                        && range.start_offset == range.end_offset
+                }),
+            )
+            .into()),
+            "rangeCount" => {
+                Ok(v8::Integer::new_from_unsigned(scope, u32::from(selected.is_some())).into())
+            }
+            "type" => v8_string(
+                scope,
+                if selected.is_none() {
+                    "None"
+                } else if selected.as_ref().is_some_and(|range| {
+                    range.start_container == range.end_container
+                        && range.start_offset == range.end_offset
+                }) {
+                    "Caret"
+                } else {
+                    "Range"
+                },
+            ),
+            _ => Err(V8BindingError::Unsupported {
+                interface: interface.into(),
+                member: member.into(),
+            }),
+        };
+    }
+    let id = stateful_id(scope, object)?;
+    let traversals = state.traversals.borrow();
+    let traversal = traversals
+        .get(&id)
+        .ok_or(V8BindingError::Allocation("traversal record"))?;
+    match (interface, member) {
+        ("NodeIterator" | "TreeWalker", "root") => {
+            Ok(wrap_node(scope, state, traversal.root)?.into())
+        }
+        ("NodeIterator", "referenceNode") | ("TreeWalker", "currentNode") => {
+            Ok(wrap_node(scope, state, traversal.nodes[traversal.index])?.into())
+        }
+        ("NodeIterator", "pointerBeforeReferenceNode") => {
+            Ok(v8::Boolean::new(scope, traversal.pointer_before).into())
+        }
+        ("NodeIterator" | "TreeWalker", "whatToShow") => {
+            Ok(v8::Integer::new_from_unsigned(scope, traversal.what_to_show).into())
+        }
+        _ => Err(V8BindingError::Unsupported {
+            interface: interface.into(),
+            member: member.into(),
+        }),
+    }
+}
+
+fn call_stateful_operation<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    object: v8::Local<v8::Object>,
+    interface: &str,
+    member: &str,
+    args: &v8::FunctionCallbackArguments,
+) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if interface == "Range" {
+        let id = stateful_id(scope, object)?;
+        match member {
+            "setStart" | "setEnd" => {
+                let node = argument_node(scope, state, args.get(0))?;
+                let offset = args.get(1).uint32_value(scope).unwrap_or(0);
+                let mut ranges = state.ranges.borrow_mut();
+                let range = ranges
+                    .get_mut(&id)
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                if member == "setStart" {
+                    range.start_container = node;
+                    range.start_offset = offset;
+                } else {
+                    range.end_container = node;
+                    range.end_offset = offset;
+                }
+                return Ok(None);
+            }
+            "setStartBefore" | "setStartAfter" | "setEndBefore" | "setEndAfter" => {
+                let node = argument_node(scope, state, args.get(0))?;
+                let (container, offset) =
+                    relative_boundary(&state.dom.borrow(), node, member.ends_with("After"))?;
+                let mut ranges = state.ranges.borrow_mut();
+                let range = ranges
+                    .get_mut(&id)
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                if member.starts_with("setStart") {
+                    range.start_container = container;
+                    range.start_offset = offset;
+                } else {
+                    range.end_container = container;
+                    range.end_offset = offset;
+                }
+                return Ok(None);
+            }
+            "collapse" => {
+                let to_start = args.get(0).boolean_value(scope);
+                let mut ranges = state.ranges.borrow_mut();
+                let range = ranges
+                    .get_mut(&id)
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                if to_start {
+                    range.end_container = range.start_container;
+                    range.end_offset = range.start_offset;
+                } else {
+                    range.start_container = range.end_container;
+                    range.start_offset = range.end_offset;
+                }
+                return Ok(None);
+            }
+            "selectNode" | "selectNodeContents" => {
+                let node = argument_node(scope, state, args.get(0))?;
+                let length = state.dom.borrow().children(node)?.len() as u32;
+                let mut ranges = state.ranges.borrow_mut();
+                let range = ranges
+                    .get_mut(&id)
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                range.start_container = node;
+                range.start_offset = 0;
+                range.end_container = node;
+                range.end_offset = length;
+                return Ok(None);
+            }
+            "cloneRange" => {
+                let range = state
+                    .ranges
+                    .borrow()
+                    .get(&id)
+                    .cloned()
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                let clone_id = state.next_range_id.get();
+                state.next_range_id.set(clone_id.saturating_add(1));
+                state.ranges.borrow_mut().insert(clone_id, range);
+                return Ok(Some(
+                    new_stateful_object(scope, state, "Range", clone_id)?.into(),
+                ));
+            }
+            "detach" => return Ok(None),
+            "isPointInRange" | "comparePoint" => {
+                let node = argument_node(scope, state, args.get(0))?;
+                let offset = args.get(1).uint32_value(scope).unwrap_or(0);
+                let range = state
+                    .ranges
+                    .borrow()
+                    .get(&id)
+                    .cloned()
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                let dom = state.dom.borrow();
+                let point_position = traversal_position(&dom, node)?;
+                let start_position = traversal_position(&dom, range.start_container)?;
+                let end_position = traversal_position(&dom, range.end_container)?;
+                let before_start = point_position < start_position
+                    || (point_position == start_position && offset < range.start_offset);
+                let after_end = point_position > end_position
+                    || (point_position == end_position && offset > range.end_offset);
+                if member == "isPointInRange" {
+                    return Ok(Some(
+                        v8::Boolean::new(scope, !before_start && !after_end).into(),
+                    ));
+                }
+                let comparison = if before_start {
+                    -1
+                } else if after_end {
+                    1
+                } else {
+                    0
+                };
+                return Ok(Some(v8::Integer::new(scope, comparison).into()));
+            }
+            "intersectsNode" => {
+                let node = argument_node(scope, state, args.get(0))?;
+                let range = state
+                    .ranges
+                    .borrow()
+                    .get(&id)
+                    .cloned()
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                let dom = state.dom.borrow();
+                let intersects = if range.start_container == range.end_container {
+                    direct_child_offset(&dom, range.start_container, node)?.is_some_and(|offset| {
+                        offset >= range.start_offset && offset < range.end_offset
+                    }) || node == range.start_container
+                } else {
+                    let position = traversal_position(&dom, node)?;
+                    let start = traversal_position(&dom, range.start_container)?;
+                    let end = traversal_position(&dom, range.end_container)?;
+                    position >= start && position <= end
+                };
+                return Ok(Some(v8::Boolean::new(scope, intersects).into()));
+            }
+            "toString" => {
+                let range = state
+                    .ranges
+                    .borrow()
+                    .get(&id)
+                    .cloned()
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                let text = state
+                    .dom
+                    .borrow()
+                    .arena()
+                    .text_content(range.start_container)?;
+                return Ok(Some(v8_string(scope, &text)?));
+            }
+            "createContextualFragment" => {
+                let markup = required_string(scope, args, 0)?;
+                let parsed = oryn_dom::html::parse_fragment(&markup, "div");
+                let parsed_children = parsed.dom.get(parsed.document)?.children.clone();
+                let mut dom = state.dom.borrow_mut();
+                let fragment = dom.create_fragment();
+                for child in parsed_children {
+                    let child = dom.import_subtree(&parsed.dom, child)?;
+                    dom.append_child(fragment, child)?;
+                }
+                drop(dom);
+                return Ok(Some(wrap_node(scope, state, fragment)?.into()));
+            }
+            _ => {}
+        }
+    }
+    if interface == "Selection" {
+        match member {
+            "getRangeAt" => {
+                let id = state
+                    .selection_range
+                    .get()
+                    .ok_or(V8BindingError::Unsupported {
+                        interface: interface.into(),
+                        member: "IndexSizeError".into(),
+                    })?;
+                return Ok(Some(new_stateful_object(scope, state, "Range", id)?.into()));
+            }
+            "addRange" => {
+                state.selection_range.set(Some(stateful_id(
+                    scope,
+                    v8::Local::<v8::Object>::try_from(args.get(0))
+                        .map_err(|_| V8BindingError::Allocation("Range argument"))?,
+                )?));
+                return Ok(None);
+            }
+            "removeRange" => {
+                let range_id = stateful_id(
+                    scope,
+                    v8::Local::<v8::Object>::try_from(args.get(0))
+                        .map_err(|_| V8BindingError::Allocation("Range argument"))?,
+                )?;
+                if state.selection_range.get() == Some(range_id) {
+                    state.selection_range.set(None);
+                }
+                return Ok(None);
+            }
+            "removeAllRanges" | "empty" => {
+                state.selection_range.set(None);
+                return Ok(None);
+            }
+            "collapse" | "setPosition" | "selectAllChildren" => {
+                let node = argument_node(scope, state, args.get(0))?;
+                let offset = if member == "selectAllChildren" {
+                    state.dom.borrow().children(node)?.len() as u32
+                } else {
+                    args.get(1).uint32_value(scope).unwrap_or(0)
+                };
+                let id = state.next_range_id.get();
+                state.next_range_id.set(id.saturating_add(1));
+                state.ranges.borrow_mut().insert(
+                    id,
+                    RangeRecord {
+                        start_container: node,
+                        start_offset: if member == "selectAllChildren" {
+                            0
+                        } else {
+                            offset
+                        },
+                        end_container: node,
+                        end_offset: offset,
+                    },
+                );
+                state.selection_range.set(Some(id));
+                return Ok(None);
+            }
+            "collapseToStart" | "collapseToEnd" => {
+                let id = state
+                    .selection_range
+                    .get()
+                    .ok_or(V8BindingError::Unsupported {
+                        interface: interface.into(),
+                        member: "InvalidStateError".into(),
+                    })?;
+                let mut ranges = state.ranges.borrow_mut();
+                let range = ranges
+                    .get_mut(&id)
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                if member == "collapseToStart" {
+                    range.end_container = range.start_container;
+                    range.end_offset = range.start_offset;
+                } else {
+                    range.start_container = range.end_container;
+                    range.start_offset = range.end_offset;
+                }
+                return Ok(None);
+            }
+            "containsNode" => {
+                let node = argument_node(scope, state, args.get(0))?;
+                let Some(range) = state
+                    .selection_range
+                    .get()
+                    .and_then(|id| state.ranges.borrow().get(&id).cloned())
+                else {
+                    return Ok(Some(v8::Boolean::new(scope, false).into()));
+                };
+                let dom = state.dom.borrow();
+                let position = traversal_position(&dom, node)?;
+                let start = traversal_position(&dom, range.start_container)?;
+                let end = traversal_position(&dom, range.end_container)?;
+                return Ok(Some(
+                    v8::Boolean::new(scope, position >= start && position <= end).into(),
+                ));
+            }
+            "toString" => {
+                let text = state
+                    .selection_range
+                    .get()
+                    .and_then(|id| state.ranges.borrow().get(&id).cloned())
+                    .map(|range| {
+                        state
+                            .dom
+                            .borrow()
+                            .arena()
+                            .text_content(range.start_container)
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default();
+                return Ok(Some(v8_string(scope, &text)?));
+            }
+            _ => {}
+        }
+    }
+    if matches!(interface, "NodeIterator" | "TreeWalker") {
+        let id = stateful_id(scope, object)?;
+        let mut traversals = state.traversals.borrow_mut();
+        let traversal = traversals
+            .get_mut(&id)
+            .ok_or(V8BindingError::Allocation("traversal record"))?;
+        match member {
+            "nextNode" => {
+                if interface == "NodeIterator" && traversal.pointer_before {
+                    traversal.pointer_before = false;
+                    return Ok(Some(
+                        wrap_node(scope, state, traversal.nodes[traversal.index])?.into(),
+                    ));
+                }
+                if traversal.index + 1 >= traversal.nodes.len() {
+                    return Ok(Some(v8::null(scope).into()));
+                }
+                traversal.index += 1;
+                return Ok(Some(
+                    wrap_node(scope, state, traversal.nodes[traversal.index])?.into(),
+                ));
+            }
+            "previousNode" => {
+                if interface == "NodeIterator" && traversal.pointer_before {
+                    return Ok(Some(v8::null(scope).into()));
+                }
+                if traversal.index == 0 {
+                    traversal.pointer_before = interface == "NodeIterator";
+                    return Ok(Some(v8::null(scope).into()));
+                }
+                traversal.index -= 1;
+                return Ok(Some(
+                    wrap_node(scope, state, traversal.nodes[traversal.index])?.into(),
+                ));
+            }
+            "parentNode" if interface == "TreeWalker" => {
+                let current = traversal.nodes[traversal.index];
+                let parent = {
+                    let dom = state.dom.borrow();
+                    dom.parent(current)?
+                };
+                let Some(parent) = parent else {
+                    return Ok(Some(v8::null(scope).into()));
+                };
+                if let Some(index) = traversal.nodes.iter().position(|node| *node == parent) {
+                    traversal.index = index;
+                }
+                return Ok(Some(wrap_node(scope, state, parent)?.into()));
+            }
+            "firstChild" | "lastChild" if interface == "TreeWalker" => {
+                let current = traversal.nodes[traversal.index];
+                let child = {
+                    let dom = state.dom.borrow();
+                    let children = dom.children(current)?;
+                    if member == "firstChild" {
+                        children.first().copied()
+                    } else {
+                        children.last().copied()
+                    }
+                };
+                let Some(child) = child else {
+                    return Ok(Some(v8::null(scope).into()));
+                };
+                if let Some(index) = traversal.nodes.iter().position(|node| *node == child) {
+                    traversal.index = index;
+                }
+                return Ok(Some(wrap_node(scope, state, child)?.into()));
+            }
+            "previousSibling" | "nextSibling" if interface == "TreeWalker" => {
+                let current = traversal.nodes[traversal.index];
+                let sibling = {
+                    let dom = state.dom.borrow();
+                    dom.parent(current)?.and_then(|parent| {
+                        let children = dom.children(parent).ok()?;
+                        let position = children.iter().position(|node| *node == current)?;
+                        if member == "previousSibling" {
+                            position
+                                .checked_sub(1)
+                                .and_then(|index| children.get(index).copied())
+                        } else {
+                            children.get(position + 1).copied()
+                        }
+                    })
+                };
+                let Some(sibling) = sibling else {
+                    return Ok(Some(v8::null(scope).into()));
+                };
+                if let Some(index) = traversal.nodes.iter().position(|node| *node == sibling) {
+                    traversal.index = index;
+                }
+                return Ok(Some(wrap_node(scope, state, sibling)?.into()));
+            }
+            "detach" => return Ok(None),
+            _ => {}
+        }
+    }
+    Err(V8BindingError::Unsupported {
+        interface: interface.into(),
+        member: member.into(),
+    })
 }
 
 fn resolve_receiver(
@@ -1792,7 +2508,7 @@ fn get_attribute_value<'s>(
             .ok_or(V8BindingError::Allocation("location href"));
     }
     if interface == "Document" && member == "currentScript" {
-        return optional_node(scope, state, state.document_write_anchor.get());
+        return optional_node(scope, state, state.current_script.get());
     }
     if interface == "Document" && member == "activeElement" {
         let focused = state.dom.borrow().focused();
@@ -2433,6 +3149,57 @@ fn call_operation<'s>(
             let event = create_event_object(scope, state, "", false, false)?;
             Ok(Some(event.into()))
         }
+        ("Document", "createRange") => {
+            let document = state.dom.borrow().document();
+            let id = state.next_range_id.get();
+            state.next_range_id.set(id.saturating_add(1));
+            state.ranges.borrow_mut().insert(
+                id,
+                RangeRecord {
+                    start_container: document,
+                    start_offset: 0,
+                    end_container: document,
+                    end_offset: 0,
+                },
+            );
+            Ok(Some(new_stateful_object(scope, state, "Range", id)?.into()))
+        }
+        ("Document", "getSelection") => {
+            if let Some(object) = state.selection_object.borrow().as_ref() {
+                return Ok(Some(v8::Local::new(scope, object).into()));
+            }
+            let object = new_stateful_object(scope, state, "Selection", 1)?;
+            state
+                .selection_object
+                .borrow_mut()
+                .replace(v8::Global::new(scope, object));
+            Ok(Some(object.into()))
+        }
+        ("Document", "createNodeIterator" | "createTreeWalker") => {
+            let root = argument_node(scope, state, args.get(0))?;
+            let what_to_show = args.get(1).uint32_value(scope).unwrap_or(u32::MAX);
+            let nodes = traversal_nodes(&state.dom.borrow(), root)?;
+            let id = state.next_traversal_id.get();
+            state.next_traversal_id.set(id.saturating_add(1));
+            state.traversals.borrow_mut().insert(
+                id,
+                TraversalRecord {
+                    root,
+                    nodes,
+                    index: 0,
+                    pointer_before: member == "createNodeIterator",
+                    what_to_show,
+                },
+            );
+            let interface = if member == "createNodeIterator" {
+                "NodeIterator"
+            } else {
+                "TreeWalker"
+            };
+            Ok(Some(
+                new_stateful_object(scope, state, interface, id)?.into(),
+            ))
+        }
         ("Element", "attachShadow") => {
             let options = args
                 .get(0)
@@ -2478,8 +3245,15 @@ fn call_operation<'s>(
             optional_node(scope, state, found).map(Some)
         }
         ("Document", "open") => {
+            if state.parser_input_active.get() {
+                state
+                    .parser_input_commands
+                    .borrow_mut()
+                    .push_back(ParserInputCommand::Open);
+                return Ok(Some(wrap_node(scope, state, node)?.into()));
+            }
             state.document_open.set(true);
-            state.document_write_anchor.set(None);
+            state.current_script.set(None);
             state.document_write_buffer.borrow_mut().clear();
             state.dom.borrow_mut().replace_document_contents("")?;
             Ok(Some(wrap_node(scope, state, node)?.into()))
@@ -2500,7 +3274,12 @@ fn call_operation<'s>(
                     resource: "input size",
                 });
             }
-            if state.document_open.get() {
+            if state.parser_input_active.get() {
+                state
+                    .parser_input_commands
+                    .borrow_mut()
+                    .push_back(ParserInputCommand::Write(markup));
+            } else if state.document_open.get() {
                 if state
                     .document_write_buffer
                     .borrow()
@@ -2513,10 +3292,10 @@ fn call_operation<'s>(
                     });
                 }
                 state.document_write_buffer.borrow_mut().push_str(&markup);
-            } else if let Some(anchor) = state.document_write_anchor.get() {
+            } else if let Some(anchor) = state.current_script.get() {
                 let inserted = state.dom.borrow_mut().insert_html_after(anchor, &markup)?;
                 if let Some(last) = inserted.last().copied() {
-                    state.document_write_anchor.set(Some(last));
+                    state.current_script.set(Some(last));
                 }
                 execute_parser_inserted_scripts(scope, state, &inserted)?;
             } else {
@@ -2530,6 +3309,13 @@ fn call_operation<'s>(
             Ok(None)
         }
         ("Document", "close") => {
+            if state.parser_input_active.get() {
+                state
+                    .parser_input_commands
+                    .borrow_mut()
+                    .push_back(ParserInputCommand::Close);
+                return Ok(None);
+            }
             if state.document_open.replace(false) {
                 let markup = std::mem::take(&mut *state.document_write_buffer.borrow_mut());
                 state.dom.borrow_mut().replace_document_contents(&markup)?;
@@ -3102,7 +3888,7 @@ fn execute_parser_inserted_scripts(
             .collect::<Result<Vec<_>, _>>()?
     };
     for (script, source) in scripts {
-        let previous_anchor = state.document_write_anchor.replace(Some(script));
+        let previous_anchor = state.current_script.replace(Some(script));
         state
             .document_write_depth
             .set(state.document_write_depth.get().saturating_add(1));
@@ -3119,7 +3905,7 @@ fn execute_parser_inserted_scripts(
         state
             .document_write_depth
             .set(state.document_write_depth.get().saturating_sub(1));
-        state.document_write_anchor.set(previous_anchor);
+        state.current_script.set(previous_anchor);
         result?;
     }
     Ok(())
@@ -3765,7 +4551,7 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
-        state.set_document_write_anchor(Some(script_node));
+        state.set_current_script(Some(script_node));
         let source = v8::String::new(
             scope,
             "document.currentScript.id==='boot'&&document.currentScript.parentElement.tagName==='MAIN'",
@@ -3773,7 +4559,7 @@ mod tests {
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert!(script.run(scope).unwrap().boolean_value(scope));
-        state.set_document_write_anchor(None);
+        state.set_current_script(None);
         let source = v8::String::new(scope, "document.currentScript===null").unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert!(script.run(scope).unwrap().boolean_value(scope));
@@ -3974,6 +4760,28 @@ mod tests {
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert!(script.run(scope).unwrap().boolean_value(scope));
+    }
+
+    #[test]
+    fn generated_range_selection_and_traversal_are_rust_backed() {
+        initialize_v8();
+        let parsed = html::parse("<main id='root'><p id='one'>one</p><p id='two'>two</p></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const root=document.getElementById('root'),one=document.getElementById('one'),two=document.getElementById('two');const range=document.createRange();range.selectNodeContents(one);const selection=document.getSelection();selection.addRange(range);const iterator=document.createNodeIterator(root);const walker=document.createTreeWalker(root);const first=walker.firstChild().id,next=walker.nextSibling().id,parent=walker.parentNode().id;range.setStartBefore(one);range.setEndAfter(two);const contains=range.commonAncestorContainer===root&&range.intersectsNode(two)&&range.isPointInRange(root,1);selection.collapseToStart();const collapsed=selection.isCollapsed;range.detach();(range instanceof Range)+'|'+selection.rangeCount+'|'+iterator.nextNode().id+'|'+iterator.nextNode().id+'|'+first+'|'+next+'|'+parent+'|'+contains+'|'+collapsed",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "true|1|root|one|one|two|root|true|true"
+        );
     }
 
     #[test]

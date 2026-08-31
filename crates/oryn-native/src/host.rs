@@ -66,7 +66,7 @@ mod raw_v8 {
     use crate::context_service::{
         ContextServiceRequest, ContextServiceResponse, HttpStreamRequest, SharedContextClient,
     };
-    use crate::network::{NetworkBroker, NetworkRequest, SharedNetworkBroker};
+    use crate::network::{NetworkBroker, NetworkRequest, SharedNetworkBroker, collect_operation};
     #[cfg(unix)]
     use oryn_common::v3::PageId;
     use oryn_dom::NodeId;
@@ -78,6 +78,19 @@ mod raw_v8 {
     };
 
     static INITIALIZE_V8: Once = Once::new();
+
+    #[cfg(feature = "v8-sandbox")]
+    unsafe extern "C" {
+        fn v8__V8__IsSandboxEnabled() -> bool;
+    }
+
+    #[cfg(feature = "v8-sandbox")]
+    fn assert_v8_heap_sandbox() {
+        assert!(
+            unsafe { v8__V8__IsSandboxEnabled() },
+            "linked V8 archive has the heap sandbox disabled"
+        );
+    }
 
     pub struct RawV8Host {
         isolate: v8::OwnedIsolate,
@@ -435,57 +448,22 @@ mod raw_v8 {
     }
 
     fn install_runtime_profile(scope: &mut v8::ContextScope<v8::HandleScope>) {
-        #[cfg(feature = "core-lite")]
-        {
-            const SOURCE: &str = r#"
-                (() => {
-                  const allowed = locale => locale === undefined || locale === null ||
-                    ['', 'root', 'en', 'en-US', 'en-us'].includes(String(locale));
-                  const validate = locales => {
-                    if (locales === undefined) return;
-                    const values = Array.isArray(locales) ? locales : [locales];
-                    for (const locale of values) {
-                      if (!allowed(locale)) throw new RangeError(
-                        `Intl locale ${String(locale)} is unavailable in core-lite; supported locales are root, en, and en-US`
-                      );
-                    }
-                  };
-                  for (const name of ['Collator','DateTimeFormat','DisplayNames','ListFormat','Locale','NumberFormat','PluralRules','RelativeTimeFormat','Segmenter']) {
-                    const Native = Intl[name];
-                    if (typeof Native !== 'function') continue;
-                    const Wrapped = new Proxy(Native, {
-                      apply(target, self, args) { validate(args[0]); return Reflect.apply(target, self, args); },
-                      construct(target, args, receiver) { validate(args[0]); return Reflect.construct(target, args, receiver); }
-                    });
-                    if (typeof Native.supportedLocalesOf === 'function') {
-                      Wrapped.supportedLocalesOf = locales => {
-                        validate(locales);
-                        return Native.supportedLocalesOf(locales);
-                      };
-                    }
-                    Intl[name] = Wrapped;
-                  }
-                  Object.defineProperty(globalThis, '__oryn_runtime_profile', { value: 'core-lite' });
-                })();
-            "#;
-            let source = v8::String::new(scope, SOURCE).expect("allocate core-lite startup source");
-            let script = v8::Script::compile(scope, source, None)
-                .expect("compile core-lite Intl capability guard");
-            script
-                .run(scope)
-                .expect("install core-lite Intl capability guard");
-        }
-        #[cfg(not(feature = "core-lite"))]
-        {
-            let name = v8::String::new(scope, "__oryn_runtime_profile")
-                .expect("allocate runtime profile name");
-            let value =
-                v8::String::new(scope, "core-full").expect("allocate runtime profile value");
-            scope
-                .get_current_context()
-                .global(scope)
-                .create_data_property(scope, name.into(), value.into());
-        }
+        let profile = if cfg!(feature = "core-lite") {
+            if option_env!("ORYN_ICU_DATA_SHA256").is_some() {
+                "core-lite"
+            } else {
+                "core-lite-unattested-probe"
+            }
+        } else {
+            "core-full"
+        };
+        let name = v8::String::new(scope, "__oryn_runtime_profile")
+            .expect("allocate runtime profile name");
+        let value = v8::String::new(scope, profile).expect("allocate runtime profile value");
+        scope
+            .get_current_context()
+            .global(scope)
+            .create_data_property(scope, name.into(), value.into());
     }
 
     impl RawV8Host {
@@ -563,9 +541,15 @@ mod raw_v8 {
                 let platform = v8::new_default_platform(0, false).make_shared();
                 v8::V8::initialize_platform(platform);
                 v8::V8::initialize();
+                #[cfg(feature = "v8-sandbox")]
+                assert_v8_heap_sandbox();
             });
-            let mut isolate =
-                v8::Isolate::new(v8::CreateParams::default().heap_limits(0, max_heap_bytes));
+            let params = v8::CreateParams::default().heap_limits(0, max_heap_bytes);
+            #[cfg(oryn_startup_snapshot)]
+            let params = params.snapshot_blob(v8::StartupData::from(
+                &include_bytes!(env!("ORYN_STARTUP_SNAPSHOT_PATH"))[..],
+            ));
+            let mut isolate = v8::Isolate::new(params);
             isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
             isolate.set_host_import_module_dynamically_callback(dynamic_import);
             isolate.set_host_initialize_import_meta_object_callback(initialize_import_meta);
@@ -680,15 +664,30 @@ mod raw_v8 {
             Ok(())
         }
 
-        pub fn set_document_write_anchor(
-            &mut self,
-            anchor: Option<NodeId>,
-        ) -> Result<(), HostError> {
+        pub fn set_current_script(&mut self, anchor: Option<NodeId>) -> Result<(), HostError> {
             self.binding_states
                 .get(&self.active_realm)
                 .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
-                .set_document_write_anchor(anchor);
+                .set_current_script(anchor);
             Ok(())
+        }
+
+        pub fn set_parser_input_active(&mut self, active: bool) -> Result<(), HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
+                .set_parser_input_active(active);
+            Ok(())
+        }
+
+        pub fn take_parser_input_commands(
+            &mut self,
+        ) -> Result<Vec<oryn_js::v8_bindings::ParserInputCommand>, HostError> {
+            Ok(self
+                .binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
+                .take_parser_input_commands())
         }
 
         pub fn configure_trusted_types(
@@ -2329,9 +2328,9 @@ mod raw_v8 {
             .or_else(|| fetch.base_url.join(resource_name).ok())
             .unwrap_or_else(|| fetch.base_url.clone());
         let url = base.join(specifier).ok()?;
-        let response = fetch
-            .broker
-            .send(NetworkRequest {
+        let response = collect_operation(
+            &fetch.broker,
+            NetworkRequest {
                 request_id: 900_000,
                 method: "GET".into(),
                 url: url.to_string(),
@@ -2345,8 +2344,9 @@ mod raw_v8 {
                     ..Default::default()
                 },
                 resolved_addrs: Vec::new(),
-            })
-            .ok()?;
+            },
+        )
+        .ok()?;
         if !(200..300).contains(&response.status) {
             return None;
         }
@@ -2603,7 +2603,11 @@ mod tests {
             host.evaluate_string("typeof WebAssembly + ':' + __oryn_runtime_profile")
                 .unwrap(),
             if cfg!(feature = "core-lite") {
-                "object:core-lite"
+                if option_env!("ORYN_ICU_DATA_SHA256").is_some() {
+                    "object:core-lite"
+                } else {
+                    "object:core-lite-unattested-probe"
+                }
             } else {
                 "object:core-full"
             }
@@ -2617,17 +2621,21 @@ mod tests {
 
     #[cfg(feature = "core-lite")]
     #[test]
-    fn core_lite_rejects_unavailable_intl_locales_explicitly() {
+    fn core_lite_never_claims_reduction_without_a_reduced_icu_artifact() {
         let mut host = RawV8Host::new();
         assert_eq!(
             host.evaluate_string("new Intl.NumberFormat('en-US').format(12)")
                 .unwrap(),
             "12"
         );
-        let error = host
-            .evaluate_string("new Intl.NumberFormat('fr-FR').format(12)")
-            .unwrap_err();
-        assert!(error.to_string().contains("core-lite"), "{error}");
+        assert_eq!(
+            host.evaluate_string("__oryn_runtime_profile").unwrap(),
+            if option_env!("ORYN_ICU_DATA_SHA256").is_some() {
+                "core-lite"
+            } else {
+                "core-lite-unattested-probe"
+            }
+        );
     }
 
     #[test]

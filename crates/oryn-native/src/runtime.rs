@@ -36,8 +36,7 @@ use crate::challenge::{ChallengeAssessment, assess_challenge};
 use crate::html::{ParsedDocument, parse};
 use crate::network::NetworkBroker;
 use crate::semantic::{
-    empty_observation, is_hidden, project_document, project_document_full, project_element,
-    project_semantic_observation,
+    empty_observation, is_hidden, project_element, project_semantic_observation,
 };
 use crate::trace::{CausalRelation, TraceEvent, TraceEventKind, TraceLog};
 use crate::{
@@ -48,7 +47,7 @@ use crate::{
     },
     network::{
         CookieBroker, MemoryCachingBroker, NetworkRequest, PersistentCachingBroker, PolicyBroker,
-        RustlsTransport, SharedNetworkBroker,
+        RustlsTransport, SharedNetworkBroker, collect_operation,
     },
     security::{
         ActionPolicy, ConfirmationToken, ConsequentialAction, NetworkPolicy, PolicyDecision,
@@ -134,6 +133,7 @@ struct BrowserContextInner {
     intent_trace: Mutex<Vec<crate::replay::IntentTraceRecord>>,
     domain_decisions: Mutex<Vec<crate::execution::DomainDecision>>,
     document_security: Mutex<BTreeMap<PageId, crate::csp::CspPolicySet>>,
+    document_referrer_policy: Mutex<BTreeMap<PageId, crate::referrer::ReferrerPolicy>>,
     security_origins: Mutex<BTreeMap<PageId, SecurityOrigin>>,
     expected_meta_security: Mutex<BTreeMap<PageId, std::collections::VecDeque<String>>>,
     csp_reporting: Arc<Mutex<CspReportingState>>,
@@ -1312,6 +1312,7 @@ impl Browser {
                 intent_trace: Mutex::new(Vec::new()),
                 domain_decisions: Mutex::new(Vec::new()),
                 document_security: Mutex::new(BTreeMap::new()),
+                document_referrer_policy: Mutex::new(BTreeMap::new()),
                 security_origins: Mutex::new(BTreeMap::new()),
                 expected_meta_security: Mutex::new(BTreeMap::new()),
                 csp_reporting: Arc::new(Mutex::new(CspReportingState::default())),
@@ -1356,6 +1357,7 @@ impl Browser {
                 intent_trace: Mutex::new(Vec::new()),
                 domain_decisions: Mutex::new(Vec::new()),
                 document_security: Mutex::new(BTreeMap::new()),
+                document_referrer_policy: Mutex::new(BTreeMap::new()),
                 security_origins: Mutex::new(BTreeMap::new()),
                 expected_meta_security: Mutex::new(BTreeMap::new()),
                 csp_reporting: Arc::new(Mutex::new(CspReportingState::default())),
@@ -1400,6 +1402,7 @@ impl Browser {
                 intent_trace: Mutex::new(Vec::new()),
                 domain_decisions: Mutex::new(Vec::new()),
                 document_security: Mutex::new(BTreeMap::new()),
+                document_referrer_policy: Mutex::new(BTreeMap::new()),
                 security_origins: Mutex::new(BTreeMap::new()),
                 expected_meta_security: Mutex::new(BTreeMap::new()),
                 csp_reporting: Arc::new(Mutex::new(CspReportingState::default())),
@@ -2248,6 +2251,42 @@ impl BrowserContext {
             .ok_or(RuntimeError::PageNotFound(page_id))
     }
 
+    pub(crate) fn page_referrer_policy(
+        &self,
+        page_id: PageId,
+    ) -> Result<crate::referrer::ReferrerPolicy, RuntimeError> {
+        if !self.pages().iter().any(|page| page.page.page_id == page_id) {
+            return Err(RuntimeError::PageNotFound(page_id));
+        }
+        Ok(self
+            .inner
+            .document_referrer_policy
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("referrer policy lock poisoned".into()))?
+            .get(&page_id)
+            .copied()
+            .unwrap_or_default())
+    }
+
+    pub(crate) fn install_meta_referrer(
+        &self,
+        page_id: PageId,
+        serialized: &str,
+    ) -> Result<(), RuntimeError> {
+        if !self.pages().iter().any(|page| page.page.page_id == page_id) {
+            return Err(RuntimeError::PageNotFound(page_id));
+        }
+        self.inner
+            .document_referrer_policy
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("referrer policy lock poisoned".into()))?
+            .insert(
+                page_id,
+                crate::referrer::ReferrerPolicy::parse_list(serialized),
+            );
+        Ok(())
+    }
+
     pub(crate) fn install_document_security(
         &self,
         page_id: PageId,
@@ -2258,6 +2297,12 @@ impl BrowserContext {
             return Err(RuntimeError::PageNotFound(page_id));
         }
         let policy = crate::csp::CspPolicySet::from_headers(document_url.clone(), headers);
+        let referrer = headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("referrer-policy"))
+            .map(|(_, value)| crate::referrer::ReferrerPolicy::parse_list(value))
+            .next_back()
+            .unwrap_or_default();
         let origin = if policy
             .sandbox()
             .is_some_and(|sandbox| !sandbox.allow_same_origin)
@@ -2276,6 +2321,11 @@ impl BrowserContext {
             .lock()
             .map_err(|_| RuntimeError::ContextService("document security lock poisoned".into()))?
             .insert(page_id, policy);
+        self.inner
+            .document_referrer_policy
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("referrer policy lock poisoned".into()))?
+            .insert(page_id, referrer);
         Ok(())
     }
 
@@ -2436,25 +2486,28 @@ impl BrowserContext {
             let outcome = if body.len() > 32 * 1024 {
                 "size_limited".into()
             } else {
-                match broker.send(NetworkRequest {
-                    request_id: NEXT_CSP_REPORT_REQUEST_ID.fetch_add(1, Ordering::Relaxed),
-                    method: "POST".into(),
-                    url: endpoint.clone(),
-                    headers: vec![
-                        ("content-type".into(), content_type.into()),
-                        ("cache-control".into(), "no-store".into()),
-                    ],
-                    body,
-                    credentials: false,
-                    security: crate::cookies::CookieRequestContext {
-                        credentials: crate::cookies::CookieCredentials::Omit,
-                        kind: crate::cookies::CookieRequestKind::Other,
-                        initiator_url: Some(violation.document_uri),
-                        top_level_url: Some(top_level_url),
-                        ..Default::default()
+                match collect_operation(
+                    &broker,
+                    NetworkRequest {
+                        request_id: NEXT_CSP_REPORT_REQUEST_ID.fetch_add(1, Ordering::Relaxed),
+                        method: "POST".into(),
+                        url: endpoint.clone(),
+                        headers: vec![
+                            ("content-type".into(), content_type.into()),
+                            ("cache-control".into(), "no-store".into()),
+                        ],
+                        body,
+                        credentials: false,
+                        security: crate::cookies::CookieRequestContext {
+                            credentials: crate::cookies::CookieCredentials::Omit,
+                            kind: crate::cookies::CookieRequestKind::Other,
+                            initiator_url: Some(violation.document_uri),
+                            top_level_url: Some(top_level_url),
+                            ..Default::default()
+                        },
+                        resolved_addrs: Vec::new(),
                     },
-                    resolved_addrs: Vec::new(),
-                }) {
+                ) {
                     Ok(response) if (200..300).contains(&response.status) => "delivered".into(),
                     Ok(response) if response.status == 410 => "endpoint_removed".into(),
                     Ok(response) => format!("http_{}", response.status),
@@ -2804,6 +2857,7 @@ impl BrowserContext {
                         if let Err(error) = state.load_document(
                             url.clone(),
                             &html,
+                            None,
                             true,
                             &BTreeMap::new(),
                             #[cfg(feature = "v8-host")]
@@ -4237,10 +4291,11 @@ struct PageState {
     lifecycle: Vec<LifecycleState>,
     network_quiet_since: Option<Instant>,
     document: Option<ParsedDocument>,
+    semantic_graph: crate::semantic::SemanticGraph,
     #[cfg(feature = "v8-host")]
     executable: Option<crate::executable::RustExecutableDocument>,
-    snapshots: BTreeMap<u64, Vec<oryn_common::v3::SemanticNodeView>>,
-    snapshot_bytes: usize,
+    semantic_deltas: BTreeMap<u64, crate::semantic::SemanticGraphChanges>,
+    semantic_delta_bytes: usize,
     trace: TraceLog,
     history: Vec<String>,
     history_index: Option<usize>,
@@ -4259,6 +4314,7 @@ struct PageState {
     determinism: Option<crate::replay::DeterminismConfig>,
     last_challenge: ChallengeAssessment,
     csp: crate::csp::CspPolicySet,
+    referrer_policy: crate::referrer::ReferrerPolicy,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -4299,10 +4355,11 @@ impl PageState {
             lifecycle: Vec::new(),
             network_quiet_since: None,
             document: None,
+            semantic_graph: crate::semantic::SemanticGraph::new(page_id, document_generation),
             #[cfg(feature = "v8-host")]
             executable: None,
-            snapshots: BTreeMap::new(),
-            snapshot_bytes: 0,
+            semantic_deltas: BTreeMap::new(),
+            semantic_delta_bytes: 0,
             trace: TraceLog::new(page_id),
             history: Vec::new(),
             history_index: None,
@@ -4321,6 +4378,7 @@ impl PageState {
             determinism: context_options.determinism,
             last_challenge: ChallengeAssessment::default(),
             csp: crate::csp::CspPolicySet::new("about:blank"),
+            referrer_policy: crate::referrer::ReferrerPolicy::default(),
         }
     }
 
@@ -4345,6 +4403,7 @@ impl PageState {
         &mut self,
         url: String,
         html: &str,
+        parsed: Option<ParsedDocument>,
         push_history: bool,
         resources: &BTreeMap<String, String>,
         #[cfg(feature = "v8-host")] web_fonts: Vec<oryn_layout::WebFont>,
@@ -4408,8 +4467,18 @@ impl PageState {
                 self.csp.allows_eval(false).allowed.to_string(),
             );
             #[cfg(unix)]
-            let mut executable = match self.context_client.clone() {
-                Some(context_client) => {
+            let mut executable = match (self.context_client.clone(), parsed) {
+                (Some(context_client), Some(parsed)) => {
+                    crate::executable::RustExecutableDocument::load_parsed_with_context_and_limits(
+                        parsed,
+                        &resources,
+                        self.broker.clone(),
+                        Url::parse(&self.url).ok(),
+                        self.config.max_v8_heap_bytes,
+                        (context_client, self.page_id, self.opener_page_id),
+                    )
+                }
+                (Some(context_client), None) => {
                     crate::executable::RustExecutableDocument::load_with_context_and_limits(
                         html,
                         &resources,
@@ -4419,7 +4488,16 @@ impl PageState {
                         (context_client, self.page_id, self.opener_page_id),
                     )
                 }
-                None => crate::executable::RustExecutableDocument::load_with_limits(
+                (None, Some(parsed)) => {
+                    crate::executable::RustExecutableDocument::load_parsed_with_limits(
+                        parsed,
+                        &resources,
+                        self.broker.clone(),
+                        Url::parse(&self.url).ok(),
+                        self.config.max_v8_heap_bytes,
+                    )
+                }
+                (None, None) => crate::executable::RustExecutableDocument::load_with_limits(
                     html,
                     &resources,
                     self.broker.clone(),
@@ -4429,13 +4507,22 @@ impl PageState {
             }
             .map_err(map_host_error)?;
             #[cfg(not(unix))]
-            let mut executable = crate::executable::RustExecutableDocument::load_with_limits(
-                html,
-                &resources,
-                self.broker.clone(),
-                Url::parse(&self.url).ok(),
-                self.config.max_v8_heap_bytes,
-            )
+            let mut executable = match parsed {
+                Some(parsed) => crate::executable::RustExecutableDocument::load_parsed_with_limits(
+                    parsed,
+                    &resources,
+                    self.broker.clone(),
+                    Url::parse(&self.url).ok(),
+                    self.config.max_v8_heap_bytes,
+                ),
+                None => crate::executable::RustExecutableDocument::load_with_limits(
+                    html,
+                    &resources,
+                    self.broker.clone(),
+                    Url::parse(&self.url).ok(),
+                    self.config.max_v8_heap_bytes,
+                ),
+            }
             .map_err(map_host_error)?;
             executable.poll_context_events().map_err(map_host_error)?;
             for diagnostic in &executable.diagnostics {
@@ -4449,6 +4536,10 @@ impl PageState {
                 );
             }
             self.document = Some(executable.document.clone());
+            if let Some(document) = &self.document {
+                self.semantic_graph
+                    .reset(&document.dom, self.document_generation);
+            }
             self.executable = Some(executable);
             let (console_entries, context_entries) = self
                 .executable
@@ -4478,7 +4569,11 @@ impl PageState {
         }
         #[cfg(not(feature = "v8-host"))]
         {
-            self.document = Some(parse(html));
+            self.document = Some(parsed.unwrap_or_else(|| parse(html)));
+            if let Some(document) = &self.document {
+                self.semantic_graph
+                    .reset(&document.dom, self.document_generation);
+            }
         }
         #[cfg(feature = "v8-host")]
         self.refresh_layout()?;
@@ -4530,13 +4625,33 @@ impl PageState {
             && self.document.is_some()
             && same_document_url(&self.url, current.as_str())
         {
+            #[cfg(feature = "v8-host")]
+            let previous_url = self.url.clone();
             self.url = current.to_string();
+            self.revision = self.revision.saturating_add(1);
             if matches!(history_update, HistoryUpdate::Push) {
                 if let Some(index) = self.history_index {
                     self.history.truncate(index + 1);
                 }
                 self.history.push(self.url.clone());
                 self.history_index = Some(self.history.len() - 1);
+            }
+            #[cfg(feature = "v8-host")]
+            if let Some(executable) = self.executable.as_mut() {
+                let url = serde_json::to_string(&self.url)
+                    .map_err(|error| RuntimeError::Script(error.to_string()))?;
+                let previous = serde_json::to_string(&previous_url)
+                    .map_err(|error| RuntimeError::Script(error.to_string()))?;
+                let traversed = matches!(history_update, HistoryUpdate::Preserve);
+                executable.execute(&format!(
+                    "Object.assign(location,new URL({url}));if(new URL({previous}).hash!==new URL({url}).hash)dispatchEvent(new Event('hashchange'));{}",
+                    if traversed {
+                        "dispatchEvent(new Event('popstate'))"
+                    } else {
+                        ""
+                    }
+                )).map_err(map_host_error)?;
+                self.sync_executable_semantics();
             }
             self.record_snapshot();
             self.trace.push(
@@ -4567,6 +4682,7 @@ impl PageState {
             self.load_document(
                 current.to_string(),
                 "<!doctype html>",
+                None,
                 matches!(history_update, HistoryUpdate::Push),
                 &BTreeMap::new(),
                 #[cfg(feature = "v8-host")]
@@ -4584,7 +4700,7 @@ impl PageState {
                 challenge: self.last_challenge.clone(),
             });
         }
-        let (status, response_headers, body) = loop {
+        let (status, response_headers, html) = loop {
             self.trace.push(
                 Revision(self.revision),
                 None,
@@ -4596,15 +4712,21 @@ impl PageState {
             let broker = self.broker.as_ref().ok_or_else(|| {
                 RuntimeError::Network("network transport initialization failed".into())
             })?;
-            let response = broker
-                .send(NetworkRequest {
+            let mut headers = vec![(
+                "accept".into(),
+                "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8".into(),
+            )];
+            if let Ok(source) = Url::parse(&self.url)
+                && let Some(referrer) = self.referrer_policy.header(&source, &current)
+            {
+                headers.push(("referer".into(), referrer));
+            }
+            let mut operation = broker
+                .start_operation(NetworkRequest {
                     request_id: self.revision + redirects as u64 + 1,
                     method: "GET".into(),
                     url: current.to_string(),
-                    headers: vec![(
-                        "accept".into(),
-                        "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8".into(),
-                    )],
+                    headers,
                     body: Vec::new(),
                     credentials: true,
                     security: crate::cookies::CookieRequestContext {
@@ -4623,18 +4745,31 @@ impl PageState {
                     );
                     RuntimeError::Network(error.to_string())
                 })?;
-            self.trace.push(
-                Revision(self.revision),
-                None,
-                TraceEventKind::ResponseReceived {
-                    url: current.to_string(),
-                    status: response.status,
-                    bytes: response.body.len(),
-                },
-            );
-            if (300..400).contains(&response.status) {
-                let location = response
-                    .headers
+            let (response_status, response_headers, _content_length) =
+                match operation.events.blocking_recv() {
+                    Some(crate::network::NetworkEvent::Headers {
+                        status,
+                        headers,
+                        content_length,
+                        ..
+                    }) => (status, headers, content_length),
+                    Some(crate::network::NetworkEvent::Failed { error, .. }) => {
+                        return Err(RuntimeError::Network(error));
+                    }
+                    Some(crate::network::NetworkEvent::Chunk { .. })
+                    | Some(crate::network::NetworkEvent::Complete { .. }) => {
+                        return Err(RuntimeError::ProtocolViolation(
+                            "network body arrived before accepted response headers".into(),
+                        ));
+                    }
+                    None => {
+                        return Err(RuntimeError::Network(
+                            "network operation ended before response headers".into(),
+                        ));
+                    }
+                };
+            if (300..400).contains(&response_status) {
+                let location = response_headers
                     .iter()
                     .find(|(name, _)| name.eq_ignore_ascii_case("location"))
                     .map(|(_, value)| value)
@@ -4683,15 +4818,59 @@ impl PageState {
                     crate::cookies::SchemefulSite::from_url(&current) != navigation_site;
                 continue;
             }
-            break (response.status, response.headers, response.body);
+            let content_type = response_headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                .map(|(_, value)| value.as_str());
+            let mut decoder = oryn_net::IncrementalTextDecoder::new(
+                content_type,
+                oryn_net::TextResourceKind::Html,
+            );
+            let mut html = String::new();
+            let mut bytes = 0_usize;
+            operation.request_body_chunk();
+            while let Some(event) = operation.events.blocking_recv() {
+                match event {
+                    crate::network::NetworkEvent::Chunk { bytes: chunk, .. } => {
+                        bytes = bytes.saturating_add(chunk.len());
+                        let decoded = decoder.push(&chunk);
+                        html.push_str(&decoded);
+                    }
+                    crate::network::NetworkEvent::Complete { .. } => break,
+                    crate::network::NetworkEvent::Failed { error, .. } => {
+                        return Err(RuntimeError::Network(error));
+                    }
+                    crate::network::NetworkEvent::Headers { .. } => {
+                        return Err(RuntimeError::ProtocolViolation(
+                            "network operation emitted duplicate response headers".into(),
+                        ));
+                    }
+                }
+                operation.request_body_chunk();
+            }
+            let tail = decoder.finish();
+            if !tail.is_empty() {
+                html.push_str(&tail);
+            }
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::ResponseReceived {
+                    url: current.to_string(),
+                    status: response_status,
+                    bytes,
+                },
+            );
+            break (response_status, response_headers, html);
         };
-        let content_type = response_headers
-            .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
-            .map(|(_, value)| value.as_str());
-        let (html, _) =
-            oryn_net::decode_resource_text(&body, content_type, oryn_net::TextResourceKind::Html);
         self.csp = crate::csp::CspPolicySet::from_headers(current.to_string(), &response_headers);
+        if let Some(value) = response_headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("referrer-policy"))
+            .map(|(_, value)| value)
+        {
+            self.referrer_policy = crate::referrer::ReferrerPolicy::parse_list(value);
+        }
         #[cfg(all(unix, feature = "v8-host"))]
         if let Some(client) = &self.context_client {
             match client.request(
@@ -4720,6 +4899,18 @@ impl PageState {
             );
         }
         let html = self.enforce_csp_html(&html);
+        if let Some(policy) = meta_referrer_policy(&html) {
+            self.referrer_policy = crate::referrer::ReferrerPolicy::parse_list(&policy);
+            #[cfg(all(unix, feature = "v8-host"))]
+            if let Some(client) = &self.context_client {
+                client.request(
+                    crate::context_service::ContextServiceRequest::InstallReferrerPolicy {
+                        page_id: self.page_id,
+                        serialized: policy,
+                    },
+                )?;
+            }
+        }
         self.set_challenge_assessment(assess_challenge(status, &response_headers, &html));
         let html = self.inline_external_stylesheets(&current, &html)?;
         self.load_auxiliary_resources(&current, &html);
@@ -4729,6 +4920,7 @@ impl PageState {
         self.load_document(
             current.to_string(),
             &html,
+            None,
             matches!(history_update, HistoryUpdate::Push),
             &resources,
             #[cfg(feature = "v8-host")]
@@ -5564,17 +5756,22 @@ impl PageState {
                     url: url.to_string(),
                 },
             );
-            let response = self
-                .broker
-                .as_ref()
-                .ok_or_else(|| {
-                    RuntimeError::Network("network transport initialization failed".into())
-                })?
-                .send(NetworkRequest {
+            let mut headers = vec![("accept".into(), accept.into())];
+            if let Ok(source) = Url::parse(&self.url)
+                && let Some(referrer) = self.referrer_policy.header(&source, &url)
+            {
+                headers.push(("referer".into(), referrer));
+            }
+            let broker = self.broker.as_ref().ok_or_else(|| {
+                RuntimeError::Network("network transport initialization failed".into())
+            })?;
+            let response = collect_operation(
+                broker,
+                NetworkRequest {
                     request_id: self.revision + redirect as u64 + 10_000,
                     method: "GET".into(),
                     url: url.to_string(),
-                    headers: vec![("accept".into(), accept.into())],
+                    headers,
                     body: Vec::new(),
                     credentials: true,
                     security: crate::cookies::CookieRequestContext {
@@ -5599,8 +5796,9 @@ impl PageState {
                         ..Default::default()
                     },
                     resolved_addrs: Vec::new(),
-                })
-                .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                },
+            )
+            .map_err(|error| RuntimeError::Network(error.to_string()))?;
             self.network_quiet_since = Some(Instant::now());
             self.trace.push(
                 Revision(self.revision),
@@ -5689,27 +5887,18 @@ impl PageState {
             return Ok(());
         }
         #[cfg(feature = "v8-host")]
-        if let Some(executable) = self.executable.as_mut() {
-            let before = self
-                .document
-                .as_ref()
-                .map(|document| {
-                    project_document(&document.dom, self.page_id, self.document_generation)
-                })
-                .unwrap_or_default();
-            executable.drain_tasks().map_err(map_host_error)?;
-            let context_entries = executable
-                .take_context_trace_entries()
-                .map_err(map_host_error)?;
-            self.document = Some(executable.document.clone());
+        if self.executable.is_some() {
+            let before = self.semantic_graph.nodes(ProjectionProfile::Compact);
+            let context_entries = {
+                let executable = self.executable.as_mut().expect("checked above");
+                executable.drain_tasks().map_err(map_host_error)?;
+                executable
+                    .take_context_trace_entries()
+                    .map_err(map_host_error)?
+            };
+            self.sync_executable_semantics();
             self.refresh_layout()?;
-            let after = self
-                .document
-                .as_ref()
-                .map(|document| {
-                    project_document(&document.dom, self.page_id, self.document_generation)
-                })
-                .unwrap_or_default();
+            let after = self.semantic_graph.nodes(ProjectionProfile::Compact);
             if before != after {
                 self.revision += 1;
                 self.record_snapshot();
@@ -5833,21 +6022,20 @@ impl PageState {
     fn evaluate(&mut self, source: &str) -> Result<String, RuntimeError> {
         #[cfg(feature = "v8-host")]
         {
-            let before = self
-                .document
-                .as_ref()
-                .map(|document| {
-                    project_document(&document.dom, self.page_id, self.document_generation)
-                })
-                .unwrap_or_default();
-            let executable = self
-                .executable
-                .as_mut()
-                .ok_or(RuntimeError::EvaluationUnavailable)?;
-            let value = executable.evaluate(source).map_err(map_host_error)?;
-            self.document = Some(executable.document.clone());
-            let console_entries = executable.take_console_entries().unwrap_or_default();
-            let context_entries = executable.take_context_trace_entries().unwrap_or_default();
+            let before = self.semantic_graph.nodes(ProjectionProfile::Compact);
+            let (value, console_entries, context_entries) = {
+                let executable = self
+                    .executable
+                    .as_mut()
+                    .ok_or(RuntimeError::EvaluationUnavailable)?;
+                let value = executable.evaluate(source).map_err(map_host_error)?;
+                (
+                    value,
+                    executable.take_console_entries().unwrap_or_default(),
+                    executable.take_context_trace_entries().unwrap_or_default(),
+                )
+            };
+            self.sync_executable_semantics();
             for entry in console_entries {
                 self.trace.push(
                     Revision(self.revision),
@@ -5864,13 +6052,7 @@ impl PageState {
                 }
             }
             self.refresh_layout()?;
-            let after = self
-                .document
-                .as_ref()
-                .map(|document| {
-                    project_document(&document.dom, self.page_id, self.document_generation)
-                })
-                .unwrap_or_default();
+            let after = self.semantic_graph.nodes(ProjectionProfile::Compact);
             if before != after {
                 self.revision += 1;
                 self.record_snapshot();
@@ -5927,23 +6109,26 @@ impl PageState {
         self.style_revision = self.style_revision.saturating_add(1);
         self.layout_revision = self.layout_revision.saturating_add(1);
         self.scroll_state = output.scroll;
-        if let Some(executable) = self.executable.as_mut() {
-            executable
-                .install_layout(&output, self.viewport)
-                .map_err(map_host_error)?;
-            executable
-                .install_media(
-                    match self.color_scheme {
-                        PreferredColorScheme::Light => "light",
-                        PreferredColorScheme::Dark => "dark",
-                    },
-                    match self.reduced_motion {
-                        ReducedMotion::Reduce => "reduce",
-                        ReducedMotion::NoPreference => "no_preference",
-                    },
-                )
-                .map_err(map_host_error)?;
-            self.document = Some(executable.document.clone());
+        if self.executable.is_some() {
+            {
+                let executable = self.executable.as_mut().expect("checked above");
+                executable
+                    .install_layout(&output, self.viewport)
+                    .map_err(map_host_error)?;
+                executable
+                    .install_media(
+                        match self.color_scheme {
+                            PreferredColorScheme::Light => "light",
+                            PreferredColorScheme::Dark => "dark",
+                        },
+                        match self.reduced_motion {
+                            ReducedMotion::Reduce => "reduce",
+                            ReducedMotion::NoPreference => "no_preference",
+                        },
+                    )
+                    .map_err(map_host_error)?;
+            }
+            self.sync_executable_semantics();
         }
         self.trace.push(
             Revision(self.revision),
@@ -6275,17 +6460,22 @@ impl PageState {
         let mut response = None;
         for redirect in 0..=self.config.max_redirects {
             self.next_action_id = self.next_action_id.saturating_add(1);
-            let next = self
-                .broker
-                .as_mut()
-                .ok_or_else(|| {
-                    RuntimeError::PaintUnavailable("network broker is unavailable".into())
-                })?
-                .send(NetworkRequest {
+            let mut headers = vec![("accept".into(), "image/png,image/jpeg,image/*;q=0.8".into())];
+            if let Ok(source) = Url::parse(&self.url)
+                && let Some(referrer) = self.referrer_policy.header(&source, &current)
+            {
+                headers.push(("referer".into(), referrer));
+            }
+            let broker = self.broker.as_ref().ok_or_else(|| {
+                RuntimeError::PaintUnavailable("network broker is unavailable".into())
+            })?;
+            let next = collect_operation(
+                broker,
+                NetworkRequest {
                     request_id: self.next_action_id,
                     method: "GET".into(),
                     url: current.as_str().into(),
-                    headers: vec![("accept".into(), "image/png,image/jpeg,image/*;q=0.8".into())],
+                    headers,
                     body: Vec::new(),
                     credentials: true,
                     security: crate::cookies::CookieRequestContext {
@@ -6300,8 +6490,9 @@ impl PageState {
                         ..Default::default()
                     },
                     resolved_addrs: Vec::new(),
-                })
-                .map_err(|error| RuntimeError::PaintUnavailable(error.to_string()))?;
+                },
+            )
+            .map_err(|error| RuntimeError::PaintUnavailable(error.to_string()))?;
             if (300..400).contains(&next.status) {
                 if redirect == self.config.max_redirects {
                     return Err(RuntimeError::PaintUnavailable(
@@ -6714,6 +6905,23 @@ impl PageState {
         }
     }
 
+    #[cfg(feature = "v8-host")]
+    fn sync_executable_semantics(&mut self) {
+        let Some(executable) = self.executable.as_mut() else {
+            return;
+        };
+        let (mutations, truncated) = executable.take_semantic_mutations();
+        let document = executable.document.clone();
+        if truncated {
+            self.semantic_graph
+                .reset(&document.dom, self.document_generation);
+        } else if !mutations.is_empty() {
+            self.semantic_graph
+                .apply_mutations(&document.dom, &mutations);
+        }
+        self.document = Some(document);
+    }
+
     fn observation(&self, profile: ProjectionProfile) -> Observation {
         let Some(document) = &self.document else {
             let mut observation = empty_observation(
@@ -6738,12 +6946,7 @@ impl PageState {
             revision: Revision(self.revision),
             profile,
             source: ObservationSource::NativeDom,
-            nodes: match profile {
-                ProjectionProfile::Full => {
-                    project_document_full(&document.dom, self.page_id, self.document_generation)
-                }
-                _ => project_document(&document.dom, self.page_id, self.document_generation),
-            },
+            nodes: self.semantic_graph.nodes(profile),
             capabilities: self.capabilities(),
             diagnostics: document.errors.clone(),
             execution_domain: ExecutionDomain::Native,
@@ -6768,72 +6971,84 @@ impl PageState {
     }
 
     fn record_snapshot(&mut self) {
-        let nodes = self
-            .document
-            .as_ref()
-            .map(|document| project_document(&document.dom, self.page_id, self.document_generation))
-            .unwrap_or_default();
-        let bytes = serde_json::to_vec(&nodes).map_or(0, |encoded| encoded.len());
-        if let Some(previous) = self.snapshots.insert(self.revision, nodes) {
-            self.snapshot_bytes = self
-                .snapshot_bytes
-                .saturating_sub(serde_json::to_vec(&previous).map_or(0, |encoded| encoded.len()));
+        let changes = self.semantic_graph.take_changes();
+        let bytes = serde_json::to_vec(&(&changes.upserted, &changes.removed))
+            .map_or(0, |encoded| encoded.len());
+        if let Some(previous) = self.semantic_deltas.insert(self.revision, changes) {
+            self.semantic_delta_bytes = self.semantic_delta_bytes.saturating_sub(
+                serde_json::to_vec(&(&previous.upserted, &previous.removed))
+                    .map_or(0, |encoded| encoded.len()),
+            );
         }
-        self.snapshot_bytes = self.snapshot_bytes.saturating_add(bytes);
-        while self.snapshots.len() > self.config.max_revision_snapshots
-            || self.snapshot_bytes > self.config.max_revision_bytes
+        self.semantic_delta_bytes = self.semantic_delta_bytes.saturating_add(bytes);
+        while self.semantic_deltas.len() > self.config.max_revision_snapshots
+            || self.semantic_delta_bytes > self.config.max_revision_bytes
         {
-            let Some(oldest) = self.snapshots.keys().next().copied() else {
+            let Some(oldest) = self.semantic_deltas.keys().next().copied() else {
                 break;
             };
             // Retain the current revision even when one unusually large
             // observation exceeds the byte ceiling. Older delta bases fail
             // explicitly rather than allowing memory to grow without limit.
-            if oldest == self.revision && self.snapshots.len() == 1 {
+            if oldest == self.revision && self.semantic_deltas.len() == 1 {
                 break;
             }
-            if let Some(removed) = self.snapshots.remove(&oldest) {
-                self.snapshot_bytes = self.snapshot_bytes.saturating_sub(
-                    serde_json::to_vec(&removed).map_or(0, |encoded| encoded.len()),
+            if let Some(removed) = self.semantic_deltas.remove(&oldest) {
+                self.semantic_delta_bytes = self.semantic_delta_bytes.saturating_sub(
+                    serde_json::to_vec(&(&removed.upserted, &removed.removed))
+                        .map_or(0, |encoded| encoded.len()),
                 );
             }
         }
     }
 
     fn delta_from(&self, from: Revision) -> Result<ObservationDelta, RuntimeError> {
-        let old = if from.0 == 0 {
-            &[][..]
-        } else {
-            self.snapshots
-                .get(&from.0)
-                .map(Vec::as_slice)
-                .ok_or(RuntimeError::UnknownRevision(from))?
-        };
-        let current = self
-            .snapshots
-            .get(&self.revision)
-            .map(Vec::as_slice)
-            .unwrap_or_default();
-        let old_by_ref: BTreeMap<_, _> = old.iter().map(|node| (node.semantic_ref, node)).collect();
-        let current_by_ref: BTreeMap<_, _> = current
-            .iter()
-            .map(|node| (node.semantic_ref, node))
-            .collect();
+        if from.0 > self.revision {
+            return Err(RuntimeError::UnknownRevision(from));
+        }
+        if from.0 == 0 {
+            return Ok(ObservationDelta {
+                contract_version: CONTRACT_VERSION,
+                page_id: self.page_id,
+                from_revision: from,
+                to_revision: Revision(self.revision),
+                upserted: self.semantic_graph.nodes(ProjectionProfile::Compact),
+                removed: Vec::new(),
+            });
+        }
+        if from.0 < self.revision
+            && self
+                .semantic_deltas
+                .keys()
+                .next()
+                .is_none_or(|oldest| from.0.saturating_add(1) < *oldest)
+        {
+            return Err(RuntimeError::UnknownRevision(from));
+        }
+        let mut upserted = BTreeMap::new();
+        let mut removed = BTreeSet::new();
+        for (_, changes) in self
+            .semantic_deltas
+            .range(from.0.saturating_add(1)..=self.revision)
+        {
+            for semantic_ref in &changes.removed {
+                upserted.remove(semantic_ref);
+                removed.insert(*semantic_ref);
+            }
+            for node in &changes.upserted {
+                removed.remove(&node.semantic_ref);
+                upserted.insert(node.semantic_ref, node.clone());
+            }
+        }
+        let mut upserted = upserted.into_values().collect::<Vec<_>>();
+        upserted.sort_by_key(|node| node.document_order);
         Ok(ObservationDelta {
             contract_version: CONTRACT_VERSION,
             page_id: self.page_id,
             from_revision: from,
             to_revision: Revision(self.revision),
-            upserted: current
-                .iter()
-                .filter(|node| old_by_ref.get(&node.semantic_ref).copied() != Some(*node))
-                .cloned()
-                .collect(),
-            removed: old_by_ref
-                .keys()
-                .filter(|semantic_ref| !current_by_ref.contains_key(semantic_ref))
-                .copied()
-                .collect(),
+            upserted,
+            removed: removed.into_iter().collect(),
         })
     }
 
@@ -6858,10 +7073,14 @@ impl PageState {
         #[cfg(not(feature = "v8-host"))]
         let _ = &files;
         #[cfg(feature = "v8-host")]
-        if let Some(executable) = self.executable.as_mut() {
+        if self.executable.is_some() {
             let node = crate::semantic::unpack_node_ref(target.node);
-            executable.set_files(node, &files).map_err(map_host_error)?;
-            self.document = Some(executable.document.clone());
+            self.executable
+                .as_mut()
+                .expect("checked above")
+                .set_files(node, &files)
+                .map_err(map_host_error)?;
+            self.sync_executable_semantics();
             return self.execute_in_realm(
                 NativeAction {
                     target,
@@ -6961,15 +7180,15 @@ impl PageState {
         self.revision += 1;
         self.next_action_id += 1;
         let upserted = if mutated {
-            project_element(
+            self.semantic_graph.apply_mutations(
                 &document.dom,
-                node_id,
-                self.page_id,
-                self.document_generation,
-                node_id.slot + 1,
-            )
-            .into_iter()
-            .collect()
+                &[crate::dom::Mutation::FormState { node: node_id }],
+            );
+            self.semantic_graph
+                .nodes(ProjectionProfile::Compact)
+                .into_iter()
+                .filter(|node| node.semantic_ref == action.target)
+                .collect()
         } else {
             Vec::new()
         };
@@ -7129,30 +7348,35 @@ impl PageState {
         if node.attributes.contains_key("disabled") {
             return Err(RuntimeError::Disabled);
         }
-        let executable = self
-            .executable
-            .as_mut()
-            .ok_or(RuntimeError::StaleSemanticRef)?;
-        if sensitive {
-            executable
-                .apply_sensitive_action(node_id, action.action, action.value.as_deref())
-                .map_err(map_host_error)?;
-        } else {
-            executable
-                .apply_action(node_id, action.action, action.value.as_deref())
-                .map_err(map_host_error)?;
-        }
-        let console_entries = executable.take_console_entries().unwrap_or_default();
-        let context_entries = executable.take_context_trace_entries().unwrap_or_default();
-        let pending_navigation = executable.location().ok().filter(|location| {
-            location != &self.url && Url::parse(location).ok() != Url::parse(&self.url).ok()
-        });
-        self.document = Some(executable.document.clone());
-        let diagnostics = executable
-            .diagnostics
-            .iter()
-            .filter_map(|diagnostic| diagnostic.detail.clone())
-            .collect();
+        let (console_entries, context_entries, pending_navigation, diagnostics) = {
+            let executable = self
+                .executable
+                .as_mut()
+                .ok_or(RuntimeError::StaleSemanticRef)?;
+            if sensitive {
+                executable
+                    .apply_sensitive_action(node_id, action.action, action.value.as_deref())
+                    .map_err(map_host_error)?;
+            } else {
+                executable
+                    .apply_action(node_id, action.action, action.value.as_deref())
+                    .map_err(map_host_error)?;
+            }
+            let pending_navigation = executable.location().ok().filter(|location| {
+                location != &self.url && Url::parse(location).ok() != Url::parse(&self.url).ok()
+            });
+            (
+                executable.take_console_entries().unwrap_or_default(),
+                executable.take_context_trace_entries().unwrap_or_default(),
+                pending_navigation,
+                executable
+                    .diagnostics
+                    .iter()
+                    .filter_map(|diagnostic| diagnostic.detail.clone())
+                    .collect(),
+            )
+        };
+        self.sync_executable_semantics();
 
         let revision_before = Revision(self.revision);
         self.revision += 1;
@@ -7740,6 +7964,35 @@ fn same_document_url(left: &str, right: &str) -> bool {
     left == right
 }
 
+fn meta_referrer_policy(html: &str) -> Option<String> {
+    let meta = regex::Regex::new(r#"(?is)<meta\b[^>]*>"#).expect("constant meta regex");
+    let attribute = regex::Regex::new(
+        r#"(?is)\b([a-z][a-z0-9_-]*)\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s>]+))"#,
+    )
+    .expect("constant meta attribute regex");
+    meta.find_iter(html).find_map(|element| {
+        let attributes = attribute
+            .captures_iter(element.as_str())
+            .filter_map(|capture| {
+                Some((
+                    capture.get(1)?.as_str().to_ascii_lowercase(),
+                    capture
+                        .get(2)
+                        .or_else(|| capture.get(3))
+                        .or_else(|| capture.get(4))?
+                        .as_str()
+                        .to_string(),
+                ))
+            })
+            .collect::<BTreeMap<_, _>>();
+        attributes
+            .get("name")
+            .is_some_and(|value| value.eq_ignore_ascii_case("referrer"))
+            .then(|| attributes.get("content").cloned())
+            .flatten()
+    })
+}
+
 #[cfg(feature = "v8-host")]
 fn module_specifiers(source: &str) -> Vec<String> {
     static MODULE_SPECIFIER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -7925,6 +8178,21 @@ mod tests {
         io::{Read, Write},
         net::TcpListener,
     };
+
+    #[test]
+    fn meta_referrer_policy_is_order_and_quote_independent() {
+        assert_eq!(
+            super::meta_referrer_policy(
+                "<head><meta content='no-referrer' data-x=1 NAME=referrer></head>"
+            )
+            .as_deref(),
+            Some("no-referrer")
+        );
+        assert_eq!(
+            super::meta_referrer_policy("<meta name=viewport content=x>"),
+            None
+        );
+    }
 
     use oryn_common::v3::{ExecutionDomain, ObservationSource};
 
@@ -9017,6 +9285,13 @@ mod tests {
         })
         .await
         .unwrap();
+        page.execute(NativeAction {
+            target,
+            action: SemanticAction::Type,
+            value: Some("second".into()),
+        })
+        .await
+        .unwrap();
 
         assert!(matches!(
             page.observe_delta(Revision(1)).await,
@@ -9024,7 +9299,7 @@ mod tests {
         ));
         assert_eq!(
             page.observe_delta(Revision(2)).await.unwrap().to_revision,
-            Revision(3)
+            Revision(4)
         );
     }
 

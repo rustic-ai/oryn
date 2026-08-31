@@ -11,8 +11,7 @@ use html5ever::{
 use markup5ever::interface::tree_builder::ElemName;
 use markup5ever::interface::{ElementFlags, NodeOrText, QuirksMode, TreeSink};
 
-use crate::{DomArena, NodeId, NodeKind};
-use crate::{DomError, DomRuntime};
+use crate::{DomArena, DomError, DomRuntime, NodeId, NodeKind, SharedDomRuntime};
 
 #[derive(Debug, Clone)]
 pub struct ParsedDocument {
@@ -109,11 +108,13 @@ pub fn parse_fragment(input: &str, context_local_name: &str) -> ParsedDocument {
 
 /// Incremental html5ever driver over Oryn's authoritative Rust DOM.
 ///
-/// Navigation feeds decoded response chunks as they arrive. Script pause and
+/// The executable loader feeds decoded source segments here. Script pause and
 /// re-entry are coordinated by the page scheduler while tokenizer and tree
 /// builder state remain live in this object.
 pub struct StreamingParser {
     inner: Parser<OrynTreeSink>,
+    dom: SharedDomRuntime,
+    document: NodeId,
     bytes_seen: usize,
     pending_events: Vec<ParserEvent>,
 }
@@ -126,11 +127,28 @@ impl Default for StreamingParser {
 
 impl StreamingParser {
     pub fn new() -> Self {
+        Self::with_runtime(std::rc::Rc::new(RefCell::new(DomRuntime::new())))
+    }
+
+    /// Start a parser over the same live runtime exposed to V8.
+    pub fn with_runtime(dom: SharedDomRuntime) -> Self {
+        let document = dom.borrow().document();
+        let sink = OrynTreeSink::with_runtime(dom.clone(), document);
         Self {
-            inner: parse_document(OrynTreeSink::new(), ParseOpts::default()),
+            inner: parse_document(sink, ParseOpts::default()),
+            dom,
+            document,
             bytes_seen: 0,
             pending_events: Vec::new(),
         }
+    }
+
+    pub fn shared_dom(&self) -> SharedDomRuntime {
+        self.dom.clone()
+    }
+
+    pub const fn document(&self) -> NodeId {
+        self.document
     }
 
     pub fn push(&mut self, input: &str) {
@@ -142,9 +160,16 @@ impl StreamingParser {
     /// remains with the caller, which executes the script and resumes parsing.
     pub fn push_until_blocked(&mut self, input: &str) -> ParseProgress {
         let mut consumed = 0;
-        for character in input.chars() {
-            let mut encoded = [0_u8; 4];
-            let chunk = character.encode_utf8(&mut encoded);
+        while consumed < input.len() {
+            // A parser-inserted script cannot become ready before its closing
+            // tag's `>`. Feeding through the next delimiter preserves the
+            // exact pause boundary without paying one html5ever call per
+            // Unicode scalar. Extra delimiters in text/raw-text are harmless.
+            let remaining = &input[consumed..];
+            let length = remaining
+                .find('>')
+                .map_or(remaining.len(), |index| index + 1);
+            let chunk = &remaining[..length];
             self.push(chunk);
             consumed += chunk.len();
             self.capture_events();
@@ -195,7 +220,7 @@ impl StreamingParser {
 }
 
 struct OrynTreeSink {
-    dom: RefCell<DomArena>,
+    dom: SharedDomRuntime,
     document: NodeId,
     errors: RefCell<Vec<String>>,
     templates: RefCell<BTreeMap<NodeId, NodeId>>,
@@ -205,10 +230,14 @@ struct OrynTreeSink {
 
 impl OrynTreeSink {
     fn new() -> Self {
-        let mut dom = DomArena::default();
-        let document = dom.insert(NodeKind::Document);
+        let dom = std::rc::Rc::new(RefCell::new(DomRuntime::new()));
+        let document = dom.borrow().document();
+        Self::with_runtime(dom, document)
+    }
+
+    fn with_runtime(dom: SharedDomRuntime, document: NodeId) -> Self {
         Self {
-            dom: RefCell::new(dom),
+            dom,
             document,
             errors: RefCell::new(Vec::new()),
             templates: RefCell::new(BTreeMap::new()),
@@ -220,9 +249,10 @@ impl OrynTreeSink {
     fn append_node_or_text(&self, parent: NodeId, child: NodeOrText<NodeId>) {
         match child {
             NodeOrText::AppendNode(node) => {
-                self.dom
-                    .borrow_mut()
-                    .append_child(parent, node)
+                let mut dom = self.dom.borrow_mut();
+                dom.parser_detach(node)
+                    .expect("html5ever emitted a valid reparent");
+                dom.append_child(parent, node)
                     .expect("html5ever emitted a valid append");
             }
             NodeOrText::AppendText(text) => self.append_text(parent, text),
@@ -232,19 +262,19 @@ impl OrynTreeSink {
     fn append_text(&self, parent: NodeId, text: StrTendril) {
         let mut dom = self.dom.borrow_mut();
         let last_child = dom
+            .arena()
             .get(parent)
             .ok()
             .and_then(|node| node.children.last().copied());
         if let Some(last_child) = last_child
-            && let Ok(node) = dom.get_mut(last_child)
-            && let NodeKind::Text { data } = &mut node.kind
+            && let Ok(NodeKind::Text { data }) =
+                dom.arena().get(last_child).map(|node| node.kind.clone())
         {
-            data.push_str(&text);
+            dom.set_text(last_child, format!("{data}{text}"))
+                .expect("parser text node is live");
             return;
         }
-        let text = dom.insert(NodeKind::Text {
-            data: text.to_string(),
-        });
+        let text = dom.create_text(text.to_string());
         dom.append_child(parent, text)
             .expect("text parent is valid");
     }
@@ -284,9 +314,10 @@ impl TreeSink for OrynTreeSink {
     type ElemName<'a> = OrynElemName<'a>;
 
     fn finish(self) -> Self::Output {
+        let (dom, document) = self.dom.borrow().snapshot();
         ParsedDocument {
-            dom: self.dom.into_inner(),
-            document: self.document,
+            dom,
+            document,
             errors: self.errors.into_inner(),
             quirks_mode: self.quirks_mode.get(),
             events: self.events.into_inner(),
@@ -304,7 +335,9 @@ impl TreeSink for OrynTreeSink {
     fn elem_name<'a>(&'a self, target: &'a Self::Handle) -> Self::ElemName<'a> {
         OrynElemName {
             node: Ref::map(self.dom.borrow(), |dom| {
-                dom.get(*target).expect("element handle must be live")
+                dom.arena()
+                    .get(*target)
+                    .expect("element handle must be live")
             }),
         }
     }
@@ -317,21 +350,20 @@ impl TreeSink for OrynTreeSink {
     ) -> Self::Handle {
         let is_template = flags.template;
         let mut dom = self.dom.borrow_mut();
-        let element = dom.insert(NodeKind::Element { name });
+        let element = dom.create(NodeKind::Element { name });
         for attribute in attrs {
-            dom.get_mut(element)
-                .expect("new element")
-                .attributes
-                .insert(
-                    attribute.name.local.to_string(),
-                    attribute.value.to_string(),
-                );
+            dom.set_attribute(
+                element,
+                attribute.name.local.to_string(),
+                attribute.value.to_string(),
+            )
+            .expect("new element");
         }
         if is_template {
-            let contents = dom.insert(NodeKind::DocumentFragment);
+            let contents = dom.create_fragment();
             self.templates.borrow_mut().insert(element, contents);
         }
-        if let Ok(node) = dom.get(element)
+        if let Ok(node) = dom.arena().get(element)
             && let NodeKind::Element { name } = &node.kind
         {
             match name.local.as_ref() {
@@ -366,7 +398,7 @@ impl TreeSink for OrynTreeSink {
 
     fn pop(&self, node: &Self::Handle) {
         let dom = self.dom.borrow();
-        let Ok(node_record) = dom.get(*node) else {
+        let Ok(node_record) = dom.arena().get(*node) else {
             return;
         };
         let NodeKind::Element { name } = &node_record.kind else {
@@ -401,15 +433,13 @@ impl TreeSink for OrynTreeSink {
     }
 
     fn create_comment(&self, text: StrTendril) -> Self::Handle {
-        self.dom.borrow_mut().insert(NodeKind::Comment {
-            data: text.to_string(),
-        })
+        self.dom.borrow_mut().create_comment(text.to_string())
     }
 
     fn create_pi(&self, target: StrTendril, data: StrTendril) -> Self::Handle {
-        self.dom.borrow_mut().insert(NodeKind::Comment {
-            data: format!("?{} {}?", target, data),
-        })
+        self.dom
+            .borrow_mut()
+            .create_comment(format!("?{} {}?", target, data))
     }
 
     fn append(&self, parent: &Self::Handle, child: NodeOrText<Self::Handle>) {
@@ -425,6 +455,7 @@ impl TreeSink for OrynTreeSink {
         let parent = self
             .dom
             .borrow()
+            .arena()
             .get(*element)
             .ok()
             .and_then(|node| node.parent);
@@ -437,7 +468,7 @@ impl TreeSink for OrynTreeSink {
         _public_id: StrTendril,
         _system_id: StrTendril,
     ) {
-        let doctype = self.dom.borrow_mut().insert(NodeKind::DocumentType {
+        let doctype = self.dom.borrow_mut().create(NodeKind::DocumentType {
             name: name.to_string(),
         });
         self.dom
@@ -460,48 +491,54 @@ impl TreeSink for OrynTreeSink {
 
     fn append_before_sibling(&self, sibling: &Self::Handle, new_node: NodeOrText<Self::Handle>) {
         match new_node {
-            NodeOrText::AppendNode(node) => self
-                .dom
-                .borrow_mut()
-                .insert_before(*sibling, node)
-                .expect("valid sibling insertion"),
+            NodeOrText::AppendNode(node) => {
+                let parent = self
+                    .dom
+                    .borrow()
+                    .parent(*sibling)
+                    .expect("sibling is live")
+                    .expect("sibling has parent");
+                let mut dom = self.dom.borrow_mut();
+                dom.parser_detach(node).expect("valid parser reparent");
+                dom.insert_before(parent, node, Some(*sibling))
+                    .expect("valid sibling insertion");
+            }
             NodeOrText::AppendText(text) => {
                 let parent = self
                     .dom
                     .borrow()
-                    .get(*sibling)
+                    .parent(*sibling)
                     .expect("sibling is live")
-                    .parent
                     .expect("sibling has parent");
-                let node = self.dom.borrow_mut().insert(NodeKind::Text {
-                    data: text.to_string(),
-                });
+                let node = self.dom.borrow_mut().create_text(text.to_string());
                 self.dom
                     .borrow_mut()
-                    .insert_before(*sibling, node)
+                    .insert_before(parent, node, Some(*sibling))
                     .expect("valid text insertion");
-                debug_assert_eq!(
-                    self.dom.borrow().get(node).expect("text").parent,
-                    Some(parent)
-                );
+                debug_assert_eq!(self.dom.borrow().parent(node).expect("text"), Some(parent));
             }
         }
     }
 
     fn add_attrs_if_missing(&self, target: &Self::Handle, attrs: Vec<Attribute>) {
         let mut dom = self.dom.borrow_mut();
-        let attributes = &mut dom.get_mut(*target).expect("element is live").attributes;
         for attribute in attrs {
-            attributes
-                .entry(attribute.name.local.to_string())
-                .or_insert_with(|| attribute.value.to_string());
+            let name = attribute.name.local.to_string();
+            if dom
+                .attribute(*target, &name)
+                .expect("element is live")
+                .is_none()
+            {
+                dom.set_attribute(*target, name, attribute.value.to_string())
+                    .expect("element is live");
+            }
         }
     }
 
     fn remove_from_parent(&self, target: &Self::Handle) {
         self.dom
             .borrow_mut()
-            .detach(*target)
+            .parser_detach(*target)
             .expect("target is live");
     }
 
@@ -509,14 +546,13 @@ impl TreeSink for OrynTreeSink {
         let children = self
             .dom
             .borrow()
-            .get(*node)
+            .children(*node)
             .expect("node is live")
-            .children
-            .clone();
+            .to_vec();
         for child in children {
-            self.dom
-                .borrow_mut()
-                .append_child(*new_parent, child)
+            let mut dom = self.dom.borrow_mut();
+            dom.parser_detach(child).expect("valid parser reparent");
+            dom.append_child(*new_parent, child)
                 .expect("valid reparent");
         }
     }
@@ -636,5 +672,44 @@ mod tests {
         let runtime = parsed.into_runtime().unwrap();
         let target = runtime.find_by_id("go").expect("indexed parser node");
         assert_eq!(runtime.arena().text_content(target).unwrap(), "Go");
+    }
+
+    #[test]
+    fn parser_and_script_side_share_node_identity_and_mutation_sequence() {
+        let source = "<main id=before><script>pause()</script><p id=after>after</p></main>";
+        let mut parser = StreamingParser::new();
+        let dom = parser.shared_dom();
+        let progress = parser.push_until_blocked(source);
+        let before = dom.borrow().find_by_id("before").expect("live parser node");
+        assert!(dom.borrow().find_by_id("after").is_none());
+        let script_cursor = dom.borrow().mutation_cursor();
+        dom.borrow_mut()
+            .set_attribute(before, "data-script", "ran")
+            .unwrap();
+        parser.push(&source[progress.consumed_bytes..]);
+        let parsed = parser.finish();
+        assert_eq!(
+            parsed
+                .dom
+                .get(before)
+                .unwrap()
+                .attributes
+                .get("data-script"),
+            Some(&"ran".to_owned())
+        );
+        assert!(dom.borrow().find_by_id("after").is_some());
+        let later = dom.borrow().mutations_since(script_cursor);
+        assert!(later.mutations.iter().any(|mutation| matches!(
+            mutation,
+            crate::Mutation::Attribute { node, name, .. }
+                if *node == before && name == "data-script"
+        )));
+        assert!(later.mutations.iter().any(|mutation| matches!(
+            mutation,
+            crate::Mutation::Inserted {
+                parent: Some(_),
+                ..
+            }
+        )));
     }
 }

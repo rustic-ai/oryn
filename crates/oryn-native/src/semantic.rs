@@ -12,6 +12,274 @@ use oryn_common::v5::{
 
 use crate::dom::{DomArena, NodeId, NodeKind};
 
+pub const SEMANTIC_GRAPH_VERSION: u16 = 1;
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SemanticGraphChanges {
+    pub upserted: Vec<SemanticNodeView>,
+    pub removed: Vec<SemanticRef>,
+}
+
+/// Persistent semantic projection for one document generation. The graph is
+/// updated from the Rust DOM mutation journal and is therefore shared by
+/// observations, deltas, action resolution, and causal tracing without
+/// repeatedly walking the full document.
+#[derive(Debug, Clone)]
+pub struct SemanticGraph {
+    page_id: PageId,
+    document_generation: u64,
+    full: BTreeMap<NodeId, SemanticNodeView>,
+    compact: BTreeSet<NodeId>,
+    referenced_by: BTreeMap<NodeId, BTreeSet<NodeId>>,
+    pending_upserts: BTreeMap<SemanticRef, SemanticNodeView>,
+    pending_removed: BTreeSet<SemanticRef>,
+}
+
+impl SemanticGraph {
+    pub fn new(page_id: PageId, document_generation: u64) -> Self {
+        Self {
+            page_id,
+            document_generation,
+            full: BTreeMap::new(),
+            compact: BTreeSet::new(),
+            referenced_by: BTreeMap::new(),
+            pending_upserts: BTreeMap::new(),
+            pending_removed: BTreeSet::new(),
+        }
+    }
+
+    pub fn reset(&mut self, dom: &DomArena, document_generation: u64) {
+        for node in self.full.values() {
+            self.pending_removed.insert(node.semantic_ref);
+        }
+        self.document_generation = document_generation;
+        self.full.clear();
+        self.compact.clear();
+        for (id, node) in dom.iter() {
+            let NodeKind::Element { name } = &node.kind else {
+                continue;
+            };
+            if matches!(
+                name.local.as_ref(),
+                "html" | "head" | "body" | "meta" | "title" | "script" | "style"
+            ) {
+                continue;
+            }
+            self.refresh_node(dom, id);
+        }
+        self.rebuild_dependencies(dom);
+        for node in self.full.values() {
+            self.pending_removed.remove(&node.semantic_ref);
+            self.pending_upserts.insert(node.semantic_ref, node.clone());
+        }
+    }
+
+    pub fn apply_mutations(&mut self, dom: &DomArena, mutations: &[crate::dom::Mutation]) {
+        use crate::dom::Mutation;
+        let mut dirty = BTreeSet::new();
+        let mut dependency_change = false;
+        for mutation in mutations {
+            match mutation {
+                Mutation::Inserted { node, parent } => {
+                    dirty.insert(*node);
+                    dirty.extend(parent.iter().copied());
+                    dependency_change = true;
+                }
+                Mutation::Removed {
+                    node,
+                    former_parent,
+                } => {
+                    self.remove_subtree(*node);
+                    dirty.extend(former_parent.iter().copied());
+                    dependency_change = true;
+                }
+                Mutation::Attribute { node, name, .. } => {
+                    dirty.insert(*node);
+                    dependency_change |= matches!(
+                        name.as_str(),
+                        "id" | "for"
+                            | "aria-label"
+                            | "aria-labelledby"
+                            | "aria-describedby"
+                            | "role"
+                            | "hidden"
+                            | "aria-hidden"
+                            | "style"
+                            | "class"
+                    );
+                }
+                Mutation::CharacterData { node, .. } => {
+                    dirty.insert(*node);
+                    dependency_change = true;
+                }
+                Mutation::FormState { node } | Mutation::EventListener { node, .. } => {
+                    dirty.insert(*node);
+                }
+                Mutation::Focus { previous, current } => {
+                    dirty.extend(previous.iter().copied());
+                    dirty.extend(current.iter().copied());
+                }
+                Mutation::ShadowAttached { host, root, .. } => {
+                    dirty.insert(*host);
+                    dirty.insert(*root);
+                    dependency_change = true;
+                }
+            }
+        }
+        let initial = dirty.iter().copied().collect::<Vec<_>>();
+        for node in initial {
+            if let Ok(ancestors) = dom.ancestors(node) {
+                dirty.extend(ancestors);
+            }
+            if let Some(dependents) = self.referenced_by.get(&node) {
+                dirty.extend(dependents);
+            }
+        }
+        if dependency_change {
+            self.rebuild_dependencies(dom);
+            for dependents in self.referenced_by.values() {
+                dirty.extend(dependents);
+            }
+        }
+        for node in dirty {
+            self.refresh_node(dom, node);
+        }
+    }
+
+    /// Returns graph changes accumulated since the previous publication.
+    /// Consumers use this journal directly instead of serializing and diffing
+    /// complete observations at every revision.
+    pub fn take_changes(&mut self) -> SemanticGraphChanges {
+        let mut upserted = std::mem::take(&mut self.pending_upserts)
+            .into_values()
+            .collect::<Vec<_>>();
+        upserted.sort_by_key(|node| node.document_order);
+        SemanticGraphChanges {
+            upserted,
+            removed: std::mem::take(&mut self.pending_removed)
+                .into_iter()
+                .collect(),
+        }
+    }
+
+    pub fn nodes(&self, profile: ProjectionProfile) -> Vec<SemanticNodeView> {
+        let mut nodes = self
+            .full
+            .iter()
+            .filter(|(id, _)| profile == ProjectionProfile::Full || self.compact.contains(id))
+            .map(|(_, node)| node.clone())
+            .collect::<Vec<_>>();
+        nodes.sort_by_key(|node| node.document_order);
+        nodes
+    }
+
+    fn refresh_node(&mut self, dom: &DomArena, id: NodeId) {
+        let previous = self.full.get(&id).cloned();
+        let projected = dom.get(id).ok().and_then(|node| {
+            let NodeKind::Element { name } = &node.kind else {
+                return None;
+            };
+            (!matches!(
+                name.local.as_ref(),
+                "html" | "head" | "body" | "meta" | "title" | "script" | "style"
+            ))
+            .then(|| {
+                project_element(
+                    dom,
+                    id,
+                    self.page_id,
+                    self.document_generation,
+                    id.slot.saturating_add(1),
+                )
+            })
+            .flatten()
+        });
+        match projected {
+            Some(node) => {
+                if is_compact_semantic(&node) {
+                    self.compact.insert(id);
+                } else {
+                    self.compact.remove(&id);
+                }
+                if previous.as_ref() != Some(&node) {
+                    self.pending_removed.remove(&node.semantic_ref);
+                    self.pending_upserts.insert(node.semantic_ref, node.clone());
+                }
+                self.full.insert(id, node);
+            }
+            None => {
+                if let Some(previous) = self.full.remove(&id) {
+                    self.pending_upserts.remove(&previous.semantic_ref);
+                    self.pending_removed.insert(previous.semantic_ref);
+                }
+                self.compact.remove(&id);
+            }
+        }
+    }
+
+    fn remove_subtree(&mut self, root: NodeId) {
+        let root_ref = (u64::from(root.generation) << 32) | u64::from(root.slot);
+        let mut removed = BTreeSet::from([root_ref]);
+        loop {
+            let before = removed.len();
+            for node in self.full.values() {
+                if node
+                    .parent
+                    .is_some_and(|parent| removed.contains(&parent.node))
+                {
+                    removed.insert(node.semantic_ref.node);
+                }
+            }
+            if removed.len() == before {
+                break;
+            }
+        }
+        self.full.retain(|id, node| {
+            let keep = !removed.contains(&node.semantic_ref.node);
+            if !keep {
+                self.compact.remove(id);
+                self.pending_upserts.remove(&node.semantic_ref);
+                self.pending_removed.insert(node.semantic_ref);
+            }
+            keep
+        });
+    }
+
+    fn rebuild_dependencies(&mut self, dom: &DomArena) {
+        self.referenced_by.clear();
+        let ids = dom
+            .iter()
+            .filter_map(|(id, node)| node.attributes.get("id").map(|value| (value.clone(), id)))
+            .collect::<BTreeMap<_, _>>();
+        for (source, node) in dom.iter() {
+            for attribute in ["aria-labelledby", "aria-describedby"] {
+                if let Some(value) = node.attributes.get(attribute) {
+                    for token in value.split_ascii_whitespace() {
+                        if let Some(target) = ids.get(token) {
+                            self.referenced_by
+                                .entry(*target)
+                                .or_default()
+                                .insert(source);
+                        }
+                    }
+                }
+            }
+            if matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "label")
+                && let Some(target) = node.attributes.get("for").and_then(|value| ids.get(value))
+            {
+                self.referenced_by
+                    .entry(*target)
+                    .or_default()
+                    .insert(source);
+                self.referenced_by
+                    .entry(source)
+                    .or_default()
+                    .insert(*target);
+            }
+        }
+    }
+}
+
 pub fn unpack_node_ref(node: u64) -> NodeId {
     NodeId {
         slot: node as u32,
@@ -1571,6 +1839,42 @@ pub fn empty_observation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn incremental_graph_matches_full_projection_after_mutations() {
+        let parsed = crate::html::parse(
+            "<label id=label for=field>Account</label><input id=field><button>Save</button>",
+        );
+        let mut dom = parsed.into_runtime().expect("live DOM");
+        let page_id = PageId(9);
+        let generation = 4;
+        let mut graph = SemanticGraph::new(page_id, generation);
+        graph.reset(dom.arena(), generation);
+        assert_eq!(
+            graph.nodes(ProjectionProfile::Compact),
+            project_document(dom.arena(), page_id, generation)
+        );
+
+        let cursor = dom.mutation_cursor();
+        let field = dom
+            .query_selector(dom.document(), "#field")
+            .expect("query")
+            .expect("field");
+        let label = dom
+            .query_selector(dom.document(), "#label")
+            .expect("query")
+            .expect("label");
+        dom.set_attribute(field, "aria-labelledby", "label")
+            .expect("attribute");
+        dom.set_text_content(label, "Profile").expect("text");
+        let batch = dom.mutations_since(cursor);
+        assert!(!batch.truncated);
+        graph.apply_mutations(dom.arena(), &batch.mutations);
+        assert_eq!(
+            graph.nodes(ProjectionProfile::Compact),
+            project_document(dom.arena(), page_id, generation)
+        );
+    }
 
     fn semantic_observation(html: &str) -> SemanticObservation {
         let document = crate::html::parse(html);

@@ -1,6 +1,6 @@
 //! Transport-neutral asynchronous browser networking contracts.
 
-use std::{collections::BTreeMap, pin::Pin, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -24,6 +24,8 @@ pub struct HttpRequest {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+    #[serde(default)]
+    pub resolved_addrs: Vec<SocketAddr>,
 }
 
 pub struct HttpResponse {
@@ -86,28 +88,66 @@ pub trait HttpTransport: Send + Sync {
 /// disabled here because the browser Fetch layer must inspect every hop and
 /// enforce both compressed and decoded byte limits itself.
 pub struct RustlsTransport {
-    client: reqwest::Client,
+    clients: Arc<Mutex<BTreeMap<String, reqwest::Client>>>,
     pending: Arc<Mutex<BTreeMap<u64, CancellationToken>>>,
     max_body_bytes: usize,
+    timeout: Duration,
+    force_http2_prior_knowledge: bool,
 }
 
 impl RustlsTransport {
     pub fn new(timeout: Duration, max_body_bytes: usize) -> Result<Self, TransportError> {
-        let client = reqwest::Client::builder()
-            .timeout(timeout)
+        Ok(Self {
+            clients: Arc::new(Mutex::new(BTreeMap::new())),
+            pending: Arc::new(Mutex::new(BTreeMap::new())),
+            max_body_bytes,
+            timeout,
+            force_http2_prior_knowledge: false,
+        })
+    }
+
+    pub fn with_http2_prior_knowledge(mut self) -> Self {
+        self.force_http2_prior_knowledge = true;
+        self
+    }
+
+    async fn client_for(&self, request: &HttpRequest) -> Result<reqwest::Client, TransportError> {
+        let url = url::Url::parse(&request.url)
+            .map_err(|error| TransportError::Failed(error.to_string()))?;
+        let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+        let key = format!(
+            "{}|{}|{}",
+            host,
+            request
+                .resolved_addrs
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+            self.force_http2_prior_knowledge
+        );
+        if let Some(client) = self.clients.lock().await.get(&key) {
+            return Ok(client.clone());
+        }
+        let mut builder = reqwest::Client::builder()
+            .timeout(self.timeout)
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
             .no_gzip()
             .no_brotli()
             .no_deflate()
-            .no_zstd()
+            .no_zstd();
+        if self.force_http2_prior_knowledge {
+            builder = builder.http2_prior_knowledge();
+        }
+        if !request.resolved_addrs.is_empty() {
+            builder = builder.resolve_to_addrs(&host, &request.resolved_addrs);
+        }
+        let client = builder
             .build()
             .map_err(|error| TransportError::Failed(error.to_string()))?;
-        Ok(Self {
-            client,
-            pending: Arc::new(Mutex::new(BTreeMap::new())),
-            max_body_bytes,
-        })
+        self.clients.lock().await.insert(key, client.clone());
+        Ok(client)
     }
 }
 
@@ -116,7 +156,8 @@ impl HttpTransport for RustlsTransport {
     async fn start(&self, request: HttpRequest) -> Result<HttpResponse, TransportError> {
         let method = reqwest::Method::from_bytes(request.method.as_bytes())
             .map_err(|error| TransportError::Failed(error.to_string()))?;
-        let mut builder = self.client.request(method, &request.url);
+        let client = self.client_for(&request).await?;
+        let mut builder = client.request(method, &request.url);
         for (name, value) in &request.headers {
             builder = builder.header(name, value);
         }
@@ -195,11 +236,87 @@ pub enum TextResourceKind {
     Fetch,
 }
 
+/// Incremental browser text decoder. It buffers only the HTML charset
+/// prescan window and then retains `encoding_rs` decoder state across network
+/// chunk boundaries.
+pub struct IncrementalTextDecoder {
+    content_type: Option<String>,
+    kind: TextResourceKind,
+    prescan: Vec<u8>,
+    decoder: Option<encoding_rs::Decoder>,
+    encoding_name: Option<&'static str>,
+}
+
+impl IncrementalTextDecoder {
+    pub fn new(content_type: Option<&str>, kind: TextResourceKind) -> Self {
+        Self {
+            content_type: content_type.map(str::to_owned),
+            kind,
+            prescan: Vec::new(),
+            decoder: None,
+            encoding_name: None,
+        }
+    }
+
+    pub fn push(&mut self, bytes: &[u8]) -> String {
+        if self.decoder.is_none() {
+            self.prescan.extend_from_slice(bytes);
+            if self.prescan.len() < 1024 {
+                return String::new();
+            }
+            return self.start(false);
+        }
+        self.decode(bytes, false)
+    }
+
+    pub fn finish(&mut self) -> String {
+        if self.decoder.is_none() {
+            return self.start(true);
+        }
+        self.decode(&[], true)
+    }
+
+    pub fn encoding_name(&self) -> Option<&'static str> {
+        self.encoding_name
+    }
+
+    fn start(&mut self, last: bool) -> String {
+        let bytes = std::mem::take(&mut self.prescan);
+        let encoding = select_encoding(&bytes, self.content_type.as_deref(), self.kind);
+        let bom_length = encoding_rs::Encoding::for_bom(&bytes)
+            .map(|(_, length)| length)
+            .unwrap_or(0);
+        self.encoding_name = Some(encoding.name());
+        self.decoder = Some(encoding.new_decoder_with_bom_removal());
+        self.decode(&bytes[bom_length..], last)
+    }
+
+    fn decode(&mut self, bytes: &[u8], last: bool) -> String {
+        let decoder = self.decoder.as_mut().expect("decoder initialized");
+        let mut output = String::with_capacity(bytes.len().saturating_mul(3).saturating_add(16));
+        let _ = decoder.decode_to_string(bytes, &mut output, last);
+        output
+    }
+}
+
 pub fn decode_resource_text(
     bytes: &[u8],
     content_type: Option<&str>,
     kind: TextResourceKind,
 ) -> (String, &'static str) {
+    let encoding = select_encoding(bytes, content_type, kind);
+    let bytes = encoding_rs::Encoding::for_bom(bytes)
+        .map(|(_, length)| &bytes[length..])
+        .unwrap_or(bytes);
+    let (decoded, _, _) = encoding.decode(bytes);
+    (decoded.into_owned(), encoding.name())
+}
+
+fn select_encoding(
+    bytes: &[u8],
+    content_type: Option<&str>,
+    kind: TextResourceKind,
+) -> &'static encoding_rs::Encoding {
     let bom = encoding_rs::Encoding::for_bom(bytes).map(|(encoding, _)| encoding);
     let header = content_type.and_then(|value| {
         value.split(';').find_map(|part| {
@@ -211,8 +328,7 @@ pub fn decode_resource_text(
     let html_meta = matches!(kind, TextResourceKind::Html)
         .then(|| html_meta_charset(bytes))
         .flatten();
-    let encoding = bom
-        .or_else(|| header.and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes())))
+    bom.or_else(|| header.and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes())))
         .or_else(|| {
             html_meta
                 .as_deref()
@@ -220,12 +336,7 @@ pub fn decode_resource_text(
         })
         .or_else(|| matches!(kind, TextResourceKind::Css).then_some(encoding_rs::UTF_8))
         .or_else(|| matches!(kind, TextResourceKind::JavaScript).then_some(encoding_rs::UTF_8))
-        .unwrap_or(encoding_rs::UTF_8);
-    let bytes = encoding_rs::Encoding::for_bom(bytes)
-        .map(|(_, length)| &bytes[length..])
-        .unwrap_or(bytes);
-    let (decoded, _, _) = encoding.decode(bytes);
-    (decoded.into_owned(), encoding.name())
+        .unwrap_or(encoding_rs::UTF_8)
 }
 
 fn html_meta_charset(bytes: &[u8]) -> Option<String> {
@@ -376,6 +487,24 @@ mod tests {
         );
         assert!(decoded.ends_with("ok"));
         assert_eq!(encoding, "UTF-8");
+    }
+
+    #[test]
+    fn incremental_decoder_preserves_multibyte_and_charset_state_at_every_boundary() {
+        let source = "<meta charset=utf-8><p>café 東京</p>".as_bytes();
+        for boundary in 0..=source.len() {
+            let mut decoder =
+                IncrementalTextDecoder::new(Some("text/html"), TextResourceKind::Html);
+            let mut output = decoder.push(&source[..boundary]);
+            output.push_str(&decoder.push(&source[boundary..]));
+            output.push_str(&decoder.finish());
+            assert_eq!(
+                output,
+                String::from_utf8(source.to_vec()).unwrap(),
+                "boundary {boundary}"
+            );
+            assert_eq!(decoder.encoding_name(), Some("UTF-8"));
+        }
     }
 
     #[tokio::test]

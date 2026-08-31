@@ -21,7 +21,10 @@ use crate::{
     context_service::{ParentContextService, serve_context_service},
     cookies::{CookieRequestContext, CookieRequestKind},
     csp::{CspDestination, CspRequest},
-    network::{NetworkBroker, NetworkError, NetworkRequest, NetworkResponse, serve_ipc_broker},
+    network::{
+        NetworkBroker, NetworkError, NetworkEvent, NetworkOperation, NetworkRequest,
+        NetworkResponse, serve_ipc_broker,
+    },
     runtime::RuntimeError,
     worker::{
         HostEnvelope, WORKER_PROTOCOL_VERSION, WorkerEnvelope, WorkerLimits, WorkerRequest,
@@ -34,6 +37,76 @@ struct PageNetworkBroker {
     inner: crate::network::SharedNetworkBroker,
     context: BrowserContext,
     page_id: PageId,
+}
+
+impl PageNetworkBroker {
+    fn prepare(
+        &self,
+        mut request: NetworkRequest,
+    ) -> Result<(NetworkRequest, String), NetworkError> {
+        let page_url = self
+            .context
+            .page_url(self.page_id)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?;
+        let target = url::Url::parse(&request.url)
+            .map_err(|error| NetworkError::InvalidUrl(error.to_string()))?;
+        if let Some(upgraded) = self
+            .context
+            .upgrade_csp_url(self.page_id, &target)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?
+        {
+            request.url = upgraded.to_string();
+        }
+        let destination = match request.security.kind {
+            CookieRequestKind::Document => None,
+            CookieRequestKind::Script => Some(CspDestination::Script),
+            CookieRequestKind::Style => Some(CspDestination::Style),
+            CookieRequestKind::Image => Some(CspDestination::Image),
+            CookieRequestKind::Font => Some(CspDestination::Font),
+            CookieRequestKind::Media => Some(CspDestination::Media),
+            CookieRequestKind::Object => Some(CspDestination::Object),
+            CookieRequestKind::Manifest => Some(CspDestination::Manifest),
+            CookieRequestKind::Worker => Some(CspDestination::Worker),
+            CookieRequestKind::Frame => Some(CspDestination::Frame),
+            CookieRequestKind::Form => Some(CspDestination::Form),
+            CookieRequestKind::Fetch | CookieRequestKind::Xhr | CookieRequestKind::WebSocket => {
+                Some(CspDestination::Connect)
+            }
+            CookieRequestKind::Other => Some(CspDestination::Connect),
+        };
+        if let Some(destination) = destination {
+            let decision = self
+                .context
+                .authorize_csp(
+                    self.page_id,
+                    &CspRequest {
+                        destination,
+                        url: request.url.clone(),
+                        nonce: None,
+                        inline_source: None,
+                        parser_inserted: true,
+                        initiated_by_trusted_script: false,
+                    },
+                )
+                .map_err(|error| NetworkError::Transport(error.to_string()))?;
+            if !decision.allowed {
+                return Err(NetworkError::Transport(format!(
+                    "Content-Security-Policy blocked {:?} request",
+                    destination
+                )));
+            }
+        }
+        request.security = CookieRequestContext {
+            kind: request.security.kind,
+            initiator_url: Some(page_url.clone()),
+            top_level_url: Some(page_url.clone()),
+            ancestor_urls: request.security.ancestor_urls,
+            top_level_navigation: request.security.top_level_navigation,
+            credentials: request.security.credentials,
+            redirect_chain_cross_site: request.security.redirect_chain_cross_site,
+        };
+        Ok((request, page_url))
+    }
 }
 
 impl NetworkBroker for PageNetworkBroker {
@@ -128,6 +201,91 @@ impl NetworkBroker for PageNetworkBroker {
                 .map_err(|error| NetworkError::Transport(error.to_string()))?;
         }
         Ok(response)
+    }
+
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        let (request, page_url) = self.prepare(request)?;
+        let request_id = request.request_id;
+        let request_kind = request.security.kind;
+        let request_url = request.url.clone();
+        let context = self.context.clone();
+        let page_id = self.page_id;
+        let mut operation = self.inner.start_operation(request)?;
+        let demand = operation.demand.clone();
+        let (sender, events) = tokio::sync::mpsc::channel(8);
+        std::thread::spawn(move || {
+            let mut response_headers = Vec::new();
+            let mut response_status = 0;
+            let mut body = Vec::new();
+            while let Some(event) = operation.events.blocking_recv() {
+                if let NetworkEvent::Headers {
+                    status, headers, ..
+                } = &event
+                {
+                    response_status = *status;
+                    response_headers = headers.clone();
+                    if request_kind == CookieRequestKind::Frame {
+                        let policy = crate::csp::CspPolicySet::from_headers(
+                            request_url.clone(),
+                            &response_headers,
+                        );
+                        if !policy
+                            .authorize_frame_ancestors(std::slice::from_ref(&page_url))
+                            .allowed
+                        {
+                            let _ = sender.blocking_send(NetworkEvent::Failed {
+                                request_id,
+                                error: "Content-Security-Policy frame-ancestors blocked the embedded document".into(),
+                            });
+                            return;
+                        }
+                    }
+                }
+                if let NetworkEvent::Chunk { bytes, .. } = &event
+                    && request_kind == CookieRequestKind::Document
+                {
+                    body.extend_from_slice(bytes);
+                }
+                if matches!(event, NetworkEvent::Complete { .. })
+                    && request_kind == CookieRequestKind::Document
+                    && !(300..400).contains(&response_status)
+                {
+                    let content_type = response_headers
+                        .iter()
+                        .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                        .map(|(_, value)| value.as_str());
+                    let (html, _) = oryn_net::decode_resource_text(
+                        &body,
+                        content_type,
+                        oryn_net::TextResourceKind::Html,
+                    );
+                    if let Err(error) = context.prepare_document_security(
+                        page_id,
+                        request_url.clone(),
+                        &response_headers,
+                        &html,
+                    ) {
+                        let _ = sender.blocking_send(NetworkEvent::Failed {
+                            request_id,
+                            error: error.to_string(),
+                        });
+                        return;
+                    }
+                }
+                if sender.blocking_send(event).is_err() {
+                    return;
+                }
+            }
+        });
+        Ok(NetworkOperation {
+            request_id,
+            events,
+            demand,
+        })
+    }
+
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        self.inner.cancel_operation(request_id)
     }
 }
 
@@ -368,6 +526,10 @@ impl WorkerClient {
             || runtime.contract_version != oryn_common::v4::CONTRACT_VERSION
             || runtime.runtime_profile != config.runtime_profile.capability_name()
             || runtime.binding_abi_version != oryn_js::BINDING_ABI_VERSION
+            || !runtime.v8_heap_sandbox
+            || runtime.transport_mode != "async_streaming_parent_broker"
+            || !runtime.streaming_parser
+            || runtime.semantic_graph_version != crate::semantic::SEMANTIC_GRAPH_VERSION
             || !runtime.capabilities.iter().any(|item| item == "layout_box")
             || runtime.style_engine_version.as_deref()
                 != Some("stylo-declarations-0.20+oryn-common-web-cascade-v2")

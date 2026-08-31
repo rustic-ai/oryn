@@ -31,15 +31,16 @@ use url::Url;
 
 use crate::{
     network::{
-        NetworkBroker, NetworkRequest, NetworkResponse, SharedNetworkBroker,
-        sanitize_parent_response_headers, sanitize_worker_headers,
+        NetworkBroker, NetworkEvent, NetworkOperation, NetworkRequest, NetworkResponse,
+        SharedNetworkBroker, collect_operation, sanitize_parent_response_headers,
+        sanitize_worker_headers,
     },
     runtime::{BrowserContext, RuntimeError},
     security::{ConsequentialAction, PolicyRequest},
     storage::{StorageArea, StorageChange, StorageRequest, StorageResponse, StorageScope},
 };
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 9;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 10;
 pub const MAX_CONTEXT_FRAME_BYTES: usize = 24 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +80,10 @@ pub enum ContextServiceRequest {
         headers: Vec<(String, String)>,
     },
     InstallMetaSecurity {
+        page_id: PageId,
+        serialized: String,
+    },
+    InstallReferrerPolicy {
         page_id: PageId,
         serialized: String,
     },
@@ -535,9 +540,25 @@ pub struct ParentContextService {
 
 struct HttpStreamState {
     page_id: PageId,
-    body: Box<dyn Read + Send>,
+    operation: NetworkOperation,
+    current: bytes::Bytes,
+    offset: usize,
     bytes_read: usize,
     content_length: Option<usize>,
+}
+
+fn receive_network_event(
+    events: &mut tokio::sync::mpsc::Receiver<NetworkEvent>,
+) -> Option<NetworkEvent> {
+    loop {
+        match events.try_recv() {
+            Ok(event) => return Some(event),
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => return None,
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                std::thread::park_timeout(Duration::from_millis(1));
+            }
+        }
+    }
 }
 
 impl ParentContextService {
@@ -747,6 +768,18 @@ impl ParentContextService {
                     ));
                 }
                 self.context.install_meta_security(page_id, &serialized)?;
+                Ok(ContextServiceResponse::DocumentSecurityInstalled)
+            }
+            ContextServiceRequest::InstallReferrerPolicy {
+                page_id,
+                serialized,
+            } => {
+                if page_id != self.source_page_id {
+                    return Err(RuntimeError::ContextService(
+                        "worker cannot install referrer policy for another page".into(),
+                    ));
+                }
+                self.context.install_meta_referrer(page_id, &serialized)?;
                 Ok(ContextServiceResponse::DocumentSecurityInstalled)
             }
             ContextServiceRequest::ReportCspViolations {
@@ -1085,6 +1118,15 @@ impl ParentContextService {
         let cross_origin = target.origin().ascii_serialization() != source_origin;
         let mut headers = sanitize_worker_headers(request.headers);
         headers.push(("origin".into(), source_origin.clone()));
+        let source_url = self.context.page_url(page_id)?;
+        if let Ok(source) = Url::parse(&source_url)
+            && let Some(referrer) = self
+                .context
+                .page_referrer_policy(page_id)?
+                .header(&source, &target)
+        {
+            headers.push(("referer".into(), referrer));
+        }
         if cross_origin && cors_preflight_required(&request.method, &headers) {
             let requested_headers = cors_non_safelisted_headers(&headers);
             let mut preflight_headers = vec![
@@ -1100,8 +1142,9 @@ impl ParentContextService {
                     requested_headers.join(", "),
                 ));
             }
-            let preflight = network
-                .send(NetworkRequest {
+            let preflight = collect_operation(
+                &network,
+                NetworkRequest {
                     request_id: request.request_id ^ (1_u64 << 63),
                     method: "OPTIONS".into(),
                     url: request.url.clone(),
@@ -1116,8 +1159,9 @@ impl ParentContextService {
                         ..Default::default()
                     },
                     resolved_addrs: Vec::new(),
-                })
-                .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                },
+            )
+            .map_err(|error| RuntimeError::Network(error.to_string()))?;
             enforce_cors_preflight(
                 &source_origin,
                 &request.method,
@@ -1125,8 +1169,8 @@ impl ParentContextService {
                 &preflight,
             )?;
         }
-        let response = network
-            .start_stream(NetworkRequest {
+        let mut operation = network
+            .start_operation(NetworkRequest {
                 request_id: request.request_id,
                 method: request.method,
                 url: request.url,
@@ -1147,23 +1191,42 @@ impl ParentContextService {
                 resolved_addrs: Vec::new(),
             })
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
+        let (response_request_id, response_status, response_headers, content_length) =
+            match receive_network_event(&mut operation.events) {
+                Some(NetworkEvent::Headers {
+                    request_id,
+                    status,
+                    headers,
+                    content_length,
+                }) => (request_id, status, headers, content_length),
+                Some(NetworkEvent::Failed { error, .. }) => {
+                    return Err(RuntimeError::Network(error));
+                }
+                Some(NetworkEvent::Chunk { .. }) | Some(NetworkEvent::Complete { .. }) => {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "HTTP stream body arrived before accepted headers".into(),
+                    ));
+                }
+                None => {
+                    return Err(RuntimeError::Network(
+                        "HTTP stream ended before response headers".into(),
+                    ));
+                }
+            };
         if cross_origin
-            && !cors_headers_allowed(&source_origin, request.credentials, &response.headers)
+            && !cors_headers_allowed(&source_origin, request.credentials, &response_headers)
         {
             return Err(RuntimeError::ContextService(format!(
                 "cross-origin response denied by CORS: initiator={source_origin}, response={}",
                 target.origin().ascii_serialization()
             )));
         }
-        if response
-            .content_length
-            .is_some_and(|length| length > 16 * 1024 * 1024)
-        {
+        if content_length.is_some_and(|length| length > 16 * 1024 * 1024) {
             return Err(RuntimeError::WorkerLimitExceeded {
                 resource: "decoded HTTP response body".into(),
             });
         }
-        let total_bytes = response.content_length;
+        let total_bytes = content_length;
         let stream_id = self.next_http_stream_id.fetch_add(1, Ordering::Relaxed);
         let mut streams = self
             .http_streams
@@ -1178,16 +1241,18 @@ impl ParentContextService {
             stream_id,
             HttpStreamState {
                 page_id,
-                body: response.body,
+                operation,
+                current: bytes::Bytes::new(),
+                offset: 0,
                 bytes_read: 0,
                 content_length: total_bytes,
             },
         );
         Ok(ContextServiceResponse::HttpStreamStarted {
             stream_id,
-            request_id: response.request_id,
-            status: response.status,
-            headers: sanitize_parent_response_headers(response.headers),
+            request_id: response_request_id,
+            status: response_status,
+            headers: sanitize_parent_response_headers(response_headers),
             total_bytes,
         })
     }
@@ -1212,17 +1277,44 @@ impl ParentContextService {
                     "worker cannot read another page's HTTP stream".into(),
                 ));
             }
-            let read_bytes = max_bytes.clamp(1, 64 * 1024);
-            let remaining = (16 * 1024 * 1024_usize)
-                .saturating_add(1)
-                .saturating_sub(stream.bytes_read);
-            let mut chunk = vec![0_u8; read_bytes.min(remaining)];
-            let read = stream
-                .body
-                .read(&mut chunk)
-                .map_err(|error| RuntimeError::Network(error.to_string()))?;
-            chunk.truncate(read);
-            stream.bytes_read = stream.bytes_read.saturating_add(read);
+            let requested = max_bytes.clamp(1, 64 * 1024);
+            let mut terminal = false;
+            let mut chunk = Vec::with_capacity(requested);
+            while chunk.len() < requested && !terminal {
+                while stream.offset >= stream.current.len() {
+                    stream.current = bytes::Bytes::new();
+                    stream.offset = 0;
+                    stream.operation.request_body_chunk();
+                    match receive_network_event(&mut stream.operation.events) {
+                        Some(NetworkEvent::Chunk { bytes, .. }) => stream.current = bytes,
+                        Some(NetworkEvent::Complete { .. }) => {
+                            terminal = true;
+                            break;
+                        }
+                        Some(NetworkEvent::Failed { error, .. }) => {
+                            return Err(RuntimeError::Network(error));
+                        }
+                        Some(NetworkEvent::Headers { .. }) => {
+                            return Err(RuntimeError::ProtocolViolation(
+                                "HTTP stream emitted duplicate headers".into(),
+                            ));
+                        }
+                        None => {
+                            return Err(RuntimeError::Network(
+                                "HTTP stream closed without completion".into(),
+                            ));
+                        }
+                    }
+                }
+                if terminal {
+                    break;
+                }
+                let available = stream.current.len().saturating_sub(stream.offset);
+                let read = (requested - chunk.len()).min(available);
+                chunk.extend_from_slice(&stream.current.slice(stream.offset..stream.offset + read));
+                stream.offset += read;
+            }
+            stream.bytes_read = stream.bytes_read.saturating_add(chunk.len());
             if stream.bytes_read > 16 * 1024 * 1024 {
                 return Err(RuntimeError::WorkerLimitExceeded {
                     resource: "decoded HTTP response body".into(),
@@ -1230,7 +1322,7 @@ impl ParentContextService {
             }
             (
                 chunk,
-                read == 0
+                terminal
                     || stream
                         .content_length
                         .is_some_and(|length| stream.bytes_read >= length),
@@ -1262,6 +1354,11 @@ impl ParentContextService {
             return Err(RuntimeError::ContextService(
                 "worker cannot abort another page's HTTP stream".into(),
             ));
+        }
+        if let Some(network) = &self.network {
+            network
+                .cancel_operation(removed.operation.request_id)
+                .map_err(|error| RuntimeError::Network(error.to_string()))?;
         }
         Ok(ContextServiceResponse::HttpStreamAborted)
     }
@@ -1309,8 +1406,9 @@ impl ParentContextService {
                     "worker script blocked by Content-Security-Policy worker-src".into(),
                 ));
             }
-            let response = network
-                .send(NetworkRequest {
+            let response = collect_operation(
+                &network,
+                NetworkRequest {
                     request_id: self.next_http_stream_id.fetch_add(1, Ordering::Relaxed),
                     method: "GET".into(),
                     url: url.to_string(),
@@ -1327,8 +1425,9 @@ impl ParentContextService {
                         ..Default::default()
                     },
                     resolved_addrs: Vec::new(),
-                })
-                .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                },
+            )
+            .map_err(|error| RuntimeError::Network(error.to_string()))?;
             if (300..400).contains(&response.status) {
                 if redirect == 10 {
                     return Err(RuntimeError::Network(
@@ -1443,8 +1542,9 @@ impl ParentContextService {
                     "dynamic script blocked by Content-Security-Policy script-src".into(),
                 ));
             }
-            let response = network
-                .send(NetworkRequest {
+            let response = collect_operation(
+                &network,
+                NetworkRequest {
                     request_id: self.next_http_stream_id.fetch_add(1, Ordering::Relaxed),
                     method: "GET".into(),
                     url: url.to_string(),
@@ -1461,8 +1561,9 @@ impl ParentContextService {
                         ..Default::default()
                     },
                     resolved_addrs: Vec::new(),
-                })
-                .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                },
+            )
+            .map_err(|error| RuntimeError::Network(error.to_string()))?;
             if (300..400).contains(&response.status) {
                 if redirect == 10 {
                     return Err(RuntimeError::Network(
@@ -1915,18 +2016,23 @@ fn cors_non_safelisted_headers(headers: &[(String, String)]) -> Vec<String> {
         .iter()
         .filter_map(|(name, value)| {
             let lower = name.to_ascii_lowercase();
-            let safe = matches!(lower.as_str(), "accept" | "accept-language" | "origin")
-                || (lower == "content-type"
-                    && matches!(
-                        value
-                            .split(';')
-                            .next()
-                            .unwrap_or_default()
-                            .trim()
-                            .to_ascii_lowercase()
-                            .as_str(),
-                        "application/x-www-form-urlencoded" | "multipart/form-data" | "text/plain"
-                    ));
+            // `Origin` and `Referer` are user-agent controlled forbidden
+            // request headers. They participate in CORS validation but do not
+            // themselves make an otherwise simple request preflighted.
+            let safe = matches!(
+                lower.as_str(),
+                "accept" | "accept-language" | "origin" | "referer"
+            ) || (lower == "content-type"
+                && matches!(
+                    value
+                        .split(';')
+                        .next()
+                        .unwrap_or_default()
+                        .trim()
+                        .to_ascii_lowercase()
+                        .as_str(),
+                    "application/x-www-form-urlencoded" | "multipart/form-data" | "text/plain"
+                ));
             (!safe).then_some(lower)
         })
         .collect::<Vec<_>>();
@@ -2125,9 +2231,24 @@ mod tests {
     impl NetworkBroker for ConcurrentStartNetwork {
         fn send(
             &self,
-            _request: NetworkRequest,
+            request: NetworkRequest,
         ) -> Result<crate::network::NetworkResponse, NetworkError> {
-            unreachable!("concurrency fixture uses streaming starts")
+            let requested_headers = request
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("access-control-request-headers"))
+                .map(|(_, value)| value.clone())
+                .unwrap_or_default();
+            Ok(crate::network::NetworkResponse {
+                request_id: request.request_id,
+                status: 204,
+                headers: vec![
+                    ("access-control-allow-origin".into(), "*".into()),
+                    ("access-control-allow-methods".into(), "GET".into()),
+                    ("access-control-allow-headers".into(), requested_headers),
+                ],
+                body: Vec::new(),
+            })
         }
 
         fn start_stream(

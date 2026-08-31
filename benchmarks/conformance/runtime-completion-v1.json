@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "locked": true,
+  "scope": "eight_runtime_completion_workstreams",
+  "upstream": {
+    "project": "web-platform-tests/wpt",
+    "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+  },
+  "side_effect_policy": "recorded_fixtures_and_read_only_public_canaries",
+  "classifications": [
+    {"id":"async-network","path":"fetch,streams,xhr,websockets","disposition":"required","reason":"production asynchronous transport and streaming"},
+    {"id":"streaming-html","path":"html,encoding","disposition":"required","reason":"incremental navigation parser and lifecycle"},
+    {"id":"incremental-semantics","path":"accname,wai-aria","disposition":"required","reason":"persistent semantic graph and accessibility dependencies"},
+    {"id":"generated-webidl","path":"WebIDL,dom,nodes,interfaces","disposition":"required","reason":"authoritative generated bindings"},
+    {"id":"range-selection-traversal-editing","path":"dom/ranges,selection-api,traversal,editing","disposition":"required","reason":"restored compatibility APIs"},
+    {"id":"stylo-cascade","path":"css/css-cascade,css/cssom,css/selectors","disposition":"required","reason":"Stylo-owned cascade and computed values"},
+    {"id":"history-referrer","path":"html/browsers/history,referrer-policy","disposition":"required","reason":"history and referrer compatibility"},
+    {"id":"indexeddb","path":"IndexedDB","disposition":"required","reason":"IndexedDB compatibility"},
+    {"id":"intl-wasm","path":"intl,wasm","disposition":"required","reason":"full and English-lite platform profiles"},
+    {"id":"paint-reftests","path":"**/*-ref.*,**/*.manual.*","disposition":"informational","reason":"manual and pixel comparison tests are not executable by the no-render profile"},
+    {"id":"hardware-drm-media","path":"bluetooth,encrypted-media,mediacapture-streams,webusb","disposition":"excluded","reason":"outside the requested runtime workstreams"},
+    {"id":"unrelated-browser-subsystems","path":"service-workers,webnn,webgpu,webxr","disposition":"informational","reason":"measured gaps that do not expand this cutover"}
+  ]
+}

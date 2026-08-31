@@ -8,8 +8,9 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use base64::Engine as _;
 use oryn_common::v3::SemanticAction;
-use oryn_dom::{DomRuntime, NodeId, NodeKind, html};
+use oryn_dom::{DomRuntime, Mutation, MutationCursor, NodeId, NodeKind, SharedDomRuntime, html};
 use oryn_js::realm::RealmId;
+use oryn_js::v8_bindings::ParserInputCommand;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -31,6 +32,247 @@ fn resource_entry<'a>(
     resources
         .get_key_value(name)
         .map(|(name, source)| (name.as_str(), source.as_str()))
+}
+
+fn collect_scripts(dom: &SharedDomRuntime) -> Result<Vec<ScriptRecord>, HostError> {
+    let dom = dom.borrow();
+    dom.query_selector_all(dom.document(), "script")
+        .map_err(|error| HostError::Execution(error.to_string()))?
+        .into_iter()
+        .map(|node| script_record(&dom, node))
+        .collect()
+}
+
+fn collect_frames(dom: &SharedDomRuntime) -> Result<Vec<(NodeId, Option<String>)>, HostError> {
+    let dom = dom.borrow();
+    Ok(dom
+        .query_selector_all(dom.document(), "iframe")
+        .map_err(|error| HostError::Execution(error.to_string()))?
+        .into_iter()
+        .map(|node| {
+            (
+                node,
+                dom.attribute(node, "src").ok().flatten().map(str::to_owned),
+            )
+        })
+        .collect())
+}
+
+fn script_record(dom: &DomRuntime, node: NodeId) -> Result<ScriptRecord, HostError> {
+    let script_type = dom
+        .attribute(node, "type")
+        .map_err(|error| HostError::Execution(error.to_string()))?
+        .map(str::to_owned);
+    let deferred = (script_type.as_deref() == Some("module")
+        && dom
+            .attribute(node, "async")
+            .map_err(|error| HostError::Execution(error.to_string()))?
+            .is_none())
+        || dom
+            .attribute(node, "defer")
+            .map_err(|error| HostError::Execution(error.to_string()))?
+            .is_some();
+    let parser_blocking = script_type.as_deref().is_none_or(|kind| {
+        matches!(
+            kind,
+            "" | "text/javascript" | "application/javascript" | "text/babel"
+        )
+    }) && dom
+        .attribute(node, "async")
+        .map_err(|error| HostError::Execution(error.to_string()))?
+        .is_none()
+        && dom
+            .attribute(node, "defer")
+            .map_err(|error| HostError::Execution(error.to_string()))?
+            .is_none();
+    Ok((
+        node,
+        dom.attribute(node, "src")
+            .map_err(|error| HostError::Execution(error.to_string()))?
+            .map(str::to_owned),
+        script_type,
+        dom.arena()
+            .text_content(node)
+            .map_err(|error| HostError::Execution(error.to_string()))?,
+        parser_blocking,
+        dom.attribute(node, "nomodule")
+            .map_err(|error| HostError::Execution(error.to_string()))?
+            .is_some(),
+        deferred,
+    ))
+}
+
+fn run_script_record(
+    host: &mut RawV8Host,
+    resources: &BTreeMap<String, String>,
+    record: &ScriptRecord,
+    diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
+) -> Result<(), HostError> {
+    let (script, src, script_type, inline, _parser_blocking, no_module, _) = record;
+    if *no_module {
+        return Ok(());
+    }
+    if script_type.as_deref().is_some_and(|kind| {
+        !matches!(
+            kind,
+            "" | "module" | "text/javascript" | "application/javascript" | "text/babel"
+        )
+    }) {
+        return Ok(());
+    }
+    host.set_current_script(Some(*script))?;
+    let result = if script_type.as_deref() == Some("module") {
+        let resource = src.as_ref().and_then(|src| resource_entry(resources, src));
+        let name = resource
+            .map(|(name, _)| name)
+            .unwrap_or("oryn:inline-module");
+        let source = resource.map(|(_, source)| source).unwrap_or(inline);
+        host.execute_module(name, source, resources)
+            .map_err(|error| script_diagnostic_at(error, name))
+    } else {
+        let source = src
+            .as_ref()
+            .and_then(|src| resource_entry(resources, src))
+            .map(|(_, source)| source)
+            .unwrap_or(inline);
+        let transformed;
+        let source = if script_type.as_deref() == Some("text/babel") {
+            let encoded = serde_json::to_string(source)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            transformed = host.evaluate_string(&format!(
+                "Babel.transform({encoded},{{presets:['react']}}).code"
+            ))?;
+            transformed.as_str()
+        } else {
+            source
+        };
+        host.execute(source)
+            .map_err(|error| script_diagnostic_at(error, src.as_deref().unwrap_or("inline script")))
+    };
+    host.set_current_script(None)?;
+    if let Err(diagnostic) = result {
+        diagnostics.push(diagnostic);
+    }
+    Ok(())
+}
+
+fn parser_checkpoint(
+    host: &mut RawV8Host,
+    diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
+) -> Result<(), HostError> {
+    host.execute("void 0")?;
+    host.execute("__oryn_run_custom_reactions()")?;
+    host.run_dom_observer_checkpoint()?;
+    for rejection in host.take_unhandled_promise_rejections() {
+        diagnostics.push(script_diagnostic(HostError::Execution(format!(
+            "unhandled promise rejection: {rejection}"
+        ))));
+    }
+    Ok(())
+}
+
+enum DocumentLoad {
+    Live(String),
+    Snapshot(ParsedDocument),
+}
+
+type ScriptRecord = (
+    NodeId,
+    Option<String>,
+    Option<String>,
+    String,
+    bool,
+    bool,
+    bool,
+);
+
+fn parse_live_document(
+    source: String,
+    live_dom: &SharedDomRuntime,
+    host: &mut RawV8Host,
+    resources: &BTreeMap<String, String>,
+    diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
+) -> Result<(ParsedDocument, Vec<ScriptRecord>), HostError> {
+    use std::collections::VecDeque;
+
+    let mut parser = html::StreamingParser::with_runtime(live_dom.clone());
+    let mut input = VecDeque::from([source]);
+    let mut ordered_scripts = Vec::new();
+    let mut all_events = Vec::new();
+    host.set_parser_input_active(true)?;
+
+    while let Some(mut chunk) = input.pop_front() {
+        if chunk.is_empty() {
+            continue;
+        }
+        let progress = parser.push_until_blocked(&chunk);
+        let suffix = chunk.split_off(progress.consumed_bytes);
+        for event in parser.take_events() {
+            if let html::ParserEvent::ScriptReady { node, scheduling } = &event {
+                let record = script_record(&live_dom.borrow(), *node)?;
+                let asynchronous = live_dom
+                    .borrow()
+                    .attribute(*node, "async")
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+                    .is_some();
+                if asynchronous && *scheduling != html::ScriptScheduling::Data {
+                    run_script_record(host, resources, &record, diagnostics)?;
+                    parser_checkpoint(host, diagnostics)?;
+                } else if matches!(
+                    scheduling,
+                    html::ScriptScheduling::Defer | html::ScriptScheduling::Module
+                ) {
+                    ordered_scripts.push(record);
+                }
+            }
+            all_events.push(event);
+        }
+
+        if let Some(event @ html::ParserEvent::ScriptReady { node, .. }) = progress.blocked_on {
+            all_events.push(event);
+            let record = script_record(&live_dom.borrow(), node)?;
+            run_script_record(host, resources, &record, diagnostics)?;
+            parser_checkpoint(host, diagnostics)?;
+
+            let commands = host.take_parser_input_commands()?;
+            let mut inserted = String::new();
+            let mut replace_parser = false;
+            for command in commands {
+                match command {
+                    ParserInputCommand::Open => {
+                        live_dom
+                            .borrow_mut()
+                            .clear_document()
+                            .map_err(|error| HostError::Execution(error.to_string()))?;
+                        inserted.clear();
+                        input.clear();
+                        replace_parser = true;
+                    }
+                    ParserInputCommand::Write(markup) => inserted.push_str(&markup),
+                    ParserInputCommand::Close => {
+                        // `close()` seals the replacement stream after all
+                        // writes queued before it have reached html5ever.
+                    }
+                }
+            }
+            if replace_parser {
+                parser = html::StreamingParser::with_runtime(live_dom.clone());
+            } else if !suffix.is_empty() {
+                input.push_front(suffix);
+            }
+            if !inserted.is_empty() {
+                input.push_front(inserted);
+            }
+        } else if !suffix.is_empty() {
+            input.push_front(suffix);
+        }
+    }
+
+    host.set_parser_input_active(false)?;
+    let mut parsed = parser.finish();
+    all_events.extend(std::mem::take(&mut parsed.events));
+    parsed.events = all_events;
+    Ok((parsed, ordered_scripts))
 }
 
 const RUST_RUNTIME_GLOBALS: &str = r#"
@@ -123,12 +365,15 @@ class OrynURL {
 globalThis.URL=OrynURL;globalThis.URLSearchParams=OrynURLSearchParams;
 Object.defineProperty(globalThis,'location',{value:new OrynURL(location.href),writable:true,enumerable:true,configurable:true});
 Object.defineProperty(location,'assign',{configurable:true,enumerable:true,writable:true,value(url){this.href=new OrynURL(url,this.href).href}});
+const __oryn_history_clone=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value));
 class OrynHistory {
-  constructor(){this.length=1;this.state=null;this.scrollRestoration='auto'}
-  __update(state,url,push){if(url!==undefined&&url!==null&&String(url)!==''){const next=new OrynURL(url,location.href);if(location.origin!=='null'&&next.origin!==location.origin)throw new Error('SecurityError: history URL must be same-origin');Object.assign(location,next)}this.state=state;if(push)this.length++}
-  pushState(state,_unused,url){this.__update(state,url,true)}
-  replaceState(state,_unused,url){this.__update(state,url,false)}
-  go(_delta=0){}
+  constructor(){this.entries=[{url:location.href,state:null}];this.index=0;this.scrollRestoration='auto'}
+  get length(){return this.entries.length}
+  get state(){return __oryn_history_clone(this.entries[this.index].state)}
+  __entry(state,url){let next=new OrynURL(url===undefined||url===null||String(url)===''?location.href:url,location.href);if(location.origin!=='null'&&next.origin!==location.origin){const error=new Error('history URL must be same-origin');error.name='SecurityError';throw error}return {url:next.href,state:__oryn_history_clone(state)}}
+  pushState(state,_unused,url){const entry=this.__entry(state,url);this.entries.splice(this.index+1);this.entries.push(entry);this.index=this.entries.length-1;Object.assign(location,new OrynURL(entry.url))}
+  replaceState(state,_unused,url){const entry=this.__entry(state,url);this.entries[this.index]=entry;Object.assign(location,new OrynURL(entry.url))}
+  go(delta=0){delta=Number(delta)||0;if(delta===0)return;const next=this.index+delta;if(next<0||next>=this.entries.length)return;const previous=location.href;this.index=next;const entry=this.entries[next];Object.assign(location,new OrynURL(entry.url));const pop=new Event('popstate');pop.state=__oryn_history_clone(entry.state);dispatchEvent(pop);if(new OrynURL(previous).hash!==location.hash){const hash=new Event('hashchange');hash.oldURL=previous;hash.newURL=location.href;dispatchEvent(hash)}}
   back(){this.go(-1)}
   forward(){this.go(1)}
 }
@@ -205,10 +450,13 @@ globalThis.crypto={getRandomValues(array){const encoded=__oryn_crypto_sync('rand
 const __oryn_idb_call=command=>{const outer=contextCall({operation:'storage',request:{operation:'indexed_db',origin:location.origin,command}});if(outer.result!=='storage'||outer.response.result!=='indexed_db')throw new Error('invalid IndexedDB response');return outer.response.response};
 const __oryn_clone_encode=value=>{if(value instanceof ArrayBuffer)return {__oryn_clone:'array_buffer',base64:bytesToBase64(value)};if(ArrayBuffer.isView(value))return {__oryn_clone:'typed_array',type:value.constructor.name,base64:bytesToBase64(new Uint8Array(value.buffer,value.byteOffset,value.byteLength))};if(value instanceof OrynFile)return {__oryn_clone:'file',base64:bytesToBase64(value.__bytes),type:value.type,name:value.name,last_modified:value.lastModified};if(value instanceof OrynBlob)return {__oryn_clone:'blob',base64:bytesToBase64(value.__bytes),type:value.type};if(Array.isArray(value))return value.map(__oryn_clone_encode);if(value&&typeof value==='object'){const result={};for(const [key,item] of Object.entries(value))result[key]=__oryn_clone_encode(item);return result}return value};
 const __oryn_clone_decode=value=>{if(Array.isArray(value))return value.map(__oryn_clone_decode);if(value&&typeof value==='object'){if(value.__oryn_clone==='array_buffer')return base64ToBytes(value.base64).buffer;if(value.__oryn_clone==='typed_array'){const bytes=base64ToBytes(value.base64),ctor=globalThis[value.type];return new ctor(bytes.buffer)}if(value.__oryn_clone==='blob')return new Blob([base64ToBytes(value.base64)],{type:value.type});if(value.__oryn_clone==='file')return new File([base64ToBytes(value.base64)],value.name,{type:value.type,lastModified:value.last_modified});const result={};for(const [key,item] of Object.entries(value))result[key]=__oryn_clone_decode(item);return result}return value};
+class OrynIDBKeyRange {constructor(lower,upper,lowerOpen=false,upperOpen=false){this.__oryn_key_range=true;if(lower!==undefined)this.lower=lower;if(upper!==undefined)this.upper=upper;this.lower_open=!!lowerOpen;this.upper_open=!!upperOpen}includes(key){const compare=(left,right)=>typeof left==='number'&&typeof right==='number'?left-right:JSON.stringify(left).localeCompare(JSON.stringify(right));return (this.lower===undefined||(this.lower_open?compare(key,this.lower)>0:compare(key,this.lower)>=0))&&(this.upper===undefined||(this.upper_open?compare(key,this.upper)<0:compare(key,this.upper)<=0))}static only(value){return new this(value,value)}static lowerBound(value,open=false){return new this(value,undefined,open,false)}static upperBound(value,open=false){return new this(undefined,value,false,open)}static bound(lower,upper,lowerOpen=false,upperOpen=false){return new this(lower,upper,lowerOpen,upperOpen)}}
+globalThis.IDBKeyRange=OrynIDBKeyRange;
 class OrynIDBRequest {constructor(){this.result=undefined;this.error=null;this.onsuccess=null;this.onerror=null;this.onupgradeneeded=null}__fire(type,extra={}){const event={type,target:this,...extra};const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}__success(value){queueMicrotask(()=>{this.result=value;this.__fire('success')})}__failure(error){queueMicrotask(()=>{this.error=error;this.__fire('error')})}}
-class OrynIDBIndex {constructor(store,name){this.store=store;this.name=String(name)}get(query){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query,reverse:false});request.__success(__oryn_clone_decode(response.records[0]?.value))}catch(error){request.__failure(error)}return request}}
-class OrynIDBObjectStore {constructor(transaction,name){this.transaction=transaction;this.name=String(name)}put(value,key){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'batch',database:this.transaction.db.name,writes:[{store:this.name,key:key??null,value:__oryn_clone_encode(value),add_only:false}]});request.__success(response.key)}catch(error){request.__failure(error)}return request}add(value,key){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'batch',database:this.transaction.db.name,writes:[{store:this.name,key:key??null,value:__oryn_clone_encode(value),add_only:true}]});request.__success(response.key)}catch(error){request.__failure(error)}return request}get(key){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'get',database:this.transaction.db.name,store:this.name,key});request.__success(__oryn_clone_decode(response.value))}catch(error){request.__failure(error)}return request}createIndex(name,keyPath,options={}){__oryn_idb_call({command:'create_index',database:this.transaction.db.name,store:this.name,definition:{name:String(name),key_path:String(keyPath),unique:!!options.unique}});return new OrynIDBIndex(this,name)}index(name){return new OrynIDBIndex(this,name)}}
-class OrynIDBTransaction {constructor(db,names,mode='readonly'){this.db=db;this.mode=mode;this.names=Array.isArray(names)?names:[String(names)]}objectStore(name){return new OrynIDBObjectStore(this,name)}}
+class OrynIDBCursor {constructor(request,records,index=0){this.__request=request;this.__records=records;this.__index=index;this.__sync()}__sync(){const record=this.__records[this.__index];this.key=record?.key;this.primaryKey=record?.primary_key;this.value=__oryn_clone_decode(record?.value)}continue(key){let next=this.__index+1;if(key!==undefined)next=this.__records.findIndex((record,index)=>index>this.__index&&JSON.stringify(record.key)>=JSON.stringify(key));this.__index=next<0?this.__records.length:next;queueMicrotask(()=>{if(this.__index>=this.__records.length)this.__request.__success(null);else{this.__sync();this.__request.__success(this)}})}advance(count){this.__index+=Math.max(1,Number(count)||1);this.continue()}delete(){return this.__request.__store.delete(this.primaryKey)}update(value){return this.__request.__store.put(value,this.primaryKey)}}
+class OrynIDBIndex {constructor(store,name){this.store=store;this.name=String(name)}get(query){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query,reverse:false});request.__success(__oryn_clone_decode(response.records[0]?.value))}catch(error){request.__failure(error)}return request}getAll(query,count){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query:query??null,reverse:false});request.__success(response.records.slice(0,count??response.records.length).map(record=>__oryn_clone_decode(record.value)))}catch(error){request.__failure(error)}return request}count(query){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query:query??null,reverse:false});request.__success(response.records.length)}catch(error){request.__failure(error)}return request}openCursor(query,direction='next'){return this.store.__cursor(query,direction,this.name)}}
+class OrynIDBObjectStore {constructor(transaction,name){this.transaction=transaction;this.name=String(name)}put(value,key){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'batch',database:this.transaction.db.name,writes:[{store:this.name,key:key??null,value:__oryn_clone_encode(value),add_only:false}]});request.__success(response.key)}catch(error){request.__failure(error)}return request}add(value,key){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'batch',database:this.transaction.db.name,writes:[{store:this.name,key:key??null,value:__oryn_clone_encode(value),add_only:true}]});request.__success(response.key)}catch(error){request.__failure(error)}return request}get(key){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'get',database:this.transaction.db.name,store:this.name,key});request.__success(__oryn_clone_decode(response.value))}catch(error){request.__failure(error)}return request}getAll(query,count){const request=new OrynIDBRequest();try{const response=query===undefined?__oryn_idb_call({command:'get_all',database:this.transaction.db.name,store:this.name}):__oryn_idb_call({command:'cursor',database:this.transaction.db.name,store:this.name,index:null,query,reverse:false});const values=response.values?.length?response.values:response.records.map(record=>record.value);request.__success(values.slice(0,count??values.length).map(__oryn_clone_decode))}catch(error){request.__failure(error)}return request}delete(key){const request=new OrynIDBRequest();try{__oryn_idb_call({command:'delete',database:this.transaction.db.name,store:this.name,key});request.__success(undefined)}catch(error){request.__failure(error)}return request}clear(){const request=new OrynIDBRequest();try{__oryn_idb_call({command:'clear',database:this.transaction.db.name,store:this.name});request.__success(undefined)}catch(error){request.__failure(error)}return request}count(){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'count',database:this.transaction.db.name,store:this.name});request.__success(response.count||0)}catch(error){request.__failure(error)}return request}__cursor(query,direction='next',index=null){const request=new OrynIDBRequest();request.__store=this;try{const response=__oryn_idb_call({command:'cursor',database:this.transaction.db.name,store:this.name,index,query:query??null,reverse:String(direction).startsWith('prev')});queueMicrotask(()=>{if(!response.records.length)request.__success(null);else request.__success(new OrynIDBCursor(request,response.records))})}catch(error){request.__failure(error)}return request}openCursor(query,direction='next'){return this.__cursor(query,direction)}createIndex(name,keyPath,options={}){__oryn_idb_call({command:'create_index',database:this.transaction.db.name,store:this.name,definition:{name:String(name),key_path:String(keyPath),unique:!!options.unique}});return new OrynIDBIndex(this,name)}index(name){return new OrynIDBIndex(this,name)}}
+class OrynIDBTransaction {constructor(db,names,mode='readonly'){this.db=db;this.mode=mode;this.names=Array.isArray(names)?names:[String(names)];this.oncomplete=null;this.onabort=null;this.onerror=null;queueMicrotask(()=>{if(typeof this.oncomplete==='function')this.oncomplete({type:'complete',target:this})})}objectStore(name){if(!this.names.includes(String(name)))throw new Error('NotFoundError');return new OrynIDBObjectStore(this,name)}abort(){if(typeof this.onabort==='function')this.onabort({type:'abort',target:this})}}
 class OrynIDBDatabase {constructor(name,version,stores=[]){this.name=String(name);this.version=version;this.objectStoreNames=stores}createObjectStore(name,options={}){const response=__oryn_idb_call({command:'create_object_store',database:this.name,definition:{name:String(name),key_path:options.keyPath??null,auto_increment:!!options.autoIncrement}});this.objectStoreNames=response.object_stores;return new OrynIDBObjectStore(new OrynIDBTransaction(this,[name],'versionchange'),name)}transaction(names,mode='readonly'){return new OrynIDBTransaction(this,names,mode)}close(){}}
 globalThis.indexedDB={open(name,version=0){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'open',name:String(name),version:Number(version)||0});const db=new OrynIDBDatabase(name,response.version,response.object_stores);queueMicrotask(()=>{request.result=db;if(response.upgrade_needed)request.__fire('upgradeneeded',{oldVersion:response.old_version,newVersion:response.version});request.__fire('success')})}catch(error){request.__failure(error)}return request},deleteDatabase(name){const request=new OrynIDBRequest();try{__oryn_idb_call({command:'delete_database',name:String(name)});request.__success(undefined)}catch(error){request.__failure(error)}return request}};
 if(typeof globalThis.__oryn_fetch_async==='function')globalThis.fetch=(input,init={})=>{
@@ -233,7 +481,7 @@ class OrynXMLHttpRequest {
   setRequestHeader(name,value){this.__headers.append(name,value)}
   getResponseHeader(name){return this.__responseHeaders.get(name)}
   getAllResponseHeaders(){return [...this.__responseHeaders].map(([name,value])=>`${name}: ${value}\r\n`).join('')}
-  send(body=null){if(this.readyState!==1)throw new Error('InvalidStateError');this.__event('loadstart');const controller=new AbortController();this.__controller=controller;const started=Date.now();const timeout=()=>{if(this.__aborted||this.__timedOut)return;this.__timedOut=true;controller.abort(new Error('TimeoutError'));this.status=0;this.__event('timeout');this.__event('loadend')};if(this.timeout>0)this.__timer=setTimeout(timeout,this.timeout);Promise.resolve().then(()=>{if(this.__aborted)return null;return fetch(this.__url,{method:this.__method,headers:this.__headers,body,credentials:this.withCredentials?'include':'same-origin',signal:controller.signal})}).then(async result=>{if(!result||this.__aborted||this.__timedOut)return;if(this.timeout>0&&Date.now()-started>=this.timeout){timeout();return}if(this.__timer)clearTimeout(this.__timer);this.status=result.status;this.responseURL=result.url;this.__responseHeaders=result.headers;this.__state(2);this.__state(3);const bytes=new Uint8Array(await result.arrayBuffer());if(this.__aborted||this.__timedOut)return;this.responseText=new TextDecoder().decode(bytes);this.response=this.responseType==='arraybuffer'?bytes.buffer.slice(0):this.responseType==='blob'?new Blob([bytes],{type:this.__responseHeaders.get('content-type')||''}):this.responseType==='json'?JSON.parse(this.responseText||'null'):this.responseText;this.__event('progress',{lengthComputable:true,loaded:bytes.length,total:bytes.length});this.__state(4);this.__event('load');this.__event('loadend')}).catch(error=>{if(this.__aborted||this.__timedOut)return;this.status=0;this.__event('error',{error});this.__event('loadend')})}
+  send(body=null){if(this.readyState!==1)throw new Error('InvalidStateError');this.__event('loadstart');const controller=new AbortController();this.__controller=controller;const started=Date.now();const timeout=()=>{if(this.__aborted||this.__timedOut)return;this.__timedOut=true;controller.abort(new Error('TimeoutError'));this.status=0;this.__event('timeout');this.__event('loadend')};if(this.timeout>0)this.__timer=setTimeout(timeout,this.timeout);Promise.resolve().then(()=>{if(this.__aborted)return null;return fetch(this.__url,{method:this.__method,headers:this.__headers,body,credentials:this.withCredentials?'include':'same-origin',signal:controller.signal})}).then(async result=>{if(!result||this.__aborted||this.__timedOut)return;if(this.timeout>0&&Date.now()-started>=this.timeout){timeout();return}this.status=result.status;this.responseURL=result.url;this.__responseHeaders=result.headers;this.__state(2);const reader=result.body.getReader(),chunks=[],decoder=new TextDecoder();let loaded=0,sawChunk=false;while(true){const part=await reader.read();if(part.done)break;if(this.__aborted||this.__timedOut){await reader.cancel();return}const chunk=bodyBytes(part.value);chunks.push(chunk);loaded+=chunk.length;if(!sawChunk){sawChunk=true;this.__state(3)}this.responseText+=decoder.decode(chunk,{stream:true});this.__event('progress',{lengthComputable:false,loaded,total:0})}this.responseText+=decoder.decode();if(this.__timer)clearTimeout(this.__timer);const bytes=new Uint8Array(loaded);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length}if(!sawChunk)this.__state(3);this.response=this.responseType==='arraybuffer'?bytes.buffer.slice(0):this.responseType==='blob'?new Blob([bytes],{type:this.__responseHeaders.get('content-type')||''}):this.responseType==='json'?JSON.parse(this.responseText||'null'):this.responseText;this.__state(4);this.__event('load');this.__event('loadend')}).catch(error=>{if(this.__aborted||this.__timedOut)return;this.status=0;this.__event('error',{error});this.__event('loadend')})}
   abort(){if(this.__aborted)return;this.__aborted=true;if(this.__controller)this.__controller.abort(new Error('AbortError'));this.status=0;this.readyState=0;this.__event('abort');this.__event('loadend')}
 }
 Object.assign(OrynXMLHttpRequest,{UNSENT:0,OPENED:1,HEADERS_RECEIVED:2,LOADING:3,DONE:4});Object.assign(OrynXMLHttpRequest.prototype,{UNSENT:0,OPENED:1,HEADERS_RECEIVED:2,LOADING:3,DONE:4});globalThis.XMLHttpRequest=OrynXMLHttpRequest;
@@ -263,6 +511,7 @@ pub struct RustExecutableDocument {
     resources: BTreeMap<String, String>,
     broker: Option<SharedNetworkBroker>,
     next_dynamic_request_id: u64,
+    semantic_mutation_cursor: MutationCursor,
     #[cfg(unix)]
     context: Option<(
         crate::context_service::SharedContextClient,
@@ -300,7 +549,25 @@ impl RustExecutableDocument {
         max_heap_bytes: usize,
     ) -> Result<Self, HostError> {
         Self::load_with_options(
-            html_source,
+            DocumentLoad::Live(html_source.to_owned()),
+            resources,
+            broker,
+            base_url,
+            max_heap_bytes,
+            #[cfg(unix)]
+            None,
+        )
+    }
+
+    pub(crate) fn load_parsed_with_limits(
+        parsed: ParsedDocument,
+        resources: &BTreeMap<String, String>,
+        broker: Option<SharedNetworkBroker>,
+        base_url: Option<Url>,
+        max_heap_bytes: usize,
+    ) -> Result<Self, HostError> {
+        Self::load_with_options(
+            DocumentLoad::Snapshot(parsed),
             resources,
             broker,
             base_url,
@@ -324,7 +591,30 @@ impl RustExecutableDocument {
         ),
     ) -> Result<Self, HostError> {
         Self::load_with_options(
-            html_source,
+            DocumentLoad::Live(html_source.to_owned()),
+            resources,
+            broker,
+            base_url,
+            max_heap_bytes,
+            Some(context),
+        )
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn load_parsed_with_context_and_limits(
+        parsed: ParsedDocument,
+        resources: &BTreeMap<String, String>,
+        broker: Option<SharedNetworkBroker>,
+        base_url: Option<Url>,
+        max_heap_bytes: usize,
+        context: (
+            crate::context_service::SharedContextClient,
+            oryn_common::v3::PageId,
+            Option<oryn_common::v3::PageId>,
+        ),
+    ) -> Result<Self, HostError> {
+        Self::load_with_options(
+            DocumentLoad::Snapshot(parsed),
             resources,
             broker,
             base_url,
@@ -334,7 +624,7 @@ impl RustExecutableDocument {
     }
 
     fn load_with_options(
-        html_source: &str,
+        input: DocumentLoad,
         resources: &BTreeMap<String, String>,
         broker: Option<SharedNetworkBroker>,
         base_url: Option<Url>,
@@ -352,54 +642,37 @@ impl RustExecutableDocument {
         #[cfg(unix)]
         let context_handle = context.clone();
         let broker_handle = broker.clone();
-        let parsed = html::parse_streamed(html_source, 4 * 1024);
-        let mut scripts = parsed
-            .dom
-            .iter()
-            .filter(|(_, node)| {
-                matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "script")
-            })
-            .map(|(id, node)| {
-                let script_type = node.attributes.get("type").cloned();
-                let deferred = (script_type.as_deref() == Some("module")
-                    && !node.attributes.contains_key("async"))
-                    || node.attributes.contains_key("defer");
-                let parser_blocking = script_type.as_deref().is_none_or(|kind| {
-                    matches!(
-                        kind,
-                        "" | "text/javascript" | "application/javascript" | "text/babel"
-                    )
-                }) && !node.attributes.contains_key("async")
-                    && !node.attributes.contains_key("defer");
+        let (live_dom, live_source, mut quirks_mode, mut parser_events) = match input {
+            DocumentLoad::Live(source) => (
+                Rc::new(RefCell::new(DomRuntime::new())),
+                Some(source),
+                html5ever::interface::QuirksMode::NoQuirks,
+                Vec::new(),
+            ),
+            DocumentLoad::Snapshot(parsed) => {
+                let quirks_mode = parsed.quirks_mode;
+                let parser_events = parsed.events.clone();
+                let runtime = parsed.into_runtime().map_err(|error| {
+                    HostError::Execution(format!("failed to initialize Rust DOM: {error}"))
+                })?;
                 (
-                    id,
-                    node.attributes.get("src").cloned(),
-                    script_type,
-                    parsed.dom.text_content(id).unwrap_or_default(),
-                    parser_blocking,
-                    node.attributes.contains_key("nomodule"),
-                    deferred,
+                    Rc::new(RefCell::new(runtime)),
+                    None,
+                    quirks_mode,
+                    parser_events,
                 )
-            })
-            .collect::<Vec<_>>();
-        // Deferred and module scripts run after parsing, so later parser-time
-        // classic scripts (for example Nuxt's serialized runtime config) are
-        // visible before module evaluation begins. Stable sorting preserves
-        // document order within both execution classes.
-        scripts.sort_by_key(|script| script.6);
-        let frame_sources = parsed
-            .dom
-            .iter()
-            .filter(|(_, node)| {
-                matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "iframe")
-            })
-            .map(|(id, node)| (id, node.attributes.get("src").cloned()))
-            .collect::<Vec<_>>();
-        let quirks_mode = parsed.quirks_mode;
-        let parser_events = parsed.events.clone();
-        let live_dom = Rc::new(RefCell::new(parsed.into_runtime().map_err(|error| {
-            HostError::Execution(format!("failed to initialize Rust DOM: {error}"))
-        })?));
+            }
+        };
+        let mut scripts = if live_source.is_none() {
+            collect_scripts(&live_dom)?
+        } else {
+            Vec::new()
+        };
+        let mut frame_sources = if live_source.is_none() {
+            collect_frames(&live_dom)?
+        } else {
+            Vec::new()
+        };
         #[cfg(unix)]
         let mut host = match context {
             Some((client, page_id, _opener_page_id)) => {
@@ -483,6 +756,19 @@ impl RustExecutableDocument {
             "__oryn_restore_storage(JSON.parse({local_storage}),JSON.parse({session_storage}))"
         ))?;
         let mut diagnostics = Vec::new();
+        if let Some(source) = live_source {
+            let (parsed, ordered_scripts) =
+                parse_live_document(source, &live_dom, &mut host, resources, &mut diagnostics)?;
+            quirks_mode = parsed.quirks_mode;
+            parser_events = parsed.events;
+            scripts = ordered_scripts;
+            frame_sources = collect_frames(&live_dom)?;
+        } else {
+            // Compatibility snapshots cannot pause at their original parser
+            // boundary. Keep their established document-order behavior while
+            // production source loads use the live parser above.
+            scripts.sort_by_key(|script| script.6);
+        }
         let mut node_realms = BTreeMap::new();
         for (frame_index, (frame, source)) in frame_sources.into_iter().enumerate() {
             let Some(source) = source else { continue };
@@ -555,88 +841,19 @@ impl RustExecutableDocument {
                 .query_selector_all(child_document, "script")
                 .unwrap_or_default();
             for (script, source) in imported_scripts.into_iter().zip(child_scripts) {
-                host.set_document_write_anchor(Some(script))?;
+                host.set_current_script(Some(script))?;
                 if let Err(error) = host.execute(&source) {
                     diagnostics.push(script_diagnostic(error));
                 }
             }
-            host.set_document_write_anchor(None)?;
+            host.set_current_script(None)?;
             host.activate_realm(top_realm)?;
             host.set_frame_document(frame, child_document)?;
         }
-        for (script, src, script_type, inline, parser_blocking, no_module, _deferred) in scripts {
-            // V8 provides module-script support, so the HTML `nomodule`
-            // fallback must not execute. Modern framework exports commonly
-            // include a legacy polyfill bundle behind this attribute.
-            if no_module {
-                continue;
-            }
-            let parser_suspension = parser_blocking
-                .then(|| live_dom.borrow_mut().suspend_parser_tail(script))
-                .transpose()
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            host.set_document_write_anchor(Some(script))?;
-            if script_type.as_deref() == Some("module") {
-                let resource = src.as_ref().and_then(|src| resource_entry(resources, src));
-                let name = resource
-                    .map(|(name, _)| name)
-                    .unwrap_or("oryn:inline-module");
-                let source = resource.map(|(_, source)| source).unwrap_or(&inline);
-                if let Err(error) = host.execute_module(name, source, resources) {
-                    diagnostics.push(script_diagnostic_at(error, name));
-                }
-                if let Some(suspension) = parser_suspension {
-                    live_dom
-                        .borrow_mut()
-                        .resume_parser_tail(suspension)
-                        .map_err(|error| HostError::Execution(error.to_string()))?;
-                }
-                continue;
-            }
-            if script_type.as_deref().is_some_and(|kind| {
-                !matches!(
-                    kind,
-                    "" | "text/javascript" | "application/javascript" | "text/babel"
-                )
-            }) {
-                if let Some(suspension) = parser_suspension {
-                    live_dom
-                        .borrow_mut()
-                        .resume_parser_tail(suspension)
-                        .map_err(|error| HostError::Execution(error.to_string()))?;
-                }
-                continue;
-            }
-            let source = src
-                .as_ref()
-                .and_then(|src| resource_entry(resources, src))
-                .map(|(_, source)| source)
-                .unwrap_or(&inline);
-            let transformed;
-            let source = if script_type.as_deref() == Some("text/babel") {
-                let encoded = serde_json::to_string(source)
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                transformed = host.evaluate_string(&format!(
-                    "Babel.transform({encoded},{{presets:['react']}}).code"
-                ))?;
-                transformed.as_str()
-            } else {
-                source
-            };
-            if let Err(error) = host.execute(source) {
-                diagnostics.push(script_diagnostic_at(
-                    error,
-                    src.as_deref().unwrap_or("inline script"),
-                ));
-            }
-            if let Some(suspension) = parser_suspension {
-                live_dom
-                    .borrow_mut()
-                    .resume_parser_tail(suspension)
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-            }
+        for script in &scripts {
+            run_script_record(&mut host, resources, script, &mut diagnostics)?;
         }
-        host.set_document_write_anchor(None)?;
+        host.set_current_script(None)?;
         host.drain_async_fetches(true)?;
         let (dom, document) = live_dom.borrow().snapshot();
         let mut page = Self {
@@ -656,6 +873,7 @@ impl RustExecutableDocument {
             resources: resources.clone(),
             broker: broker_handle,
             next_dynamic_request_id: 1,
+            semantic_mutation_cursor: MutationCursor::default(),
             #[cfg(unix)]
             context: context_handle,
         };
@@ -1025,6 +1243,17 @@ impl RustExecutableDocument {
     pub fn layout_snapshot(&mut self) -> Result<ParsedDocument, HostError> {
         self.checkpoint()?;
         Ok(self.document.clone())
+    }
+
+    /// Return every live-DOM mutation not yet consumed by the semantic graph.
+    /// MutationObserver delivery uses a separate journal cursor.
+    pub fn take_semantic_mutations(&mut self) -> (Vec<Mutation>, bool) {
+        let batch = self
+            .live_dom
+            .borrow()
+            .mutations_since(self.semantic_mutation_cursor);
+        self.semantic_mutation_cursor = batch.next;
+        (batch.mutations, batch.truncated)
     }
 
     pub fn install_layout(
@@ -1546,7 +1775,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_inserted_document_write_mutates_the_rust_dom_at_the_script_anchor() {
+    fn parser_inserted_document_write_reenters_the_live_tokenizer() {
         let page = RustExecutableDocument::load(
             "<main id=before>before</main><script>document.write('<section id=written>inserted</section>')</script><footer id=after>after</footer>",
         )
@@ -1591,6 +1820,26 @@ mod tests {
         let result = page.node_by_id("result").expect("result node");
         assert_eq!(page.document.dom.text_content(result).unwrap(), "true");
         assert!(page.node_by_id("later").is_some());
+    }
+
+    #[test]
+    fn parser_and_v8_preserve_wrapper_identity_across_pause_and_resume() {
+        let page = RustExecutableDocument::load(
+            "<main id=root></main><script>globalThis.saved=document.getElementById('root')</script><p id=later></p><script>document.getElementById('later').textContent=String(saved===document.getElementById('root'))</script>",
+        )
+        .unwrap();
+        let later = page.node_by_id("later").expect("later parser node");
+        assert_eq!(page.document.dom.text_content(later).unwrap(), "true");
+    }
+
+    #[test]
+    fn observer_installed_by_blocking_script_receives_later_parser_mutations() {
+        let page = RustExecutableDocument::load(
+            "<output id=result>false</output><script>const observer=new MutationObserver(records=>{if(records.some(record=>[...record.addedNodes].some(node=>node.id==='later'))){observer.disconnect();document.getElementById('result').textContent='true'}});observer.observe(document.body,{childList:true,subtree:true})</script><p id=later>later</p>",
+        )
+        .unwrap();
+        let result = page.node_by_id("result").expect("observer output");
+        assert_eq!(page.document.dom.text_content(result).unwrap(), "true");
     }
 
     #[test]

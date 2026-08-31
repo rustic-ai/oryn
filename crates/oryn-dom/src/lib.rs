@@ -4,12 +4,22 @@
 //! pointers into the arena. Mutations are journaled at their source so style,
 //! semantic projection, observers, and tracing share one authoritative tree.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::rc::Rc;
 
 use markup5ever::{LocalName, Namespace, QualName, ns};
 use serde::{Deserialize, Serialize};
 
 pub mod html;
+
+/// Thread-affine ownership shared by html5ever and the page's V8 isolate.
+///
+/// The page worker deliberately keeps parsing and JavaScript on one thread.
+/// `RefCell` therefore provides an executable invariant: V8 cannot enter the
+/// DOM while html5ever holds a tree-builder mutation borrow, and neither side
+/// ever receives or stores a raw Rust pointer.
+pub type SharedDomRuntime = Rc<RefCell<DomRuntime>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NodeId {
@@ -314,19 +324,86 @@ pub enum Mutation {
     },
 }
 
+/// A non-destructive cursor into the live DOM mutation journal. Independent
+/// consumers (observers, style, semantics, and tracing) keep their own cursor
+/// so one checkpoint cannot hide mutations from another subsystem.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MutationCursor(pub u64);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MutationBatch {
+    pub next: MutationCursor,
+    pub truncated: bool,
+    pub mutations: Vec<Mutation>,
+}
+
+#[derive(Debug, Clone)]
+struct MutationJournal {
+    entries: VecDeque<(u64, Mutation)>,
+    next: u64,
+    observer: MutationCursor,
+}
+
+impl Default for MutationJournal {
+    fn default() -> Self {
+        Self {
+            entries: VecDeque::new(),
+            next: 1,
+            observer: MutationCursor::default(),
+        }
+    }
+}
+
+impl MutationJournal {
+    const MAX_ENTRIES: usize = 16_384;
+
+    fn push(&mut self, mutation: Mutation) {
+        let sequence = self.next;
+        self.next = self.next.saturating_add(1);
+        self.entries.push_back((sequence, mutation));
+        while self.entries.len() > Self::MAX_ENTRIES {
+            self.entries.pop_front();
+        }
+    }
+
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    fn read_since(&self, cursor: MutationCursor) -> MutationBatch {
+        let oldest = self
+            .entries
+            .front()
+            .map_or(self.next, |(sequence, _)| *sequence);
+        let truncated = cursor.0.saturating_add(1) < oldest;
+        let after = if truncated {
+            oldest.saturating_sub(1)
+        } else {
+            cursor.0
+        };
+        MutationBatch {
+            next: MutationCursor(self.next.saturating_sub(1)),
+            truncated,
+            mutations: self
+                .entries
+                .iter()
+                .filter(|(sequence, _)| *sequence > after)
+                .map(|(_, mutation)| mutation.clone())
+                .collect(),
+        }
+    }
+
+    fn drain_observer(&mut self) -> Vec<Mutation> {
+        let batch = self.read_since(self.observer);
+        self.observer = batch.next;
+        batch.mutations
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 struct NodeRoots {
     wrappers: u32,
     native: u32,
-}
-
-/// Source-order nodes withheld while a parser-blocking script runs. This is
-/// deliberately an internal parser state transition: suspending and restoring
-/// the not-yet-parsed tail does not publish JavaScript-visible mutations.
-#[derive(Debug)]
-pub struct ParserSuspension {
-    anchor: NodeId,
-    tails: Vec<(NodeId, Vec<NodeId>)>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -336,7 +413,7 @@ pub struct DomRuntime {
     connected: BTreeSet<NodeId>,
     roots: BTreeMap<NodeId, NodeRoots>,
     ids: BTreeMap<String, NodeId>,
-    mutations: Vec<Mutation>,
+    mutations: MutationJournal,
     focused: Option<NodeId>,
 }
 
@@ -560,60 +637,22 @@ impl DomRuntime {
         Ok(())
     }
 
-    /// Hide every source-order branch after `anchor` until its parser-blocking
-    /// script has completed. html5ever may already have tokenized a later
-    /// network chunk, but script-visible traversal must still observe only the
-    /// tree constructed up to the insertion point.
-    pub fn suspend_parser_tail(&mut self, anchor: NodeId) -> Result<ParserSuspension, DomError> {
-        self.arena.get(anchor)?;
-        let mut current = anchor;
-        let mut tails = Vec::new();
-        while let Some(parent) = self.arena.get(current)?.parent {
-            let index = self
-                .arena
-                .get(parent)?
-                .children
-                .iter()
-                .position(|node| *node == current)
-                .ok_or(DomError::NotAChild(current, parent))?;
-            let tail = self.arena.get_mut(parent)?.children.split_off(index + 1);
-            for node in &tail {
-                self.arena.get_mut(*node)?.parent = None;
-            }
-            if !tail.is_empty() {
-                tails.push((parent, tail));
-            }
-            current = parent;
+    /// Clear the connected document while retaining its stable `Document`
+    /// node. A subsequent html5ever driver can then rebuild that same live
+    /// document for `document.open()` without importing a second tree.
+    pub fn clear_document(&mut self) -> Result<(), DomError> {
+        let document = self.document();
+        for child in self.arena.get(document)?.children.clone() {
+            self.remove_child(document, child)?;
         }
-        self.connected.clear();
-        self.ids.clear();
-        self.rebuild_document_indexes()?;
-        Ok(ParserSuspension { anchor, tails })
-    }
-
-    /// Resume parsing after a blocking script. If `document.open()` replaced
-    /// the document while the script ran, the old parser tail is discarded.
-    pub fn resume_parser_tail(&mut self, suspension: ParserSuspension) -> Result<(), DomError> {
-        if self.arena.get(suspension.anchor).is_err()
-            || !self.connected.contains(&suspension.anchor)
-        {
-            return Ok(());
+        let previous = self.focused.take();
+        if previous.is_some() {
+            self.mutations.push(Mutation::Focus {
+                previous,
+                current: None,
+            });
         }
-        for (parent, tail) in suspension.tails {
-            if self.arena.get(parent).is_err() {
-                continue;
-            }
-            for node in tail {
-                if self.arena.get(node).is_err() {
-                    continue;
-                }
-                self.arena.get_mut(node)?.parent = Some(parent);
-                self.arena.get_mut(parent)?.children.push(node);
-            }
-        }
-        self.connected.clear();
-        self.ids.clear();
-        self.rebuild_document_indexes()
+        Ok(())
     }
 
     pub fn append_child(&mut self, parent: NodeId, child: NodeId) -> Result<(), DomError> {
@@ -802,6 +841,25 @@ impl DomRuntime {
             former_parent: parent,
         });
         self.reclaim_if_unrooted(node)
+    }
+
+    /// Detach a node for an html5ever tree-builder reparenting operation.
+    ///
+    /// Unlike a script-visible removal, the parser continues to own the
+    /// handle and may immediately insert it elsewhere, so reclamation and a
+    /// temporary native lease would both be incorrect.
+    pub(crate) fn parser_detach(&mut self, node: NodeId) -> Result<(), DomError> {
+        let parent = self.arena.get(node)?.parent;
+        if parent.is_none() {
+            return Ok(());
+        }
+        self.arena.detach(node)?;
+        self.mark_disconnected(node)?;
+        self.mutations.push(Mutation::Removed {
+            node,
+            former_parent: parent,
+        });
+        Ok(())
     }
 
     pub fn retain_wrapper(&mut self, node: NodeId) -> Result<(), DomError> {
@@ -1057,7 +1115,15 @@ impl DomRuntime {
     }
 
     pub fn drain_mutations(&mut self) -> Vec<Mutation> {
-        std::mem::take(&mut self.mutations)
+        self.mutations.drain_observer()
+    }
+
+    pub fn mutation_cursor(&self) -> MutationCursor {
+        MutationCursor(self.mutations.next.saturating_sub(1))
+    }
+
+    pub fn mutations_since(&self, cursor: MutationCursor) -> MutationBatch {
+        self.mutations.read_since(cursor)
     }
 
     pub fn release_mutation_roots(&mut self, mutations: &[Mutation]) -> Result<(), DomError> {

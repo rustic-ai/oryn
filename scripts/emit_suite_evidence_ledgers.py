@@ -194,7 +194,7 @@ def layout_specs() -> list[dict[str, Any]]:
                 "protocol v6 signed runtime",
                 "runtime.json",
                 json_predicate(
-                    lambda v: v.get("worker_protocol_version") == 6
+                    lambda v: v.get("worker_protocol_version") == 7
                     and v.get("contract_version") == 4
                     and v.get("sandbox_state") == "app_sandbox"
                 ),
@@ -509,7 +509,7 @@ def security_specs() -> list[dict[str, Any]]:
         ),
         test(
             "worker-ipc-frame-limit",
-            "worker::tests::rejects_duplicate_unmatched_and_reinitialized_v6_messages",
+            "worker::tests::rejects_duplicate_unmatched_and_reinitialized_v7_messages",
         ),
         assertion(
             "worker-command-queue-limit",
@@ -653,7 +653,7 @@ def security_specs() -> list[dict[str, Any]]:
         ),
         test(
             "worker-has-no-generic-privileged-operation",
-            "worker::tests::serves_initialized_page_requests_over_v6_json_lines",
+            "worker::tests::serves_initialized_page_requests_over_v7_json_lines",
         ),
     ]
     for case_id, target in (

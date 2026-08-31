@@ -136,7 +136,7 @@ def main() -> int:
             and runtime.get("build_profile") == "release"
             and runtime.get("execution_mode") == "sandboxed_worker"
             and runtime.get("sandbox_state") == "app_sandbox"
-            and runtime.get("worker_protocol_version") == 6,
+            and runtime.get("worker_protocol_version") == 7,
             "raw runtime is not signed sandboxed V8",
         )
         require(

@@ -191,7 +191,7 @@ def test_local_panel_requests_are_bounded_and_seeded():
 
 
 def test_current_panel_uses_the_streaming_worker_protocol():
-    assert REQUIRED_WORKER_PROTOCOL_VERSION == 6
+    assert REQUIRED_WORKER_PROTOCOL_VERSION == 7
     assert _required_worker_protocol(5) == 6
     assert _required_worker_protocol(4) == 4
 

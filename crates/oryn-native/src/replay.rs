@@ -6,7 +6,9 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::network::{NetworkBroker, NetworkError, NetworkRequest, NetworkResponse};
+use crate::network::{
+    NetworkBroker, NetworkError, NetworkEvent, NetworkOperation, NetworkRequest, NetworkResponse,
+};
 use crate::{
     execution::{FormValueState, OriginStorageState},
     trace::TraceEvent,
@@ -220,6 +222,108 @@ impl NetworkBroker for ControlledNetworkBroker {
                 })
             }
         }
+    }
+
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        let mode = self
+            .controller
+            .0
+            .lock()
+            .map_err(|_| NetworkError::Replay("network replay lock poisoned".into()))?
+            .mode;
+        match mode {
+            ReplayMode::Live => self.inner.start_operation(request),
+            ReplayMode::Replay => {
+                let response = self.send(request)?;
+                let request_id = response.request_id;
+                let (sender, events) = tokio::sync::mpsc::channel(3);
+                let (demand, mut requested) = tokio::sync::mpsc::channel(1);
+                std::thread::spawn(move || {
+                    let length = response.body.len();
+                    if sender
+                        .blocking_send(NetworkEvent::Headers {
+                            request_id,
+                            status: response.status,
+                            headers: response.headers,
+                            content_length: Some(length),
+                        })
+                        .is_err()
+                    {
+                        return;
+                    }
+                    if !response.body.is_empty() && requested.blocking_recv().is_some() {
+                        let _ = sender.blocking_send(NetworkEvent::Chunk {
+                            request_id,
+                            bytes: bytes::Bytes::from(response.body),
+                        });
+                    }
+                    let _ = sender.blocking_send(NetworkEvent::Complete { request_id });
+                });
+                Ok(NetworkOperation {
+                    request_id,
+                    events,
+                    demand: Some(demand),
+                })
+            }
+            ReplayMode::Record => {
+                let request_id = request.request_id;
+                let recorded = request.clone();
+                let controller = self.controller.clone();
+                let mut operation = self.inner.start_operation(request)?;
+                let demand = operation.demand.clone();
+                let (sender, events) = tokio::sync::mpsc::channel(8);
+                std::thread::spawn(move || {
+                    let mut status = None;
+                    let mut headers = Vec::new();
+                    let mut body = Vec::new();
+                    while let Some(event) = operation.events.blocking_recv() {
+                        match &event {
+                            NetworkEvent::Headers {
+                                status: value,
+                                headers: values,
+                                ..
+                            } => {
+                                status = Some(*value);
+                                headers = values.clone();
+                            }
+                            NetworkEvent::Chunk { bytes, .. } => body.extend_from_slice(bytes),
+                            NetworkEvent::Complete { .. } => {
+                                if let Some(status) = status
+                                    && let Ok(mut state) = controller.0.lock()
+                                {
+                                    let response = NetworkResponse {
+                                        request_id,
+                                        status,
+                                        headers: headers.clone(),
+                                        body: body.clone(),
+                                    };
+                                    let sequence = state.archive.exchanges.len() as u64;
+                                    let capture = state.archive.capture_response_bodies;
+                                    state.archive.exchanges.push(RecordedExchange {
+                                        sequence,
+                                        request: recorded_request(&recorded),
+                                        response: recorded_response(&response, capture),
+                                    });
+                                }
+                            }
+                            NetworkEvent::Failed { .. } => {}
+                        }
+                        if sender.blocking_send(event).is_err() {
+                            break;
+                        }
+                    }
+                });
+                Ok(NetworkOperation {
+                    request_id,
+                    events,
+                    demand,
+                })
+            }
+        }
+    }
+
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        self.inner.cancel_operation(request_id)
     }
 }
 

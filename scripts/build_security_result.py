@@ -106,7 +106,7 @@ def main() -> int:
     require(
         runtime.get("native_v8") is True
         and runtime.get("sandbox_state") == "app_sandbox"
-        and runtime.get("worker_protocol_version") == 6,
+        and runtime.get("worker_protocol_version") == 7,
         "runtime is not the signed sandboxed V8 worker",
     )
 

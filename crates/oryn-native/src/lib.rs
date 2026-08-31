@@ -29,6 +29,7 @@ pub mod intent;
 pub mod linux_sandbox;
 pub mod network;
 pub mod oil;
+pub mod referrer;
 pub mod replay;
 pub mod runtime;
 pub mod security;
@@ -63,6 +64,7 @@ pub use execution::{
 };
 pub use intent::IntentResult;
 pub use oryn_common::v3::{PageDescriptor, PageId, PageLifecycleEvent, PagePredicate, PageStatus};
+pub use referrer::ReferrerPolicy;
 pub use replay::{
     CheckpointPage, CheckpointPayload, CheckpointRestore, ContextCheckpoint, DeterminismConfig,
     FailureArtifact, FailureArtifactPayload, IntentTraceRecord, NetworkArchive,
@@ -107,6 +109,14 @@ pub struct RuntimeBuildInfo {
     pub embedded_font_sha256: Option<String>,
     pub runtime_profile: String,
     pub binding_abi_version: u16,
+    pub transport_mode: String,
+    pub streaming_parser: bool,
+    pub semantic_graph_version: u16,
+    pub webidl_manifest_sha256: Option<String>,
+    pub v8_heap_sandbox: bool,
+    pub icu_data_sha256: Option<String>,
+    pub startup_snapshot_sha256: Option<String>,
+    pub external_references_sha256: Option<String>,
 }
 
 pub fn runtime_build_info() -> RuntimeBuildInfo {
@@ -133,8 +143,10 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
         capabilities.push("csp3_agent_critical".into());
         capabilities.push("trusted_types_core".into());
         capabilities.push(
-            if cfg!(feature = "core-lite") {
+            if cfg!(feature = "core-lite") && option_env!("ORYN_ICU_DATA_SHA256").is_some() {
                 "intl_root_en_en_us"
+            } else if cfg!(feature = "core-lite") {
+                "intl_lite_unattested_probe"
             } else {
                 "intl_full_icu"
             }
@@ -190,12 +202,25 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
         embedded_font_sha256: Some(oryn_layout::DEFAULT_FONT_SHA256.into()),
         #[cfg(not(feature = "v8-host"))]
         embedded_font_sha256: None,
-        runtime_profile: if cfg!(feature = "core-lite") {
+        runtime_profile: if cfg!(feature = "core-lite")
+            && option_env!("ORYN_ICU_DATA_SHA256").is_some()
+        {
             "core_lite_english".into()
+        } else if cfg!(feature = "core-lite") {
+            "core_lite_unattested_probe".into()
         } else {
             "core_full".into()
         },
         binding_abi_version: oryn_js::BINDING_ABI_VERSION,
+        transport_mode: "async_streaming_parent_broker".into(),
+        streaming_parser: true,
+        semantic_graph_version: 1,
+        webidl_manifest_sha256: option_env!("ORYN_WEBIDL_MANIFEST_SHA256").map(str::to_owned),
+        v8_heap_sandbox: cfg!(all(feature = "v8-host", feature = "v8-sandbox")),
+        icu_data_sha256: option_env!("ORYN_ICU_DATA_SHA256").map(str::to_owned),
+        startup_snapshot_sha256: option_env!("ORYN_STARTUP_SNAPSHOT_SHA256").map(str::to_owned),
+        external_references_sha256: option_env!("ORYN_EXTERNAL_REFERENCES_SHA256")
+            .map(str::to_owned),
     }
 }
 

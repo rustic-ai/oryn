@@ -20,8 +20,8 @@ cargo run -q -p oryn-webidl -- check \
 "$ROOT_DIR/scripts/validate-production-parent-purity.sh"
 
 cargo test -p oryn-native --lib --bins --tests
-cargo test -p oryn-native --lib --bins --tests --features "v8-host core-full"
-cargo test -p oryn-native --lib --bins --tests --features "v8-host core-lite"
+cargo test -p oryn-native --lib --bins --tests --features "v8-host v8-sandbox core-full"
+cargo test -p oryn-native --lib --bins --tests --features "v8-host v8-sandbox core-lite"
 cargo test -p oryn --features "native-v8 core-full"
 
 cargo check -p oryn --no-default-features --features native

@@ -222,6 +222,7 @@ mod tests {
             url: url.into(),
             headers: vec![],
             body: vec![],
+            resolved_addrs: vec![],
         }
     }
 

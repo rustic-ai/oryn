@@ -20,6 +20,38 @@ pub struct GeneratedInterface {
     pub parent: Option<&'static str>,
     pub members: &'static [GeneratedMember],
 }
+pub const ABSTRACT_RANGE_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "startContainer",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "startOffset",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "endContainer",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "endOffset",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "collapsed",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+];
 pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "cssText",
@@ -438,6 +470,30 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         name: "getElementsByName",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "createRange",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "createNodeIterator",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "createTreeWalker",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "getSelection",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
         readonly: false,
     },
 ];
@@ -859,6 +915,18 @@ pub const H_T_M_L_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
     GeneratedMember {
+        name: "contentEditable",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "isContentEditable",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
         name: "click",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -1102,6 +1170,170 @@ pub const H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
 ];
+pub const HISTORY_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "length",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "state",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "go",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "back",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "forward",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "pushState",
+        kind: GeneratedMemberKind::Operation,
+        arity: 3,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "replaceState",
+        kind: GeneratedMemberKind::Operation,
+        arity: 3,
+        readonly: false,
+    },
+];
+pub const I_D_B_CURSOR_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "key",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "primaryKey",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "value",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "advance",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "continue",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "delete",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "update",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+];
+pub const I_D_B_KEY_RANGE_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "lower",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "upper",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "lowerOpen",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "upperOpen",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+];
+pub const I_D_B_OBJECT_STORE_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "add",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "put",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "get",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "getAll",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "delete",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "clear",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "count",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "openCursor",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+];
 pub const MUTATION_OBSERVER_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "constructor",
@@ -1306,6 +1538,190 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         readonly: false,
     },
 ];
+pub const NODE_ITERATOR_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "root",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "referenceNode",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "pointerBeforeReferenceNode",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "whatToShow",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "nextNode",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "previousNode",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "detach",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+];
+pub const RANGE_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "commonAncestorContainer",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "setStart",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "setEnd",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "setStartBefore",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "setStartAfter",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "setEndBefore",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "setEndAfter",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "collapse",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "selectNode",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "selectNodeContents",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "compareBoundaryPoints",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "deleteContents",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "extractContents",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "cloneContents",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "insertNode",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "surroundContents",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "cloneRange",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "detach",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "isPointInRange",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "comparePoint",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "intersectsNode",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "toString",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "createContextualFragment",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+];
 pub const RESPONSE_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "status",
@@ -1414,6 +1830,128 @@ pub const SECURITY_POLICY_VIOLATION_EVENT_MEMBERS: &[GeneratedMember] = &[
         readonly: true,
     },
 ];
+pub const SELECTION_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "anchorNode",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "anchorOffset",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "focusNode",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "focusOffset",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "isCollapsed",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "rangeCount",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "type",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "getRangeAt",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "addRange",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "removeRange",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "removeAllRanges",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "empty",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "collapse",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "setPosition",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "collapseToStart",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "collapseToEnd",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "selectAllChildren",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "deleteFromDocument",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "containsNode",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "toString",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+];
 pub const SHADOW_ROOT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "innerHTML",
@@ -1444,6 +1982,68 @@ pub const TEXT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         name: "data",
         kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+];
+pub const TREE_WALKER_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        name: "root",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "whatToShow",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+    },
+    GeneratedMember {
+        name: "currentNode",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "parentNode",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "firstChild",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "lastChild",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "previousSibling",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "nextSibling",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "previousNode",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+    },
+    GeneratedMember {
+        name: "nextNode",
+        kind: GeneratedMemberKind::Operation,
         arity: 0,
         readonly: false,
     },
@@ -1584,6 +2184,11 @@ pub const X_M_L_HTTP_REQUEST_MEMBERS: &[GeneratedMember] = &[
 ];
 pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
     GeneratedInterface {
+        name: "AbstractRange",
+        parent: None,
+        members: ABSTRACT_RANGE_MEMBERS,
+    },
+    GeneratedInterface {
         name: "CSSStyleDeclaration",
         parent: None,
         members: C_S_S_STYLE_DECLARATION_MEMBERS,
@@ -1699,6 +2304,26 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         members: H_T_M_L_TEXT_AREA_ELEMENT_MEMBERS,
     },
     GeneratedInterface {
+        name: "History",
+        parent: None,
+        members: HISTORY_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "IDBCursor",
+        parent: None,
+        members: I_D_B_CURSOR_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "IDBKeyRange",
+        parent: None,
+        members: I_D_B_KEY_RANGE_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "IDBObjectStore",
+        parent: None,
+        members: I_D_B_OBJECT_STORE_MEMBERS,
+    },
+    GeneratedInterface {
         name: "MutationObserver",
         parent: None,
         members: MUTATION_OBSERVER_MEMBERS,
@@ -1712,6 +2337,16 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         name: "Node",
         parent: Some("EventTarget"),
         members: NODE_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "NodeIterator",
+        parent: None,
+        members: NODE_ITERATOR_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "Range",
+        parent: Some("AbstractRange"),
+        members: RANGE_MEMBERS,
     },
     GeneratedInterface {
         name: "Response",
@@ -1734,6 +2369,11 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         members: SECURITY_POLICY_VIOLATION_EVENT_MEMBERS,
     },
     GeneratedInterface {
+        name: "Selection",
+        parent: None,
+        members: SELECTION_MEMBERS,
+    },
+    GeneratedInterface {
         name: "ShadowRoot",
         parent: Some("DocumentFragment"),
         members: SHADOW_ROOT_MEMBERS,
@@ -1742,6 +2382,11 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
         name: "Text",
         parent: Some("Node"),
         members: TEXT_MEMBERS,
+    },
+    GeneratedInterface {
+        name: "TreeWalker",
+        parent: None,
+        members: TREE_WALKER_MEMBERS,
     },
     GeneratedInterface {
         name: "TrustedHTML",
