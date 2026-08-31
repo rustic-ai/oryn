@@ -51,7 +51,7 @@ jq -n \
   --arg recorded_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg source_commit "$(git -C "$repo_root" rev-parse HEAD)" \
   --arg source_tree_sha256 "$("$repo_root/scripts/source-tree-hash.sh")" \
-  --slurpfile security "$output_dir/security/security-result-v1.json" \
+  --slurpfile security "$output_dir/security/security-result-v2.json" \
   --slurpfile execution "$output_dir/execution-domain-probe.json" \
   --slurpfile replay "$output_dir/replay-probe.json" \
   --slurpfile software "$output_dir/software/summary.json" \

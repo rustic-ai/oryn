@@ -46,7 +46,7 @@ def main() -> int:
     args = parser.parse_args()
     root = args.repo_root.resolve()
     result = load(args.result.resolve())
-    schema = load(root / "benchmarks/schema/security-result-v1.schema.json")
+    schema = load(root / "benchmarks/schema/security-result-v2.schema.json")
 
     Draft202012Validator.check_schema(schema)
     errors = sorted(

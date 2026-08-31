@@ -93,7 +93,7 @@ jq -e '.outcome.status == "passed"' "$output_dir/production-gate.json" >/dev/nul
 python3 "$repo_root/scripts/emit_suite_evidence_ledgers.py" security \
   --artifact-root "$output_dir"
 
-result="$output_dir/security-result-v1.json"
+result="$output_dir/security-result-v2.json"
 "$repo_root/scripts/build_security_result.py" \
   --repo-root "$repo_root" --artifact-root "$output_dir" --output "$result"
 "$repo_root/scripts/validate-security-result.sh" "$result" \

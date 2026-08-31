@@ -203,8 +203,8 @@ def main() -> int:
     }
     reason_codes = [name for name, passed in criteria.items() if not passed]
     result = {
-        "schema_version": 1,
-        "gate": "G5",
+        "schema_version": 2,
+        "profile": "security-production",
         "run_id": f"security-{source_commit[:12]}-macos-arm64",
         "recorded_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "fingerprint": {

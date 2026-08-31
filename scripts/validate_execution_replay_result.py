@@ -114,7 +114,7 @@ def main() -> int:
             "raw runtime is not sandboxed V8",
         )
         require(
-            load(raw / "security/security-result-v1.json")
+            load(raw / "security/security-result-v2.json")
             .get("outcome", {})
             .get("status")
             == "passed",

@@ -52,7 +52,7 @@ def main() -> int:
         "execution and replay evidence requires a clean source tree",
     )
     runtime = load(raw / "runtime.json")
-    security_result = load(raw / "security/security-result-v1.json")
+    security_result = load(raw / "security/security-result-v2.json")
     execution_probe = load(raw / "execution-domain-probe.json")
     replay_probe = load(raw / "replay-probe.json")
     software = load(raw / "software/summary.json")
