@@ -60,12 +60,17 @@ use crate::{
 };
 
 #[cfg(feature = "v8-host")]
+use crate::network::collect_operation_bounded;
+
+#[cfg(feature = "v8-host")]
 use crate::network::NetworkResponse;
 
 static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_PAGE_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_WORKER_GENERATION: AtomicU64 = AtomicU64::new(1);
 static NEXT_CSP_REPORT_REQUEST_ID: AtomicU64 = AtomicU64::new(1_u64 << 61);
+#[cfg(feature = "v8-host")]
+static NEXT_PAINT_IMAGE_REQUEST_ID: AtomicU64 = AtomicU64::new(1_u64 << 60);
 static NEXT_OPAQUE_ORIGIN_ID: AtomicU64 = AtomicU64::new(1);
 const NETWORK_IDLE_QUIET_PERIOD: Duration = Duration::from_millis(500);
 
@@ -91,8 +96,10 @@ struct NavigationBodyCapture {
 #[cfg(feature = "v8-host")]
 struct NavigationBodyChunks {
     operation: crate::network::NetworkOperation,
+    broker: SharedNetworkBroker,
     decoder: oryn_net::IncrementalTextDecoder,
     capture: Arc<Mutex<NavigationBodyCapture>>,
+    deadline: Instant,
     finished: bool,
 }
 
@@ -106,8 +113,26 @@ impl Iterator for NavigationBodyChunks {
         }
         loop {
             self.operation.request_body_chunk();
-            match self.operation.events.blocking_recv() {
-                Some(crate::network::NetworkEvent::Chunk { bytes, .. }) => {
+            let event = loop {
+                match self.operation.events.try_recv() {
+                    Ok(event) => break Some(event),
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break None,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                        if Instant::now() >= self.deadline {
+                            let _ = self.broker.cancel_operation(self.operation.request_id);
+                            self.finished = true;
+                            return Some(Err(crate::host::HostError::LimitExceeded {
+                                resource: "navigation wall time".into(),
+                            }));
+                        }
+                        std::thread::park_timeout(Duration::from_millis(1));
+                    }
+                }
+            };
+            match event {
+                Some(crate::network::NetworkEvent::Chunk { request_id, bytes })
+                    if request_id == self.operation.request_id =>
+                {
                     let decoded = self.decoder.push(&bytes);
                     let mut capture = self.capture.lock().expect("navigation capture");
                     capture.bytes = capture.bytes.saturating_add(bytes.len());
@@ -117,7 +142,9 @@ impl Iterator for NavigationBodyChunks {
                         return Some(Ok(decoded));
                     }
                 }
-                Some(crate::network::NetworkEvent::Complete { .. }) => {
+                Some(crate::network::NetworkEvent::Complete { request_id })
+                    if request_id == self.operation.request_id =>
+                {
                     self.finished = true;
                     let tail = self.decoder.finish();
                     let mut capture = self.capture.lock().expect("navigation capture");
@@ -126,16 +153,27 @@ impl Iterator for NavigationBodyChunks {
                     drop(capture);
                     return (!tail.is_empty()).then_some(Ok(tail));
                 }
-                Some(crate::network::NetworkEvent::Failed { error, .. }) => {
+                Some(crate::network::NetworkEvent::Failed { request_id, error })
+                    if request_id == self.operation.request_id =>
+                {
                     self.finished = true;
                     return Some(Err(crate::host::HostError::Execution(format!(
                         "navigation body failed: {error}"
                     ))));
                 }
-                Some(crate::network::NetworkEvent::Headers { .. }) => {
+                Some(crate::network::NetworkEvent::Headers { request_id, .. })
+                    if request_id == self.operation.request_id =>
+                {
                     self.finished = true;
                     return Some(Err(crate::host::HostError::Execution(
                         "network operation emitted duplicate response headers".into(),
+                    )));
+                }
+                Some(_) => {
+                    let _ = self.broker.cancel_operation(self.operation.request_id);
+                    self.finished = true;
+                    return Some(Err(crate::host::HostError::Execution(
+                        "navigation operation received a stale or unmatched completion".into(),
                     )));
                 }
                 None => {
@@ -145,6 +183,15 @@ impl Iterator for NavigationBodyChunks {
                     )));
                 }
             }
+        }
+    }
+}
+
+#[cfg(feature = "v8-host")]
+impl Drop for NavigationBodyChunks {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = self.broker.cancel_operation(self.operation.request_id);
         }
     }
 }
@@ -2998,6 +3045,22 @@ impl BrowserContext {
                         let _ = reply.send(state.box_model(target));
                     }
                     PageCommand::PaintSnapshot { reply } => {
+                        #[cfg(feature = "v8-host")]
+                        match state.paint_snapshot_plan() {
+                            Ok(plan) => {
+                                // Image I/O is parent-brokered and independent
+                                // of DOM/V8 ownership. Complete it away from the
+                                // page actor so observe/action/close commands do
+                                // not queue behind network latency.
+                                std::thread::spawn(move || {
+                                    let _ = reply.send(complete_paint_snapshot(plan));
+                                });
+                            }
+                            Err(error) => {
+                                let _ = reply.send(Err(error));
+                            }
+                        }
+                        #[cfg(not(feature = "v8-host"))]
                         let _ = reply.send(state.paint_snapshot());
                     }
                     PageCommand::SetViewport { viewport, reply } => {
@@ -4392,6 +4455,16 @@ struct PageState {
     referrer_policy: crate::referrer::ReferrerPolicy,
 }
 
+#[cfg(feature = "v8-host")]
+struct PaintSnapshotPlan {
+    snapshot: PaintSnapshot,
+    pending: Vec<(Url, Vec<usize>)>,
+    broker: Option<SharedNetworkBroker>,
+    config: BrowserConfig,
+    referrer_policy: crate::referrer::ReferrerPolicy,
+    document_url: String,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum HistoryUpdate {
     Push,
@@ -4858,30 +4931,57 @@ impl PageState {
                     );
                     RuntimeError::Network(error.to_string())
                 })?;
-            let (response_status, response_headers, _content_length) =
-                match operation.events.blocking_recv() {
-                    Some(crate::network::NetworkEvent::Headers {
-                        status,
-                        headers,
-                        content_length,
-                        ..
-                    }) => (status, headers, content_length),
-                    Some(crate::network::NetworkEvent::Failed { error, .. }) => {
-                        return Err(RuntimeError::Network(error));
+            let header_deadline = Instant::now() + self.config.navigation_timeout;
+            let header_event = loop {
+                match operation.events.try_recv() {
+                    Ok(event) => break Some(event),
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break None,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                        if Instant::now() >= header_deadline {
+                            let _ = broker.cancel_operation(operation.request_id);
+                            return Err(RuntimeError::WorkerLimitExceeded {
+                                resource: "navigation wall time".into(),
+                            });
+                        }
+                        std::thread::park_timeout(Duration::from_millis(1));
                     }
-                    Some(crate::network::NetworkEvent::Chunk { .. })
-                    | Some(crate::network::NetworkEvent::Complete { .. }) => {
-                        return Err(RuntimeError::ProtocolViolation(
-                            "network body arrived before accepted response headers".into(),
-                        ));
-                    }
-                    None => {
-                        return Err(RuntimeError::Network(
-                            "network operation ended before response headers".into(),
-                        ));
-                    }
-                };
+                }
+            };
+            let expected_request_id = operation.request_id;
+            let (response_status, response_headers, _content_length) = match header_event {
+                Some(crate::network::NetworkEvent::Headers {
+                    request_id,
+                    status,
+                    headers,
+                    content_length,
+                }) if request_id == expected_request_id => (status, headers, content_length),
+                Some(crate::network::NetworkEvent::Failed { request_id, error })
+                    if request_id == expected_request_id =>
+                {
+                    return Err(RuntimeError::Network(error));
+                }
+                Some(crate::network::NetworkEvent::Chunk { .. })
+                | Some(crate::network::NetworkEvent::Complete { .. }) => {
+                    let _ = broker.cancel_operation(expected_request_id);
+                    return Err(RuntimeError::ProtocolViolation(
+                        "network body arrived before accepted response headers".into(),
+                    ));
+                }
+                Some(_) => {
+                    let _ = broker.cancel_operation(expected_request_id);
+                    return Err(RuntimeError::ProtocolViolation(
+                        "navigation received a stale or unmatched completion".into(),
+                    ));
+                }
+                None => {
+                    let _ = broker.cancel_operation(expected_request_id);
+                    return Err(RuntimeError::Network(
+                        "network operation ended before response headers".into(),
+                    ));
+                }
+            };
             if (300..400).contains(&response_status) {
+                let _ = broker.cancel_operation(expected_request_id);
                 let location = response_headers
                     .iter()
                     .find(|(name, _)| name.eq_ignore_ascii_case("location"))
@@ -4977,11 +5077,16 @@ impl PageState {
             let capture = Arc::new(Mutex::new(NavigationBodyCapture::default()));
             let source = NavigationBodyChunks {
                 operation,
+                broker: self
+                    .broker
+                    .clone()
+                    .ok_or_else(|| RuntimeError::Network("network broker is unavailable".into()))?,
                 decoder: oryn_net::IncrementalTextDecoder::new(
                     content_type.as_deref(),
                     oryn_net::TextResourceKind::Html,
                 ),
                 capture: capture.clone(),
+                deadline: Instant::now() + self.config.navigation_timeout,
                 finished: false,
             };
             self.load_document(
@@ -6497,7 +6602,7 @@ impl PageState {
     }
 
     #[cfg(feature = "v8-host")]
-    fn paint_snapshot(&mut self) -> Result<PaintSnapshot, RuntimeError> {
+    fn paint_snapshot_plan(&mut self) -> Result<PaintSnapshotPlan, RuntimeError> {
         self.refresh_layout()?;
         let document = self
             .document
@@ -6507,10 +6612,8 @@ impl PageState {
             .layout
             .clone()
             .ok_or_else(|| RuntimeError::PaintUnavailable("page has no layout snapshot".into()))?;
-        let mut images = Vec::new();
-        let mut image_indexes = BTreeMap::<String, usize>::new();
+        let mut pending_images = BTreeMap::<String, (Url, Vec<usize>)>::new();
         let mut diagnostics = layout.diagnostics.clone();
-        let mut image_bytes = 0usize;
         let mut nodes = Vec::new();
 
         for (id, node) in document.dom.iter() {
@@ -6524,7 +6627,6 @@ impl PageState {
             let Some(style) = layout.computed_styles.get(&node_id).cloned() else {
                 continue;
             };
-            let mut image_resource = None;
             if name.local.as_ref() == "img"
                 && geometry.in_viewport
                 && let Some(source) = node.attributes.get("src")
@@ -6533,27 +6635,16 @@ impl PageState {
                     .or_else(|_| Url::parse(&self.url).and_then(|base| base.join(source)));
                 match resolved {
                     Ok(url) => {
-                        let key = url.as_str().to_string();
-                        if let Some(index) = image_indexes.get(&key).copied() {
-                            image_resource = Some(index);
+                        if url.scheme() == "data" || self.csp_allows_resource(&url, "image") {
+                            pending_images
+                                .entry(url.as_str().to_string())
+                                .or_insert_with(|| (url, Vec::new()))
+                                .1
+                                .push(nodes.len());
                         } else {
-                            match self.load_paint_image(&url) {
-                                Ok(resource)
-                                    if image_bytes.saturating_add(resource.bytes.len())
-                                        <= self.config.max_response_bytes =>
-                                {
-                                    image_bytes += resource.bytes.len();
-                                    let index = images.len();
-                                    image_indexes.insert(key, index);
-                                    images.push(resource);
-                                    image_resource = Some(index);
-                                }
-                                Ok(_) => diagnostics.push(format!(
-                                    "image {url} omitted: paint snapshot image budget exceeded"
-                                )),
-                                Err(error) => diagnostics
-                                    .push(format!("image {url} unavailable for paint: {error}")),
-                            }
+                            diagnostics.push(format!(
+                                "image {url} unavailable for paint: parent policy denied it"
+                            ));
                         }
                     }
                     Err(error) => {
@@ -6571,10 +6662,10 @@ impl PageState {
                     .get(&node_id)
                     .cloned()
                     .unwrap_or_default(),
-                image_resource,
+                image_resource: None,
             });
         }
-        Ok(PaintSnapshot {
+        let snapshot = PaintSnapshot {
             contract_version: oryn_common::v4::CONTRACT_VERSION,
             page: PageInfo {
                 page_id: self.page_id,
@@ -6589,13 +6680,27 @@ impl PageState {
             viewport: self.viewport,
             scroll: self.scroll_state,
             nodes,
-            images,
+            images: Vec::new(),
             diagnostics,
+        };
+        Ok(PaintSnapshotPlan {
+            snapshot,
+            pending: pending_images.into_values().collect(),
+            broker: self.broker.clone(),
+            config: self.config.clone(),
+            referrer_policy: self.referrer_policy,
+            document_url: self.url.clone(),
         })
     }
 
     #[cfg(feature = "v8-host")]
-    fn load_paint_image(&mut self, url: &Url) -> Result<PaintImageResource, RuntimeError> {
+    fn load_paint_image(
+        broker: Option<&SharedNetworkBroker>,
+        config: &BrowserConfig,
+        referrer_policy: crate::referrer::ReferrerPolicy,
+        document_url: &str,
+        url: &Url,
+    ) -> Result<PaintImageResource, RuntimeError> {
         if url.scheme() == "data" {
             let value = url.as_str().strip_prefix("data:").unwrap_or_default();
             let (metadata, encoded) = value
@@ -6624,21 +6729,21 @@ impl PageState {
         }
         let mut current = url.clone();
         let mut response = None;
-        for redirect in 0..=self.config.max_redirects {
-            self.next_action_id = self.next_action_id.saturating_add(1);
+        for redirect in 0..=config.max_redirects {
+            let request_id = NEXT_PAINT_IMAGE_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
             let mut headers = vec![("accept".into(), "image/png,image/jpeg,image/*;q=0.8".into())];
-            if let Ok(source) = Url::parse(&self.url)
-                && let Some(referrer) = self.referrer_policy.header(&source, &current)
+            if let Ok(source) = Url::parse(document_url)
+                && let Some(referrer) = referrer_policy.header(&source, &current)
             {
                 headers.push(("referer".into(), referrer));
             }
-            let broker = self.broker.as_ref().ok_or_else(|| {
+            let broker = broker.ok_or_else(|| {
                 RuntimeError::PaintUnavailable("network broker is unavailable".into())
             })?;
-            let next = collect_operation(
+            let next = collect_operation_bounded(
                 broker,
                 NetworkRequest {
-                    request_id: self.next_action_id,
+                    request_id,
                     method: "GET".into(),
                     url: current.as_str().into(),
                     headers,
@@ -6646,10 +6751,10 @@ impl PageState {
                     credentials: true,
                     security: crate::cookies::CookieRequestContext {
                         kind: crate::cookies::CookieRequestKind::Image,
-                        initiator_url: Some(self.url.clone()),
-                        top_level_url: Some(self.url.clone()),
+                        initiator_url: Some(document_url.to_owned()),
+                        top_level_url: Some(document_url.to_owned()),
                         redirect_chain_cross_site: redirect > 0
-                            && Url::parse(&self.url).ok().is_some_and(|source| {
+                            && Url::parse(document_url).ok().is_some_and(|source| {
                                 crate::cookies::SchemefulSite::from_url(&source)
                                     != crate::cookies::SchemefulSite::from_url(&current)
                             }),
@@ -6657,10 +6762,12 @@ impl PageState {
                     },
                     resolved_addrs: Vec::new(),
                 },
+                config.request_timeout,
+                config.max_resource_cache_entry_bytes,
             )
             .map_err(|error| RuntimeError::PaintUnavailable(error.to_string()))?;
             if (300..400).contains(&next.status) {
-                if redirect == self.config.max_redirects {
+                if redirect == config.max_redirects {
                     return Err(RuntimeError::PaintUnavailable(
                         "image redirect limit exceeded".into(),
                     ));
@@ -7932,6 +8039,67 @@ fn layout_input(
 }
 
 #[cfg(feature = "v8-host")]
+fn complete_paint_snapshot(mut plan: PaintSnapshotPlan) -> Result<PaintSnapshot, RuntimeError> {
+    for batch in plan.pending.chunks(32) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            for (offset, (url, node_indexes)) in batch.iter().enumerate() {
+                let sender = sender.clone();
+                let broker = plan.broker.clone();
+                let config = plan.config.clone();
+                let url = url.clone();
+                let node_indexes = node_indexes.clone();
+                let document_url = plan.document_url.clone();
+                let referrer_policy = plan.referrer_policy;
+                scope.spawn(move || {
+                    let result = PageState::load_paint_image(
+                        broker.as_ref(),
+                        &config,
+                        referrer_policy,
+                        &document_url,
+                        &url,
+                    );
+                    let _ = sender.send((offset, url, node_indexes, result));
+                });
+            }
+        });
+        drop(sender);
+        let mut completed = receiver.into_iter().collect::<Vec<_>>();
+        completed.sort_by_key(|(offset, ..)| *offset);
+        for (_, url, node_indexes, result) in completed {
+            match result {
+                Ok(resource)
+                    if plan
+                        .snapshot
+                        .images
+                        .iter()
+                        .map(|image| image.bytes.len())
+                        .sum::<usize>()
+                        .saturating_add(resource.bytes.len())
+                        <= plan.config.max_response_bytes =>
+                {
+                    let index = plan.snapshot.images.len();
+                    plan.snapshot.images.push(resource);
+                    for node_index in node_indexes {
+                        if let Some(node) = plan.snapshot.nodes.get_mut(node_index) {
+                            node.image_resource = Some(index);
+                        }
+                    }
+                }
+                Ok(_) => plan.snapshot.diagnostics.push(format!(
+                    "image {url} omitted: paint snapshot image budget exceeded"
+                )),
+                Err(error) => plan
+                    .snapshot
+                    .diagnostics
+                    .push(format!("image {url} unavailable for paint: {error}")),
+            }
+        }
+    }
+    Ok(plan.snapshot)
+}
+
+#[cfg(feature = "v8-host")]
 fn pack_node_id(id: crate::dom::NodeId) -> u64 {
     (u64::from(id.generation) << 32) | u64::from(id.slot)
 }
@@ -8466,6 +8634,86 @@ mod tests {
             TraceEventKind::CspViolation { ref effective_directive, .. }
                 if effective_directive == "script-src"
         )));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn navigation_cancels_timeout_and_stale_header_operations() {
+        struct MalformedNavigation {
+            stale: bool,
+            cancelled: Arc<AtomicUsize>,
+        }
+        impl NetworkBroker for MalformedNavigation {
+            fn send(
+                &self,
+                _request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                unreachable!("navigation uses the operation path")
+            }
+            fn start_operation(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<crate::network::NetworkOperation, crate::network::NetworkError>
+            {
+                let (sender, events) = tokio::sync::mpsc::channel(2);
+                if self.stale {
+                    sender
+                        .blocking_send(crate::network::NetworkEvent::Headers {
+                            request_id: request.request_id + 1,
+                            status: 200,
+                            headers: Vec::new(),
+                            content_length: Some(0),
+                        })
+                        .unwrap();
+                } else {
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_secs(1));
+                        drop(sender);
+                    });
+                }
+                Ok(crate::network::NetworkOperation {
+                    request_id: request.request_id,
+                    events,
+                    demand: None,
+                })
+            }
+            fn cancel_operation(
+                &self,
+                _request_id: u64,
+            ) -> Result<(), crate::network::NetworkError> {
+                self.cancelled.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+        }
+
+        for stale in [false, true] {
+            let cancelled = Arc::new(AtomicUsize::new(0));
+            let config = BrowserConfig {
+                navigation_timeout: Duration::from_millis(10),
+                ..BrowserConfig::default()
+            };
+            let mut page = PageState::new(
+                PageId(190),
+                None,
+                config,
+                ContextOptions::default(),
+                Some(SharedNetworkBroker::new(MalformedNavigation {
+                    stale,
+                    cancelled: cancelled.clone(),
+                })),
+                #[cfg(all(unix, feature = "v8-host"))]
+                None,
+            );
+            let error = page
+                .navigate("https://timeout.example/".into(), HistoryUpdate::Push)
+                .expect_err("malformed navigation must fail closed");
+            if stale {
+                assert!(matches!(error, RuntimeError::ProtocolViolation(_)));
+            } else {
+                assert!(matches!(error, RuntimeError::WorkerLimitExceeded { .. }));
+            }
+            assert_eq!(cancelled.load(Ordering::SeqCst), 1);
+        }
     }
 
     #[cfg(feature = "v8-host")]
@@ -11339,6 +11587,79 @@ mod tests {
                     .iter()
                     .any(|fragment| fragment.text.contains("Paint me"))
         }));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn slow_paint_images_do_not_hold_the_page_actor() {
+        struct SlowImage {
+            state: Arc<(std::sync::Mutex<(bool, bool)>, std::sync::Condvar)>,
+        }
+        impl NetworkBroker for SlowImage {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                let (lock, wake) = &*self.state;
+                let mut state = lock.lock().unwrap();
+                state.0 = true;
+                wake.notify_all();
+                while !state.1 {
+                    state = wake.wait(state).unwrap();
+                }
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), "image/png".into())],
+                    body: BASE64
+                        .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+                        .unwrap(),
+                })
+            }
+        }
+
+        let state = Arc::new((
+            std::sync::Mutex::new((false, false)),
+            std::sync::Condvar::new(),
+        ));
+        let context = Browser::new().new_context_with_broker(
+            ContextOptions::default(),
+            SharedNetworkBroker::new(SlowImage {
+                state: state.clone(),
+            }),
+        );
+        let page = context.new_page();
+        page.load_html(
+            "https://paint.example.test/",
+            "<style>img{width:8px;height:8px}</style><img alt=slow src=/slow.png>",
+        )
+        .await
+        .unwrap();
+        let paint_page = page.clone();
+        let paint = tokio::spawn(async move { paint_page.paint_snapshot().await });
+        tokio::task::spawn_blocking({
+            let state = state.clone();
+            move || {
+                let (lock, wake) = &*state;
+                let mut value = lock.lock().unwrap();
+                while !value.0 {
+                    value = wake.wait(value).unwrap();
+                }
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_millis(250), page.observe())
+            .await
+            .expect("observe must not queue behind image I/O")
+            .expect("observe while paint is pending");
+        {
+            let (lock, wake) = &*state;
+            let mut value = lock.lock().unwrap();
+            value.1 = true;
+            wake.notify_all();
+        }
+        assert_eq!(paint.await.unwrap().unwrap().images.len(), 1);
     }
 
     #[cfg(feature = "v8-host")]

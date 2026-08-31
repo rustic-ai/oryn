@@ -2,12 +2,12 @@
 
 > **Current status: runtime-completion cutover in progress; exact-artifact
 > attestation pending on macOS and Linux.** The committed runtime baseline is
-> `8a3f2b4`. The current working tree completes direct main-resource streaming,
+> `66af17f`. The current working tree completes direct main-resource streaming,
 > parser-resource brokering, and protocol-v4/v7/v10 transport contracts,
 > streaming navigation foundations, an incremental semantic graph, expanded
 > generated WebIDL behavior, referrer and IndexedDB work, V8 profile tooling and
 > pinned upstream-conformance infrastructure. It is not yet a release candidate:
-> blocking resource paths, full semantic reprojection, incomplete generated API
+> remaining complete-resource compatibility paths, full semantic reprojection, incomplete generated API
 > algorithms, the handwritten CSS cascade, unattested V8/ICU/snapshot artifacts
 > and failing upstream cases remain. Historical evidence stays bound to the
 > commits and binaries that produced it. See
@@ -75,9 +75,12 @@ rewrite those historical payloads or present them as a new validation run.
   completion and failure frames across the sandbox boundary; cookie, policy,
   cache and replay adapters preserve those streams. Parent-owned Fetch bodies
   use explicit demand so accepted headers do not pull response bytes until the
-  worker reads. The old synchronous broker methods remain compatibility
-  adapters, and blocking image/preflight call sites plus
-  page-actor scheduling still prevent an end-to-end asynchronous claim.
+  worker reads. The old synchronous broker methods remain compatibility adapters
+  for callers that intrinsically require a complete resource. Image fetches and
+  CORS preflights now use correlated, deadline- and size-bounded operations;
+  image completion runs outside the page actor. Abort, timeout, stale
+  completion, navigation-body drop, IPC cancellation and worker-service
+  teardown all cancel their parent operation.
 - html5ever and V8 now share one live `DomRuntime` from the first parsed tag.
   Parser-blocking scripts execute at the retained tokenizer boundary, V8
   microtasks/reactions/observers checkpoint before parsing resumes, and
@@ -101,9 +104,11 @@ rewrite those historical payloads or present them as a new validation run.
 - `runtime-completion-v1` freezes the upstream blocking scope and provides
   cache, harness, schema and validation tooling. Its first Range smoke currently
   times out, so no passing completion evidence exists.
-- Focused validation currently passes 114 native no-V8 tests, 30 generated V8
-  binding tests, 13 DOM tests, nine network tests, strict tested-profile Clippy,
-  formatting, WebIDL regeneration and manifest validation. These results do not
+- The current all-feature native library regression passes 221 tests, including
+  32 simultaneous context streams, demand-driven body reads, production HTTP/2,
+  redirects, decompression limits, stale/timeout cancellation, teardown
+  cancellation and page-actor responsiveness. Strict tested-profile Clippy and
+  formatting pass. These results do not
   close the remaining cutovers or replace exact packaged-artifact validation.
 
 ## executable document — complete

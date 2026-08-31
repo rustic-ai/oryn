@@ -123,7 +123,28 @@ pub fn collect_operation(
     broker: &(impl NetworkBroker + ?Sized),
     request: NetworkRequest,
 ) -> Result<NetworkResponse, NetworkError> {
+    collect_operation_bounded(
+        broker,
+        request,
+        Duration::from_secs(30),
+        MAX_DECODED_RESPONSE_BYTES,
+    )
+}
+
+/// Complete a deliberately buffered resource over the operation protocol.
+/// Unlike the historical collector, this path is deadline-, size-, and
+/// correlation-bounded and explicitly cancels the transport on every
+/// non-successful terminal path. It is reserved for APIs whose result is
+/// intrinsically a complete byte sequence (scripts, images, and preflights).
+pub fn collect_operation_bounded(
+    broker: &(impl NetworkBroker + ?Sized),
+    request: NetworkRequest,
+    timeout: Duration,
+    max_body_bytes: usize,
+) -> Result<NetworkResponse, NetworkError> {
     let mut operation = broker.start_operation(request)?;
+    let expected_request_id = operation.request_id;
+    let deadline = std::time::Instant::now() + timeout;
     let mut status = None;
     let mut headers = Vec::new();
     let mut body = Vec::new();
@@ -132,15 +153,32 @@ pub fn collect_operation(
             match operation.events.try_recv() {
                 Ok(event) => break event,
                 Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                    let _ = broker.cancel_operation(expected_request_id);
                     return Err(NetworkError::Transport(
                         "network operation closed without completion".into(),
                     ));
                 }
                 Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                    if std::time::Instant::now() >= deadline {
+                        let _ = broker.cancel_operation(expected_request_id);
+                        return Err(NetworkError::TimedOut { timeout });
+                    }
                     std::thread::park_timeout(Duration::from_millis(1));
                 }
             }
         };
+        let event_request_id = match &event {
+            NetworkEvent::Headers { request_id, .. }
+            | NetworkEvent::Chunk { request_id, .. }
+            | NetworkEvent::Complete { request_id }
+            | NetworkEvent::Failed { request_id, .. } => *request_id,
+        };
+        if event_request_id != expected_request_id {
+            let _ = broker.cancel_operation(expected_request_id);
+            return Err(NetworkError::Transport(format!(
+                "stale or unmatched network completion {event_request_id} for operation {expected_request_id}"
+            )));
+        }
         match event {
             NetworkEvent::Headers {
                 status: value,
@@ -152,6 +190,12 @@ pub fn collect_operation(
                 operation.request_body_chunk();
             }
             NetworkEvent::Chunk { bytes, .. } => {
+                if body.len().saturating_add(bytes.len()) > max_body_bytes {
+                    let _ = broker.cancel_operation(expected_request_id);
+                    return Err(NetworkError::ResponseTooLarge {
+                        limit: max_body_bytes,
+                    });
+                }
                 body.extend_from_slice(&bytes);
                 operation.request_body_chunk();
             }
@@ -165,7 +209,10 @@ pub fn collect_operation(
                     body,
                 });
             }
-            NetworkEvent::Failed { error, .. } => return Err(NetworkError::Transport(error)),
+            NetworkEvent::Failed { error, .. } => {
+                let _ = broker.cancel_operation(expected_request_id);
+                return Err(NetworkError::Transport(error));
+            }
         }
     }
 }
@@ -312,6 +359,8 @@ pub enum NetworkError {
     Resolution { host: String, detail: String },
     #[error("network transport failed: {0}")]
     Transport(String),
+    #[error("network operation exceeded its {timeout:?} deadline")]
+    TimedOut { timeout: Duration },
     #[error("response exceeded the configured {limit}-byte limit")]
     ResponseTooLarge { limit: usize },
     #[error("unsupported content encoding {0:?}")]
@@ -1625,6 +1674,10 @@ impl NetworkBroker for RustlsTransport {
                     }
                 }
             }
+            // Dropping the consumer (navigation, page, or worker replacement)
+            // closes demand. Translate that ownership loss into an explicit
+            // transport cancellation so late completions cannot be reused.
+            let _ = transport.cancel(request_id).await;
         });
         Ok(NetworkOperation {
             request_id,
@@ -1649,13 +1702,21 @@ pub struct IpcNetworkBroker {
     writer: Mutex<UnixStream>,
     next_message_id: std::sync::atomic::AtomicU64,
     pending: Arc<Mutex<BTreeMap<u64, tokio::sync::mpsc::Sender<NetworkEvent>>>>,
+    active_requests: Arc<Mutex<BTreeMap<u64, u64>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct BrokerRequestEnvelope {
     protocol_version: u32,
     message_id: u64,
-    request: EncodedNetworkRequest,
+    command: BrokerCommand,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+enum BrokerCommand {
+    Start { request: EncodedNetworkRequest },
+    Cancel { request_id: u64 },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1719,14 +1780,17 @@ impl IpcNetworkBroker {
         let pending: Arc<Mutex<BTreeMap<u64, tokio::sync::mpsc::Sender<NetworkEvent>>>> =
             Arc::new(Mutex::new(BTreeMap::new()));
         let reader_pending = pending.clone();
+        let active_requests = Arc::new(Mutex::new(BTreeMap::new()));
+        let reader_active_requests = active_requests.clone();
         std::thread::Builder::new()
             .name("oryn-worker-broker-reader".into())
-            .spawn(move || broker_response_loop(reader, reader_pending))
+            .spawn(move || broker_response_loop(reader, reader_pending, reader_active_requests))
             .expect("spawn broker response reader");
         Self {
             writer: Mutex::new(stream),
             next_message_id: std::sync::atomic::AtomicU64::new(1),
             pending,
+            active_requests,
         }
     }
 }
@@ -1796,16 +1860,24 @@ impl NetworkBroker for IpcNetworkBroker {
         let envelope = BrokerRequestEnvelope {
             protocol_version: BROKER_PROTOCOL_VERSION,
             message_id,
-            request: EncodedNetworkRequest {
-                request_id,
-                method: request.method,
-                url: request.url,
-                headers: request.headers,
-                body_base64: BASE64.encode(request.body),
-                credentials: request.credentials,
-                security: request.security,
+            command: BrokerCommand::Start {
+                request: EncodedNetworkRequest {
+                    request_id,
+                    method: request.method,
+                    url: request.url,
+                    headers: request.headers,
+                    body_base64: BASE64.encode(request.body),
+                    credentials: request.credentials,
+                    security: request.security,
+                },
             },
         };
+        // Publish correlation state before the request becomes visible to the
+        // parent. A loopback or cached response may complete immediately.
+        self.active_requests
+            .lock()
+            .map_err(|_| NetworkError::Transport("network IPC active lock poisoned".into()))?
+            .insert(request_id, message_id);
         let result = self
             .writer
             .lock()
@@ -1823,6 +1895,10 @@ impl NetworkBroker for IpcNetworkBroker {
                 .pending
                 .lock()
                 .map(|mut pending| pending.remove(&message_id));
+            let _ = self
+                .active_requests
+                .lock()
+                .map(|mut active| active.remove(&request_id));
             return Err(error);
         }
         Ok(NetworkOperation {
@@ -1831,11 +1907,43 @@ impl NetworkBroker for IpcNetworkBroker {
             demand: None,
         })
     }
+
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        if let Some(message_id) = self
+            .active_requests
+            .lock()
+            .map_err(|_| NetworkError::Transport("network IPC active lock poisoned".into()))?
+            .remove(&request_id)
+        {
+            self.pending
+                .lock()
+                .map_err(|_| NetworkError::Transport("network IPC pending lock poisoned".into()))?
+                .remove(&message_id);
+        }
+        let envelope = BrokerRequestEnvelope {
+            protocol_version: BROKER_PROTOCOL_VERSION,
+            message_id: self
+                .next_message_id
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            command: BrokerCommand::Cancel { request_id },
+        };
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| NetworkError::Transport("network IPC writer lock poisoned".into()))?;
+        serde_json::to_writer(&mut *writer, &envelope)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?;
+        writer
+            .write_all(b"\n")
+            .and_then(|_| writer.flush())
+            .map_err(|error| NetworkError::Transport(error.to_string()))
+    }
 }
 
 fn broker_response_loop(
     stream: UnixStream,
     pending: Arc<Mutex<BTreeMap<u64, tokio::sync::mpsc::Sender<NetworkEvent>>>>,
+    active_requests: Arc<Mutex<BTreeMap<u64, u64>>>,
 ) {
     let mut reader = BufReader::new(stream);
     loop {
@@ -1897,6 +2005,9 @@ fn broker_response_loop(
         let _ = sender.blocking_send(event);
         if terminal && let Ok(mut pending) = pending.lock() {
             pending.remove(&response.correlation_id);
+            if let Ok(mut active) = active_requests.lock() {
+                active.retain(|_, message_id| *message_id != response.correlation_id);
+            }
         }
     }
     if let Ok(mut pending) = pending.lock() {
@@ -1976,7 +2087,13 @@ pub fn serve_ipc_broker(
                 {
                     let correlation_id = envelope.message_id;
                     last_message_id = envelope.message_id;
-                    let request = envelope.request;
+                    let request = match envelope.command {
+                        BrokerCommand::Start { request } => request,
+                        BrokerCommand::Cancel { request_id } => {
+                            let _ = broker.cancel_operation(request_id);
+                            continue;
+                        }
+                    };
                     let result = BASE64
                         .decode(request.body_base64)
                         .map_err(|error| error.to_string())
@@ -2183,9 +2300,79 @@ impl NetworkBroker for UnavailableBroker {
 mod tests {
     use std::io::{Cursor, Read, Write};
     use std::net::TcpListener;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     use super::*;
+
+    struct MalformedCompletionBroker {
+        cancelled: Arc<AtomicUsize>,
+        stale: bool,
+    }
+
+    impl NetworkBroker for MalformedCompletionBroker {
+        fn send(&self, _request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            unreachable!("bounded operation test uses start_operation")
+        }
+
+        fn start_operation(
+            &self,
+            request: NetworkRequest,
+        ) -> Result<NetworkOperation, NetworkError> {
+            let (sender, events) = tokio::sync::mpsc::channel(2);
+            if self.stale {
+                sender
+                    .blocking_send(NetworkEvent::Headers {
+                        request_id: request.request_id + 1,
+                        status: 200,
+                        headers: Vec::new(),
+                        content_length: Some(0),
+                    })
+                    .unwrap();
+            } else {
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_secs(1));
+                    drop(sender);
+                });
+            }
+            Ok(NetworkOperation {
+                request_id: request.request_id,
+                events,
+                demand: None,
+            })
+        }
+
+        fn cancel_operation(&self, _request_id: u64) -> Result<(), NetworkError> {
+            self.cancelled.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn bounded_collector_cancels_timeouts_and_stale_completions() {
+        for stale in [false, true] {
+            let cancelled = Arc::new(AtomicUsize::new(0));
+            let broker = MalformedCompletionBroker {
+                cancelled: cancelled.clone(),
+                stale,
+            };
+            let error = collect_operation_bounded(
+                &broker,
+                request("https://example.test/bounded"),
+                Duration::from_millis(10),
+                1024,
+            )
+            .expect_err("malformed operation must fail closed");
+            if stale {
+                assert!(error.to_string().contains("stale or unmatched"));
+            } else {
+                assert!(matches!(error, NetworkError::TimedOut { .. }));
+            }
+            assert_eq!(cancelled.load(Ordering::SeqCst), 1);
+        }
+    }
 
     struct RecordingBroker {
         requests: Arc<Mutex<Vec<NetworkRequest>>>,
@@ -2376,6 +2563,45 @@ mod tests {
             requests.lock().unwrap()[0].headers,
             vec![("Accept".into(), "text/plain".into())]
         );
+    }
+
+    #[test]
+    fn worker_broker_forwards_explicit_operation_cancellation() {
+        struct CancelRecording {
+            cancelled: Arc<Mutex<Vec<u64>>>,
+        }
+        impl NetworkBroker for CancelRecording {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                })
+            }
+            fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+                self.cancelled.lock().unwrap().push(request_id);
+                Ok(())
+            }
+        }
+
+        let (worker, parent) = UnixStream::pair().unwrap();
+        let cancelled = Arc::new(Mutex::new(Vec::new()));
+        let captured = cancelled.clone();
+        let server = std::thread::spawn(move || {
+            serve_ipc_broker(
+                parent,
+                CancelRecording {
+                    cancelled: captured,
+                },
+                MAX_BROKER_FRAME_BYTES,
+            )
+        });
+        let broker = IpcNetworkBroker::new(worker);
+        broker.cancel_operation(77).unwrap();
+        drop(broker);
+        server.join().unwrap().unwrap();
+        assert_eq!(*cancelled.lock().unwrap(), vec![77]);
     }
 
     #[test]
@@ -2657,14 +2883,16 @@ mod tests {
         let envelope = BrokerRequestEnvelope {
             protocol_version: BROKER_PROTOCOL_VERSION,
             message_id: 1,
-            request: EncodedNetworkRequest {
-                request_id: 7,
-                method: "GET".into(),
-                url: "https://example.test/".into(),
-                headers: Vec::new(),
-                body_base64: String::new(),
-                credentials: true,
-                security: CookieRequestContext::default(),
+            command: BrokerCommand::Start {
+                request: EncodedNetworkRequest {
+                    request_id: 7,
+                    method: "GET".into(),
+                    url: "https://example.test/".into(),
+                    headers: Vec::new(),
+                    body_base64: String::new(),
+                    credentials: true,
+                    security: CookieRequestContext::default(),
+                },
             },
         };
         for attempt in 0..2 {

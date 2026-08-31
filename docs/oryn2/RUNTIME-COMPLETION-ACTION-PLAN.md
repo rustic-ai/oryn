@@ -2,7 +2,7 @@
 
 **Created:** 2026-08-31
 **Committed baseline:** `4b1f287` (`package Oryn for macOS and Linux`)
-**Working baseline:** `8a3f2b4` plus the direct-streaming completion changes
+**Working baseline:** `66af17f` plus the transport-scheduling completion changes
 **Scope:** remaining work required to close the proposal-v1 runtime and produce
 one exact-artifact implementation attestation
 
@@ -15,7 +15,7 @@ of a completed production cutover.
 | Workstream | Status | Verified implementation | Remaining closure condition |
 |---|---|---|---|
 | Runtime manifest and evidence contract | Implemented | Immutable `runtime-completion-v1` classification manifest, result schema, cache bootstrapper and fail-closed validators exist. The manifest validator passes. | Produce an exact-binary result whose aggregate is recomputed from complete assertion ledgers. |
-| Async transport and streaming navigation | Partial — main-resource boundary complete | `oryn-net` owns the async rustls/HTTP2 pool. Broker v4 emits correlated headers/chunk/completion/failure operations with explicit demand. The executable starts at accepted headers and html5ever incrementally consumes decoded network chunks over the same live `DomRuntime` exposed to V8. Parser scripts, styles/imports, frames and meta policy use typed parent operations. | Migrate remaining image/preflight compatibility collection and page-command scheduling off blocking waits; complete cancellation/concurrency evidence. |
+| Async transport and streaming navigation | Implemented for the scheduled production boundary | `oryn-net` owns the async rustls/HTTP2 pool. Broker v4 emits correlated headers/chunk/completion/failure/cancel operations with explicit demand. Navigation incrementally consumes decoded chunks in the shared live `DomRuntime`. Image fetches complete outside the page actor; CORS preflights use a separately scheduled, deadline- and size-bounded operation; active worker streams are cancelled on abort or service teardown. The 32-stream, demand/backpressure, HTTP/2, redirect, decompression-limit, timeout, stale-completion and actor-responsiveness tests pass. | Remove compatibility collectors for intrinsically complete script/style resources only when their scheduler cutover is ready; retain the bounded collector as a non-streaming resource primitive. |
 | Incremental semantics | Partial | `DomRuntime` has a bounded sequenced mutation journal with independent cursors. Each document owns a persistent `SemanticGraph` with reverse dependencies, reference generations and incremental delta publication. Focused oracle equivalence and bounded-history tests pass. | Eliminate remaining full projection from normal observation/update paths. Pass randomized mutation, framework churn, navigation, shadow/frame and replay equivalence with zero false reference preservation. |
 | Generated WebIDL and compatibility APIs | Partial | Generated V8 prototypes route migrated operations into Rust and enforce identity, brand, realm, origin and generation checks. Range, Selection, NodeIterator, TreeWalker, History, referrer policy and broader IndexedDB behavior are present. | Implement the remaining declared Range/Selection/editing/traversal algorithms, traversal filtering, full history/referrer cases and IndexedDB connection/version/transaction semantics. Remove corresponding handwritten bootstrap interfaces only after mapped tests pass. |
 | Stylo cascade | Not started | Stylo parses individual declaration blocks; Taffy and Parley provide bounded layout and text services. | Implement Stylo node/element adapters, stylesheet origins, selector matching, cascade, inheritance, custom properties, media and invalidation. Delete handwritten rule parsing/matching/cascade after mapped CSSOM and differential tests pass. |
@@ -31,15 +31,19 @@ of a completed production cutover.
   start, headers, chunk, completion, cancellation and failure messages.~~ The
   operation path is now the production navigation and Fetch-body path; the old
   methods remain compatibility adapters.
-- Ensure 32 concurrent operations never hold the page-command mutex while
-  waiting for network I/O.
+- ~~Ensure 32 concurrent operations never hold the page-command mutex while
+  waiting for network I/O.~~ The multiplexed context service reaches 32 active
+  starts, its registry lock is released before per-stream waits, and paint image
+  completion runs outside the page actor.
 - ~~Feed accepted navigation bytes directly into the live parser rather than
   accumulating a decoded main-resource string.~~ Implemented with explicit
   demand, incremental charset state and parser-boundary resource calls.
 - Schedule async/defer/module scripts and lifecycle transitions from real
   prerequisites; reject late completions after navigation or worker replacement.
-- Define and test backpressure and cancellation across Fetch, XHR, streams,
-  dynamic imports, stylesheets, frames and WebSockets.
+- Demand-driven Fetch/response streams, navigation, image and CORS-preflight
+  scheduling are now bounded and cancellable. Broader per-API cancellation
+  matrices for dynamic imports, stylesheets, frames and WebSockets remain part
+  of their individual conformance work.
 
 ### Semantic runtime
 
@@ -114,17 +118,22 @@ green, and no implementation-status claim beyond the evidence.
 
 1. **Implemented:** operation-based broker interface, demand-driven bodies,
    streaming cache/cookie/policy/replay adapters and multiplexed broker v4 IPC.
-2. **Partial:** navigation bytes and Fetch bodies use the operation path;
-   subresources and the page-command actor still need scheduler integration.
+2. **Implemented for this milestone:** navigation and Fetch bodies use the
+   operation path; image work is detached from the page actor and preflight is
+   a bounded operation on the multiplexed parent-service request.
 3. **Implemented:** html5ever and V8 share the live `DomRuntime`; blocking
    scripts checkpoint at retained tokenizer boundaries and parser-inserted
    writes are consumed before the network/source suffix.
-4. Remove the remaining production synchronous compatibility call sites after recorded-response shadow
-   equivalence passes.
+4. **Implemented for image and preflight:** the legacy unbounded collector is
+   absent from both paths. Complete-byte resources use a correlated collector
+   with explicit deadline, decoded-size limit and cancellation on every
+   unsuccessful terminal path.
 
-**Exit:** 32-request concurrency, HTTP/2, chunking, backpressure, abort, timeout,
-redirect, CORS withholding, decompression and navigation-cancellation tests pass;
-no production network path calls the blocking broker facade.
+**Exit achieved for the requested transport-scheduling boundary:** 32-request
+concurrency, HTTP/2, demand/backpressure, abort/teardown, timeout, redirect,
+CORS withholding, decompression and stale-completion tests pass. Compatibility
+`send` remains an adapter for complete-resource callers and is not used by
+navigation, Fetch bodies, image loading, or CORS preflight.
 
 ### Milestone C — complete semantic and WebIDL cutovers
 

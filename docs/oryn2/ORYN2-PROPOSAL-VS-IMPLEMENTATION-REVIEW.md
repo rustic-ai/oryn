@@ -47,9 +47,11 @@ V8 share the same live `DomRuntime`; parser-blocking JavaScript and
 tree handoff. The synchronous `NetworkBroker` methods remain compatibility
 adapters, while the main navigation body now flows directly from accepted
 headers through incremental decoding into the live loader. Parser-discovered
-scripts, styles/imports and frames use typed parent operations. Some image and
-preflight call sites still collect
-responses synchronously; parts of semantic projection still invoke the full projector; generated WebIDL
+scripts, styles/imports and frames use typed parent operations. Image loading is
+completed outside the page actor and CORS preflight uses a separately scheduled,
+deadline- and size-bounded correlated operation. Cancellation propagates on
+abort, timeout, navigation-body drop, IPC cancellation and worker-service
+teardown; stale completions are rejected. Parts of semantic projection still invoke the full projector; generated WebIDL
 does not yet cover every declared algorithm; the stylesheet cascade remains
 Oryn-owned rather than a Stylo DOM integration; and the required sandboxed V8,
 reduced-ICU and startup-snapshot artifacts have not been built and attested on

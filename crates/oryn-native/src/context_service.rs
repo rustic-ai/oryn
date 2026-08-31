@@ -32,8 +32,8 @@ use url::Url;
 use crate::{
     network::{
         NetworkBroker, NetworkEvent, NetworkOperation, NetworkRequest, NetworkResponse,
-        SharedNetworkBroker, collect_operation, sanitize_parent_response_headers,
-        sanitize_worker_headers,
+        SharedNetworkBroker, collect_operation, collect_operation_bounded,
+        sanitize_parent_response_headers, sanitize_worker_headers,
     },
     runtime::{BrowserContext, RuntimeError},
     security::{ConsequentialAction, PolicyRequest},
@@ -544,12 +544,11 @@ pub struct ParentContextService {
     sockets: Mutex<BTreeMap<u64, WebSocket<MaybeTlsStream<TcpStream>>>>,
     network: Option<SharedNetworkBroker>,
     next_http_stream_id: AtomicU64,
-    http_streams: Mutex<BTreeMap<u64, HttpStreamState>>,
+    http_streams: Mutex<BTreeMap<u64, Arc<HttpStreamEntry>>>,
     trusted_in_process_runtime: bool,
 }
 
 struct HttpStreamState {
-    page_id: PageId,
     operation: NetworkOperation,
     current: bytes::Bytes,
     offset: usize,
@@ -557,14 +556,47 @@ struct HttpStreamState {
     content_length: Option<usize>,
 }
 
+struct HttpStreamEntry {
+    page_id: PageId,
+    request_id: u64,
+    state: Mutex<HttpStreamState>,
+}
+
+impl Drop for ParentContextService {
+    fn drop(&mut self) {
+        let request_ids = self
+            .http_streams
+            .get_mut()
+            .map(|streams| {
+                std::mem::take(streams)
+                    .into_values()
+                    .map(|entry| entry.request_id)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if let Some(network) = &self.network {
+            for request_id in request_ids {
+                let _ = network.cancel_operation(request_id);
+            }
+        }
+    }
+}
+
 fn receive_network_event(
     events: &mut tokio::sync::mpsc::Receiver<NetworkEvent>,
-) -> Option<NetworkEvent> {
+    timeout: Duration,
+) -> Result<Option<NetworkEvent>, RuntimeError> {
+    let deadline = std::time::Instant::now() + timeout;
     loop {
         match events.try_recv() {
-            Ok(event) => return Some(event),
-            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => return None,
+            Ok(event) => return Ok(Some(event)),
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => return Ok(None),
             Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(RuntimeError::WorkerLimitExceeded {
+                        resource: "network operation wall time".into(),
+                    });
+                }
                 std::thread::park_timeout(Duration::from_millis(1));
             }
         }
@@ -1157,7 +1189,7 @@ impl ParentContextService {
                     requested_headers.join(", "),
                 ));
             }
-            let preflight = collect_operation(
+            let preflight = collect_operation_bounded(
                 &network,
                 NetworkRequest {
                     request_id: request.request_id ^ (1_u64 << 63),
@@ -1175,6 +1207,8 @@ impl ParentContextService {
                     },
                     resolved_addrs: Vec::new(),
                 },
+                Duration::from_secs(10),
+                64 * 1024,
             )
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
             enforce_cors_preflight(
@@ -1206,23 +1240,37 @@ impl ParentContextService {
                 resolved_addrs: Vec::new(),
             })
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
+        let header_event =
+            match receive_network_event(&mut operation.events, Duration::from_secs(30)) {
+                Ok(event) => event,
+                Err(error) => {
+                    let _ = network.cancel_operation(operation.request_id);
+                    return Err(error);
+                }
+            };
         let (response_request_id, response_status, response_headers, content_length) =
-            match receive_network_event(&mut operation.events) {
+            match header_event {
                 Some(NetworkEvent::Headers {
                     request_id,
                     status,
                     headers,
                     content_length,
-                }) => (request_id, status, headers, content_length),
-                Some(NetworkEvent::Failed { error, .. }) => {
+                }) if request_id == operation.request_id => {
+                    (request_id, status, headers, content_length)
+                }
+                Some(NetworkEvent::Failed { request_id, error })
+                    if request_id == operation.request_id =>
+                {
                     return Err(RuntimeError::Network(error));
                 }
-                Some(NetworkEvent::Chunk { .. }) | Some(NetworkEvent::Complete { .. }) => {
+                Some(_) => {
+                    let _ = network.cancel_operation(operation.request_id);
                     return Err(RuntimeError::ProtocolViolation(
-                        "HTTP stream body arrived before accepted headers".into(),
+                        "HTTP stream received a stale, unmatched, or out-of-order event".into(),
                     ));
                 }
                 None => {
+                    let _ = network.cancel_operation(operation.request_id);
                     return Err(RuntimeError::Network(
                         "HTTP stream ended before response headers".into(),
                     ));
@@ -1231,12 +1279,14 @@ impl ParentContextService {
         if cross_origin
             && !cors_headers_allowed(&source_origin, request.credentials, &response_headers)
         {
+            let _ = network.cancel_operation(operation.request_id);
             return Err(RuntimeError::ContextService(format!(
                 "cross-origin response denied by CORS: initiator={source_origin}, response={}",
                 target.origin().ascii_serialization()
             )));
         }
         if content_length.is_some_and(|length| length > 16 * 1024 * 1024) {
+            let _ = network.cancel_operation(operation.request_id);
             return Err(RuntimeError::WorkerLimitExceeded {
                 resource: "decoded HTTP response body".into(),
             });
@@ -1248,20 +1298,24 @@ impl ParentContextService {
             .lock()
             .map_err(|_| RuntimeError::ContextService("HTTP stream lock poisoned".into()))?;
         if streams.len() >= 32 {
+            let _ = network.cancel_operation(operation.request_id);
             return Err(RuntimeError::WorkerLimitExceeded {
                 resource: "pending HTTP streams".into(),
             });
         }
         streams.insert(
             stream_id,
-            HttpStreamState {
+            Arc::new(HttpStreamEntry {
                 page_id,
-                operation,
-                current: bytes::Bytes::new(),
-                offset: 0,
-                bytes_read: 0,
-                content_length: total_bytes,
-            },
+                request_id: operation.request_id,
+                state: Mutex::new(HttpStreamState {
+                    operation,
+                    current: bytes::Bytes::new(),
+                    offset: 0,
+                    bytes_read: 0,
+                    content_length: total_bytes,
+                }),
+            }),
         );
         Ok(ContextServiceResponse::HttpStreamStarted {
             stream_id,
@@ -1279,19 +1333,26 @@ impl ParentContextService {
         max_bytes: usize,
     ) -> Result<ContextServiceResponse, RuntimeError> {
         self.validate_socket_owner(page_id)?;
-        let mut streams = self
+        let entry = self
             .http_streams
             .lock()
-            .map_err(|_| RuntimeError::ContextService("HTTP stream lock poisoned".into()))?;
-        let (chunk, done) = {
-            let stream = streams
-                .get_mut(&stream_id)
-                .ok_or_else(|| RuntimeError::ContextService("unknown HTTP stream".into()))?;
-            if stream.page_id != page_id {
-                return Err(RuntimeError::ContextService(
-                    "worker cannot read another page's HTTP stream".into(),
-                ));
-            }
+            .map_err(|_| RuntimeError::ContextService("HTTP stream lock poisoned".into()))?
+            .get(&stream_id)
+            .cloned()
+            .ok_or_else(|| RuntimeError::ContextService("unknown HTTP stream".into()))?;
+        if entry.page_id != page_id {
+            return Err(RuntimeError::ContextService(
+                "worker cannot read another page's HTTP stream".into(),
+            ));
+        }
+        let result = (|| {
+            // Only this stream is serialized. The registry lock is not held
+            // while its transport waits, so unrelated streams and aborts can
+            // make progress concurrently.
+            let mut stream = entry
+                .state
+                .lock()
+                .map_err(|_| RuntimeError::ContextService("HTTP stream state poisoned".into()))?;
             let requested = max_bytes.clamp(1, 64 * 1024);
             let mut terminal = false;
             let mut chunk = Vec::with_capacity(requested);
@@ -1300,18 +1361,29 @@ impl ParentContextService {
                     stream.current = bytes::Bytes::new();
                     stream.offset = 0;
                     stream.operation.request_body_chunk();
-                    match receive_network_event(&mut stream.operation.events) {
-                        Some(NetworkEvent::Chunk { bytes, .. }) => stream.current = bytes,
-                        Some(NetworkEvent::Complete { .. }) => {
+                    match receive_network_event(
+                        &mut stream.operation.events,
+                        Duration::from_secs(30),
+                    )? {
+                        Some(NetworkEvent::Chunk { request_id, bytes })
+                            if request_id == stream.operation.request_id =>
+                        {
+                            stream.current = bytes
+                        }
+                        Some(NetworkEvent::Complete { request_id })
+                            if request_id == stream.operation.request_id =>
+                        {
                             terminal = true;
                             break;
                         }
-                        Some(NetworkEvent::Failed { error, .. }) => {
+                        Some(NetworkEvent::Failed { request_id, error })
+                            if request_id == stream.operation.request_id =>
+                        {
                             return Err(RuntimeError::Network(error));
                         }
-                        Some(NetworkEvent::Headers { .. }) => {
+                        Some(_) => {
                             return Err(RuntimeError::ProtocolViolation(
-                                "HTTP stream emitted duplicate headers".into(),
+                                "HTTP stream emitted a stale, unmatched, or duplicate event".into(),
                             ));
                         }
                         None => {
@@ -1335,16 +1407,32 @@ impl ParentContextService {
                     resource: "decoded HTTP response body".into(),
                 });
             }
-            (
+            Ok((
                 chunk,
                 terminal
                     || stream
                         .content_length
                         .is_some_and(|length| stream.bytes_read >= length),
-            )
+            ))
+        })();
+        let (chunk, done) = match result {
+            Ok(result) => result,
+            Err(error) => {
+                self.http_streams
+                    .lock()
+                    .ok()
+                    .and_then(|mut streams| streams.remove(&stream_id));
+                if let Some(network) = &self.network {
+                    let _ = network.cancel_operation(entry.request_id);
+                }
+                return Err(error);
+            }
         };
         if done {
-            streams.remove(&stream_id);
+            self.http_streams
+                .lock()
+                .map_err(|_| RuntimeError::ContextService("HTTP stream lock poisoned".into()))?
+                .remove(&stream_id);
         }
         Ok(ContextServiceResponse::HttpStreamChunk {
             stream_id,
@@ -1359,20 +1447,25 @@ impl ParentContextService {
         stream_id: u64,
     ) -> Result<ContextServiceResponse, RuntimeError> {
         self.validate_socket_owner(page_id)?;
-        let removed = self
+        let entry = self
             .http_streams
             .lock()
             .map_err(|_| RuntimeError::ContextService("HTTP stream lock poisoned".into()))?
-            .remove(&stream_id)
+            .get(&stream_id)
+            .cloned()
             .ok_or_else(|| RuntimeError::ContextService("unknown HTTP stream".into()))?;
-        if removed.page_id != page_id {
+        if entry.page_id != page_id {
             return Err(RuntimeError::ContextService(
                 "worker cannot abort another page's HTTP stream".into(),
             ));
         }
+        self.http_streams
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("HTTP stream lock poisoned".into()))?
+            .remove(&stream_id);
         if let Some(network) = &self.network {
             network
-                .cancel_operation(removed.operation.request_id)
+                .cancel_operation(entry.request_id)
                 .map_err(|error| RuntimeError::Network(error.to_string()))?;
         }
         Ok(ContextServiceResponse::HttpStreamAborted)
@@ -2401,6 +2494,44 @@ mod tests {
         }
     }
 
+    struct CancellationNetwork {
+        cancelled: Arc<AtomicU64>,
+    }
+
+    impl NetworkBroker for CancellationNetwork {
+        fn send(
+            &self,
+            _request: NetworkRequest,
+        ) -> Result<crate::network::NetworkResponse, NetworkError> {
+            unreachable!("streaming path must not buffer through send")
+        }
+
+        fn start_operation(
+            &self,
+            request: NetworkRequest,
+        ) -> Result<NetworkOperation, NetworkError> {
+            let (sender, events) = tokio::sync::mpsc::channel(2);
+            sender
+                .blocking_send(NetworkEvent::Headers {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("access-control-allow-origin".into(), "*".into())],
+                    content_length: None,
+                })
+                .unwrap();
+            Ok(NetworkOperation {
+                request_id: request.request_id,
+                events,
+                demand: None,
+            })
+        }
+
+        fn cancel_operation(&self, _request_id: u64) -> Result<(), NetworkError> {
+            self.cancelled.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
     #[test]
     fn multiplexed_context_channel_starts_thirty_two_requests_concurrently() {
         let context = Browser::new().new_context_with_options(ContextOptions::loopback_test());
@@ -2449,6 +2580,43 @@ mod tests {
         assert_eq!(peak.load(Ordering::SeqCst), 32);
         drop(client);
         server.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn worker_service_teardown_cancels_every_active_stream() {
+        let context = Browser::new().new_context_with_options(ContextOptions::loopback_test());
+        let page = context.new_page();
+        context
+            .commit_page_url(page.page_id(), "https://example.test/".into())
+            .unwrap();
+        let cancelled = Arc::new(AtomicU64::new(0));
+        let service = ParentContextService::new_with_network(
+            context,
+            page.page_id(),
+            Some(SharedNetworkBroker::new(CancellationNetwork {
+                cancelled: cancelled.clone(),
+            })),
+        );
+        for request_id in 1..=3 {
+            assert!(matches!(
+                service
+                    .handle(ContextServiceRequest::HttpStreamStart {
+                        page_id: page.page_id(),
+                        request: HttpStreamRequest {
+                            request_id,
+                            method: "GET".into(),
+                            url: format!("https://example.test/{request_id}"),
+                            headers: Vec::new(),
+                            body_base64: String::new(),
+                            credentials: false,
+                        },
+                    })
+                    .unwrap(),
+                ContextServiceResponse::HttpStreamStarted { .. }
+            ));
+        }
+        drop(service);
+        assert_eq!(cancelled.load(Ordering::SeqCst), 3);
     }
 
     #[tokio::test]
