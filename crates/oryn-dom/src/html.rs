@@ -51,6 +51,15 @@ pub enum ParserEvent {
         node: NodeId,
         source: String,
     },
+    MetaSecurity {
+        content: String,
+    },
+    MetaReferrer {
+        content: String,
+    },
+    InlineStyleReady {
+        node: NodeId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -390,6 +399,29 @@ impl TreeSink for OrynTreeSink {
                         });
                     }
                 }
+                "meta" => {
+                    let content = node.attributes.get("content").cloned();
+                    if node
+                        .attributes
+                        .get("http-equiv")
+                        .is_some_and(|value| value.eq_ignore_ascii_case("content-security-policy"))
+                        && let Some(content) = content.clone()
+                    {
+                        self.events
+                            .borrow_mut()
+                            .push(ParserEvent::MetaSecurity { content });
+                    }
+                    if node
+                        .attributes
+                        .get("name")
+                        .is_some_and(|value| value.eq_ignore_ascii_case("referrer"))
+                        && let Some(content) = content
+                    {
+                        self.events
+                            .borrow_mut()
+                            .push(ParserEvent::MetaReferrer { content });
+                    }
+                }
                 _ => {}
             }
         }
@@ -404,6 +436,12 @@ impl TreeSink for OrynTreeSink {
         let NodeKind::Element { name } = &node_record.kind else {
             return;
         };
+        if name.local.as_ref() == "style" {
+            self.events
+                .borrow_mut()
+                .push(ParserEvent::InlineStyleReady { node: *node });
+            return;
+        }
         if name.local.as_ref() != "script" {
             return;
         }

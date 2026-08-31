@@ -2,7 +2,7 @@
 
 **Created:** 2026-08-31
 **Committed baseline:** `4b1f287` (`package Oryn for macOS and Linux`)
-**Working baseline:** `4b1f287` plus the uncommitted runtime-completion changes
+**Working baseline:** `8a3f2b4` plus the direct-streaming completion changes
 **Scope:** remaining work required to close the proposal-v1 runtime and produce
 one exact-artifact implementation attestation
 
@@ -15,7 +15,7 @@ of a completed production cutover.
 | Workstream | Status | Verified implementation | Remaining closure condition |
 |---|---|---|---|
 | Runtime manifest and evidence contract | Implemented | Immutable `runtime-completion-v1` classification manifest, result schema, cache bootstrapper and fail-closed validators exist. The manifest validator passes. | Produce an exact-binary result whose aggregate is recomputed from complete assertion ledgers. |
-| Async transport and streaming navigation | Partial — live parser/V8 cutover implemented | `oryn-net` owns the async rustls/HTTP2 pool. Broker v4 emits correlated headers/chunk/completion/failure operations with explicit demand. html5ever and V8 now share one live `DomRuntime`; blocking scripts, checkpoints and parser-input commands run at retained tokenizer boundaries without DOM-tail suspension or a snapshot handoff. | Start the live loader at accepted navigation headers and feed decoded network chunks directly instead of accumulating the main resource first. Migrate remaining style/frame/image/preflight compatibility call sites and page-command scheduling off blocking collection. |
+| Async transport and streaming navigation | Partial — main-resource boundary complete | `oryn-net` owns the async rustls/HTTP2 pool. Broker v4 emits correlated headers/chunk/completion/failure operations with explicit demand. The executable starts at accepted headers and html5ever incrementally consumes decoded network chunks over the same live `DomRuntime` exposed to V8. Parser scripts, styles/imports, frames and meta policy use typed parent operations. | Migrate remaining image/preflight compatibility collection and page-command scheduling off blocking waits; complete cancellation/concurrency evidence. |
 | Incremental semantics | Partial | `DomRuntime` has a bounded sequenced mutation journal with independent cursors. Each document owns a persistent `SemanticGraph` with reverse dependencies, reference generations and incremental delta publication. Focused oracle equivalence and bounded-history tests pass. | Eliminate remaining full projection from normal observation/update paths. Pass randomized mutation, framework churn, navigation, shadow/frame and replay equivalence with zero false reference preservation. |
 | Generated WebIDL and compatibility APIs | Partial | Generated V8 prototypes route migrated operations into Rust and enforce identity, brand, realm, origin and generation checks. Range, Selection, NodeIterator, TreeWalker, History, referrer policy and broader IndexedDB behavior are present. | Implement the remaining declared Range/Selection/editing/traversal algorithms, traversal filtering, full history/referrer cases and IndexedDB connection/version/transaction semantics. Remove corresponding handwritten bootstrap interfaces only after mapped tests pass. |
 | Stylo cascade | Not started | Stylo parses individual declaration blocks; Taffy and Parley provide bounded layout and text services. | Implement Stylo node/element adapters, stylesheet origins, selector matching, cascade, inheritance, custom properties, media and invalidation. Delete handwritten rule parsing/matching/cascade after mapped CSSOM and differential tests pass. |
@@ -33,8 +33,9 @@ of a completed production cutover.
   methods remain compatibility adapters.
 - Ensure 32 concurrent operations never hold the page-command mutex while
   waiting for network I/O.
-- Make navigation parse arbitrary byte boundaries and execute parser-blocking
-  scripts at the actual suspension point before accepting later markup.
+- ~~Feed accepted navigation bytes directly into the live parser rather than
+  accumulating a decoded main-resource string.~~ Implemented with explicit
+  demand, incremental charset state and parser-boundary resource calls.
 - Schedule async/defer/module scripts and lifecycle transitions from real
   prerequisites; reject late completions after navigation or worker replacement.
 - Define and test backpressure and cancellation across Fetch, XHR, streams,

@@ -145,6 +145,11 @@ pub enum ContextServiceRequest {
         module: bool,
         nonce: Option<String>,
     },
+    LoadPageResource {
+        page_id: PageId,
+        url: String,
+        destination: String,
+    },
     AuthorizeInlineScript {
         page_id: PageId,
         source: String,
@@ -254,6 +259,11 @@ pub enum ContextServiceResponse {
         module: bool,
     },
     ScriptAuthorized,
+    PageResource {
+        url: String,
+        source: String,
+        destination: String,
+    },
     WebSocketOpened {
         socket_id: u64,
         protocol: String,
@@ -1031,6 +1041,11 @@ impl ParentContextService {
                 module,
                 nonce,
             } => self.load_page_script(page_id, &url, module, nonce.as_deref()),
+            ContextServiceRequest::LoadPageResource {
+                page_id,
+                url,
+                destination,
+            } => self.load_page_resource(page_id, &url, &destination),
             ContextServiceRequest::AuthorizeInlineScript {
                 page_id,
                 source,
@@ -1618,6 +1633,120 @@ impl ParentContextService {
         Err(RuntimeError::Network(
             "dynamic script request did not produce a response".into(),
         ))
+    }
+
+    fn load_page_resource(
+        &self,
+        page_id: PageId,
+        requested_url: &str,
+        destination: &str,
+    ) -> Result<ContextServiceResponse, RuntimeError> {
+        self.validate_socket_owner(page_id)?;
+        let (csp_destination, cookie_kind, accept, text_kind) = match destination {
+            "stylesheet" => (
+                crate::csp::CspDestination::Style,
+                crate::cookies::CookieRequestKind::Style,
+                "text/css,*/*;q=0.1",
+                oryn_net::TextResourceKind::Css,
+            ),
+            "frame" => (
+                crate::csp::CspDestination::Frame,
+                crate::cookies::CookieRequestKind::Frame,
+                "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
+                oryn_net::TextResourceKind::Html,
+            ),
+            _ => {
+                return Err(RuntimeError::ContextService(format!(
+                    "unsupported parser resource destination {destination:?}"
+                )));
+            }
+        };
+        let network = self.network.clone().ok_or_else(|| {
+            RuntimeError::ContextService("page resource broker is unavailable".into())
+        })?;
+        let page_url = self.context.page_url(page_id)?;
+        let page_origin = self.context.page_origin(page_id)?;
+        let mut url = self.context.resolve_page_url(page_id, requested_url)?;
+        for redirect in 0..=10 {
+            let decision = self.context.authorize_csp(
+                page_id,
+                &crate::csp::CspRequest {
+                    destination: csp_destination,
+                    url: url.to_string(),
+                    nonce: None,
+                    inline_source: None,
+                    parser_inserted: true,
+                    initiated_by_trusted_script: false,
+                },
+            )?;
+            if !decision.violations.is_empty() {
+                self.context
+                    .handle_csp_violations(page_id, decision.violations.clone())?;
+            }
+            if !decision.allowed {
+                return Err(RuntimeError::ContextService(format!(
+                    "{destination} blocked by Content-Security-Policy"
+                )));
+            }
+            if destination == "frame" && url.origin().ascii_serialization() != page_origin {
+                return Err(RuntimeError::ContextService(
+                    "cross-origin frame document is opaque".into(),
+                ));
+            }
+            let response = collect_operation(
+                &network,
+                NetworkRequest {
+                    request_id: self.next_http_stream_id.fetch_add(1, Ordering::Relaxed),
+                    method: "GET".into(),
+                    url: url.to_string(),
+                    headers: vec![("accept".into(), accept.into())],
+                    body: Vec::new(),
+                    credentials: true,
+                    security: crate::cookies::CookieRequestContext {
+                        kind: cookie_kind,
+                        initiator_url: Some(page_url.clone()),
+                        top_level_url: Some(page_url.clone()),
+                        ..Default::default()
+                    },
+                    resolved_addrs: Vec::new(),
+                },
+            )
+            .map_err(|error| RuntimeError::Network(error.to_string()))?;
+            if (300..400).contains(&response.status) {
+                if redirect == 10 {
+                    return Err(RuntimeError::Network(format!(
+                        "{destination} redirect limit exceeded"
+                    )));
+                }
+                let location = response
+                    .headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+                    .map(|(_, value)| value)
+                    .ok_or_else(|| {
+                        RuntimeError::Network(format!("{destination} redirect omitted Location"))
+                    })?;
+                url = url
+                    .join(location)
+                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                continue;
+            }
+            let content_type = response
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                .map(|(_, value)| value.as_str());
+            let (source, _) =
+                oryn_net::decode_resource_text(&response.body, content_type, text_kind);
+            return Ok(ContextServiceResponse::PageResource {
+                url: url.to_string(),
+                source,
+                destination: destination.into(),
+            });
+        }
+        Err(RuntimeError::Network(format!(
+            "{destination} request did not produce a response"
+        )))
     }
 
     fn open_websocket(

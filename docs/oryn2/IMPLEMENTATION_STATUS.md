@@ -1,8 +1,9 @@
 # Oryn2 implementation status
 
 > **Current status: runtime-completion cutover in progress; exact-artifact
-> attestation pending on macOS and Linux.** The committed baseline is `4b1f287`.
-> The current working tree adds protocol-v4/v7/v10 transport contracts,
+> attestation pending on macOS and Linux.** The committed runtime baseline is
+> `8a3f2b4`. The current working tree completes direct main-resource streaming,
+> parser-resource brokering, and protocol-v4/v7/v10 transport contracts,
 > streaming navigation foundations, an incremental semantic graph, expanded
 > generated WebIDL behavior, referrer and IndexedDB work, V8 profile tooling and
 > pinned upstream-conformance infrastructure. It is not yet a release candidate:
@@ -66,22 +67,25 @@ rewrite those historical payloads or present them as a new validation run.
 - The current work introduces a bounded multi-consumer mutation journal and a
   persistent `SemanticGraph`. Focused graph/oracle and revision-history tests
   pass, but parts of normal semantic projection still call the full projector.
-- Navigation now consumes correlated broker operations rather than converting
+- Navigation now creates the V8 executable immediately after accepted response
+  headers and feeds incrementally decoded, demand-driven chunks directly into
+  html5ever over the shared live `DomRuntime`; it no longer accumulates the
+  main resource first. Navigation consumes correlated broker operations rather than converting
   the live HTTP body back into `Read`. Broker v4 multiplexes header, chunk,
   completion and failure frames across the sandbox boundary; cookie, policy,
   cache and replay adapters preserve those streams. Parent-owned Fetch bodies
   use explicit demand so accepted headers do not pull response bytes until the
   worker reads. The old synchronous broker methods remain compatibility
-  adapters, and blocking script/style/frame/image/preflight call sites plus
+  adapters, and blocking image/preflight call sites plus
   page-actor scheduling still prevent an end-to-end asynchronous claim.
 - html5ever and V8 now share one live `DomRuntime` from the first parsed tag.
   Parser-blocking scripts execute at the retained tokenizer boundary, V8
   microtasks/reactions/observers checkpoint before parsing resumes, and
   `document.write` re-enters the tokenizer ahead of the unconsumed suffix.
-  The former post-parse DOM-tail suspension and snapshot handoff are absent
-  from production source loads. Navigation still accumulates the decoded,
-  policy-transformed main document before creating the executable loader, so
-  direct network-chunk-to-live-parser scheduling remains open.
+  Parser-discovered scripts, stylesheets/imports, frames, meta CSP, and meta
+  referrer policy cross typed parent operations at their discovery boundary.
+  The former post-parse DOM-tail suspension, decoded-main-resource buffer, and
+  snapshot handoff are absent from production source loads.
 - Generated bindings are authoritative for migrated DOM behavior and now cover
   additional Range, Selection and traversal operations. Complex editing,
   traversal filtering, history/referrer edge cases and complete IndexedDB

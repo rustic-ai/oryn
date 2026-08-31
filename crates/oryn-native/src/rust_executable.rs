@@ -7,6 +7,7 @@ use std::time::Duration;
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use base64::Engine as _;
+use html5ever::{QualName, local_name, ns};
 use oryn_common::v3::SemanticAction;
 use oryn_dom::{DomRuntime, Mutation, MutationCursor, NodeId, NodeKind, SharedDomRuntime, html};
 use oryn_js::realm::RealmId;
@@ -104,9 +105,15 @@ fn script_record(dom: &DomRuntime, node: NodeId) -> Result<ScriptRecord, HostErr
 
 fn run_script_record(
     host: &mut RawV8Host,
-    resources: &BTreeMap<String, String>,
+    live_dom: &SharedDomRuntime,
+    resources: &mut BTreeMap<String, String>,
     record: &ScriptRecord,
     diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
+    #[cfg(unix)] context: Option<&(
+        crate::context_service::SharedContextClient,
+        oryn_common::v3::PageId,
+        Option<oryn_common::v3::PageId>,
+    )>,
 ) -> Result<(), HostError> {
     let (script, src, script_type, inline, _parser_blocking, no_module, _) = record;
     if *no_module {
@@ -119,6 +126,89 @@ fn run_script_record(
         )
     }) {
         return Ok(());
+    }
+    #[cfg(unix)]
+    let parent_authorizes = context.is_some();
+    #[cfg(not(unix))]
+    let parent_authorizes = false;
+    if !parent_authorizes && let Some(serialized) = resources.get("oryn:csp-policy") {
+        let policy: crate::csp::CspPolicySet = serde_json::from_str(serialized)
+            .map_err(|error| HostError::Execution(format!("invalid CSP snapshot: {error}")))?;
+        let request = crate::csp::CspRequest {
+            destination: crate::csp::CspDestination::Script,
+            url: src.as_deref().unwrap_or("inline").to_owned(),
+            nonce: live_dom
+                .borrow()
+                .attribute(*script, "nonce")
+                .ok()
+                .flatten()
+                .map(str::to_owned),
+            inline_source: src.is_none().then(|| inline.clone()),
+            parser_inserted: true,
+            initiated_by_trusted_script: false,
+        };
+        let decision = policy.authorize(&request);
+        let sandbox_blocks = policy
+            .sandbox()
+            .is_some_and(|sandbox| !sandbox.allow_scripts);
+        if !decision.allowed || sandbox_blocks {
+            diagnostics.push(script_diagnostic(HostError::Execution(
+                "parser script blocked by Content-Security-Policy".into(),
+            )));
+            return Ok(());
+        }
+    }
+    #[cfg(unix)]
+    if let Some((client, page_id, _)) = context {
+        let nonce = live_dom
+            .borrow()
+            .attribute(*script, "nonce")
+            .ok()
+            .flatten()
+            .map(str::to_owned);
+        let authorization = if let Some(src) = src
+            && resource_entry(resources, src).is_none()
+        {
+            client.request(crate::context_service::ContextServiceRequest::LoadScript {
+                page_id: *page_id,
+                url: src.clone(),
+                module: script_type.as_deref() == Some("module"),
+                nonce,
+            })
+        } else if src.is_none() {
+            client.request(
+                crate::context_service::ContextServiceRequest::AuthorizeInlineScript {
+                    page_id: *page_id,
+                    source: inline.clone(),
+                    nonce,
+                },
+            )
+        } else {
+            Ok(crate::context_service::ContextServiceResponse::ScriptAuthorized)
+        };
+        match authorization {
+            Ok(crate::context_service::ContextServiceResponse::ScriptSource {
+                url,
+                source,
+                ..
+            }) => {
+                if let Some(src) = src {
+                    resources.insert(src.clone(), source.clone());
+                    resources.insert(format!("oryn:module-alias:{src}"), url.clone());
+                }
+                resources.insert(url, source);
+            }
+            Ok(crate::context_service::ContextServiceResponse::ScriptAuthorized) => {}
+            Ok(_) => {
+                return Err(HostError::Execution(
+                    "parent returned an invalid parser-script response".into(),
+                ));
+            }
+            Err(error) => {
+                diagnostics.push(script_diagnostic(HostError::Execution(error.to_string())));
+                return Ok(());
+            }
+        }
     }
     host.set_current_script(Some(*script))?;
     let result = if script_type.as_deref() == Some("module") {
@@ -161,6 +251,11 @@ fn parser_checkpoint(
     diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
 ) -> Result<(), HostError> {
     host.execute("void 0")?;
+    // Parser-blocking scripts may enqueue Fetch/XHR work. Dispatch accepted
+    // operations now, while their promise completions remain asynchronous;
+    // this preserves script-before-later-markup ordering without draining the
+    // entire page task queue.
+    host.drain_async_fetches(false)?;
     host.execute("__oryn_run_custom_reactions()")?;
     host.run_dom_observer_checkpoint()?;
     for rejection in host.take_unhandled_promise_rejections() {
@@ -172,7 +267,7 @@ fn parser_checkpoint(
 }
 
 enum DocumentLoad {
-    Live(String),
+    Live(Box<dyn Iterator<Item = Result<String, HostError>>>),
     Snapshot(ParsedDocument),
 }
 
@@ -186,28 +281,210 @@ type ScriptRecord = (
     bool,
 );
 
+#[cfg(unix)]
+fn load_parser_stylesheet(
+    client: &crate::context_service::SharedContextClient,
+    page_id: oryn_common::v3::PageId,
+    requested_url: &str,
+    depth: usize,
+) -> Result<(String, String), HostError> {
+    if depth > 8 {
+        return Err(HostError::LimitExceeded {
+            resource: "stylesheet import depth".into(),
+        });
+    }
+    let response = client
+        .request(
+            crate::context_service::ContextServiceRequest::LoadPageResource {
+                page_id,
+                url: requested_url.into(),
+                destination: "stylesheet".into(),
+            },
+        )
+        .map_err(|error| HostError::Execution(error.to_string()))?;
+    let crate::context_service::ContextServiceResponse::PageResource {
+        url,
+        source,
+        destination,
+    } = response
+    else {
+        return Err(HostError::Execution(
+            "parent returned an invalid stylesheet response".into(),
+        ));
+    };
+    if destination != "stylesheet" {
+        return Err(HostError::Execution(
+            "parent returned a mismatched parser resource".into(),
+        ));
+    }
+    let import =
+        regex::Regex::new(r#"(?is)@import\s+(?:url\(\s*)?[\"']?([^\"'\)\s;]+)[\"']?\s*\)?[^;]*;"#)
+            .expect("stylesheet import regex");
+    let base = Url::parse(&url).ok();
+    let mut expanded = String::new();
+    for capture in import.captures_iter(&source) {
+        let child = base
+            .as_ref()
+            .and_then(|base| base.join(&capture[1]).ok())
+            .map_or_else(|| capture[1].to_string(), |url| url.to_string());
+        let (_, imported) = load_parser_stylesheet(client, page_id, &child, depth + 1)?;
+        expanded.push_str(&imported);
+    }
+    expanded.push_str(&import.replace_all(&source, ""));
+    Ok((url, expanded))
+}
+
 fn parse_live_document(
-    source: String,
+    mut source: Box<dyn Iterator<Item = Result<String, HostError>>>,
     live_dom: &SharedDomRuntime,
     host: &mut RawV8Host,
-    resources: &BTreeMap<String, String>,
+    resources: &mut BTreeMap<String, String>,
     diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
+    #[cfg(unix)] context: Option<&(
+        crate::context_service::SharedContextClient,
+        oryn_common::v3::PageId,
+        Option<oryn_common::v3::PageId>,
+    )>,
 ) -> Result<(ParsedDocument, Vec<ScriptRecord>), HostError> {
     use std::collections::VecDeque;
 
     let mut parser = html::StreamingParser::with_runtime(live_dom.clone());
-    let mut input = VecDeque::from([source]);
+    let mut input = VecDeque::new();
     let mut ordered_scripts = Vec::new();
     let mut all_events = Vec::new();
+    #[cfg(unix)]
+    let inline_import =
+        regex::Regex::new(r#"(?is)@import\s+(?:url\(\s*)?[\"']?([^\"'\)\s;]+)[\"']?\s*\)?[^;]*;"#)
+            .expect("stylesheet import regex");
     host.set_parser_input_active(true)?;
 
-    while let Some(mut chunk) = input.pop_front() {
+    loop {
+        let next = match input.pop_front() {
+            Some(chunk) => Some(chunk),
+            None => source.next().transpose()?,
+        };
+        let Some(mut chunk) = next else { break };
         if chunk.is_empty() {
             continue;
         }
         let progress = parser.push_until_blocked(&chunk);
         let suffix = chunk.split_off(progress.consumed_bytes);
         for event in parser.take_events() {
+            #[cfg(unix)]
+            if let Some((client, page_id, _)) = context {
+                match &event {
+                    html::ParserEvent::StylesheetDiscovered { node, href } => {
+                        match load_parser_stylesheet(client, *page_id, href, 0) {
+                            Ok((url, css)) => {
+                                resources.insert(url, css.clone());
+                                let mut dom = live_dom.borrow_mut();
+                                let style = dom.create(NodeKind::Element {
+                                    name: QualName::new(None, ns!(html), local_name!("style")),
+                                });
+                                let text = dom.create_text(css);
+                                dom.append_child(style, text)
+                                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                                if let Some(parent) = dom
+                                    .parent(*node)
+                                    .map_err(|error| HostError::Execution(error.to_string()))?
+                                {
+                                    dom.append_child(parent, style)
+                                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                                }
+                            }
+                            Err(error) => diagnostics.push(script_diagnostic(error)),
+                        }
+                    }
+                    html::ParserEvent::InlineStyleReady { node } => {
+                        let css = live_dom
+                            .borrow()
+                            .arena()
+                            .text_content(*node)
+                            .map_err(|error| HostError::Execution(error.to_string()))?;
+                        for capture in inline_import.captures_iter(&css) {
+                            match load_parser_stylesheet(client, *page_id, &capture[1], 0) {
+                                Ok((url, imported)) => {
+                                    resources.insert(url, imported.clone());
+                                    let mut dom = live_dom.borrow_mut();
+                                    let style = dom.create(NodeKind::Element {
+                                        name: QualName::new(None, ns!(html), local_name!("style")),
+                                    });
+                                    let text = dom.create_text(imported);
+                                    dom.append_child(style, text)
+                                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                                    if let Some(parent) = dom
+                                        .parent(*node)
+                                        .map_err(|error| HostError::Execution(error.to_string()))?
+                                    {
+                                        dom.append_child(parent, style).map_err(|error| {
+                                            HostError::Execution(error.to_string())
+                                        })?;
+                                    }
+                                }
+                                Err(error) => diagnostics.push(script_diagnostic(error)),
+                            }
+                        }
+                    }
+                    html::ParserEvent::FrameDiscovered { source, .. } => {
+                        match client.request(
+                            crate::context_service::ContextServiceRequest::LoadPageResource {
+                                page_id: *page_id,
+                                url: source.clone(),
+                                destination: "frame".into(),
+                            },
+                        ) {
+                            Ok(crate::context_service::ContextServiceResponse::PageResource {
+                                url,
+                                source: document,
+                                destination,
+                            }) if destination == "frame" => {
+                                resources.insert(source.clone(), document.clone());
+                                resources.insert(url, document);
+                            }
+                            Ok(_) => {
+                                return Err(HostError::Execution(
+                                    "parent returned an invalid frame response".into(),
+                                ));
+                            }
+                            Err(_) => {
+                                // Cross-origin or policy-denied frames remain opaque;
+                                // final realm construction publishes the diagnostic.
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                let response = match &event {
+                    html::ParserEvent::MetaSecurity { content } => Some(client.request(
+                        crate::context_service::ContextServiceRequest::InstallMetaSecurity {
+                            page_id: *page_id,
+                            serialized: content.clone(),
+                        },
+                    )),
+                    html::ParserEvent::MetaReferrer { content } => Some(client.request(
+                        crate::context_service::ContextServiceRequest::InstallReferrerPolicy {
+                            page_id: *page_id,
+                            serialized: content.clone(),
+                        },
+                    )),
+                    _ => None,
+                };
+                if let Some(response) = response {
+                    match response {
+                        Ok(crate::context_service::ContextServiceResponse::DocumentSecurityInstalled) => {}
+                        Ok(_) => {
+                            return Err(HostError::Execution(
+                                "parent returned an invalid parser policy response".into(),
+                            ));
+                        }
+                        Err(error) => {
+                            return Err(HostError::Execution(format!(
+                                "parent rejected parser policy: {error}"
+                            )));
+                        }
+                    }
+                }
+            }
             if let html::ParserEvent::ScriptReady { node, scheduling } = &event {
                 let record = script_record(&live_dom.borrow(), *node)?;
                 let asynchronous = live_dom
@@ -216,7 +493,15 @@ fn parse_live_document(
                     .map_err(|error| HostError::Execution(error.to_string()))?
                     .is_some();
                 if asynchronous && *scheduling != html::ScriptScheduling::Data {
-                    run_script_record(host, resources, &record, diagnostics)?;
+                    run_script_record(
+                        host,
+                        live_dom,
+                        resources,
+                        &record,
+                        diagnostics,
+                        #[cfg(unix)]
+                        context,
+                    )?;
                     parser_checkpoint(host, diagnostics)?;
                 } else if matches!(
                     scheduling,
@@ -231,7 +516,15 @@ fn parse_live_document(
         if let Some(event @ html::ParserEvent::ScriptReady { node, .. }) = progress.blocked_on {
             all_events.push(event);
             let record = script_record(&live_dom.borrow(), node)?;
-            run_script_record(host, resources, &record, diagnostics)?;
+            run_script_record(
+                host,
+                live_dom,
+                resources,
+                &record,
+                diagnostics,
+                #[cfg(unix)]
+                context,
+            )?;
             parser_checkpoint(host, diagnostics)?;
 
             let commands = host.take_parser_input_commands()?;
@@ -549,7 +842,25 @@ impl RustExecutableDocument {
         max_heap_bytes: usize,
     ) -> Result<Self, HostError> {
         Self::load_with_options(
-            DocumentLoad::Live(html_source.to_owned()),
+            DocumentLoad::Live(Box::new(std::iter::once(Ok(html_source.to_owned())))),
+            resources,
+            broker,
+            base_url,
+            max_heap_bytes,
+            #[cfg(unix)]
+            None,
+        )
+    }
+
+    pub(crate) fn load_stream_with_limits(
+        chunks: Box<dyn Iterator<Item = Result<String, HostError>>>,
+        resources: &BTreeMap<String, String>,
+        broker: Option<SharedNetworkBroker>,
+        base_url: Option<Url>,
+        max_heap_bytes: usize,
+    ) -> Result<Self, HostError> {
+        Self::load_with_options(
+            DocumentLoad::Live(chunks),
             resources,
             broker,
             base_url,
@@ -591,7 +902,30 @@ impl RustExecutableDocument {
         ),
     ) -> Result<Self, HostError> {
         Self::load_with_options(
-            DocumentLoad::Live(html_source.to_owned()),
+            DocumentLoad::Live(Box::new(std::iter::once(Ok(html_source.to_owned())))),
+            resources,
+            broker,
+            base_url,
+            max_heap_bytes,
+            Some(context),
+        )
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn load_stream_with_context_and_limits(
+        chunks: Box<dyn Iterator<Item = Result<String, HostError>>>,
+        resources: &BTreeMap<String, String>,
+        broker: Option<SharedNetworkBroker>,
+        base_url: Option<Url>,
+        max_heap_bytes: usize,
+        context: (
+            crate::context_service::SharedContextClient,
+            oryn_common::v3::PageId,
+            Option<oryn_common::v3::PageId>,
+        ),
+    ) -> Result<Self, HostError> {
+        Self::load_with_options(
+            DocumentLoad::Live(chunks),
             resources,
             broker,
             base_url,
@@ -635,6 +969,7 @@ impl RustExecutableDocument {
             Option<oryn_common::v3::PageId>,
         )>,
     ) -> Result<Self, HostError> {
+        let mut resources = resources.clone();
         #[cfg(unix)]
         let context_identity = context
             .as_ref()
@@ -720,7 +1055,7 @@ impl RustExecutableDocument {
                     .unwrap_or_else(|| "null".into())
             ))?;
         }
-        host.set_module_sources(resources);
+        host.set_module_sources(&resources);
         if let Some(base_url) = &base_url {
             let url = serde_json::to_string(base_url.as_str())
                 .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -757,8 +1092,15 @@ impl RustExecutableDocument {
         ))?;
         let mut diagnostics = Vec::new();
         if let Some(source) = live_source {
-            let (parsed, ordered_scripts) =
-                parse_live_document(source, &live_dom, &mut host, resources, &mut diagnostics)?;
+            let (parsed, ordered_scripts) = parse_live_document(
+                source,
+                &live_dom,
+                &mut host,
+                &mut resources,
+                &mut diagnostics,
+                #[cfg(unix)]
+                context_handle.as_ref(),
+            )?;
             quirks_mode = parsed.quirks_mode;
             parser_events = parsed.events;
             scripts = ordered_scripts;
@@ -822,7 +1164,7 @@ impl RustExecutableDocument {
             }
             host.activate_realm(realm)?;
             host.execute(RUST_RUNTIME_GLOBALS)?;
-            host.set_module_sources(resources);
+            host.set_module_sources(&resources);
             if let Some(frame_url) = &frame_url {
                 let url = serde_json::to_string(frame_url.as_str())
                     .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -851,7 +1193,15 @@ impl RustExecutableDocument {
             host.set_frame_document(frame, child_document)?;
         }
         for script in &scripts {
-            run_script_record(&mut host, resources, script, &mut diagnostics)?;
+            run_script_record(
+                &mut host,
+                &live_dom,
+                &mut resources,
+                script,
+                &mut diagnostics,
+                #[cfg(unix)]
+                context_handle.as_ref(),
+            )?;
         }
         host.set_current_script(None)?;
         host.drain_async_fetches(true)?;
@@ -870,7 +1220,7 @@ impl RustExecutableDocument {
             top_realm,
             node_realms,
             base_url,
-            resources: resources.clone(),
+            resources,
             broker: broker_handle,
             next_dynamic_request_id: 1,
             semantic_mutation_cursor: MutationCursor::default(),

@@ -75,6 +75,80 @@ struct CspReportingState {
     deliveries: BTreeMap<String, VecDeque<Instant>>,
 }
 
+#[cfg(feature = "v8-host")]
+#[derive(Default)]
+struct NavigationBodyCapture {
+    source: String,
+    bytes: usize,
+    completed: bool,
+}
+
+/// Demand-driven bridge from the parent-owned network operation into the live
+/// html5ever parser. `next()` is called only when the parser needs more input,
+/// coupling response demand to parser progress; once html5ever publishes a
+/// blocking boundary, JavaScript runs against the same `DomRuntime` before the
+/// retained source suffix is consumed.
+#[cfg(feature = "v8-host")]
+struct NavigationBodyChunks {
+    operation: crate::network::NetworkOperation,
+    decoder: oryn_net::IncrementalTextDecoder,
+    capture: Arc<Mutex<NavigationBodyCapture>>,
+    finished: bool,
+}
+
+#[cfg(feature = "v8-host")]
+impl Iterator for NavigationBodyChunks {
+    type Item = Result<String, crate::host::HostError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+        loop {
+            self.operation.request_body_chunk();
+            match self.operation.events.blocking_recv() {
+                Some(crate::network::NetworkEvent::Chunk { bytes, .. }) => {
+                    let decoded = self.decoder.push(&bytes);
+                    let mut capture = self.capture.lock().expect("navigation capture");
+                    capture.bytes = capture.bytes.saturating_add(bytes.len());
+                    capture.source.push_str(&decoded);
+                    drop(capture);
+                    if !decoded.is_empty() {
+                        return Some(Ok(decoded));
+                    }
+                }
+                Some(crate::network::NetworkEvent::Complete { .. }) => {
+                    self.finished = true;
+                    let tail = self.decoder.finish();
+                    let mut capture = self.capture.lock().expect("navigation capture");
+                    capture.source.push_str(&tail);
+                    capture.completed = true;
+                    drop(capture);
+                    return (!tail.is_empty()).then_some(Ok(tail));
+                }
+                Some(crate::network::NetworkEvent::Failed { error, .. }) => {
+                    self.finished = true;
+                    return Some(Err(crate::host::HostError::Execution(format!(
+                        "navigation body failed: {error}"
+                    ))));
+                }
+                Some(crate::network::NetworkEvent::Headers { .. }) => {
+                    self.finished = true;
+                    return Some(Err(crate::host::HostError::Execution(
+                        "network operation emitted duplicate response headers".into(),
+                    )));
+                }
+                None => {
+                    self.finished = true;
+                    return Some(Err(crate::host::HostError::Execution(
+                        "network operation ended before response completion".into(),
+                    )));
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SecurityOrigin {
     Tuple(String),
@@ -2858,6 +2932,7 @@ impl BrowserContext {
                             url.clone(),
                             &html,
                             None,
+                            None,
                             true,
                             &BTreeMap::new(),
                             #[cfg(feature = "v8-host")]
@@ -4399,17 +4474,19 @@ impl PageState {
         self.last_challenge = assessment;
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn load_document(
         &mut self,
         url: String,
         html: &str,
         parsed: Option<ParsedDocument>,
+        live_source: Option<Box<dyn Iterator<Item = Result<String, crate::host::HostError>>>>,
         push_history: bool,
         resources: &BTreeMap<String, String>,
         #[cfg(feature = "v8-host")] web_fonts: Vec<oryn_layout::WebFont>,
     ) -> Result<(), RuntimeError> {
         #[cfg(not(feature = "v8-host"))]
-        let _ = resources;
+        let _ = (resources, live_source);
         self.document_generation += 1;
         self.revision += 1;
         self.lifecycle.clear();
@@ -4466,9 +4543,24 @@ impl PageState {
                 "oryn:csp-allow-eval".into(),
                 self.csp.allows_eval(false).allowed.to_string(),
             );
+            resources.insert(
+                "oryn:csp-policy".into(),
+                serde_json::to_string(&self.csp)
+                    .map_err(|error| RuntimeError::Script(error.to_string()))?,
+            );
             #[cfg(unix)]
-            let mut executable = match (self.context_client.clone(), parsed) {
-                (Some(context_client), Some(parsed)) => {
+            let mut executable = match (self.context_client.clone(), parsed, live_source) {
+                (Some(context_client), None, Some(source)) => {
+                    crate::executable::RustExecutableDocument::load_stream_with_context_and_limits(
+                        source,
+                        &resources,
+                        self.broker.clone(),
+                        Url::parse(&self.url).ok(),
+                        self.config.max_v8_heap_bytes,
+                        (context_client, self.page_id, self.opener_page_id),
+                    )
+                }
+                (Some(context_client), Some(parsed), _) => {
                     crate::executable::RustExecutableDocument::load_parsed_with_context_and_limits(
                         parsed,
                         &resources,
@@ -4478,7 +4570,7 @@ impl PageState {
                         (context_client, self.page_id, self.opener_page_id),
                     )
                 }
-                (Some(context_client), None) => {
+                (Some(context_client), None, None) => {
                     crate::executable::RustExecutableDocument::load_with_context_and_limits(
                         html,
                         &resources,
@@ -4488,7 +4580,7 @@ impl PageState {
                         (context_client, self.page_id, self.opener_page_id),
                     )
                 }
-                (None, Some(parsed)) => {
+                (None, Some(parsed), _) => {
                     crate::executable::RustExecutableDocument::load_parsed_with_limits(
                         parsed,
                         &resources,
@@ -4497,7 +4589,16 @@ impl PageState {
                         self.config.max_v8_heap_bytes,
                     )
                 }
-                (None, None) => crate::executable::RustExecutableDocument::load_with_limits(
+                (None, None, Some(source)) => {
+                    crate::executable::RustExecutableDocument::load_stream_with_limits(
+                        source,
+                        &resources,
+                        self.broker.clone(),
+                        Url::parse(&self.url).ok(),
+                        self.config.max_v8_heap_bytes,
+                    )
+                }
+                (None, None, None) => crate::executable::RustExecutableDocument::load_with_limits(
                     html,
                     &resources,
                     self.broker.clone(),
@@ -4507,15 +4608,26 @@ impl PageState {
             }
             .map_err(map_host_error)?;
             #[cfg(not(unix))]
-            let mut executable = match parsed {
-                Some(parsed) => crate::executable::RustExecutableDocument::load_parsed_with_limits(
-                    parsed,
-                    &resources,
-                    self.broker.clone(),
-                    Url::parse(&self.url).ok(),
-                    self.config.max_v8_heap_bytes,
-                ),
-                None => crate::executable::RustExecutableDocument::load_with_limits(
+            let mut executable = match (parsed, live_source) {
+                (Some(parsed), _) => {
+                    crate::executable::RustExecutableDocument::load_parsed_with_limits(
+                        parsed,
+                        &resources,
+                        self.broker.clone(),
+                        Url::parse(&self.url).ok(),
+                        self.config.max_v8_heap_bytes,
+                    )
+                }
+                (None, Some(source)) => {
+                    crate::executable::RustExecutableDocument::load_stream_with_limits(
+                        source,
+                        &resources,
+                        self.broker.clone(),
+                        Url::parse(&self.url).ok(),
+                        self.config.max_v8_heap_bytes,
+                    )
+                }
+                (None, None) => crate::executable::RustExecutableDocument::load_with_limits(
                     html,
                     &resources,
                     self.broker.clone(),
@@ -4683,6 +4795,7 @@ impl PageState {
                 current.to_string(),
                 "<!doctype html>",
                 None,
+                None,
                 matches!(history_update, HistoryUpdate::Push),
                 &BTreeMap::new(),
                 #[cfg(feature = "v8-host")]
@@ -4700,7 +4813,7 @@ impl PageState {
                 challenge: self.last_challenge.clone(),
             });
         }
-        let (status, response_headers, html) = loop {
+        let (status, response_headers, operation, content_type) = loop {
             self.trace.push(
                 Revision(self.revision),
                 None,
@@ -4821,47 +4934,8 @@ impl PageState {
             let content_type = response_headers
                 .iter()
                 .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
-                .map(|(_, value)| value.as_str());
-            let mut decoder = oryn_net::IncrementalTextDecoder::new(
-                content_type,
-                oryn_net::TextResourceKind::Html,
-            );
-            let mut html = String::new();
-            let mut bytes = 0_usize;
-            operation.request_body_chunk();
-            while let Some(event) = operation.events.blocking_recv() {
-                match event {
-                    crate::network::NetworkEvent::Chunk { bytes: chunk, .. } => {
-                        bytes = bytes.saturating_add(chunk.len());
-                        let decoded = decoder.push(&chunk);
-                        html.push_str(&decoded);
-                    }
-                    crate::network::NetworkEvent::Complete { .. } => break,
-                    crate::network::NetworkEvent::Failed { error, .. } => {
-                        return Err(RuntimeError::Network(error));
-                    }
-                    crate::network::NetworkEvent::Headers { .. } => {
-                        return Err(RuntimeError::ProtocolViolation(
-                            "network operation emitted duplicate response headers".into(),
-                        ));
-                    }
-                }
-                operation.request_body_chunk();
-            }
-            let tail = decoder.finish();
-            if !tail.is_empty() {
-                html.push_str(&tail);
-            }
-            self.trace.push(
-                Revision(self.revision),
-                None,
-                TraceEventKind::ResponseReceived {
-                    url: current.to_string(),
-                    status: response_status,
-                    bytes,
-                },
-            );
-            break (response_status, response_headers, html);
+                .map(|(_, value)| value.clone());
+            break (response_status, response_headers, operation, content_type);
         };
         self.csp = crate::csp::CspPolicySet::from_headers(current.to_string(), &response_headers);
         if let Some(value) = response_headers
@@ -4898,34 +4972,125 @@ impl PageState {
                 },
             );
         }
-        let html = self.enforce_csp_html(&html);
-        if let Some(policy) = meta_referrer_policy(&html) {
-            self.referrer_policy = crate::referrer::ReferrerPolicy::parse_list(&policy);
-            #[cfg(all(unix, feature = "v8-host"))]
-            if let Some(client) = &self.context_client {
-                client.request(
-                    crate::context_service::ContextServiceRequest::InstallReferrerPolicy {
-                        page_id: self.page_id,
-                        serialized: policy,
-                    },
-                )?;
-            }
-        }
-        self.set_challenge_assessment(assess_challenge(status, &response_headers, &html));
-        let html = self.inline_external_stylesheets(&current, &html)?;
-        self.load_auxiliary_resources(&current, &html);
         #[cfg(feature = "v8-host")]
-        let web_fonts = self.load_web_fonts(&current, &html)?;
-        let resources = self.load_external_scripts(&current, &html)?;
-        self.load_document(
-            current.to_string(),
-            &html,
-            None,
-            matches!(history_update, HistoryUpdate::Push),
-            &resources,
-            #[cfg(feature = "v8-host")]
-            web_fonts,
-        )?;
+        {
+            let capture = Arc::new(Mutex::new(NavigationBodyCapture::default()));
+            let source = NavigationBodyChunks {
+                operation,
+                decoder: oryn_net::IncrementalTextDecoder::new(
+                    content_type.as_deref(),
+                    oryn_net::TextResourceKind::Html,
+                ),
+                capture: capture.clone(),
+                finished: false,
+            };
+            self.load_document(
+                current.to_string(),
+                "",
+                None,
+                Some(Box::new(source)),
+                matches!(history_update, HistoryUpdate::Push),
+                &BTreeMap::new(),
+                Vec::new(),
+            )?;
+            let capture = capture.lock().expect("navigation capture");
+            if !capture.completed {
+                return Err(RuntimeError::Network(
+                    "navigation parser stopped before response completion".into(),
+                ));
+            }
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::ResponseReceived {
+                    url: current.to_string(),
+                    status,
+                    bytes: capture.bytes,
+                },
+            );
+            if let Some(policy) = meta_referrer_policy(&capture.source) {
+                self.referrer_policy = crate::referrer::ReferrerPolicy::parse_list(&policy);
+                #[cfg(unix)]
+                if let Some(client) = &self.context_client {
+                    client.request(
+                        crate::context_service::ContextServiceRequest::InstallReferrerPolicy {
+                            page_id: self.page_id,
+                            serialized: policy,
+                        },
+                    )?;
+                }
+            }
+            self.set_challenge_assessment(assess_challenge(
+                status,
+                &response_headers,
+                &capture.source,
+            ));
+            // Re-evaluate the completed source for parent trace publication and
+            // non-script resource discovery. Script execution itself was
+            // authorized at its parser boundary and is never replayed here.
+            let _ = self.enforce_csp_html(&capture.source);
+            self.load_auxiliary_resources(&current, &capture.source);
+            let stylesheet_source = self.inline_external_stylesheets(&current, &capture.source)?;
+            self.web_fonts = self.load_web_fonts(&current, &stylesheet_source)?;
+            self.layout = None;
+            self.style_revision = self.style_revision.saturating_add(1);
+        }
+        #[cfg(not(feature = "v8-host"))]
+        {
+            let mut operation = operation;
+            let mut decoder = oryn_net::IncrementalTextDecoder::new(
+                content_type.as_deref(),
+                oryn_net::TextResourceKind::Html,
+            );
+            let mut html = String::new();
+            let mut bytes = 0_usize;
+            operation.request_body_chunk();
+            while let Some(event) = operation.events.blocking_recv() {
+                match event {
+                    crate::network::NetworkEvent::Chunk { bytes: chunk, .. } => {
+                        bytes = bytes.saturating_add(chunk.len());
+                        html.push_str(&decoder.push(&chunk));
+                    }
+                    crate::network::NetworkEvent::Complete { .. } => break,
+                    crate::network::NetworkEvent::Failed { error, .. } => {
+                        return Err(RuntimeError::Network(error));
+                    }
+                    crate::network::NetworkEvent::Headers { .. } => {
+                        return Err(RuntimeError::ProtocolViolation(
+                            "network operation emitted duplicate response headers".into(),
+                        ));
+                    }
+                }
+                operation.request_body_chunk();
+            }
+            html.push_str(&decoder.finish());
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::ResponseReceived {
+                    url: current.to_string(),
+                    status,
+                    bytes,
+                },
+            );
+            let original_html = html;
+            let html = self.enforce_csp_html(&original_html);
+            if let Some(policy) = meta_referrer_policy(&html) {
+                self.referrer_policy = crate::referrer::ReferrerPolicy::parse_list(&policy);
+            }
+            self.set_challenge_assessment(assess_challenge(status, &response_headers, &html));
+            let html = self.inline_external_stylesheets(&current, &html)?;
+            self.load_auxiliary_resources(&current, &html);
+            let resources = self.load_external_scripts(&current, &html)?;
+            self.load_document(
+                current.to_string(),
+                &html,
+                None,
+                None,
+                matches!(history_update, HistoryUpdate::Push),
+                &resources,
+            )?;
+        }
         Ok(NavigationResult {
             page_id: self.page_id,
             requested_url,
@@ -5507,6 +5672,7 @@ impl PageState {
     }
 
     #[cfg(feature = "v8-host")]
+    #[cfg_attr(feature = "v8-host", allow(dead_code))]
     fn load_external_scripts(
         &mut self,
         base_url: &Url,
@@ -7994,6 +8160,7 @@ fn meta_referrer_policy(html: &str) -> Option<String> {
 }
 
 #[cfg(feature = "v8-host")]
+#[cfg_attr(feature = "v8-host", allow(dead_code))]
 fn module_specifiers(source: &str) -> Vec<String> {
     static MODULE_SPECIFIER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let pattern = MODULE_SPECIFIER.get_or_init(|| {
@@ -8019,6 +8186,7 @@ fn module_specifiers(source: &str) -> Vec<String> {
 }
 
 #[cfg(feature = "v8-host")]
+#[cfg_attr(feature = "v8-host", allow(dead_code))]
 fn strip_javascript_comments(source: &str) -> String {
     let chars = source.chars().collect::<Vec<_>>();
     let mut output = String::with_capacity(source.len());
@@ -8081,6 +8249,7 @@ fn strip_javascript_comments(source: &str) -> String {
 }
 
 #[cfg(feature = "v8-host")]
+#[cfg_attr(feature = "v8-host", allow(dead_code))]
 fn pinned_resource(url: &Url) -> Option<(&'static str, &'static str)> {
     match url.as_str() {
         "https://unpkg.com/react@18/umd/react.production.min.js" => Some((
@@ -8151,6 +8320,7 @@ fn serialize_csp_report(
 }
 
 #[cfg(feature = "v8-host")]
+#[cfg_attr(feature = "v8-host", allow(dead_code))]
 fn origin_key(url: &Url) -> (String, Option<String>, Option<u16>) {
     (
         url.scheme().to_string(),
