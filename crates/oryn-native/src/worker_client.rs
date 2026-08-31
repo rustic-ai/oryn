@@ -372,6 +372,10 @@ fn request_timeout(request: &WorkerRequest, limits: &WorkerLimits) -> Duration {
 }
 
 impl WorkerClient {
+    pub(crate) fn process_id(&self) -> u32 {
+        self.child.id()
+    }
+
     pub fn spawn(
         config: &BrowserConfig,
         context: &ContextOptions,

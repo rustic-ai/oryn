@@ -142,6 +142,30 @@ pub fn collect_operation_bounded(
     timeout: Duration,
     max_body_bytes: usize,
 ) -> Result<NetworkResponse, NetworkError> {
+    collect_operation_bounded_inner(broker, request, timeout, max_body_bytes, None)
+}
+
+/// Complete a bounded operation while an external page/worker lifetime remains
+/// valid. The flag is observed between every transport event and wait; setting
+/// it guarantees the parent broker is cancelled before a late completion can
+/// be consumed by a replacement document.
+pub fn collect_operation_bounded_with_cancel(
+    broker: &(impl NetworkBroker + ?Sized),
+    request: NetworkRequest,
+    timeout: Duration,
+    max_body_bytes: usize,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<NetworkResponse, NetworkError> {
+    collect_operation_bounded_inner(broker, request, timeout, max_body_bytes, Some(cancelled))
+}
+
+fn collect_operation_bounded_inner(
+    broker: &(impl NetworkBroker + ?Sized),
+    request: NetworkRequest,
+    timeout: Duration,
+    max_body_bytes: usize,
+    cancelled: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<NetworkResponse, NetworkError> {
     let mut operation = broker.start_operation(request)?;
     let expected_request_id = operation.request_id;
     let deadline = std::time::Instant::now() + timeout;
@@ -150,6 +174,12 @@ pub fn collect_operation_bounded(
     let mut body = Vec::new();
     loop {
         let event = loop {
+            if cancelled
+                .is_some_and(|cancelled| cancelled.load(std::sync::atomic::Ordering::Acquire))
+            {
+                let _ = broker.cancel_operation(expected_request_id);
+                return Err(NetworkError::Cancelled);
+            }
             match operation.events.try_recv() {
                 Ok(event) => break event,
                 Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
@@ -361,6 +391,8 @@ pub enum NetworkError {
     Transport(String),
     #[error("network operation exceeded its {timeout:?} deadline")]
     TimedOut { timeout: Duration },
+    #[error("network operation was cancelled")]
+    Cancelled,
     #[error("response exceeded the configured {limit}-byte limit")]
     ResponseTooLarge { limit: usize },
     #[error("unsupported content encoding {0:?}")]

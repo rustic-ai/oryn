@@ -2,12 +2,12 @@
 
 > **Current status: runtime-completion cutover in progress; exact-artifact
 > attestation pending on macOS and Linux.** The committed runtime baseline is
-> `66af17f`. The current working tree completes direct main-resource streaming,
-> parser-resource brokering, and protocol-v4/v7/v10 transport contracts,
+> `a39d7a6`. The current working tree additionally completes the remaining
+> script/style/module/frame resource scheduler and protocol-v4/v7/v10 transport contracts,
 > streaming navigation foundations, an incremental semantic graph, expanded
 > generated WebIDL behavior, referrer and IndexedDB work, V8 profile tooling and
 > pinned upstream-conformance infrastructure. It is not yet a release candidate:
-> remaining complete-resource compatibility paths, full semantic reprojection, incomplete generated API
+> exact transport attestation, full semantic reprojection, incomplete generated API
 > algorithms, the handwritten CSS cascade, unattested V8/ICU/snapshot artifacts
 > and failing upstream cases remain. Historical evidence stays bound to the
 > commits and binaries that produced it. See
@@ -76,11 +76,12 @@ rewrite those historical payloads or present them as a new validation run.
   cache and replay adapters preserve those streams. Parent-owned Fetch bodies
   use explicit demand so accepted headers do not pull response bytes until the
   worker reads. The old synchronous broker methods remain compatibility adapters
-  for callers that intrinsically require a complete resource. Image fetches and
-  CORS preflights now use correlated, deadline- and size-bounded operations;
-  image completion runs outside the page actor. Abort, timeout, stale
-  completion, navigation-body drop, IPC cancellation and worker-service
-  teardown all cancel their parent operation.
+  only. Production navigation, Fetch/XHR, images, CORS preflights, scripts,
+  module graphs, stylesheets/imports, frames, dynamic scripts and other
+  subresources use correlated operations. Async scripts execute by completion
+  order while defer/modules preserve document order. Abort, timeout, stale
+  completion, navigation-body drop, superseding navigation, page close, IPC
+  cancellation and worker-service teardown cancel their affected operation.
 - html5ever and V8 now share one live `DomRuntime` from the first parsed tag.
   Parser-blocking scripts execute at the retained tokenizer boundary, V8
   microtasks/reactions/observers checkpoint before parsing resumes, and
@@ -104,7 +105,7 @@ rewrite those historical payloads or present them as a new validation run.
 - `runtime-completion-v1` freezes the upstream blocking scope and provides
   cache, harness, schema and validation tooling. Its first Range smoke currently
   times out, so no passing completion evidence exists.
-- The current all-feature native library regression passes 221 tests, including
+- The current all-feature native library regression passes 223 tests, including
   32 simultaneous context streams, demand-driven body reads, production HTTP/2,
   redirects, decompression limits, stale/timeout cancellation, teardown
   cancellation and page-actor responsiveness. Strict tested-profile Clippy and

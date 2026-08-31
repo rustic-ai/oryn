@@ -66,7 +66,7 @@ mod raw_v8 {
     use crate::context_service::{
         ContextServiceRequest, ContextServiceResponse, HttpStreamRequest, SharedContextClient,
     };
-    use crate::network::{NetworkBroker, NetworkRequest, SharedNetworkBroker, collect_operation};
+    use crate::network::{NetworkRequest, SharedNetworkBroker, collect_operation_bounded};
     #[cfg(unix)]
     use oryn_common::v3::PageId;
     use oryn_dom::NodeId;
@@ -2133,10 +2133,13 @@ mod raw_v8 {
                         start_streamed_request(context, network_request)?;
                     (status, headers, Vec::new(), Vec::new(), Some(stream_id))
                 } else {
-                    let response = state
-                        .broker
-                        .send(network_request)
-                        .map_err(|error| error.to_string())?;
+                    let response = collect_operation_bounded(
+                        &state.broker,
+                        network_request,
+                        Duration::from_secs(30),
+                        16 * 1024 * 1024,
+                    )
+                    .map_err(|error| error.to_string())?;
                     let chunks = vec![response.body.clone()];
                     (
                         response.status,
@@ -2148,12 +2151,13 @@ mod raw_v8 {
                 };
             #[cfg(not(unix))]
             let (status, headers, body, response_chunks, stream_id) = {
-                let response = state
-                    .broker
-                    .lock()
-                    .map_err(|_| "network broker lock poisoned".to_string())?
-                    .send(network_request)
-                    .map_err(|error| error.to_string())?;
+                let response = collect_operation_bounded(
+                    &state.broker,
+                    network_request,
+                    Duration::from_secs(30),
+                    16 * 1024 * 1024,
+                )
+                .map_err(|error| error.to_string())?;
                 let chunks = vec![response.body.clone()];
                 (
                     response.status,
@@ -2328,7 +2332,7 @@ mod raw_v8 {
             .or_else(|| fetch.base_url.join(resource_name).ok())
             .unwrap_or_else(|| fetch.base_url.clone());
         let url = base.join(specifier).ok()?;
-        let response = collect_operation(
+        let response = collect_operation_bounded(
             &fetch.broker,
             NetworkRequest {
                 request_id: 900_000,
@@ -2345,6 +2349,8 @@ mod raw_v8 {
                 },
                 resolved_addrs: Vec::new(),
             },
+            Duration::from_secs(30),
+            8 * 1024 * 1024,
         )
         .ok()?;
         if !(200..300).contains(&response.status) {

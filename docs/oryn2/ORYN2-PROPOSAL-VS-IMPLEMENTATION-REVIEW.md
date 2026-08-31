@@ -47,11 +47,13 @@ V8 share the same live `DomRuntime`; parser-blocking JavaScript and
 tree handoff. The synchronous `NetworkBroker` methods remain compatibility
 adapters, while the main navigation body now flows directly from accepted
 headers through incremental decoding into the live loader. Parser-discovered
-scripts, styles/imports and frames use typed parent operations. Image loading is
-completed outside the page actor and CORS preflight uses a separately scheduled,
-deadline- and size-bounded correlated operation. Cancellation propagates on
-abort, timeout, navigation-body drop, IPC cancellation and worker-service
-teardown; stale completions are rejected. Parts of semantic projection still invoke the full projector; generated WebIDL
+scripts, styles/imports, module graphs, frames and dynamic scripts use scheduled
+typed parent operations. Async scripts execute by completion order, while defer
+and module scripts preserve document order. Image loading completes outside the
+page actor and CORS preflight uses a separately scheduled, deadline- and
+size-bounded correlated operation. Cancellation propagates on abort, timeout,
+navigation-body drop or supersession, page close, IPC cancellation and
+worker-service teardown; stale completions are rejected. Parts of semantic projection still invoke the full projector; generated WebIDL
 does not yet cover every declared algorithm; the stylesheet cascade remains
 Oryn-owned rather than a Stylo DOM integration; and the required sandboxed V8,
 reduced-ICU and startup-snapshot artifacts have not been built and attested on
@@ -97,11 +99,11 @@ The dependency-ordered completion backlog is maintained in
   macOS ARM64 and Linux x86_64 archives, true root/en/en-US ICU payload, stable
   external-reference table and generated-interface snapshot remain to be
   produced and verified.
-- **Network/decoding profile — partial production cutover.** HTTP/2, gzip,
+- **Network/decoding profile — implemented in software; attestation pending.** HTTP/2, gzip,
   Brotli, deflate, zstd, charset precedence, cancellation, bounded streams and
-  context-partitioned caching have focused implementations. The async transport
-  is underneath a remaining synchronous broker API and several resource paths
-  still block the page command thread.
+  context-partitioned caching, correlated complete-resource operations and
+  parser/lifecycle resource scheduling are implemented. Compatibility broker
+  methods remain adapters but are absent from production resource scheduling.
 - **Semantic runtime — incremental graph implemented; oracle removal pending.**
   Additive contract v5 preserves frozen v2-v4 observations while publishing
   first-class forms, tables, lists, navigation, dialogs, menus, trees, tab sets,

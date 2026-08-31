@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     host::{HostError, JavaScriptHost, RawV8Host},
     html::ParsedDocument,
-    network::{NetworkBroker, SharedNetworkBroker},
+    network::SharedNetworkBroker,
 };
 use url::Url;
 
@@ -33,6 +33,93 @@ fn resource_entry<'a>(
     resources
         .get_key_value(name)
         .map(|(name, source)| (name.as_str(), source.as_str()))
+}
+
+fn module_dependencies(source: &str) -> Vec<String> {
+    let pattern = regex::Regex::new(
+        r#"(?m)(?:\bimport|\bexport)[^;\n]*?\bfrom\s*["']([^"']+)["']|\bimport\s*(?:\(\s*)?["']([^"']+)["']"#,
+    )
+    .expect("module dependency regex");
+    pattern
+        .captures_iter(source)
+        .filter_map(|captures| captures.get(1).or_else(|| captures.get(2)))
+        .map(|value| value.as_str().to_owned())
+        .collect()
+}
+
+#[cfg(unix)]
+fn preload_module_graph(
+    client: &crate::context_service::SharedContextClient,
+    page_id: oryn_common::v3::PageId,
+    root_name: &str,
+    root_source: &str,
+    resources: &mut BTreeMap<String, String>,
+) -> Result<(), HostError> {
+    let mut pending = vec![(root_name.to_owned(), root_source.to_owned())];
+    let mut visited = std::collections::BTreeSet::new();
+    let mut loaded = 0usize;
+    while !pending.is_empty() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let mut scheduled = 0usize;
+        for (parent, source) in std::mem::take(&mut pending) {
+            let base = Url::parse(&parent).ok();
+            for dependency in module_dependencies(&source) {
+                if resource_entry(resources, &dependency).is_some() {
+                    continue;
+                }
+                let Some(url) = base
+                    .as_ref()
+                    .and_then(|base| base.join(&dependency).ok())
+                    .or_else(|| Url::parse(&dependency).ok())
+                else {
+                    continue;
+                };
+                let canonical = url.to_string();
+                if !visited.insert(canonical.clone()) {
+                    continue;
+                }
+                loaded = loaded.saturating_add(1);
+                if loaded > 256 {
+                    return Err(HostError::LimitExceeded {
+                        resource: "module dependency graph".into(),
+                    });
+                }
+                let sender = sender.clone();
+                let client = client.clone();
+                let dependency_alias = dependency.clone();
+                std::thread::spawn(move || {
+                    let result = client
+                        .request(crate::context_service::ContextServiceRequest::LoadScript {
+                            page_id,
+                            url: canonical,
+                            module: true,
+                            nonce: None,
+                        })
+                        .map_err(|error| error.to_string())
+                        .and_then(|response| match response {
+                            crate::context_service::ContextServiceResponse::ScriptSource {
+                                url,
+                                source,
+                                ..
+                            } => Ok((dependency_alias, url, source)),
+                            _ => Err("parent returned an invalid module response".into()),
+                        });
+                    let _ = sender.send(result);
+                });
+                scheduled = scheduled.saturating_add(1);
+            }
+        }
+        for _ in 0..scheduled {
+            let (alias, url, source) = receiver
+                .recv()
+                .map_err(|_| HostError::Execution("module scheduler disconnected".into()))?
+                .map_err(HostError::Execution)?;
+            resources.insert(format!("oryn:module-alias:{alias}"), url.clone());
+            resources.insert(url.clone(), source.clone());
+            pending.push((url, source));
+        }
+    }
+    Ok(())
 }
 
 fn collect_scripts(dom: &SharedDomRuntime) -> Result<Vec<ScriptRecord>, HostError> {
@@ -214,11 +301,17 @@ fn run_script_record(
     let result = if script_type.as_deref() == Some("module") {
         let resource = src.as_ref().and_then(|src| resource_entry(resources, src));
         let name = resource
-            .map(|(name, _)| name)
-            .unwrap_or("oryn:inline-module");
-        let source = resource.map(|(_, source)| source).unwrap_or(inline);
-        host.execute_module(name, source, resources)
-            .map_err(|error| script_diagnostic_at(error, name))
+            .map(|(name, _)| name.to_owned())
+            .unwrap_or_else(|| "oryn:inline-module".into());
+        let source = resource
+            .map(|(_, source)| source.to_owned())
+            .unwrap_or_else(|| inline.clone());
+        #[cfg(unix)]
+        if let Some((client, page_id, _)) = context {
+            preload_module_graph(client, *page_id, &name, &source, resources)?;
+        }
+        host.execute_module(&name, &source, resources)
+            .map_err(|error| script_diagnostic_at(error, &name))
     } else {
         let source = src
             .as_ref()
@@ -282,6 +375,155 @@ type ScriptRecord = (
 );
 
 #[cfg(unix)]
+enum ParserResourceCompletion {
+    Script {
+        order: u64,
+        record: ScriptRecord,
+        asynchronous: bool,
+        result: Result<(String, String), String>,
+    },
+    Stylesheet {
+        node: NodeId,
+        result: Result<(String, String), String>,
+    },
+    Frame {
+        requested_url: String,
+        result: Result<(String, String), String>,
+    },
+}
+
+#[cfg(unix)]
+struct ParserResourceScheduler {
+    sender: std::sync::mpsc::Sender<ParserResourceCompletion>,
+    receiver: std::sync::mpsc::Receiver<ParserResourceCompletion>,
+    pending: usize,
+    next_order: u64,
+}
+
+#[cfg(unix)]
+impl ParserResourceScheduler {
+    fn new() -> Self {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        Self {
+            sender,
+            receiver,
+            pending: 0,
+            next_order: 0,
+        }
+    }
+
+    fn next_order(&mut self) -> u64 {
+        let order = self.next_order;
+        self.next_order = order.saturating_add(1);
+        order
+    }
+
+    fn schedule_script(
+        &mut self,
+        client: crate::context_service::SharedContextClient,
+        page_id: oryn_common::v3::PageId,
+        order: u64,
+        record: ScriptRecord,
+        asynchronous: bool,
+        nonce: Option<String>,
+    ) {
+        let sender = self.sender.clone();
+        let requested_url = record.1.clone().unwrap_or_default();
+        let module = record.2.as_deref() == Some("module");
+        self.pending = self.pending.saturating_add(1);
+        std::thread::spawn(move || {
+            let result = client
+                .request(crate::context_service::ContextServiceRequest::LoadScript {
+                    page_id,
+                    url: requested_url,
+                    module,
+                    nonce,
+                })
+                .map_err(|error| error.to_string())
+                .and_then(|response| match response {
+                    crate::context_service::ContextServiceResponse::ScriptSource {
+                        url,
+                        source,
+                        ..
+                    } => Ok((url, source)),
+                    _ => Err("parent returned an invalid scheduled-script response".into()),
+                });
+            let _ = sender.send(ParserResourceCompletion::Script {
+                order,
+                record,
+                asynchronous,
+                result,
+            });
+        });
+    }
+
+    fn schedule_stylesheet(
+        &mut self,
+        client: crate::context_service::SharedContextClient,
+        page_id: oryn_common::v3::PageId,
+        node: NodeId,
+        requested_url: String,
+    ) {
+        let sender = self.sender.clone();
+        self.pending = self.pending.saturating_add(1);
+        std::thread::spawn(move || {
+            let result = load_parser_stylesheet(&client, page_id, &requested_url, 0)
+                .map_err(|error| error.to_string());
+            let _ = sender.send(ParserResourceCompletion::Stylesheet { node, result });
+        });
+    }
+
+    fn schedule_frame(
+        &mut self,
+        client: crate::context_service::SharedContextClient,
+        page_id: oryn_common::v3::PageId,
+        requested_url: String,
+    ) {
+        let sender = self.sender.clone();
+        self.pending = self.pending.saturating_add(1);
+        std::thread::spawn(move || {
+            let request_url = requested_url.clone();
+            let result = client
+                .request(
+                    crate::context_service::ContextServiceRequest::LoadPageResource {
+                        page_id,
+                        url: request_url,
+                        destination: "frame".into(),
+                    },
+                )
+                .map_err(|error| error.to_string())
+                .and_then(|response| match response {
+                    crate::context_service::ContextServiceResponse::PageResource {
+                        url,
+                        source,
+                        destination,
+                    } if destination == "frame" => Ok((url, source)),
+                    _ => Err("parent returned an invalid frame response".into()),
+                });
+            let _ = sender.send(ParserResourceCompletion::Frame {
+                requested_url,
+                result,
+            });
+        });
+    }
+
+    fn try_next(&mut self) -> Option<ParserResourceCompletion> {
+        self.receiver.try_recv().ok().inspect(|_| {
+            self.pending = self.pending.saturating_sub(1);
+        })
+    }
+
+    fn wait_next(&mut self) -> Result<ParserResourceCompletion, HostError> {
+        let completion = self
+            .receiver
+            .recv()
+            .map_err(|_| HostError::Execution("parser resource scheduler disconnected".into()))?;
+        self.pending = self.pending.saturating_sub(1);
+        Ok(completion)
+    }
+}
+
+#[cfg(unix)]
 fn load_parser_stylesheet(
     client: &crate::context_service::SharedContextClient,
     page_id: oryn_common::v3::PageId,
@@ -334,6 +576,81 @@ fn load_parser_stylesheet(
     Ok((url, expanded))
 }
 
+#[cfg(unix)]
+fn apply_parser_resource_completion(
+    completion: ParserResourceCompletion,
+    live_dom: &SharedDomRuntime,
+    host: &mut RawV8Host,
+    resources: &mut BTreeMap<String, String>,
+    deferred_scripts: &mut BTreeMap<u64, ScriptRecord>,
+    diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
+    context: Option<&(
+        crate::context_service::SharedContextClient,
+        oryn_common::v3::PageId,
+        Option<oryn_common::v3::PageId>,
+    )>,
+) -> Result<(), HostError> {
+    match completion {
+        ParserResourceCompletion::Script {
+            order,
+            record,
+            asynchronous,
+            result,
+        } => match result {
+            Ok((url, source)) => {
+                if let Some(requested) = &record.1 {
+                    resources.insert(requested.clone(), source.clone());
+                    resources.insert(format!("oryn:module-alias:{requested}"), url.clone());
+                }
+                resources.insert(url, source);
+                if asynchronous {
+                    run_script_record(host, live_dom, resources, &record, diagnostics, context)?;
+                    parser_checkpoint(host, diagnostics)?;
+                } else {
+                    deferred_scripts.insert(order, record);
+                }
+            }
+            Err(error) => diagnostics.push(script_diagnostic(HostError::Execution(format!(
+                "scheduled script failed: {error}"
+            )))),
+        },
+        ParserResourceCompletion::Stylesheet { node, result } => match result {
+            Ok((url, css)) => {
+                resources.insert(url, css.clone());
+                let mut dom = live_dom.borrow_mut();
+                let style = dom.create(NodeKind::Element {
+                    name: QualName::new(None, ns!(html), local_name!("style")),
+                });
+                let text = dom.create_text(css);
+                dom.append_child(style, text)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                if let Some(parent) = dom
+                    .parent(node)
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+                {
+                    dom.append_child(parent, style)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                }
+            }
+            Err(error) => diagnostics.push(script_diagnostic(HostError::Execution(format!(
+                "scheduled stylesheet failed: {error}"
+            )))),
+        },
+        ParserResourceCompletion::Frame {
+            requested_url,
+            result,
+        } => {
+            if let Ok((url, document)) = result {
+                resources.insert(requested_url, document.clone());
+                resources.insert(url, document);
+            }
+            // Cross-origin, policy-denied, and failed frames remain opaque and
+            // publish their capability diagnostics during realm construction.
+        }
+    }
+    Ok(())
+}
+
 fn parse_live_document(
     mut source: Box<dyn Iterator<Item = Result<String, HostError>>>,
     live_dom: &SharedDomRuntime,
@@ -350,6 +667,11 @@ fn parse_live_document(
 
     let mut parser = html::StreamingParser::with_runtime(live_dom.clone());
     let mut input = VecDeque::new();
+    #[cfg(unix)]
+    let mut resource_scheduler = ParserResourceScheduler::new();
+    #[cfg(unix)]
+    let mut deferred_scripts = BTreeMap::new();
+    #[cfg(not(unix))]
     let mut ordered_scripts = Vec::new();
     let mut all_events = Vec::new();
     #[cfg(unix)]
@@ -374,26 +696,12 @@ fn parse_live_document(
             if let Some((client, page_id, _)) = context {
                 match &event {
                     html::ParserEvent::StylesheetDiscovered { node, href } => {
-                        match load_parser_stylesheet(client, *page_id, href, 0) {
-                            Ok((url, css)) => {
-                                resources.insert(url, css.clone());
-                                let mut dom = live_dom.borrow_mut();
-                                let style = dom.create(NodeKind::Element {
-                                    name: QualName::new(None, ns!(html), local_name!("style")),
-                                });
-                                let text = dom.create_text(css);
-                                dom.append_child(style, text)
-                                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                                if let Some(parent) = dom
-                                    .parent(*node)
-                                    .map_err(|error| HostError::Execution(error.to_string()))?
-                                {
-                                    dom.append_child(parent, style)
-                                        .map_err(|error| HostError::Execution(error.to_string()))?;
-                                }
-                            }
-                            Err(error) => diagnostics.push(script_diagnostic(error)),
-                        }
+                        resource_scheduler.schedule_stylesheet(
+                            client.clone(),
+                            *page_id,
+                            *node,
+                            href.clone(),
+                        );
                     }
                     html::ParserEvent::InlineStyleReady { node } => {
                         let css = live_dom
@@ -402,55 +710,16 @@ fn parse_live_document(
                             .text_content(*node)
                             .map_err(|error| HostError::Execution(error.to_string()))?;
                         for capture in inline_import.captures_iter(&css) {
-                            match load_parser_stylesheet(client, *page_id, &capture[1], 0) {
-                                Ok((url, imported)) => {
-                                    resources.insert(url, imported.clone());
-                                    let mut dom = live_dom.borrow_mut();
-                                    let style = dom.create(NodeKind::Element {
-                                        name: QualName::new(None, ns!(html), local_name!("style")),
-                                    });
-                                    let text = dom.create_text(imported);
-                                    dom.append_child(style, text)
-                                        .map_err(|error| HostError::Execution(error.to_string()))?;
-                                    if let Some(parent) = dom
-                                        .parent(*node)
-                                        .map_err(|error| HostError::Execution(error.to_string()))?
-                                    {
-                                        dom.append_child(parent, style).map_err(|error| {
-                                            HostError::Execution(error.to_string())
-                                        })?;
-                                    }
-                                }
-                                Err(error) => diagnostics.push(script_diagnostic(error)),
-                            }
+                            resource_scheduler.schedule_stylesheet(
+                                client.clone(),
+                                *page_id,
+                                *node,
+                                capture[1].to_string(),
+                            );
                         }
                     }
                     html::ParserEvent::FrameDiscovered { source, .. } => {
-                        match client.request(
-                            crate::context_service::ContextServiceRequest::LoadPageResource {
-                                page_id: *page_id,
-                                url: source.clone(),
-                                destination: "frame".into(),
-                            },
-                        ) {
-                            Ok(crate::context_service::ContextServiceResponse::PageResource {
-                                url,
-                                source: document,
-                                destination,
-                            }) if destination == "frame" => {
-                                resources.insert(source.clone(), document.clone());
-                                resources.insert(url, document);
-                            }
-                            Ok(_) => {
-                                return Err(HostError::Execution(
-                                    "parent returned an invalid frame response".into(),
-                                ));
-                            }
-                            Err(_) => {
-                                // Cross-origin or policy-denied frames remain opaque;
-                                // final realm construction publishes the diagnostic.
-                            }
-                        }
+                        resource_scheduler.schedule_frame(client.clone(), *page_id, source.clone());
                     }
                     _ => {}
                 }
@@ -493,24 +762,84 @@ fn parse_live_document(
                     .map_err(|error| HostError::Execution(error.to_string()))?
                     .is_some();
                 if asynchronous && *scheduling != html::ScriptScheduling::Data {
-                    run_script_record(
-                        host,
-                        live_dom,
-                        resources,
-                        &record,
-                        diagnostics,
-                        #[cfg(unix)]
-                        context,
-                    )?;
-                    parser_checkpoint(host, diagnostics)?;
+                    #[cfg(unix)]
+                    if let (Some((client, page_id, _)), Some(_)) = (context, record.1.as_ref()) {
+                        let nonce = live_dom
+                            .borrow()
+                            .attribute(*node, "nonce")
+                            .ok()
+                            .flatten()
+                            .map(str::to_owned);
+                        let order = resource_scheduler.next_order();
+                        resource_scheduler.schedule_script(
+                            client.clone(),
+                            *page_id,
+                            order,
+                            record,
+                            true,
+                            nonce,
+                        );
+                    } else {
+                        run_script_record(
+                            host,
+                            live_dom,
+                            resources,
+                            &record,
+                            diagnostics,
+                            context,
+                        )?;
+                        parser_checkpoint(host, diagnostics)?;
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        run_script_record(host, live_dom, resources, &record, diagnostics)?;
+                        parser_checkpoint(host, diagnostics)?;
+                    }
                 } else if matches!(
                     scheduling,
                     html::ScriptScheduling::Defer | html::ScriptScheduling::Module
                 ) {
+                    #[cfg(unix)]
+                    {
+                        let order = resource_scheduler.next_order();
+                        if let (Some((client, page_id, _)), Some(_)) = (context, record.1.as_ref())
+                        {
+                            let nonce = live_dom
+                                .borrow()
+                                .attribute(*node, "nonce")
+                                .ok()
+                                .flatten()
+                                .map(str::to_owned);
+                            resource_scheduler.schedule_script(
+                                client.clone(),
+                                *page_id,
+                                order,
+                                record,
+                                false,
+                                nonce,
+                            );
+                        } else {
+                            deferred_scripts.insert(order, record);
+                        }
+                    }
+                    #[cfg(not(unix))]
                     ordered_scripts.push(record);
                 }
             }
             all_events.push(event);
+        }
+
+        #[cfg(unix)]
+        while let Some(completion) = resource_scheduler.try_next() {
+            apply_parser_resource_completion(
+                completion,
+                live_dom,
+                host,
+                resources,
+                &mut deferred_scripts,
+                diagnostics,
+                context,
+            )?;
         }
 
         if let Some(event @ html::ParserEvent::ScriptReady { node, .. }) = progress.blocked_on {
@@ -561,10 +890,26 @@ fn parse_live_document(
         }
     }
 
+    #[cfg(unix)]
+    while resource_scheduler.pending > 0 {
+        let completion = resource_scheduler.wait_next()?;
+        apply_parser_resource_completion(
+            completion,
+            live_dom,
+            host,
+            resources,
+            &mut deferred_scripts,
+            diagnostics,
+            context,
+        )?;
+    }
+
     host.set_parser_input_active(false)?;
     let mut parsed = parser.finish();
     all_events.extend(std::mem::take(&mut parsed.events));
     parsed.events = all_events;
+    #[cfg(unix)]
+    let ordered_scripts = deferred_scripts.into_values().collect();
     Ok((parsed, ordered_scripts))
 }
 
@@ -1708,6 +2053,10 @@ impl RustExecutableDocument {
             if pending.is_empty() {
                 return Ok(());
             }
+            #[cfg(unix)]
+            let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
+            #[cfg(unix)]
+            let mut scheduled = 0usize;
             for script in pending {
                 let (script_type, src, nonce, inline) = {
                     let dom = self.live_dom.borrow();
@@ -1731,48 +2080,107 @@ impl RustExecutableDocument {
                     (script_type, src, nonce, inline)
                 };
                 let module = script_type.trim().eq_ignore_ascii_case("module");
+                #[cfg(unix)]
+                if let (Some(src), Some((client, page_id, _))) = (
+                    src.as_deref().filter(|src| !src.trim().is_empty()),
+                    &self.context,
+                ) {
+                    let sender = completion_sender.clone();
+                    let client = client.clone();
+                    let page_id = *page_id;
+                    let src = src.to_owned();
+                    let nonce = nonce.clone();
+                    scheduled = scheduled.saturating_add(1);
+                    std::thread::spawn(move || {
+                        let result = client
+                            .request(crate::context_service::ContextServiceRequest::LoadScript {
+                                page_id,
+                                url: src,
+                                module,
+                                nonce,
+                            })
+                            .map_err(|error| HostError::Execution(error.to_string()))
+                            .and_then(|response| match response {
+                                crate::context_service::ContextServiceResponse::ScriptSource {
+                                    url,
+                                    source,
+                                    ..
+                                } => Ok((url, source)),
+                                _ => Err(HostError::Execution(
+                                    "parent returned an invalid dynamic-script response".into(),
+                                )),
+                            });
+                        let _ = sender.send((script, module, result));
+                    });
+                    continue;
+                }
                 let loaded = self.load_dynamic_script_source(
                     src.as_deref(),
                     module,
                     nonce.as_deref(),
                     &inline,
                 );
-                let result = loaded.and_then(|(resource_name, source)| {
-                    if module {
-                        self.host
-                            .execute_module(&resource_name, &source, &self.resources)
-                    } else {
-                        self.host.execute(&source)
-                    }
-                });
-                match result {
-                    Ok(()) => {
-                        self.host.execute_with_node(
-                            script,
-                            "__oryn_dynamic_script",
-                            "__oryn_dynamic_script.dispatchEvent(new Event('load'))",
-                        )?;
-                    }
-                    Err(error) => {
-                        self.diagnostics
-                            .push(script_diagnostic(HostError::Execution(format!(
-                                "dynamic script failed: {error}"
-                            ))));
-                        // Resource/script errors are reported to the element
-                        // and diagnostics but do not turn appendChild into an
-                        // exception after it has already returned.
-                        let _ = self.host.execute_with_node(
-                            script,
-                            "__oryn_dynamic_script",
-                            "__oryn_dynamic_script.dispatchEvent(new Event('error'))",
-                        );
-                    }
-                }
+                self.finish_dynamic_script(script, module, loaded)?;
+            }
+            #[cfg(unix)]
+            for _ in 0..scheduled {
+                let (script, module, loaded) = completion_receiver.recv().map_err(|_| {
+                    HostError::Execution("dynamic-script scheduler disconnected".into())
+                })?;
+                self.finish_dynamic_script(script, module, loaded)?;
             }
         }
         Err(HostError::LimitExceeded {
             resource: "dynamic script preparation queue".into(),
         })
+    }
+
+    fn finish_dynamic_script(
+        &mut self,
+        script: NodeId,
+        module: bool,
+        loaded: Result<(String, String), HostError>,
+    ) -> Result<(), HostError> {
+        let result = loaded.and_then(|(resource_name, source)| {
+            if module {
+                #[cfg(unix)]
+                if let Some((client, page_id, _)) = &self.context {
+                    preload_module_graph(
+                        client,
+                        *page_id,
+                        &resource_name,
+                        &source,
+                        &mut self.resources,
+                    )?;
+                }
+                self.host
+                    .execute_module(&resource_name, &source, &self.resources)
+            } else {
+                self.host.execute(&source)
+            }
+        });
+        match result {
+            Ok(()) => self.host.execute_with_node(
+                script,
+                "__oryn_dynamic_script",
+                "__oryn_dynamic_script.dispatchEvent(new Event('load'))",
+            ),
+            Err(error) => {
+                self.diagnostics
+                    .push(script_diagnostic(HostError::Execution(format!(
+                        "dynamic script failed: {error}"
+                    ))));
+                // Resource/script errors are reported to the element and
+                // diagnostics but do not turn appendChild into an exception
+                // after it has already returned.
+                let _ = self.host.execute_with_node(
+                    script,
+                    "__oryn_dynamic_script",
+                    "__oryn_dynamic_script.dispatchEvent(new Event('error'))",
+                );
+                Ok(())
+            }
+        }
     }
 
     fn load_dynamic_script_source(
@@ -1842,8 +2250,9 @@ impl RustExecutableDocument {
         })?;
         let request_id = self.next_dynamic_request_id;
         self.next_dynamic_request_id = request_id.saturating_add(1);
-        let response = broker
-            .send(crate::network::NetworkRequest {
+        let response = crate::network::collect_operation_bounded(
+            broker,
+            crate::network::NetworkRequest {
                 request_id,
                 method: "GET".into(),
                 url: url.to_string(),
@@ -1860,8 +2269,11 @@ impl RustExecutableDocument {
                     ..Default::default()
                 },
                 resolved_addrs: Vec::new(),
-            })
-            .map_err(|error| HostError::Execution(error.to_string()))?;
+            },
+            std::time::Duration::from_secs(30),
+            8 * 1024 * 1024,
+        )
+        .map_err(|error| HostError::Execution(error.to_string()))?;
         let content_type = response
             .headers
             .iter()

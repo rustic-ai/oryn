@@ -13,7 +13,7 @@ use std::{
     os::unix::net::UnixStream,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     time::Duration,
@@ -32,7 +32,7 @@ use url::Url;
 use crate::{
     network::{
         NetworkBroker, NetworkEvent, NetworkOperation, NetworkRequest, NetworkResponse,
-        SharedNetworkBroker, collect_operation, collect_operation_bounded,
+        SharedNetworkBroker, collect_operation_bounded_with_cancel,
         sanitize_parent_response_headers, sanitize_worker_headers,
     },
     runtime::{BrowserContext, RuntimeError},
@@ -545,6 +545,7 @@ pub struct ParentContextService {
     network: Option<SharedNetworkBroker>,
     next_http_stream_id: AtomicU64,
     http_streams: Mutex<BTreeMap<u64, Arc<HttpStreamEntry>>>,
+    shutting_down: AtomicBool,
     trusted_in_process_runtime: bool,
 }
 
@@ -564,21 +565,7 @@ struct HttpStreamEntry {
 
 impl Drop for ParentContextService {
     fn drop(&mut self) {
-        let request_ids = self
-            .http_streams
-            .get_mut()
-            .map(|streams| {
-                std::mem::take(streams)
-                    .into_values()
-                    .map(|entry| entry.request_id)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        if let Some(network) = &self.network {
-            for request_id in request_ids {
-                let _ = network.cancel_operation(request_id);
-            }
-        }
+        self.cancel_all_network_operations();
     }
 }
 
@@ -622,7 +609,27 @@ impl ParentContextService {
             network,
             next_http_stream_id: AtomicU64::new(1),
             http_streams: Mutex::new(BTreeMap::new()),
+            shutting_down: AtomicBool::new(false),
             trusted_in_process_runtime: false,
+        }
+    }
+
+    fn cancel_all_network_operations(&self) {
+        self.shutting_down.store(true, Ordering::Release);
+        let request_ids = self
+            .http_streams
+            .lock()
+            .map(|mut streams| {
+                std::mem::take(&mut *streams)
+                    .into_values()
+                    .map(|entry| entry.request_id)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if let Some(network) = &self.network {
+            for request_id in request_ids {
+                let _ = network.cancel_operation(request_id);
+            }
         }
     }
 
@@ -638,6 +645,11 @@ impl ParentContextService {
         &self,
         request: ContextServiceRequest,
     ) -> Result<ContextServiceResponse, RuntimeError> {
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err(RuntimeError::WorkerCrashed(
+                "context service is shutting down".into(),
+            ));
+        }
         match request {
             ContextServiceRequest::HttpStreamStart { page_id, request } => {
                 self.start_http_stream(page_id, request)
@@ -1189,7 +1201,7 @@ impl ParentContextService {
                     requested_headers.join(", "),
                 ));
             }
-            let preflight = collect_operation_bounded(
+            let preflight = collect_operation_bounded_with_cancel(
                 &network,
                 NetworkRequest {
                     request_id: request.request_id ^ (1_u64 << 63),
@@ -1209,6 +1221,7 @@ impl ParentContextService {
                 },
                 Duration::from_secs(10),
                 64 * 1024,
+                &self.shutting_down,
             )
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
             enforce_cors_preflight(
@@ -1514,7 +1527,7 @@ impl ParentContextService {
                     "worker script blocked by Content-Security-Policy worker-src".into(),
                 ));
             }
-            let response = collect_operation(
+            let response = collect_operation_bounded_with_cancel(
                 &network,
                 NetworkRequest {
                     request_id: self.next_http_stream_id.fetch_add(1, Ordering::Relaxed),
@@ -1534,6 +1547,9 @@ impl ParentContextService {
                     },
                     resolved_addrs: Vec::new(),
                 },
+                Duration::from_secs(30),
+                1024 * 1024,
+                &self.shutting_down,
             )
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
             if (300..400).contains(&response.status) {
@@ -1650,7 +1666,7 @@ impl ParentContextService {
                     "dynamic script blocked by Content-Security-Policy script-src".into(),
                 ));
             }
-            let response = collect_operation(
+            let response = collect_operation_bounded_with_cancel(
                 &network,
                 NetworkRequest {
                     request_id: self.next_http_stream_id.fetch_add(1, Ordering::Relaxed),
@@ -1670,6 +1686,9 @@ impl ParentContextService {
                     },
                     resolved_addrs: Vec::new(),
                 },
+                Duration::from_secs(30),
+                1024 * 1024,
+                &self.shutting_down,
             )
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
             if (300..400).contains(&response.status) {
@@ -1786,7 +1805,7 @@ impl ParentContextService {
                     "cross-origin frame document is opaque".into(),
                 ));
             }
-            let response = collect_operation(
+            let response = collect_operation_bounded_with_cancel(
                 &network,
                 NetworkRequest {
                     request_id: self.next_http_stream_id.fetch_add(1, Ordering::Relaxed),
@@ -1803,6 +1822,9 @@ impl ParentContextService {
                     },
                     resolved_addrs: Vec::new(),
                 },
+                Duration::from_secs(30),
+                16 * 1024 * 1024,
+                &self.shutting_down,
             )
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
             if (300..400).contains(&response.status) {
@@ -2214,6 +2236,7 @@ pub fn serve_context_service(
                 .map_err(|error| RuntimeError::ContextService(error.to_string()))
         });
     }
+    service.cancel_all_network_operations();
     Ok(())
 }
 
@@ -2532,6 +2555,40 @@ mod tests {
         }
     }
 
+    struct StalledCancellationNetwork {
+        cancelled: Arc<AtomicU64>,
+    }
+
+    impl NetworkBroker for StalledCancellationNetwork {
+        fn send(
+            &self,
+            _request: NetworkRequest,
+        ) -> Result<crate::network::NetworkResponse, NetworkError> {
+            unreachable!("scheduled resources use the operation path")
+        }
+
+        fn start_operation(
+            &self,
+            request: NetworkRequest,
+        ) -> Result<NetworkOperation, NetworkError> {
+            let (sender, events) = tokio::sync::mpsc::channel(2);
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(1));
+                drop(sender);
+            });
+            Ok(NetworkOperation {
+                request_id: request.request_id,
+                events,
+                demand: None,
+            })
+        }
+
+        fn cancel_operation(&self, _request_id: u64) -> Result<(), NetworkError> {
+            self.cancelled.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
     #[test]
     fn multiplexed_context_channel_starts_thirty_two_requests_concurrently() {
         let context = Browser::new().new_context_with_options(ContextOptions::loopback_test());
@@ -2617,6 +2674,37 @@ mod tests {
         }
         drop(service);
         assert_eq!(cancelled.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn worker_replacement_cancels_scheduled_resource_waits() {
+        let context = Browser::new().new_context_with_options(ContextOptions::loopback_test());
+        let page = context.new_page();
+        context
+            .commit_page_url(page.page_id(), "https://example.test/".into())
+            .unwrap();
+        let cancelled = Arc::new(AtomicU64::new(0));
+        let service = Arc::new(ParentContextService::new_with_network(
+            context,
+            page.page_id(),
+            Some(SharedNetworkBroker::new(StalledCancellationNetwork {
+                cancelled: cancelled.clone(),
+            })),
+        ));
+        let request_service = service.clone();
+        let request = std::thread::spawn(move || {
+            request_service.handle(ContextServiceRequest::LoadScript {
+                page_id: page.page_id(),
+                url: "/slow.js".into(),
+                module: false,
+                nonce: None,
+            })
+        });
+        std::thread::sleep(Duration::from_millis(10));
+        service.cancel_all_network_operations();
+        let error = request.join().unwrap().unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+        assert_eq!(cancelled.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

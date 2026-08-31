@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{
         Arc, Mutex, Weak,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -47,7 +47,7 @@ use crate::{
     },
     network::{
         CookieBroker, MemoryCachingBroker, NetworkRequest, PersistentCachingBroker, PolicyBroker,
-        RustlsTransport, SharedNetworkBroker, collect_operation,
+        RustlsTransport, SharedNetworkBroker, collect_operation_bounded,
     },
     security::{
         ActionPolicy, ConfirmationToken, ConsequentialAction, NetworkPolicy, PolicyDecision,
@@ -58,9 +58,6 @@ use crate::{
         StorageResponse, StorageScope,
     },
 };
-
-#[cfg(feature = "v8-host")]
-use crate::network::collect_operation_bounded;
 
 #[cfg(feature = "v8-host")]
 use crate::network::NetworkResponse;
@@ -304,6 +301,7 @@ struct WorkerPage {
     config: BrowserConfig,
     options: ContextOptions,
     pending: AtomicUsize,
+    process_id: AtomicU32,
 }
 
 #[derive(Debug, Clone)]
@@ -600,6 +598,20 @@ impl std::fmt::Debug for WorkerPage {
 
 #[cfg(unix)]
 impl WorkerPage {
+    fn interrupt_inflight(&self) -> bool {
+        if self.pending.load(Ordering::Acquire) == 0 {
+            return false;
+        }
+        let process_id = self.process_id.load(Ordering::Acquire);
+        if process_id == 0 {
+            return false;
+        }
+        // Production page workers are disposable security boundaries. Killing
+        // a busy worker is the only operation permitted to bypass its serial
+        // page command channel; replacement starts with a blank generation.
+        unsafe { libc::kill(process_id.cast_signed(), libc::SIGKILL) == 0 }
+    }
+
     fn enter_queue(&self) -> Result<PendingWorkerRequest<'_>, RuntimeError> {
         let capacity = self.config.worker_queue_capacity.clamp(1, 32);
         self.pending
@@ -630,13 +642,16 @@ impl WorkerPage {
                 .upgrade()
                 .map(|inner| BrowserContext { inner })
                 .ok_or(RuntimeError::Closed)?;
-            *client = Some(crate::worker_client::WorkerClient::spawn(
+            let spawned = crate::worker_client::WorkerClient::spawn(
                 &config,
                 &self.options,
                 self.page_id,
                 self.opener_page_id,
                 context_owner,
-            )?);
+            )?;
+            self.process_id
+                .store(spawned.process_id(), Ordering::Release);
+            *client = Some(spawned);
             if let Some(context) = self.context.upgrade() {
                 context
                     .group
@@ -654,6 +669,7 @@ impl WorkerPage {
                 | RuntimeError::ProtocolViolation(_))
         ) {
             *client = None;
+            self.process_id.store(0, Ordering::Release);
         }
         result
     }
@@ -2607,7 +2623,7 @@ impl BrowserContext {
             let outcome = if body.len() > 32 * 1024 {
                 "size_limited".into()
             } else {
-                match collect_operation(
+                match collect_operation_bounded(
                     &broker,
                     NetworkRequest {
                         request_id: NEXT_CSP_REPORT_REQUEST_ID.fetch_add(1, Ordering::Relaxed),
@@ -2628,6 +2644,8 @@ impl BrowserContext {
                         },
                         resolved_addrs: Vec::new(),
                     },
+                    Duration::from_secs(10),
+                    64 * 1024,
                 ) {
                     Ok(response) if (200..300).contains(&response.status) => "delivered".into(),
                     Ok(response) if response.status == 410 => "endpoint_removed".into(),
@@ -2909,6 +2927,7 @@ impl BrowserContext {
                     config: self.inner.config.clone(),
                     options: self.inner.options.clone(),
                     pending: AtomicUsize::new(0),
+                    process_id: AtomicU32::new(0),
                 })),
             };
             self.inner.group.register(
@@ -3218,6 +3237,13 @@ impl PageHandle {
     }
 
     #[cfg(unix)]
+    fn interrupt_inflight_worker(&self) -> bool {
+        self.worker
+            .as_ref()
+            .is_some_and(|worker| worker.interrupt_inflight())
+    }
+
+    #[cfg(unix)]
     async fn worker_request(
         &self,
         request: crate::worker::WorkerRequest,
@@ -3253,6 +3279,8 @@ impl PageHandle {
     ) -> Result<Revision, RuntimeError> {
         let url = url.into();
         let html = html.into();
+        #[cfg(unix)]
+        self.interrupt_inflight_worker();
         // The privileged parent establishes the initial document security
         // state before an untrusted worker is allowed to confirm the snapshot.
         // This keeps local HTML on the same fail-closed ordering as a
@@ -3336,6 +3364,8 @@ impl PageHandle {
                 }
             }
         }
+        #[cfg(unix)]
+        self.interrupt_inflight_worker();
         let outcome = async {
             #[cfg(unix)]
             if let Some(response) = self
@@ -3364,6 +3394,8 @@ impl PageHandle {
 
     pub async fn back(&self) -> Result<NavigationResult, RuntimeError> {
         #[cfg(unix)]
+        self.interrupt_inflight_worker();
+        #[cfg(unix)]
         if let Some(response) = self
             .worker_request(crate::worker::WorkerRequest::Back)
             .await
@@ -3378,6 +3410,8 @@ impl PageHandle {
 
     pub async fn forward(&self) -> Result<NavigationResult, RuntimeError> {
         #[cfg(unix)]
+        self.interrupt_inflight_worker();
+        #[cfg(unix)]
         if let Some(response) = self
             .worker_request(crate::worker::WorkerRequest::Forward)
             .await
@@ -3391,6 +3425,8 @@ impl PageHandle {
     }
 
     pub async fn refresh(&self) -> Result<NavigationResult, RuntimeError> {
+        #[cfg(unix)]
+        self.interrupt_inflight_worker();
         #[cfg(unix)]
         if let Some(response) = self
             .worker_request(crate::worker::WorkerRequest::Refresh)
@@ -4273,6 +4309,18 @@ impl PageHandle {
     }
 
     pub async fn close(&self) -> Result<(), RuntimeError> {
+        #[cfg(unix)]
+        if self.interrupt_inflight_worker() {
+            if let Some(context) = self.context.upgrade() {
+                context.group.close(self.page_id());
+                BrowserContext { inner: context }.push_context_event(ContextEvent::PageLifecycle {
+                    event: PageLifecycleEvent::Closed {
+                        page_id: self.page_id(),
+                    },
+                });
+            }
+            return Ok(());
+        }
         #[cfg(unix)]
         if let Some(response) = self
             .worker_request(crate::worker::WorkerRequest::Close)
@@ -6036,7 +6084,7 @@ impl PageState {
             let broker = self.broker.as_ref().ok_or_else(|| {
                 RuntimeError::Network("network transport initialization failed".into())
             })?;
-            let response = collect_operation(
+            let response = collect_operation_bounded(
                 broker,
                 NetworkRequest {
                     request_id: self.revision + redirect as u64 + 10_000,
@@ -6068,6 +6116,8 @@ impl PageState {
                     },
                     resolved_addrs: Vec::new(),
                 },
+                self.config.request_timeout,
+                self.config.max_resource_cache_entry_bytes,
             )
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
             self.network_quiet_since = Some(Instant::now());
@@ -9260,6 +9310,99 @@ mod tests {
         );
         page.refresh().await.expect("refresh using cached script");
         server.join().expect("fixture server");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn async_and_deferred_resources_fetch_concurrently_and_execute_by_contract() {
+        struct ScheduledResourceBroker {
+            active: Arc<AtomicUsize>,
+            peak: Arc<AtomicUsize>,
+        }
+
+        impl crate::network::NetworkBroker for ScheduledResourceBroker {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<crate::network::NetworkResponse, crate::network::NetworkError> {
+                let path = Url::parse(&request.url)
+                    .expect("fixture URL")
+                    .path()
+                    .to_string();
+                let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+                self.peak.fetch_max(active, Ordering::SeqCst);
+                let (content_type, body, delay) = match path.as_str() {
+                    "/" => (
+                        "text/html",
+                        concat!(
+                            "<output id=result></output>",
+                            "<script async src=/async-slow.js></script>",
+                            "<script async src=/async-fast.js></script>",
+                            "<script defer src=/defer-slow.js></script>",
+                            "<script defer src=/defer-fast.js></script>",
+                            "<script type=module src=/module.js></script>"
+                        ),
+                        0,
+                    ),
+                    "/async-slow.js" => (
+                        "text/javascript",
+                        "document.querySelector('#result').textContent+='A'",
+                        40,
+                    ),
+                    "/async-fast.js" => (
+                        "text/javascript",
+                        "document.querySelector('#result').textContent+='B'",
+                        5,
+                    ),
+                    "/defer-slow.js" => (
+                        "text/javascript",
+                        "document.querySelector('#result').textContent+='D'",
+                        40,
+                    ),
+                    "/defer-fast.js" => (
+                        "text/javascript",
+                        "document.querySelector('#result').textContent+='E'",
+                        5,
+                    ),
+                    "/module.js" => (
+                        "text/javascript",
+                        "import {left} from './left.js';import {right} from './right.js';document.querySelector('#result').textContent+=left+right",
+                        5,
+                    ),
+                    "/left.js" => ("text/javascript", "export const left='M'", 20),
+                    "/right.js" => ("text/javascript", "export const right=''", 20),
+                    _ => return Err(crate::network::NetworkError::Transport(path)),
+                };
+                std::thread::sleep(Duration::from_millis(delay));
+                self.active.fetch_sub(1, Ordering::SeqCst);
+                Ok(crate::network::NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), content_type.into())],
+                    body: body.as_bytes().to_vec(),
+                })
+            }
+        }
+
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let context = Browser::new().new_context_with_broker(
+            ContextOptions::default(),
+            SharedNetworkBroker::new(ScheduledResourceBroker {
+                active,
+                peak: peak.clone(),
+            }),
+        );
+        let page = context.new_page();
+        page.goto("https://scheduler.example.test/")
+            .await
+            .expect("load scheduled resources");
+        let value = page
+            .evaluate("document.querySelector('#result').textContent")
+            .await
+            .expect("read execution order");
+        assert_eq!(value, "BADEM");
+        assert_eq!(peak.load(Ordering::SeqCst), 5);
     }
 
     #[cfg(feature = "v8-host")]
