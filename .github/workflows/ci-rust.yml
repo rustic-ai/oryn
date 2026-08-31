@@ -58,6 +58,23 @@ jobs:
             exit 1
           fi
 
+      - name: Validate Linux single-binary production profile
+        if: matrix.check == 'test'
+        run: |
+          ./scripts/build-platform-release.sh > target/linux-release-product.json
+          jq -e '
+            .packaging == "single_linux_multicall_binary" and
+            .roles == ["parent", "sandboxed_page_worker"] and
+            (.sha256 | length) == 64 and
+            .bytes > 0
+          ' target/linux-release-product.json
+          test ! -e target/release/oryn-page-worker
+          target/release/oryn __oryn-page-worker --runtime-info | jq -e '
+            .native_v8 == true and
+            .execution_mode == "sandboxed_worker" and
+            .sandbox_state == "linux_namespaces_landlock_seccomp"
+          '
+
   python:
     name: python-sdk-intentgym
     runs-on: ubuntu-latest
@@ -126,7 +143,8 @@ jobs:
 
       - name: Build production parent and V8 worker
         run: |
-          cargo build --release --locked -p oryn
+          ./scripts/validate-production-parent-purity.sh
+          cargo build --release --locked -p oryn --no-default-features --features "native core-full"
           cargo build --release --locked -p oryn-native --features v8-host --bin oryn-page-worker
 
       - name: Verify worker has functional V8

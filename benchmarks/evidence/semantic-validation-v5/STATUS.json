@@ -9,7 +9,7 @@
     "exact_identity_reference_churn": "release_candidate_passed"
   },
   "attestation": {
-    "status": "passed_macos_exact_release_candidate",
+    "status": "superseded_parent_v8_duplication_fixed_re_attestation_pending",
     "source_commit": "c5fd01051e047bb6e62d4ce7d310b91d025fcf81",
     "source_tree_sha256": "5ee5f148a51651bd0da3b752db4165eeb5b121cb7c322dd5f0f055d1ea81aa52",
     "required_model_cells": 96,
@@ -25,7 +25,8 @@
     "cumulative_hosted_spend_usd": 7.996254,
     "hosted_spend_cap_usd": 100.0,
     "model_panel_sha256": "57674ed3326ce24e3b4ee9fac129b60d30e454e26d595ab8f291f1bb8331bace",
-    "linux_platform_attestation": "pending"
+    "linux_platform_attestation": "pending",
+    "superseded_reason": "The attested parent linked a redundant in-process V8/ICU copy. Production defaults now keep V8 exclusively in the sandboxed worker; exact parent and aggregate fingerprints must be regenerated."
   },
   "historical_evidence": {
     "schema_v4_status": "immutable_nonconforming_semantic_metrics",

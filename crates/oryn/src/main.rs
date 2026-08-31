@@ -127,8 +127,17 @@ struct NativeArgs {
     uploads: Vec<String>,
 }
 
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(all(target_os = "linux", feature = "native-v8"))]
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("__oryn-page-worker")) {
+        oryn_native::worker_process::run()?;
+        return Ok(());
+    }
+    run_cli()
+}
+
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging to stderr to avoid polluting stdout (used for IPC)
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)

@@ -39,6 +39,8 @@ pub mod upload;
 pub mod worker;
 #[cfg(unix)]
 pub mod worker_client;
+#[cfg(feature = "v8-host")]
+pub mod worker_process;
 
 pub use challenge::{
     CHALLENGE_DETECTOR_VERSION, ChallengeAssessment, ChallengeDisposition, ChallengeSignal,

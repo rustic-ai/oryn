@@ -1,6 +1,12 @@
 # Oryn2 implementation status
 
-> **Current attestation status: exact macOS candidate passed; Linux pending.** A 2026-08-29 evidence audit found
+> **Current attestation status: macOS re-attestation pending; Linux pending.**
+> The exact `c5fd010` macOS candidate passed its suites, but its parent binary
+> redundantly linked V8 and full ICU. Production defaults now keep V8 only in
+> the sandboxed worker, reducing the parent from 49,456,080 to approximately
+> 6.6 million bytes. Because that changes the parent and combined fingerprints,
+> the prior exact-artifact result is historical and a replacement attestation
+> is required. A 2026-08-29 evidence audit also found
 > that the layout and security result builders could assign passing case status
 > from category-level artifacts without a case-bound executed assertion. Those
 > builders now fail closed unless every manifest case has exactly one passing
@@ -31,7 +37,7 @@ rewrite those historical payloads or present them as a new validation run.
   corpus validator checks counts, unique IDs, read-only canary policy, and all
   required local sources.
 
-## Runtime foundation — implemented and attested on macOS
+## Runtime foundation — implemented; compact-parent re-attestation pending
 
 - Raw V8 and `deno_core` host probes use the same V8 revision. Their historical
   startup/size comparison selected raw V8, but the mandatory concurrent-page
@@ -81,10 +87,18 @@ rewrite those historical payloads or present them as a new validation run.
   policy-brokered streams concurrently. The broker surface is thread-safe,
   HTTP/2 and bounded demand-driven bodies are tested, and late/unmatched
   replies remain rejected.
-- The exact macOS parent/worker bundle passed private signing, App Sandbox,
+- The historical exact macOS parent/worker bundle passed private signing, App Sandbox,
   runtime cutover, scheduler, profile-equivalence, security, layout, framework,
-  churn and semantic validation. Linux sandbox execution remains a separate
-  CayVM/platform attestation and does not reintroduce the deleted legacy runtime.
+  churn and semantic validation. Its parent unnecessarily contained a second
+  static V8/ICU copy because `native-v8` was in the default feature set. The
+  production parent now builds explicitly as `native core-full`; a dependency-
+  graph check rejects V8 in the parent and requires it in the worker. Exact
+  signing and schema-v5 evidence must be regenerated for the smaller parent.
+  The macOS release is one outer `Oryn.app` containing that parent and an
+  independently signed nested worker. Linux uses one multicall ELF built with
+  V8; it re-executes the same immutable file into a private worker role before
+  installing namespaces, `no_new_privs`, Landlock and seccomp. Linux sandbox
+  execution remains a separate CayVM/platform attestation.
 
 ## executable document — complete
 

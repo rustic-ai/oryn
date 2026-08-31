@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["native", "native-v8", "core-full"]
+# The default/macOS parent is a privileged broker/client and remains V8-free.
+# Linux production explicitly enables `native-v8` for its multicall ELF; V8 is
+# initialized only after re-exec into the sandboxed worker role.
+default = ["native", "core-full"]
 native = []
 core-full = ["oryn-native/core-full"]
 core-lite = ["oryn-native/core-lite"]

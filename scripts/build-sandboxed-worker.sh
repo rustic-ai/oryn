@@ -31,7 +31,8 @@ fi
 
 plutil -lint "$info_plist" >/dev/null
 
-cargo build --locked --release -p oryn
+cargo build --locked --release -p oryn \
+  --bin oryn --no-default-features --features "native core-full"
 cargo build --locked --release -p oryn-native --features v8-host --bin oryn-page-worker
 mkdir -p "$app/Contents/MacOS" "$resources"
 cp "$worker" "$app_worker"

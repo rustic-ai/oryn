@@ -17,6 +17,8 @@ cargo run -q -p oryn-webidl -- check \
   crates/oryn-webidl/idl/browser.webidl \
   crates/oryn-js/src/generated/browser.rs
 
+"$ROOT_DIR/scripts/validate-production-parent-purity.sh"
+
 cargo test -p oryn-native --lib --bins --tests
 cargo test -p oryn-native --lib --bins --tests --features "v8-host core-full"
 cargo test -p oryn-native --lib --bins --tests --features "v8-host core-lite"

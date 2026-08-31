@@ -231,6 +231,10 @@ impl WorkerClient {
             .as_ref()
             .map(|item| item.path.as_path())
             .unwrap_or(worker_path.as_path());
+        #[cfg(target_os = "linux")]
+        let launch_binary_sha256 = Some(sha256_file(launch_path)?);
+        #[cfg(not(target_os = "linux"))]
+        let launch_binary_sha256: Option<String> = None;
 
         let (parent_broker, child_broker) = UnixStream::pair()
             .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
@@ -239,6 +243,10 @@ impl WorkerClient {
         let child_fd = child_broker.as_raw_fd();
         let child_context_fd = child_context.as_raw_fd();
         let mut command = Command::new(launch_path);
+        #[cfg(target_os = "linux")]
+        if is_linux_multicall_worker(launch_path) {
+            command.arg("__oryn-page-worker");
+        }
         command
             .arg("--broker-fd")
             .arg(BROKER_FD.to_string())
@@ -351,6 +359,7 @@ impl WorkerClient {
             .verification
             .as_ref()
             .map(|item| item.binary_sha256.as_str())
+            .or(launch_binary_sha256.as_deref())
             .unwrap_or(binary_sha256.as_str());
         if returned_nonce != nonce
             || protocol_version != WORKER_PROTOCOL_VERSION
@@ -665,25 +674,59 @@ impl Drop for WorkerClient {
     }
 }
 
+#[cfg(all(target_os = "linux", not(debug_assertions)))]
+pub fn discover_worker() -> Result<PathBuf, RuntimeError> {
+    // A production Linux package is a single immutable multicall ELF. Ignore
+    // environment substitution and always re-exec the current executable.
+    std::env::current_exe()
+        .and_then(fs::canonicalize)
+        .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))
+}
+
+#[cfg(any(not(target_os = "linux"), debug_assertions))]
 pub fn discover_worker() -> Result<PathBuf, RuntimeError> {
     if let Some(path) = std::env::var_os("ORYN_PAGE_WORKER") {
         return Ok(PathBuf::from(path));
     }
-    let parent = std::env::current_exe()
+    let executable = std::env::current_exe()
         .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| {
-            RuntimeError::SandboxUnavailable("parent executable has no directory".into())
-        })?;
+        .canonicalize()
+        .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
+    #[cfg(target_os = "linux")]
+    {
+        return Ok(executable);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let parent = executable.parent().map(Path::to_path_buf).ok_or_else(|| {
+        RuntimeError::SandboxUnavailable("parent executable has no directory".into())
+    })?;
     #[cfg(target_os = "macos")]
     {
+        let bundled = parent
+            .parent()
+            .filter(|contents| {
+                contents.file_name().and_then(|name| name.to_str()) == Some("Contents")
+            })
+            .map(|contents| {
+                contents.join("Helpers/OrynPageWorker.app/Contents/MacOS/oryn-page-worker")
+            });
+        if let Some(worker) = bundled.filter(|path| path.is_file()) {
+            return Ok(worker);
+        }
         Ok(parent.join("OrynPageWorker.app/Contents/MacOS/oryn-page-worker"))
     }
     #[cfg(not(target_os = "macos"))]
     {
         Ok(parent.join("oryn-page-worker"))
     }
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_multicall_worker(path: &Path) -> bool {
+    let Ok(current) = std::env::current_exe().and_then(fs::canonicalize) else {
+        return false;
+    };
+    fs::canonicalize(path).is_ok_and(|candidate| candidate == current)
 }
 
 pub fn verify_worker(path: &Path) -> Result<WorkerVerification, RuntimeError> {

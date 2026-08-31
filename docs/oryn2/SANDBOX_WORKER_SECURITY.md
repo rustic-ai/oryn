@@ -42,8 +42,12 @@ The parent launches with an empty environment and passes only stdio plus the
 inherited broker socket. The handshake is rejected if the worker can see Azure,
 OpenAI, Ollama, proxy, home-directory, or DYLD variables.
 
-Non-macOS worker execution is reported as process_isolated_unsandboxed; it is
-not presented as equivalent security.
+Linux packages use a single multicall ELF. The parent re-executes the same
+immutable file with the private `__oryn-page-worker` role before creating a
+Tokio runtime, then clears the environment and installs namespaces,
+`no_new_privs`, Landlock, and seccomp. Other non-macOS worker execution is
+reported as process_isolated_unsandboxed and is not presented as equivalent
+security.
 
 ## Network and resource enforcement
 
@@ -82,4 +86,3 @@ sandbox worker is not notarized distribution and does not add secret-handle APIs
 broader policy language, long-running fuzz infrastructure, or automatic V8
 update qualification. Those remain later security increments. Developer ID signing
 and notarization are also separate release requirements.
-
