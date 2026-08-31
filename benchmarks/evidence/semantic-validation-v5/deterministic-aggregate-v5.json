@@ -1,0 +1,233 @@
+{
+  "schema_version": 5,
+  "run_id": "semantic-validation-deterministic-v5",
+  "fingerprint": {
+    "source_commit": "c5fd01051e047bb6e62d4ce7d310b91d025fcf81",
+    "binary": {
+      "sha256": "5461a6cd0d08be5731eb8cb4d8828c6dd98cf42073b4ae1f2b0e16b3c446ee5c",
+      "bytes": 49456080,
+      "runtime": {
+        "contract_version": 4,
+        "native_v8": true,
+        "v8_version": "15.0.245.2-rusty",
+        "build_profile": "release",
+        "capabilities": [
+          "native_dom",
+          "html5ever",
+          "rustls_network_broker",
+          "oil",
+          "semantic_v3_compat",
+          "semantic_v4",
+          "execution_domain_handoff",
+          "trace_recording",
+          "network_record_replay",
+          "sealed_context_checkpoint",
+          "replay_branching",
+          "v8_javascript",
+          "generated_webidl_registry",
+          "webassembly",
+          "same_site_cookies",
+          "csp3_agent_critical",
+          "trusted_types_core",
+          "intl_full_icu",
+          "computed_style",
+          "layout_box",
+          "layout_inline_text",
+          "viewport_scroll",
+          "deterministic_embedded_font",
+          "paint_snapshot"
+        ],
+        "execution_mode": "sandboxed_worker",
+        "sandboxed": true,
+        "worker_protocol_version": 6,
+        "worker_binary_sha256": "1bcf642c0a8711cb11e0d7312124cfc2494a7553ad1dd733bc5ed2b78417404a",
+        "worker_bundle_id": "ai.rustic.oryn.page-worker",
+        "worker_team_id": "5HVA9VFF8K",
+        "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+        "policy_digest": "828a1b8ea74ec04124531620126a637f7bdd58a6ca2126eb85188804c2ecdac2",
+        "sandbox_state": "app_sandbox",
+        "limits": {
+          "runtime_profile": "full",
+          "v8_heap_bytes": 268435456,
+          "worker_rss_bytes": 536870912,
+          "ipc_frame_bytes": 25165824,
+          "command_wall_ms": 10000,
+          "navigation_wall_ms": 30000,
+          "queue_capacity": 32,
+          "max_layout_nodes": 100000,
+          "max_font_bytes": 8388608,
+          "max_page_font_bytes": 33554432,
+          "max_viewport_css_px": 16384,
+          "max_resource_cache_entries": 256,
+          "max_resource_cache_bytes": 33554432,
+          "max_resource_cache_entry_bytes": 8388608
+        },
+        "style_engine_version": "stylo-declarations-0.20+oryn-common-web-cascade-v2",
+        "box_engine_version": "taffy-0.14",
+        "inline_engine_version": "parley-0.11.1",
+        "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+        "runtime_profile": "core_full",
+        "binding_abi_version": 1
+      }
+    },
+    "source_tree_sha256": "5ee5f148a51651bd0da3b752db4165eeb5b121cb7c322dd5f0f055d1ea81aa52",
+    "miniwob": {
+      "allowed_seeds": [
+        17,
+        42,
+        73
+      ],
+      "content_sha256": "7bac5e8f28c40b8a44b3c915f98b26a8d3c494ecc1634e3d43839ed13598e386",
+      "injection": "after_core_before_load",
+      "kind": "oryn_seeded_miniwob",
+      "source_commit": "33c3b4ddef8c6eb67c57a29663d844b1eda7e614",
+      "source_modified": false
+    },
+    "chromium_version": "Google Chrome 152.0.7977.65",
+    "compatibility_binary": {
+      "sha256": "eb1f1f08ccb1ff64c2073d1ab0d8039ab46e2bbed610d4bf5e4978d371616e33",
+      "bytes": 8658848
+    },
+    "oracle": {
+      "id": "oil_deterministic_oracle_v1",
+      "sha256": "226d15fcb9960d09b50dc4bbbcb9c1f3962c46d81cf0a024186e09a7a43a2522"
+    },
+    "sha256": "dc1de3371a99d48da476f90f6829d408b42ea7562d2953f3c6fa3e2c3a1600db"
+  },
+  "started_at": "2026-08-31T01:43:04.475771Z",
+  "completed_at": "2026-08-31T01:44:13.627351Z",
+  "cells": 48,
+  "native": {
+    "completed": 24,
+    "passed": 24
+  },
+  "chromium": {
+    "completed": 24,
+    "passed": 24
+  },
+  "differential": [
+    {
+      "task_id": "click-button",
+      "seed": 17,
+      "first_divergence": null
+    },
+    {
+      "task_id": "click-button",
+      "seed": 42,
+      "first_divergence": null
+    },
+    {
+      "task_id": "click-button",
+      "seed": 73,
+      "first_divergence": null
+    },
+    {
+      "task_id": "click-link",
+      "seed": 17,
+      "first_divergence": null
+    },
+    {
+      "task_id": "click-link",
+      "seed": 42,
+      "first_divergence": null
+    },
+    {
+      "task_id": "click-link",
+      "seed": 73,
+      "first_divergence": null
+    },
+    {
+      "task_id": "click-option",
+      "seed": 17,
+      "first_divergence": null
+    },
+    {
+      "task_id": "click-option",
+      "seed": 42,
+      "first_divergence": null
+    },
+    {
+      "task_id": "click-option",
+      "seed": 73,
+      "first_divergence": null
+    },
+    {
+      "task_id": "enter-text",
+      "seed": 17,
+      "first_divergence": null
+    },
+    {
+      "task_id": "enter-text",
+      "seed": 42,
+      "first_divergence": null
+    },
+    {
+      "task_id": "enter-text",
+      "seed": 73,
+      "first_divergence": null
+    },
+    {
+      "task_id": "focus-text",
+      "seed": 17,
+      "first_divergence": null
+    },
+    {
+      "task_id": "focus-text",
+      "seed": 42,
+      "first_divergence": null
+    },
+    {
+      "task_id": "focus-text",
+      "seed": 73,
+      "first_divergence": null
+    },
+    {
+      "task_id": "choose-date",
+      "seed": 17,
+      "first_divergence": null
+    },
+    {
+      "task_id": "choose-date",
+      "seed": 42,
+      "first_divergence": null
+    },
+    {
+      "task_id": "choose-date",
+      "seed": 73,
+      "first_divergence": null
+    },
+    {
+      "task_id": "login-user",
+      "seed": 17,
+      "first_divergence": null
+    },
+    {
+      "task_id": "login-user",
+      "seed": 42,
+      "first_divergence": null
+    },
+    {
+      "task_id": "login-user",
+      "seed": 73,
+      "first_divergence": null
+    },
+    {
+      "task_id": "search-engine",
+      "seed": 17,
+      "first_divergence": null
+    },
+    {
+      "task_id": "search-engine",
+      "seed": 42,
+      "first_divergence": null
+    },
+    {
+      "task_id": "search-engine",
+      "seed": 73,
+      "first_divergence": null
+    }
+  ],
+  "outcome": {
+    "status": "passed"
+  }
+}

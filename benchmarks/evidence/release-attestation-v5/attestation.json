@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "attestation_kind": "oryn2-exact-release-candidate-v5",
+  "recorded_at": "2026-08-31T02:00:00Z",
+  "outcome": {
+    "status": "passed_macos",
+    "linux_status": "pending_platform_attestation",
+    "diagnostics": [
+      "The requested 184d9cc candidate exposed a deterministic Nuxt fixture mismatch. The attested candidate is descendant c5fd010 with that defect fixed and runtime-shadow evidence rebound.",
+      "The protocol exposes the full ICU capability profile but not a numeric ICU data version; no numeric ICU version is inferred.",
+      "Cold startup remains above the proposal target and requires optimization or a reviewed exception."
+    ]
+  },
+  "source": {
+    "requested_ancestor": "184d9cc",
+    "commit": "c5fd01051e047bb6e62d4ce7d310b91d025fcf81",
+    "tree_clean": true,
+    "reproducible_source_tree_sha256": "5ee5f148a51651bd0da3b752db4165eeb5b121cb7c322dd5f0f055d1ea81aa52"
+  },
+  "toolchain": {
+    "host": "aarch64-apple-darwin",
+    "macos_version": "26.6.2",
+    "macos_build": "25G83",
+    "rustc": "1.98.0",
+    "rustc_commit": "88d9e12ae178fab0fb5cc050a94da85685d449ea",
+    "cargo": "1.98.0",
+    "cargo_commit": "797e8a9bc",
+    "llvm": "22.1.8",
+    "chromium": "Google Chrome 152.0.7977.65",
+    "ollama": "0.33.0"
+  },
+  "runtime": {
+    "contract_version": 4,
+    "worker_protocol_version": 6,
+    "binding_abi_version": 1,
+    "profile": "core_full",
+    "v8_version": "15.0.245.2-rusty",
+    "icu": {
+      "profile": "full_supported_v8_icu",
+      "capability": "intl_full_icu",
+      "numeric_version": null,
+      "diagnostic": "Protocol-v6 runtime metadata does not expose a numeric ICU data version."
+    }
+  },
+  "artifacts": {
+    "parent": {
+      "sha256": "5461a6cd0d08be5731eb8cb4d8828c6dd98cf42073b4ae1f2b0e16b3c446ee5c",
+      "installed_bytes": 49456080,
+      "gzip_bytes": 19578219
+    },
+    "worker": {
+      "sha256": "1bcf642c0a8711cb11e0d7312124cfc2494a7553ad1dd733bc5ed2b78417404a",
+      "installed_bytes": 48705104,
+      "gzip_bytes": 19048016,
+      "bundle_id": "ai.rustic.oryn.page-worker",
+      "team_id": "5HVA9VFF8K",
+      "signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+      "cdhash": "2c92e04fbe1f7007b160b50c45b9edb450778af3",
+      "hardened_runtime": true,
+      "entitlements": {
+        "com.apple.security.app-sandbox": true,
+        "com.apple.security.cs.allow-jit": true
+      },
+      "parsed_entitlements_sha256": "d8e575571677e786b671cd2aa7c0c6edf4f9b185fe78e17b11b0d8fd336f2d93",
+      "codesign_entitlements_payload_sha256": "f960d04a7d573b582dbbdec00edd57e032e623aa03b786b49ba13f837c6bc0ec",
+      "signature_details_sha256": "52c748797fb6d0ef5edb261d16be75f6bd475a719e7be43c3f2f8ca1d8dd0574",
+      "bundle_manifest_sha256": "6b856eaabca23ff9f6cc05eaa9f8a1ffe76c6a5743023e1ce28631f64ced76df"
+    },
+    "chromium_compatibility_binary": {
+      "sha256": "eb1f1f08ccb1ff64c2073d1ab0d8039ab46e2bbed610d4bf5e4978d371616e33",
+      "installed_bytes": 8658848
+    },
+    "combined_installed_bytes": 98165753,
+    "combined_compressed_bytes": 38630392
+  },
+  "policy": {
+    "runtime_digest": "828a1b8ea74ec04124531620126a637f7bdd58a6ca2126eb85188804c2ecdac2",
+    "bundle_input_digest": "e5040aed55a6afc3a33c9fc73c764197082625c73397105cb990a7150189822b",
+    "network_mode": "benchmark_loopback",
+    "parent_owned_cookies": true,
+    "decoded_response_limit_bytes": 16777216
+  },
+  "limits": {
+    "runtime_profile": "full",
+    "v8_heap_bytes": 268435456,
+    "worker_rss_bytes": 536870912,
+    "ipc_frame_bytes": 25165824,
+    "command_wall_ms": 10000,
+    "navigation_wall_ms": 30000,
+    "queue_capacity": 32,
+    "max_layout_nodes": 100000,
+    "max_font_bytes": 8388608,
+    "max_page_font_bytes": 33554432,
+    "max_viewport_css_px": 16384,
+    "max_resource_cache_entries": 256,
+    "max_resource_cache_bytes": 33554432,
+    "max_resource_cache_entry_bytes": 8388608
+  },
+  "fixtures": {
+    "miniwob_commit": "33c3b4ddef8c6eb67c57a29663d844b1eda7e614",
+    "miniwob_content_sha256": "7bac5e8f28c40b8a44b3c915f98b26a8d3c494ecc1634e3d43839ed13598e386",
+    "miniwob_seeds": [17, 42, 73],
+    "deterministic_oracle_sha256": "226d15fcb9960d09b50dc4bbbcb9c1f3962c46d81cf0a024186e09a7a43a2522",
+    "application_fixture_lock_sha256": "a7f4e8ef33279c2923a570767f9fd978072f982b13a9fe4665c4b81330c386be",
+    "runtime_architecture_manifest_sha256": "27370b489fb9baf0739b778cab729e55123ad2f655655068e1527905c331a520",
+    "layout_manifest_sha256": "2387db9f6eab4017cb1943e8c12c0e7c4583b19216c8fbfc45f078e566092d13",
+    "security_manifest_sha256": "183352b066f741b82ae16e6d7fd56cc0eddb7bc5d53de116b01de77968e3ea84",
+    "profile_equivalence_manifest_sha256": "dea7e95b373c5e50f59bbbbf92740ed26ad01e4418e3f8548a299b1b22902294",
+    "causal_manifest_sha256": "5fbd06c1bf55d2708cfc835bc73f37b840222b54c1832e56a3813b4a6684bb90",
+    "challenge_manifest_sha256": "94aa42233a12658713ea1f00f62f8af663fa8b17a31f07f14a0a437e9c26374c"
+  },
+  "models": {
+    "hosted_provider": "azure_openai",
+    "hosted_deployment": "gpt-5.6-terra",
+    "local_model": "qwen3:4b",
+    "local_model_digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7"
+  },
+  "validation": {
+    "architecture_cutover_cases": {"passed": 32, "total": 32},
+    "security_cases": {"passed": 51, "total": 51},
+    "layout_cases": {"passed": 29, "total": 29, "explicit_limitations": 4},
+    "framework_native": {"passed": 8, "total": 8},
+    "framework_chromium": {"passed": 8, "total": 8},
+    "controlled_applications": {"passed": 12, "total": 12},
+    "controlled_semantic": {"passed": 18, "total": 18},
+    "native_core_tests": {"passed": 210, "total": 210},
+    "fuzz_smoke": {"passed": 4, "total": 4, "crashes": 0},
+    "native_deterministic": {"passed": 24, "total": 24},
+    "chromium_deterministic": {"passed": 24, "total": 24},
+    "deterministic_first_divergences": 0,
+    "reference_survival": {"passed": 8, "total": 8},
+    "reference_invalidation": {"passed": 8, "total": 8},
+    "false_reference_preservation": {"numerator": 0, "denominator": 8},
+    "recovery": {"passed": 2, "total": 2},
+    "model_panel": {
+      "completed": 96,
+      "expected": 96,
+      "task_successes": 33,
+      "azure_native_passed": 18,
+      "azure_native_total": 24,
+      "prior_hosted_spend_usd": 6.362286,
+      "new_hosted_spend_usd": 1.633968,
+      "cumulative_hosted_spend_usd": 7.996254,
+      "hosted_spend_cap_usd": 100.0
+    }
+  },
+  "benchmarks": {
+    "startup_to_handshake_p50_ms": 570,
+    "startup_to_handshake_p95_ms": 580,
+    "startup_to_mutation_p50_ms": 600,
+    "startup_to_mutation_p95_ms": 600,
+    "parent_rss_bytes": 61046784,
+    "worker_rss_bytes": 56934400,
+    "crash_termination_latency_ms": 9504.059458,
+    "restart_to_blank_ms": 569.715083,
+    "proposal_cold_start_target_ms": 250,
+    "cold_start_target_met": false
+  },
+  "published_results": {
+    "model_panel_v5_sha256": "57674ed3326ce24e3b4ee9fac129b60d30e454e26d595ab8f291f1bb8331bace",
+    "deterministic_aggregate_v5_sha256": "f345b4dc8ca54b4cf8f032f38652014b22e197da30b044640befdabeb6619620",
+    "reference_churn_v5_sha256": "bf011592be9972a231b61332ad5923f57d62c8748c4737e46baa5e9dc18146fe",
+    "security_result_v2_sha256": "e7f26b0372f88ab3a0e4d4fab8f8c51882ed723823168426760e5dd99576065c",
+    "layout_result_v2_sha256": "3507ebbe567b6f63b080c0c995dc295e1f3f2c705d1a6826f7a7cc8400a56898"
+  }
+}

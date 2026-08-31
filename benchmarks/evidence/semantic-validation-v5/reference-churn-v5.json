@@ -1,0 +1,240 @@
+{
+  "schema_version": 5,
+  "suite": "semantic-reference-churn",
+  "runtime": {
+    "contract_version": 4,
+    "native_v8": true,
+    "v8_version": "15.0.245.2-rusty",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "execution_mode": "sandboxed_worker",
+    "sandboxed": true,
+    "worker_protocol_version": 6,
+    "worker_binary_sha256": "1bcf642c0a8711cb11e0d7312124cfc2494a7553ad1dd733bc5ed2b78417404a",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_team_id": "5HVA9VFF8K",
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "sandbox_state": "app_sandbox",
+    "limits": {
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912,
+      "ipc_frame_bytes": 25165824,
+      "command_wall_ms": 10000,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "max_layout_nodes": 100000,
+      "max_font_bytes": 8388608,
+      "max_page_font_bytes": 33554432,
+      "max_viewport_css_px": 16384,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entry_bytes": 8388608
+    },
+    "style_engine_version": "stylo-declarations-0.20+oryn-common-web-cascade-v2",
+    "box_engine_version": "taffy-0.14",
+    "inline_engine_version": "parley-0.11.1",
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "runtime_profile": "core_full",
+    "binding_abi_version": 1
+  },
+  "cases": [
+    {
+      "id": "removed_node",
+      "expectation": "invalidated",
+      "observed": "invalidated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "replaced_node",
+      "expectation": "invalidated",
+      "observed": "invalidated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "frame_replaced",
+      "expectation": "invalidated",
+      "observed": "invalidated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "closed_shadow_boundary",
+      "expectation": "isolated",
+      "observed": "isolated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "navigation_generation",
+      "expectation": "invalidated",
+      "observed": "invalidated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "unrelated_mutation_survival",
+      "expectation": "identity_control",
+      "observed": "preserved",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "target_attribute_survival",
+      "expectation": "preserved",
+      "observed": "preserved",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "target_text_survival",
+      "expectation": "preserved",
+      "observed": "preserved",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "form_value_survival",
+      "expectation": "preserved",
+      "observed": "preserved",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "sibling_insertion_survival",
+      "expectation": "preserved",
+      "observed": "preserved",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "sibling_removal_survival",
+      "expectation": "preserved",
+      "observed": "preserved",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "ancestor_attribute_survival",
+      "expectation": "preserved",
+      "observed": "preserved",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "same_document_reparent_survival",
+      "expectation": "preserved",
+      "observed": "preserved",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "open_shadow_unrelated_survival",
+      "expectation": "preserved",
+      "observed": "preserved",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "inner_html_recreation",
+      "expectation": "invalidated",
+      "observed": "invalidated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "react_style_key_replacement",
+      "expectation": "invalidated",
+      "observed": "invalidated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "vue_style_conditional_replacement",
+      "expectation": "invalidated",
+      "observed": "invalidated",
+      "passed": true,
+      "false_preservation": false
+    },
+    {
+      "id": "worker_replacement",
+      "expectation": "invalidated",
+      "observed": "invalidated",
+      "passed": true,
+      "false_preservation": false
+    }
+  ],
+  "reference_survival": {
+    "numerator": 8,
+    "denominator": 8,
+    "value": 1.0
+  },
+  "invalidation": {
+    "numerator": 8,
+    "denominator": 8,
+    "value": 1.0
+  },
+  "false_preservation": {
+    "numerator": 0,
+    "denominator": 8,
+    "value": 0.0
+  },
+  "recovery_cases": [
+    {
+      "id": "stale_reference_recovery",
+      "trigger": "stale_reference",
+      "attempted": true,
+      "recovered": true
+    },
+    {
+      "id": "no_progress_recovery",
+      "trigger": "event_only_no_progress",
+      "attempted": true,
+      "recovered": true
+    }
+  ],
+  "recovery": {
+    "numerator": 2,
+    "denominator": 2,
+    "value": 1.0
+  },
+  "worker_replacement": {
+    "infinite_loop_terminated": true,
+    "parent_survived": true,
+    "blank_generation_started": true,
+    "old_reference_invalidated": true,
+    "replacement_generation": 8589934592,
+    "termination_latency_ms": 9504.059458,
+    "restart_to_blank_ms": 569.7150829999999,
+    "status": "passed"
+  },
+  "status": "passed"
+}

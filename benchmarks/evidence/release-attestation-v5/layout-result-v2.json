@@ -1,0 +1,1597 @@
+{
+  "schema_version": 2,
+  "profile": "layout-production",
+  "run_id": "layout-c5fd01051e04-macos-arm64",
+  "recorded_at": "2026-08-31T01:20:05.862011Z",
+  "fingerprint": {
+    "source_commit": "c5fd01051e047bb6e62d4ce7d310b91d025fcf81",
+    "source_dirty": false,
+    "source_tree_sha256": "5ee5f148a51651bd0da3b752db4165eeb5b121cb7c322dd5f0f055d1ea81aa52",
+    "manifest_sha256": "2387db9f6eab4017cb1943e8c12c0e7c4583b19216c8fbfc45f078e566092d13",
+    "wpt_subset_sha256": "3c9d32d7882ab17b8d0a98dec26cc46325061b6bd7c8e0e098409f5c9dbdf3e2",
+    "parent": {
+      "sha256": "5461a6cd0d08be5731eb8cb4d8828c6dd98cf42073b4ae1f2b0e16b3c446ee5c",
+      "bytes": 49456080,
+      "build_profile": "release"
+    },
+    "worker": {
+      "sha256": "1bcf642c0a8711cb11e0d7312124cfc2494a7553ad1dd733bc5ed2b78417404a",
+      "bytes": 48705104,
+      "protocol_version": 6,
+      "contract_version": 4,
+      "native_v8": true,
+      "v8_version": "15.0.245.2-rusty",
+      "execution_mode": "sandboxed_worker",
+      "sandboxed": true,
+      "sandbox_state": "app_sandbox",
+      "bundle_id": "ai.rustic.oryn.page-worker",
+      "team_id": "5HVA9VFF8K",
+      "signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+      "entitlement_sha256": "f960d04a7d573b582dbbdec00edd57e032e623aa03b786b49ba13f837c6bc0ec",
+      "style_engine_version": "stylo-declarations-0.20+oryn-common-web-cascade-v2",
+      "box_engine_version": "taffy-0.14",
+      "inline_engine_version": "parley-0.11.1",
+      "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"
+    },
+    "chromium_version": "Google Chrome 152.0.7977.65"
+  },
+  "corpus": {
+    "manifest_cases": 33,
+    "required_cases": 29,
+    "declared_limitations": 4
+  },
+  "regressions": {
+    "extension": "passed",
+    "g1": "passed",
+    "g2_controlled": "passed",
+    "g3_frameworks_native": "passed",
+    "g3_oauth_native": "passed",
+    "intentgym": "passed",
+    "native_miniwob_24": "passed",
+    "python_sdk": "passed",
+    "reference_churn": "passed",
+    "rust_v8": "passed",
+    "rust_workspace": "passed",
+    "scanner": "passed",
+    "signed_production_boundary": "passed",
+    "strict_clippy_default": "passed",
+    "strict_clippy_v8": "passed"
+  },
+  "metrics": {
+    "required_passed": 29,
+    "required_total": 29,
+    "limitations_reported": 4,
+    "limitations_total": 4,
+    "false_semantic_reference_preservations": 0
+  },
+  "benchmarks": {
+    "schema_version": 1,
+    "suite": "oryn2-layout-production-benchmarks",
+    "recorded_at": "2026-08-31T01:19:41Z",
+    "source_commit": "c5fd01051e047bb6e62d4ce7d310b91d025fcf81",
+    "source_tree_sha256": "5ee5f148a51651bd0da3b752db4165eeb5b121cb7c322dd5f0f055d1ea81aa52",
+    "runtime": {
+      "contract_version": 4,
+      "native_v8": true,
+      "v8_version": "15.0.245.2-rusty",
+      "build_profile": "release",
+      "capabilities": [
+        "native_dom",
+        "html5ever",
+        "rustls_network_broker",
+        "oil",
+        "semantic_v3_compat",
+        "semantic_v4",
+        "execution_domain_handoff",
+        "trace_recording",
+        "network_record_replay",
+        "sealed_context_checkpoint",
+        "replay_branching",
+        "v8_javascript",
+        "generated_webidl_registry",
+        "webassembly",
+        "same_site_cookies",
+        "csp3_agent_critical",
+        "trusted_types_core",
+        "intl_full_icu",
+        "computed_style",
+        "layout_box",
+        "layout_inline_text",
+        "viewport_scroll",
+        "deterministic_embedded_font",
+        "paint_snapshot"
+      ],
+      "execution_mode": "sandboxed_worker",
+      "sandboxed": true,
+      "worker_protocol_version": 6,
+      "worker_binary_sha256": "1bcf642c0a8711cb11e0d7312124cfc2494a7553ad1dd733bc5ed2b78417404a",
+      "worker_bundle_id": "ai.rustic.oryn.page-worker",
+      "worker_team_id": "5HVA9VFF8K",
+      "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+      "policy_digest": "828a1b8ea74ec04124531620126a637f7bdd58a6ca2126eb85188804c2ecdac2",
+      "sandbox_state": "app_sandbox",
+      "limits": {
+        "runtime_profile": "full",
+        "v8_heap_bytes": 268435456,
+        "worker_rss_bytes": 536870912,
+        "ipc_frame_bytes": 25165824,
+        "command_wall_ms": 10000,
+        "navigation_wall_ms": 30000,
+        "queue_capacity": 32,
+        "max_layout_nodes": 100000,
+        "max_font_bytes": 8388608,
+        "max_page_font_bytes": 33554432,
+        "max_viewport_css_px": 16384,
+        "max_resource_cache_entries": 256,
+        "max_resource_cache_bytes": 33554432,
+        "max_resource_cache_entry_bytes": 8388608
+      },
+      "style_engine_version": "stylo-declarations-0.20+oryn-common-web-cascade-v2",
+      "box_engine_version": "taffy-0.14",
+      "inline_engine_version": "parley-0.11.1",
+      "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+      "runtime_profile": "core_full",
+      "binding_abi_version": 1
+    },
+    "process": {
+      "schema_version": 4,
+      "run_id": "sandbox-production-macos-arm64",
+      "captured_at": "2026-08-31T01:18:50Z",
+      "source_commit": "c5fd01051e047bb6e62d4ce7d310b91d025fcf81",
+      "source_tree_sha256": "5ee5f148a51651bd0da3b752db4165eeb5b121cb7c322dd5f0f055d1ea81aa52",
+      "runtime": {
+        "contract_version": 4,
+        "native_v8": true,
+        "v8_version": "15.0.245.2-rusty",
+        "build_profile": "release",
+        "capabilities": [
+          "native_dom",
+          "html5ever",
+          "rustls_network_broker",
+          "oil",
+          "semantic_v3_compat",
+          "semantic_v4",
+          "execution_domain_handoff",
+          "trace_recording",
+          "network_record_replay",
+          "sealed_context_checkpoint",
+          "replay_branching",
+          "v8_javascript",
+          "generated_webidl_registry",
+          "webassembly",
+          "same_site_cookies",
+          "csp3_agent_critical",
+          "trusted_types_core",
+          "intl_full_icu",
+          "computed_style",
+          "layout_box",
+          "layout_inline_text",
+          "viewport_scroll",
+          "deterministic_embedded_font",
+          "paint_snapshot"
+        ],
+        "execution_mode": "sandboxed_worker",
+        "sandboxed": true,
+        "worker_protocol_version": 6,
+        "worker_binary_sha256": "1bcf642c0a8711cb11e0d7312124cfc2494a7553ad1dd733bc5ed2b78417404a",
+        "worker_bundle_id": "ai.rustic.oryn.page-worker",
+        "worker_team_id": "5HVA9VFF8K",
+        "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+        "policy_digest": "828a1b8ea74ec04124531620126a637f7bdd58a6ca2126eb85188804c2ecdac2",
+        "sandbox_state": "app_sandbox",
+        "limits": {
+          "runtime_profile": "full",
+          "v8_heap_bytes": 268435456,
+          "worker_rss_bytes": 536870912,
+          "ipc_frame_bytes": 25165824,
+          "command_wall_ms": 10000,
+          "navigation_wall_ms": 30000,
+          "queue_capacity": 32,
+          "max_layout_nodes": 100000,
+          "max_font_bytes": 8388608,
+          "max_page_font_bytes": 33554432,
+          "max_viewport_css_px": 16384,
+          "max_resource_cache_entries": 256,
+          "max_resource_cache_bytes": 33554432,
+          "max_resource_cache_entry_bytes": 8388608
+        },
+        "style_engine_version": "stylo-declarations-0.20+oryn-common-web-cascade-v2",
+        "box_engine_version": "taffy-0.14",
+        "inline_engine_version": "parley-0.11.1",
+        "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+        "runtime_profile": "core_full",
+        "binding_abi_version": 1
+      },
+      "artifacts": {
+        "parent": {
+          "sha256": "5461a6cd0d08be5731eb8cb4d8828c6dd98cf42073b4ae1f2b0e16b3c446ee5c",
+          "installed_bytes": 49456080,
+          "gzip_bytes": 19578219
+        },
+        "worker": {
+          "sha256": "1bcf642c0a8711cb11e0d7312124cfc2494a7553ad1dd733bc5ed2b78417404a",
+          "installed_bytes": 48705104,
+          "gzip_bytes": 19048016,
+          "signature_sha256": "5b6521118d704f26d1ce6f987a5e437c773e6f8bed959cf4ee341a57d3a8c88d",
+          "entitlements_sha256": "f960d04a7d573b582dbbdec00edd57e032e623aa03b786b49ba13f837c6bc0ec"
+        },
+        "worker_app_bytes": 48709673,
+        "combined_installed_bytes": 98165753,
+        "combined_compressed_bytes": 38630392
+      },
+      "measurements": {
+        "samples": 20,
+        "startup_to_handshake_p50_ms": 570,
+        "startup_to_handshake_p95_ms": 580,
+        "startup_to_mutation_p50_ms": 590,
+        "startup_to_mutation_p95_ms": 600,
+        "page_creation": {
+          "schema_version": 4,
+          "pages": 5,
+          "page_handle_creation_ms": 0.120333,
+          "startup_to_page_ready_ms": [
+            580.1711670000001,
+            583.464125,
+            581.791458,
+            582.9584169999999,
+            583.623708
+          ],
+          "total_observation_bytes": 31154
+        },
+        "parent_rss_bytes": 60915712,
+        "worker_rss_bytes": 56934400,
+        "crash_restart": null
+      },
+      "outcome": {
+        "status": "passed"
+      }
+    },
+    "layout": {
+      "schema_version": 1,
+      "nodes": 400,
+      "samples": 20,
+      "cold_page_to_geometry_ms": 687.7246660000001,
+      "reflow_p50_ms": 91.6935,
+      "reflow_p95_ms": 93.304333,
+      "observation_bytes": 377856,
+      "passed": true
+    },
+    "outcome": {
+      "status": "passed"
+    }
+  },
+  "artifact_ledger": [
+    {
+      "id": "raw:app-controlled__01_static.jsonl",
+      "path": "app-controlled/01_static.jsonl",
+      "sha256": "a79071a26f44d20402b71c851903b23b364f271168a255e4314f94739466e67b",
+      "bytes": 16874,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:app-controlled__02_forms.jsonl",
+      "path": "app-controlled/02_forms.jsonl",
+      "sha256": "1c5498df7013c905c3331a8b82dd39a2a66921ad7398d8e6d075b8c7f8914f53",
+      "bytes": 44891,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:app-controlled__03_ecommerce.jsonl",
+      "path": "app-controlled/03_ecommerce.jsonl",
+      "sha256": "5ab3d3d2ccdce2489513c8f697d7ef5c4238c8e42b9941bd454d9ee611bf85be",
+      "bytes": 69523,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:app-controlled__04_interactivity.jsonl",
+      "path": "app-controlled/04_interactivity.jsonl",
+      "sha256": "692f44c2ef559b9e49e96da04b0efb12191d4a568a50f050a19a23524a687e57",
+      "bytes": 52831,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:app-controlled__05_dynamic.jsonl",
+      "path": "app-controlled/05_dynamic.jsonl",
+      "sha256": "f50f8dd78187a26649683030344777e0a7fe7a4b8f582d5c344603d588b3fdfc",
+      "bytes": 17981,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:app-controlled__06_edge_cases.jsonl",
+      "path": "app-controlled/06_edge_cases.jsonl",
+      "sha256": "b0b78a314c35e0c701ea9d069ec5448e4d5156ac916e9a4dec333637b620125b",
+      "bytes": 135885,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:app-controlled__07_intents_builtin.jsonl",
+      "path": "app-controlled/07_intents_builtin.jsonl",
+      "sha256": "3ae162d9b2a7704896c5452c40d701d23ab91773b4eedf2a12acf90e2de5abde",
+      "bytes": 171619,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:app-controlled__08_multipage_flows.jsonl",
+      "path": "app-controlled/08_multipage_flows.jsonl",
+      "sha256": "2510ddf7582f953cb86cbf781f380ccb203c860064b915930450a0de8619bad1",
+      "bytes": 239385,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:app-controlled__09_target_resolution.jsonl",
+      "path": "app-controlled/09_target_resolution.jsonl",
+      "sha256": "c299c2005b8a4839a9557fc2674a350018dde44cca085165b52969e998e4459c",
+      "bytes": 423269,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:app-controlled__10_react_spa.jsonl",
+      "path": "app-controlled/10_react_spa.jsonl",
+      "sha256": "701c6ec228e444e1137513fb14b9a883d06f5ba8410f8d24fcf69d951fa02abd",
+      "bytes": 239247,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:app-controlled__11_angular_spa.jsonl",
+      "path": "app-controlled/11_angular_spa.jsonl",
+      "sha256": "3dde41640b06e58b3eaa04a8873ff8241f9d7e366b3329dfb073faaf554ba329",
+      "bytes": 142703,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:app-controlled__12_popup_detection.jsonl",
+      "path": "app-controlled/12_popup_detection.jsonl",
+      "sha256": "6b1cca0658a04a38fcc7e80e9a660e005bdde37dd16f70b04bb6dac52f2acfbf",
+      "bytes": 218886,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:app-controlled.log",
+      "path": "app-controlled.log",
+      "sha256": "234b38518839c9837abaf94c3091626e6f14c12f704032c109feee01ce8c8ad6",
+      "bytes": 921,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:app-fixtures.log",
+      "path": "app-fixtures.log",
+      "sha256": "d653263d8b388b8bcbe2997b1757971662881e3ded87f456c2f0ec1940f65164",
+      "bytes": 93,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:assertions.json",
+      "path": "assertions.json",
+      "sha256": "e7f033189491774cc73ea424156bcd81a3971b2f93f52b19400fd1bb314914f7",
+      "bytes": 14332,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:auth-flows__chromium.jsonl",
+      "path": "auth-flows/chromium.jsonl",
+      "sha256": "096c43107e64697f6bfd8e395469162f9a545ff8227da9052779f842c4bc24c3",
+      "bytes": 613,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:auth-flows__existing-session-sso-native.jsonl",
+      "path": "auth-flows/existing-session-sso-native.jsonl",
+      "sha256": "e723380b16c056b9a803365d5ab9b7b243331bf2cf23fcd39620560604264117",
+      "bytes": 28708,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:auth-flows__mfa-handoff-native.jsonl",
+      "path": "auth-flows/mfa-handoff-native.jsonl",
+      "sha256": "ad61aa00ae228bb58f9cfe9892f1cc69e2361a8536e2694c690f62cad0361bff",
+      "bytes": 26135,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:auth-flows__popup-close-recovery-native.jsonl",
+      "path": "auth-flows/popup-close-recovery-native.jsonl",
+      "sha256": "f80524bd138e7a35c8e5b333489f20a4eb70371f8e03b9a7d3901198f08144d0",
+      "bytes": 27652,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:auth-flows__popup-pkce-native.jsonl",
+      "path": "auth-flows/popup-pkce-native.jsonl",
+      "sha256": "ae5b2af8b44ba645a73e147ec08847bce07c93a134904f515a97a3f2e38ca36e",
+      "bytes": 26366,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:auth-flows__redirect-native.jsonl",
+      "path": "auth-flows/redirect-native.jsonl",
+      "sha256": "9076ee9ae4ef0cceb0b41a6076a46537cb746bc8762d91874d660af95e3f7640",
+      "bytes": 27001,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:auth-flows.log",
+      "path": "auth-flows.log",
+      "sha256": "c2dda9c2b1492a6a611d1ec586fce2cc8da706f7ab5f743297cea5f99c41867a",
+      "bytes": 455,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__layout-benchmarks-v1.json",
+      "path": "benchmarks/layout-benchmarks-v1.json",
+      "sha256": "182646b011ddfe3c299c85bdb1e47a2294179ad4c05b1aacca1e8cebe79191c5",
+      "bytes": 6677,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:benchmarks__layout.json",
+      "path": "benchmarks/layout.json",
+      "sha256": "3063bc03e9139ba37bee506a0624fad281af208a40987dc9697f28a531c756fa",
+      "bytes": 215,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:benchmarks__process__live.jsonl",
+      "path": "benchmarks/process/live.jsonl",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:benchmarks__process__live.stderr",
+      "path": "benchmarks/process/live.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__process__mutation-input.txt",
+      "path": "benchmarks/process/mutation-input.txt",
+      "sha256": "8a05cf5e5711816571103fd1fdc37897e6af34c3ce557181982fd620ec5fe418",
+      "bytes": 20,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__process__mutation.jsonl",
+      "path": "benchmarks/process/mutation.jsonl",
+      "sha256": "10c5a39898ab6ff3e2c4bcf87ddc02307b292c37ef379643195e45e3ee43340b",
+      "bytes": 749,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:benchmarks__process__page-creation.json",
+      "path": "benchmarks/process/page-creation.json",
+      "sha256": "d9e7fc0d4be44fd4dcdeba6e823405d240a6d52ec8c8aa763f345a1579e5ed8c",
+      "bytes": 245,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:benchmarks__process__result.json",
+      "path": "benchmarks/process/result.json",
+      "sha256": "b79e5e8601b0267d7a5a4c27d6752ad5787034c5338f8456fa50b26e8b1646b2",
+      "bytes": 3737,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:benchmarks__process__runtime.json",
+      "path": "benchmarks/process/runtime.json",
+      "sha256": "bd6ce10e54667808f277feb5e2a4eeb429dee898338f26c1302485303dcc32cb",
+      "bytes": 1709,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:benchmarks__process__startup-handshake-ms.txt",
+      "path": "benchmarks/process/startup-handshake-ms.txt",
+      "sha256": "037d85fff3d3ddb4d31ac6a26b91f394312a824ce6914b91002af61db59eccbd",
+      "bytes": 80,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__process__startup-mutation-ms.txt",
+      "path": "benchmarks/process/startup-mutation-ms.txt",
+      "sha256": "f246184fb6f82d4e7b1051aecc8113e97dee2e10968466fc48b13471033141dc",
+      "bytes": 80,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__process__time.txt",
+      "path": "benchmarks/process/time.txt",
+      "sha256": "f1aad720280074df4f8a209b32efba6b6d1b382ea60212d1ec8417bc90570c9a",
+      "bytes": 29,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__process__worker-entitlements.plist",
+      "path": "benchmarks/process/worker-entitlements.plist",
+      "sha256": "f960d04a7d573b582dbbdec00edd57e032e623aa03b786b49ba13f837c6bc0ec",
+      "bytes": 281,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:benchmarks__process.stdout.json",
+      "path": "benchmarks/process.stdout.json",
+      "sha256": "b79e5e8601b0267d7a5a4c27d6752ad5787034c5338f8456fa50b26e8b1646b2",
+      "bytes": 3737,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:benchmarks.stdout.json",
+      "path": "benchmarks.stdout.json",
+      "sha256": "182646b011ddfe3c299c85bdb1e47a2294179ad4c05b1aacca1e8cebe79191c5",
+      "bytes": 6677,
+      "kind": "benchmark"
+    },
+    {
+      "id": "raw:churn.json",
+      "path": "churn.json",
+      "sha256": "2737dce0a0bbbd73e092d2a825d857a624c35ea0a18d44a06970f5e5bcfbb566",
+      "bytes": 6369,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:corpus.log",
+      "path": "corpus.log",
+      "sha256": "8bf9c1e1ff72f627c658225b1fc638db18b2286c369dd086916a153f77035e90",
+      "bytes": 83,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:differential__chromium.json",
+      "path": "differential/chromium.json",
+      "sha256": "6b22f0dbcfef7ae6fb1a71864c6b53c60e5f46c48046d7e840f2b958f1471f3e",
+      "bytes": 444,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:differential__native.json",
+      "path": "differential/native.json",
+      "sha256": "27ce2f7ba5af4cfc046563b474693e6d80d73d197487c2f4ca13a5517f248c56",
+      "bytes": 524,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:executable-document.log",
+      "path": "executable-document.log",
+      "sha256": "56dd67ddfc4fa878b3956d98723f81f11d8a4908e1c201a39bcb4a8414bc6f4a",
+      "bytes": 63,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:frameworks__angular-native.jsonl",
+      "path": "frameworks/angular-native.jsonl",
+      "sha256": "c6191f96f90d8a67cf1997693daf913e63500b870b7a73402c28e8075c488d95",
+      "bytes": 11142,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:frameworks__chromium.jsonl",
+      "path": "frameworks/chromium.jsonl",
+      "sha256": "bc48c485ee99a9fe4999e72393b419f454d6da03c9866df0149cab0cc8e597a6",
+      "bytes": 916,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:frameworks__next-native.jsonl",
+      "path": "frameworks/next-native.jsonl",
+      "sha256": "529274251ffdad854af58489bc06f48f5d8fe671e7eca3e8439f99619475b01c",
+      "bytes": 16240,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:frameworks__nuxt-native.jsonl",
+      "path": "frameworks/nuxt-native.jsonl",
+      "sha256": "40564401fb0570648ca5c81dbefe7c7d2d854a3fb8eb9c5a88b6f254b5a805cb",
+      "bytes": 15443,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:frameworks__preact-native.jsonl",
+      "path": "frameworks/preact-native.jsonl",
+      "sha256": "285847a5c3661ee9a0675396aa677f8cb0b391f9c929ae564ecb92d511db3b67",
+      "bytes": 11189,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:frameworks__react-native.jsonl",
+      "path": "frameworks/react-native.jsonl",
+      "sha256": "97a4c8f3f054fb5924ea301286e0e1a1ba7a65352fadba76a6fc3a6c6278c2c9",
+      "bytes": 57494,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:frameworks__svelte-native.jsonl",
+      "path": "frameworks/svelte-native.jsonl",
+      "sha256": "2751739be0fcdfd9277aa0446d92781bcee699a6821296c4d964b87d1af8663e",
+      "bytes": 11189,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:frameworks__sveltekit-native.jsonl",
+      "path": "frameworks/sveltekit-native.jsonl",
+      "sha256": "e8d2157fb8f6245b2292327898059ba59d868133ab99c90ff7095940439c916e",
+      "bytes": 20767,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:frameworks__vue-native.jsonl",
+      "path": "frameworks/vue-native.jsonl",
+      "sha256": "1e99636561169ff456399d7ca7d1d05b8118f1c159568fee053dc4d72de58342",
+      "bytes": 11159,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:frameworks.log",
+      "path": "frameworks.log",
+      "sha256": "50b265436118df0fcd18429db9b18dc32120a829eafa2b6abf3e4af6dcdf3dd8",
+      "bytes": 620,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:layout-differential.log",
+      "path": "layout-differential.log",
+      "sha256": "c8d85949761d70b496e6f794e0ffcd04b1f463be06854931bbdfbd9b5eb2b89b",
+      "bytes": 70,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:layout-limitations.log",
+      "path": "layout-limitations.log",
+      "sha256": "138f00c8f2713a72ae2d3e76907b0312f9b627e951a43e1279cd2d1ac4d09551",
+      "bytes": 66,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:layout-manifest.log",
+      "path": "layout-manifest.log",
+      "sha256": "c8a397d008a5a986b2eea3bf3d479e56fe527e548b7890eca55079a272443cbf",
+      "bytes": 80,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:layout-oil.log",
+      "path": "layout-oil.log",
+      "sha256": "1614f2adc633e77c0735d7c3a54a8f4608fdee6bfd79b97806962b2cb7ec38ff",
+      "bytes": 65,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:layout-platform-subset.log",
+      "path": "layout-platform-subset.log",
+      "sha256": "02ebd6d26bc6e2c07294f423ab3519a0a4192a4516015534e3420da3f4e42829",
+      "bytes": 19425,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:layout-result.json",
+      "path": "layout-result.json",
+      "sha256": "27ce2f7ba5af4cfc046563b474693e6d80d73d197487c2f4ca13a5517f248c56",
+      "bytes": 524,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:layout-software.log",
+      "path": "layout-software.log",
+      "sha256": "5f8c3c083a6f126b474f1d4d3c7840c619f49c624cc6ceeb3141a4c032a12fe9",
+      "bytes": 1464,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:limitations__capabilities.jsonl",
+      "path": "limitations/capabilities.jsonl",
+      "sha256": "9cb9ef2613d234d828d2a16437ececfb359ef65a722866ae2f419d2bb54c9766",
+      "bytes": 6102,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:miniwob__aggregate.json",
+      "path": "miniwob/aggregate.json",
+      "sha256": "990f839e51230695e07828156d3640334b5fc223b79fa0de101fdd6c5bbd1255",
+      "bytes": 3735,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__choose-date-s17-native-oracle.json",
+      "path": "miniwob/choose-date-s17-native-oracle.json",
+      "sha256": "bf18db96b296ad3307c021de458cc2e71fc09ead82f6c6c1ae29cebff94ee0b9",
+      "bytes": 256150,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__choose-date-s42-native-oracle.json",
+      "path": "miniwob/choose-date-s42-native-oracle.json",
+      "sha256": "560726aa0c90f2bde8bc1a3be4d3b16beb073fb682ae1d8cc2c336552b887604",
+      "bytes": 190717,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__choose-date-s73-native-oracle.json",
+      "path": "miniwob/choose-date-s73-native-oracle.json",
+      "sha256": "7fa1b6d7774aced72539e424b413aac92c0ac948428c2b6e788459c8befc10e6",
+      "bytes": 147091,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-button-s17-native-oracle.json",
+      "path": "miniwob/click-button-s17-native-oracle.json",
+      "sha256": "3d6742f62eda365cbc3d7d673f199b13a34e9f3ac7365c7b6911e0723fe0fcef",
+      "bytes": 57860,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-button-s42-native-oracle.json",
+      "path": "miniwob/click-button-s42-native-oracle.json",
+      "sha256": "5ff92f87f199e9c39eea5eedafed8711e8cadb240918974d68c7cc99fb757b80",
+      "bytes": 61898,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-button-s73-native-oracle.json",
+      "path": "miniwob/click-button-s73-native-oracle.json",
+      "sha256": "5c20cd6572b764dc8d5b53bea6278d5474160694e7e0fbe0bbbc3da8a45693cf",
+      "bytes": 61976,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-link-s17-native-oracle.json",
+      "path": "miniwob/click-link-s17-native-oracle.json",
+      "sha256": "cd79192620d8942201508fa69c593f33cce88e4f0b3c7154764e43b82122bb89",
+      "bytes": 57646,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-link-s42-native-oracle.json",
+      "path": "miniwob/click-link-s42-native-oracle.json",
+      "sha256": "9d5df548b0156da3188fe922e3e93d63d985ab09ecf1a7945d0e642807a36a1d",
+      "bytes": 61825,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-link-s73-native-oracle.json",
+      "path": "miniwob/click-link-s73-native-oracle.json",
+      "sha256": "937160239fe48ab052d1cf51878ac977273923bce4e256a0e9749f315cb07a0f",
+      "bytes": 59738,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-option-s17-native-oracle.json",
+      "path": "miniwob/click-option-s17-native-oracle.json",
+      "sha256": "bc1636ae328a7c944784b08252f6e32d87a8bb2d789c085ef253a555ab7aba9d",
+      "bytes": 95409,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-option-s42-native-oracle.json",
+      "path": "miniwob/click-option-s42-native-oracle.json",
+      "sha256": "60a01b940874d9235daad4a2c1b1d81506bb945bd2c7fff8312f179f90b4054e",
+      "bytes": 107636,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__click-option-s73-native-oracle.json",
+      "path": "miniwob/click-option-s73-native-oracle.json",
+      "sha256": "9d87361227919d018e8d36d527fc968f88b395e33bda5e66888ab698228555df",
+      "bytes": 107710,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__enter-text-s17-native-oracle.json",
+      "path": "miniwob/enter-text-s17-native-oracle.json",
+      "sha256": "601babf4ac7c75a9c293e5343fb2ff7ab950f15c75c7bc3ea7d9bad8fb03e91e",
+      "bytes": 76696,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__enter-text-s42-native-oracle.json",
+      "path": "miniwob/enter-text-s42-native-oracle.json",
+      "sha256": "6152c7c03d5dc1cc96454c79599dddbbf0c44571678caf1a94ad19f7951e49c9",
+      "bytes": 76708,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__enter-text-s73-native-oracle.json",
+      "path": "miniwob/enter-text-s73-native-oracle.json",
+      "sha256": "d7c042f9051e55288e388ce88edd2855e1bc819c3be274bbcbba5d5913d2452f",
+      "bytes": 76718,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__focus-text-s17-native-oracle.json",
+      "path": "miniwob/focus-text-s17-native-oracle.json",
+      "sha256": "331e0f3306f4dbab7323035265cf199eb58d6fecc394c0f7ad118f8408eab686",
+      "bytes": 53503,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__focus-text-s42-native-oracle.json",
+      "path": "miniwob/focus-text-s42-native-oracle.json",
+      "sha256": "03685e9daffea3d04287e56886807990ea67540f7faf3b72e9adb9bf874d1fc4",
+      "bytes": 53505,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__focus-text-s73-native-oracle.json",
+      "path": "miniwob/focus-text-s73-native-oracle.json",
+      "sha256": "07e749b759d4d44e6ee2d06af0f62c8542a88ba4974ff5b93878e3703ec6da95",
+      "bytes": 53505,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__login-user-s17-native-oracle.json",
+      "path": "miniwob/login-user-s17-native-oracle.json",
+      "sha256": "370a11fa2cdd1766b8b96bcf4136230e26045c65770a73f9da4bfdd36f2c2d4a",
+      "bytes": 100048,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__login-user-s42-native-oracle.json",
+      "path": "miniwob/login-user-s42-native-oracle.json",
+      "sha256": "bf508f872a08a30e44f713dbf8a7a115967c9da21c96456dbac18b8eca5255d9",
+      "bytes": 100070,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__login-user-s73-native-oracle.json",
+      "path": "miniwob/login-user-s73-native-oracle.json",
+      "sha256": "90d5635b081259e454e0ecb8336b2d37260090170558e4b5a123b7280a61d9ea",
+      "bytes": 100053,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__search-engine-s17-native-oracle.json",
+      "path": "miniwob/search-engine-s17-native-oracle.json",
+      "sha256": "92ac4b4c6303d76b6caedf5ab00e868647519ec18a36524fcff7731227bddf82",
+      "bytes": 167527,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__search-engine-s42-native-oracle.json",
+      "path": "miniwob/search-engine-s42-native-oracle.json",
+      "sha256": "81dc3ab1cf841eb3f6070896cc0d61acfde0f633c12898979da43d7a9aa475db",
+      "bytes": 122980,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob__search-engine-s73-native-oracle.json",
+      "path": "miniwob/search-engine-s73-native-oracle.json",
+      "sha256": "df85082a8fbe92d6346d477b1e04dc30986b59c885cd92cbc54b95ed4bb6ec42",
+      "bytes": 167423,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob-fixture.json",
+      "path": "miniwob-fixture.json",
+      "sha256": "9b199bf44463710fffde0c28a40ddb8dc7e73121b43ca3515facb11762e8f1f4",
+      "bytes": 275,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:miniwob-server.log",
+      "path": "miniwob-server.log",
+      "sha256": "f0601c12b0a06002034d49aedb59ca2e8472b3ee708d4e8526397456f6e6d09e",
+      "bytes": 12028,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:oil__oil.jsonl",
+      "path": "oil/oil.jsonl",
+      "sha256": "f100960d393bb53dccc3fd144dba8308608b3fa845e7e650226c680217842ba1",
+      "bytes": 16781,
+      "kind": "jsonl"
+    },
+    {
+      "id": "raw:production-gate.json",
+      "path": "production-gate.json",
+      "sha256": "77699828baa17f1085ab980c94de28100abca4028bc0727ec4197c5da9a779ab",
+      "bytes": 20678,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:regressions.json",
+      "path": "regressions.json",
+      "sha256": "f20ddcdfd1f46e43ab3323a797487e39507fc97baba3072a6de87bb7ffb82398",
+      "bytes": 4240,
+      "kind": "json_summary"
+    },
+    {
+      "id": "raw:runtime.json",
+      "path": "runtime.json",
+      "sha256": "5a606993ffcd5dd25f595183dcd14d05bf945c4da35de46d2b87add39569ee94",
+      "bytes": 2004,
+      "kind": "runtime_metadata"
+    },
+    {
+      "id": "raw:semantic-controlled.log",
+      "path": "semantic-controlled.log",
+      "sha256": "f3339ad1f5705a0a6fdd030e9832e7803b5bc7c82a74584e50832c8105c83206",
+      "bytes": 100,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:signed-worker.log",
+      "path": "signed-worker.log",
+      "sha256": "86561e0a4567adec6a4133eecde65bb5d2ef56c25479e994f73c88038ef331f6",
+      "bytes": 3666,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__extension-e2e.log",
+      "path": "software/extension-e2e.log",
+      "sha256": "f6f9f4883cd9531a8088209adfba4d97e22b27788ded418c430410c72af4b983",
+      "bytes": 268,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__extension-integration.log",
+      "path": "software/extension-integration.log",
+      "sha256": "559cfe518ae0866af9a58c01776e787e2c366fd6eff75393abe15859a3ad67c1",
+      "bytes": 247,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__extension-lint.log",
+      "path": "software/extension-lint.log",
+      "sha256": "ffb8e70f3c0c83a49f6d52a1246cd45166ce5bff46aa4033dbf70e4424d4f375",
+      "bytes": 2667,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__extension-unit.log",
+      "path": "software/extension-unit.log",
+      "sha256": "8323497335cbce6d6bc9d6f90cb67b765c187dc8ffca728fff50f534b7feeb6a",
+      "bytes": 262,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__extension-wasm.log",
+      "path": "software/extension-wasm.log",
+      "sha256": "fc45af549444b948757f04be7428ff4b5b667fe03ff708230f0974a7cf8593db",
+      "bytes": 959,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__intentgym-black.log",
+      "path": "software/intentgym-black.log",
+      "sha256": "1239c20f82d64c540be118ccf284ffd44964051740feb568eaea8620e039e943",
+      "bytes": 57,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__intentgym-isort.log",
+      "path": "software/intentgym-isort.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__intentgym-tests.log",
+      "path": "software/intentgym-tests.log",
+      "sha256": "17976ed47a1eac338097117af13240c806ffc73fb7a26c24d0cc56dec2c26e5b",
+      "bytes": 99,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__layout-manifest.log",
+      "path": "software/layout-manifest.log",
+      "sha256": "c8a397d008a5a986b2eea3bf3d479e56fe527e548b7890eca55079a272443cbf",
+      "bytes": 80,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__layout-platform-subset.log",
+      "path": "software/layout-platform-subset.log",
+      "sha256": "65aedc5e637eda7bbc7e0b005739f21a98966678b670be99fd502aa4fe77f635",
+      "bytes": 19264,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__python-format.log",
+      "path": "software/python-format.log",
+      "sha256": "a0a0f191878d553ae2b88299d5ead34d7a6367937ff1bd9e304fb73059c83f8a",
+      "bytes": 27,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__python-ruff.log",
+      "path": "software/python-ruff.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__python-tests.log",
+      "path": "software/python-tests.log",
+      "sha256": "0abc94c3c971297d23fb0c0ca6a96c8da9301497fe5685255715f78a9e6ba48e",
+      "bytes": 111,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__rust-clippy-default.log",
+      "path": "software/rust-clippy-default.log",
+      "sha256": "9c73735a1033f44f00ea48e15c38d73843ff5a391557aac653bd81d564a34b5f",
+      "bytes": 72,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__rust-clippy-v8.log",
+      "path": "software/rust-clippy-v8.log",
+      "sha256": "5604fc8f0c276397a55db4bd7008236712075c0ad37d3b3a0f1fe362b1b85a36",
+      "bytes": 72,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__rust-fmt.log",
+      "path": "software/rust-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__rust-v8.log",
+      "path": "software/rust-v8.log",
+      "sha256": "c7bf3c62ca9c1309aad08d211c8862769b66034aba0c923bdf2a4f797fb5dd35",
+      "bytes": 21123,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__rust-workspace.log",
+      "path": "software/rust-workspace.log",
+      "sha256": "15c8b66fa49d45827fea0e09799bbba668d1957a43a7e09343bf83d81ee30c9e",
+      "bytes": 43826,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__scanner-format.log",
+      "path": "software/scanner-format.log",
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20",
+      "bytes": 66,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__scanner-lint.log",
+      "path": "software/scanner-lint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__scanner-sync.log",
+      "path": "software/scanner-sync.log",
+      "sha256": "a1bd92a156aed3eb96d190cb2507a7fa3db4cb5ce1ae14eaa5be062781b6aa34",
+      "bytes": 210,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:software__scanner-tests.log",
+      "path": "software/scanner-tests.log",
+      "sha256": "defd74e8e50a4fd490510b323a44fc1671cf7efb5592cb7cb903aebbe2de394a",
+      "bytes": 2125,
+      "kind": "test_log"
+    },
+    {
+      "id": "raw:worker-integration.txt",
+      "path": "worker-integration.txt",
+      "sha256": "8ee367e229d49cfbf277328a4a47e6f5197a3da804612017239ac4487a8c475e",
+      "bytes": 64,
+      "kind": "test_log"
+    }
+  ],
+  "case_ledger": [
+    {
+      "id": "contract-v4-roundtrip",
+      "category": "contract",
+      "status": "passed",
+      "assertion_id": "assert-contract-v4-roundtrip",
+      "evidence": [
+        "raw:software__rust-workspace.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "contract-v3-adapter-no-invented-geometry",
+      "category": "contract",
+      "status": "passed",
+      "assertion_id": "assert-contract-v3-adapter-no-invented-geometry",
+      "evidence": [
+        "raw:software__rust-workspace.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "worker-protocol-v6-layout-fingerprint",
+      "category": "worker",
+      "status": "passed",
+      "assertion_id": "assert-worker-protocol-v6-layout-fingerprint",
+      "evidence": [
+        "raw:runtime.json",
+        "raw:worker-integration.txt",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "cascade-author-inline-inheritance",
+      "category": "style",
+      "status": "passed",
+      "assertion_id": "assert-cascade-author-inline-inheritance",
+      "evidence": [
+        "raw:software__layout-platform-subset.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "cascade-specificity-source-order",
+      "category": "style",
+      "status": "passed",
+      "assertion_id": "assert-cascade-specificity-source-order",
+      "evidence": [
+        "raw:software__rust-v8.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "custom-properties-fallback",
+      "category": "style",
+      "status": "passed",
+      "assertion_id": "assert-custom-properties-fallback",
+      "evidence": [
+        "raw:software__layout-platform-subset.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "media-width-color-motion",
+      "category": "style",
+      "status": "passed",
+      "assertion_id": "assert-media-width-color-motion",
+      "evidence": [
+        "raw:software__rust-v8.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "cssom-computed-style-readonly",
+      "category": "cssom",
+      "status": "passed",
+      "assertion_id": "assert-cssom-computed-style-readonly",
+      "evidence": [
+        "raw:software__rust-v8.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "cssom-stylesheet-insert-delete",
+      "category": "cssom",
+      "status": "passed",
+      "assertion_id": "assert-cssom-stylesheet-insert-delete",
+      "evidence": [
+        "raw:software__rust-v8.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "external-css-import-broker",
+      "category": "cssom",
+      "status": "passed",
+      "assertion_id": "assert-external-css-import-broker",
+      "evidence": [
+        "raw:software__rust-v8.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "block-box-model",
+      "category": "layout",
+      "status": "passed",
+      "assertion_id": "assert-block-box-model",
+      "evidence": [
+        "raw:layout-result.json",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "flex-relational-geometry",
+      "category": "layout",
+      "status": "passed",
+      "assertion_id": "assert-flex-relational-geometry",
+      "evidence": [
+        "raw:layout-result.json",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "grid-relational-geometry",
+      "category": "layout",
+      "status": "passed",
+      "assertion_id": "assert-grid-relational-geometry",
+      "evidence": [
+        "raw:layout-result.json",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "bounded-float-clear",
+      "category": "layout",
+      "status": "passed",
+      "assertion_id": "assert-bounded-float-clear",
+      "evidence": [
+        "raw:software__layout-platform-subset.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "absolute-relative-fixed-position",
+      "category": "layout",
+      "status": "passed",
+      "assertion_id": "assert-absolute-relative-fixed-position",
+      "evidence": [
+        "raw:software__layout-platform-subset.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "two-dimensional-transform-bounds",
+      "category": "layout",
+      "status": "passed",
+      "assertion_id": "assert-two-dimensional-transform-bounds",
+      "evidence": [
+        "raw:layout-result.json",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "inline-shaping-line-fragments",
+      "category": "text",
+      "status": "passed",
+      "assertion_id": "assert-inline-shaping-line-fragments",
+      "evidence": [
+        "raw:layout-result.json",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "deterministic-embedded-font",
+      "category": "font",
+      "status": "passed",
+      "assertion_id": "assert-deterministic-embedded-font",
+      "evidence": [
+        "raw:software__layout-platform-subset.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "brokered-web-font-hash-quota",
+      "category": "font",
+      "status": "passed",
+      "assertion_id": "assert-brokered-web-font-hash-quota",
+      "evidence": [
+        "raw:software__layout-platform-subset.log",
+        "raw:software__rust-v8.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "viewport-resize-reflow",
+      "category": "viewport",
+      "status": "passed",
+      "assertion_id": "assert-viewport-resize-reflow",
+      "evidence": [
+        "raw:software__rust-v8.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "scroll-clamp-and-into-view",
+      "category": "viewport",
+      "status": "passed",
+      "assertion_id": "assert-scroll-clamp-and-into-view",
+      "evidence": [
+        "raw:layout-result.json",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "fixed-position-survives-scroll",
+      "category": "viewport",
+      "status": "passed",
+      "assertion_id": "assert-fixed-position-survives-scroll",
+      "evidence": [
+        "raw:layout-result.json",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "viewport-only-observation",
+      "category": "semantic_geometry",
+      "status": "passed",
+      "assertion_id": "assert-viewport-only-observation",
+      "evidence": [
+        "raw:software__rust-v8.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "oil-box-viewport-media-scroll",
+      "category": "oil",
+      "status": "passed",
+      "assertion_id": "assert-oil-box-viewport-media-scroll",
+      "evidence": [
+        "raw:oil__oil.jsonl",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "action-auto-scroll-interactability",
+      "category": "action",
+      "status": "passed",
+      "assertion_id": "assert-action-auto-scroll-interactability",
+      "evidence": [
+        "raw:software__rust-v8.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "hidden-zero-pointer-rejection",
+      "category": "action",
+      "status": "passed",
+      "assertion_id": "assert-hidden-zero-pointer-rejection",
+      "evidence": [
+        "raw:software__rust-v8.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "closed-shadow-layout-semantic-isolation",
+      "category": "security",
+      "status": "passed",
+      "assertion_id": "assert-closed-shadow-layout-semantic-isolation",
+      "evidence": [
+        "raw:software__rust-v8.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "native-chromium-relational-differential",
+      "category": "differential",
+      "status": "passed",
+      "assertion_id": "assert-native-chromium-relational-differential",
+      "evidence": [
+        "raw:differential__chromium.json",
+        "raw:differential__native.json",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "passed"
+      }
+    },
+    {
+      "id": "table-bounded-geometry-and-structured-extraction",
+      "category": "layout",
+      "status": "passed",
+      "assertion_id": "assert-table-bounded-geometry-and-structured-extraction",
+      "evidence": [
+        "raw:layout-result.json",
+        "raw:software__rust-v8.log",
+        "raw:software__rust-workspace.log",
+        "raw:assertions.json"
+      ],
+      "disposition": "required",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "paint-screenshot-pdf",
+      "category": "limitation",
+      "status": "expected_limitation",
+      "assertion_id": "assert-paint-screenshot-pdf",
+      "evidence": [
+        "raw:limitations__capabilities.jsonl",
+        "raw:assertions.json"
+      ],
+      "disposition": "declared_limitation",
+      "expected_capability": "paint",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "paint-order-hit-testing",
+      "category": "limitation",
+      "status": "expected_limitation",
+      "assertion_id": "assert-paint-order-hit-testing",
+      "evidence": [
+        "raw:limitations__capabilities.jsonl",
+        "raw:assertions.json"
+      ],
+      "disposition": "declared_limitation",
+      "expected_capability": "layout.hit_testing.paint_order",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "three-dimensional-transforms",
+      "category": "limitation",
+      "status": "expected_limitation",
+      "assertion_id": "assert-three-dimensional-transforms",
+      "evidence": [
+        "raw:limitations__capabilities.jsonl",
+        "raw:assertions.json"
+      ],
+      "disposition": "declared_limitation",
+      "expected_capability": "layout.transform.3d",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    },
+    {
+      "id": "complex-float-fragmentation",
+      "category": "limitation",
+      "status": "expected_limitation",
+      "assertion_id": "assert-complex-float-fragmentation",
+      "evidence": [
+        "raw:limitations__capabilities.jsonl",
+        "raw:assertions.json"
+      ],
+      "disposition": "declared_limitation",
+      "expected_capability": "layout.float.complex",
+      "domains": {
+        "native": "passed",
+        "chromium_differential": "not_applicable"
+      }
+    }
+  ],
+  "criteria": {
+    "required_native_cases_pass": true,
+    "declared_limitations_are_explicit": true,
+    "native_chromium_relations_match": true,
+    "existing_regressions_pass": true,
+    "false_reference_preservation_is_zero": true,
+    "signed_process_boundary_passes": true,
+    "production_benchmarks_published": true
+  },
+  "outcome": {
+    "status": "passed",
+    "reason_codes": [],
+    "diagnostics": []
+  }
+}

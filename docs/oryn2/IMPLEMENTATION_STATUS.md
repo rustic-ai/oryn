@@ -1,13 +1,15 @@
 # Oryn2 implementation status
 
-> **Current attestation status: provisional.** A 2026-08-29 evidence audit found
+> **Current attestation status: exact macOS candidate passed; Linux pending.** A 2026-08-29 evidence audit found
 > that the layout and security result builders could assign passing case status
 > from category-level artifacts without a case-bound executed assertion. Those
 > builders now fail closed unless every manifest case has exactly one passing
 > assertion record. The production suite runners now emit those assertion and
 > regression ledgers, and raw-mode validators independently recompute compact
 > results from them. Existing compact results remain historical records for
-> their source commits, but they are not current release attestations. See
+> their source commits, but they are not current release attestations. The
+> replacement attestation binds exact source commit `c5fd010`, parent and signed
+> worker binaries, policies, limits, fixtures and schema-v5 results. See
 > `ORYN2-PROPOSAL-VS-IMPLEMENTATION-REVIEW.md`.
 
 This status is intentionally capability-based. It records implemented behavior and
@@ -29,7 +31,7 @@ rewrite those historical payloads or present them as a new validation run.
   corpus validator checks counts, unique IDs, read-only canary policy, and all
   required local sources.
 
-## Runtime foundation — implemented, release evidence provisional
+## Runtime foundation — implemented and attested on macOS
 
 - Raw V8 and `deno_core` host probes use the same V8 revision. Their historical
   startup/size comparison selected raw V8, but the mandatory concurrent-page
@@ -79,9 +81,10 @@ rewrite those historical payloads or present them as a new validation run.
   policy-brokered streams concurrently. The broker surface is thread-safe,
   HTTP/2 and bounded demand-driven bodies are tested, and late/unmatched
   replies remain rejected.
-- macOS signing and Linux sandbox execution remain release attestations. They
-  do not reintroduce the deleted legacy runtime and will be exercised only in
-  the private release environment and a Linux host/VM respectively.
+- The exact macOS parent/worker bundle passed private signing, App Sandbox,
+  runtime cutover, scheduler, profile-equivalence, security, layout, framework,
+  churn and semantic validation. Linux sandbox execution remains a separate
+  CayVM/platform attestation and does not reintroduce the deleted legacy runtime.
 
 ## executable document — complete
 
@@ -192,7 +195,11 @@ rewrite those historical payloads or present them as a new validation run.
   derived, correlated, or unattributed causality, with controlled per-class
   precision and recall evidence. The validator recomputes these metrics from
   raw cells and rejects unmatched fingerprints or promoted unattributed work.
-  No replacement 96-cell result has been attested yet.
+  The replacement schema-v5 result is now attested against the exact signed
+  macOS release candidate. It reports zero compact-projection omissions across
+  63 failed cells, separates 57 browser-truth absences from six model/action
+  failures, and reports perfect controlled direct/derived/correlated causal
+  precision and recall without promoting unattributed work.
 - The final Azure run spent `$2.019074`. Including `$3.190558` from the two
   invalid attempts, cumulative hosted spend is `$5.209632`, within the `$100`
   ceiling. The committed schema-v3 summary is
@@ -227,17 +234,18 @@ rewrite those historical payloads or present them as a new validation run.
   invalidation cases, including attribute/text/value changes, sibling and
   ancestor churn, same-document reparenting, shadow changes, DOM recreation,
   framework-style keyed replacement, frame/navigation changes, and worker
-  replacement. The suite is implemented but must run through the final signed
-  release candidate before its result can be published.
+  replacement. The exact signed candidate passes 8/8 survival and 8/8
+  invalidation cases with 0/8 false preservation and 2/2 recovery.
 - `benchmarks/evidence/semantic-validation-v5/STATUS.json` records the current
-  split honestly: controlled causal and challenge software evidence passes;
-  release-candidate churn and the complete 96-cell Azure/Qwen re-attestation
-  remain pending. No hosted requests were made for this correction, so prior
-  cumulative spend remains `$6.362286` against the `$100` ceiling.
-- Current compact evidence is
-  `benchmarks/evidence/semantic-sandbox-v4/model-panel-v4.json`; deterministic, churn, and
-  production summaries are published beside it. Raw observations, turns,
-  traces, and deterministic cells remain ignored.
+  completed attestation: native and Chromium deterministic matrices each pass
+  24/24; the model panel completes 96/96 cells; Azure/native passes 18/24; and
+  false reference preservation is zero. New hosted spend is `$1.633968`;
+  including `$6.362286` prior spend, cumulative spend is `$7.996254` against
+  the `$100` ceiling.
+- Current compact evidence is published under
+  `benchmarks/evidence/semantic-validation-v5/`, with the exact release bill of
+  materials at `benchmarks/evidence/release-attestation-v5/attestation.json`.
+  Raw observations, turns, traces and deterministic cells remain ignored.
 - Formatting, strict default/all-feature Clippy, Rust default/all-feature,
   V8-host and no-default tests, Python SDK, IntentGym, scanner, extension, and
   corpus/executable document/semantic loop/schema-v4 validators pass against the closure tree.
@@ -283,13 +291,15 @@ rewrite those historical payloads or present them as a new validation run.
   for referenced names, hidden descendants, host alternatives, role fallback
   and presentation conflicts. It does not claim complete long-tail Accessible
   Name, ARIA or changing-site conformance.
-  Exact packaged-worker and release evidence remains provisional.
-- Local verification on the current working tree passed 178/178 native V8
+  Exact packaged-worker evidence now passes on macOS; Linux and broader
+  changing-site evidence remain pending.
+- Local verification before attestation passed 178/178 native V8
   library tests, all common/core tests, six MCP tests, all-feature binary
   checking, strict all-target Clippy, formatting, 26 Python tests (19 skipped
   for unavailable optional environments), Ruff, MCP stdio smoke testing, and
   `git diff --check`. These results do not replace signed-package, Linux, or
-  corrected model-panel evidence.
+  corrected model-panel evidence. The exact candidate subsequently passed the
+  signed package suites and corrected panel recorded above.
 
 ## application compatibility — complete
 

@@ -1,0 +1,4494 @@
+{
+  "schema_version": 5,
+  "run_id": "semantic-validation-model-panel-v5",
+  "started_at": "2026-08-31T01:59:33.411699Z",
+  "updated_at": "2026-08-31T04:45:08.794980Z",
+  "fingerprint": {
+    "source_commit": "c5fd01051e047bb6e62d4ce7d310b91d025fcf81",
+    "source_dirty": false,
+    "source_tree_sha256": "5ee5f148a51651bd0da3b752db4165eeb5b121cb7c322dd5f0f055d1ea81aa52",
+    "harness_sha256": "20fea7e3824f9f321903947cc721f2bca9f929c26983d578afcd128f6f286d77",
+    "deterministic_evidence_sha256": "f345b4dc8ca54b4cf8f032f38652014b22e197da30b044640befdabeb6619620",
+    "deterministic_cells_sha256": null,
+    "causal_evidence_sha256": "b2596f61b0c7c35d8b176d143aa2f6fc3c4f533f3823536f9d3bdbc0b6e91f73",
+    "challenge_evidence_sha256": "83a7a248389a4827c5a7508182840fe9543df6ba536b945d0c00eddc55fe33e9",
+    "churn_evidence_sha256": "bf011592be9972a231b61332ad5923f57d62c8748c4737e46baa5e9dc18146fe",
+    "binary": {
+      "sha256": "5461a6cd0d08be5731eb8cb4d8828c6dd98cf42073b4ae1f2b0e16b3c446ee5c",
+      "bytes": 49456080,
+      "runtime": {
+        "contract_version": 4,
+        "native_v8": true,
+        "v8_version": "15.0.245.2-rusty",
+        "build_profile": "release",
+        "capabilities": [
+          "native_dom",
+          "html5ever",
+          "rustls_network_broker",
+          "oil",
+          "semantic_v3_compat",
+          "semantic_v4",
+          "execution_domain_handoff",
+          "trace_recording",
+          "network_record_replay",
+          "sealed_context_checkpoint",
+          "replay_branching",
+          "v8_javascript",
+          "generated_webidl_registry",
+          "webassembly",
+          "same_site_cookies",
+          "csp3_agent_critical",
+          "trusted_types_core",
+          "intl_full_icu",
+          "computed_style",
+          "layout_box",
+          "layout_inline_text",
+          "viewport_scroll",
+          "deterministic_embedded_font",
+          "paint_snapshot"
+        ],
+        "execution_mode": "sandboxed_worker",
+        "sandboxed": true,
+        "worker_protocol_version": 6,
+        "worker_binary_sha256": "1bcf642c0a8711cb11e0d7312124cfc2494a7553ad1dd733bc5ed2b78417404a",
+        "worker_bundle_id": "ai.rustic.oryn.page-worker",
+        "worker_team_id": "5HVA9VFF8K",
+        "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+        "policy_digest": "828a1b8ea74ec04124531620126a637f7bdd58a6ca2126eb85188804c2ecdac2",
+        "sandbox_state": "app_sandbox",
+        "limits": {
+          "runtime_profile": "full",
+          "v8_heap_bytes": 268435456,
+          "worker_rss_bytes": 536870912,
+          "ipc_frame_bytes": 25165824,
+          "command_wall_ms": 10000,
+          "navigation_wall_ms": 30000,
+          "queue_capacity": 32,
+          "max_layout_nodes": 100000,
+          "max_font_bytes": 8388608,
+          "max_page_font_bytes": 33554432,
+          "max_viewport_css_px": 16384,
+          "max_resource_cache_entries": 256,
+          "max_resource_cache_bytes": 33554432,
+          "max_resource_cache_entry_bytes": 8388608
+        },
+        "style_engine_version": "stylo-declarations-0.20+oryn-common-web-cascade-v2",
+        "box_engine_version": "taffy-0.14",
+        "inline_engine_version": "parley-0.11.1",
+        "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+        "runtime_profile": "core_full",
+        "binding_abi_version": 1
+      },
+      "mutation_smoke": {
+        "status": "passed",
+        "revision_before": 1,
+        "revision_after": 2,
+        "effect_kinds": [
+          "dom_mutation",
+          "event"
+        ]
+      }
+    },
+    "worker_bundle": {
+      "path": "/Users/rohit/Work/oryn2/oryn/target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker",
+      "sha256": "1bcf642c0a8711cb11e0d7312124cfc2494a7553ad1dd733bc5ed2b78417404a",
+      "bytes": 48705104,
+      "bundle_id": "ai.rustic.oryn.page-worker",
+      "team_id": "5HVA9VFF8K",
+      "signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+      "cdhash": "2c92e04fbe1f7007b160b50c45b9edb450778af3",
+      "hardened_runtime": true,
+      "signature_details_sha256": "52c748797fb6d0ef5edb261d16be75f6bd475a719e7be43c3f2f8ca1d8dd0574",
+      "entitlements": {
+        "com.apple.security.app-sandbox": true,
+        "com.apple.security.cs.allow-jit": true
+      },
+      "entitlements_sha256": "d8e575571677e786b671cd2aa7c0c6edf4f9b185fe78e17b11b0d8fd336f2d93",
+      "manifest_sha256": "6b856eaabca23ff9f6cc05eaa9f8a1ffe76c6a5743023e1ce28631f64ced76df",
+      "manifest": {
+        "schema_version": 1,
+        "bundle_id": "ai.rustic.oryn.page-worker",
+        "team_id": "5HVA9VFF8K",
+        "signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+        "protocol_version": 6,
+        "v8_version": "15.0.245.2-rusty",
+        "worker_build_sha256": "9b34844bf9d4519102ab8a08d3fe7df70920c6489a95449674cfbd1b3dea2140",
+        "worker_build_bytes": 48970992,
+        "entitlement_sha256": "cbb53a56267d47cc0e275b74373577dd1d6220f47d0e6da34599a7e9dc9c2d65",
+        "policy_sha256": "e5040aed55a6afc3a33c9fc73c764197082625c73397105cb990a7150189822b",
+        "source_tree_sha256": "5ee5f148a51651bd0da3b752db4165eeb5b121cb7c322dd5f0f055d1ea81aa52",
+        "style_engine_version": "stylo-declarations-0.20+oryn-common-web-cascade-v2",
+        "box_engine_version": "taffy-0.14",
+        "inline_engine_version": "parley-0.11.1",
+        "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+        "limits": {
+          "runtime_profile": "full",
+          "v8_heap_bytes": 268435456,
+          "worker_rss_bytes": 536870912,
+          "ipc_frame_bytes": 25165824,
+          "command_wall_ms": 10000,
+          "navigation_wall_ms": 30000,
+          "queue_capacity": 32,
+          "max_layout_nodes": 100000,
+          "max_font_bytes": 8388608,
+          "max_page_font_bytes": 33554432,
+          "max_viewport_css_px": 16384,
+          "max_resource_cache_entries": 256,
+          "max_resource_cache_bytes": 33554432,
+          "max_resource_cache_entry_bytes": 8388608
+        }
+      }
+    },
+    "policy": {
+      "digest": "828a1b8ea74ec04124531620126a637f7bdd58a6ca2126eb85188804c2ecdac2",
+      "network_mode": "benchmark_loopback",
+      "parent_owned_cookies": true,
+      "decoded_response_limit_bytes": 16777216
+    },
+    "limits": {
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912,
+      "ipc_frame_bytes": 25165824,
+      "command_wall_ms": 10000,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "max_layout_nodes": 100000,
+      "max_font_bytes": 8388608,
+      "max_page_font_bytes": 33554432,
+      "max_viewport_css_px": 16384,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entry_bytes": 8388608
+    },
+    "miniwob": {
+      "allowed_seeds": [
+        17,
+        42,
+        73
+      ],
+      "content_sha256": "7bac5e8f28c40b8a44b3c915f98b26a8d3c494ecc1634e3d43839ed13598e386",
+      "injection": "after_core_before_load",
+      "kind": "oryn_seeded_miniwob",
+      "source_commit": "33c3b4ddef8c6eb67c57a29663d844b1eda7e614",
+      "source_modified": false
+    },
+    "chromium_version": "Google Chrome 152.0.7977.65",
+    "compatibility_binary": {
+      "sha256": "eb1f1f08ccb1ff64c2073d1ab0d8039ab46e2bbed610d4bf5e4978d371616e33",
+      "bytes": 8658848
+    },
+    "models": {
+      "hosted_provider": "azure_openai",
+      "hosted_deployment": "gpt-5.6-terra",
+      "local_model": "qwen3:4b",
+      "local_model_digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7"
+    },
+    "sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a"
+  },
+  "corpus": {
+    "name": "oryn-semantic-validation-native-proof",
+    "revision": "2026-08-26",
+    "entries": 30,
+    "published_entries": 30
+  },
+  "deterministic": {
+    "schema_version": 5,
+    "run_id": "semantic-validation-deterministic-v5",
+    "fingerprint": {
+      "source_commit": "c5fd01051e047bb6e62d4ce7d310b91d025fcf81",
+      "binary": {
+        "sha256": "5461a6cd0d08be5731eb8cb4d8828c6dd98cf42073b4ae1f2b0e16b3c446ee5c",
+        "bytes": 49456080,
+        "runtime": {
+          "contract_version": 4,
+          "native_v8": true,
+          "v8_version": "15.0.245.2-rusty",
+          "build_profile": "release",
+          "capabilities": [
+            "native_dom",
+            "html5ever",
+            "rustls_network_broker",
+            "oil",
+            "semantic_v3_compat",
+            "semantic_v4",
+            "execution_domain_handoff",
+            "trace_recording",
+            "network_record_replay",
+            "sealed_context_checkpoint",
+            "replay_branching",
+            "v8_javascript",
+            "generated_webidl_registry",
+            "webassembly",
+            "same_site_cookies",
+            "csp3_agent_critical",
+            "trusted_types_core",
+            "intl_full_icu",
+            "computed_style",
+            "layout_box",
+            "layout_inline_text",
+            "viewport_scroll",
+            "deterministic_embedded_font",
+            "paint_snapshot"
+          ],
+          "execution_mode": "sandboxed_worker",
+          "sandboxed": true,
+          "worker_protocol_version": 6,
+          "worker_binary_sha256": "1bcf642c0a8711cb11e0d7312124cfc2494a7553ad1dd733bc5ed2b78417404a",
+          "worker_bundle_id": "ai.rustic.oryn.page-worker",
+          "worker_team_id": "5HVA9VFF8K",
+          "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+          "policy_digest": "828a1b8ea74ec04124531620126a637f7bdd58a6ca2126eb85188804c2ecdac2",
+          "sandbox_state": "app_sandbox",
+          "limits": {
+            "runtime_profile": "full",
+            "v8_heap_bytes": 268435456,
+            "worker_rss_bytes": 536870912,
+            "ipc_frame_bytes": 25165824,
+            "command_wall_ms": 10000,
+            "navigation_wall_ms": 30000,
+            "queue_capacity": 32,
+            "max_layout_nodes": 100000,
+            "max_font_bytes": 8388608,
+            "max_page_font_bytes": 33554432,
+            "max_viewport_css_px": 16384,
+            "max_resource_cache_entries": 256,
+            "max_resource_cache_bytes": 33554432,
+            "max_resource_cache_entry_bytes": 8388608
+          },
+          "style_engine_version": "stylo-declarations-0.20+oryn-common-web-cascade-v2",
+          "box_engine_version": "taffy-0.14",
+          "inline_engine_version": "parley-0.11.1",
+          "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+          "runtime_profile": "core_full",
+          "binding_abi_version": 1
+        }
+      },
+      "source_tree_sha256": "5ee5f148a51651bd0da3b752db4165eeb5b121cb7c322dd5f0f055d1ea81aa52",
+      "miniwob": {
+        "allowed_seeds": [
+          17,
+          42,
+          73
+        ],
+        "content_sha256": "7bac5e8f28c40b8a44b3c915f98b26a8d3c494ecc1634e3d43839ed13598e386",
+        "injection": "after_core_before_load",
+        "kind": "oryn_seeded_miniwob",
+        "source_commit": "33c3b4ddef8c6eb67c57a29663d844b1eda7e614",
+        "source_modified": false
+      },
+      "chromium_version": "Google Chrome 152.0.7977.65",
+      "compatibility_binary": {
+        "sha256": "eb1f1f08ccb1ff64c2073d1ab0d8039ab46e2bbed610d4bf5e4978d371616e33",
+        "bytes": 8658848
+      },
+      "oracle": {
+        "id": "oil_deterministic_oracle_v1",
+        "sha256": "226d15fcb9960d09b50dc4bbbcb9c1f3962c46d81cf0a024186e09a7a43a2522"
+      },
+      "sha256": "dc1de3371a99d48da476f90f6829d408b42ea7562d2953f3c6fa3e2c3a1600db"
+    },
+    "started_at": "2026-08-31T01:43:04.475771Z",
+    "completed_at": "2026-08-31T01:44:13.627351Z",
+    "cells": 48,
+    "native": {
+      "completed": 24,
+      "passed": 24
+    },
+    "chromium": {
+      "completed": 24,
+      "passed": 24
+    },
+    "differential": [
+      {
+        "task_id": "click-button",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-button",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-button",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-link",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-link",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-link",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-option",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-option",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "click-option",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "enter-text",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "enter-text",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "enter-text",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "focus-text",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "focus-text",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "focus-text",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "choose-date",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "choose-date",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "choose-date",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "login-user",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "login-user",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "login-user",
+        "seed": 73,
+        "first_divergence": null
+      },
+      {
+        "task_id": "search-engine",
+        "seed": 17,
+        "first_divergence": null
+      },
+      {
+        "task_id": "search-engine",
+        "seed": 42,
+        "first_divergence": null
+      },
+      {
+        "task_id": "search-engine",
+        "seed": 73,
+        "first_divergence": null
+      }
+    ],
+    "outcome": {
+      "status": "passed"
+    }
+  },
+  "panel": {
+    "expected_runs": 96,
+    "completed_runs": 96,
+    "prior_hosted_spend_usd": 6.362286,
+    "new_hosted_spend_usd": 1.633968,
+    "cumulative_hosted_spend_usd": 7.996254,
+    "hosted_cost_cap_usd": 100.0,
+    "hosted_provider": "azure_openai",
+    "hosted_model": "gpt-5.6-terra",
+    "azure_native_completed": 24,
+    "azure_native_passed": 18,
+    "local_model": "qwen3:4b",
+    "local_model_digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+    "local_model_max_output_tokens": 256
+  },
+  "metrics": {
+    "task_success": {
+      "numerator": 33,
+      "denominator": 96,
+      "value": 0.34375
+    },
+    "observation_sufficiency": {
+      "numerator": 0,
+      "denominator": 63,
+      "value": 0.0,
+      "definition": "failed_task_projection_omission_rate",
+      "direction": "lower_is_better",
+      "attribution_counts": {
+        "browser_truth_missing": 57,
+        "capability_failure": 0,
+        "model_or_action_failure": 6,
+        "projection_omission": 0,
+        "runtime_failure": 0
+      }
+    },
+    "recovery": {
+      "numerator": 2,
+      "denominator": 2,
+      "value": 1.0
+    },
+    "reference_survival": {
+      "numerator": 8,
+      "denominator": 8,
+      "value": 1.0
+    },
+    "false_reference_preservation": {
+      "numerator": 0,
+      "denominator": 8,
+      "value": 0.0
+    },
+    "action_latency_ms": {
+      "p50": 4.724025726318359,
+      "p95": 42.1140193939209,
+      "samples": 839
+    },
+    "observation_utf8_bytes": {
+      "p50": 7040,
+      "p95": 8164,
+      "samples": 743
+    },
+    "causal_attribution": {
+      "direct": {
+        "precision": {
+          "numerator": 1,
+          "denominator": 1,
+          "value": 1.0
+        },
+        "recall": {
+          "numerator": 1,
+          "denominator": 1,
+          "value": 1.0
+        }
+      },
+      "derived": {
+        "precision": {
+          "numerator": 1,
+          "denominator": 1,
+          "value": 1.0
+        },
+        "recall": {
+          "numerator": 1,
+          "denominator": 1,
+          "value": 1.0
+        }
+      },
+      "correlated": {
+        "precision": {
+          "numerator": 1,
+          "denominator": 1,
+          "value": 1.0
+        },
+        "recall": {
+          "numerator": 1,
+          "denominator": 1,
+          "value": 1.0
+        }
+      },
+      "unattributed_promotions": 0
+    },
+    "challenge_detection": {
+      "confirmed_precision": {
+        "numerator": 6,
+        "denominator": 6,
+        "value": 1.0
+      },
+      "confirmed_recall": {
+        "numerator": 6,
+        "denominator": 6,
+        "value": 1.0
+      }
+    }
+  },
+  "cell_ledger": [
+    {
+      "cell_id": "choose-date-s17-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.0046879999999999995,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 453,
+        "full_utf8_bytes": 453,
+        "compact_sha256": "1ac620a20e658c4fe8e0869b1d1c667cd166c816cc1daf58560edd4c805d5751",
+        "full_sha256": "1ac620a20e658c4fe8e0869b1d1c667cd166c816cc1daf58560edd4c805d5751"
+      },
+      "action_latency_ms": [
+        7.788658142089844,
+        10.284185409545898,
+        2.4170875549316406
+      ],
+      "observation_utf8_bytes": [
+        0,
+        380,
+        454
+      ]
+    },
+    {
+      "cell_id": "choose-date-s17-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 380,
+        "full_utf8_bytes": 380,
+        "compact_sha256": "1033261aaaa0c14efb485eef22598880d7365d1d58a3e9f8a96d9f81f218f3ed",
+        "full_sha256": "1033261aaaa0c14efb485eef22598880d7365d1d58a3e9f8a96d9f81f218f3ed"
+      },
+      "action_latency_ms": [
+        7.6160430908203125,
+        4.257917404174805,
+        3.402233123779297,
+        3.453969955444336,
+        2.7701854705810547,
+        3.184080123901367,
+        2.712726593017578,
+        2.4759769439697266,
+        2.3849010467529297,
+        2.599954605102539,
+        3.020763397216797,
+        2.7909278869628906
+      ],
+      "observation_utf8_bytes": [
+        0,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380
+      ]
+    },
+    {
+      "cell_id": "choose-date-s17-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.13222,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7814,
+        "full_utf8_bytes": 13953,
+        "compact_sha256": "0009799e4d3ed022fb770c963976a2f0bf2c2973d1203e0257db2e28e2679d06",
+        "full_sha256": "2024e10e25e46f9226bb593e9c481cba3f4c4e51dd3651e7a716dff0f4720ea3"
+      },
+      "action_latency_ms": [
+        38.149118423461914,
+        264.21499252319336,
+        33.670902252197266,
+        227.67901420593262,
+        4.899024963378906,
+        0.392913818359375,
+        4.307985305786133,
+        34.14297103881836,
+        0.28324127197265625,
+        5.509853363037109,
+        32.94491767883301,
+        34.275054931640625
+      ],
+      "observation_utf8_bytes": [
+        0,
+        8107,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814
+      ]
+    },
+    {
+      "cell_id": "choose-date-s17-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 8107,
+        "full_utf8_bytes": 13971,
+        "compact_sha256": "f8578f72bf49581412d986eb357af03cb1b3288775e52cb242cc20a6cad8f04f",
+        "full_sha256": "46cd0e728c7a4e05bf9cda4f72d1c721d01f95c67554fdfccdae8267d28d6d9a"
+      },
+      "action_latency_ms": [
+        38.362979888916016,
+        44.38972473144531,
+        43.87211799621582,
+        40.47894477844238,
+        47.49798774719238,
+        38.94615173339844,
+        41.9621467590332,
+        39.54815864562988,
+        39.33596611022949,
+        39.11614418029785,
+        39.03603553771973,
+        39.44206237792969
+      ],
+      "observation_utf8_bytes": [
+        0,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107
+      ]
+    },
+    {
+      "cell_id": "choose-date-s42-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.004796,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 453,
+        "full_utf8_bytes": 453,
+        "compact_sha256": "e6582d3a77b3c42ccee32e0166c4f42a57ad862735ce95a35f0ad08ea44f8742",
+        "full_sha256": "e6582d3a77b3c42ccee32e0166c4f42a57ad862735ce95a35f0ad08ea44f8742"
+      },
+      "action_latency_ms": [
+        7.350921630859375,
+        9.91201400756836,
+        1.8401145935058594
+      ],
+      "observation_utf8_bytes": [
+        0,
+        380,
+        454
+      ]
+    },
+    {
+      "cell_id": "choose-date-s42-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 380,
+        "full_utf8_bytes": 380,
+        "compact_sha256": "54cbb140edf2c0b75166dab978f3f2c4eb4828a61390177a4b24b70db2b1a762",
+        "full_sha256": "54cbb140edf2c0b75166dab978f3f2c4eb4828a61390177a4b24b70db2b1a762"
+      },
+      "action_latency_ms": [
+        7.065057754516602,
+        4.701852798461914,
+        3.9560794830322266,
+        3.3500194549560547,
+        2.758026123046875,
+        2.6540756225585938,
+        2.735137939453125,
+        2.5017261505126953,
+        2.3162364959716797,
+        2.722024917602539,
+        2.4421215057373047,
+        2.552032470703125
+      ],
+      "observation_utf8_bytes": [
+        0,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380
+      ]
+    },
+    {
+      "cell_id": "choose-date-s42-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.136794,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7814,
+        "full_utf8_bytes": 13953,
+        "compact_sha256": "7b82b8419ac2f675e0d22835f455292011fcb4fc21ade94f283cf14671b05710",
+        "full_sha256": "05741b64a7de1632b29be72685c81fc3b344a55f2ce5f2fdd7acedbc61649738"
+      },
+      "action_latency_ms": [
+        38.281917572021484,
+        267.2560214996338,
+        33.102989196777344,
+        230.59368133544922,
+        4.354000091552734,
+        33.81705284118652,
+        0.3070831298828125,
+        0.3361701965332031,
+        3.9958953857421875,
+        4.197835922241211,
+        4.821300506591797,
+        34.62409973144531
+      ],
+      "observation_utf8_bytes": [
+        0,
+        8107,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814
+      ]
+    },
+    {
+      "cell_id": "choose-date-s42-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 8107,
+        "full_utf8_bytes": 13971,
+        "compact_sha256": "2f495d4e5d2e933386ba491020b3c733a021a697b91a303f0a76adb02c5259fd",
+        "full_sha256": "867d253beca9fef254063b5697b3a04f28c0a485b12a831d7747e2fb9c94578e"
+      },
+      "action_latency_ms": [
+        37.90402412414551,
+        53.507089614868164,
+        44.99506950378418,
+        51.41329765319824,
+        48.49600791931152,
+        40.78221321105957,
+        39.087772369384766,
+        39.1077995300293,
+        39.05916213989258,
+        38.98000717163086,
+        40.05885124206543,
+        39.55674171447754
+      ],
+      "observation_utf8_bytes": [
+        0,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107
+      ]
+    },
+    {
+      "cell_id": "choose-date-s73-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.004796,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 453,
+        "full_utf8_bytes": 453,
+        "compact_sha256": "52e9131f8471d2f1e382d3aba67709acdfda0c84f5f6a652d7e4a5c696bcda22",
+        "full_sha256": "52e9131f8471d2f1e382d3aba67709acdfda0c84f5f6a652d7e4a5c696bcda22"
+      },
+      "action_latency_ms": [
+        6.859064102172852,
+        9.850025177001953,
+        1.955270767211914
+      ],
+      "observation_utf8_bytes": [
+        0,
+        380,
+        454
+      ]
+    },
+    {
+      "cell_id": "choose-date-s73-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 380,
+        "full_utf8_bytes": 380,
+        "compact_sha256": "75419f185a44e87814c04dbb292efcf343af9b4df243cbf54ed7c3d50c28448c",
+        "full_sha256": "75419f185a44e87814c04dbb292efcf343af9b4df243cbf54ed7c3d50c28448c"
+      },
+      "action_latency_ms": [
+        8.648872375488281,
+        3.3559799194335938,
+        3.4198760986328125,
+        2.9108524322509766,
+        3.114938735961914,
+        2.6230812072753906,
+        2.5718212127685547,
+        2.743959426879883,
+        2.3221969604492188,
+        3.6029815673828125,
+        2.6092529296875,
+        2.4361610412597656
+      ],
+      "observation_utf8_bytes": [
+        0,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380,
+        380
+      ]
+    },
+    {
+      "cell_id": "choose-date-s73-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.137516,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7814,
+        "full_utf8_bytes": 13953,
+        "compact_sha256": "0135df2aafee69620275acb68b56e6587792bbfb357b41ef71efd6c0ef235c3b",
+        "full_sha256": "6523aabf4f63fbeb378d7651e615c9eb7ed1de7042942c02adc4c6ad95ae8967"
+      },
+      "action_latency_ms": [
+        39.444923400878906,
+        270.4439163208008,
+        230.03411293029785,
+        3.690958023071289,
+        34.458160400390625,
+        229.43592071533203,
+        5.607128143310547,
+        0.2129077911376953,
+        0.38504600524902344,
+        229.33506965637207,
+        34.75308418273926,
+        227.53500938415527
+      ],
+      "observation_utf8_bytes": [
+        0,
+        8107,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814,
+        7814
+      ]
+    },
+    {
+      "cell_id": "choose-date-s73-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "choose-date",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 8107,
+        "full_utf8_bytes": 13971,
+        "compact_sha256": "da90090d61c7d20f8f91338c62ae2a51e863e5ec440642829438d612b21c3a90",
+        "full_sha256": "52f58d6fcb93dbc34f49d0aec2df3b714083b440eea739678f3dea7bff6baa44"
+      },
+      "action_latency_ms": [
+        38.09714317321777,
+        51.27310752868652,
+        48.69508743286133,
+        42.1140193939209,
+        43.61605644226074,
+        38.92207145690918,
+        40.11797904968262,
+        39.84403610229492,
+        39.381980895996094,
+        39.238929748535156,
+        39.19410705566406,
+        39.41607475280762
+      ],
+      "observation_utf8_bytes": [
+        0,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107,
+        8107
+      ]
+    },
+    {
+      "cell_id": "click-button-s17-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.0045520000000000005,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        9.741783142089844,
+        4.458904266357422,
+        1.7638206481933594
+      ],
+      "observation_utf8_bytes": [
+        0,
+        302,
+        580
+      ]
+    },
+    {
+      "cell_id": "click-button-s17-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 302,
+        "full_utf8_bytes": 302,
+        "compact_sha256": "f070558023868585b2e3b8612e0d509e94a8e17ae84644618e9ae07f3b9e7078",
+        "full_sha256": "f070558023868585b2e3b8612e0d509e94a8e17ae84644618e9ae07f3b9e7078"
+      },
+      "action_latency_ms": [
+        20.08199691772461,
+        2.0341873168945312,
+        2.850055694580078,
+        2.9838085174560547,
+        2.7840137481689453,
+        2.1131038665771484,
+        2.4089813232421875,
+        2.2661685943603516,
+        2.0558834075927734,
+        2.5200843811035156,
+        2.2268295288085938,
+        1.9478797912597656
+      ],
+      "observation_utf8_bytes": [
+        0,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302
+      ]
+    },
+    {
+      "cell_id": "click-button-s17-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.017264,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        3.312826156616211,
+        24.280071258544922,
+        22.97806739807129
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7044,
+        7842
+      ]
+    },
+    {
+      "cell_id": "click-button-s17-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7044,
+        "full_utf8_bytes": 11919,
+        "compact_sha256": "d87ad13289b847a60ce1cc41e6d1ea1e6a7bdb1e58ba9a8da3c9b3a65c0cc449",
+        "full_sha256": "e66bf1ebd8be01e9dc0b05e5da6950093c09e3b02145e45aa149a5444214be95"
+      },
+      "action_latency_ms": [
+        4.668951034545898,
+        5.979776382446289,
+        5.9909820556640625,
+        5.692958831787109,
+        5.428791046142578,
+        5.389690399169922,
+        4.368782043457031,
+        4.683732986450195,
+        4.479885101318359,
+        4.655122756958008,
+        4.499912261962891,
+        4.686117172241211
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044
+      ]
+    },
+    {
+      "cell_id": "click-button-s42-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.004540000000000001,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        9.305000305175781,
+        3.3349990844726562,
+        1.8241405487060547
+      ],
+      "observation_utf8_bytes": [
+        0,
+        302,
+        585
+      ]
+    },
+    {
+      "cell_id": "click-button-s42-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 302,
+        "full_utf8_bytes": 302,
+        "compact_sha256": "0d4f3e696347dd17380f3f0d210cb557602e1d624f13631a41ac2d32c102dbec",
+        "full_sha256": "0d4f3e696347dd17380f3f0d210cb557602e1d624f13631a41ac2d32c102dbec"
+      },
+      "action_latency_ms": [
+        8.552074432373047,
+        3.5440921783447266,
+        3.4630298614501953,
+        2.4209022521972656,
+        3.194093704223633,
+        2.628803253173828,
+        2.390146255493164,
+        2.1600723266601562,
+        2.4390220642089844,
+        2.288818359375,
+        2.546072006225586,
+        2.232789993286133
+      ],
+      "observation_utf8_bytes": [
+        0,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302
+      ]
+    },
+    {
+      "cell_id": "click-button-s42-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.01796,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        3.351926803588867,
+        26.046037673950195,
+        26.234149932861328
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7044,
+        8498
+      ]
+    },
+    {
+      "cell_id": "click-button-s42-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7044,
+        "full_utf8_bytes": 11919,
+        "compact_sha256": "9df6cf75a50612b986dc388d6d7a49393171c8c0e8cf5535754b06d923e6c5e9",
+        "full_sha256": "d9f822c9c8a114e4827b6f0ba14b25c192d73498a0a99745398d7556a7c43e41"
+      },
+      "action_latency_ms": [
+        3.4580230712890625,
+        7.711887359619141,
+        5.366086959838867,
+        5.072116851806641,
+        5.691051483154297,
+        7.846832275390625,
+        5.298852920532227,
+        4.626035690307617,
+        5.2852630615234375,
+        5.157232284545898,
+        4.5719146728515625,
+        4.910945892333984
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044
+      ]
+    },
+    {
+      "cell_id": "click-button-s73-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.00449,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        11.070966720581055,
+        3.2591819763183594,
+        1.9960403442382812
+      ],
+      "observation_utf8_bytes": [
+        0,
+        302,
+        556
+      ]
+    },
+    {
+      "cell_id": "click-button-s73-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 302,
+        "full_utf8_bytes": 302,
+        "compact_sha256": "f24b627d25734be9f752c5b815a4551dc6ea8f7711c2286a31a13461cefe602a",
+        "full_sha256": "f24b627d25734be9f752c5b815a4551dc6ea8f7711c2286a31a13461cefe602a"
+      },
+      "action_latency_ms": [
+        13.952016830444336,
+        4.210948944091797,
+        3.7789344787597656,
+        3.0930042266845703,
+        2.5758743286132812,
+        2.680063247680664,
+        2.847909927368164,
+        2.229928970336914,
+        2.074003219604492,
+        2.318143844604492,
+        2.2649765014648438,
+        2.3717880249023438
+      ],
+      "observation_utf8_bytes": [
+        0,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302,
+        302
+      ]
+    },
+    {
+      "cell_id": "click-button-s73-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.017936,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        3.663778305053711,
+        26.05891227722168,
+        24.985074996948242
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7044,
+        8502
+      ]
+    },
+    {
+      "cell_id": "click-button-s73-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-button",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7044,
+        "full_utf8_bytes": 11919,
+        "compact_sha256": "5fa3feca2b00597d3e87c6052c88fc365bb7d02b7f22238b236ef98a1d828730",
+        "full_sha256": "a9bf1e6d4ff84b6be793a8db2622aac6d5375bbbce363682c3603d64eedc833c"
+      },
+      "action_latency_ms": [
+        3.4399032592773438,
+        14.73093032836914,
+        5.584955215454102,
+        5.670785903930664,
+        4.574060440063477,
+        4.632711410522461,
+        4.696130752563477,
+        5.342245101928711,
+        4.5680999755859375,
+        4.947900772094727,
+        4.761695861816406,
+        4.797220230102539
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044,
+        7044
+      ]
+    },
+    {
+      "cell_id": "click-link-s17-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.004488,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        9.701251983642578,
+        3.9539337158203125,
+        1.8548965454101562
+      ],
+      "observation_utf8_bytes": [
+        0,
+        298,
+        567
+      ]
+    },
+    {
+      "cell_id": "click-link-s17-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 298,
+        "full_utf8_bytes": 298,
+        "compact_sha256": "dae72202499c6fc02859d82e3faab730da9ea1e558bf16f96b2a958ad72ee2df",
+        "full_sha256": "dae72202499c6fc02859d82e3faab730da9ea1e558bf16f96b2a958ad72ee2df"
+      },
+      "action_latency_ms": [
+        15.455007553100586,
+        3.7229061126708984,
+        3.1561851501464844,
+        2.8829574584960938,
+        3.1480789184570312,
+        2.238035202026367,
+        2.4678707122802734,
+        2.699136734008789,
+        2.5849342346191406,
+        0.4799365997314453,
+        2.4907588958740234,
+        2.032041549682617
+      ],
+      "observation_utf8_bytes": [
+        0,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298
+      ]
+    },
+    {
+      "cell_id": "click-link-s17-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.017588,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        3.3621788024902344,
+        22.72200584411621,
+        23.205041885375977
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7040,
+        7827
+      ]
+    },
+    {
+      "cell_id": "click-link-s17-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7040,
+        "full_utf8_bytes": 11915,
+        "compact_sha256": "e1011b0ecfa0de1006fac473c47078285eb914187928754cd6f4a64fa7efb5eb",
+        "full_sha256": "3f5d0a6b3cb23c77c07b5d705432a69b1bcfd0a19c5e50a40956264ee4144210"
+      },
+      "action_latency_ms": [
+        3.4830570220947266,
+        6.687164306640625,
+        5.595922470092773,
+        6.089925765991211,
+        5.888223648071289,
+        5.203962326049805,
+        5.602121353149414,
+        4.887104034423828,
+        5.26118278503418,
+        4.81414794921875,
+        4.874944686889648,
+        5.150318145751953
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040
+      ]
+    },
+    {
+      "cell_id": "click-link-s42-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.004572,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        8.113861083984375,
+        2.851724624633789,
+        2.825021743774414
+      ],
+      "observation_utf8_bytes": [
+        0,
+        298,
+        650
+      ]
+    },
+    {
+      "cell_id": "click-link-s42-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 298,
+        "full_utf8_bytes": 298,
+        "compact_sha256": "f6483df79bfa216a83479c18e0575c59206f0765ff2af351b3b78c460102f9b6",
+        "full_sha256": "f6483df79bfa216a83479c18e0575c59206f0765ff2af351b3b78c460102f9b6"
+      },
+      "action_latency_ms": [
+        9.435892105102539,
+        2.895832061767578,
+        3.203153610229492,
+        2.8510093688964844,
+        2.429962158203125,
+        2.4230480194091797,
+        2.5200843811035156,
+        2.1529197692871094,
+        2.164125442504883,
+        3.088235855102539,
+        2.2361278533935547,
+        2.2780895233154297
+      ],
+      "observation_utf8_bytes": [
+        0,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298
+      ]
+    },
+    {
+      "cell_id": "click-link-s42-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.018368000000000002,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        3.2989978790283203,
+        25.53272247314453,
+        23.698091506958008
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7040,
+        8518
+      ]
+    },
+    {
+      "cell_id": "click-link-s42-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7040,
+        "full_utf8_bytes": 11915,
+        "compact_sha256": "dd465eab8903f240848546f3fa3485c73e9b627c85948bbb1b14f42220e2318f",
+        "full_sha256": "e19da9937a102a7fcec211dfc48a75d9896269b9e4ac4d7be5cce0b46d7d15da"
+      },
+      "action_latency_ms": [
+        3.6468505859375,
+        7.004976272583008,
+        5.408048629760742,
+        5.28407096862793,
+        4.803895950317383,
+        5.472898483276367,
+        5.396842956542969,
+        4.733085632324219,
+        5.006074905395508,
+        4.327058792114258,
+        4.996061325073242,
+        4.355192184448242
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040
+      ]
+    },
+    {
+      "cell_id": "click-link-s73-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.004538,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        18.8291072845459,
+        3.1778812408447266,
+        1.7778873443603516
+      ],
+      "observation_utf8_bytes": [
+        0,
+        298,
+        610
+      ]
+    },
+    {
+      "cell_id": "click-link-s73-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 298,
+        "full_utf8_bytes": 298,
+        "compact_sha256": "09d87693c5a024ed39e1b44dc7e98bf8c4c80318d2f8cefed1d058f6025f7a88",
+        "full_sha256": "09d87693c5a024ed39e1b44dc7e98bf8c4c80318d2f8cefed1d058f6025f7a88"
+      },
+      "action_latency_ms": [
+        8.468151092529297,
+        2.927064895629883,
+        2.574920654296875,
+        2.6967525482177734,
+        2.2139549255371094,
+        2.6330947875976562,
+        2.279043197631836,
+        2.3059844970703125,
+        2.210855484008789,
+        2.207040786743164,
+        2.1910667419433594,
+        2.329111099243164
+      ],
+      "observation_utf8_bytes": [
+        0,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298,
+        298
+      ]
+    },
+    {
+      "cell_id": "click-link-s73-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.017948,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        3.384113311767578,
+        23.76699447631836,
+        23.627042770385742
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7040,
+        8174
+      ]
+    },
+    {
+      "cell_id": "click-link-s73-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-link",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7040,
+        "full_utf8_bytes": 11915,
+        "compact_sha256": "20be16d0d84d2fc6be92cc083ed8bc4d65cd759dd7777e66d9bfbf943d9d2b53",
+        "full_sha256": "d72979b83da3373f8610c98de59acb71b50d29b2463433e3760f0bb6936d78e9"
+      },
+      "action_latency_ms": [
+        3.634214401245117,
+        7.063150405883789,
+        5.903005599975586,
+        5.386114120483398,
+        4.513978958129883,
+        4.49824333190918,
+        5.163669586181641,
+        5.438089370727539,
+        4.772186279296875,
+        4.5928955078125,
+        4.596948623657227,
+        4.538059234619141
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040,
+        7040
+      ]
+    },
+    {
+      "cell_id": "click-option-s17-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.004538,
+      "failure_attribution": {
+        "kind": "model_or_action_failure",
+        "checkpoint": "terminal",
+        "compact_contains_required": true,
+        "full_contains_required": true,
+        "compact_utf8_bytes": 521,
+        "full_utf8_bytes": 521,
+        "compact_sha256": "220a3a6a4a1ec0053a1834a7e8ee896271ac82aac98543c3a46ed89c467c6a3b",
+        "full_sha256": "220a3a6a4a1ec0053a1834a7e8ee896271ac82aac98543c3a46ed89c467c6a3b"
+      },
+      "action_latency_ms": [
+        8.715152740478516,
+        3.854036331176758,
+        1.9199848175048828
+      ],
+      "observation_utf8_bytes": [
+        0,
+        331,
+        522
+      ]
+    },
+    {
+      "cell_id": "click-option-s17-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 331,
+        "full_utf8_bytes": 331,
+        "compact_sha256": "97a154937380d5c8b3b4304aa97beaba0405ae0411ab0d275e8a4efca97d6464",
+        "full_sha256": "97a154937380d5c8b3b4304aa97beaba0405ae0411ab0d275e8a4efca97d6464"
+      },
+      "action_latency_ms": [
+        8.89134407043457,
+        2.7990341186523438,
+        2.679109573364258,
+        3.1778812408447266,
+        2.6750564575195312,
+        2.5358200073242188,
+        0.5400180816650391,
+        3.2372474670410156,
+        2.0761489868164062,
+        2.3429393768310547,
+        2.4890899658203125,
+        2.3040771484375
+      ],
+      "observation_utf8_bytes": [
+        0,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331
+      ]
+    },
+    {
+      "cell_id": "click-option-s17-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.031798,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        37.17398643493652,
+        300.59218406677246,
+        325.3588676452637,
+        324.1608142852783
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7734,
+        9536,
+        9546
+      ]
+    },
+    {
+      "cell_id": "click-option-s17-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7734,
+        "full_utf8_bytes": 13318,
+        "compact_sha256": "4dff05d4c001a1ee8c5e9d90e7d98e87380c13c006e2df8c43aa882598b3b67a",
+        "full_sha256": "1894436c1e29f868267bcc4735744659288f88d5bb56f6bccfadb641ee8bf7b2"
+      },
+      "action_latency_ms": [
+        35.98785400390625,
+        47.62911796569824,
+        41.66388511657715,
+        40.93790054321289,
+        36.13400459289551,
+        37.78529167175293,
+        40.01498222351074,
+        37.42814064025879,
+        37.26315498352051,
+        37.54019737243652,
+        37.22023963928223,
+        37.42265701293945
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734
+      ]
+    },
+    {
+      "cell_id": "click-option-s42-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.004648,
+      "failure_attribution": {
+        "kind": "model_or_action_failure",
+        "checkpoint": "terminal",
+        "compact_contains_required": true,
+        "full_contains_required": true,
+        "compact_utf8_bytes": 613,
+        "full_utf8_bytes": 613,
+        "compact_sha256": "f250ef0ac228825daf49af71f92cd65865cf333b64ae02771a2681e64849fe46",
+        "full_sha256": "f250ef0ac228825daf49af71f92cd65865cf333b64ae02771a2681e64849fe46"
+      },
+      "action_latency_ms": [
+        7.397174835205078,
+        4.079103469848633,
+        1.7459392547607422
+      ],
+      "observation_utf8_bytes": [
+        0,
+        331,
+        614
+      ]
+    },
+    {
+      "cell_id": "click-option-s42-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 331,
+        "full_utf8_bytes": 331,
+        "compact_sha256": "b6cef7221b6ca17c65e86537fa4f4baee75013a501c447a7f82882a2b9b68d27",
+        "full_sha256": "b6cef7221b6ca17c65e86537fa4f4baee75013a501c447a7f82882a2b9b68d27"
+      },
+      "action_latency_ms": [
+        10.10894775390625,
+        3.1740665435791016,
+        2.7871131896972656,
+        2.4938583374023438,
+        2.260923385620117,
+        3.0128955841064453,
+        2.335071563720703,
+        2.445220947265625,
+        2.2029876708984375,
+        2.6559829711914062,
+        2.3717880249023438,
+        2.341747283935547
+      ],
+      "observation_utf8_bytes": [
+        0,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331
+      ]
+    },
+    {
+      "cell_id": "click-option-s42-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.034802,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        36.36908531188965,
+        344.46215629577637,
+        376.5099048614502,
+        378.34692001342773
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7734,
+        10964,
+        10974
+      ]
+    },
+    {
+      "cell_id": "click-option-s42-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7734,
+        "full_utf8_bytes": 13318,
+        "compact_sha256": "49924cdcc60c319877ab6b6a991321391cfa2766bd953f239f6e0e33c95f3e60",
+        "full_sha256": "e678cd3d74ae6e323cafb34006ca4afd7271563fd7bdf1d8a7042e27fe18c0a3"
+      },
+      "action_latency_ms": [
+        35.53295135498047,
+        48.521995544433594,
+        43.836355209350586,
+        41.37897491455078,
+        41.64600372314453,
+        38.4218692779541,
+        37.18972206115723,
+        39.23606872558594,
+        37.277936935424805,
+        37.33086585998535,
+        38.205862045288086,
+        37.53209114074707
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734
+      ]
+    },
+    {
+      "cell_id": "click-option-s73-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.004656,
+      "failure_attribution": {
+        "kind": "model_or_action_failure",
+        "checkpoint": "terminal",
+        "compact_contains_required": true,
+        "full_contains_required": true,
+        "compact_utf8_bytes": 619,
+        "full_utf8_bytes": 619,
+        "compact_sha256": "2af153905679a5dd959f84f3d18266f2300011a3746b4fd26f42ea6032b22d00",
+        "full_sha256": "2af153905679a5dd959f84f3d18266f2300011a3746b4fd26f42ea6032b22d00"
+      },
+      "action_latency_ms": [
+        9.618997573852539,
+        3.1681060791015625,
+        1.9938945770263672
+      ],
+      "observation_utf8_bytes": [
+        0,
+        331,
+        620
+      ]
+    },
+    {
+      "cell_id": "click-option-s73-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 331,
+        "full_utf8_bytes": 331,
+        "compact_sha256": "d8c4167f1bc700a8c8205e874c9dae5f2a4d7fae23ec5c25ca3f1a0c8b03fe63",
+        "full_sha256": "d8c4167f1bc700a8c8205e874c9dae5f2a4d7fae23ec5c25ca3f1a0c8b03fe63"
+      },
+      "action_latency_ms": [
+        8.532047271728516,
+        3.4911632537841797,
+        2.5420188903808594,
+        2.3221969604492188,
+        2.490997314453125,
+        2.7680397033691406,
+        2.4199485778808594,
+        2.6040077209472656,
+        2.363920211791992,
+        2.440929412841797,
+        2.4487972259521484,
+        2.274036407470703
+      ],
+      "observation_utf8_bytes": [
+        0,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331,
+        331
+      ]
+    },
+    {
+      "cell_id": "click-option-s73-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.035058,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        36.32307052612305,
+        345.58892250061035,
+        384.05418395996094,
+        380.8598518371582
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7734,
+        10976,
+        10986
+      ]
+    },
+    {
+      "cell_id": "click-option-s73-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "click-option",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7734,
+        "full_utf8_bytes": 13318,
+        "compact_sha256": "42d0d9bd9303bdc18c82e71cc064021505a00cc0840727e6ff8e2d2a728ff639",
+        "full_sha256": "a50964601f617e9243e9442fdfd907c657755a39bf3acaed9f3a4205203df1d7"
+      },
+      "action_latency_ms": [
+        36.63802146911621,
+        51.016807556152344,
+        42.42873191833496,
+        43.309926986694336,
+        37.27006912231445,
+        40.63892364501953,
+        41.787147521972656,
+        38.29193115234375,
+        36.43393516540527,
+        38.0711555480957,
+        37.474632263183594,
+        37.66298294067383
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734,
+        7734
+      ]
+    },
+    {
+      "cell_id": "enter-text-s17-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.010409999999999999,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        11.581897735595703,
+        3.1669139862060547,
+        2.112150192260742,
+        2.750873565673828,
+        1.7328262329101562
+      ],
+      "observation_utf8_bytes": [
+        0,
+        347,
+        429,
+        428,
+        433
+      ]
+    },
+    {
+      "cell_id": "enter-text-s17-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 347,
+        "full_utf8_bytes": 347,
+        "compact_sha256": "98cc1b7c5831afa5fd1c8cb19b350b5ca53c9c89d477c41bc597d3e07675f7ad",
+        "full_sha256": "98cc1b7c5831afa5fd1c8cb19b350b5ca53c9c89d477c41bc597d3e07675f7ad"
+      },
+      "action_latency_ms": [
+        18.16701889038086,
+        2.935171127319336,
+        3.303050994873047,
+        3.339052200317383,
+        3.2529830932617188,
+        2.8040409088134766,
+        2.4220943450927734,
+        2.6133060455322266,
+        2.2430419921875,
+        2.775907516479492,
+        2.1979808807373047,
+        2.341032028198242
+      ],
+      "observation_utf8_bytes": [
+        0,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347
+      ]
+    },
+    {
+      "cell_id": "enter-text-s17-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.037554000000000004,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        3.3028125762939453,
+        22.704124450683594,
+        9.079933166503906,
+        16.102313995361328,
+        21.548986434936523
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7771,
+        7491,
+        7491,
+        7496
+      ]
+    },
+    {
+      "cell_id": "enter-text-s17-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7771,
+        "full_utf8_bytes": 12951,
+        "compact_sha256": "13454e3a0ea1b32ed8e12afdf032775c17bc8f40bfb1dc0792bef752432f97b8",
+        "full_sha256": "cc30c5e8124c58a7a5c372cab7c32f646a1d8d098753cedb9b0a78b8d22d2ed7"
+      },
+      "action_latency_ms": [
+        3.427267074584961,
+        6.13093376159668,
+        6.6318511962890625,
+        5.339145660400391,
+        4.192113876342773,
+        5.759000778198242,
+        4.749059677124023,
+        4.757165908813477,
+        5.241155624389648,
+        4.520893096923828,
+        4.749059677124023,
+        4.856109619140625
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771
+      ]
+    },
+    {
+      "cell_id": "enter-text-s42-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.012398,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        13.864994049072266,
+        3.130197525024414,
+        1.7242431640625,
+        1.9919872283935547,
+        2.4499893188476562,
+        1.7287731170654297
+      ],
+      "observation_utf8_bytes": [
+        0,
+        347,
+        430,
+        429,
+        429,
+        435
+      ]
+    },
+    {
+      "cell_id": "enter-text-s42-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 347,
+        "full_utf8_bytes": 347,
+        "compact_sha256": "a4e2f3c161d8a77a0eeccb2e5c83c61b5daa4416bc83c72d41e0bf81e3ed13e9",
+        "full_sha256": "a4e2f3c161d8a77a0eeccb2e5c83c61b5daa4416bc83c72d41e0bf81e3ed13e9"
+      },
+      "action_latency_ms": [
+        17.17400550842285,
+        3.0629634857177734,
+        3.077268600463867,
+        3.5462379455566406,
+        2.5360584259033203,
+        3.591299057006836,
+        2.4352073669433594,
+        2.3560523986816406,
+        2.9897689819335938,
+        2.8421878814697266,
+        2.482175827026367,
+        2.6750564575195312
+      ],
+      "observation_utf8_bytes": [
+        0,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347
+      ]
+    },
+    {
+      "cell_id": "enter-text-s42-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.038202,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        3.9260387420654297,
+        22.746801376342773,
+        8.948087692260742,
+        17.189979553222656,
+        24.6279239654541
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7771,
+        7492,
+        7492,
+        7498
+      ]
+    },
+    {
+      "cell_id": "enter-text-s42-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7771,
+        "full_utf8_bytes": 12951,
+        "compact_sha256": "b1f41495845c23604cf0b5fa901ada4efc0efd625a15dc3acd05137cb129df25",
+        "full_sha256": "27c7d0aeda10df6d1ebd328a5dc96d86c5f31e17dbf1a12872b1b20d8adc67e7"
+      },
+      "action_latency_ms": [
+        3.6458969116210938,
+        8.971929550170898,
+        5.631923675537109,
+        4.744768142700195,
+        4.794120788574219,
+        5.625009536743164,
+        4.868030548095703,
+        4.535675048828125,
+        4.988908767700195,
+        4.81414794921875,
+        4.379987716674805,
+        4.776954650878906
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771
+      ]
+    },
+    {
+      "cell_id": "enter-text-s73-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.012398,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        15.139102935791016,
+        2.660989761352539,
+        1.7871856689453125,
+        1.9659996032714844,
+        2.460002899169922,
+        1.7981529235839844
+      ],
+      "observation_utf8_bytes": [
+        0,
+        347,
+        431,
+        430,
+        430,
+        437
+      ]
+    },
+    {
+      "cell_id": "enter-text-s73-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 347,
+        "full_utf8_bytes": 347,
+        "compact_sha256": "fda542e4162080f635978c43ba1908b0ede9b9160d50447eb07fef2e1376b5c1",
+        "full_sha256": "fda542e4162080f635978c43ba1908b0ede9b9160d50447eb07fef2e1376b5c1"
+      },
+      "action_latency_ms": [
+        8.890867233276367,
+        2.8221607208251953,
+        3.0570030212402344,
+        3.9970874786376953,
+        2.975940704345703,
+        2.8412342071533203,
+        2.752065658569336,
+        2.270936965942383,
+        2.3200511932373047,
+        2.6879310607910156,
+        2.287149429321289,
+        2.3272037506103516
+      ],
+      "observation_utf8_bytes": [
+        0,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347,
+        347
+      ]
+    },
+    {
+      "cell_id": "enter-text-s73-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.03819,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        3.4008026123046875,
+        22.439002990722656,
+        9.212970733642578,
+        16.509056091308594,
+        21.981000900268555
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7771,
+        7493,
+        7493,
+        7500
+      ]
+    },
+    {
+      "cell_id": "enter-text-s73-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "enter-text",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7771,
+        "full_utf8_bytes": 12951,
+        "compact_sha256": "ffeb0cc890554158e95f28f9726ba4bcde683a8c5de1c62750f28a4586d84856",
+        "full_sha256": "169fc200dc51da4b712660b1f55b8f97e026c23612bf2aa5d7f44711f3986339"
+      },
+      "action_latency_ms": [
+        3.404855728149414,
+        9.261131286621094,
+        5.6209564208984375,
+        6.184816360473633,
+        5.277156829833984,
+        4.354000091552734,
+        5.340337753295898,
+        5.0201416015625,
+        4.575967788696289,
+        4.700899124145508,
+        4.503965377807617,
+        4.638910293579102
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771,
+        7771
+      ]
+    },
+    {
+      "cell_id": "focus-text-s17-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.01248,
+      "failure_attribution": {
+        "kind": "model_or_action_failure",
+        "checkpoint": "terminal",
+        "compact_contains_required": true,
+        "full_contains_required": true,
+        "compact_utf8_bytes": 369,
+        "full_utf8_bytes": 369,
+        "compact_sha256": "5f9105e486cbb158b14e6809210ba0c74bc28883b9c695c5de568a49d08ba7d1",
+        "full_sha256": "5f9105e486cbb158b14e6809210ba0c74bc28883b9c695c5de568a49d08ba7d1"
+      },
+      "action_latency_ms": [
+        8.483171463012695,
+        2.9621124267578125,
+        2.1927356719970703,
+        1.9822120666503906,
+        2.4809837341308594,
+        1.8687248229980469
+      ],
+      "observation_utf8_bytes": [
+        0,
+        318,
+        370,
+        369,
+        369,
+        369
+      ]
+    },
+    {
+      "cell_id": "focus-text-s17-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 318,
+        "full_utf8_bytes": 318,
+        "compact_sha256": "44c4bb5958a6f5fab4219dc863800987619d0e500093536b3031237cf358e6b1",
+        "full_sha256": "44c4bb5958a6f5fab4219dc863800987619d0e500093536b3031237cf358e6b1"
+      },
+      "action_latency_ms": [
+        16.887903213500977,
+        3.2541751861572266,
+        3.118753433227539,
+        2.4919509887695312,
+        2.6361942291259766,
+        3.4122467041015625,
+        2.346038818359375,
+        2.3660659790039062,
+        2.6617050170898438,
+        2.2699832916259766,
+        2.1910667419433594,
+        2.2878646850585938
+      ],
+      "observation_utf8_bytes": [
+        0,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318
+      ]
+    },
+    {
+      "cell_id": "focus-text-s17-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.068232,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": true,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7448,
+        "full_utf8_bytes": 12291,
+        "compact_sha256": "d38fbaa4cd9d99a2741a6cf10d4b7a05a3f6bbcd72ea80ff70dbaf2f7f5cbce9",
+        "full_sha256": "5ed5f243c1e4375135f349e573cf9b39c2ed5d87b2bcd90a28b3f5e0b1aa074a"
+      },
+      "action_latency_ms": [
+        3.2727718353271484,
+        22.005081176757812,
+        9.62686538696289,
+        10.152339935302734,
+        16.755342483520508,
+        15.702009201049805,
+        16.802072525024414,
+        699.1159915924072
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7405,
+        7093,
+        7093,
+        7093,
+        7093,
+        7093,
+        7093
+      ]
+    },
+    {
+      "cell_id": "focus-text-s17-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7405,
+        "full_utf8_bytes": 12280,
+        "compact_sha256": "53da3bf3f7b1eea2ad330ed8867ec440962cd6a4fde2ce73f2d52bd37b340509",
+        "full_sha256": "fb80d3cc2a7d8af324feacab471afffb55dc986865106cf6a1d7a9218005956c"
+      },
+      "action_latency_ms": [
+        4.041910171508789,
+        6.102085113525391,
+        5.777120590209961,
+        5.343914031982422,
+        4.932165145874023,
+        0.4801750183105469,
+        4.585027694702148,
+        4.907131195068359,
+        4.945993423461914,
+        5.855798721313477,
+        4.672050476074219,
+        4.354953765869141
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405
+      ]
+    },
+    {
+      "cell_id": "focus-text-s42-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.015408,
+      "failure_attribution": {
+        "kind": "model_or_action_failure",
+        "checkpoint": "terminal",
+        "compact_contains_required": true,
+        "full_contains_required": true,
+        "compact_utf8_bytes": 369,
+        "full_utf8_bytes": 369,
+        "compact_sha256": "d12427e5ae197a8639b501bf102425b29b54d3d3c14a05eb720ca1bfd934079f",
+        "full_sha256": "d12427e5ae197a8639b501bf102425b29b54d3d3c14a05eb720ca1bfd934079f"
+      },
+      "action_latency_ms": [
+        12.579202651977539,
+        2.6769638061523438,
+        1.1548995971679688,
+        1.2667179107666016,
+        2.2852420806884766,
+        1.3310909271240234,
+        1.2562274932861328
+      ],
+      "observation_utf8_bytes": [
+        0,
+        318,
+        370,
+        369,
+        369,
+        369,
+        369
+      ]
+    },
+    {
+      "cell_id": "focus-text-s42-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 318,
+        "full_utf8_bytes": 318,
+        "compact_sha256": "7d17636951b5117666db115addb88dc520187c5bdeeecac584381e02b7888b9e",
+        "full_sha256": "7d17636951b5117666db115addb88dc520187c5bdeeecac584381e02b7888b9e"
+      },
+      "action_latency_ms": [
+        10.135173797607422,
+        3.843069076538086,
+        7.0858001708984375,
+        4.09698486328125,
+        2.6199817657470703,
+        2.619028091430664,
+        2.634763717651367,
+        2.3369789123535156,
+        2.112150192260742,
+        2.650022506713867,
+        2.2339820861816406,
+        2.3391246795654297
+      ],
+      "observation_utf8_bytes": [
+        0,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318
+      ]
+    },
+    {
+      "cell_id": "focus-text-s42-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.10931,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": true,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7093,
+        "full_utf8_bytes": 12262,
+        "compact_sha256": "cbb3b88110104d5f3bb2fafec01806d110384f5daab01581e7d25ec035b4b7a2",
+        "full_sha256": "29e73c89f966e8c9ba155fd81091643ca8d66f7ff0846b9ce54b97eb8dd60968"
+      },
+      "action_latency_ms": [
+        3.8018226623535156,
+        22.893190383911133,
+        9.635686874389648,
+        9.18436050415039,
+        14.825105667114258,
+        17.217159271240234,
+        15.006780624389648,
+        15.259981155395508,
+        8.382081985473633,
+        8.980989456176758,
+        10.496139526367188,
+        10.154962539672852
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7405,
+        7093,
+        7093,
+        7093,
+        7093,
+        7093,
+        7093,
+        7093,
+        7093,
+        7093,
+        7093
+      ]
+    },
+    {
+      "cell_id": "focus-text-s42-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7405,
+        "full_utf8_bytes": 12280,
+        "compact_sha256": "f9872ac09f7c4f12d62bff6398750353f8e9a88792746c4f05c9e0b3d6e92278",
+        "full_sha256": "52deab8a86e5c26a63b94a69081b61ba664bcc02599b859b8e0059cd127a2328"
+      },
+      "action_latency_ms": [
+        3.591299057006836,
+        5.975008010864258,
+        5.382776260375977,
+        5.248069763183594,
+        5.291938781738281,
+        3.9458274841308594,
+        4.659891128540039,
+        4.720926284790039,
+        4.635095596313477,
+        4.767894744873047,
+        5.064964294433594,
+        5.29170036315918
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405
+      ]
+    },
+    {
+      "cell_id": "focus-text-s73-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.029006,
+      "failure_attribution": {
+        "kind": "model_or_action_failure",
+        "checkpoint": "terminal",
+        "compact_contains_required": true,
+        "full_contains_required": true,
+        "compact_utf8_bytes": 369,
+        "full_utf8_bytes": 369,
+        "compact_sha256": "4d48f654a4e52dfecaed02a6f220763b3eb850304139e0268490e34a715e27df",
+        "full_sha256": "4d48f654a4e52dfecaed02a6f220763b3eb850304139e0268490e34a715e27df"
+      },
+      "action_latency_ms": [
+        14.785051345825195,
+        1.9881725311279297,
+        2.4650096893310547,
+        2.566099166870117,
+        1.7900466918945312,
+        2.012968063354492,
+        2.0558834075927734,
+        1.5459060668945312,
+        1.8031597137451172,
+        2.0210742950439453,
+        1.6269683837890625,
+        2.2950172424316406
+      ],
+      "observation_utf8_bytes": [
+        0,
+        318,
+        318,
+        318,
+        370,
+        369,
+        369,
+        369,
+        369,
+        369,
+        369,
+        369
+      ]
+    },
+    {
+      "cell_id": "focus-text-s73-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 318,
+        "full_utf8_bytes": 318,
+        "compact_sha256": "5863793b841ee046ddea1df97a7f7ed92d8953ad3274739d7492fc6772545caf",
+        "full_sha256": "5863793b841ee046ddea1df97a7f7ed92d8953ad3274739d7492fc6772545caf"
+      },
+      "action_latency_ms": [
+        11.198997497558594,
+        3.4780502319335938,
+        3.2503604888916016,
+        3.117799758911133,
+        2.499818801879883,
+        2.660036087036133,
+        2.4712085723876953,
+        2.2668838500976562,
+        2.446889877319336,
+        2.239227294921875,
+        2.0389556884765625,
+        2.443075180053711
+      ],
+      "observation_utf8_bytes": [
+        0,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318,
+        318
+      ]
+    },
+    {
+      "cell_id": "focus-text-s73-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.090322,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        3.3249855041503906,
+        21.65508270263672,
+        14.966011047363281,
+        15.650033950805664,
+        16.051292419433594,
+        9.203910827636719,
+        15.991687774658203,
+        14.79792594909668,
+        15.325069427490234,
+        17.772912979125977
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7405,
+        7093,
+        7093,
+        7093,
+        7093,
+        7093,
+        7093,
+        7093,
+        7093
+      ]
+    },
+    {
+      "cell_id": "focus-text-s73-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "focus-text",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7405,
+        "full_utf8_bytes": 12280,
+        "compact_sha256": "f2100c7f649660b982e5679b8b3a75fde80430ceda8f516243c009273f6253cc",
+        "full_sha256": "c3be979a36f1055784d3a515a71dbf89eecc91e98f873105ab09d518cfd69e8c"
+      },
+      "action_latency_ms": [
+        3.713846206665039,
+        6.760358810424805,
+        5.638837814331055,
+        5.535125732421875,
+        4.750967025756836,
+        5.255937576293945,
+        4.569053649902344,
+        0.4780292510986328,
+        4.775047302246094,
+        4.8351287841796875,
+        4.647970199584961,
+        5.3272247314453125
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405,
+        7405
+      ]
+    },
+    {
+      "cell_id": "login-user-s17-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.010234,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        17.393827438354492,
+        2.474069595336914,
+        1.9831657409667969,
+        21.417856216430664,
+        1.9829273223876953
+      ],
+      "observation_utf8_bytes": [
+        0,
+        469,
+        590,
+        595,
+        598
+      ]
+    },
+    {
+      "cell_id": "login-user-s17-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 469,
+        "full_utf8_bytes": 469,
+        "compact_sha256": "0baaf7d384439c3a133d5752ac0e46cb7ca070c62a4563e4a7ed589ba20a6869",
+        "full_sha256": "0baaf7d384439c3a133d5752ac0e46cb7ca070c62a4563e4a7ed589ba20a6869"
+      },
+      "action_latency_ms": [
+        10.935068130493164,
+        3.8819313049316406,
+        3.506898880004883,
+        3.1239986419677734,
+        2.641916275024414,
+        3.1337738037109375,
+        2.5429725646972656,
+        2.9189586639404297,
+        2.5780200958251953,
+        2.566814422607422,
+        2.537965774536133,
+        2.4137496948242188
+      ],
+      "observation_utf8_bytes": [
+        0,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469
+      ]
+    },
+    {
+      "cell_id": "login-user-s17-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.040598,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        4.944801330566406,
+        24.78814125061035,
+        19.711017608642578,
+        19.94609832763672,
+        28.23495864868164
+      ],
+      "observation_utf8_bytes": [
+        0,
+        8164,
+        7942,
+        7948,
+        7948
+      ]
+    },
+    {
+      "cell_id": "login-user-s17-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 8164,
+        "full_utf8_bytes": 14515,
+        "compact_sha256": "d1c8dfef9b46e22bc64ec48641a8c51a8a86300e248b28e928b7df21d03745e6",
+        "full_sha256": "0fde054e02123913e95f541a4128648a329aea07bc23617c240ff2bac0ff8424"
+      },
+      "action_latency_ms": [
+        5.267143249511719,
+        10.446786880493164,
+        7.200002670288086,
+        7.147073745727539,
+        7.753849029541016,
+        7.4939727783203125,
+        6.509065628051758,
+        6.124734878540039,
+        6.17527961730957,
+        6.265163421630859,
+        6.276130676269531,
+        6.641864776611328
+      ],
+      "observation_utf8_bytes": [
+        0,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164
+      ]
+    },
+    {
+      "cell_id": "login-user-s42-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.01057,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        11.86370849609375,
+        2.9239654541015625,
+        1.486063003540039,
+        21.060943603515625,
+        2.2852420806884766
+      ],
+      "observation_utf8_bytes": [
+        0,
+        469,
+        592,
+        598,
+        602
+      ]
+    },
+    {
+      "cell_id": "login-user-s42-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 469,
+        "full_utf8_bytes": 469,
+        "compact_sha256": "8d9eae86a06a67a1276553008dd9390b1d6095dd9ca4c97d2414ebe9ff8cc5fa",
+        "full_sha256": "8d9eae86a06a67a1276553008dd9390b1d6095dd9ca4c97d2414ebe9ff8cc5fa"
+      },
+      "action_latency_ms": [
+        14.255046844482422,
+        4.4651031494140625,
+        4.724025726318359,
+        3.206968307495117,
+        2.8460025787353516,
+        3.133058547973633,
+        2.5873184204101562,
+        2.4471282958984375,
+        2.4712085723876953,
+        2.3081302642822266,
+        2.737760543823242,
+        2.8448104858398438
+      ],
+      "observation_utf8_bytes": [
+        0,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469
+      ]
+    },
+    {
+      "cell_id": "login-user-s42-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.040524,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        5.021333694458008,
+        26.29995346069336,
+        22.006988525390625,
+        20.44200897216797,
+        27.125835418701172
+      ],
+      "observation_utf8_bytes": [
+        0,
+        8164,
+        7944,
+        7951,
+        7951
+      ]
+    },
+    {
+      "cell_id": "login-user-s42-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 8164,
+        "full_utf8_bytes": 14515,
+        "compact_sha256": "b9275d7cebb2d1868d91033b2773539fc5c11c49a67966893d89e23e7cda9e1c",
+        "full_sha256": "e900e8cf80c50c75d6a492c98a022a115145125fbfb6a221bbc9d1233e9508cf"
+      },
+      "action_latency_ms": [
+        5.480051040649414,
+        8.954048156738281,
+        7.273197174072266,
+        6.398916244506836,
+        6.615877151489258,
+        7.66301155090332,
+        7.213115692138672,
+        6.273031234741211,
+        6.345987319946289,
+        6.169795989990234,
+        6.664276123046875,
+        6.55817985534668
+      ],
+      "observation_utf8_bytes": [
+        0,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164
+      ]
+    },
+    {
+      "cell_id": "login-user-s73-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.010318,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        8.388042449951172,
+        2.7480125427246094,
+        1.4488697052001953,
+        21.373987197875977,
+        1.7468929290771484
+      ],
+      "observation_utf8_bytes": [
+        0,
+        469,
+        591,
+        595,
+        600
+      ]
+    },
+    {
+      "cell_id": "login-user-s73-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 469,
+        "full_utf8_bytes": 469,
+        "compact_sha256": "8109513443e896c9161b947beff869cad6c5511ae2c530d1b5fd60db1f67c28c",
+        "full_sha256": "8109513443e896c9161b947beff869cad6c5511ae2c530d1b5fd60db1f67c28c"
+      },
+      "action_latency_ms": [
+        15.045881271362305,
+        3.103971481323242,
+        4.4689178466796875,
+        3.648042678833008,
+        3.1180381774902344,
+        3.0350685119628906,
+        3.080129623413086,
+        2.4042129516601562,
+        2.485036849975586,
+        2.6671886444091797,
+        2.4809837341308594,
+        2.465963363647461
+      ],
+      "observation_utf8_bytes": [
+        0,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469,
+        469
+      ]
+    },
+    {
+      "cell_id": "login-user-s73-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.041034,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        5.4149627685546875,
+        27.89616584777832,
+        19.218921661376953,
+        20.932912826538086,
+        26.651859283447266
+      ],
+      "observation_utf8_bytes": [
+        0,
+        8164,
+        7943,
+        7948,
+        7948
+      ]
+    },
+    {
+      "cell_id": "login-user-s73-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "login-user",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 8164,
+        "full_utf8_bytes": 14515,
+        "compact_sha256": "c620ce362cd47144e96ab6f25b59463f22f13f7d00b8ca70359850ff1684dbce",
+        "full_sha256": "70eb05228e05b65f96204a900b67852695e023e4b94d8c867ae486c0701276ce"
+      },
+      "action_latency_ms": [
+        5.426883697509766,
+        9.383916854858398,
+        7.555723190307617,
+        6.924867630004883,
+        7.403135299682617,
+        6.372213363647461,
+        7.495880126953125,
+        6.857872009277344,
+        6.43467903137207,
+        6.33692741394043,
+        6.337642669677734,
+        6.471157073974609
+      ],
+      "observation_utf8_bytes": [
+        0,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164,
+        8164
+      ]
+    },
+    {
+      "cell_id": "search-engine-s17-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.019766,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        7.431983947753906,
+        3.8199424743652344,
+        2.192258834838867,
+        2.468109130859375,
+        3.692150115966797,
+        2.752065658569336,
+        4.253864288330078
+      ],
+      "observation_utf8_bytes": [
+        0,
+        352,
+        481,
+        481,
+        487,
+        955,
+        991
+      ]
+    },
+    {
+      "cell_id": "search-engine-s17-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 17,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 352,
+        "full_utf8_bytes": 352,
+        "compact_sha256": "973b689b94dcc4d23e63657236b1d2ee27555da8b1f23dcb2b3fef584dc6a8aa",
+        "full_sha256": "973b689b94dcc4d23e63657236b1d2ee27555da8b1f23dcb2b3fef584dc6a8aa"
+      },
+      "action_latency_ms": [
+        7.287025451660156,
+        3.8471221923828125,
+        3.0138492584228516,
+        3.0469894409179688,
+        2.5568008422851562,
+        2.582073211669922,
+        2.3851394653320312,
+        2.8448104858398438,
+        2.351045608520508,
+        2.826213836669922,
+        2.3119449615478516,
+        2.305746078491211
+      ],
+      "observation_utf8_bytes": [
+        0,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352
+      ]
+    },
+    {
+      "cell_id": "search-engine-s17-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 17,
+      "domain": "native",
+      "model": "hosted",
+      "success": false,
+      "total_cost_usd": 0.162886,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 11458,
+        "full_utf8_bytes": 22518,
+        "compact_sha256": "cf76ea94c176e9bb45a0c9b1d067925c853d2f6b52ba7a73df4fb9265abf0ad5",
+        "full_sha256": "b9a2de2da23969f953eac426ffa7ebe7569bfbd037e3a92977f8e3a312bd111a"
+      },
+      "action_latency_ms": [
+        5.555868148803711,
+        32.88602828979492,
+        10.35618782043457,
+        10.994911193847656,
+        25.12812614440918,
+        49.22914505004883,
+        59.27395820617676,
+        7.013082504272461,
+        4.178762435913086,
+        8.193731307983398,
+        18.321990966796875,
+        7.226228713989258
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7789,
+        7553,
+        7553,
+        7553,
+        7559,
+        11460,
+        11458,
+        11458,
+        11458,
+        11458,
+        11458
+      ]
+    },
+    {
+      "cell_id": "search-engine-s17-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 17,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7789,
+        "full_utf8_bytes": 13725,
+        "compact_sha256": "1edac2d04abdf45ed6e0410e6733db17f691a284e195a10a4fe3119659cd387e",
+        "full_sha256": "c0cb25f1f7256ca8b294bc06d31e9f07eac7110b298b036a831198a6f95c2bdf"
+      },
+      "action_latency_ms": [
+        5.558967590332031,
+        8.80289077758789,
+        8.234024047851562,
+        7.362127304077148,
+        6.406068801879883,
+        8.135080337524414,
+        6.893157958984375,
+        6.800174713134766,
+        6.916046142578125,
+        7.29823112487793,
+        6.854057312011719,
+        6.93511962890625
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789
+      ]
+    },
+    {
+      "cell_id": "search-engine-s42-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.010718,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        7.620811462402344,
+        4.092216491699219,
+        2.6481151580810547,
+        4.359960556030273,
+        4.374027252197266
+      ],
+      "observation_utf8_bytes": [
+        0,
+        352,
+        485,
+        495,
+        985
+      ]
+    },
+    {
+      "cell_id": "search-engine-s42-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 42,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 352,
+        "full_utf8_bytes": 352,
+        "compact_sha256": "a91774cd64c439780887cca59a4f39ef1203ddf6811acfe3951ba0a898bf1bcb",
+        "full_sha256": "a91774cd64c439780887cca59a4f39ef1203ddf6811acfe3951ba0a898bf1bcb"
+      },
+      "action_latency_ms": [
+        6.69407844543457,
+        4.353046417236328,
+        3.27301025390625,
+        2.5739669799804688,
+        2.4383068084716797,
+        2.6628971099853516,
+        2.579927444458008,
+        2.3670196533203125,
+        2.4399757385253906,
+        2.440929412841797,
+        2.1300315856933594,
+        2.3279190063476562
+      ],
+      "observation_utf8_bytes": [
+        0,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352
+      ]
+    },
+    {
+      "cell_id": "search-engine-s42-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 42,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.04374,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        5.991935729980469,
+        34.84606742858887,
+        25.130033493041992,
+        49.4840145111084,
+        51.6362190246582
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7789,
+        7557,
+        7567,
+        11493
+      ]
+    },
+    {
+      "cell_id": "search-engine-s42-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 42,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7789,
+        "full_utf8_bytes": 13725,
+        "compact_sha256": "c02614735fece37ef419309035418108221175d37c6b262bc59d5a3a44eddf37",
+        "full_sha256": "c5ce736499a7a942ca19e0a26e1cb5b8e8399f03ea8fe66b1f4c7793903229cf"
+      },
+      "action_latency_ms": [
+        5.454063415527344,
+        8.41522216796875,
+        8.286237716674805,
+        8.192062377929688,
+        7.282018661499023,
+        8.499860763549805,
+        7.252931594848633,
+        7.319927215576172,
+        6.769895553588867,
+        8.05521011352539,
+        7.631063461303711,
+        7.019996643066406
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789
+      ]
+    },
+    {
+      "cell_id": "search-engine-s73-chromium-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.018498,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        7.791757583618164,
+        3.7298202514648438,
+        1.9030570983886719,
+        2.8641223907470703,
+        4.540920257568359,
+        3.4770965576171875,
+        4.117012023925781
+      ],
+      "observation_utf8_bytes": [
+        0,
+        352,
+        479,
+        479,
+        483,
+        965,
+        968
+      ]
+    },
+    {
+      "cell_id": "search-engine-s73-chromium-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 73,
+      "domain": "chromium",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 352,
+        "full_utf8_bytes": 352,
+        "compact_sha256": "c82a5a49f46ac0f63db0d838081ea8c89e4a3206a65f21cb65fd00620cca2421",
+        "full_sha256": "c82a5a49f46ac0f63db0d838081ea8c89e4a3206a65f21cb65fd00620cca2421"
+      },
+      "action_latency_ms": [
+        7.328987121582031,
+        3.4880638122558594,
+        2.823352813720703,
+        4.387140274047852,
+        2.9039382934570312,
+        2.8171539306640625,
+        2.3679733276367188,
+        2.477884292602539,
+        2.526998519897461,
+        2.7420520782470703,
+        2.9768943786621094,
+        2.653837203979492
+      ],
+      "observation_utf8_bytes": [
+        0,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352,
+        352
+      ]
+    },
+    {
+      "cell_id": "search-engine-s73-native-hosted",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 73,
+      "domain": "native",
+      "model": "hosted",
+      "success": true,
+      "total_cost_usd": 0.080618,
+      "failure_attribution": {
+        "kind": "not_applicable",
+        "checkpoint": null
+      },
+      "action_latency_ms": [
+        5.298852920532227,
+        31.77189826965332,
+        10.591983795166016,
+        11.668920516967773,
+        24.9478816986084,
+        49.6828556060791,
+        62.715768814086914,
+        56.05292320251465
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7789,
+        7551,
+        7551,
+        7551,
+        7555,
+        11470,
+        11431
+      ]
+    },
+    {
+      "cell_id": "search-engine-s73-native-local",
+      "fingerprint_sha256": "2768248c697bd2d4640856e859b8b3438439735cb281e105f7807e0eda1eeb7a",
+      "completed": true,
+      "task_id": "search-engine",
+      "seed": 73,
+      "domain": "native",
+      "model": "local",
+      "success": false,
+      "total_cost_usd": 0.0,
+      "failure_attribution": {
+        "kind": "browser_truth_missing",
+        "checkpoint": "terminal",
+        "compact_contains_required": false,
+        "full_contains_required": false,
+        "compact_utf8_bytes": 7789,
+        "full_utf8_bytes": 13725,
+        "compact_sha256": "9e569ef176bdcf45737c1816438feed0718ae6350ecc2eab3a4e751618c83aab",
+        "full_sha256": "e13f36d3fd4e2d1ae558f21421e460cfecd057622d731ed30e3261478b193b0b"
+      },
+      "action_latency_ms": [
+        5.5599212646484375,
+        9.295940399169922,
+        8.192062377929688,
+        7.950067520141602,
+        6.288051605224609,
+        8.012056350708008,
+        7.035970687866211,
+        7.508993148803711,
+        6.978034973144531,
+        6.93511962890625,
+        6.878137588500977,
+        7.137775421142578
+      ],
+      "observation_utf8_bytes": [
+        0,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789,
+        7789
+      ]
+    }
+  ],
+  "causal_ledger": [
+    {
+      "case_id": "event-handler-mutation-and-console",
+      "expected": [
+        {
+          "label_id": "dispatch",
+          "relation": "direct",
+          "kind": "event_dispatched"
+        },
+        {
+          "label_id": "mutation",
+          "relation": "derived",
+          "kind": "mutation"
+        },
+        {
+          "label_id": "console",
+          "relation": "correlated",
+          "kind": "console"
+        }
+      ],
+      "observed": [
+        {
+          "sequence": 9,
+          "action_id": 1,
+          "relation": "direct",
+          "kind": "event_dispatched",
+          "matched_label_id": "dispatch",
+          "source_relation": "direct"
+        },
+        {
+          "sequence": 10,
+          "action_id": 1,
+          "relation": "correlated",
+          "kind": "console",
+          "matched_label_id": "console",
+          "source_relation": "correlated"
+        },
+        {
+          "sequence": 11,
+          "action_id": 1,
+          "relation": "derived",
+          "kind": "mutation",
+          "matched_label_id": "mutation",
+          "source_relation": "derived"
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "criteria": {
+    "panel_complete": true,
+    "source_tree_clean_and_bound": true,
+    "sandboxed_worker_verified": true,
+    "worker_limits_match_manifest": true,
+    "worker_replacement_passed": true,
+    "native_deterministic_24_of_24": true,
+    "chromium_deterministic_24_of_24": true,
+    "deterministic_zero_divergences": true,
+    "azure_native_at_least_15_of_24": true,
+    "budget_with_prior_spend_within_cap": true,
+    "zero_false_reference_preservation": true,
+    "exact_identity_reference_survival_8_of_8": true,
+    "challenge_detector_verified": true,
+    "semantic_metrics_measured": true,
+    "all_action_classifications_explained": true
+  },
+  "outcome": {
+    "panel_complete": true,
+    "status": "passed",
+    "reason_codes": [],
+    "diagnostics": []
+  }
+}

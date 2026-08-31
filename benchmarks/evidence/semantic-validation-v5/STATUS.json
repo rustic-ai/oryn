@@ -6,15 +6,26 @@
     "labelled_causal_attribution": "controlled_passed",
     "confirmed_only_challenge_detection": "controlled_passed",
     "historical_public_canary_reclassification": "published",
-    "exact_identity_reference_churn": "implemented_release_candidate_run_pending"
+    "exact_identity_reference_churn": "release_candidate_passed"
   },
   "attestation": {
-    "status": "pending_final_signed_release_candidate",
+    "status": "passed_macos_exact_release_candidate",
+    "source_commit": "c5fd01051e047bb6e62d4ce7d310b91d025fcf81",
+    "source_tree_sha256": "5ee5f148a51651bd0da3b752db4165eeb5b121cb7c322dd5f0f055d1ea81aa52",
     "required_model_cells": 96,
-    "completed_model_cells": 0,
+    "completed_model_cells": 96,
+    "azure_native_passed": 18,
+    "azure_native_total": 24,
+    "native_deterministic_passed": 24,
+    "chromium_deterministic_passed": 24,
+    "false_reference_preservation_numerator": 0,
+    "false_reference_preservation_denominator": 8,
     "prior_hosted_spend_usd": 6.362286,
+    "new_hosted_spend_usd": 1.633968,
+    "cumulative_hosted_spend_usd": 7.996254,
     "hosted_spend_cap_usd": 100.0,
-    "hosted_requests_made_by_this_change": 0
+    "model_panel_sha256": "57674ed3326ce24e3b4ee9fac129b60d30e454e26d595ab8f291f1bb8331bace",
+    "linux_platform_attestation": "pending"
   },
   "historical_evidence": {
     "schema_v4_status": "immutable_nonconforming_semantic_metrics",
