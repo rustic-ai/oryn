@@ -218,6 +218,33 @@ class OrynClient:
                 raw=raw_response,
                 semantic_observation=_decode_semantic_observation(observation, raw_response),
             )
+        if kind == "semantic_observation_v6":
+            observation = result.get("observation")
+            if not isinstance(observation, dict):
+                raise ParseError("typed v6 semantic observation is malformed", raw_response)
+            return OrynIntentResult(
+                kind="semantic_observation_v6",
+                raw=raw_response,
+                semantic_observation_v6=_decode_semantic_observation_v6(observation, raw_response),
+            )
+        if kind == "semantic_delta_v6":
+            delta = result.get("delta")
+            if not isinstance(delta, dict):
+                raise ParseError("typed v6 semantic delta is malformed", raw_response)
+            from .types import OrynSemanticDeltaV6
+
+            return OrynIntentResult(
+                kind="semantic_delta_v6",
+                raw=raw_response,
+                semantic_delta_v6=OrynSemanticDeltaV6(
+                    contract_version=int(delta.get("contract_version", 0)),
+                    from_revision=int(delta.get("from_revision", 0)),
+                    to_revision=int(delta.get("to_revision", 0)),
+                    semantic_revision=int(delta.get("semantic_revision", 0)),
+                    changes=dict(delta.get("changes") or {}),
+                    diagnostics=[str(item) for item in delta.get("diagnostics") or []],
+                ),
+            )
         if kind == "observation" or kind == "geometry_observation":
             observation = result.get("observation")
             if not isinstance(observation, dict):
@@ -474,6 +501,33 @@ def _decode_semantic_observation(payload: dict[str, Any], raw_response: str):
             for structure in payload.get("structures") or []
             if isinstance(structure, dict)
         ],
+        diagnostics=[str(item) for item in payload.get("diagnostics") or []],
+    )
+
+
+def _decode_semantic_observation_v6(payload: dict[str, Any], raw_response: str):
+    from .types import (
+        OrynAccessibilityNode,
+        OrynSemanticObservationV6,
+        OrynSemanticStructure,
+    )
+
+    return OrynSemanticObservationV6(
+        contract_version=int(payload.get("contract_version", 0)),
+        observation=_decode_native_observation(payload, raw_response),
+        semantic_revision=int(payload.get("semantic_revision", 0)),
+        nodes=[dict(node) for node in payload.get("nodes") or [] if isinstance(node, dict)],
+        accessibility=[
+            OrynAccessibilityNode(**node)
+            for node in payload.get("accessibility") or []
+            if isinstance(node, dict)
+        ],
+        structures=[
+            OrynSemanticStructure(**structure)
+            for structure in payload.get("structures") or []
+            if isinstance(structure, dict)
+        ],
+        projection=dict(payload.get("projection") or {}),
         diagnostics=[str(item) for item in payload.get("diagnostics") or []],
     )
 

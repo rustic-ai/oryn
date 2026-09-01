@@ -3,7 +3,7 @@
 > **Current status: runtime-completion cutover in progress; exact-artifact
 > attestation pending on macOS and Linux.** The committed runtime baseline is
 > `a39d7a6`. The current working tree additionally completes the remaining
-> script/style/module/frame resource scheduler and protocol-v4/v7/v10 transport contracts,
+> script/style/module/frame resource scheduler and protocol-v4/v8/v10 transport contracts,
 > streaming navigation foundations, an incremental semantic graph, expanded
 > generated WebIDL behavior, referrer and IndexedDB work, V8 profile tooling and
 > pinned upstream-conformance infrastructure. It is not yet a release candidate:
@@ -64,9 +64,14 @@ rewrite those historical payloads or present them as a new validation run.
   generation-checked wrappers, generated interface installation, realm
   infrastructure, resumable html5ever parsing and an async rustls/HTTP2
   transport foundation.
-- The current work introduces a bounded multi-consumer mutation journal and a
-  persistent `SemanticGraph`. Focused graph/oracle and revision-history tests
-  pass, but parts of normal semantic projection still call the full projector.
+- The production semantic path uses a persistent Rust-owned `SemanticGraph`
+  fed by the multi-consumer DOM mutation journal. Contract v6 publishes
+  scoped semantic/accessibility/structure observations, field-level trust and
+  evidence, frame ownership, exact graph deltas, and graph-native resolution.
+  Equal-ranked candidates fail with typed ambiguity, and spatial targets or
+  scopes fail explicitly when authoritative geometry is unavailable. The full
+  projector is now a test/`semantic-oracle` probe rather than a production
+  observation path.
 - Navigation now creates the V8 executable immediately after accepted response
   headers and feeds incrementally decoded, demand-driven chunks directly into
   html5ever over the shared live `DomRuntime`; it no longer accumulates the
@@ -94,23 +99,37 @@ rewrite those historical payloads or present them as a new validation run.
   additional Range, Selection and traversal operations. Complex editing,
   traversal filtering, history/referrer edge cases and complete IndexedDB
   connection/transaction behavior remain.
-- The current style engine is still accurately fingerprinted as
-  `stylo-declarations-0.20+oryn-common-web-cascade-v2`: Stylo parses declarations,
-  while Oryn owns stylesheet parsing, matching, specificity and cascade. Real
-  Stylo integration remains a blocking architecture item.
+- The style service is now persistently fingerprinted as
+  `stylo-stylesheets-selectors-0.20+oryn-cascade-v3`. Stylo parses complete
+  stylesheets, media rules, selectors and declarations and supplies selector
+  matching and specificity; Oryn retains the bounded winner/inheritance/value
+  projection into Taffy/Parley. Computed visibility is published back into the
+  persistent semantic graph. Full Stylo computed-value/cascade traversal is
+  still a runtime-completion item and is not claimed here.
 - Production V8 features require the heap sandbox and release builds fail closed
-  when profile inputs are absent. Reproducible macOS/Linux sandboxed archives,
-  real reduced ICU data, stable external references and generated-interface
-  startup snapshots have not yet been produced.
+  when profile inputs are absent. A reproducible macOS ARM64 `core-full` archive
+  is now built from exact `rusty_v8` 150.4.0 source and git-linked dependencies.
+  Its linked runtime assertion passes with the V8 heap sandbox and pointer
+  compression enabled. The macOS ARM64 `core-lite` archive now uses an actual
+  2,261,856-byte ICU 77.1 package whose locale trees contain only root, `en`
+  and `en_US`; V8 installs it before initialization. Both profiles use a
+  versioned stable external-reference table and a content-addressed startup
+  snapshot, and the exact lite snapshot/worker pass locale and snapshot-load
+  regressions. Linux archives and four-profile release attestation remain.
 - `runtime-completion-v1` freezes the upstream blocking scope and provides
   cache, harness, schema and validation tooling. Its first Range smoke currently
   times out, so no passing completion evidence exists.
-- The current all-feature native library regression passes 223 tests, including
+- The V8-host native library regression passes 227 tests, including
   32 simultaneous context streams, demand-driven body reads, production HTTP/2,
   redirects, decompression limits, stale/timeout cancellation, teardown
-  cancellation and page-actor responsiveness. Strict tested-profile Clippy and
-  formatting pass. These results do not
-  close the remaining cutovers or replace exact packaged-artifact validation.
+  cancellation, page-actor responsiveness, semantic graph publication and
+  Stylo selector/cascade regressions. The default workspace suite, strict
+  default-profile Clippy, formatting, and Python SDK tests/lint pass. The
+  strict workspace all-feature Clippy profile now passes using the locally
+  built content-addressed sandbox archive. The serialized production-topology
+  sandbox suite passes 227/227 tests, including controlled loopback HTTP/2,
+  Fetch/XHR, WebSocket, navigation and frame fixtures. These results do not
+  close Linux/four-profile attestation or replace signed packaged-artifact validation.
 
 ## executable document — complete
 

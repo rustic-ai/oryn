@@ -1,14 +1,11 @@
 use std::{collections::BTreeMap, time::Duration};
 
 use oryn_common::agent::{Intent, IntentRequest};
+use oryn_common::protocol::Rect;
 use oryn_common::v3::{
     ActionResult, CapabilityDiagnostic, ExecutionDomain, Observation, ObservationDelta,
     PageDescriptor, PageId, PagePredicate, ProjectionProfile, Revision, SemanticAction,
     SemanticRef, SupportLevel,
-};
-use oryn_common::{
-    protocol::{Element, ElementState, Rect},
-    resolver::{ResolutionStrategy, ResolverContext, Target as ResolverTarget, resolve_target},
 };
 use oryn_core::ast::{Command, ExtractWhat, RelationKind, Target, TargetAtomic, WaitCondition};
 use serde::{Deserialize, Serialize};
@@ -1083,27 +1080,14 @@ impl NativeOilSession {
         action: SemanticAction,
         force: bool,
     ) -> Result<SemanticRef, NativeOilError> {
-        // Compact observations intentionally omit non-actionable landmarks. A
-        // relational target (for example `"+" near "Wireless Mouse"`) needs
-        // those landmarks, so resolve it against a fresh full projection.
-        if !matches!(&target.atomic, TargetAtomic::Selector { .. }) {
-            let observation = self
-                .page
-                .observe_with(oryn_common::v4::ObservationOptions {
-                    profile: ProjectionProfile::Full,
-                    include_geometry: true,
-                    viewport_only: false,
-                    include_hidden: false,
-                })
-                .await?;
-            self.cache_v4_observation(&observation);
-        }
         Ok(if force {
             self.resolve_any_target(&target).await?
-        } else if let TargetAtomic::Selector { value, .. } = &target.atomic {
-            self.page.resolve_selector(value, action).await?
         } else {
-            self.resolve_target(&target, action)?
+            self.page
+                .resolve_semantic(oil_target_to_agent(&target), action)
+                .await?
+                .selected
+                .ok_or_else(|| NativeOilError::TargetNotFound(target.clone()))?
         })
     }
 
@@ -1165,150 +1149,6 @@ impl NativeOilSession {
         self.cache_v4_observation(&observation);
         Ok(reference)
     }
-
-    fn resolve_target(
-        &self,
-        target: &Target,
-        action: SemanticAction,
-    ) -> Result<SemanticRef, NativeOilError> {
-        let observation = self
-            .last_observation
-            .as_ref()
-            .ok_or(NativeOilError::NoObservation)?;
-        if target.relation.is_none()
-            && let TargetAtomic::Text(text) = &target.atomic
-            && let Some(exact) = observation
-                .nodes
-                .iter()
-                .filter(|node| {
-                    node.actions.contains(&action)
-                        && node.name.trim().eq_ignore_ascii_case(text.trim())
-                })
-                .min_by_key(|node| {
-                    let native_control = matches!(
-                        node.role.as_str(),
-                        "button"
-                            | "link"
-                            | "checkbox"
-                            | "radio"
-                            | "switch"
-                            | "textbox"
-                            | "searchbox"
-                            | "combobox"
-                            | "listbox"
-                            | "option"
-                    );
-                    (!native_control, node.document_order)
-                })
-        {
-            return Ok(exact.semantic_ref);
-        }
-        if self.geometry.is_empty() {
-            return resolve_structural_target(observation, target, action);
-        }
-        let elements = observation
-            .nodes
-            .iter()
-            .filter_map(|node| {
-                // Geometry can be unavailable for an explicitly unsupported
-                // subtree (for example table layout) while unrelated controls
-                // on the same page remain actionable. Keep those nodes out of
-                // the geometry-aware resolver instead of making one bounded
-                // capability limitation poison every target on the page.
-                let rect = self.geometry.get(&node.semantic_ref).cloned()?;
-                let mut attributes = std::collections::HashMap::new();
-                if let Some(id) = node
-                    .selector
-                    .as_deref()
-                    .and_then(|value| value.strip_prefix('#'))
-                {
-                    attributes.insert("id".into(), id.into());
-                }
-                attributes.insert("role".into(), node.role.clone());
-                Some(Element {
-                    id: node.alias,
-                    element_type: node.role.clone(),
-                    role: Some(node.role.clone()),
-                    text: Some(
-                        node.description
-                            .clone()
-                            .unwrap_or_else(|| node.name.clone()),
-                    ),
-                    // Semantic names already apply the DOM accessible-name rules
-                    // (label[for], wrapping label, aria-label, placeholder, and
-                    // element text). Expose that result to the shared resolver as
-                    // both visible text and label so PreferInput can select a
-                    // labelled control instead of the label element itself.
-                    label: (!node.actions.is_empty()).then(|| node.name.clone()),
-                    value: node.value.clone(),
-                    placeholder: None,
-                    selector: node.selector.clone().unwrap_or_default(),
-                    xpath: None,
-                    rect,
-                    attributes,
-                    state: ElementState {
-                        visible: true,
-                        disabled: node.states.contains(&oryn_common::v3::NodeState::Disabled),
-                        checked: node.states.contains(&oryn_common::v3::NodeState::Checked),
-                        selected: node.states.contains(&oryn_common::v3::NodeState::Selected),
-                        required: node.states.contains(&oryn_common::v3::NodeState::Required),
-                        readonly: node.states.contains(&oryn_common::v3::NodeState::Readonly),
-                        expanded: node.states.contains(&oryn_common::v3::NodeState::Expanded),
-                        value: node.value.clone(),
-                        ..Default::default()
-                    },
-                    children: Vec::new(),
-                })
-            })
-            .collect::<Vec<_>>();
-        let context = ResolverContext::from_elements(observation.page.url.clone(), elements);
-        let strategy = match action {
-            SemanticAction::Type | SemanticAction::Clear | SemanticAction::Select => {
-                ResolutionStrategy::PreferInput
-            }
-            SemanticAction::Check | SemanticAction::Uncheck => ResolutionStrategy::PreferCheckable,
-            _ => ResolutionStrategy::PreferClickable,
-        };
-        let resolver_target = normalize_symbolic_control_target(target);
-        let resolved = resolve_target(&resolver_target.to_resolver_target(), &context, strategy)
-            .map_err(|error| NativeOilError::TargetResolution {
-                target: target.clone(),
-                detail: error.to_string(),
-            })?;
-        let alias = match resolved {
-            ResolverTarget::Id(alias) => alias,
-            ResolverTarget::Selector(selector) => observation
-                .nodes
-                .iter()
-                .find(|node| {
-                    node.selector.as_deref() == Some(selector.as_str())
-                        && node.actions.contains(&action)
-                })
-                .map(|node| node.alias as usize)
-                .ok_or_else(|| NativeOilError::TargetNotFound(target.clone()))?,
-            _ => return Err(NativeOilError::TargetNotFound(target.clone())),
-        };
-        if let Some(reference) = observation
-            .nodes
-            .iter()
-            .find(|node| node.alias as usize == alias && node.actions.contains(&action))
-            .map(|node| node.semantic_ref)
-        {
-            return Ok(reference);
-        }
-
-        // The shared geometric resolver may prefer a non-actionable text node
-        // whose accessible text duplicates a control label (common in help
-        // copy such as `Click "Show Button"`). Preserve its spatial ranking
-        // when it selects an actionable node, but fall back to the semantic
-        // action filter instead of reporting the landmark as the target.
-        resolve_structural_target(observation, target, action).map_err(|_| {
-            NativeOilError::TargetResolution {
-                target: target.clone(),
-                detail: format!("resolver selected non-actionable alias {alias}"),
-            }
-        })
-    }
 }
 
 fn agent_target_to_oil(target: &oryn_common::agent::Target) -> Target {
@@ -1349,6 +1189,52 @@ fn agent_target_to_oil(target: &oryn_common::agent::Target) -> Target {
     Target { atomic, relation }
 }
 
+fn oil_target_to_agent(target: &Target) -> oryn_common::agent::Target {
+    use oryn_common::agent::Target as AgentTarget;
+    let atomic = match &target.atomic {
+        TargetAtomic::Id(alias) => AgentTarget::Alias {
+            alias: *alias as u32,
+        },
+        TargetAtomic::Text(text) => AgentTarget::Text { text: text.clone() },
+        TargetAtomic::Role(role) => AgentTarget::Role { role: role.clone() },
+        TargetAtomic::Selector { kind, value } if kind.eq_ignore_ascii_case("xpath") => {
+            AgentTarget::XPath {
+                expression: value.clone(),
+            }
+        }
+        TargetAtomic::Selector { value, .. } => AgentTarget::Css {
+            selector: value.clone(),
+        },
+    };
+    let Some(relation) = &target.relation else {
+        return atomic;
+    };
+    let related = Box::new(oil_target_to_agent(&relation.target));
+    let atomic = Box::new(atomic);
+    match relation.kind {
+        RelationKind::Near => AgentTarget::Near {
+            target: atomic,
+            anchor: related,
+        },
+        RelationKind::Inside => AgentTarget::Inside {
+            target: atomic,
+            container: related,
+        },
+        RelationKind::After => AgentTarget::After {
+            target: atomic,
+            anchor: related,
+        },
+        RelationKind::Before => AgentTarget::Before {
+            target: atomic,
+            anchor: related,
+        },
+        RelationKind::Contains => AgentTarget::Contains {
+            target: atomic,
+            content: related,
+        },
+    }
+}
+
 fn agent_relation(
     target: &oryn_common::agent::Target,
     kind: RelationKind,
@@ -1362,75 +1248,6 @@ fn agent_relation(
             target: agent_target_to_oil(related),
         })),
     )
-}
-
-fn resolve_structural_target(
-    observation: &Observation,
-    target: &Target,
-    action: SemanticAction,
-) -> Result<SemanticRef, NativeOilError> {
-    let matches_atomic =
-        |node: &oryn_common::v3::SemanticNodeView, atomic: &TargetAtomic| match atomic {
-            TargetAtomic::Id(alias) => node.alias as usize == *alias,
-            TargetAtomic::Text(text) => node
-                .name
-                .to_ascii_lowercase()
-                .contains(&text.to_ascii_lowercase()),
-            TargetAtomic::Role(role) => node.role.eq_ignore_ascii_case(role),
-            TargetAtomic::Selector { value, .. } => {
-                node.selector.as_deref() == Some(value.as_str())
-            }
-        };
-    let related = target.relation.as_ref().and_then(|relation| {
-        observation
-            .nodes
-            .iter()
-            .find(|node| matches_atomic(node, &relation.target.atomic))
-    });
-    let contains = |container: SemanticRef, candidate: &oryn_common::v3::SemanticNodeView| {
-        let by_ref = observation
-            .nodes
-            .iter()
-            .map(|node| (node.semantic_ref, node))
-            .collect::<BTreeMap<_, _>>();
-        let mut parent = candidate.parent;
-        while let Some(reference) = parent {
-            if reference == container {
-                return true;
-            }
-            parent = by_ref.get(&reference).and_then(|node| node.parent);
-        }
-        false
-    };
-    observation
-        .nodes
-        .iter()
-        .filter(|node| node.actions.contains(&action) && matches_atomic(node, &target.atomic))
-        .find(|node| match (target.relation.as_deref(), related) {
-            (None, _) => true,
-            (Some(_), None) => false,
-            (Some(relation), Some(anchor)) => match relation.kind {
-                RelationKind::Before => node.document_order < anchor.document_order,
-                RelationKind::After => node.document_order > anchor.document_order,
-                RelationKind::Inside => contains(anchor.semantic_ref, node),
-                RelationKind::Contains => contains(node.semantic_ref, anchor),
-                RelationKind::Near => true,
-            },
-        })
-        .map(|node| node.semantic_ref)
-        .ok_or_else(|| NativeOilError::TargetNotFound(target.clone()))
-}
-
-fn normalize_symbolic_control_target(target: &Target) -> Target {
-    let mut normalized = target.clone();
-    if let TargetAtomic::Text(text) = &target.atomic {
-        normalized.atomic = match text.trim() {
-            "+" => TargetAtomic::Text("Increase quantity".into()),
-            "-" | "−" => TargetAtomic::Text("Decrease quantity".into()),
-            _ => normalized.atomic,
-        };
-    }
-    normalized
 }
 
 fn target_matches_node(target: &Target, node: &oryn_common::v3::SemanticNodeView) -> bool {

@@ -9,12 +9,6 @@ mkdir -p "$OUTPUT_DIR"
 
 cd "$ROOT_DIR"
 
-build_probe() {
-    local feature="$1"
-    local target_dir="$2"
-    CARGO_TARGET_DIR="$target_dir" cargo build --release --locked -p oryn-native --features "$feature"
-}
-
 run_probe() {
     local binary="$1"
     local output="$2"
@@ -25,8 +19,9 @@ run_probe() {
 
 RAW_TARGET="$OUTPUT_DIR/target-raw"
 DENO_TARGET="$OUTPUT_DIR/target-deno"
-build_probe v8-host "$RAW_TARGET"
-build_probe deno-host "$DENO_TARGET"
+CARGO_TARGET_DIR="$RAW_TARGET" cargo build --release --locked -p oryn-native --features v8-host --bin oryn-host-probe
+CARGO_TARGET_DIR="$DENO_TARGET" cargo build --release --locked \
+    --manifest-path "$ROOT_DIR/tools/deno-host-probe/Cargo.toml"
 
 RAW_BINARY="$RAW_TARGET/release/oryn-host-probe"
 DENO_BINARY="$DENO_TARGET/release/oryn-deno-host-probe"

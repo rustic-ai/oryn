@@ -10,10 +10,10 @@ build = "build.rs"
 default = []
 v8-host = ["dep:v8", "dep:oryn-layout", "oryn-js/v8-host"]
 v8-sandbox = ["v8/v8_enable_sandbox", "oryn-js/v8-sandbox"]
-deno-host = ["dep:deno_core"]
 in-process-probe = []
 core-full = []
 core-lite = []
+semantic-oracle = []
 
 [dependencies]
 oryn-common = { path = "../oryn-common" }
@@ -46,10 +46,7 @@ brotli = "8"
 zstd = "0.13"
 async-trait = "0.1"
 tungstenite = { version = "0.28", default-features = false, features = ["handshake", "rustls-tls-native-roots"] }
-# Keep the raw host on deno_core's exact V8 revision so the foundation benchmark compares host
-# layers rather than different JavaScript engines.
 v8 = { version = "150.4", optional = true }
-deno_core = { version = "0.410", optional = true }
 
 [dev-dependencies]
 h2 = "0.4"
@@ -62,11 +59,6 @@ sha2 = "0.10"
 name = "oryn-host-probe"
 path = "src/bin/host_probe.rs"
 required-features = ["v8-host"]
-
-[[bin]]
-name = "oryn-deno-host-probe"
-path = "src/bin/deno_host_probe.rs"
-required-features = ["deno-host"]
 
 [[bin]]
 name = "oryn-page-worker"

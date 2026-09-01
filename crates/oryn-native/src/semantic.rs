@@ -9,10 +9,23 @@ use oryn_common::v5::{
     AccessibilityEvidence, AccessibilityEvidenceKind, AccessibilityNode, AccessibilityRelation,
     SemanticGroup, SemanticObservation, SemanticStructure, SemanticStructureKind,
 };
+use oryn_common::v6::{
+    ProjectionSummary, SemanticField, SemanticFieldEvidence, SemanticGraphChanges as V6Changes,
+    SemanticNode as SemanticNodeV6, SemanticObservation as SemanticObservationV6,
+    SemanticObservationOptions,
+};
 
 use crate::dom::{DomArena, NodeId, NodeKind};
 
-pub const SEMANTIC_GRAPH_VERSION: u16 = 1;
+pub const SEMANTIC_GRAPH_VERSION: u16 = 2;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SemanticResolutionError {
+    NotFound,
+    Ambiguous(Vec<SemanticRef>),
+    GeometryUnavailable,
+    UnsupportedSelector(String),
+}
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SemanticGraphChanges {
@@ -31,8 +44,19 @@ pub struct SemanticGraph {
     full: BTreeMap<NodeId, SemanticNodeView>,
     compact: BTreeSet<NodeId>,
     referenced_by: BTreeMap<NodeId, BTreeSet<NodeId>>,
+    accessibility: BTreeMap<NodeId, AccessibilityNode>,
+    structures: BTreeMap<String, SemanticStructure>,
+    frame_ids: BTreeMap<NodeId, u64>,
+    authored_hidden: BTreeSet<NodeId>,
+    geometry_hidden: BTreeSet<NodeId>,
+    semantic_revision: u64,
     pending_upserts: BTreeMap<SemanticRef, SemanticNodeView>,
     pending_removed: BTreeSet<SemanticRef>,
+    pending_accessibility_upserts: BTreeMap<SemanticRef, AccessibilityNode>,
+    pending_accessibility_removed: BTreeSet<SemanticRef>,
+    pending_structure_upserts: BTreeMap<String, SemanticStructure>,
+    pending_structure_removed: BTreeSet<String>,
+    diagnostics: Vec<String>,
 }
 
 impl SemanticGraph {
@@ -43,8 +67,19 @@ impl SemanticGraph {
             full: BTreeMap::new(),
             compact: BTreeSet::new(),
             referenced_by: BTreeMap::new(),
+            accessibility: BTreeMap::new(),
+            structures: BTreeMap::new(),
+            frame_ids: BTreeMap::new(),
+            authored_hidden: BTreeSet::new(),
+            geometry_hidden: BTreeSet::new(),
+            semantic_revision: 0,
             pending_upserts: BTreeMap::new(),
             pending_removed: BTreeSet::new(),
+            pending_accessibility_upserts: BTreeMap::new(),
+            pending_accessibility_removed: BTreeSet::new(),
+            pending_structure_upserts: BTreeMap::new(),
+            pending_structure_removed: BTreeSet::new(),
+            diagnostics: Vec::new(),
         }
     }
 
@@ -52,9 +87,20 @@ impl SemanticGraph {
         for node in self.full.values() {
             self.pending_removed.insert(node.semantic_ref);
         }
+        for node in self.accessibility.values() {
+            self.pending_accessibility_removed.insert(node.semantic_ref);
+        }
+        for id in self.structures.keys() {
+            self.pending_structure_removed.insert(id.clone());
+        }
         self.document_generation = document_generation;
         self.full.clear();
         self.compact.clear();
+        self.accessibility.clear();
+        self.structures.clear();
+        self.frame_ids.clear();
+        self.authored_hidden.clear();
+        self.geometry_hidden.clear();
         for (id, node) in dom.iter() {
             let NodeKind::Element { name } = &node.kind else {
                 continue;
@@ -68,10 +114,13 @@ impl SemanticGraph {
             self.refresh_node(dom, id);
         }
         self.rebuild_dependencies(dom);
+        self.rebuild_accessibility(dom);
+        self.rebuild_structures(dom);
         for node in self.full.values() {
             self.pending_removed.remove(&node.semantic_ref);
             self.pending_upserts.insert(node.semantic_ref, node.clone());
         }
+        self.semantic_revision = self.semantic_revision.saturating_add(1);
     }
 
     pub fn apply_mutations(&mut self, dom: &DomArena, mutations: &[crate::dom::Mutation]) {
@@ -143,6 +192,14 @@ impl SemanticGraph {
         }
         for node in dirty {
             self.refresh_node(dom, node);
+            self.refresh_accessibility(dom, node);
+        }
+        if dependency_change {
+            self.rebuild_accessibility_ownership(dom);
+            self.rebuild_structures(dom);
+        }
+        if !mutations.is_empty() {
+            self.semantic_revision = self.semantic_revision.saturating_add(1);
         }
     }
 
@@ -162,6 +219,38 @@ impl SemanticGraph {
         }
     }
 
+    pub fn take_v6_changes(&mut self) -> V6Changes {
+        let base = self.take_changes();
+        let mut upserted_accessibility = std::mem::take(&mut self.pending_accessibility_upserts)
+            .into_values()
+            .collect::<Vec<_>>();
+        upserted_accessibility.sort_by_key(|node| {
+            self.full
+                .get(&unpack_node_ref(node.semantic_ref.node))
+                .map_or(u32::MAX, |semantic| semantic.document_order)
+        });
+        let mut upserted_structures = std::mem::take(&mut self.pending_structure_upserts)
+            .into_values()
+            .collect::<Vec<_>>();
+        upserted_structures.sort_by(|left, right| left.structure_id.cmp(&right.structure_id));
+        V6Changes {
+            upserted_nodes: base
+                .upserted
+                .into_iter()
+                .filter_map(|node| self.v6_node(node.semantic_ref, node))
+                .collect(),
+            removed_nodes: base.removed,
+            upserted_accessibility,
+            removed_accessibility: std::mem::take(&mut self.pending_accessibility_removed)
+                .into_iter()
+                .collect(),
+            upserted_structures,
+            removed_structures: std::mem::take(&mut self.pending_structure_removed)
+                .into_iter()
+                .collect(),
+        }
+    }
+
     pub fn nodes(&self, profile: ProjectionProfile) -> Vec<SemanticNodeView> {
         let mut nodes = self
             .full
@@ -171,6 +260,618 @@ impl SemanticGraph {
             .collect::<Vec<_>>();
         nodes.sort_by_key(|node| node.document_order);
         nodes
+    }
+
+    pub fn semantic_revision(&self) -> u64 {
+        self.semantic_revision
+    }
+
+    pub fn set_frame_ids(&mut self, frame_ids: BTreeMap<NodeId, u64>) {
+        self.frame_ids = frame_ids;
+    }
+
+    pub fn apply_geometry_visibility(
+        &mut self,
+        geometry: &BTreeMap<u64, oryn_common::v4::NodeGeometry>,
+    ) {
+        use oryn_common::v4::GeometryAvailability;
+        let mut changed = false;
+        for node in self.full.values_mut() {
+            let id = unpack_node_ref(node.semantic_ref.node);
+            let Some(value) = geometry.get(&node.semantic_ref.node) else {
+                continue;
+            };
+            if value.availability == GeometryAvailability::Hidden {
+                self.geometry_hidden.insert(id);
+            } else {
+                self.geometry_hidden.remove(&id);
+            }
+            let hidden = self.authored_hidden.contains(&id) || self.geometry_hidden.contains(&id);
+            let was_hidden = node.states.contains(&NodeState::Hidden);
+            if hidden == was_hidden {
+                continue;
+            }
+            if hidden {
+                node.states.remove(&NodeState::Visible);
+                node.states.insert(NodeState::Hidden);
+            } else {
+                node.states.remove(&NodeState::Hidden);
+                node.states.insert(NodeState::Visible);
+            }
+            self.pending_upserts.insert(node.semantic_ref, node.clone());
+            if let Some(accessible) = self.accessibility.get_mut(&id) {
+                accessible.excluded = hidden;
+                accessible.exclusion_reason = hidden.then(|| {
+                    if self.geometry_hidden.contains(&id) {
+                        "computed_style_hidden".into()
+                    } else {
+                        "hidden_subtree".into()
+                    }
+                });
+                self.pending_accessibility_upserts
+                    .insert(accessible.semantic_ref, accessible.clone());
+            }
+            changed = true;
+        }
+        if changed {
+            self.semantic_revision = self.semantic_revision.saturating_add(1);
+        }
+    }
+
+    pub fn resolve(
+        &self,
+        target: &oryn_common::agent::Target,
+        action: SemanticAction,
+        revision: Revision,
+        geometry: Option<&BTreeMap<u64, oryn_common::v4::NodeGeometry>>,
+    ) -> Result<oryn_common::v6::ResolutionResult, SemanticResolutionError> {
+        use oryn_common::agent::Target;
+        if let Target::Reference { reference } = target {
+            let id = unpack_node_ref(reference.node);
+            let node = self
+                .full
+                .get(&id)
+                .ok_or(SemanticResolutionError::NotFound)?;
+            if node.semantic_ref != *reference || !node.actions.contains(&action) {
+                return Err(SemanticResolutionError::NotFound);
+            }
+            return Ok(oryn_common::v6::ResolutionResult {
+                revision,
+                selected: Some(*reference),
+                candidates: vec![oryn_common::v6::ResolutionCandidate {
+                    semantic_ref: *reference,
+                    score: 1_000,
+                    actionable: true,
+                    factors: vec!["exact_reference".into()],
+                }],
+                diagnostics: Vec::new(),
+            });
+        }
+        let mut candidates = self
+            .full
+            .values()
+            .filter(|node| node.actions.contains(&action))
+            .filter_map(|node| {
+                self.score_target(node, target, geometry)
+                    .transpose()
+                    .map(|result| result.map(|(score, factors)| (node, score, factors)))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if candidates.is_empty() {
+            return Err(SemanticResolutionError::NotFound);
+        }
+        candidates.sort_by(|left, right| {
+            right
+                .1
+                .cmp(&left.1)
+                .then_with(|| left.0.document_order.cmp(&right.0.document_order))
+        });
+        let best_score = candidates[0].1;
+        let tied = candidates
+            .iter()
+            .take_while(|candidate| candidate.1 == best_score)
+            .map(|candidate| candidate.0.semantic_ref)
+            .collect::<Vec<_>>();
+        let result_candidates = candidates
+            .into_iter()
+            .map(
+                |(node, score, factors)| oryn_common::v6::ResolutionCandidate {
+                    semantic_ref: node.semantic_ref,
+                    score,
+                    actionable: true,
+                    factors,
+                },
+            )
+            .collect::<Vec<_>>();
+        if tied.len() > 1 {
+            return Err(SemanticResolutionError::Ambiguous(tied));
+        }
+        Ok(oryn_common::v6::ResolutionResult {
+            revision,
+            selected: tied.first().copied(),
+            candidates: result_candidates,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn score_target(
+        &self,
+        node: &SemanticNodeView,
+        target: &oryn_common::agent::Target,
+        geometry: Option<&BTreeMap<u64, oryn_common::v4::NodeGeometry>>,
+    ) -> Result<Option<(i32, Vec<String>)>, SemanticResolutionError> {
+        use oryn_common::agent::Target;
+        let scored = match target {
+            Target::Reference { reference } => {
+                (node.semantic_ref == *reference).then(|| (1_000, vec!["exact_reference".into()]))
+            }
+            Target::Alias { alias } => {
+                (node.alias == *alias).then(|| (900, vec!["exact_alias".into()]))
+            }
+            Target::Text { text } => {
+                let expected = normalize_text(text).to_ascii_lowercase();
+                let actual = normalize_text(&node.name).to_ascii_lowercase();
+                if actual == expected {
+                    Some((800, vec!["exact_accessible_name".into()]))
+                } else if !expected.is_empty() && actual.contains(&expected) {
+                    Some((600, vec!["contained_accessible_name".into()]))
+                } else {
+                    None
+                }
+            }
+            Target::Role { role } => node
+                .role
+                .eq_ignore_ascii_case(role)
+                .then(|| (700, vec!["exact_role".into()])),
+            Target::Css { selector } => (node.selector.as_deref() == Some(selector.as_str()))
+                .then(|| (850, vec!["exact_css_selector".into()])),
+            Target::XPath { expression } => {
+                return Err(SemanticResolutionError::UnsupportedSelector(format!(
+                    "XPath resolution is not part of the semantic graph: {expression}"
+                )));
+            }
+            Target::Inside { target, container } => {
+                let Some((score, mut factors)) = self.score_target(node, target, geometry)? else {
+                    return Ok(None);
+                };
+                let containers = self.matching_refs(container, geometry)?;
+                let inside = containers
+                    .iter()
+                    .any(|container| self.is_descendant(node.semantic_ref, *container));
+                inside.then(|| {
+                    factors.push("inside".into());
+                    (score + 100, factors)
+                })
+            }
+            Target::Contains { target, content } => {
+                let Some((score, mut factors)) = self.score_target(node, target, geometry)? else {
+                    return Ok(None);
+                };
+                let content = self.matching_refs(content, geometry)?;
+                content
+                    .iter()
+                    .any(|content| self.is_descendant(*content, node.semantic_ref))
+                    .then(|| {
+                        factors.push("contains".into());
+                        (score + 100, factors)
+                    })
+            }
+            Target::Before {
+                target: subject,
+                anchor,
+            }
+            | Target::After {
+                target: subject,
+                anchor,
+            } => {
+                let Some((score, mut factors)) = self.score_target(node, subject, geometry)? else {
+                    return Ok(None);
+                };
+                let anchors = self.matching_refs(anchor, geometry)?;
+                let is_before = matches!(target, Target::Before { .. });
+                anchors
+                    .iter()
+                    .filter_map(|anchor| self.full.get(&unpack_node_ref(anchor.node)))
+                    .any(|anchor| {
+                        if is_before {
+                            node.document_order < anchor.document_order
+                        } else {
+                            node.document_order > anchor.document_order
+                        }
+                    })
+                    .then(|| {
+                        factors.push(if is_before { "before" } else { "after" }.into());
+                        (score + 80, factors)
+                    })
+            }
+            Target::Near { target, anchor } => {
+                let Some((score, mut factors)) = self.score_target(node, target, geometry)? else {
+                    return Ok(None);
+                };
+                let geometry = geometry.ok_or(SemanticResolutionError::GeometryUnavailable)?;
+                let candidate = geometry
+                    .get(&node.semantic_ref.node)
+                    .and_then(|value| value.box_model.as_ref())
+                    .ok_or(SemanticResolutionError::GeometryUnavailable)?
+                    .border_box;
+                let anchors = self.matching_refs(anchor, Some(geometry))?;
+                let distance = anchors
+                    .iter()
+                    .filter_map(|anchor| {
+                        geometry
+                            .get(&anchor.node)
+                            .and_then(|value| value.box_model.as_ref())
+                    })
+                    .map(|model| {
+                        let dx = candidate.x - model.border_box.x;
+                        let dy = candidate.y - model.border_box.y;
+                        (dx * dx + dy * dy).sqrt()
+                    })
+                    .min_by(f64::total_cmp)
+                    .ok_or(SemanticResolutionError::GeometryUnavailable)?;
+                factors.push(format!("distance:{distance:.3}"));
+                Some((score + 100_000 - distance.min(99_999.0) as i32, factors))
+            }
+        };
+        Ok(scored)
+    }
+
+    fn matching_refs(
+        &self,
+        target: &oryn_common::agent::Target,
+        geometry: Option<&BTreeMap<u64, oryn_common::v4::NodeGeometry>>,
+    ) -> Result<Vec<SemanticRef>, SemanticResolutionError> {
+        self.full
+            .values()
+            .filter_map(|node| {
+                self.score_target(node, target, geometry)
+                    .transpose()
+                    .map(|result| result.map(|_| node.semantic_ref))
+            })
+            .collect()
+    }
+
+    fn is_descendant(&self, child: SemanticRef, ancestor: SemanticRef) -> bool {
+        let mut current = self
+            .full
+            .get(&unpack_node_ref(child.node))
+            .and_then(|node| node.parent);
+        while let Some(parent) = current {
+            if parent == ancestor {
+                return true;
+            }
+            current = self
+                .full
+                .get(&unpack_node_ref(parent.node))
+                .and_then(|node| node.parent);
+        }
+        false
+    }
+
+    pub fn accessibility(&self, profile: ProjectionProfile) -> Vec<AccessibilityNode> {
+        let included = self.profile_ids(profile);
+        let mut nodes = self
+            .accessibility
+            .iter()
+            .filter(|(id, _)| included.contains(id))
+            .map(|(_, node)| node.clone())
+            .collect::<Vec<_>>();
+        nodes.sort_by_key(|node| {
+            self.full
+                .get(&unpack_node_ref(node.semantic_ref.node))
+                .map_or(u32::MAX, |semantic| semantic.document_order)
+        });
+        nodes
+    }
+
+    pub fn structures(&self, profile: ProjectionProfile) -> Vec<SemanticStructure> {
+        let included = self.profile_ids(profile);
+        self.structures
+            .values()
+            .filter(|structure| included.contains(&unpack_node_ref(structure.root.node)))
+            .cloned()
+            .collect()
+    }
+
+    pub fn observation_v5(&self, observation: Observation) -> SemanticObservation {
+        SemanticObservation {
+            contract_version: oryn_common::v5::CONTRACT_VERSION,
+            observation,
+            // Frozen v5 always exposed the complete accessibility and
+            // structure projection even when its embedded v3 view was compact.
+            accessibility: self.accessibility(ProjectionProfile::Full),
+            structures: self.structures(ProjectionProfile::Full),
+            diagnostics: self.diagnostics.clone(),
+        }
+    }
+
+    pub fn observation_v6(
+        &self,
+        base: Observation,
+        options: &SemanticObservationOptions,
+        geometry: Option<&BTreeMap<u64, oryn_common::v4::NodeGeometry>>,
+    ) -> Result<SemanticObservationV6, String> {
+        use oryn_common::v6::GeometryPolicy;
+        let mut included = self.profile_ids(options.profile);
+        if let Some(scope) = &options.scope {
+            included = self.scope_ids(scope, geometry)?;
+        }
+        let graph_nodes = self.full.len() as u32;
+        let mut nodes = self
+            .full
+            .iter()
+            .filter(|(id, node)| {
+                included.contains(id)
+                    && (options.include_hidden || !node.states.contains(&NodeState::Hidden))
+            })
+            .filter_map(|(_, node)| self.v6_node(node.semantic_ref, node.clone()))
+            .collect::<Vec<_>>();
+        for node in &mut nodes {
+            if options.geometry != GeometryPolicy::Omit {
+                node.geometry = geometry
+                    .and_then(|values| values.get(&node.semantic.semantic_ref.node))
+                    .cloned();
+                if options.geometry == GeometryPolicy::Require && node.geometry.is_none() {
+                    return Err(format!(
+                        "geometry unavailable for semantic node {}",
+                        node.semantic.semantic_ref.node
+                    ));
+                }
+            }
+        }
+        nodes.sort_by_key(|node| node.semantic.document_order);
+        let included_refs = nodes
+            .iter()
+            .map(|node| node.semantic.semantic_ref)
+            .collect::<BTreeSet<_>>();
+        let accessibility = self
+            .accessibility(options.profile)
+            .into_iter()
+            .filter(|node| included_refs.contains(&node.semantic_ref))
+            .collect();
+        let structures = if options.include_structures {
+            self.structures(options.profile)
+                .into_iter()
+                .filter(|structure| included_refs.contains(&structure.root))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let included_nodes = nodes.len() as u32;
+        let mut omitted_by_reason = BTreeMap::new();
+        if included_nodes < graph_nodes {
+            omitted_by_reason.insert(
+                "projection_profile_or_scope".into(),
+                graph_nodes - included_nodes,
+            );
+        }
+        Ok(SemanticObservationV6 {
+            contract_version: oryn_common::v6::CONTRACT_VERSION,
+            page: base.page,
+            revision: base.revision,
+            semantic_revision: self.semantic_revision,
+            profile: options.profile,
+            source: base.source,
+            nodes,
+            accessibility,
+            structures,
+            projection: ProjectionSummary {
+                graph_nodes,
+                included_nodes,
+                omitted_by_reason,
+                truncated: false,
+            },
+            capabilities: base.capabilities,
+            diagnostics: base
+                .diagnostics
+                .into_iter()
+                .chain(self.diagnostics.iter().cloned())
+                .collect(),
+            execution_domain: base.execution_domain,
+        })
+    }
+
+    fn profile_ids(&self, profile: ProjectionProfile) -> BTreeSet<NodeId> {
+        if profile == ProjectionProfile::Full {
+            self.full.keys().copied().collect()
+        } else {
+            let mut included = self.compact.clone();
+            included.extend(
+                self.structures
+                    .values()
+                    .map(|structure| unpack_node_ref(structure.root.node)),
+            );
+            included
+        }
+    }
+
+    fn scope_ids(
+        &self,
+        scope: &oryn_common::v6::ObservationScope,
+        geometry: Option<&BTreeMap<u64, oryn_common::v4::NodeGeometry>>,
+    ) -> Result<BTreeSet<NodeId>, String> {
+        if scope.root.page_id != self.page_id
+            || scope.root.document_generation != self.document_generation
+        {
+            return Err("scope belongs to another page or document generation".into());
+        }
+        let root = unpack_node_ref(scope.root.node);
+        if !self.full.contains_key(&root) {
+            return Err("scope root is stale or unavailable".into());
+        }
+        let mut selected = BTreeSet::from([root]);
+        let mut current = Some(root);
+        for _ in 0..scope.ancestor_depth {
+            current = current.and_then(|id| {
+                self.full
+                    .get(&id)
+                    .and_then(|node| node.parent)
+                    .map(|parent| unpack_node_ref(parent.node))
+            });
+            if let Some(id) = current {
+                selected.insert(id);
+            } else {
+                break;
+            }
+        }
+        let mut frontier = BTreeSet::from([root]);
+        for _ in 0..scope.descendant_depth {
+            let next = self
+                .full
+                .iter()
+                .filter(|(_, node)| {
+                    node.parent
+                        .is_some_and(|parent| frontier.contains(&unpack_node_ref(parent.node)))
+                })
+                .map(|(id, _)| *id)
+                .collect::<BTreeSet<_>>();
+            selected.extend(next.iter().copied());
+            frontier = next;
+        }
+        frontier = selected.clone();
+        for _ in 0..scope.relationship_depth {
+            let mut next = BTreeSet::new();
+            for id in &frontier {
+                if let Some(accessible) = self.accessibility.get(id) {
+                    for target in accessible.relationships.values().flatten() {
+                        next.insert(unpack_node_ref(target.node));
+                    }
+                }
+                if let Some(dependents) = self.referenced_by.get(id) {
+                    next.extend(dependents);
+                }
+            }
+            selected.extend(next.iter().copied());
+            frontier = next;
+        }
+        if scope.include_structural_neighbors {
+            for structure in self.structures.values() {
+                let members = std::iter::once(structure.root)
+                    .chain(structure.members.iter().copied())
+                    .map(|reference| unpack_node_ref(reference.node))
+                    .collect::<BTreeSet<_>>();
+                if !selected.is_disjoint(&members) {
+                    selected.extend(members);
+                }
+            }
+        }
+        if scope.include_spatial_neighbors {
+            let geometry = geometry.ok_or_else(|| {
+                "spatial semantic scope requires authoritative geometry".to_string()
+            })?;
+            let anchors = selected
+                .iter()
+                .filter_map(|id| self.full.get(id))
+                .filter_map(|node| {
+                    geometry
+                        .get(&node.semantic_ref.node)
+                        .and_then(|value| value.box_model.as_ref())
+                        .map(|model| model.border_box)
+                })
+                .collect::<Vec<_>>();
+            if anchors.is_empty() {
+                return Err("spatial semantic scope root has no authoritative geometry".into());
+            }
+            let mut nearby = self
+                .full
+                .iter()
+                .filter(|(id, _)| !selected.contains(id))
+                .filter_map(|(id, node)| {
+                    let rect = geometry
+                        .get(&node.semantic_ref.node)?
+                        .box_model
+                        .as_ref()?
+                        .border_box;
+                    let distance = anchors
+                        .iter()
+                        .map(|anchor| {
+                            let dx = rect.x - anchor.x;
+                            let dy = rect.y - anchor.y;
+                            dx * dx + dy * dy
+                        })
+                        .min_by(f64::total_cmp)?;
+                    Some((*id, distance, node.document_order))
+                })
+                .collect::<Vec<_>>();
+            nearby.sort_by(|left, right| {
+                left.1
+                    .total_cmp(&right.1)
+                    .then_with(|| left.2.cmp(&right.2))
+            });
+            let remaining = (scope.max_nodes as usize).saturating_sub(selected.len());
+            selected.extend(nearby.into_iter().take(remaining).map(|(id, _, _)| id));
+        }
+        if selected.len() > scope.max_nodes as usize {
+            return Err(format!("semantic scope exceeds {} nodes", scope.max_nodes));
+        }
+        Ok(selected)
+    }
+
+    fn v6_node(
+        &self,
+        reference: SemanticRef,
+        semantic: SemanticNodeView,
+    ) -> Option<SemanticNodeV6> {
+        let id = unpack_node_ref(reference.node);
+        let accessible = self.accessibility.get(&id);
+        let structure_ids: Vec<String> = self
+            .structures
+            .values()
+            .filter(|structure| {
+                structure.root == reference || structure.members.contains(&reference)
+            })
+            .map(|structure| structure.structure_id.clone())
+            .collect();
+        let deterministic = |field| SemanticFieldEvidence {
+            field,
+            trust: ContentTrust::PageAuthored,
+            provenance: Provenance::BrowserDeterministic,
+            evidence: Vec::new(),
+        };
+        let mut field_evidence = vec![
+            deterministic(SemanticField::Role),
+            deterministic(SemanticField::State),
+            deterministic(SemanticField::Action),
+            deterministic(SemanticField::Visibility),
+        ];
+        if semantic.value.is_some() {
+            field_evidence.push(deterministic(SemanticField::Value));
+        }
+        if !structure_ids.is_empty() {
+            field_evidence.push(deterministic(SemanticField::Structure));
+        }
+        if let Some(accessible) = accessible {
+            field_evidence.push(SemanticFieldEvidence {
+                field: SemanticField::Name,
+                trust: ContentTrust::PageAuthored,
+                provenance: accessible.provenance.clone(),
+                evidence: accessible.evidence.clone(),
+            });
+            if accessible.description.is_some() {
+                field_evidence.push(SemanticFieldEvidence {
+                    field: SemanticField::Description,
+                    trust: ContentTrust::PageAuthored,
+                    provenance: accessible.provenance.clone(),
+                    evidence: accessible.evidence.clone(),
+                });
+            }
+            if !accessible.relationships.is_empty() {
+                field_evidence.push(deterministic(SemanticField::Relationship));
+            }
+        }
+        Some(SemanticNodeV6 {
+            semantic,
+            frame_id: self.frame_ids.get(&id).copied(),
+            relationships: accessible
+                .map(|node| node.relationships.clone())
+                .unwrap_or_default(),
+            accessibility_properties: accessible
+                .map(|node| node.properties.clone())
+                .unwrap_or_default(),
+            structure_ids,
+            geometry: None,
+            field_evidence,
+        })
     }
 
     fn refresh_node(&mut self, dom: &DomArena, id: NodeId) {
@@ -196,6 +897,16 @@ impl SemanticGraph {
         });
         match projected {
             Some(node) => {
+                if node.states.contains(&NodeState::Hidden) {
+                    self.authored_hidden.insert(id);
+                } else {
+                    self.authored_hidden.remove(&id);
+                }
+                let mut node = node;
+                if self.geometry_hidden.contains(&id) {
+                    node.states.remove(&NodeState::Visible);
+                    node.states.insert(NodeState::Hidden);
+                }
                 if is_compact_semantic(&node) {
                     self.compact.insert(id);
                 } else {
@@ -213,8 +924,173 @@ impl SemanticGraph {
                     self.pending_removed.insert(previous.semantic_ref);
                 }
                 self.compact.remove(&id);
+                self.authored_hidden.remove(&id);
+                self.geometry_hidden.remove(&id);
             }
         }
+    }
+
+    fn rebuild_accessibility(&mut self, dom: &DomArena) {
+        let previous = self.accessibility.keys().copied().collect::<BTreeSet<_>>();
+        let current = self.full.keys().copied().collect::<Vec<_>>();
+        for id in current {
+            self.refresh_accessibility(dom, id);
+        }
+        for id in previous {
+            if !self.full.contains_key(&id)
+                && let Some(node) = self.accessibility.remove(&id)
+            {
+                self.pending_accessibility_upserts
+                    .remove(&node.semantic_ref);
+                self.pending_accessibility_removed.insert(node.semantic_ref);
+            }
+        }
+        self.rebuild_accessibility_ownership(dom);
+    }
+
+    fn refresh_accessibility(&mut self, dom: &DomArena, id: NodeId) {
+        let Some(semantic) = self.full.get(&id) else {
+            if let Some(previous) = self.accessibility.remove(&id) {
+                self.pending_accessibility_upserts
+                    .remove(&previous.semantic_ref);
+                self.pending_accessibility_removed
+                    .insert(previous.semantic_ref);
+            }
+            return;
+        };
+        let Ok(node) = dom.get(id) else { return };
+        let NodeKind::Element { name } = &node.kind else {
+            return;
+        };
+        let role = computed_role(name.local.as_ref(), &node.attributes);
+        let named = accessible_semantics(
+            dom,
+            id,
+            name.local.as_ref(),
+            &role,
+            self.page_id,
+            self.document_generation,
+        );
+        let mut diagnostics = Vec::new();
+        let accessible = AccessibilityNode {
+            semantic_ref: semantic.semantic_ref,
+            excluded: tree_exclusion_reason(dom, id, &role).is_some(),
+            exclusion_reason: tree_exclusion_reason(dom, id, &role),
+            role,
+            name: named.name,
+            description: named.description,
+            relationships: accessibility_relationships(
+                dom,
+                id,
+                node,
+                self.page_id,
+                self.document_generation,
+                &mut diagnostics,
+            ),
+            properties: accessibility_properties(name.local.as_ref(), &node.attributes),
+            owned_by: None,
+            content_trust: ContentTrust::PageAuthored,
+            provenance: named.provenance,
+            evidence: named.evidence,
+        };
+        self.diagnostics.extend(diagnostics);
+        if self.accessibility.get(&id) != Some(&accessible) {
+            self.pending_accessibility_removed
+                .remove(&accessible.semantic_ref);
+            self.pending_accessibility_upserts
+                .insert(accessible.semantic_ref, accessible.clone());
+            self.accessibility.insert(id, accessible);
+        }
+    }
+
+    fn rebuild_accessibility_ownership(&mut self, dom: &DomArena) {
+        let previous = self.accessibility.clone();
+        self.diagnostics.clear();
+        let available = self
+            .accessibility
+            .values()
+            .map(|node| node.semantic_ref)
+            .collect::<BTreeSet<_>>();
+        for node in self.accessibility.values_mut() {
+            node.owned_by = None;
+            for targets in node.relationships.values_mut() {
+                targets.retain(|target| available.contains(target));
+            }
+            node.relationships.retain(|_, targets| !targets.is_empty());
+        }
+        let mut owner_by_target = BTreeMap::new();
+        let ownership = self
+            .accessibility
+            .values()
+            .filter_map(|node| {
+                node.relationships
+                    .get(&AccessibilityRelation::Owns)
+                    .cloned()
+                    .map(|targets| (node.semantic_ref, targets))
+            })
+            .collect::<Vec<_>>();
+        for (owner, targets) in ownership {
+            let owner_id = unpack_node_ref(owner.node);
+            let mut accepted = Vec::new();
+            for target in targets {
+                let target_id = unpack_node_ref(target.node);
+                let cycle = target == owner
+                    || dom
+                        .ancestors(owner_id)
+                        .is_ok_and(|ancestors| ancestors.contains(&target_id));
+                if cycle || owner_by_target.contains_key(&target) {
+                    self.diagnostics.push(format!(
+                        "ignored invalid aria-owns edge {} -> {}",
+                        owner.node, target.node
+                    ));
+                    continue;
+                }
+                owner_by_target.insert(target, owner);
+                accepted.push(target);
+            }
+            if let Some(node) = self.accessibility.get_mut(&owner_id) {
+                node.relationships
+                    .insert(AccessibilityRelation::Owns, accepted);
+            }
+        }
+        for (target, owner) in owner_by_target {
+            if let Some(node) = self.accessibility.get_mut(&unpack_node_ref(target.node)) {
+                node.owned_by = Some(owner);
+            }
+        }
+        for (id, node) in &self.accessibility {
+            if previous.get(id) != Some(node) {
+                self.pending_accessibility_upserts
+                    .insert(node.semantic_ref, node.clone());
+            }
+        }
+    }
+
+    fn rebuild_structures(&mut self, dom: &DomArena) {
+        let refs_by_dom_id = self
+            .full
+            .iter()
+            .map(|(id, node)| (*id, node.semantic_ref))
+            .collect::<BTreeMap<_, _>>();
+        let accessibility = self.accessibility.values().cloned().collect::<Vec<_>>();
+        let next = project_structures(dom, &accessibility, &refs_by_dom_id)
+            .into_iter()
+            .map(|structure| (structure.structure_id.clone(), structure))
+            .collect::<BTreeMap<_, _>>();
+        for id in self.structures.keys() {
+            if !next.contains_key(id) {
+                self.pending_structure_upserts.remove(id);
+                self.pending_structure_removed.insert(id.clone());
+            }
+        }
+        for (id, structure) in &next {
+            if self.structures.get(id) != Some(structure) {
+                self.pending_structure_removed.remove(id);
+                self.pending_structure_upserts
+                    .insert(id.clone(), structure.clone());
+            }
+        }
+        self.structures = next;
     }
 
     fn remove_subtree(&mut self, root: NodeId) {
@@ -546,6 +1422,7 @@ fn aria_true(attributes: &BTreeMap<String, String>, name: &str) -> bool {
         .is_some_and(|value| value.eq_ignore_ascii_case("true"))
 }
 
+#[cfg(any(test, feature = "semantic-oracle"))]
 pub fn project_document(
     dom: &DomArena,
     page_id: PageId,
@@ -560,6 +1437,7 @@ pub fn project_document(
         .collect()
 }
 
+#[cfg(any(test, feature = "semantic-oracle"))]
 pub fn project_document_full(
     dom: &DomArena,
     page_id: PageId,
@@ -1001,6 +1879,7 @@ fn semantic_ref_for(id: NodeId, page_id: PageId, document_generation: u64) -> Se
 /// Build contract-v5 semantic structures without changing frozen v2-v4
 /// observations. All node references retain the page/document generation of
 /// the base observation.
+#[cfg(any(test, feature = "semantic-oracle"))]
 pub fn project_semantic_observation(
     dom: &DomArena,
     observation: Observation,
@@ -1874,6 +2753,143 @@ mod tests {
             graph.nodes(ProjectionProfile::Compact),
             project_document(dom.arena(), page_id, generation)
         );
+    }
+
+    #[test]
+    fn v6_graph_owns_accessibility_structures_and_field_evidence() {
+        let parsed =
+            crate::html::parse("<nav aria-label=Primary><a id=home href=/home>Home</a></nav>");
+        let page_id = PageId(12);
+        let generation = 5;
+        let mut graph = SemanticGraph::new(page_id, generation);
+        graph.reset(&parsed.dom, generation);
+        let base = Observation {
+            contract_version: CONTRACT_VERSION,
+            page: PageInfo {
+                page_id,
+                opener_page_id: None,
+                url: "https://semantic.example/".into(),
+                title: String::new(),
+                document_generation: generation,
+            },
+            revision: Revision(1),
+            profile: ProjectionProfile::Compact,
+            source: ObservationSource::NativeDom,
+            nodes: graph.nodes(ProjectionProfile::Compact),
+            capabilities: Vec::new(),
+            diagnostics: Vec::new(),
+            execution_domain: ExecutionDomain::Native,
+        };
+        let observed = graph
+            .observation_v6(base, &SemanticObservationOptions::default(), None)
+            .expect("v6 observation");
+        assert_eq!(observed.contract_version, oryn_common::v6::CONTRACT_VERSION);
+        assert!(
+            observed
+                .structures
+                .iter()
+                .any(|structure| { structure.kind == SemanticStructureKind::Navigation })
+        );
+        let home = observed
+            .nodes
+            .iter()
+            .find(|node| node.semantic.name == "Home")
+            .expect("home semantic node");
+        assert!(home.field_evidence.iter().any(|evidence| {
+            evidence.field == SemanticField::Name && evidence.trust == ContentTrust::PageAuthored
+        }));
+    }
+
+    #[test]
+    fn graph_resolution_fails_closed_for_ambiguity_and_missing_geometry() {
+        use oryn_common::agent::Target;
+        let parsed = crate::html::parse(
+            "<p id=anchor>Plan</p><button>Continue</button><button>Continue</button>",
+        );
+        let mut graph = SemanticGraph::new(PageId(4), 2);
+        graph.reset(&parsed.dom, 2);
+        let ambiguous = graph.resolve(
+            &Target::Text {
+                text: "Continue".into(),
+            },
+            SemanticAction::Click,
+            Revision(1),
+            None,
+        );
+        assert!(matches!(
+            ambiguous,
+            Err(SemanticResolutionError::Ambiguous(candidates)) if candidates.len() == 2
+        ));
+        let near = graph.resolve(
+            &Target::Near {
+                target: Box::new(Target::Text {
+                    text: "Continue".into(),
+                }),
+                anchor: Box::new(Target::Text {
+                    text: "Plan".into(),
+                }),
+            },
+            SemanticAction::Click,
+            Revision(1),
+            None,
+        );
+        assert_eq!(near, Err(SemanticResolutionError::GeometryUnavailable));
+    }
+
+    #[test]
+    fn v6_delta_contains_only_changed_accessibility_nodes() {
+        let parsed =
+            crate::html::parse("<button id=first>First</button><button id=second>Second</button>");
+        let mut dom = parsed.into_runtime().expect("live DOM");
+        let mut graph = SemanticGraph::new(PageId(8), 3);
+        graph.reset(dom.arena(), 3);
+        let _ = graph.take_v6_changes();
+        let cursor = dom.mutation_cursor();
+        let first = dom
+            .query_selector(dom.document(), "#first")
+            .expect("query")
+            .expect("first");
+        dom.set_attribute(first, "aria-label", "Updated")
+            .expect("attribute");
+        let batch = dom.mutations_since(cursor);
+        graph.apply_mutations(dom.arena(), &batch.mutations);
+        let changes = graph.take_v6_changes();
+        assert_eq!(changes.upserted_nodes.len(), 1);
+        assert_eq!(changes.upserted_accessibility.len(), 1);
+        assert_eq!(changes.upserted_accessibility[0].name, "Updated");
+    }
+
+    #[test]
+    fn computed_geometry_visibility_updates_the_persistent_graph() {
+        let parsed = crate::html::parse("<button id=save>Save</button>");
+        let mut graph = SemanticGraph::new(PageId(4), 2);
+        graph.reset(&parsed.dom, 2);
+        let reference = graph
+            .nodes(ProjectionProfile::Compact)
+            .into_iter()
+            .find(|node| node.name == "Save")
+            .expect("save node")
+            .semantic_ref;
+        graph.take_v6_changes();
+        graph.apply_geometry_visibility(&BTreeMap::from([(
+            reference.node,
+            oryn_common::v4::NodeGeometry {
+                availability: oryn_common::v4::GeometryAvailability::Hidden,
+                box_model: None,
+                client_rects: Vec::new(),
+                in_viewport: false,
+                interactable: false,
+                diagnostic: None,
+            },
+        )]));
+        let changes = graph.take_v6_changes();
+        let save = changes
+            .upserted_nodes
+            .iter()
+            .find(|node| node.semantic.semantic_ref == reference)
+            .expect("visibility upsert");
+        assert!(save.semantic.states.contains(&NodeState::Hidden));
+        assert!(changes.upserted_accessibility[0].excluded);
     }
 
     fn semantic_observation(html: &str) -> SemanticObservation {

@@ -8,8 +8,8 @@ pub mod mcp;
 pub mod secret_input;
 
 pub use oryn_common::agent::{
-    AGENT_INTENT_CONTRACT_VERSION, ExtractKind, Input, Intent, IntentRequest, ObserveOptions,
-    Target,
+    AGENT_INTENT_CONTRACT_VERSION, ExtractKind, Input, Intent, IntentRequest,
+    LEGACY_AGENT_INTENT_CONTRACT_VERSION, ObserveOptions, Target,
 };
 pub use oryn_common::v3::{
     CapabilityDiagnostic, Observation, ObservationDelta, PageDescriptor, PageId,
@@ -19,6 +19,11 @@ pub use oryn_common::v3::{
 pub use oryn_common::v5::{
     AccessibilityEvidence, AccessibilityEvidenceKind, AccessibilityNode, AccessibilityRelation,
     SemanticGroup, SemanticObservation, SemanticStructure, SemanticStructureKind,
+};
+pub use oryn_common::v6::{
+    GeometryPolicy, ObservationScope, ProjectionSummary, ResolutionCandidate, ResolutionResult,
+    SemanticDelta, SemanticField, SemanticFieldEvidence, SemanticNode,
+    SemanticObservation as SemanticObservationV6, SemanticObservationOptions,
 };
 pub use oryn_native::{
     ActionPolicy, Browser, BrowserConfig, BrowserContext, CacheMode, ChallengeAssessment,

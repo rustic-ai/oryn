@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "abi_version": 1,
+  "references": [
+    "fetch_async_callback",
+    "context_callback",
+    "stream_read_async_callback",
+    "crypto_callback",
+    "timer_schedule_callback",
+    "timer_cancel_callback",
+    "dedicated_worker_create_callback",
+    "dedicated_worker_post_callback",
+    "dedicated_worker_take_callback",
+    "dedicated_worker_terminate_callback",
+    "dedicated_worker_emit_callback",
+    "dedicated_worker_close_callback"
+  ]
+}

@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::v3::{ProjectionProfile, Revision, SemanticRef};
 
-pub const AGENT_INTENT_CONTRACT_VERSION: u16 = 2;
+pub const AGENT_INTENT_CONTRACT_VERSION: u16 = 3;
+pub const LEGACY_AGENT_INTENT_CONTRACT_VERSION: u16 = 2;
 
 /// Versioned wire envelope used by subprocess, MCP, and future transports.
 /// Keeping the envelope in the shared contract prevents each adapter from
@@ -29,7 +30,10 @@ impl IntentRequest {
     }
 
     pub fn validate(self) -> Result<Intent, String> {
-        if self.contract_version != AGENT_INTENT_CONTRACT_VERSION {
+        if !matches!(
+            self.contract_version,
+            LEGACY_AGENT_INTENT_CONTRACT_VERSION | AGENT_INTENT_CONTRACT_VERSION
+        ) {
             return Err(format!(
                 "unsupported agent intent contract version {}; expected {}",
                 self.contract_version, AGENT_INTENT_CONTRACT_VERSION
@@ -123,6 +127,10 @@ pub struct ObserveOptions {
     pub include_hidden: bool,
     #[serde(default)]
     pub include_structures: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_contract_version: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<crate::v6::ObservationScope>,
 }
 
 impl Default for ObserveOptions {
@@ -134,6 +142,8 @@ impl Default for ObserveOptions {
             viewport_only: false,
             include_hidden: false,
             include_structures: false,
+            semantic_contract_version: None,
+            scope: None,
         }
     }
 }
@@ -257,7 +267,7 @@ mod tests {
         let request = IntentRequest::new(Intent::ClipboardWrite {
             value: "copied".into(),
         });
-        assert_eq!(request.contract_version, 2);
+        assert_eq!(request.contract_version, AGENT_INTENT_CONTRACT_VERSION);
         assert_eq!(
             request.validate().unwrap(),
             Intent::ClipboardWrite {

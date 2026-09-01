@@ -10,6 +10,24 @@
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(all(feature = "v8-host", oryn_icu_data))]
+#[repr(align(16))]
+struct AlignedIcuData<const N: usize>([u8; N]);
+
+#[cfg(all(feature = "v8-host", oryn_icu_data))]
+static ICU_DATA: AlignedIcuData<{ include_bytes!(env!("ORYN_ICU_DATA_PATH")).len() }> =
+    AlignedIcuData(*include_bytes!(env!("ORYN_ICU_DATA_PATH")));
+
+/// Install the profile-specific ICU package before V8 or any ICU consumer is
+/// initialized. Full builds link their data into V8 and therefore need no
+/// host-provided package.
+#[cfg(feature = "v8-host")]
+pub fn initialize_v8_icu_data() {
+    #[cfg(oryn_icu_data)]
+    v8::icu::set_common_data_77(&ICU_DATA.0)
+        .unwrap_or_else(|status| panic!("profile ICU data was rejected with status {status}"));
+}
+
 pub mod challenge;
 #[cfg(unix)]
 pub mod context_service;
@@ -214,7 +232,7 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
         binding_abi_version: oryn_js::BINDING_ABI_VERSION,
         transport_mode: "async_streaming_parent_broker".into(),
         streaming_parser: true,
-        semantic_graph_version: 1,
+        semantic_graph_version: crate::semantic::SEMANTIC_GRAPH_VERSION,
         webidl_manifest_sha256: option_env!("ORYN_WEBIDL_MANIFEST_SHA256").map(str::to_owned),
         v8_heap_sandbox: cfg!(all(feature = "v8-host", feature = "v8-sandbox")),
         icu_data_sha256: option_env!("ORYN_ICU_DATA_SHA256").map(str::to_owned),

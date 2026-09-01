@@ -1,4 +1,5 @@
 /target
+tools/deno-host-probe/target/
 **/*.rs.bk
 *.backup
 

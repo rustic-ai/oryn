@@ -1159,6 +1159,13 @@ pub struct RustExecutableDocument {
 }
 
 impl RustExecutableDocument {
+    pub fn semantic_frame_ids(&self) -> BTreeMap<NodeId, u64> {
+        self.node_realms
+            .iter()
+            .map(|(node, realm)| (*node, u64::from(realm.0)))
+            .collect()
+    }
+
     pub fn load(html_source: &str) -> Result<Self, HostError> {
         Self::load_with_resources(html_source, &BTreeMap::new())
     }

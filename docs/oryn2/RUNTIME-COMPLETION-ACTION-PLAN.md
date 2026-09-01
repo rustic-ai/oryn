@@ -16,10 +16,10 @@ of a completed production cutover.
 |---|---|---|---|
 | Runtime manifest and evidence contract | Implemented | Immutable `runtime-completion-v1` classification manifest, result schema, cache bootstrapper and fail-closed validators exist. The manifest validator passes. | Produce an exact-binary result whose aggregate is recomputed from complete assertion ledgers. |
 | Async transport and streaming navigation | Implemented in software | `oryn-net` owns the async rustls/HTTP2 pool. Broker v4 emits correlated headers/chunk/completion/failure/cancel operations with explicit demand. Navigation incrementally consumes decoded chunks in the shared live `DomRuntime`. Images complete outside the page actor. Async/defer/module scripts, module graphs, stylesheets/imports, frames, and dynamic scripts start concurrently and join only their required parser/lifecycle barrier. All complete-resource operations are correlated, deadline-, size-, and lifetime-bounded. Worker connection loss, replacement, close, navigation supersession, timeout, and stale completion cancel or reject the affected operation. | Exact packaged-binary and broader WPT lifecycle evidence remain part of final validation. |
-| Incremental semantics | Partial | `DomRuntime` has a bounded sequenced mutation journal with independent cursors. Each document owns a persistent `SemanticGraph` with reverse dependencies, reference generations and incremental delta publication. Focused oracle equivalence and bounded-history tests pass. | Eliminate remaining full projection from normal observation/update paths. Pass randomized mutation, framework churn, navigation, shadow/frame and replay equivalence with zero false reference preservation. |
+| Incremental semantics | Implemented in software | Contract v6 uses one persistent graph for semantic nodes, accessibility, structures, reverse dependencies, frame ownership, computed visibility, scoped observations, deltas and graph-native resolution. Equal scores and missing spatial geometry fail explicitly. The full projector is a test/feature-gated oracle only. | Run the pinned ARIA/Accessible Name corpus, framework churn, navigation, shadow/frame and replay equivalence, then publish exact-candidate zero-false-preservation evidence. |
 | Generated WebIDL and compatibility APIs | Partial | Generated V8 prototypes route migrated operations into Rust and enforce identity, brand, realm, origin and generation checks. Range, Selection, NodeIterator, TreeWalker, History, referrer policy and broader IndexedDB behavior are present. | Implement the remaining declared Range/Selection/editing/traversal algorithms, traversal filtering, full history/referrer cases and IndexedDB connection/version/transaction semantics. Remove corresponding handwritten bootstrap interfaces only after mapped tests pass. |
-| Stylo cascade | Not started | Stylo parses individual declaration blocks; Taffy and Parley provide bounded layout and text services. | Implement Stylo node/element adapters, stylesheet origins, selector matching, cascade, inheritance, custom properties, media and invalidation. Delete handwritten rule parsing/matching/cascade after mapped CSSOM and differential tests pass. |
-| V8 sandbox, ICU and startup snapshots | Scaffolded | Production features request `v8_enable_sandbox`; runtime initialization is fail-closed, metadata fields exist, and build scripts request pointer compression and content-addressed outputs. Lite releases reject missing custom ICU/V8 inputs. | Build reproducible macOS ARM64 and Linux x86_64 full/lite archives; generate a true root/en/en-US ICU payload; install a stable external-reference table and generated-interface snapshot; prove linked heap-sandbox state. |
+| Stylo cascade | Partial | A persistent style service uses Stylo stylesheet/media/declaration parsing, selector matching and specificity. Combinators, importance, pseudo-state, media and invalidation regressions pass, and computed visibility feeds the semantic graph. Taffy and Parley remain the box/text services. | Move the remaining winner, inheritance and supported-value projection onto Stylo computed values, add stylesheet origins/custom-property coverage, and pass mapped CSSOM/differential tests. |
+| V8 sandbox, ICU and startup snapshots | Partial | Production features require `v8_enable_sandbox`; runtime initialization is fail-closed. Exact macOS ARM64 full and external-data lite archives build from pinned source. Lite embeds a physically reduced 2.2 MiB root/en/en-US ICU package. A versioned callback table and content-addressed snapshot are supplied to both snapshot creation and runtime isolates, with hashes in schema-v3 manifests. Heap-sandbox, locale, Segmenter and snapshot-load checks pass. | Build Linux x86_64 full/lite, regenerate the full macOS schema-v3 bundle, then attest all four exact profile artifacts. |
 | Upstream conformance | Partial | A pinned sparse WPT cache exists outside Git. The native harness supports applicable `.any.js`, `.window.js` and testharness HTML cases through controlled loopback and records assertion-level outcomes. | Fix the current Range timeout, then run every required mapped WPT/ARIA/Accessible Name case. Keep deferred, excluded and informational results separate. |
 | Product and release validation | Not started for this cutover | Focused Rust/V8 tests pass and historical product evidence remains available for its original commits. | Rerun framework/OAuth, MiniWoB, churn, replay, scanner, Python, MCP, platform security and benchmarks against one clean release candidate; privately sign and re-attest only after deterministic completion. |
 
@@ -51,13 +51,16 @@ of a completed production cutover.
 
 ### Semantic runtime
 
-- Give semantic, style, tracing, custom elements, observers and snapshots
-  independent mutation-journal cursors.
-- Persist semantic nodes, order, relationships, accessible-name dependencies,
-  affordances and reference generations without rebuilding the full snapshot.
-- Generate observation deltas from graph revisions only.
-- Retain the full projector as a test oracle until equivalence passes, then
-  remove it from production features.
+- ~~Persist semantic nodes, order, accessibility relationships, structures,
+  accessible-name dependencies, affordances and reference generations without
+  rebuilding the full snapshot.~~ Implemented in contract v6.
+- ~~Generate observation deltas from graph revisions only and use the same graph
+  for Rust intent and OIL resolution.~~ Implemented through worker protocol v8,
+  Python and MCP adapters.
+- Keep the full projector as a non-production oracle while expanding randomized
+  mutation, framework, frame/shadow, navigation and replay comparisons.
+- Run pinned ARIA/Accessible Name vectors and exact-candidate churn/semantic KPI
+  evidence before release closure.
 
 ### Generated browser interfaces
 
@@ -87,11 +90,13 @@ of a completed production cutover.
 
 - Produce custom sandboxed/pointer-compressed rusty_v8 archives for both target
   platforms; the absent official macOS archive is not an acceptable fallback.
-- Produce and inspect the actual English-lite ICU data payload.
-- Generate profile-specific snapshots containing intrinsic setup and generated
-  interfaces with a stable external-reference table.
-- Bind toolchain, GN options, V8, archive, ICU, snapshot and external-reference
-  hashes into the worker manifest and runtime metadata.
+- ~~Produce and inspect the actual English-lite ICU data payload.~~ Completed
+  on macOS ARM64 with exact locale-resource inspection and Intl regressions.
+- ~~Generate profile-specific snapshots with a stable external-reference
+  table.~~ Implemented and verified for the macOS profile builder.
+- ~~Bind V8, archive, generated binding, ICU, snapshot and external-reference
+  hashes into the profile manifest and runtime metadata.~~ Implemented in
+  manifest schema 3; toolchain fingerprinting remains part of final evidence.
 - Refuse page creation when a production artifact is unsandboxed, mismatched or
   missing required profile data.
 
@@ -142,8 +147,10 @@ navigation, Fetch bodies, image loading, or CORS preflight.
 
 ### Milestone C — complete semantic and WebIDL cutovers
 
-1. Remove full semantic reprojection from normal observations and deltas.
-2. Run randomized graph-oracle equivalence and expanded reference churn.
+1. **Implemented:** remove full semantic reprojection from normal observations
+   and deltas; publish additive contract v6 through every public adapter.
+2. Run randomized graph-oracle equivalence, pinned accessibility conformance and
+   expanded reference churn.
 3. Complete Range/Selection/traversal/editing, history/referrer and IndexedDB.
 4. Remove migrated handwritten JavaScript interfaces.
 
@@ -153,10 +160,13 @@ tests pass without compatibility shims.
 
 ### Milestone D — replace the CSS cascade
 
-1. Implement the Stylo DOM adapter and stylesheet set.
-2. Connect mutation-driven invalidation and computed-style caching.
+1. **Implemented in part:** Stylo owns stylesheet/media/declaration parsing,
+   selector matching and specificity in a persistent style service.
+2. **Implemented:** connect style caching/invalidation and computed visibility
+   to the semantic graph.
 3. Feed computed values to Taffy/Parley and semantic visibility.
-4. Remove the handwritten parser, selector matcher, specificity and cascade.
+4. Replace the remaining bounded winner/inheritance/value projection with Stylo
+   computed values and finish origin/custom-property coverage.
 
 **Exit:** runtime metadata identifies a real Stylo cascade and every required
 mapped CSSOM/cascade/selector assertion plus native-versus-Chromium differential
@@ -205,12 +215,12 @@ release status be marked complete.
 
 1. Fix the upstream Range timeout using an isolated lifecycle/testharness
    regression before broad WPT execution.
-2. Expand semantic graph-oracle tests to framework churn and navigation, then
-   remove full reprojection from normal observations.
+2. Expand the now-production contract-v6 graph/oracle tests to framework churn,
+   navigation, frames and shadow DOM, then run pinned ARIA/AccName mappings.
 3. Complete the remaining generated Range/Selection/traversal/editing,
    history/referrer and IndexedDB algorithms.
-4. Start the Stylo adapter after the DOM mutation and style-invalidation
-   cursor contract is stable.
+4. Complete Stylo computed-value traversal now that stylesheet parsing,
+   matching, specificity and persistent invalidation are active.
 5. Build custom V8 artifacts after software cutovers stabilize, avoiding costly
    rebuilds for a moving external-reference table.
 

@@ -10,9 +10,11 @@ fn digest(path: &Path) -> String {
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(oryn_startup_snapshot)");
+    println!("cargo:rustc-check-cfg=cfg(oryn_icu_data)");
     for name in [
         "ORYN_STARTUP_SNAPSHOT",
         "ORYN_ICU_DATA_PATH",
+        "ORYN_ICU_DATA_FINGERPRINT_PATH",
         "ORYN_EXTERNAL_REFERENCES_SHA256",
         "RUSTY_V8_ARCHIVE",
     ] {
@@ -23,6 +25,12 @@ fn main() {
     println!(
         "cargo:rustc-env=ORYN_WEBIDL_MANIFEST_SHA256={}",
         digest(idl)
+    );
+    let external_references = Path::new("assets/external-references-v1.json");
+    println!("cargo:rerun-if-changed={}", external_references.display());
+    println!(
+        "cargo:rustc-env=ORYN_EXTERNAL_REFERENCES_SHA256={}",
+        digest(external_references)
     );
 
     if let Ok(path) = env::var("ORYN_STARTUP_SNAPSHOT") {
@@ -42,6 +50,14 @@ fn main() {
     }
     if let Ok(path) = env::var("ORYN_ICU_DATA_PATH") {
         let path = Path::new(&path).canonicalize().expect("ICU data path");
+        println!("cargo:rerun-if-changed={}", path.display());
+        println!("cargo:rustc-cfg=oryn_icu_data");
+        println!("cargo:rustc-env=ORYN_ICU_DATA_PATH={}", path.display());
+        println!("cargo:rustc-env=ORYN_ICU_DATA_SHA256={}", digest(&path));
+    } else if let Ok(path) = env::var("ORYN_ICU_DATA_FINGERPRINT_PATH") {
+        let path = Path::new(&path)
+            .canonicalize()
+            .expect("ICU fingerprint path");
         println!("cargo:rerun-if-changed={}", path.display());
         println!("cargo:rustc-env=ORYN_ICU_DATA_SHA256={}", digest(&path));
     }

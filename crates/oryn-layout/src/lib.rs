@@ -8,7 +8,8 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, LazyLock},
+    ptr::NonNull,
+    sync::Arc,
 };
 
 use oryn_common::v4::{
@@ -19,14 +20,34 @@ use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, Layout, LayoutContext, StyleProperty,
 };
 use regex::Regex;
+use selectors::{
+    Element as SelectorElement, OpaqueElement,
+    attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint},
+    matching::{
+        MatchingContext, MatchingForInvalidation, MatchingMode, NeedsSelectorFlags, SelectorCaches,
+        matches_selector,
+    },
+    parser::Selector,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use skrifa::FontRef;
+use style::media_queries::MediaList;
 use style::{
+    CaseSensitivityExt,
     context::QuirksMode,
     properties::parse_style_attribute,
-    stylesheets::{CssRuleType, UrlExtraData},
+    selector_parser::{NonTSPseudoClass, PseudoElement, SelectorImpl},
+    servo_arc::Arc as ServoArc,
+    shared_lock::{SharedRwLock, SharedRwLockReadGuard},
+    stylesheets::{
+        AllowImportRules, CssRule, CssRuleType, CssRules, Origin, Stylesheet, StylesheetInDocument,
+        UrlExtraData,
+    },
+    values::{AtomIdent, AtomString},
 };
+use style_dom::ElementState;
+use style_traits::ToCss;
 use taffy::{
     prelude::{
         AvailableSpace, Display, FlexDirection, Size as TaffySize, Style as TaffyStyle, TaffyTree,
@@ -40,7 +61,7 @@ pub const DEFAULT_FONT_FAMILY: &str = "Oryn Noto Sans";
 pub const DEFAULT_FONT_SHA256: &str =
     "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5";
 pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("../assets/NotoSans-Regular.ttf");
-pub const STYLE_ENGINE_VERSION: &str = "stylo-declarations-0.20+oryn-common-web-cascade-v2";
+pub const STYLE_ENGINE_VERSION: &str = "stylo-stylesheets-selectors-0.20+oryn-cascade-v3";
 pub const BOX_ENGINE_VERSION: &str = "taffy-0.14";
 pub const INLINE_ENGINE_VERSION: &str = "parley-0.11.1";
 
@@ -137,10 +158,276 @@ pub enum LayoutError {
 
 #[derive(Debug, Clone)]
 struct Rule {
-    selector: String,
-    declarations: BTreeMap<String, String>,
-    specificity: (u16, u16, u16),
+    selector: Selector<SelectorImpl>,
+    declarations: BTreeMap<String, (String, bool)>,
+    specificity: u32,
     order: usize,
+}
+
+#[derive(Debug, Default)]
+pub struct StyleEngine {
+    stylesheet_fingerprint: Option<[u8; 32]>,
+    rules: Vec<Rule>,
+}
+
+impl StyleEngine {
+    pub fn compute(
+        &mut self,
+        input: &LayoutInput,
+        limits: &LayoutLimits,
+    ) -> Result<LayoutOutput, LayoutError> {
+        let fingerprint = stylesheet_fingerprint(input);
+        if self.stylesheet_fingerprint != Some(fingerprint) {
+            self.rules = parse_rules(&input.stylesheets, input);
+            self.stylesheet_fingerprint = Some(fingerprint);
+        }
+        compute_with_rules(input, limits, &self.rules)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct LayoutElement<'a> {
+    node: &'a LayoutNode,
+    by_id: &'a BTreeMap<u64, &'a LayoutNode>,
+}
+
+impl std::fmt::Debug for LayoutElement<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LayoutElement")
+            .field("id", &self.node.id)
+            .field("tag", &self.node.tag)
+            .finish()
+    }
+}
+
+impl PartialEq for LayoutElement<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.node.id == other.node.id
+    }
+}
+
+impl LayoutElement<'_> {
+    fn element(&self, id: u64) -> Option<Self> {
+        self.by_id
+            .get(&id)
+            .copied()
+            .filter(|node| node.tag != "#text")
+            .map(|node| Self {
+                node,
+                by_id: self.by_id,
+            })
+    }
+
+    fn state(&self) -> ElementState {
+        let mut state = ElementState::ENABLED;
+        if self.node.attributes.contains_key("disabled") {
+            state.remove(ElementState::ENABLED);
+            state.insert(ElementState::DISABLED);
+        }
+        if self.node.attributes.contains_key("checked") {
+            state.insert(ElementState::CHECKED);
+        }
+        if self.node.attributes.contains_key("required") {
+            state.insert(ElementState::REQUIRED);
+        }
+        if self.node.attributes.contains_key("readonly") {
+            state.insert(ElementState::READWRITE);
+        }
+        if self.node.attributes.contains_key("data-oryn-focused") {
+            state.insert(ElementState::FOCUS);
+        }
+        if self.node.attributes.contains_key("data-oryn-hover") {
+            state.insert(ElementState::HOVER);
+        }
+        if self.node.tag == "a" && self.node.attributes.contains_key("href") {
+            state.insert(ElementState::UNVISITED);
+        }
+        state
+    }
+}
+
+impl SelectorElement for LayoutElement<'_> {
+    type Impl = SelectorImpl;
+
+    fn opaque(&self) -> OpaqueElement {
+        let pointer = NonNull::new((self.node.id as usize).wrapping_add(1) as *mut ())
+            .expect("non-zero synthetic element identity");
+        OpaqueElement::from_non_null_ptr(pointer)
+    }
+
+    fn parent_element(&self) -> Option<Self> {
+        self.node.parent.and_then(|parent| self.element(parent))
+    }
+
+    fn parent_node_is_shadow_root(&self) -> bool {
+        false
+    }
+    fn containing_shadow_host(&self) -> Option<Self> {
+        None
+    }
+    fn is_pseudo_element(&self) -> bool {
+        false
+    }
+
+    fn prev_sibling_element(&self) -> Option<Self> {
+        let parent = self
+            .node
+            .parent
+            .and_then(|parent| self.by_id.get(&parent).copied())?;
+        let index = parent
+            .children
+            .iter()
+            .position(|child| *child == self.node.id)?;
+        parent.children[..index]
+            .iter()
+            .rev()
+            .find_map(|child| self.element(*child))
+    }
+
+    fn next_sibling_element(&self) -> Option<Self> {
+        let parent = self
+            .node
+            .parent
+            .and_then(|parent| self.by_id.get(&parent).copied())?;
+        let index = parent
+            .children
+            .iter()
+            .position(|child| *child == self.node.id)?;
+        parent.children[index.saturating_add(1)..]
+            .iter()
+            .find_map(|child| self.element(*child))
+    }
+
+    fn first_element_child(&self) -> Option<Self> {
+        self.node
+            .children
+            .iter()
+            .find_map(|child| self.element(*child))
+    }
+
+    fn is_html_element_in_html_document(&self) -> bool {
+        true
+    }
+
+    fn has_local_name(
+        &self,
+        local_name: &<SelectorImpl as selectors::SelectorImpl>::BorrowedLocalName,
+    ) -> bool {
+        local_name.as_ref() == self.node.tag
+    }
+
+    fn has_namespace(
+        &self,
+        ns: &<SelectorImpl as selectors::SelectorImpl>::BorrowedNamespaceUrl,
+    ) -> bool {
+        ns.as_ref() == "http://www.w3.org/1999/xhtml"
+    }
+
+    fn is_same_type(&self, other: &Self) -> bool {
+        self.node.tag == other.node.tag
+    }
+
+    fn attr_matches(
+        &self,
+        _ns: &NamespaceConstraint<&<SelectorImpl as selectors::SelectorImpl>::NamespaceUrl>,
+        local_name: &<SelectorImpl as selectors::SelectorImpl>::LocalName,
+        operation: &AttrSelectorOperation<&AtomString>,
+    ) -> bool {
+        self.node
+            .attributes
+            .get(local_name.0.as_ref())
+            .is_some_and(|value| operation.eval_str(value))
+    }
+
+    fn match_non_ts_pseudo_class(
+        &self,
+        pseudo: &NonTSPseudoClass,
+        _context: &mut MatchingContext<SelectorImpl>,
+    ) -> bool {
+        let state = self.state();
+        match pseudo {
+            NonTSPseudoClass::Active => state.contains(ElementState::ACTIVE),
+            NonTSPseudoClass::AnyLink => state.intersects(ElementState::VISITED_OR_UNVISITED),
+            NonTSPseudoClass::Checked => state.contains(ElementState::CHECKED),
+            NonTSPseudoClass::Disabled => state.contains(ElementState::DISABLED),
+            NonTSPseudoClass::Enabled => state.contains(ElementState::ENABLED),
+            NonTSPseudoClass::Focus => state.contains(ElementState::FOCUS),
+            NonTSPseudoClass::Hover => state.contains(ElementState::HOVER),
+            NonTSPseudoClass::Link => state.contains(ElementState::UNVISITED),
+            NonTSPseudoClass::ReadOnly => self.node.attributes.contains_key("readonly"),
+            NonTSPseudoClass::ReadWrite => !self.node.attributes.contains_key("readonly"),
+            NonTSPseudoClass::Required => self.node.attributes.contains_key("required"),
+            NonTSPseudoClass::Optional => !self.node.attributes.contains_key("required"),
+            NonTSPseudoClass::Open => self.node.attributes.contains_key("open"),
+            _ => false,
+        }
+    }
+
+    fn match_pseudo_element(
+        &self,
+        _pseudo: &PseudoElement,
+        _context: &mut MatchingContext<SelectorImpl>,
+    ) -> bool {
+        false
+    }
+
+    fn apply_selector_flags(&self, _flags: selectors::matching::ElementSelectorFlags) {}
+    fn is_link(&self) -> bool {
+        self.node.tag == "a" && self.node.attributes.contains_key("href")
+    }
+    fn is_html_slot_element(&self) -> bool {
+        self.node.tag == "slot"
+    }
+
+    fn has_id(&self, id: &AtomIdent, case_sensitivity: CaseSensitivity) -> bool {
+        let value = self
+            .node
+            .attributes
+            .get("id")
+            .map(|value| AtomIdent::from(value.as_str()));
+        self.node.attributes.get("id").is_some_and(|_| {
+            value
+                .as_ref()
+                .is_some_and(|value| case_sensitivity.eq_atom(&value.0, &id.0))
+        })
+    }
+
+    fn has_class(&self, name: &AtomIdent, case_sensitivity: CaseSensitivity) -> bool {
+        self.node.attributes.get("class").is_some_and(|classes| {
+            classes
+                .split_ascii_whitespace()
+                .map(AtomIdent::from)
+                .any(|class| case_sensitivity.eq_atom(&class.0, &name.0))
+        })
+    }
+
+    fn has_custom_state(&self, _name: &AtomIdent) -> bool {
+        false
+    }
+    fn imported_part(&self, _name: &AtomIdent) -> Option<AtomIdent> {
+        None
+    }
+    fn is_part(&self, _name: &AtomIdent) -> bool {
+        false
+    }
+
+    fn is_empty(&self) -> bool {
+        self.node.children.iter().all(|child| {
+            self.by_id
+                .get(child)
+                .is_none_or(|child| child.tag == "#text" && child.text.is_empty())
+        })
+    }
+
+    fn is_root(&self) -> bool {
+        self.parent_element().is_none()
+    }
+
+    fn add_element_unique_hashes(&self, filter: &mut selectors::bloom::BloomFilter) -> bool {
+        let _ = filter;
+        false
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -262,6 +549,14 @@ impl TextEngine {
 /// Compute a deterministic style/layout snapshot.  Geometry is expressed in
 /// viewport coordinates, matching `getBoundingClientRect`.
 pub fn compute(input: &LayoutInput, limits: &LayoutLimits) -> Result<LayoutOutput, LayoutError> {
+    StyleEngine::default().compute(input, limits)
+}
+
+fn compute_with_rules(
+    input: &LayoutInput,
+    limits: &LayoutLimits,
+    rules: &[Rule],
+) -> Result<LayoutOutput, LayoutError> {
     validate(input, limits)?;
     let (web_fonts, loaded_fonts, mut diagnostics) = prepare_web_fonts(input, limits);
     let by_id = input
@@ -269,11 +564,10 @@ pub fn compute(input: &LayoutInput, limits: &LayoutLimits) -> Result<LayoutOutpu
         .iter()
         .map(|node| (node.id, node))
         .collect::<BTreeMap<_, _>>();
-    let rules = parse_rules(&input.stylesheets, input);
     let mut computed_styles = BTreeMap::new();
     for node in &input.nodes {
         let parent_style = node.parent.and_then(|parent| computed_styles.get(&parent));
-        computed_styles.insert(node.id, cascade(node, &by_id, parent_style, &rules));
+        computed_styles.insert(node.id, cascade(node, &by_id, parent_style, rules));
     }
 
     let roots = input
@@ -346,6 +640,22 @@ pub fn compute(input: &LayoutInput, limits: &LayoutLimits) -> Result<LayoutOutpu
         diagnostics,
         loaded_fonts,
     })
+}
+
+fn stylesheet_fingerprint(input: &LayoutInput) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    for sheet in &input.stylesheets {
+        digest.update((sheet.len() as u64).to_le_bytes());
+        digest.update(sheet.as_bytes());
+    }
+    digest.update(input.viewport.width.to_bits().to_le_bytes());
+    digest.update(input.viewport.height.to_bits().to_le_bytes());
+    digest.update([match input.color_scheme {
+        ColorScheme::Light => 0,
+        ColorScheme::Dark => 1,
+    }]);
+    digest.update([u8::from(input.reduced_motion)]);
+    digest.finalize().into()
 }
 
 fn apply_ancestor_clipping(
@@ -507,61 +817,72 @@ fn validate(input: &LayoutInput, limits: &LayoutLimits) -> Result<(), LayoutErro
 }
 
 fn parse_rules(stylesheets: &[String], input: &LayoutInput) -> Vec<Rule> {
-    let comments = Regex::new(r"(?s)/\*.*?\*/").expect("constant regex");
     let mut rules = Vec::new();
     let mut order = 0;
     for sheet in stylesheets {
-        let clean = comments.replace_all(sheet, "");
-        parse_sheet(&clean, input, &mut rules, &mut order);
+        let lock = SharedRwLock::new();
+        let media = ServoArc::new(lock.wrap(MediaList::empty()));
+        let parsed = Stylesheet::from_str(
+            sheet,
+            UrlExtraData::from(
+                url::Url::parse("about:blank").expect("constant Stylo stylesheet base URL"),
+            ),
+            Origin::Author,
+            media,
+            lock.clone(),
+            None,
+            None,
+            QuirksMode::NoQuirks,
+            AllowImportRules::Yes,
+        );
+        let guard = parsed.shared_lock.read();
+        let contents = parsed.contents(&guard);
+        collect_stylo_rules(
+            contents.rules.read_with(&guard),
+            &guard,
+            input,
+            &mut rules,
+            &mut order,
+        );
     }
     rules
 }
 
-fn parse_sheet(source: &str, input: &LayoutInput, rules: &mut Vec<Rule>, order: &mut usize) {
-    let mut cursor = 0;
-    while let Some(open_relative) = source[cursor..].find('{') {
-        let open = cursor + open_relative;
-        let prelude = source[cursor..open].trim();
-        let mut depth = 1_u32;
-        let mut close = open + 1;
-        for (offset, character) in source[open + 1..].char_indices() {
-            match character {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        close = open + 1 + offset;
-                        break;
-                    }
+fn collect_stylo_rules(
+    css_rules: &CssRules,
+    guard: &SharedRwLockReadGuard,
+    input: &LayoutInput,
+    output: &mut Vec<Rule>,
+    order: &mut usize,
+) {
+    for css_rule in &css_rules.0 {
+        match css_rule {
+            CssRule::Style(rule) => {
+                let rule = rule.read_with(guard);
+                let mut serialized = String::new();
+                rule.block
+                    .read_with(guard)
+                    .to_css(&mut serialized)
+                    .expect("serializing a Stylo declaration block to String cannot fail");
+                let declarations = declarations_with_importance(&serialized);
+                for selector in rule.selectors.slice() {
+                    output.push(Rule {
+                        selector: selector.clone(),
+                        declarations: declarations.clone(),
+                        specificity: selector.specificity(),
+                        order: *order,
+                    });
+                    *order += 1;
                 }
-                _ => {}
             }
-        }
-        if depth != 0 {
-            break;
-        }
-        let body = &source[open + 1..close];
-        if let Some(condition) = prelude.strip_prefix("@media") {
-            if media_matches(condition.trim(), input) {
-                parse_sheet(body, input, rules, order);
+            CssRule::Media(media) => {
+                let condition = media.media_queries.read_with(guard).to_css_string();
+                if media_matches(&condition, input) {
+                    collect_stylo_rules(media.rules.read_with(guard), guard, input, output, order);
+                }
             }
-        } else if !prelude.starts_with('@') {
-            let rule_declarations = declarations(body);
-            for selector in prelude
-                .split(',')
-                .map(str::trim)
-                .filter(|item| !item.is_empty())
-            {
-                rules.push(Rule {
-                    selector: selector.to_string(),
-                    declarations: rule_declarations.clone(),
-                    specificity: specificity(selector),
-                    order: *order,
-                });
-                *order += 1;
-            }
+            _ => {}
         }
-        cursor = close + 1;
     }
 }
 
@@ -617,26 +938,25 @@ fn cascade(
             style.insert(property.into(), value.clone());
         }
     }
-    let mut winners = BTreeMap::<String, ((u16, u16, u16), usize, String)>::new();
+    let mut winners = BTreeMap::<String, (bool, u32, usize, String)>::new();
     for rule in rules
         .iter()
-        .filter(|rule| selector_matches(node, &rule.selector, by_id))
+        .filter(|rule| stylo_selector_matches(node, &rule.selector, by_id))
     {
-        for (property, value) in &rule.declarations {
-            let candidate = (rule.specificity, rule.order, value.clone());
-            if winners
-                .get(property)
-                .is_none_or(|current| (candidate.0, candidate.1) >= (current.0, current.1))
-            {
+        for (property, (value, important)) in &rule.declarations {
+            let candidate = (*important, rule.specificity, rule.order, value.clone());
+            if winners.get(property).is_none_or(|current| {
+                (candidate.0, candidate.1, candidate.2) >= (current.0, current.1, current.2)
+            }) {
                 winners.insert(property.clone(), candidate);
             }
         }
     }
-    for (property, (_, _, value)) in winners {
+    for (property, (_, _, _, value)) in winners {
         style.insert(property, resolve_value(&value, &style, parent));
     }
     if let Some(inline) = node.attributes.get("style") {
-        for (property, value) in declarations(inline) {
+        for (property, (value, _)) in declarations_with_importance(inline) {
             style.insert(property, resolve_value(&value, &style, parent));
         }
     }
@@ -644,6 +964,24 @@ fn cascade(
         style.insert("display".into(), "none".into());
     }
     style
+}
+
+fn stylo_selector_matches(
+    node: &LayoutNode,
+    selector: &Selector<SelectorImpl>,
+    by_id: &BTreeMap<u64, &LayoutNode>,
+) -> bool {
+    let element = LayoutElement { node, by_id };
+    let mut caches = SelectorCaches::default();
+    let mut context = MatchingContext::new(
+        MatchingMode::Normal,
+        None,
+        &mut caches,
+        QuirksMode::NoQuirks,
+        NeedsSelectorFlags::No,
+        MatchingForInvalidation::No,
+    );
+    matches_selector(selector, 0, None, &element, &mut context)
 }
 
 fn ua_style(node: &LayoutNode) -> BTreeMap<String, String> {
@@ -746,6 +1084,22 @@ fn declarations(input: &str) -> BTreeMap<String, String> {
     parsed
 }
 
+fn declarations_with_importance(input: &str) -> BTreeMap<String, (String, bool)> {
+    let important = input
+        .split(';')
+        .filter_map(|item| item.split_once(':'))
+        .filter(|(_, value)| value.trim().to_ascii_lowercase().ends_with("!important"))
+        .map(|(name, _)| name.trim().to_ascii_lowercase())
+        .collect::<BTreeSet<_>>();
+    declarations(input)
+        .into_iter()
+        .map(|(name, value)| {
+            let is_important = important.contains(&name);
+            (name, (value, is_important))
+        })
+        .collect()
+}
+
 fn bounded_grid_template(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 1024
@@ -801,115 +1155,6 @@ fn resolve_value(
             .unwrap_or_else(|| fallback.trim().to_string());
     }
     value.to_string()
-}
-
-fn specificity(selector: &str) -> (u16, u16, u16) {
-    let ids = selector.matches('#').count() as u16;
-    let classes = selector.matches('.').count() as u16
-        + selector.matches('[').count() as u16
-        + selector.matches(':').count() as u16;
-    let elements = selector
-        .split(|character: char| character.is_whitespace() || matches!(character, '>' | '+' | '~'))
-        .filter(|part| {
-            part.chars()
-                .next()
-                .is_some_and(|character| character.is_ascii_alphabetic())
-        })
-        .count() as u16;
-    (ids, classes, elements)
-}
-
-fn selector_matches(node: &LayoutNode, selector: &str, by_id: &BTreeMap<u64, &LayoutNode>) -> bool {
-    let parts = selector.split_whitespace().collect::<Vec<_>>();
-    let Some(last) = parts.last() else {
-        return false;
-    };
-    if !simple_selector_matches(node, last) {
-        return false;
-    }
-    let mut ancestor = node.parent;
-    for part in parts[..parts.len() - 1].iter().rev() {
-        let Some(found) =
-            ancestors(ancestor, by_id).find(|candidate| simple_selector_matches(candidate, part))
-        else {
-            return false;
-        };
-        ancestor = found.parent;
-    }
-    true
-}
-
-fn ancestors<'a>(
-    mut id: Option<u64>,
-    by_id: &'a BTreeMap<u64, &'a LayoutNode>,
-) -> impl Iterator<Item = &'a LayoutNode> {
-    std::iter::from_fn(move || {
-        let node = id.and_then(|id| by_id.get(&id).copied());
-        id = node.and_then(|node| node.parent);
-        node
-    })
-}
-
-fn simple_selector_matches(node: &LayoutNode, selector: &str) -> bool {
-    let selector = selector.trim_matches(|character| matches!(character, '>' | '+' | '~'));
-    if selector == "*" {
-        return true;
-    }
-    if selector.contains(":hover") || selector.contains(":active") {
-        return false;
-    }
-    if selector.contains(":root") && node.tag != "html" {
-        return false;
-    }
-    let tag = selector
-        .split(['#', '.', '[', ':'])
-        .next()
-        .unwrap_or_default();
-    if !tag.is_empty() && tag != "*" && !tag.eq_ignore_ascii_case(&node.tag) {
-        return false;
-    }
-    for id in selector.split('#').skip(1).map(token) {
-        if node.attributes.get("id").is_none_or(|value| value != id) {
-            return false;
-        }
-    }
-    let classes = node
-        .attributes
-        .get("class")
-        .map(|value| value.split_whitespace().collect::<BTreeSet<_>>())
-        .unwrap_or_default();
-    if selector
-        .split('.')
-        .skip(1)
-        .map(token)
-        .any(|class| !classes.contains(class))
-    {
-        return false;
-    }
-    static ATTRIBUTE_SELECTOR: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#"\[([\w-]+)(?:\s*=\s*['\"]?([^'\"\]]+)['\"]?)?\]"#).expect("constant regex")
-    });
-    for capture in ATTRIBUTE_SELECTOR.captures_iter(selector) {
-        let Some(value) = node.attributes.get(&capture[1]) else {
-            return false;
-        };
-        if capture
-            .get(2)
-            .is_some_and(|expected| value != expected.as_str())
-        {
-            return false;
-        }
-    }
-    true
-}
-
-fn token(value: &str) -> &str {
-    value
-        .split(|character: char| {
-            !character.is_ascii_alphanumeric() && character != '-' && character != '_'
-        })
-        .next()
-        .unwrap_or_default()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1810,6 +2055,61 @@ mod tests {
         assert!(parsed.contains_key("color"));
         assert!(!parsed.contains_key("width"));
         assert!(!parsed.contains_key("not-a-real-property"));
+    }
+
+    #[test]
+    fn stylo_owns_selector_parsing_specificity_importance_and_media_rules() {
+        let mut root = node(1, None, "main", "");
+        root.attributes.insert("id".into(), "app".into());
+        root.children = vec![2, 3];
+        let mut first = node(2, Some(1), "button", "First");
+        first.attributes.insert("class".into(), "action".into());
+        let mut second = node(3, Some(1), "button", "Second");
+        second.attributes.insert("class".into(), "action".into());
+        let output = compute(
+            &LayoutInput {
+                nodes: vec![root, first, second],
+                stylesheets: vec![
+                    "button { color: black !important }\n\
+                     #app > .action { color: red }\n\
+                     .action + .action { width: 71px }\n\
+                     @media (min-width: 600px) { #app > button { height: 33px } }"
+                        .into(),
+                ],
+                viewport: ViewportState::default(),
+                scroll: ScrollState::default(),
+                color_scheme: ColorScheme::Light,
+                reduced_motion: false,
+                web_fonts: Vec::new(),
+            },
+            &LayoutLimits::default(),
+        )
+        .expect("Stylo cascade projection");
+        assert_eq!(output.computed_styles[&2]["color"], "black");
+        assert_eq!(output.computed_styles[&3]["width"], "71px");
+        assert_eq!(output.computed_styles[&2]["height"], "33px");
+    }
+
+    #[test]
+    fn persistent_style_engine_reuses_and_invalidates_stylesheets() {
+        let input = |color: &str| LayoutInput {
+            nodes: vec![node(1, None, "button", "Save")],
+            stylesheets: vec![format!("button {{ color: {color} }}")],
+            viewport: ViewportState::default(),
+            scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light,
+            reduced_motion: false,
+            web_fonts: Vec::new(),
+        };
+        let mut engine = StyleEngine::default();
+        let first = engine
+            .compute(&input("red"), &LayoutLimits::default())
+            .expect("first style pass");
+        let second = engine
+            .compute(&input("blue"), &LayoutLimits::default())
+            .expect("invalidated style pass");
+        assert_eq!(first.computed_styles[&1]["color"], "red");
+        assert_eq!(second.computed_styles[&1]["color"], "blue");
     }
 
     #[test]

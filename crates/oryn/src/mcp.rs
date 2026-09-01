@@ -204,7 +204,22 @@ pub fn intent_request_schema() -> Value {
                     "include_geometry":{"type":"boolean"},
                     "viewport_only":{"type":"boolean"},
                     "include_hidden":{"type":"boolean"},
-                    "include_structures":{"type":"boolean"}
+                    "include_structures":{"type":"boolean"},
+                    "semantic_contract_version":{"type":["integer","null"],"enum":[6,null]},
+                    "scope":{
+                        "type":["object","null"],
+                        "additionalProperties":false,
+                        "required":["root"],
+                        "properties":{
+                            "root":{"type":"object"},
+                            "ancestor_depth":{"type":"integer","minimum":0,"maximum":64},
+                            "descendant_depth":{"type":"integer","minimum":0,"maximum":64},
+                            "relationship_depth":{"type":"integer","minimum":0,"maximum":64},
+                            "include_structural_neighbors":{"type":"boolean"},
+                            "include_spatial_neighbors":{"type":"boolean"},
+                            "max_nodes":{"type":"integer","minimum":1,"maximum":10000}
+                        }
+                    }
                 }
             },
             "intent": {

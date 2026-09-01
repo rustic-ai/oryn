@@ -1,6 +1,7 @@
 """Tests for binary discovery."""
 
 import pytest
+
 from oryn.discovery import find_binary, validate_binary
 from oryn.errors import BinaryNotFoundError
 

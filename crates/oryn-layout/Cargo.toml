@@ -21,4 +21,6 @@ fontique = { version = "0.11.1", default-features = false, features = ["std"] }
 style = { version = "=0.20.0", package = "stylo" }
 style_traits = { version = "=0.20.0", package = "stylo_traits" }
 style_atoms = { version = "=0.20.0", package = "stylo_atoms" }
+style_dom = { version = "=0.20.0", package = "stylo_dom" }
+selectors = "=0.40.0"
 stylo_taffy = { git = "https://github.com/DioxusLabs/blitz", rev = "9d5cef2fa3d01423081681843d91b76ef593443e", default-features = false, features = ["std", "block", "flexbox", "grid", "floats"] }

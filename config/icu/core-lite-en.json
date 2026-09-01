@@ -1,0 +1,27 @@
+{
+  "strategy": "subtractive",
+  "collationUCAData": "implicithan",
+  "localeFilter": {
+    "filterType": "locale",
+    "includeChildren": false,
+    "includeScripts": false,
+    "includelist": [
+      "root",
+      "en",
+      "en_US"
+    ]
+  },
+  "featureFilters": {
+    "brkitr_adaboost": { "filterType": "exclude" },
+    "brkitr_dictionaries": { "filterType": "exclude" },
+    "brkitr_lstm": { "filterType": "exclude" },
+    "brkitr_rules": { "filterType": "exclude" },
+    "brkitr_tree": { "filterType": "exclude" },
+    "confusables": { "filterType": "exclude" },
+    "conversion_mappings": { "filterType": "exclude" },
+    "rbnf_tree": { "filterType": "exclude" },
+    "stringprep": { "filterType": "exclude" },
+    "translit": { "filterType": "exclude" },
+    "unames": { "filterType": "exclude" }
+  }
+}

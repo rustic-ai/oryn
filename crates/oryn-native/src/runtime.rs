@@ -35,9 +35,7 @@ use crate::context_service::{ContextEvent, ContextEventRecord};
 use crate::challenge::{ChallengeAssessment, assess_challenge};
 use crate::html::{ParsedDocument, parse};
 use crate::network::NetworkBroker;
-use crate::semantic::{
-    empty_observation, is_hidden, project_element, project_semantic_observation,
-};
+use crate::semantic::{empty_observation, is_hidden, project_element};
 use crate::trace::{CausalRelation, TraceEvent, TraceEventKind, TraceLog};
 use crate::{
     download::{DownloadDescriptor, DownloadId, DownloadStore},
@@ -952,6 +950,11 @@ enum PageCommand {
         action: SemanticAction,
         reply: oneshot::Sender<Result<SemanticRef, RuntimeError>>,
     },
+    ResolveSemantic {
+        target: oryn_common::agent::Target,
+        action: SemanticAction,
+        reply: oneshot::Sender<Result<oryn_common::v6::ResolutionResult, RuntimeError>>,
+    },
     Extract {
         kind: ContentKind,
         selector: Option<String>,
@@ -968,6 +971,10 @@ enum PageCommand {
     ObserveSemantic {
         profile: ProjectionProfile,
         reply: oneshot::Sender<oryn_common::v5::SemanticObservation>,
+    },
+    ObserveSemanticV6 {
+        options: oryn_common::v6::SemanticObservationOptions,
+        reply: oneshot::Sender<Result<oryn_common::v6::SemanticObservation, RuntimeError>>,
     },
     ComputedStyle {
         target: SemanticRef,
@@ -999,6 +1006,10 @@ enum PageCommand {
     ObserveDelta {
         from: Revision,
         reply: oneshot::Sender<Result<ObservationDelta, RuntimeError>>,
+    },
+    ObserveSemanticDelta {
+        from: Revision,
+        reply: oneshot::Sender<Result<oryn_common::v6::SemanticDelta, RuntimeError>>,
     },
     Trace {
         reply: oneshot::Sender<Vec<TraceEvent>>,
@@ -3041,6 +3052,13 @@ impl BrowserContext {
                     } => {
                         let _ = reply.send(state.resolve_selector(&selector, action));
                     }
+                    PageCommand::ResolveSemantic {
+                        target,
+                        action,
+                        reply,
+                    } => {
+                        let _ = reply.send(state.resolve_semantic(&target, action));
+                    }
                     PageCommand::Extract {
                         kind,
                         selector,
@@ -3056,6 +3074,9 @@ impl BrowserContext {
                     }
                     PageCommand::ObserveSemantic { profile, reply } => {
                         let _ = reply.send(state.semantic_observation(profile));
+                    }
+                    PageCommand::ObserveSemanticV6 { options, reply } => {
+                        let _ = reply.send(state.semantic_observation_v6(options));
                     }
                     PageCommand::ComputedStyle { target, reply } => {
                         let _ = reply.send(state.computed_style(target));
@@ -3096,6 +3117,9 @@ impl BrowserContext {
                     }
                     PageCommand::ObserveDelta { from, reply } => {
                         let _ = reply.send(state.delta_from(from));
+                    }
+                    PageCommand::ObserveSemanticDelta { from, reply } => {
+                        let _ = reply.send(state.semantic_delta_from(from));
                     }
                     PageCommand::Trace { reply } => {
                         let _ = reply.send(state.trace.events().to_vec());
@@ -3598,6 +3622,36 @@ impl PageHandle {
         response.await.map_err(|_| RuntimeError::Closed)?
     }
 
+    pub async fn resolve_semantic(
+        &self,
+        target: oryn_common::agent::Target,
+        action: SemanticAction,
+    ) -> Result<oryn_common::v6::ResolutionResult, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::ResolveSemantic {
+                target: target.clone(),
+                action,
+            })
+            .await
+        {
+            return match response? {
+                crate::worker::WorkerResponse::Resolution { result } => Ok(result),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::ResolveSemantic {
+                target,
+                action,
+                reply,
+            })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
     pub async fn extract(
         &self,
         kind: ContentKind,
@@ -3720,6 +3774,33 @@ impl PageHandle {
             context.group.update_observation(&observation.observation);
         }
         Ok(observation)
+    }
+
+    /// Observe the canonical incremental semantic graph through contract v6.
+    pub async fn observe_semantics_v6(
+        &self,
+        options: oryn_common::v6::SemanticObservationOptions,
+    ) -> Result<oryn_common::v6::SemanticObservation, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::ObserveSemanticV6 {
+                options: options.clone(),
+            })
+            .await
+        {
+            return match response? {
+                crate::worker::WorkerResponse::SemanticObservationV6 { observation } => {
+                    Ok(observation)
+                }
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::ObserveSemanticV6 { options, reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
     }
 
     /// Frozen contract-v3 observation for compatibility callers.
@@ -3898,6 +3979,28 @@ impl PageHandle {
         let (reply, response) = oneshot::channel();
         self.local_sender()?
             .send(PageCommand::ObserveDelta { from, reply })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
+    pub async fn observe_semantic_delta(
+        &self,
+        from: Revision,
+    ) -> Result<oryn_common::v6::SemanticDelta, RuntimeError> {
+        #[cfg(unix)]
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::ObserveSemanticDelta { from })
+            .await
+        {
+            return match response? {
+                crate::worker::WorkerResponse::SemanticDelta { delta } => Ok(delta),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let (reply, response) = oneshot::channel();
+        self.local_sender()?
+            .send(PageCommand::ObserveSemanticDelta { from, reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
         response.await.map_err(|_| RuntimeError::Closed)?
@@ -4389,6 +4492,8 @@ pub enum RuntimeError {
     WrongDocumentGeneration { expected: u64, actual: u64 },
     #[error("semantic reference is stale or unknown")]
     StaleSemanticRef,
+    #[error("semantic target is ambiguous: {candidates:?}")]
+    AmbiguousTarget { candidates: Vec<SemanticRef> },
     #[error("{action:?} is not supported by this element")]
     UnsupportedAction { action: SemanticAction },
     #[error("semantic target is disabled")]
@@ -4399,6 +4504,8 @@ pub enum RuntimeError {
     Script(String),
     #[error("typed agent intent failed: {0}")]
     Intent(String),
+    #[error("semantic state failed: {0}")]
+    Semantic(String),
     #[error("browser context service failed: {0}")]
     ContextService(String),
     #[error("network navigation failed: {0}")]
@@ -4455,6 +4562,23 @@ fn map_host_error(error: crate::host::HostError) -> RuntimeError {
     }
 }
 
+fn target_requires_geometry(target: &oryn_common::agent::Target) -> bool {
+    use oryn_common::agent::Target;
+    match target {
+        Target::Near { .. } => true,
+        Target::Inside { target, container } => {
+            target_requires_geometry(target) || target_requires_geometry(container)
+        }
+        Target::After { target, anchor } | Target::Before { target, anchor } => {
+            target_requires_geometry(target) || target_requires_geometry(anchor)
+        }
+        Target::Contains { target, content } => {
+            target_requires_geometry(target) || target_requires_geometry(content)
+        }
+        _ => false,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeAction {
     pub target: SemanticRef,
@@ -4481,6 +4605,7 @@ struct PageState {
     #[cfg(feature = "v8-host")]
     executable: Option<crate::executable::RustExecutableDocument>,
     semantic_deltas: BTreeMap<u64, crate::semantic::SemanticGraphChanges>,
+    semantic_v6_deltas: BTreeMap<u64, oryn_common::v6::SemanticGraphChanges>,
     semantic_delta_bytes: usize,
     trace: TraceLog,
     history: Vec<String>,
@@ -4492,6 +4617,8 @@ struct PageState {
     web_fonts: Vec<oryn_layout::WebFont>,
     #[cfg(feature = "v8-host")]
     layout: Option<oryn_layout::LayoutOutput>,
+    #[cfg(feature = "v8-host")]
+    style_engine: oryn_layout::StyleEngine,
     #[cfg(feature = "v8-host")]
     color_scheme: PreferredColorScheme,
     #[cfg(feature = "v8-host")]
@@ -4555,6 +4682,7 @@ impl PageState {
             #[cfg(feature = "v8-host")]
             executable: None,
             semantic_deltas: BTreeMap::new(),
+            semantic_v6_deltas: BTreeMap::new(),
             semantic_delta_bytes: 0,
             trace: TraceLog::new(page_id),
             history: Vec::new(),
@@ -4566,6 +4694,8 @@ impl PageState {
             web_fonts: Vec::new(),
             #[cfg(feature = "v8-host")]
             layout: None,
+            #[cfg(feature = "v8-host")]
+            style_engine: oryn_layout::StyleEngine::default(),
             #[cfg(feature = "v8-host")]
             color_scheme: context_options.color_scheme,
             #[cfg(feature = "v8-host")]
@@ -4772,6 +4902,8 @@ impl PageState {
             if let Some(document) = &self.document {
                 self.semantic_graph
                     .reset(&document.dom, self.document_generation);
+                self.semantic_graph
+                    .set_frame_ids(executable.semantic_frame_ids());
             }
             self.executable = Some(executable);
             let (console_entries, context_entries) = self
@@ -6209,7 +6341,7 @@ impl PageState {
         }
         #[cfg(feature = "v8-host")]
         if self.executable.is_some() {
-            let before = self.semantic_graph.nodes(ProjectionProfile::Compact);
+            let before = self.semantic_graph.semantic_revision();
             let context_entries = {
                 let executable = self.executable.as_mut().expect("checked above");
                 executable.drain_tasks().map_err(map_host_error)?;
@@ -6219,7 +6351,7 @@ impl PageState {
             };
             self.sync_executable_semantics();
             self.refresh_layout()?;
-            let after = self.semantic_graph.nodes(ProjectionProfile::Compact);
+            let after = self.semantic_graph.semantic_revision();
             if before != after {
                 self.revision += 1;
                 self.record_snapshot();
@@ -6343,7 +6475,7 @@ impl PageState {
     fn evaluate(&mut self, source: &str) -> Result<String, RuntimeError> {
         #[cfg(feature = "v8-host")]
         {
-            let before = self.semantic_graph.nodes(ProjectionProfile::Compact);
+            let before = self.semantic_graph.semantic_revision();
             let (value, console_entries, context_entries) = {
                 let executable = self
                     .executable
@@ -6373,7 +6505,7 @@ impl PageState {
                 }
             }
             self.refresh_layout()?;
-            let after = self.semantic_graph.nodes(ProjectionProfile::Compact);
+            let after = self.semantic_graph.semantic_revision();
             if before != after {
                 self.revision += 1;
                 self.record_snapshot();
@@ -6425,7 +6557,9 @@ impl PageState {
             max_page_font_bytes: self.config.max_page_font_bytes,
             max_viewport_css_px: f64::from(self.config.max_viewport_css_px),
         };
-        let output = oryn_layout::compute(&input, &limits)
+        let output = self
+            .style_engine
+            .compute(&input, &limits)
             .map_err(|error| RuntimeError::LayoutUnavailable(error.to_string()))?;
         self.style_revision = self.style_revision.saturating_add(1);
         self.layout_revision = self.layout_revision.saturating_add(1);
@@ -6477,6 +6611,8 @@ impl PageState {
                 },
             );
         }
+        self.semantic_graph
+            .apply_geometry_visibility(&output.geometry);
         self.layout = Some(output);
         Ok(())
     }
@@ -6959,8 +7095,12 @@ impl PageState {
                     "first-class forms, tables, lists, navigation, dialogs, menus, trees, tab sets, grids, landmarks, live regions, ARIA relationships, ownership, and explicit accessibility evidence",
                 ),
                 supported_capability(
+                    "semantic.graph.v6",
+                    "persistent Rust-owned semantic and accessibility graph with scoped observations, revision journals, field evidence, graph-native resolution, and explicit ambiguity/geometry failures",
+                ),
+                supported_capability(
                     "computed_style",
-                    "Stylo-parsed declarations with a worker-owned deterministic bounded cascade",
+                    "Stylo-parsed stylesheets, selectors, specificity, declarations, and media rules with a worker-owned bounded computed-style projection",
                 ),
                 supported_capability("layout.box", "worker-owned CSS box geometry"),
                 supported_capability("layout.inline_text", "deterministic inline text fragments"),
@@ -7097,6 +7237,16 @@ impl PageState {
                             .into(),
                     ),
                 },
+                CapabilityDiagnostic {
+                    capability: "semantic.graph.v6".into(),
+                    support: SupportLevel::Supported,
+                    alternatives: Vec::new(),
+                    handoff_lossy: false,
+                    detail: Some(
+                        "persistent Rust DOM semantic graph, scoped observations, deltas, evidence, and fail-closed resolution"
+                            .into(),
+                    ),
+                },
             ]
         }
     }
@@ -7123,6 +7273,55 @@ impl PageState {
             .find(|node| node.actions.contains(&action))
             .map(|node| node.semantic_ref)
             .ok_or(RuntimeError::StaleSemanticRef)
+    }
+
+    fn resolve_semantic(
+        &mut self,
+        target: &oryn_common::agent::Target,
+        action: SemanticAction,
+    ) -> Result<oryn_common::v6::ResolutionResult, RuntimeError> {
+        if let oryn_common::agent::Target::Css { selector } = target {
+            let selected = self.resolve_selector(selector, action)?;
+            return Ok(oryn_common::v6::ResolutionResult {
+                revision: Revision(self.revision),
+                selected: Some(selected),
+                candidates: vec![oryn_common::v6::ResolutionCandidate {
+                    semantic_ref: selected,
+                    score: 1_000,
+                    actionable: true,
+                    factors: vec!["rust_dom_css_selector".into()],
+                }],
+                diagnostics: Vec::new(),
+            });
+        }
+        if target_requires_geometry(target) {
+            #[cfg(feature = "v8-host")]
+            if self.layout.is_none() {
+                self.refresh_layout()?;
+            }
+        }
+        #[cfg(feature = "v8-host")]
+        let geometry = self.layout.as_ref().map(|layout| &layout.geometry);
+        #[cfg(not(feature = "v8-host"))]
+        let geometry = None;
+        self.semantic_graph
+            .resolve(target, action, Revision(self.revision), geometry)
+            .map_err(|error| match error {
+                crate::semantic::SemanticResolutionError::NotFound => {
+                    RuntimeError::StaleSemanticRef
+                }
+                crate::semantic::SemanticResolutionError::Ambiguous(candidates) => {
+                    RuntimeError::AmbiguousTarget { candidates }
+                }
+                crate::semantic::SemanticResolutionError::GeometryUnavailable => {
+                    RuntimeError::UnsupportedGeometry(
+                        "spatial target resolution requires authoritative geometry".into(),
+                    )
+                }
+                crate::semantic::SemanticResolutionError::UnsupportedSelector(detail) => {
+                    RuntimeError::Semantic(detail)
+                }
+            })
     }
 
     fn extract(
@@ -7281,27 +7480,45 @@ impl PageState {
         profile: ProjectionProfile,
     ) -> oryn_common::v5::SemanticObservation {
         let observation = self.observation(profile);
-        match &self.document {
-            Some(document) => project_semantic_observation(&document.dom, observation),
-            None => oryn_common::v5::SemanticObservation {
-                contract_version: oryn_common::v5::CONTRACT_VERSION,
-                observation,
-                accessibility: Vec::new(),
-                structures: Vec::new(),
-                diagnostics: Vec::new(),
-            },
+        self.semantic_graph.observation_v5(observation)
+    }
+
+    fn semantic_observation_v6(
+        &mut self,
+        options: oryn_common::v6::SemanticObservationOptions,
+    ) -> Result<oryn_common::v6::SemanticObservation, RuntimeError> {
+        if options.geometry != oryn_common::v6::GeometryPolicy::Omit {
+            #[cfg(feature = "v8-host")]
+            if self.layout.is_none() {
+                self.refresh_layout()?;
+            }
         }
+        let base = self.observation(options.profile);
+        #[cfg(feature = "v8-host")]
+        let geometry = self.layout.as_ref().map(|layout| &layout.geometry);
+        #[cfg(not(feature = "v8-host"))]
+        let geometry = None;
+        self.semantic_graph
+            .observation_v6(base, &options, geometry)
+            .map_err(RuntimeError::Semantic)
     }
 
     fn record_snapshot(&mut self) {
-        let changes = self.semantic_graph.take_changes();
-        let bytes = serde_json::to_vec(&(&changes.upserted, &changes.removed))
-            .map_or(0, |encoded| encoded.len());
-        if let Some(previous) = self.semantic_deltas.insert(self.revision, changes) {
-            self.semantic_delta_bytes = self.semantic_delta_bytes.saturating_sub(
-                serde_json::to_vec(&(&previous.upserted, &previous.removed))
-                    .map_or(0, |encoded| encoded.len()),
-            );
+        let v6_changes = self.semantic_graph.take_v6_changes();
+        let changes = crate::semantic::SemanticGraphChanges {
+            upserted: v6_changes
+                .upserted_nodes
+                .iter()
+                .map(|node| node.semantic.clone())
+                .collect(),
+            removed: v6_changes.removed_nodes.clone(),
+        };
+        let bytes = serde_json::to_vec(&v6_changes).map_or(0, |encoded| encoded.len());
+        self.semantic_deltas.insert(self.revision, changes);
+        if let Some(previous) = self.semantic_v6_deltas.insert(self.revision, v6_changes) {
+            self.semantic_delta_bytes = self
+                .semantic_delta_bytes
+                .saturating_sub(serde_json::to_vec(&previous).map_or(0, |encoded| encoded.len()));
         }
         self.semantic_delta_bytes = self.semantic_delta_bytes.saturating_add(bytes);
         while self.semantic_deltas.len() > self.config.max_revision_snapshots
@@ -7316,13 +7533,83 @@ impl PageState {
             if oldest == self.revision && self.semantic_deltas.len() == 1 {
                 break;
             }
-            if let Some(removed) = self.semantic_deltas.remove(&oldest) {
+            self.semantic_deltas.remove(&oldest);
+            if let Some(removed) = self.semantic_v6_deltas.remove(&oldest) {
                 self.semantic_delta_bytes = self.semantic_delta_bytes.saturating_sub(
-                    serde_json::to_vec(&(&removed.upserted, &removed.removed))
-                        .map_or(0, |encoded| encoded.len()),
+                    serde_json::to_vec(&removed).map_or(0, |encoded| encoded.len()),
                 );
             }
         }
+    }
+
+    fn semantic_delta_from(
+        &self,
+        from: Revision,
+    ) -> Result<oryn_common::v6::SemanticDelta, RuntimeError> {
+        if from.0 > self.revision {
+            return Err(RuntimeError::UnknownRevision(from));
+        }
+        if from.0 < self.revision
+            && self
+                .semantic_v6_deltas
+                .keys()
+                .next()
+                .is_none_or(|oldest| from.0.saturating_add(1) < *oldest)
+        {
+            return Err(RuntimeError::UnknownRevision(from));
+        }
+        let mut nodes = BTreeMap::new();
+        let mut removed_nodes = BTreeSet::new();
+        let mut accessibility = BTreeMap::new();
+        let mut removed_accessibility = BTreeSet::new();
+        let mut structures = BTreeMap::new();
+        let mut removed_structures = BTreeSet::new();
+        for changes in self
+            .semantic_v6_deltas
+            .range(from.0.saturating_add(1)..=self.revision)
+            .map(|(_, changes)| changes)
+        {
+            for reference in &changes.removed_nodes {
+                nodes.remove(reference);
+                removed_nodes.insert(*reference);
+            }
+            for node in &changes.upserted_nodes {
+                removed_nodes.remove(&node.semantic.semantic_ref);
+                nodes.insert(node.semantic.semantic_ref, node.clone());
+            }
+            for reference in &changes.removed_accessibility {
+                accessibility.remove(reference);
+                removed_accessibility.insert(*reference);
+            }
+            for node in &changes.upserted_accessibility {
+                removed_accessibility.remove(&node.semantic_ref);
+                accessibility.insert(node.semantic_ref, node.clone());
+            }
+            for id in &changes.removed_structures {
+                structures.remove(id);
+                removed_structures.insert(id.clone());
+            }
+            for structure in &changes.upserted_structures {
+                removed_structures.remove(&structure.structure_id);
+                structures.insert(structure.structure_id.clone(), structure.clone());
+            }
+        }
+        Ok(oryn_common::v6::SemanticDelta {
+            contract_version: oryn_common::v6::CONTRACT_VERSION,
+            page_id: self.page_id,
+            from_revision: from,
+            to_revision: Revision(self.revision),
+            semantic_revision: self.semantic_graph.semantic_revision(),
+            changes: oryn_common::v6::SemanticGraphChanges {
+                upserted_nodes: nodes.into_values().collect(),
+                removed_nodes: removed_nodes.into_iter().collect(),
+                upserted_accessibility: accessibility.into_values().collect(),
+                removed_accessibility: removed_accessibility.into_iter().collect(),
+                upserted_structures: structures.into_values().collect(),
+                removed_structures: removed_structures.into_iter().collect(),
+            },
+            diagnostics: Vec::new(),
+        })
     }
 
     fn delta_from(&self, from: Revision) -> Result<ObservationDelta, RuntimeError> {

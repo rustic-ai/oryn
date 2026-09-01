@@ -46,6 +46,7 @@ impl JavaScriptHost for DisabledHost {
 #[cfg(feature = "v8-host")]
 mod raw_v8 {
     use std::{
+        borrow::Cow,
         cell::RefCell,
         collections::BTreeMap,
         rc::Rc,
@@ -78,6 +79,64 @@ mod raw_v8 {
     };
 
     static INITIALIZE_V8: Once = Once::new();
+
+    pub const STARTUP_EXTERNAL_REFERENCE_NAMES: &[&str] = &[
+        "fetch_async_callback",
+        "context_callback",
+        "stream_read_async_callback",
+        "crypto_callback",
+        "timer_schedule_callback",
+        "timer_cancel_callback",
+        "dedicated_worker_create_callback",
+        "dedicated_worker_post_callback",
+        "dedicated_worker_take_callback",
+        "dedicated_worker_terminate_callback",
+        "dedicated_worker_emit_callback",
+        "dedicated_worker_close_callback",
+    ];
+
+    pub fn startup_external_references() -> Cow<'static, [v8::ExternalReference]> {
+        use v8::MapFnTo;
+        vec![
+            v8::ExternalReference {
+                function: fetch_async_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: context_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: stream_read_async_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: crypto_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: timer_schedule_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: timer_cancel_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: dedicated_worker_create_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: dedicated_worker_post_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: dedicated_worker_take_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: dedicated_worker_terminate_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: dedicated_worker_emit_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: dedicated_worker_close_callback.map_fn_to(),
+            },
+        ]
+        .into()
+    }
 
     #[cfg(feature = "v8-sandbox")]
     unsafe extern "C" {
@@ -341,6 +400,13 @@ mod raw_v8 {
         }};
     }
 
+    pub fn install_startup_snapshot_globals(
+        scope: &mut v8::PinScope,
+        context: v8::Local<v8::Context>,
+    ) {
+        install_host_functions!(scope, context);
+    }
+
     fn timer_schedule_callback(
         scope: &mut v8::PinScope,
         args: v8::FunctionCallbackArguments,
@@ -437,7 +503,7 @@ mod raw_v8 {
         let encoded =
             serde_json::to_string(&interfaces).expect("generated binding metadata is serializable");
         let source = format!(
-            "Object.defineProperty(globalThis,'__oryn_generated_bindings',{{value:Object.freeze({encoded}),enumerable:false}});"
+            "if(!Object.prototype.hasOwnProperty.call(globalThis,'__oryn_generated_bindings'))Object.defineProperty(globalThis,'__oryn_generated_bindings',{{value:Object.freeze({encoded}),enumerable:false}});"
         );
         let source = v8::String::new(scope, &source).expect("allocate generated binding metadata");
         let script = v8::Script::compile(scope, source, None)
@@ -538,13 +604,16 @@ mod raw_v8 {
             max_heap_bytes: usize,
         ) -> Self {
             INITIALIZE_V8.call_once(|| {
+                crate::initialize_v8_icu_data();
                 let platform = v8::new_default_platform(0, false).make_shared();
                 v8::V8::initialize_platform(platform);
                 v8::V8::initialize();
                 #[cfg(feature = "v8-sandbox")]
                 assert_v8_heap_sandbox();
             });
-            let params = v8::CreateParams::default().heap_limits(0, max_heap_bytes);
+            let params = v8::CreateParams::default()
+                .heap_limits(0, max_heap_bytes)
+                .external_references(startup_external_references());
             #[cfg(oryn_startup_snapshot)]
             let params = params.snapshot_blob(v8::StartupData::from(
                 &include_bytes!(env!("ORYN_STARTUP_SNAPSHOT_PATH"))[..],
@@ -2469,13 +2538,19 @@ mod raw_v8 {
 }
 
 #[cfg(feature = "v8-host")]
-pub use raw_v8::RawV8Host;
+pub use raw_v8::{
+    RawV8Host, STARTUP_EXTERNAL_REFERENCE_NAMES, install_startup_snapshot_globals,
+    startup_external_references,
+};
 
 #[cfg(all(test, feature = "v8-host"))]
 mod tests {
     use std::{cell::RefCell, collections::BTreeMap, rc::Rc, time::Duration};
 
-    use super::{HostError, JavaScriptHost, RawV8Host};
+    use super::{
+        HostError, JavaScriptHost, RawV8Host, STARTUP_EXTERNAL_REFERENCE_NAMES,
+        startup_external_references,
+    };
     use crate::network::{
         NetworkBroker, NetworkError, NetworkRequest, NetworkResponse, SharedNetworkBroker,
     };
@@ -2625,6 +2700,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn startup_external_reference_manifest_matches_runtime_order() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../assets/external-references-v1.json"))
+                .expect("external-reference manifest");
+        let names = manifest["references"]
+            .as_array()
+            .expect("reference array")
+            .iter()
+            .map(|value| value.as_str().expect("reference name"))
+            .collect::<Vec<_>>();
+        assert_eq!(names, STARTUP_EXTERNAL_REFERENCE_NAMES);
+        assert_eq!(startup_external_references().len(), names.len());
+    }
+
     #[cfg(feature = "core-lite")]
     #[test]
     fn core_lite_never_claims_reduction_without_a_reduced_icu_artifact() {
@@ -2642,6 +2732,37 @@ mod tests {
                 "core-lite-unattested-probe"
             }
         );
+        if option_env!("ORYN_ICU_DATA_SHA256").is_some() {
+            assert_eq!(
+                host.evaluate_string(
+                    "JSON.stringify(Intl.NumberFormat.supportedLocalesOf(['en','en-US','fr','ja']))"
+                )
+                .unwrap(),
+                "[\"en\",\"en-US\"]"
+            );
+            assert_eq!(
+                host.evaluate_string(
+                    "new Intl.Segmenter('en-US',{granularity:'word'}).segment('one two').containing(1).segment"
+                )
+                .unwrap(),
+                "one"
+            );
+        }
+    }
+
+    #[cfg(oryn_startup_snapshot)]
+    #[test]
+    fn startup_snapshot_is_loaded_with_matching_external_references() {
+        let mut host = RawV8Host::new();
+        assert_eq!(
+            host.evaluate_string(
+                "__oryn_snapshot_version+':'+__oryn_snapshot_binding_abi+':'+typeof __oryn_crypto_sync"
+            )
+            .unwrap(),
+            "2:1:function"
+        );
+        assert!(option_env!("ORYN_STARTUP_SNAPSHOT_SHA256").is_some());
+        assert!(option_env!("ORYN_EXTERNAL_REFERENCES_SHA256").is_some());
     }
 
     #[test]
@@ -2676,52 +2797,3 @@ mod tests {
         );
     }
 }
-
-#[cfg(feature = "deno-host")]
-mod deno {
-    use super::{HostError, HostKind, JavaScriptHost};
-
-    pub struct DenoCoreHost {
-        runtime: deno_core::JsRuntime,
-    }
-
-    impl DenoCoreHost {
-        pub fn new() -> Self {
-            Self {
-                runtime: deno_core::JsRuntime::new(deno_core::RuntimeOptions::default()),
-            }
-        }
-    }
-
-    impl Default for DenoCoreHost {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    impl JavaScriptHost for DenoCoreHost {
-        fn kind(&self) -> HostKind {
-            HostKind::DenoCore
-        }
-
-        fn execute(&mut self, source: &str) -> Result<(), HostError> {
-            self.runtime
-                .execute_script("oryn:probe", source.to_string())
-                .map(|_| ())
-                .map_err(|error| HostError::Execution(error.to_string()))
-        }
-
-        fn evaluate_string(&mut self, _source: &str) -> Result<String, HostError> {
-            Err(HostError::Execution(
-                "string evaluation is not implemented by the comparison host".into(),
-            ))
-        }
-
-        fn terminate(&mut self) {
-            self.runtime.v8_isolate().terminate_execution();
-        }
-    }
-}
-
-#[cfg(feature = "deno-host")]
-pub use deno::DenoCoreHost;

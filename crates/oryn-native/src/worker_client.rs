@@ -32,6 +32,10 @@ use crate::{
     },
 };
 
+const EXPECTED_STYLE_ENGINE_VERSION: &str = "stylo-stylesheets-selectors-0.20+oryn-cascade-v3";
+const EXPECTED_BOX_ENGINE_VERSION: &str = "taffy-0.14";
+const EXPECTED_INLINE_ENGINE_VERSION: &str = "parley-0.11.1";
+
 #[derive(Clone)]
 struct PageNetworkBroker {
     inner: crate::network::SharedNetworkBroker,
@@ -535,10 +539,9 @@ impl WorkerClient {
             || !runtime.streaming_parser
             || runtime.semantic_graph_version != crate::semantic::SEMANTIC_GRAPH_VERSION
             || !runtime.capabilities.iter().any(|item| item == "layout_box")
-            || runtime.style_engine_version.as_deref()
-                != Some("stylo-declarations-0.20+oryn-common-web-cascade-v2")
-            || runtime.box_engine_version.as_deref() != Some("taffy-0.14")
-            || runtime.inline_engine_version.as_deref() != Some("parley-0.11.1")
+            || runtime.style_engine_version.as_deref() != Some(EXPECTED_STYLE_ENGINE_VERSION)
+            || runtime.box_engine_version.as_deref() != Some(EXPECTED_BOX_ENGINE_VERSION)
+            || runtime.inline_engine_version.as_deref() != Some(EXPECTED_INLINE_ENGINE_VERSION)
             || runtime.embedded_font_sha256.as_deref()
                 != Some("b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5")
             || effective_limits != limits
@@ -979,9 +982,9 @@ pub fn verify_worker(path: &Path) -> Result<WorkerVerification, RuntimeError> {
         || manifest.entitlement_sha256 != expected_entitlement_sha256()
         || manifest.policy_sha256 != compiled_policy_sha256()
         || manifest.source_tree_sha256.len() != 64
-        || manifest.style_engine_version != "stylo-declarations-0.20+oryn-common-web-cascade-v2"
-        || manifest.box_engine_version != "taffy-0.14"
-        || manifest.inline_engine_version != "parley-0.11.1"
+        || manifest.style_engine_version != EXPECTED_STYLE_ENGINE_VERSION
+        || manifest.box_engine_version != EXPECTED_BOX_ENGINE_VERSION
+        || manifest.inline_engine_version != EXPECTED_INLINE_ENGINE_VERSION
         || manifest.embedded_font_sha256
             != "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"
     {

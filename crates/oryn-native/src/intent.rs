@@ -25,6 +25,12 @@ pub enum IntentResult {
     SemanticObservation {
         observation: oryn_common::v5::SemanticObservation,
     },
+    SemanticObservationV6 {
+        observation: oryn_common::v6::SemanticObservation,
+    },
+    SemanticDeltaV6 {
+        delta: oryn_common::v6::SemanticDelta,
+    },
     Delta {
         delta: ObservationDelta,
     },
@@ -66,8 +72,33 @@ impl PageHandle {
             }),
             Intent::Observe { options } => {
                 if let Some(from) = options.since {
+                    if options.semantic_contract_version == Some(oryn_common::v6::CONTRACT_VERSION)
+                    {
+                        return Ok(IntentResult::SemanticDeltaV6 {
+                            delta: self.observe_semantic_delta(from).await?,
+                        });
+                    }
                     return Ok(IntentResult::Delta {
                         delta: self.observe_delta(from).await?,
+                    });
+                }
+                if options.semantic_contract_version == Some(oryn_common::v6::CONTRACT_VERSION)
+                    || options.scope.is_some()
+                {
+                    return Ok(IntentResult::SemanticObservationV6 {
+                        observation: self
+                            .observe_semantics_v6(oryn_common::v6::SemanticObservationOptions {
+                                profile: options.profile,
+                                scope: options.scope,
+                                include_hidden: options.include_hidden,
+                                geometry: if options.include_geometry || options.viewport_only {
+                                    oryn_common::v6::GeometryPolicy::IncludeWhenAvailable
+                                } else {
+                                    oryn_common::v6::GeometryPolicy::Omit
+                                },
+                                include_structures: options.include_structures,
+                            })
+                            .await?,
                     });
                 }
                 if options.include_structures {

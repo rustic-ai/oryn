@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use oryn_native::host::{DenoCoreHost, JavaScriptHost};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -18,11 +17,15 @@ fn main() {
         .and_then(|value| value.parse().ok())
         .unwrap_or(100);
     let started = Instant::now();
-    let mut host = DenoCoreHost::new();
+    let mut runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions::default());
     let startup_ms = started.elapsed().as_secs_f64() * 1_000.0;
     let execution_started = Instant::now();
     for _ in 0..iterations {
-        host.execute("globalThis.__oryn = (globalThis.__oryn ?? 0) + 1")
+        runtime
+            .execute_script(
+                "oryn:probe",
+                "globalThis.__oryn = (globalThis.__oryn ?? 0) + 1".to_string(),
+            )
             .expect("probe script must execute");
     }
     let result = ProbeResult {

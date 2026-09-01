@@ -33,7 +33,7 @@ Oryn has completed important parts of the proposal-v1 architecture: Rust owns
 the live DOM, generated V8 bindings execute Rust behavior for the migrated
 interfaces, the parent owns network and security policy, and the production
 worker boundary fails closed. The current runtime-completion work additionally
-adds protocol-v4/v7/v10 transport contracts, an async rustls/HTTP2 pool,
+adds protocol-v4/v8/v10 transport contracts, an async rustls/HTTP2 pool,
 incremental decoding and navigation parsing, a bounded multi-consumer DOM
 mutation journal, a persistent incremental semantic graph, expanded generated
 Range/Selection/traversal bindings, referrer policy, broader IndexedDB support,
@@ -53,11 +53,15 @@ and module scripts preserve document order. Image loading completes outside the
 page actor and CORS preflight uses a separately scheduled, deadline- and
 size-bounded correlated operation. Cancellation propagates on abort, timeout,
 navigation-body drop or supersession, page close, IPC cancellation and
-worker-service teardown; stale completions are rejected. Parts of semantic projection still invoke the full projector; generated WebIDL
-does not yet cover every declared algorithm; the stylesheet cascade remains
-Oryn-owned rather than a Stylo DOM integration; and the required sandboxed V8,
-reduced-ICU and startup-snapshot artifacts have not been built and attested on
-both production platforms. The pinned upstream Range smoke test currently
+worker-service teardown; stale completions are rejected. Production semantic
+observation and resolution now use the persistent mutation-driven contract-v6
+graph; the full projector remains only as a test oracle. Generated WebIDL does
+not yet cover every declared algorithm; Stylo now owns stylesheet/selector/
+specificity parsing and matching, but the bounded computed-value winner and
+inheritance projection remains Oryn-owned. Sandboxed full and genuinely
+reduced-ICU lite V8 profiles plus callback-bearing startup snapshots are now
+built and verified on macOS ARM64; Linux profile artifacts and cross-platform
+attestation remain. The pinned upstream Range smoke test currently
 times out and no runtime-completion result is publishable yet.
 
 The dependency-ordered completion backlog is maintained in
@@ -69,7 +73,7 @@ The dependency-ordered completion backlog is maintained in
 |---|---|---|
 | F1 — Rust-owned DOM | **Closed in software** | `oryn-dom` is the sole live-DOM authority. The JavaScript-owned graph, full-document export/synchronization, and old frame-document path are absent from production. |
 | F2 — semantic KPIs | **Closed in software; current-candidate evidence pending** | Schema v5 implements compact-versus-full failure attribution, labelled causal classes, confirmed-only challenge detection, corrected canary classification, and expanded exact-identity churn. A historical schema-v5 panel and churn result passed, but they do not attest the eventual runtime-completion candidate. |
-| F3 — style/layout architecture | **Open** | Stylo validates declaration blocks, but Oryn still owns stylesheet tokenization, selector matching, specificity, cascade and inheritance. A real Stylo DOM adapter and mapped CSS differential suite are required before this finding closes. Taffy/Parley remain useful bounded layout components. |
+| F3 — style/layout architecture | **Partial; materially advanced** | A persistent style service now uses Stylo for stylesheet/media/declaration parsing, selector matching and specificity, including combinators, pseudo-state, importance and media regressions. Oryn still projects winning declarations, inheritance and supported values into Taffy/Parley; full Stylo computed-value traversal and the mapped CSS differential suite remain required before closure. |
 | F4 — act/wait/event loop | **Closed for the declared scheduler profile** | Rust owns timer deadlines and ordering. Each checkpoint runs V8 microtasks, host-phased custom-element reactions, Rust-journal MutationObservers to a stable point, style/semantic publication, then rendering-opportunity animation, ResizeObserver and IntersectionObserver delivery. Focused ordering and self-mutation regressions pass. |
 | F5 — evidence integrity | **Partial** | Layout and security evidence builders now bind manifest cases to assertions and recompute their aggregates. Some historical builders/manifests still carry supplied pass states, and the current source tree has no unified exact-artifact attestation. |
 | F6 — CORS/SameSite/CSP | **Closed in software; release evidence pending** | Parent CORS/preflight authority, schemeful SameSite cookies, mixed-content policy, CSP reporting, violation events, opaque sandbox origins, and worker/media/object/manifest directives are implemented. The latest CSP change is newer than the committed signed security evidence. |
@@ -82,7 +86,7 @@ The dependency-ordered completion backlog is maintained in
 | F13 — secret leakage | **Closed in software** | Secret sensitivity is stored independently on Rust DOM nodes, applies to text inputs, survives page-controlled attribute changes, and redacts observation and HTML extraction. |
 | F14 — generated WebIDL | **Partial** | Deterministic generation, real prototypes, Rust callbacks, wrapper identity, brands, realms, origin and generation checks are active for migrated interfaces. Complex Range/Selection editing, traversal filtering, complete IndexedDB semantics and remaining declared interfaces are not yet authoritative. |
 | F15 — production-path testing | **Partial** | Focused default, no-V8 and V8-host tests pass, and the new upstream harness is pinned and fail-closed. Full profile equivalence, mapped WPT/ARIA execution, macOS and Linux sandboxed artifacts, performance and exact-binary attestation remain open. |
-| F16 — Intent/API/MCP | **Closed in software; release evidence pending** | Agent contract v2 adds upload and context-virtual clipboard intents while preserving the existing resolver/action engine. OIL accepts `$secret:<label>` and `upload <target> $file:<label>`. Standalone Python and MCP accept secrets only through an inherited descriptor consumed by the privileged parent; values never enter argv, environment, OIL, JSON-RPC, traces, observations or worker initialization. |
+| F16 — Intent/API/MCP | **Closed in software; release evidence pending** | Agent contract v3 additively exposes semantic contract v6 and scoped/delta observation while accepting frozen v2 requests. Rust, OIL, worker protocol v8, Python and MCP use the same graph resolver/action engine. Upload, context-virtual clipboard and parent-owned secret-label behavior remain unchanged and values never enter argv, environment, OIL, JSON-RPC, traces, observations or worker initialization. |
 
 ### Current broader-gap status
 
@@ -93,12 +97,16 @@ The dependency-ordered completion backlog is maintained in
   envelope; OIL subprocess transport remains available for compatibility.
   Secure secret-label provisioning is available to Rust embedding, Python and
   MCP through parent-owned memory and inherited descriptors.
-- **JavaScript/runtime profiles — scaffolded, not attested.** Production
-  features require the V8 heap sandbox. Build scripts now request sandbox and
-  pointer-compression archives and reject an unattested lite release, but the
-  macOS ARM64 and Linux x86_64 archives, true root/en/en-US ICU payload, stable
-  external-reference table and generated-interface snapshot remain to be
-  produced and verified.
+- **JavaScript/runtime profiles — partially implemented, not release-attested.**
+  Production features require the V8 heap sandbox. The exact macOS ARM64 full
+  archive now builds reproducibly from pinned source/submodules, is
+  content-addressed, and passes the linked sandbox assertion, strict
+  all-feature Clippy and the 227-test production-topology suite. The macOS
+  ARM64 lite worker is built against an external-data V8 archive and embeds a
+  2.2 MiB root/en/en-US ICU package; its locale and segmentation regressions
+  pass. A schema-v3 profile manifest binds ICU, archive, generated binding,
+  startup snapshot and stable external-reference hashes. Linux x86_64 full and
+  lite artifacts and unified four-profile attestation remain.
 - **Network/decoding profile — implemented in software; attestation pending.** HTTP/2, gzip,
   Brotli, deflate, zstd, charset precedence, cancellation, bounded streams and
   context-partitioned caching, correlated complete-resource operations and
@@ -156,8 +164,7 @@ The current honest product statement is therefore:
 
 > **The proposal-v1 foundation is substantially implemented, but the runtime
 > completion cutover remains open. The principal remaining software work is
-> end-to-end asynchronous resource scheduling, removal of full semantic
-> reprojection, completion of generated WebIDL algorithms, real Stylo cascade,
+> completion of generated WebIDL algorithms, full Stylo computed-value cascade,
 > and reproducible sandboxed V8/ICU/snapshot profiles. Upstream conformance,
 > platform validation, performance and model evidence follow those cutovers and
 > must bind to one exact release candidate.**
@@ -168,9 +175,9 @@ The current honest product statement is therefore:
    generated-binding and conformance-tooling foundation.
 2. Remove the synchronous production resource path and couple the network
    stream, html5ever suspension points, scripts and scheduler end to end.
-3. Complete incremental semantic publication and generated WebIDL behavior,
-   then remove their full-projector and handwritten compatibility probes.
-4. Replace the handwritten stylesheet engine with Stylo and pass the frozen
+3. Complete generated WebIDL behavior and remove its handwritten compatibility
+   probes. Keep the full semantic projector only as a non-production oracle.
+4. Complete Stylo computed-value traversal and pass the frozen
    mapped CSS/DOM differential set.
 5. Build and verify sandboxed full/lite V8 artifacts and startup snapshots for
    macOS ARM64 and Linux x86_64.
@@ -260,9 +267,10 @@ structure/accessibility tests, and worker-protocol serialization. They improve
 the software disposition of F4, F7, F8, F9, F10, and F16, but do not
 change the release-attestation status above.
 
-The verified working-tree test record is: 178/178 `oryn-native` V8 library
-tests; all `oryn-common` and `oryn-core` tests; six `oryn` MCP tests; all-feature
-binary checking; strict all-target Clippy with warnings denied; formatting;
+The verified working-tree test record includes 227/227 `oryn-native` V8
+sandbox library tests in serialized production topology; strict workspace
+all-feature Clippy with warnings denied using the content-addressed macOS ARM64
+archive; all `oryn-common` and `oryn-core` tests; six `oryn` MCP tests; formatting;
 26 passing Python SDK tests with 19 environment-dependent skips; Ruff; an MCP
 stdio initialize/tools-list smoke test; and `git diff --check`. This is local
 software verification, not an exact packaged-worker, signed-release, Linux, or
@@ -657,33 +665,35 @@ The supported network contract must name and test:
 - HTTP caching behavior, or an explicit statement that only pinned-resource
   caching is supported.
 
-### 6.4 Semantic state is a flat projection, not the proposed semantic runtime
+### 6.4 Semantic runtime is implemented; conformance and release evidence remain
 
-The current `Observation` contains page data, a revision, projection metadata,
-nodes, capabilities, diagnostics, and execution domain. It has no first-class
-semantic structure collection for forms, tables, lists, navigation, dialogs,
-menus, trees, tabs, grids, or repeated collections. Native nodes are emitted
-with `BrowserDeterministic` provenance even where accessible-name and visibility
-logic are heuristic. There is no confidence-bearing relationship inference.
+Additive contract v6 is backed by one persistent `SemanticGraph` per document.
+The Rust DOM mutation journal updates semantic nodes, accessibility nodes,
+relationships, reverse accessible-name dependencies, structures, visibility,
+reference generations and revision deltas. Normal observation no longer invokes
+the full projector; that code is compiled only for tests or the explicit
+`semantic-oracle` probe.
 
-Reference safety is conservative and valuable, but it should not be confused
-with durable logical identity. The published survival denominator is one
-unrelated-mutation case. Benign React/Vue replacement invalidates the reference,
-and no high-confidence matcher exists. The proposal must either adopt F2/F4's
-recommended identity-only v1 contract or implement conservative logical
-rematching with ambiguity rejection and a much larger churn corpus.
+The public projection now includes forms, tables, lists, navigation, dialogs,
+menus, trees, tabs, grids, landmarks, live regions and repeated collections,
+plus field-level trust, provenance and evidence. Scope traversal covers
+ancestors, descendants, accessibility relationships and optional structure or
+spatial neighbors under a node ceiling. Spatial requests fail when geometry is
+unavailable. Resolution uses the same graph for Rust intents and OIL, rejects
+wrong page/document generations, and returns typed ambiguity when equally
+ranked candidates remain; it never silently picks by document order.
 
-To deliver the original semantic thesis rather than only a flattened DOM view:
+This closes the software architecture gap, not the release-evidence gap. The
+remaining semantic work is conformance breadth and exact-candidate validation:
 
-- implement the supported Accessible Name and Description Computation rules;
-- expand ARIA role, state, relationship, ownership, landmark, live-region, and
-  tree-exclusion behavior;
-- add versioned semantic structures and evidence for each;
-- separate deterministic facts, inferred facts, trust labels, confidence, and
-  evidence;
-- improve measured causal precision and observation sufficiency using corrected
-  metrics;
-- test identity survival and false preservation across real framework churn.
+- run the pinned ARIA and Accessible Name corpus plus framework churn against
+  contract v6;
+- expand structure and relationship vectors as upstream cases reveal missing
+  supported algorithms;
+- rerun corrected observation-sufficiency, labelled causal, recovery and
+  false-preservation metrics against the final packaged candidate;
+- rerun the full 96-cell model panel only after the remaining WebIDL, full
+  Stylo computed cascade, sandbox-profile and upstream gates close.
 
 ### 6.5 Controlled compatibility is not broad compatibility
 

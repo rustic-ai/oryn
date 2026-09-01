@@ -64,7 +64,7 @@ jq -n \
   --arg entitlement_sha256 "$entitlement_sha256" \
   --arg policy_sha256 "$policy_sha256" \
   --arg source_tree_sha256 "$source_tree_sha256" \
-  --arg style_engine_version "stylo-declarations-0.20+oryn-common-web-cascade-v2" \
+  --arg style_engine_version "$(jq -r '.style_engine_version' <<<"$runtime")" \
   --arg box_engine_version "taffy-0.14" \
   --arg inline_engine_version "parley-0.11.1" \
   --arg embedded_font_sha256 "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5" \
@@ -73,7 +73,7 @@ jq -n \
     bundle_id: $bundle_id,
     team_id: $team_id,
     signing_cert_sha1: $signing_cert_sha1,
-    protocol_version: 7,
+    protocol_version: 8,
     v8_version: $v8_version,
     worker_build_sha256: $worker_build_sha256,
     worker_build_bytes: $worker_build_bytes,
@@ -193,7 +193,7 @@ if ! jq -e '
   .execution_mode == "sandboxed_worker" and
   .sandboxed == true and
   .sandbox_state == "app_sandbox" and
-  .worker_protocol_version == 7 and
+  .worker_protocol_version == 8 and
   .worker_bundle_id == "ai.rustic.oryn.page-worker" and
   .worker_team_id == "5HVA9VFF8K"
 ' <<<"$runtime_report" >/dev/null; then

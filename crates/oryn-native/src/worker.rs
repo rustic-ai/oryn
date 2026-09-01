@@ -19,7 +19,7 @@ use crate::{
     runtime::NativeAction,
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 7;
+pub const WORKER_PROTOCOL_VERSION: u32 = 8;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
 static WORKER_BINARY_SHA256: OnceLock<String> = OnceLock::new();
 
@@ -149,6 +149,10 @@ pub enum WorkerRequest {
         selector: String,
         action: oryn_common::v3::SemanticAction,
     },
+    ResolveSemantic {
+        target: oryn_common::agent::Target,
+        action: oryn_common::v3::SemanticAction,
+    },
     Extract {
         kind: ContentKind,
         selector: Option<String>,
@@ -161,6 +165,9 @@ pub enum WorkerRequest {
     },
     ObserveSemantic {
         profile: ProjectionProfile,
+    },
+    ObserveSemanticV6 {
+        options: oryn_common::v6::SemanticObservationOptions,
     },
     ComputedStyle {
         target: SemanticRef,
@@ -182,6 +189,9 @@ pub enum WorkerRequest {
         target: SemanticRef,
     },
     ObserveDelta {
+        from: Revision,
+    },
+    ObserveSemanticDelta {
         from: Revision,
     },
     Execute {
@@ -242,6 +252,9 @@ pub enum WorkerResponse {
     SemanticObservation {
         observation: oryn_common::v5::SemanticObservation,
     },
+    SemanticObservationV6 {
+        observation: oryn_common::v6::SemanticObservation,
+    },
     ComputedStyle {
         style: oryn_common::v4::ComputedStyle,
     },
@@ -263,6 +276,9 @@ pub enum WorkerResponse {
     Delta {
         delta: ObservationDelta,
     },
+    SemanticDelta {
+        delta: oryn_common::v6::SemanticDelta,
+    },
     Action {
         result: oryn_common::v3::ActionResult,
     },
@@ -280,6 +296,9 @@ pub enum WorkerResponse {
     },
     SemanticRef {
         semantic_ref: SemanticRef,
+    },
+    Resolution {
+        result: oryn_common::v6::ResolutionResult,
     },
     Structured {
         value: serde_json::Value,
@@ -443,9 +462,10 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             },
             Ok(WorkerRequest::Exit) => WorkerResponse::Exiting,
             Ok(_) => WorkerResponse::Error {
-                error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
-                    "page commands require worker protocol v6 initialization".into(),
-                )),
+                error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(format!(
+                    "page commands require worker protocol v{} initialization",
+                    WORKER_PROTOCOL_VERSION
+                ))),
             },
             Err(error) => WorkerResponse::Error {
                 error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(format!(
@@ -577,6 +597,12 @@ async fn dispatch(
                 Err(value) => error(value),
             }
         }
+        WorkerRequest::ResolveSemantic { target, action } => {
+            match session.page.resolve_semantic(target, action).await {
+                Ok(result) => WorkerResponse::Resolution { result },
+                Err(value) => error(value),
+            }
+        }
         WorkerRequest::Extract { kind, selector } => {
             match session.page.extract(kind, selector).await {
                 Ok(value) => WorkerResponse::Structured { value },
@@ -600,6 +626,12 @@ async fn dispatch(
         WorkerRequest::ObserveSemantic { profile } => {
             match session.page.observe_semantics(profile).await {
                 Ok(observation) => WorkerResponse::SemanticObservation { observation },
+                Err(value) => error(value),
+            }
+        }
+        WorkerRequest::ObserveSemanticV6 { options } => {
+            match session.page.observe_semantics_v6(options).await {
+                Ok(observation) => WorkerResponse::SemanticObservationV6 { observation },
                 Err(value) => error(value),
             }
         }
@@ -643,6 +675,12 @@ async fn dispatch(
             Ok(delta) => WorkerResponse::Delta { delta },
             Err(value) => error(value),
         },
+        WorkerRequest::ObserveSemanticDelta { from } => {
+            match session.page.observe_semantic_delta(from).await {
+                Ok(delta) => WorkerResponse::SemanticDelta { delta },
+                Err(value) => error(value),
+            }
+        }
         WorkerRequest::Execute { action } => {
             let native_action = NativeAction {
                 target: action.target,
@@ -752,7 +790,7 @@ mod tests {
     use super::*;
 
     #[tokio::test(flavor = "current_thread")]
-    async fn serves_initialized_page_requests_over_v7_json_lines() {
+    async fn serves_initialized_page_requests_over_v8_json_lines() {
         let requests = vec![
             WorkerRequest::Initialize {
                 nonce: "test-nonce".into(),
@@ -770,6 +808,10 @@ mod tests {
             WorkerRequest::ObserveSemantic {
                 profile: ProjectionProfile::Full,
             },
+            WorkerRequest::ObserveSemanticV6 {
+                options: oryn_common::v6::SemanticObservationOptions::default(),
+            },
+            WorkerRequest::ObserveSemanticDelta { from: Revision(0) },
             WorkerRequest::Oil {
                 input: "observe\nclick \"Save\"".into(),
             },
@@ -800,7 +842,7 @@ mod tests {
             .map(|line| serde_json::from_slice(line).expect("valid response"))
             .collect();
 
-        assert_eq!(lines.len(), 7);
+        assert_eq!(lines.len(), 9);
         assert!(matches!(lines[0].response, WorkerResponse::Ready { .. }));
         assert!(matches!(lines[1].response, WorkerResponse::Loaded { .. }));
         assert!(matches!(
@@ -811,9 +853,17 @@ mod tests {
             lines[3].response,
             WorkerResponse::SemanticObservation { .. }
         ));
-        assert!(matches!(lines[4].response, WorkerResponse::Oil { .. }));
-        assert!(matches!(lines[5].response, WorkerResponse::Trace { .. }));
-        assert!(matches!(lines[6].response, WorkerResponse::Exiting));
+        assert!(matches!(
+            lines[4].response,
+            WorkerResponse::SemanticObservationV6 { .. }
+        ));
+        assert!(matches!(
+            lines[5].response,
+            WorkerResponse::SemanticDelta { .. }
+        ));
+        assert!(matches!(lines[6].response, WorkerResponse::Oil { .. }));
+        assert!(matches!(lines[7].response, WorkerResponse::Trace { .. }));
+        assert!(matches!(lines[8].response, WorkerResponse::Exiting));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -837,7 +887,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn rejects_duplicate_unmatched_and_reinitialized_v7_messages() {
+    async fn rejects_duplicate_unmatched_and_reinitialized_v8_messages() {
         let commands = [
             (
                 9,

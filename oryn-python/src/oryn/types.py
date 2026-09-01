@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, List, Literal, Optional
 
-AGENT_INTENT_CONTRACT_VERSION = 2
+AGENT_INTENT_CONTRACT_VERSION = 3
 
 TargetKind = Literal[
     "reference",
@@ -168,6 +168,8 @@ class OrynIntent:
         viewport_only: bool = False,
         include_hidden: bool = False,
         include_structures: bool = False,
+        semantic_contract_version: int | None = None,
+        scope: dict[str, Any] | None = None,
     ) -> "OrynIntent":
         return cls(
             "observe",
@@ -179,6 +181,8 @@ class OrynIntent:
                     "viewport_only": viewport_only,
                     "include_hidden": include_hidden,
                     "include_structures": include_structures,
+                    "semantic_contract_version": semantic_contract_version,
+                    "scope": scope,
                 }
             },
         )
@@ -376,6 +380,28 @@ class OrynSemanticObservation:
 
 
 @dataclass
+class OrynSemanticObservationV6:
+    contract_version: int
+    observation: OrynObservation
+    semantic_revision: int
+    nodes: List[dict[str, Any]] = field(default_factory=list)
+    accessibility: List[OrynAccessibilityNode] = field(default_factory=list)
+    structures: List[OrynSemanticStructure] = field(default_factory=list)
+    projection: dict[str, Any] = field(default_factory=dict)
+    diagnostics: List[str] = field(default_factory=list)
+
+
+@dataclass
+class OrynSemanticDeltaV6:
+    contract_version: int
+    from_revision: int
+    to_revision: int
+    semantic_revision: int
+    changes: dict[str, Any] = field(default_factory=dict)
+    diagnostics: List[str] = field(default_factory=list)
+
+
+@dataclass
 class OrynResult:
     """Result of an Oryn command execution."""
 
@@ -402,6 +428,8 @@ class OrynIntentResult:
         "observation",
         "geometry_observation",
         "semantic_observation",
+        "semantic_observation_v6",
+        "semantic_delta_v6",
         "delta",
         "action",
         "navigation",
@@ -412,6 +440,8 @@ class OrynIntentResult:
     raw: str
     observation: Optional[OrynObservation] = None
     semantic_observation: Optional[OrynSemanticObservation] = None
+    semantic_observation_v6: Optional[OrynSemanticObservationV6] = None
+    semantic_delta_v6: Optional[OrynSemanticDeltaV6] = None
     delta: Optional[OrynDelta] = None
     action: Optional[OrynResult] = None
     navigation: Optional[dict[str, Any]] = None

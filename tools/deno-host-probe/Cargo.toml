@@ -1,0 +1,16 @@
+[package]
+name = "oryn-deno-host-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# This historical comparison probe intentionally remains outside Oryn's
+# production workspace. Its exact deno_core dependency pins the same V8
+# revision as the raw-host probe without making deno_core part of production
+# `--all-features` validation.
+[workspace]
+
+[dependencies]
+deno_core = "=0.410.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

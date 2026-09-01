@@ -3,6 +3,7 @@
 import json
 
 import pytest
+
 from oryn.client import OrynClient
 from oryn.errors import CommandError
 from oryn.types import OrynInput, OrynIntent, OrynTarget
@@ -223,6 +224,61 @@ class _SemanticIntentTransport:
         )
 
 
+class _SemanticV6IntentTransport:
+    async def send(self, command: str) -> str:
+        request = json.loads(command.removeprefix("@oryn-intent "))
+        options = request["intent"]["options"]
+        assert options["semantic_contract_version"] == 6
+        if options["since"] is not None:
+            return json.dumps(
+                {
+                    "kind": "intent",
+                    "result": {
+                        "kind": "semantic_delta_v6",
+                        "delta": {
+                            "contract_version": 6,
+                            "page_id": 1,
+                            "from_revision": options["since"],
+                            "to_revision": 3,
+                            "semantic_revision": 7,
+                            "changes": {"removed_nodes": []},
+                            "diagnostics": [],
+                        },
+                    },
+                }
+            )
+        return json.dumps(
+            {
+                "kind": "intent",
+                "result": {
+                    "kind": "semantic_observation_v6",
+                    "observation": {
+                        "contract_version": 6,
+                        "revision": 2,
+                        "semantic_revision": 6,
+                        "profile": "compact",
+                        "source": "native_dom",
+                        "execution_domain": "native",
+                        "page": {
+                            "page_id": 1,
+                            "url": "https://semantic.test/",
+                            "title": "Semantic v6",
+                            "document_generation": 1,
+                        },
+                        "nodes": [],
+                        "accessibility": [],
+                        "structures": [],
+                        "projection": {
+                            "graph_nodes": 0,
+                            "included_nodes": 0,
+                            "truncated": False,
+                        },
+                    },
+                },
+            }
+        )
+
+
 @pytest.mark.asyncio
 async def test_native_observation_uses_existing_json_oil_contract():
     client = OrynClient(mode="native")
@@ -298,7 +354,7 @@ async def test_perform_sends_the_versioned_typed_contract_without_oil_translatio
     result = await client.perform(OrynIntent.click(OrynTarget.text("Continue")))
 
     assert transport.request == {
-        "contract_version": 2,
+        "contract_version": 3,
         "intent": {
             "intent": "click",
             "target": {"kind": "text", "text": "Continue"},
@@ -351,3 +407,21 @@ async def test_typed_semantic_observation_decodes_structures():
     assert result.semantic_observation.observation.url == "https://semantic.test/"
     assert result.semantic_observation.structures[0].kind == "navigation"
     assert result.semantic_observation.structures[0].name == "Primary"
+
+
+@pytest.mark.asyncio
+async def test_typed_semantic_v6_observation_and_delta_decode_additively():
+    client = OrynClient(mode="native")
+    client._transport = _SemanticV6IntentTransport()
+
+    observed = await client.perform(OrynIntent.observe(semantic_contract_version=6))
+    assert observed.kind == "semantic_observation_v6"
+    assert observed.semantic_observation_v6 is not None
+    assert observed.semantic_observation_v6.semantic_revision == 6
+    assert observed.semantic_observation_v6.observation.url == "https://semantic.test/"
+
+    delta = await client.perform(OrynIntent.observe(semantic_contract_version=6, since=2))
+    assert delta.kind == "semantic_delta_v6"
+    assert delta.semantic_delta_v6 is not None
+    assert delta.semantic_delta_v6.semantic_revision == 7
+    assert delta.semantic_delta_v6.changes == {"removed_nodes": []}
