@@ -72,6 +72,9 @@ struct NativeArgs {
     /// Evaluate JavaScript after loading and print its string result
     #[arg(long)]
     evaluate: Option<String>,
+    /// Override the per-script wall limit for an explicit local probe
+    #[arg(long, hide = true)]
+    script_wall_ms: Option<u64>,
     /// Emit REPL prompts even when stdin is a pipe (Python SDK transport)
     #[arg(long, hide = true)]
     sdk_repl: bool,
@@ -169,6 +172,7 @@ async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
             url,
             allow_loopback,
             evaluate,
+            script_wall_ms,
             sdk_repl,
             trace_out,
             checkpoint_out,
@@ -233,6 +237,7 @@ async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
                 render_scale: *render_scale,
                 secret_fd: *secret_fd,
                 uploads: uploads.clone(),
+                script_wall_ms: *script_wall_ms,
             },
         )
         .await;
@@ -333,7 +338,15 @@ async fn run_native(
             oryn_native::PolicyRule::Allow,
         );
     }
-    let browser = Browser::new();
+    let browser = if let Some(milliseconds) = session_options.script_wall_ms {
+        let mut config = oryn_native::BrowserConfig::default();
+        let timeout = std::time::Duration::from_millis(milliseconds.max(1));
+        config.command_timeout = timeout;
+        config.navigation_timeout = timeout;
+        Browser::with_config(config)
+    } else {
+        Browser::new()
+    };
     if let Some(artifact_path) = &session_options.replay_failure {
         let artifact: oryn_native::FailureArtifact =
             serde_json::from_slice(&std::fs::read(artifact_path)?)?;
@@ -526,6 +539,7 @@ struct NativeSessionOptions {
     render_scale: Option<f64>,
     secret_fd: Option<i32>,
     uploads: Vec<String>,
+    script_wall_ms: Option<u64>,
 }
 
 #[cfg(feature = "render")]

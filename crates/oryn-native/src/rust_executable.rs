@@ -2,14 +2,14 @@
 //!
 //! This module never exports or reconstructs a JavaScript-owned node graph.
 
-#[cfg(test)]
-use std::time::Duration;
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc, time::Duration};
 
 use base64::Engine as _;
 use html5ever::{QualName, local_name, ns};
 use oryn_common::v3::SemanticAction;
-use oryn_dom::{DomRuntime, Mutation, MutationCursor, NodeId, NodeKind, SharedDomRuntime, html};
+use oryn_dom::{
+    DomError, DomRuntime, Mutation, MutationCursor, NodeId, NodeKind, SharedDomRuntime, html,
+};
 use oryn_js::realm::RealmId;
 use oryn_js::v8_bindings::ParserInputCommand;
 use serde::{Deserialize, Serialize};
@@ -298,6 +298,16 @@ fn run_script_record(
         }
     }
     host.set_current_script(Some(*script))?;
+    if let Some(src) = src
+        && resource_entry(resources, src).is_none()
+    {
+        host.set_current_script(None)?;
+        diagnostics.push(script_diagnostic_at(
+            HostError::Execution("external script source is unavailable".into()),
+            src,
+        ));
+        return Ok(());
+    }
     let result = if script_type.as_deref() == Some("module") {
         let resource = src.as_ref().and_then(|src| resource_entry(resources, src));
         let name = resource
@@ -854,6 +864,7 @@ fn parse_live_document(
                 #[cfg(unix)]
                 context,
             )?;
+            host.refresh_named_window_properties()?;
             parser_checkpoint(host, diagnostics)?;
 
             let commands = host.take_parser_input_commands()?;
@@ -917,6 +928,27 @@ const RUST_RUNTIME_GLOBALS: &str = r#"
 globalThis.window=globalThis;
 globalThis.self=globalThis;
 globalThis.global=globalThis;
+// A top-level Window is its own parent and top. WPT's harness determines the
+// browsing-context root before any test code runs, so leaving these absent
+// prevents every generated-binding assertion from reaching the interface.
+globalThis.parent=globalThis;
+globalThis.top=globalThis;
+globalThis.frames=globalThis;
+globalThis.frameElement=null;
+// Generated Rust callbacks are the production web-platform authority. The
+// compatibility bootstrap below still supplies unrelated utilities, but its
+// legacy platform classes are restored out of the global namespace at the end
+// of initialization and remain available only to the explicit probe build.
+const __oryn_generated_platform={};
+for(const name of ['Blob','File','FormData','Headers','AbortSignal','AbortController','ReadableStream','ReadableStreamDefaultReader','ReadableStreamDefaultController','WritableStream','WritableStreamDefaultWriter','WritableStreamDefaultController','TransformStream','Request','Response','XMLHttpRequest','WebSocket','IDBFactory','IDBRequest','IDBOpenDBRequest','IDBDatabase','IDBTransaction','IDBKeyRange','IDBCursor','IDBIndex','IDBObjectStore','fetch','indexedDB'])__oryn_generated_platform[name]=globalThis[name];
+// DOM algorithms surface named exceptions. Keep their JavaScript identity and
+// legacy numeric codes browser-compatible while the throwing algorithms stay
+// in generated Rust callbacks.
+const __oryn_dom_exception_codes={IndexSizeError:1,HierarchyRequestError:3,WrongDocumentError:4,InvalidCharacterError:5,NoModificationAllowedError:7,NotFoundError:8,NotSupportedError:9,InUseAttributeError:10,InvalidStateError:11,SyntaxError:12,InvalidModificationError:13,NamespaceError:14,InvalidAccessError:15,TypeMismatchError:17,SecurityError:18,NetworkError:19,AbortError:20,URLMismatchError:21,QuotaExceededError:22,TimeoutError:23,InvalidNodeTypeError:24,DataCloneError:25};
+class OrynDOMException extends Error{constructor(message='',name='Error'){super(String(message));this.name=String(name)}get code(){return __oryn_dom_exception_codes[this.name]||0}}
+for(const [name,code] of Object.entries(__oryn_dom_exception_codes)){Object.defineProperty(OrynDOMException,name.toUpperCase().replace(/ERROR$/,'_ERR'),{value:code,enumerable:true});Object.defineProperty(OrynDOMException.prototype,name.toUpperCase().replace(/ERROR$/,'_ERR'),{value:code,enumerable:true})}
+globalThis.DOMException=OrynDOMException;
+globalThis.getSelection=()=>document.getSelection();
 const __oryn_time_origin=Date.now();
 globalThis.performance={timeOrigin:__oryn_time_origin,now:()=>Date.now()-__oryn_time_origin,toJSON(){return {timeOrigin:this.timeOrigin}}};
 globalThis.navigator=Object.freeze({userAgent:'Oryn/0.1',appVersion:'Oryn/0.1',platform:'MacIntel',language:'en-US',languages:Object.freeze(['en-US','en']),onLine:true,cookieEnabled:true,hardwareConcurrency:1,maxTouchPoints:0});
@@ -972,9 +1004,9 @@ class OrynStorage {
 }
 if(globalThis.Storage&&globalThis.Storage.prototype)Object.setPrototypeOf(OrynStorage.prototype,globalThis.Storage.prototype);
 globalThis.__oryn_page_id=null;
-globalThis.localStorage=new OrynStorage('local');
-globalThis.sessionStorage=new OrynStorage('session');
-globalThis.__oryn_restore_storage=(localItems,sessionItems)=>{
+if(!globalThis.localStorage)globalThis.localStorage=new OrynStorage('local');
+if(!globalThis.sessionStorage)globalThis.sessionStorage=new OrynStorage('session');
+if(!globalThis.__oryn_restore_storage)globalThis.__oryn_restore_storage=(localItems,sessionItems)=>{
   globalThis.localStorage=new OrynStorage('local',localItems||[]);
   globalThis.sessionStorage=new OrynStorage('session',sessionItems||[]);
 };
@@ -1016,7 +1048,10 @@ class OrynHistory {
   back(){this.go(-1)}
   forward(){this.go(1)}
 }
-globalThis.history=new OrynHistory();
+if(globalThis.History&&globalThis.History.prototype)Object.setPrototypeOf(OrynHistory.prototype,globalThis.History.prototype);
+// The generated Rust binding installs the production History object. Keep the
+// compatibility implementation only for explicit legacy/no-binding probes.
+if(!globalThis.history)globalThis.history=new OrynHistory();
 const contextCall=request=>JSON.parse(globalThis.__oryn_context_call(JSON.stringify(request)));
 Object.defineProperty(Document.prototype,'cookie',{configurable:true,enumerable:true,get(){if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return '';const response=contextCall({operation:'get_document_cookie',page_id:__oryn_page_id});return response.result==='document_cookie'?response.value:''},set(value){if(typeof globalThis.__oryn_context_call==='function'&&__oryn_page_id!==null)contextCall({operation:'set_document_cookie',page_id:__oryn_page_id,value:String(value)})}});
 Object.defineProperty(Document.prototype,'title',{configurable:true,enumerable:true,get(){const node=this.querySelector('title');return node?node.textContent:''},set(value){let node=this.querySelector('title');if(!node){node=this.createElement('title');const parent=this.querySelector('head')||this.documentElement;parent.appendChild(node)}node.textContent=String(value)}});
@@ -1097,11 +1132,11 @@ const __oryn_clone_decode=value=>{if(Array.isArray(value))return value.map(__ory
 const __oryn_idb_slots=(target,values)=>{const descriptors={};for(const [name,value] of Object.entries(values))descriptors[name]={configurable:true,enumerable:true,writable:true,value};Object.defineProperties(target,descriptors)};
 class OrynIDBKeyRange {constructor(lower,upper,lowerOpen=false,upperOpen=false){this.__oryn_key_range=true;__oryn_idb_slots(this,{lower,upper,lowerOpen:!!lowerOpen,upperOpen:!!upperOpen});this.lower_open=this.lowerOpen;this.upper_open=this.upperOpen}includes(key){const compare=(left,right)=>typeof left==='number'&&typeof right==='number'?left-right:JSON.stringify(left).localeCompare(JSON.stringify(right));return (this.lower===undefined||(this.lower_open?compare(key,this.lower)>0:compare(key,this.lower)>=0))&&(this.upper===undefined||(this.upper_open?compare(key,this.upper)<0:compare(key,this.upper)<=0))}static only(value){return new this(value,value)}static lowerBound(value,open=false){return new this(value,undefined,open,false)}static upperBound(value,open=false){return new this(undefined,value,false,open)}static bound(lower,upper,lowerOpen=false,upperOpen=false){return new this(lower,upper,lowerOpen,upperOpen)}}
 globalThis.IDBKeyRange=OrynIDBKeyRange;
-class OrynIDBRequest {constructor(){__oryn_idb_slots(this,{result:undefined,error:null,transaction:null});this.onsuccess=null;this.onerror=null;this.onupgradeneeded=null}__fire(type,extra={}){const event={type,target:this,...extra};const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}__success(value){queueMicrotask(()=>{this.result=value;this.__fire('success')})}__failure(error){queueMicrotask(()=>{this.error=error;this.__fire('error')})}}
+class OrynIDBRequest {constructor(){__oryn_idb_slots(this,{result:undefined,error:null,transaction:null,onsuccess:null,onerror:null,onupgradeneeded:null,onblocked:null})}__fire(type,extra={}){const event={type,target:this,...extra};const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}__success(value){queueMicrotask(()=>{this.result=value;this.__fire('success')})}__failure(error){queueMicrotask(()=>{this.error=error;this.__fire('error')})}}
 class OrynIDBCursor {constructor(request,records,index=0){this.__request=request;this.__records=records;this.__index=index;__oryn_idb_slots(this,{key:undefined,primaryKey:undefined,value:undefined});this.__sync()}__sync(){const record=this.__records[this.__index];this.key=record?.key;this.primaryKey=record?.primary_key;this.value=__oryn_clone_decode(record?.value)}continue(key){let next=this.__index+1;if(key!==undefined)next=this.__records.findIndex((record,index)=>index>this.__index&&JSON.stringify(record.key)>=JSON.stringify(key));this.__index=next<0?this.__records.length:next;queueMicrotask(()=>{if(this.__index>=this.__records.length)this.__request.__success(null);else{this.__sync();this.__request.__success(this)}})}advance(count){this.__index+=Math.max(1,Number(count)||1);this.continue()}delete(){return this.__request.__store.delete(this.primaryKey)}update(value){return this.__request.__store.put(value,this.primaryKey)}}
 class OrynIDBIndex {constructor(store,name){this.store=store;__oryn_idb_slots(this,{name:String(name),objectStore:store})}get(query){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query,reverse:false});request.__success(__oryn_clone_decode(response.records[0]?.value))}catch(error){request.__failure(error)}return request}getAll(query,count){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query:query??null,reverse:false});request.__success(response.records.slice(0,count??response.records.length).map(record=>__oryn_clone_decode(record.value)))}catch(error){request.__failure(error)}return request}count(query){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query:query??null,reverse:false});request.__success(response.records.length)}catch(error){request.__failure(error)}return request}openCursor(query,direction='next'){return this.store.__cursor(query,direction,this.name)}}
 class OrynIDBObjectStore {constructor(transaction,name){__oryn_idb_slots(this,{transaction,name:String(name)})}put(value,key){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'batch',database:this.transaction.db.name,writes:[{store:this.name,key:key??null,value:__oryn_clone_encode(value),add_only:false}]});request.__success(response.key)}catch(error){request.__failure(error)}return request}add(value,key){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'batch',database:this.transaction.db.name,writes:[{store:this.name,key:key??null,value:__oryn_clone_encode(value),add_only:true}]});request.__success(response.key)}catch(error){request.__failure(error)}return request}get(key){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'get',database:this.transaction.db.name,store:this.name,key});request.__success(__oryn_clone_decode(response.value))}catch(error){request.__failure(error)}return request}getAll(query,count){const request=new OrynIDBRequest();try{const response=query===undefined?__oryn_idb_call({command:'get_all',database:this.transaction.db.name,store:this.name}):__oryn_idb_call({command:'cursor',database:this.transaction.db.name,store:this.name,index:null,query,reverse:false});const values=response.values?.length?response.values:response.records.map(record=>record.value);request.__success(values.slice(0,count??values.length).map(__oryn_clone_decode))}catch(error){request.__failure(error)}return request}delete(key){const request=new OrynIDBRequest();try{__oryn_idb_call({command:'delete',database:this.transaction.db.name,store:this.name,key});request.__success(undefined)}catch(error){request.__failure(error)}return request}clear(){const request=new OrynIDBRequest();try{__oryn_idb_call({command:'clear',database:this.transaction.db.name,store:this.name});request.__success(undefined)}catch(error){request.__failure(error)}return request}count(){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'count',database:this.transaction.db.name,store:this.name});request.__success(response.count||0)}catch(error){request.__failure(error)}return request}__cursor(query,direction='next',index=null){const request=new OrynIDBRequest();request.__store=this;try{const response=__oryn_idb_call({command:'cursor',database:this.transaction.db.name,store:this.name,index,query:query??null,reverse:String(direction).startsWith('prev')});queueMicrotask(()=>{if(!response.records.length)request.__success(null);else request.__success(new OrynIDBCursor(request,response.records))})}catch(error){request.__failure(error)}return request}openCursor(query,direction='next'){return this.__cursor(query,direction)}createIndex(name,keyPath,options={}){__oryn_idb_call({command:'create_index',database:this.transaction.db.name,store:this.name,definition:{name:String(name),key_path:String(keyPath),unique:!!options.unique}});return new OrynIDBIndex(this,name)}index(name){return new OrynIDBIndex(this,name)}}
-class OrynIDBTransaction {constructor(db,names,mode='readonly'){this.db=db;this.names=Array.isArray(names)?names:[String(names)];__oryn_idb_slots(this,{mode,objectStoreNames:this.names.slice()});this.oncomplete=null;this.onabort=null;this.onerror=null;queueMicrotask(()=>{if(typeof this.oncomplete==='function')this.oncomplete({type:'complete',target:this})})}objectStore(name){if(!this.names.includes(String(name)))throw new Error('NotFoundError');return new OrynIDBObjectStore(this,name)}abort(){if(typeof this.onabort==='function')this.onabort({type:'abort',target:this})}}
+class OrynIDBTransaction {constructor(db,names,mode='readonly'){this.db=db;this.names=Array.isArray(names)?names:[String(names)];__oryn_idb_slots(this,{mode,objectStoreNames:this.names.slice(),oncomplete:null,onabort:null,onerror:null});queueMicrotask(()=>{if(typeof this.oncomplete==='function')this.oncomplete({type:'complete',target:this})})}objectStore(name){if(!this.names.includes(String(name)))throw new Error('NotFoundError');return new OrynIDBObjectStore(this,name)}abort(){if(typeof this.onabort==='function')this.onabort({type:'abort',target:this})}}
 class OrynIDBDatabase {constructor(name,version,stores=[]){__oryn_idb_slots(this,{name:String(name),version,objectStoreNames:stores})}createObjectStore(name,options={}){const response=__oryn_idb_call({command:'create_object_store',database:this.name,definition:{name:String(name),key_path:options.keyPath??null,auto_increment:!!options.autoIncrement}});this.objectStoreNames=response.object_stores;return new OrynIDBObjectStore(new OrynIDBTransaction(this,[name],'versionchange'),name)}transaction(names,mode='readonly'){return new OrynIDBTransaction(this,names,mode)}close(){}}
 globalThis.indexedDB={open(name,version=0){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'open',name:String(name),version:Number(version)||0});const db=new OrynIDBDatabase(name,response.version,response.object_stores);queueMicrotask(()=>{request.result=db;if(response.upgrade_needed)request.__fire('upgradeneeded',{oldVersion:response.old_version,newVersion:response.version});request.__fire('success')})}catch(error){request.__failure(error)}return request},deleteDatabase(name){const request=new OrynIDBRequest();try{__oryn_idb_call({command:'delete_database',name:String(name)});request.__success(undefined)}catch(error){request.__failure(error)}return request}};
 const __oryn_idb_event_target=prototype=>{prototype.addEventListener=function(type,callback){const listeners=this.__listeners||(this.__listeners=new Map()),list=listeners.get(String(type))||[];list.push(callback);listeners.set(String(type),list)};prototype.removeEventListener=function(type,callback){const listeners=this.__listeners;if(listeners)listeners.set(String(type),(listeners.get(String(type))||[]).filter(item=>item!==callback))};prototype.dispatchEvent=function(event){if(event.target!==this)try{Object.defineProperty(event,'target',{configurable:true,value:this})}catch(_){}for(const callback of this.__listeners?.get(event.type)||[])callback.call(this,event);const handler=this['on'+event.type];if(typeof handler==='function')handler.call(this,event);return !event.defaultPrevented}};
@@ -1142,6 +1177,7 @@ class OrynXMLHttpRequest {
   abort(){if(this.__aborted)return;this.__aborted=true;if(this.__controller)this.__controller.abort(new Error('AbortError'));this.status=0;this.readyState=0;this.__event('abort');this.__event('loadend')}
 }
 Object.assign(OrynXMLHttpRequest,{UNSENT:0,OPENED:1,HEADERS_RECEIVED:2,LOADING:3,DONE:4});Object.assign(OrynXMLHttpRequest.prototype,{UNSENT:0,OPENED:1,HEADERS_RECEIVED:2,LOADING:3,DONE:4});globalThis.XMLHttpRequest=OrynXMLHttpRequest;
+if(typeof globalThis.__oryn_context_call==='function')for(const [name,value] of Object.entries(__oryn_generated_platform))if(value!==undefined)globalThis[name]=value;
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1394,6 +1430,9 @@ impl RustExecutableDocument {
                 (Some(broker), Some(base_url)) => {
                     RawV8Host::new_with_network_and_heap_limit(broker, base_url, max_heap_bytes)
                 }
+                (None, Some(base_url)) => {
+                    RawV8Host::new_with_base_url_and_heap_limit(base_url, max_heap_bytes)
+                }
                 _ => RawV8Host::new_with_heap_limit(max_heap_bytes),
             },
         };
@@ -1402,8 +1441,17 @@ impl RustExecutableDocument {
             (Some(broker), Some(base_url)) => {
                 RawV8Host::new_with_network_and_heap_limit(broker, base_url, max_heap_bytes)
             }
+            (None, Some(base_url)) => {
+                RawV8Host::new_with_base_url_and_heap_limit(base_url, max_heap_bytes)
+            }
             _ => RawV8Host::new_with_heap_limit(max_heap_bytes),
         };
+        if let Some(limit) = resources
+            .get("oryn:execution-wall-ms")
+            .and_then(|value| value.parse::<u64>().ok())
+        {
+            host.set_execution_wall_limit(Duration::from_millis(limit));
+        }
         host.install_dom(live_dom.clone(), 1)?;
         if let Some(config) = resources.get("oryn:trusted-types") {
             let config = serde_json::from_str(config).map_err(|error| {
@@ -1475,7 +1523,15 @@ impl RustExecutableDocument {
             quirks_mode = parsed.quirks_mode;
             parser_events = parsed.events;
             scripts = ordered_scripts;
-            frame_sources = collect_frames(&live_dom)?;
+            frame_sources = parser_events
+                .iter()
+                .filter_map(|event| match event {
+                    html::ParserEvent::FrameDiscovered { node, source } => {
+                        Some((*node, Some(source.clone())))
+                    }
+                    _ => None,
+                })
+                .collect();
         } else {
             // Compatibility snapshots cannot pause at their original parser
             // boundary. Keep their established document-order behavior while
@@ -1504,14 +1560,6 @@ impl RustExecutableDocument {
                 continue;
             };
             let child = html::parse_streamed(frame_html, 4 * 1024);
-            let child_scripts = child
-                .dom
-                .iter()
-                .filter(|(_, node)| {
-                    matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "script")
-                })
-                .map(|(id, _)| child.dom.text_content(id).unwrap_or_default())
-                .collect::<Vec<_>>();
             let child_document = live_dom
                 .borrow_mut()
                 .import_subtree(&child.dom, child.document)
@@ -1549,15 +1597,25 @@ impl RustExecutableDocument {
             if let Some((page_id, _)) = context_identity {
                 host.execute(&format!("__oryn_configure_context({}, null)", page_id.0))?;
             }
-            let imported_scripts = live_dom
-                .borrow()
-                .query_selector_all(child_document, "script")
-                .unwrap_or_default();
-            for (script, source) in imported_scripts.into_iter().zip(child_scripts) {
-                host.set_current_script(Some(script))?;
-                if let Err(error) = host.execute(&source) {
-                    diagnostics.push(script_diagnostic(error));
-                }
+            let imported_scripts = {
+                let dom = live_dom.borrow();
+                dom.query_selector_all(child_document, "script")
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+                    .into_iter()
+                    .map(|script| script_record(&dom, script))
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+            for script in &imported_scripts {
+                run_script_record(
+                    &mut host,
+                    &live_dom,
+                    &mut resources,
+                    script,
+                    &mut diagnostics,
+                    #[cfg(unix)]
+                    context_handle.as_ref(),
+                )?;
+                host.refresh_named_window_properties()?;
             }
             host.set_current_script(None)?;
             host.activate_realm(top_realm)?;
@@ -1573,6 +1631,7 @@ impl RustExecutableDocument {
                 #[cfg(unix)]
                 context_handle.as_ref(),
             )?;
+            host.refresh_named_window_properties()?;
         }
         host.set_current_script(None)?;
         host.drain_async_fetches(true)?;
@@ -1600,6 +1659,7 @@ impl RustExecutableDocument {
         };
         // Dynamic external/module scripts inserted by parser-time JavaScript
         // are force-async but still participate in the document load barrier.
+        page.drain_dynamic_frames()?;
         page.drain_dynamic_scripts()?;
         page.host.drain_async_fetches(true)?;
         // Zero-delay framework commits queued before load run at this
@@ -2053,6 +2113,7 @@ impl RustExecutableDocument {
 
     fn checkpoint(&mut self) -> Result<(), HostError> {
         self.host.drain_async_fetches(true)?;
+        self.drain_dynamic_frames()?;
         self.drain_dynamic_scripts()?;
         self.host.execute("void 0")?;
         self.host.execute("__oryn_run_custom_reactions()")?;
@@ -2159,6 +2220,188 @@ impl RustExecutableDocument {
         Err(HostError::LimitExceeded {
             resource: "dynamic script preparation queue".into(),
         })
+    }
+
+    fn drain_dynamic_frames(&mut self) -> Result<(), HostError> {
+        for frame in self.host.take_pending_dynamic_frames()? {
+            let requested = self
+                .live_dom
+                .borrow()
+                .attribute(frame, "src")
+                .map_err(|error| HostError::Execution(error.to_string()))?
+                .map(str::to_owned)
+                .filter(|value| !value.trim().is_empty());
+            let Some(requested) = requested else { continue };
+            #[cfg(unix)]
+            let fetched = if let Some((client, page_id, _)) = &self.context {
+                match client.request(
+                    crate::context_service::ContextServiceRequest::LoadPageResource {
+                        page_id: *page_id,
+                        url: requested.clone(),
+                        destination: "frame".into(),
+                    },
+                ) {
+                    Ok(crate::context_service::ContextServiceResponse::PageResource {
+                        url,
+                        source,
+                        destination,
+                    }) if destination == "frame" => Some((url, source)),
+                    Ok(_) => {
+                        return Err(HostError::Execution(
+                            "parent returned an invalid dynamic-frame response".into(),
+                        ));
+                    }
+                    Err(error) => {
+                        self.diagnostics
+                            .push(script_diagnostic(HostError::Execution(format!(
+                                "dynamic frame {requested:?} failed: {error}"
+                            ))));
+                        None
+                    }
+                }
+            } else {
+                self.resources.get(&requested).cloned().map(|source| {
+                    let url = self
+                        .base_url
+                        .as_ref()
+                        .and_then(|base| base.join(&requested).ok())
+                        .map_or_else(|| requested.clone(), |url| url.to_string());
+                    (url, source)
+                })
+            };
+            #[cfg(not(unix))]
+            let fetched = self.resources.get(&requested).cloned().map(|source| {
+                let url = self
+                    .base_url
+                    .as_ref()
+                    .and_then(|base| base.join(&requested).ok())
+                    .map_or_else(|| requested.clone(), |url| url.to_string());
+                (url, source)
+            });
+            let Some((url, source)) = fetched else {
+                continue;
+            };
+            let frame_url = Url::parse(&url)
+                .or_else(|_| {
+                    self.base_url
+                        .as_ref()
+                        .ok_or(url::ParseError::RelativeUrlWithoutBase)?
+                        .join(&url)
+                })
+                .ok();
+            if self
+                .base_url
+                .as_ref()
+                .zip(frame_url.as_ref())
+                .is_some_and(|(parent, child)| parent.origin() != child.origin())
+            {
+                self.diagnostics
+                    .push(oryn_common::v3::CapabilityDiagnostic {
+                        capability: "html.frame.cross_origin".into(),
+                        support: oryn_common::v3::SupportLevel::Unsupported,
+                        alternatives: vec![oryn_common::v3::ExecutionDomain::Chromium],
+                        handoff_lossy: true,
+                        detail: Some(format!(
+                            "dynamic frame {url:?} is opaque in the native domain"
+                        )),
+                    });
+                continue;
+            }
+            let parsed = html::parse(&source);
+            let child_document = self
+                .live_dom
+                .borrow_mut()
+                .import_subtree(&parsed.dom, parsed.document)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            self.live_dom
+                .borrow_mut()
+                .append_child(frame, child_document)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            let realm = self.host.create_realm_with_dom_root(
+                frame_url
+                    .as_ref()
+                    .map(|url| url.origin().ascii_serialization())
+                    .unwrap_or_else(|| "null".into()),
+                1,
+                Some(u64::try_from(self.node_realms.len()).unwrap_or(u64::MAX) + 1),
+                self.live_dom.clone(),
+                child_document,
+            )?;
+            for node in subtree_nodes(&self.live_dom.borrow(), child_document)? {
+                self.node_realms.insert(node, realm);
+            }
+            self.host.activate_realm(realm)?;
+            self.host.execute(RUST_RUNTIME_GLOBALS).map_err(|error| {
+                HostError::Execution(format!("dynamic frame runtime bootstrap: {error}"))
+            })?;
+            self.host.set_module_sources(&self.resources);
+            if let Some(frame_url) = &frame_url {
+                let encoded = serde_json::to_string(frame_url.as_str())
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                self.host
+                    .execute(&format!(
+                        "Object.assign(globalThis.location,new OrynURL({encoded}))"
+                    ))
+                    .map_err(|error| {
+                        HostError::Execution(format!("dynamic frame location: {error}"))
+                    })?;
+            }
+            #[cfg(unix)]
+            if let Some((_, page_id, _)) = &self.context {
+                self.host
+                    .execute(&format!("__oryn_configure_context({}, null)", page_id.0))
+                    .map_err(|error| {
+                        HostError::Execution(format!("dynamic frame context: {error}"))
+                    })?;
+            }
+            let child_scripts = {
+                let dom = self.live_dom.borrow();
+                dom.query_selector_all(child_document, "script")
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+                    .into_iter()
+                    .map(|script| {
+                        let record = dom.arena().get(script)?;
+                        Ok((
+                            script,
+                            record.attributes.get("src").cloned(),
+                            record.attributes.get("type").cloned(),
+                            dom.arena().text_content(script)?,
+                            false,
+                            record.attributes.contains_key("nomodule"),
+                            false,
+                        ))
+                    })
+                    .collect::<Result<Vec<ScriptRecord>, DomError>>()
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+            };
+            for script in &child_scripts {
+                run_script_record(
+                    &mut self.host,
+                    &self.live_dom,
+                    &mut self.resources,
+                    script,
+                    &mut self.diagnostics,
+                    #[cfg(unix)]
+                    self.context.as_ref(),
+                )?;
+                self.host.refresh_named_window_properties()?;
+            }
+            self.host.execute(
+                "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
+            ).map_err(|error| HostError::Execution(format!("dynamic frame lifecycle: {error}")))?;
+            self.host.activate_realm(self.top_realm)?;
+            self.host.set_frame_realm(frame, child_document, realm)?;
+            self.host
+                .execute_with_node(
+                    frame,
+                    "__oryn_dynamic_frame",
+                    "__oryn_dynamic_frame.dispatchEvent(new Event('load'))",
+                )
+                .map_err(|error| {
+                    HostError::Execution(format!("dynamic frame element load: {error}"))
+                })?;
+        }
+        Ok(())
     }
 
     fn finish_dynamic_script(
@@ -2440,6 +2683,67 @@ fn subtree_nodes(dom: &DomRuntime, root: NodeId) -> Result<Vec<NodeId>, HostErro
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires ORYN_WPT_ROOT pointing at the pinned WPT checkout"]
+    fn pinned_wpt_range_clone_executes_with_resource_diagnostics() {
+        let root = std::path::PathBuf::from(std::env::var("ORYN_WPT_ROOT").unwrap());
+        let mut html = std::fs::read_to_string(root.join("dom/ranges/Range-cloneContents.html"))
+            .unwrap()
+            .replace("<script src=/resources/testharnessreport.js></script>", "");
+        let completion = r#"<pre id="oryn-wpt-result"></pre><script>
+            globalThis.__oryn_wpt_results=[];
+            add_result_callback(test=>__oryn_wpt_results.push({name:String(test.name),status:Number(test.status),message:String(test.message||'')}));
+            add_completion_callback((tests,harness)=>document.getElementById('oryn-wpt-result').textContent=JSON.stringify({harness:harness.status,tests:__oryn_wpt_results}));
+            </script>"#;
+        let harness_end =
+            html.find("testharness.js></script>").unwrap() + "testharness.js></script>".len();
+        html.insert_str(harness_end, completion);
+        let resources = BTreeMap::from([
+            (
+                "/resources/testharness.js".into(),
+                std::fs::read_to_string(root.join("resources/testharness.js")).unwrap(),
+            ),
+            (
+                "../common.js".into(),
+                std::fs::read_to_string(root.join("dom/common.js")).unwrap(),
+            ),
+            (
+                "Range-test-iframe.html".into(),
+                std::fs::read_to_string(root.join("dom/ranges/Range-test-iframe.html")).unwrap(),
+            ),
+            ("oryn:execution-wall-ms".into(), "5000".into()),
+        ]);
+        let page = RustExecutableDocument::load_with_environment(
+            &html,
+            &resources,
+            None,
+            Some(
+                Url::parse("https://wpt.test/dom/ranges/Range-cloneContents.html?subtest=61")
+                    .unwrap(),
+            ),
+        )
+        .unwrap();
+        assert!(page.diagnostics.is_empty(), "{:#?}", page.diagnostics);
+        let result = page
+            .live_dom
+            .borrow()
+            .find_by_id("oryn-wpt-result")
+            .and_then(|node| page.live_dom.borrow().arena().text_content(node).ok())
+            .unwrap_or_default();
+        assert!(
+            !result.is_empty(),
+            "WPT did not publish a completion result"
+        );
+        let result: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(result["harness"], 0, "{result:#}");
+        assert!(
+            result["tests"]
+                .as_array()
+                .is_some_and(|tests| tests.iter().all(|test| test["status"] == 0)),
+            "{result:#}"
+        );
+    }
 
     #[test]
     fn scripts_and_events_mutate_only_the_rust_dom() {

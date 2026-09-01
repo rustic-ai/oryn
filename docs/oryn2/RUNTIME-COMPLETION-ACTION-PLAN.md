@@ -17,7 +17,7 @@ of a completed production cutover.
 | Runtime manifest and evidence contract | Implemented | Immutable `runtime-completion-v1` classification manifest, result schema, cache bootstrapper and fail-closed validators exist. The manifest validator passes. | Produce an exact-binary result whose aggregate is recomputed from complete assertion ledgers. |
 | Async transport and streaming navigation | Implemented in software | `oryn-net` owns the async rustls/HTTP2 pool. Broker v4 emits correlated headers/chunk/completion/failure/cancel operations with explicit demand. Navigation incrementally consumes decoded chunks in the shared live `DomRuntime`. Images complete outside the page actor. Async/defer/module scripts, module graphs, stylesheets/imports, frames, and dynamic scripts start concurrently and join only their required parser/lifecycle barrier. All complete-resource operations are correlated, deadline-, size-, and lifetime-bounded. Worker connection loss, replacement, close, navigation supersession, timeout, and stale completion cancel or reject the affected operation. | Exact packaged-binary and broader WPT lifecycle evidence remain part of final validation. |
 | Incremental semantics | Implemented in software | Contract v6 uses one persistent graph for semantic nodes, accessibility, structures, reverse dependencies, frame ownership, computed visibility, scoped observations, deltas and graph-native resolution. Equal scores and missing spatial geometry fail explicitly. The full projector is a test/feature-gated oracle only. | Run the pinned ARIA/Accessible Name corpus, framework churn, navigation, shadow/frame and replay equivalence, then publish exact-candidate zero-false-preservation evidence. |
-| Generated WebIDL and compatibility APIs | Partial | Generated V8 prototypes route migrated operations into Rust and enforce identity, brand, realm, origin and generation checks. Cross-container Range extraction/editing, CharacterData, Storage and the IndexedDB family required by the worker corpus are present. | Complete Selection/editing, traversal filtering, remaining history/referrer cases and full IndexedDB connection/version/transaction semantics. Remove corresponding handwritten bootstrap interfaces only after mapped tests pass. |
+| Generated WebIDL and compatibility APIs | Implemented in software for the declared interface inventory | Generated V8 templates and prototypes are deterministic and executable. Rust owns wrapper identity, brands, realm/origin/document-generation checks and the supported DOM, editing, navigation, Fetch/File/Streams/XHR/WebSocket and IndexedDB algorithms. Network and database work crosses only typed, asynchronous parent-host operations. Production restores the generated interface namespace after bootstrap; handwritten compatibility implementations remain available only to the explicit in-process probe. | Run every mapped API inventory entry and the broader upstream conformance set. Long-tail algorithms outside the declared inventory remain capability-scoped rather than inferred from focused regressions. |
 | Stylo cascade | Implemented in software | Production resolves an immutable Rust style snapshot through native Stylo `ComputedValues`, including origins, inheritance, custom properties and supported values. Taffy and Parley remain the box/text consumers; the prior handwritten cascade is test-only. | Pass and publish the mapped CSSOM/native-versus-Chromium differential corpus, including the supported grid bridge and explicit long-tail layout boundaries. |
 | V8 sandbox, ICU and startup snapshots | Partial | Production features require `v8_enable_sandbox`; runtime initialization is fail-closed. Exact macOS ARM64 full and external-data lite archives build from pinned source. Lite embeds a physically reduced 2.2 MiB root/en/en-US ICU package. A versioned callback table and content-addressed snapshot are supplied to both snapshot creation and runtime isolates, with hashes in schema-v3 manifests. Heap-sandbox, locale, Segmenter and snapshot-load checks pass. | Build Linux x86_64 full/lite, regenerate the full macOS schema-v3 bundle, then attest all four exact profile artifacts. |
 | Upstream conformance | Partial | A pinned sparse WPT cache exists outside Git. The native harness supports applicable `.any.js`, `.window.js` and testharness HTML cases through controlled loopback and records assertion-level outcomes. Four SharedWorker and four ServiceWorker IndexedDB variants pass through a signed production worker and have a compact recomputable ledger. | Diagnose the broader Range/API inventory, then run every required mapped WPT/ARIA/Accessible Name case. Keep deferred, excluded and informational results separate. |
@@ -64,17 +64,34 @@ of a completed production cutover.
 
 ### Generated browser interfaces
 
-- Finish Range boundary comparison, content mutation/extraction, insertion and
-  surrounding behavior across text and element boundaries.
-- Finish Selection mutation, editing, `contenteditable`, contextual fragments,
-  focus and adoption behavior.
-- Implement NodeFilter/`whatToShow` traversal semantics and live mutation rules.
-- Complete same-document history traversal, state cloning and event ordering.
+- ~~Finish Range boundary comparison, content mutation/extraction, insertion
+  and surrounding behavior across text and element boundaries.~~ Implemented
+  against the shared Rust `DomRuntime`, including cross-container operations.
+- ~~Finish Selection mutation, editing, `contenteditable`, contextual fragments,
+  focus and adoption behavior.~~ The declared Selection mutation surface,
+  CharacterData editing, focus/adoption and contextual-fragment paths are now
+  generated/Rust-backed. Long-tail editing-command conformance remains in the
+  upstream inventory rather than being silently inferred.
+- ~~Implement NodeFilter/`whatToShow` traversal semantics and live mutation
+  rules.~~ Generated TreeWalker and NodeIterator now apply callback filters,
+  `FILTER_ACCEPT`/`REJECT`/`SKIP`, `whatToShow`, and live Rust node identity.
+- ~~Complete same-document history traversal, state cloning and event
+  ordering.~~ Generated History owns cloned state, same-document URL updates,
+  traversal, `popstate`, `hashchange`, and `scrollRestoration`.
 - Apply referrer policy consistently to navigation, Fetch/XHR, redirects,
   frames, scripts, stylesheets and form submissions.
-- Complete IndexedDB version changes, blocked connections, transaction lifetime,
-  indexes, cursors, compound keys, structured cloning, quota, abort and restart.
-- Regenerate bindings and require `oryn-webidl check` to remain clean.
+- ~~Complete the architectural IndexedDB cutover.~~ Generated Rust callbacks now
+  own requests, upgrade delivery, databases, transactions, object stores,
+  indexes, cursors, key ranges and structured cloning while the parent remains
+  the typed persistent-storage authority. Broader connection/version-change and
+  transaction scheduling conformance remains in the mapped upstream inventory.
+- ~~Move Fetch/File/Streams/XHR/WebSocket compatibility classes onto generated
+  callback dispatch.~~ Generated Rust state and callbacks now own these objects,
+  promise/event progression, backpressure, abort/timeout and late-completion
+  rejection over typed parent-host operations. The compatibility classes are
+  restored only for the explicitly named in-process probe.
+- ~~Regenerate bindings and require `oryn-webidl check` to remain clean.~~ The
+  deterministic checked output and clean-regeneration test are enforced.
 
 ### Style and layout
 
@@ -152,8 +169,10 @@ navigation, Fetch bodies, image loading, or CORS preflight.
    and deltas; publish additive contract v6 through every public adapter.
 2. Run randomized graph-oracle equivalence, pinned accessibility conformance and
    expanded reference churn.
-3. Complete Range/Selection/traversal/editing, history/referrer and IndexedDB.
-4. Remove migrated handwritten JavaScript interfaces.
+3. Complete the mapped referrer, IndexedDB transaction/version-change and
+   broader editing conformance inventory.
+4. Delete the probe-only handwritten interfaces after the compatibility probe
+   is no longer required by historical differential tests.
 
 **Exit:** graph/oracle outputs are identical across the mapped corpus, false
 reference preservation is zero, generated output is clean, and mapped DOM/API

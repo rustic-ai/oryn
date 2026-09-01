@@ -503,11 +503,13 @@ impl TreeSink for OrynTreeSink {
     fn append_doctype_to_document(
         &self,
         name: StrTendril,
-        _public_id: StrTendril,
-        _system_id: StrTendril,
+        public_id: StrTendril,
+        system_id: StrTendril,
     ) {
         let doctype = self.dom.borrow_mut().create(NodeKind::DocumentType {
             name: name.to_string(),
+            public_id: public_id.to_string(),
+            system_id: system_id.to_string(),
         });
         self.dom
             .borrow_mut()
@@ -623,7 +625,7 @@ mod tests {
         // unclosed paragraphs, and unfinished comments.
         let parsed = parse("<!DOCTYPE HtMl><p a='b' a='d'>One<p>Two<!--comment");
         assert!(parsed.dom.iter().any(|(_, node)| {
-            matches!(&node.kind, NodeKind::DocumentType { name } if name == "html")
+            matches!(&node.kind, NodeKind::DocumentType { name, .. } if name == "html")
         }));
         let paragraphs = parsed
             .dom

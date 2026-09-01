@@ -156,6 +156,8 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
         let mut capabilities = capabilities;
         capabilities.push("v8_javascript".into());
         capabilities.push("generated_webidl_registry".into());
+        capabilities.push("generated_web_platform_algorithms".into());
+        capabilities.push("typed_platform_host_operations".into());
         capabilities.push("webassembly".into());
         capabilities.push("same_site_cookies".into());
         capabilities.push("csp3_agent_critical".into());

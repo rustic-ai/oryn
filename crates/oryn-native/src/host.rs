@@ -48,11 +48,11 @@ mod raw_v8 {
     use std::{
         borrow::Cow,
         cell::RefCell,
-        collections::BTreeMap,
+        collections::{BTreeMap, BTreeSet},
         rc::Rc,
         sync::{
-            Arc, Once,
-            atomic::{AtomicBool, Ordering},
+            Arc, Condvar, Mutex, Once,
+            atomic::{AtomicBool, AtomicU64, Ordering},
             mpsc,
         },
         time::{Duration, Instant},
@@ -71,11 +71,17 @@ mod raw_v8 {
     #[cfg(unix)]
     use oryn_common::v3::PageId;
     use oryn_dom::NodeId;
+    #[cfg(unix)]
+    use oryn_js::platform::{
+        HostOperationId, IdbHostResponse, PlatformHost, PlatformHostCompletion,
+        PlatformHostRequest, PlatformHostResult, PlatformWebSocketFrame,
+    };
     use oryn_js::realm::{RealmDescriptor, RealmId, RealmRegistry};
     use oryn_js::scheduler::{PageScheduler, Task, TaskSource};
     use oryn_js::v8_bindings::{
         BindingLayout, SharedDom, V8BindingState, deliver_mutation_observers,
-        install_generated_bindings, install_generated_bindings_with_root, wrap_node,
+        install_generated_bindings, install_generated_bindings_with_root,
+        publish_named_window_properties, wrap_node,
     };
 
     static INITIALIZE_V8: Once = Once::new();
@@ -154,6 +160,7 @@ mod raw_v8 {
     pub struct RawV8Host {
         isolate: v8::OwnedIsolate,
         contexts: BTreeMap<RealmId, v8::Global<v8::Context>>,
+        security_tokens: BTreeMap<String, v8::Global<v8::String>>,
         realms: RealmRegistry,
         active_realm: RealmId,
         binding_states: BTreeMap<RealmId, Rc<V8BindingState>>,
@@ -223,6 +230,120 @@ mod raw_v8 {
     struct ContextState {
         client: SharedContextClient,
         page_id: PageId,
+    }
+
+    #[cfg(unix)]
+    struct ContextPlatformHost {
+        context: ContextState,
+        sender: mpsc::Sender<PlatformHostCompletion>,
+        receiver: Mutex<mpsc::Receiver<PlatformHostCompletion>>,
+        next_idb_ticket: AtomicU64,
+        idb_turn: Arc<(Mutex<u64>, Condvar)>,
+        cancellable_http_starts: Arc<Mutex<BTreeSet<HostOperationId>>>,
+    }
+
+    #[cfg(unix)]
+    impl ContextPlatformHost {
+        fn new(context: ContextState) -> Self {
+            let (sender, receiver) = mpsc::channel();
+            Self {
+                context,
+                sender,
+                receiver: Mutex::new(receiver),
+                next_idb_ticket: AtomicU64::new(0),
+                idb_turn: Arc::new((Mutex::new(0), Condvar::new())),
+                cancellable_http_starts: Arc::new(Mutex::new(BTreeSet::new())),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    impl PlatformHost for ContextPlatformHost {
+        fn submit(
+            &self,
+            operation_id: HostOperationId,
+            request: PlatformHostRequest,
+        ) -> Result<(), String> {
+            let context = self.context.clone();
+            let sender = self.sender.clone();
+            let idb_ticket = matches!(request, PlatformHostRequest::IndexedDb { .. })
+                .then(|| self.next_idb_ticket.fetch_add(1, Ordering::Relaxed));
+            let idb_turn = self.idb_turn.clone();
+            let is_http_start = matches!(request, PlatformHostRequest::HttpStart { .. });
+            let cancellable_http_starts = self.cancellable_http_starts.clone();
+            if is_http_start {
+                cancellable_http_starts
+                    .lock()
+                    .map_err(|_| "HTTP cancellation registry is poisoned".to_string())?
+                    .insert(operation_id);
+            }
+            std::thread::Builder::new()
+                .name(format!("oryn-platform-{}", operation_id.0))
+                .spawn(move || {
+                    if let Some(ticket) = idb_ticket {
+                        let (turn, ready) = &*idb_turn;
+                        let mut current = turn
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        while *current != ticket {
+                            current = ready
+                                .wait(current)
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        }
+                    }
+                    let result = execute_platform_request(&context, operation_id, request);
+                    if is_http_start && let Ok(mut operations) = cancellable_http_starts.lock() {
+                        operations.remove(&operation_id);
+                    }
+                    let _ = sender.send(PlatformHostCompletion {
+                        operation_id,
+                        result,
+                    });
+                    if idb_ticket.is_some() {
+                        let (turn, ready) = &*idb_turn;
+                        let mut current = turn
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        *current = current.saturating_add(1);
+                        ready.notify_all();
+                    }
+                })
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        }
+
+        fn cancel(&self, operation_id: HostOperationId) {
+            if !self
+                .cancellable_http_starts
+                .lock()
+                .is_ok_and(|operations| operations.contains(&operation_id))
+            {
+                return;
+            }
+            let context = self.context.clone();
+            // Cancellation must not wait behind the operation being cancelled.
+            // The multiplexed context transport carries this independent
+            // request to the parent, where the broker owns the socket.
+            let _ = std::thread::Builder::new()
+                .name(format!("oryn-platform-cancel-{}", operation_id.0))
+                .spawn(move || {
+                    let _ = context
+                        .client
+                        .request(ContextServiceRequest::HttpRequestAbort {
+                            page_id: context.page_id,
+                            request_id: operation_id.0,
+                        });
+                });
+        }
+
+        fn drain_completions(&self, limit: usize) -> Vec<PlatformHostCompletion> {
+            let Ok(receiver) = self.receiver.lock() else {
+                return Vec::new();
+            };
+            (0..limit)
+                .filter_map(|_| receiver.try_recv().ok())
+                .collect()
+        }
     }
 
     #[derive(Serialize)]
@@ -559,6 +680,18 @@ mod raw_v8 {
     }
 
     impl RawV8Host {
+        fn security_token_identity(origin: &str, realm: RealmId) -> String {
+            // V8 uses context security-token identity for cross-context global
+            // access. Same-origin frame realms must therefore share an exact
+            // token, while opaque origins must never accidentally become
+            // same-origin merely because their serialized origin is `null`.
+            if origin == "null" {
+                format!("oryn:opaque-realm:{}", realm.0)
+            } else {
+                format!("oryn:origin:{origin}")
+            }
+        }
+
         pub fn enter_realm(&self) {
             // SAFETY: ExecutableDocument is thread-affine and callers balance
             // every temporary child-realm entry with `exit_realm`.
@@ -572,13 +705,15 @@ mod raw_v8 {
         }
 
         pub fn new() -> Self {
-            Self::create(None, None, 256 * 1024 * 1024)
+            Self::create(None, None, None, 256 * 1024 * 1024)
         }
 
         pub fn new_with_network(broker: SharedNetworkBroker, base_url: Url) -> Self {
+            let origin = base_url.origin().ascii_serialization();
             Self::create(
                 Some(FetchState { broker, base_url }),
                 None,
+                Some(origin),
                 256 * 1024 * 1024,
             )
         }
@@ -588,7 +723,18 @@ mod raw_v8 {
             base_url: Url,
             max_heap_bytes: usize,
         ) -> Self {
-            Self::create(Some(FetchState { broker, base_url }), None, max_heap_bytes)
+            let origin = base_url.origin().ascii_serialization();
+            Self::create(
+                Some(FetchState { broker, base_url }),
+                None,
+                Some(origin),
+                max_heap_bytes,
+            )
+        }
+
+        pub fn new_with_base_url_and_heap_limit(base_url: Url, max_heap_bytes: usize) -> Self {
+            let origin = base_url.origin().ascii_serialization();
+            Self::create(None, None, Some(origin), max_heap_bytes)
         }
 
         #[cfg(unix)]
@@ -599,6 +745,9 @@ mod raw_v8 {
             page_id: PageId,
             max_heap_bytes: usize,
         ) -> Self {
+            let origin = base_url
+                .as_ref()
+                .map(|url| url.origin().ascii_serialization());
             let fetch = broker
                 .zip(base_url)
                 .map(|(broker, base_url)| FetchState { broker, base_url });
@@ -608,17 +757,18 @@ mod raw_v8 {
                     client: context,
                     page_id,
                 }),
+                origin,
                 max_heap_bytes,
             )
         }
 
         pub fn new_with_heap_limit(max_heap_bytes: usize) -> Self {
-            Self::create(None, None, max_heap_bytes)
+            Self::create(None, None, None, max_heap_bytes)
         }
 
         #[cfg(test)]
         pub fn new_with_wall_limit(execution_wall_limit: Duration) -> Self {
-            let mut host = Self::create(None, None, 256 * 1024 * 1024);
+            let mut host = Self::create(None, None, None, 256 * 1024 * 1024);
             host.execution_wall_limit = execution_wall_limit;
             host
         }
@@ -627,6 +777,7 @@ mod raw_v8 {
             fetch_state: Option<FetchState>,
             #[cfg(unix)] context_state: Option<ContextState>,
             #[cfg(not(unix))] _context_state: Option<()>,
+            base_origin: Option<String>,
             max_heap_bytes: usize,
         ) -> Self {
             INITIALIZE_V8.call_once(|| {
@@ -663,23 +814,36 @@ mod raw_v8 {
             if let Some(context_state) = context_state {
                 isolate.set_slot(context_state);
             }
-            let origin = isolate
-                .get_slot::<FetchState>()
-                .map(|state| state.base_url.origin().ascii_serialization())
+            let origin = base_origin
+                .or_else(|| {
+                    isolate
+                        .get_slot::<FetchState>()
+                        .map(|state| state.base_url.origin().ascii_serialization())
+                })
                 .unwrap_or_else(|| "null".into());
             let mut realms = RealmRegistry::default();
-            let active_realm = realms.create(origin, 1, None);
-            let context = {
+            let active_realm = realms.create(origin.clone(), 1, None);
+            let (context, security_token) = {
                 v8::scope!(let scope, &mut isolate);
                 let context = v8::Context::new(scope, Default::default());
+                let identity = Self::security_token_identity(&origin, active_realm);
+                let token =
+                    v8::String::new(scope, &identity).expect("allocate V8 context security token");
+                context.set_security_token(token.into());
                 install_host_functions!(scope, context);
-                v8::Global::new(scope, context)
+                (
+                    v8::Global::new(scope, context),
+                    (identity, v8::Global::new(scope, token)),
+                )
             };
             let mut contexts = BTreeMap::new();
             contexts.insert(active_realm, context);
+            let mut security_tokens = BTreeMap::new();
+            security_tokens.insert(security_token.0, security_token.1);
             Self {
                 isolate,
                 contexts,
+                security_tokens,
                 realms,
                 active_realm,
                 binding_states: BTreeMap::new(),
@@ -696,6 +860,8 @@ mod raw_v8 {
             dom: SharedDom,
             document_generation: u64,
         ) -> Result<(), HostError> {
+            #[cfg(unix)]
+            let platform_context = self.isolate.get_slot::<ContextState>().cloned();
             let realm = self.active_realm;
             let context = self
                 .contexts
@@ -707,6 +873,10 @@ mod raw_v8 {
             let scope = &mut v8::ContextScope::new(handle_scope, context);
             let state = install_generated_bindings(scope, context, dom, realm, document_generation)
                 .map_err(|error| HostError::Execution(error.to_string()))?;
+            #[cfg(unix)]
+            if let Some(platform_context) = platform_context {
+                state.set_platform_host(Rc::new(ContextPlatformHost::new(platform_context)));
+            }
             if let Some((config, allow_eval)) = &self.trusted_types_config {
                 state.configure_trusted_types(config.clone());
                 context.set_allow_generation_from_strings(*allow_eval);
@@ -715,12 +885,18 @@ mod raw_v8 {
             Ok(())
         }
 
+        pub fn set_execution_wall_limit(&mut self, limit: Duration) {
+            self.execution_wall_limit = limit.max(Duration::from_millis(1));
+        }
+
         pub fn install_dom_root(
             &mut self,
             dom: SharedDom,
             document_generation: u64,
             document: NodeId,
         ) -> Result<(), HostError> {
+            #[cfg(unix)]
+            let platform_context = self.isolate.get_slot::<ContextState>().cloned();
             let realm = self.active_realm;
             let context = self
                 .contexts
@@ -739,6 +915,10 @@ mod raw_v8 {
                 document,
             )
             .map_err(|error| HostError::Execution(error.to_string()))?;
+            #[cfg(unix)]
+            if let Some(platform_context) = platform_context {
+                state.set_platform_host(Rc::new(ContextPlatformHost::new(platform_context)));
+            }
             if let Some((config, allow_eval)) = &self.trusted_types_config {
                 state.configure_trusted_types(config.clone());
                 context.set_allow_generation_from_strings(*allow_eval);
@@ -756,6 +936,29 @@ mod raw_v8 {
                 .get(&self.active_realm)
                 .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
                 .set_frame_document(frame, document);
+            Ok(())
+        }
+
+        pub fn set_frame_realm(
+            &mut self,
+            frame: NodeId,
+            document: NodeId,
+            realm: RealmId,
+        ) -> Result<(), HostError> {
+            let context = self
+                .contexts
+                .get(&realm)
+                .ok_or_else(|| HostError::Execution("frame realm is unavailable".into()))?
+                .clone();
+            let active = self
+                .binding_states
+                .get(&self.active_realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?;
+            v8::scope!(let scope, &mut self.isolate);
+            let context = v8::Local::new(scope, &context);
+            active.set_frame_document(frame, document);
+            active.set_frame_window(frame, v8::Global::new(scope, context.global(scope)));
             Ok(())
         }
 
@@ -820,12 +1023,39 @@ mod raw_v8 {
                 .map(|state| state.take_pending_dynamic_scripts())
         }
 
+        pub fn take_pending_dynamic_frames(&self) -> Result<Vec<NodeId>, HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))
+                .map(|state| state.take_pending_dynamic_frames())
+        }
+
         pub fn install_layout(&mut self, layout: BindingLayout) -> Result<(), HostError> {
             self.binding_states
                 .get(&self.active_realm)
                 .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
                 .set_layout(layout);
             Ok(())
+        }
+
+        pub fn refresh_named_window_properties(&mut self) -> Result<(), HostError> {
+            let realm = self.active_realm;
+            let state = self
+                .binding_states
+                .get(&realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?;
+            let context = self
+                .contexts
+                .get(&realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active realm is unavailable".into()))?;
+            let document = state.document_root();
+            v8::scope!(let handle_scope, &mut self.isolate);
+            let context = v8::Local::new(handle_scope, &context);
+            let scope = &mut v8::ContextScope::new(handle_scope, context);
+            publish_named_window_properties(scope, context, &state, document)
+                .map_err(|error| HostError::Execution(error.to_string()))
         }
 
         /// Invoke generated JavaScript behavior with a Rust-owned node exposed
@@ -1145,6 +1375,50 @@ mod raw_v8 {
                 scope.perform_microtask_checkpoint();
                 delivered += 1;
             }
+            delivered += self.drain_generated_platform_operations(wait)?;
+            Ok(delivered)
+        }
+
+        fn drain_generated_platform_operations(&mut self, wait: bool) -> Result<usize, HostError> {
+            let deadline = Instant::now() + self.execution_wall_limit;
+            let mut delivered = 0;
+            loop {
+                let mut pass = 0;
+                let realms = self.binding_states.keys().copied().collect::<Vec<_>>();
+                for realm in realms {
+                    let Some(state) = self.binding_states.get(&realm).cloned() else {
+                        continue;
+                    };
+                    let Some(context) = self.contexts.get(&realm).cloned() else {
+                        continue;
+                    };
+                    v8::scope!(let handle_scope, &mut self.isolate);
+                    let context = v8::Local::new(handle_scope, &context);
+                    let scope = &mut v8::ContextScope::new(handle_scope, context);
+                    pass += state
+                        .drain_platform_completions(scope, 32)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    if pass > 0 {
+                        scope.perform_microtask_checkpoint();
+                    }
+                }
+                delivered += pass;
+                let pending = self
+                    .binding_states
+                    .values()
+                    .any(|state| state.has_pending_platform_work());
+                if !wait || !pending {
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    return Err(HostError::LimitExceeded {
+                        resource: "generated platform operation wall time".into(),
+                    });
+                }
+                if pass == 0 {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
             Ok(delivered)
         }
 
@@ -1163,10 +1437,27 @@ mod raw_v8 {
             document_generation: u64,
             frame_id: Option<u64>,
         ) -> RealmId {
-            let realm = self.realms.create(origin, document_generation, frame_id);
+            let origin = origin.into();
+            let realm = self
+                .realms
+                .create(origin.clone(), document_generation, frame_id);
+            let identity = Self::security_token_identity(&origin, realm);
+            let existing_token = self.security_tokens.get(&identity).cloned();
             let context = {
                 v8::scope!(let scope, &mut self.isolate);
                 let context = v8::Context::new(scope, Default::default());
+                let token = existing_token
+                    .as_ref()
+                    .map(|token| v8::Local::new(scope, token))
+                    .unwrap_or_else(|| {
+                        v8::String::new(scope, &identity)
+                            .expect("allocate V8 context security token")
+                    });
+                context.set_security_token(token.into());
+                if existing_token.is_none() {
+                    self.security_tokens
+                        .insert(identity, v8::Global::new(scope, token));
+                }
                 install_host_functions!(scope, context);
                 v8::Global::new(scope, context)
             };
@@ -2098,6 +2389,203 @@ mod raw_v8 {
     #[cfg(unix)]
     type StartedStream = (u64, u16, Vec<(String, String)>);
 
+    #[cfg(unix)]
+    fn execute_platform_request(
+        state: &ContextState,
+        operation_id: HostOperationId,
+        request: PlatformHostRequest,
+    ) -> Result<PlatformHostResult, String> {
+        use crate::context_service::WebSocketFrame;
+        match request {
+            PlatformHostRequest::HttpStart { request } => {
+                match state
+                    .client
+                    .request(ContextServiceRequest::HttpStreamStart {
+                        page_id: state.page_id,
+                        request: HttpStreamRequest {
+                            request_id: operation_id.0,
+                            method: request.method,
+                            url: request.url.clone(),
+                            headers: request.headers,
+                            body_base64: BASE64.encode(request.body),
+                            credentials: request.credentials != "omit",
+                        },
+                    })
+                    .map_err(|error| error.to_string())?
+                {
+                    ContextServiceResponse::HttpStreamStarted {
+                        stream_id,
+                        status,
+                        headers,
+                        ..
+                    } => Ok(PlatformHostResult::HttpStarted {
+                        stream_id,
+                        status,
+                        url: request.url,
+                        headers,
+                    }),
+                    _ => Err("context service returned an invalid HTTP start response".into()),
+                }
+            }
+            PlatformHostRequest::HttpRead {
+                stream_id,
+                max_bytes,
+            } => match state
+                .client
+                .request(ContextServiceRequest::HttpStreamRead {
+                    page_id: state.page_id,
+                    stream_id,
+                    max_bytes,
+                })
+                .map_err(|error| error.to_string())?
+            {
+                ContextServiceResponse::HttpStreamChunk {
+                    stream_id,
+                    body_base64,
+                    done,
+                } => Ok(PlatformHostResult::HttpChunk {
+                    stream_id,
+                    bytes: BASE64
+                        .decode(body_base64)
+                        .map_err(|error| error.to_string())?,
+                    done,
+                }),
+                _ => Err("context service returned an invalid HTTP chunk response".into()),
+            },
+            PlatformHostRequest::HttpAbort { stream_id } => match state
+                .client
+                .request(ContextServiceRequest::HttpStreamAbort {
+                    page_id: state.page_id,
+                    stream_id,
+                })
+                .map_err(|error| error.to_string())?
+            {
+                ContextServiceResponse::HttpStreamAborted => Ok(PlatformHostResult::HttpAborted),
+                _ => Err("context service returned an invalid HTTP abort response".into()),
+            },
+            PlatformHostRequest::WebSocketOpen { url, protocols } => match state
+                .client
+                .request(ContextServiceRequest::WebSocketOpen {
+                    page_id: state.page_id,
+                    url,
+                    protocols,
+                })
+                .map_err(|error| error.to_string())?
+            {
+                ContextServiceResponse::WebSocketOpened {
+                    socket_id,
+                    protocol,
+                } => Ok(PlatformHostResult::WebSocketOpened {
+                    socket_id,
+                    protocol,
+                }),
+                _ => Err("context service returned an invalid WebSocket open response".into()),
+            },
+            PlatformHostRequest::WebSocketSend { socket_id, frame } => {
+                let frame = match frame {
+                    PlatformWebSocketFrame::Text { value } => WebSocketFrame::Text { value },
+                    PlatformWebSocketFrame::Binary { bytes } => WebSocketFrame::Binary {
+                        base64: BASE64.encode(bytes),
+                    },
+                    PlatformWebSocketFrame::Close { code, reason } => {
+                        WebSocketFrame::Close { code, reason }
+                    }
+                };
+                match state
+                    .client
+                    .request(ContextServiceRequest::WebSocketSend {
+                        page_id: state.page_id,
+                        socket_id,
+                        frame,
+                    })
+                    .map_err(|error| error.to_string())?
+                {
+                    ContextServiceResponse::WebSocketSent => Ok(PlatformHostResult::WebSocketSent),
+                    _ => Err("context service returned an invalid WebSocket send response".into()),
+                }
+            }
+            PlatformHostRequest::WebSocketPoll {
+                socket_id,
+                max_frames,
+            } => match state
+                .client
+                .request(ContextServiceRequest::WebSocketPoll {
+                    page_id: state.page_id,
+                    socket_id,
+                    max_frames,
+                })
+                .map_err(|error| error.to_string())?
+            {
+                ContextServiceResponse::WebSocketEvents { frames } => {
+                    Ok(PlatformHostResult::WebSocketEvents {
+                        frames: frames
+                            .into_iter()
+                            .map(|frame| match frame {
+                                WebSocketFrame::Text { value } => {
+                                    PlatformWebSocketFrame::Text { value }
+                                }
+                                WebSocketFrame::Binary { base64 } => {
+                                    PlatformWebSocketFrame::Binary {
+                                        bytes: BASE64.decode(base64).unwrap_or_default(),
+                                    }
+                                }
+                                WebSocketFrame::Close { code, reason } => {
+                                    PlatformWebSocketFrame::Close { code, reason }
+                                }
+                            })
+                            .collect(),
+                    })
+                }
+                _ => Err("context service returned an invalid WebSocket poll response".into()),
+            },
+            PlatformHostRequest::WebSocketClose {
+                socket_id,
+                code,
+                reason,
+            } => match state
+                .client
+                .request(ContextServiceRequest::WebSocketClose {
+                    page_id: state.page_id,
+                    socket_id,
+                    code,
+                    reason,
+                })
+                .map_err(|error| error.to_string())?
+            {
+                ContextServiceResponse::WebSocketClosed => Ok(PlatformHostResult::WebSocketClosed),
+                _ => Err("context service returned an invalid WebSocket close response".into()),
+            },
+            PlatformHostRequest::IndexedDb { origin, command } => {
+                let command: crate::storage::IdbCommand = serde_json::from_value(
+                    serde_json::to_value(command).map_err(|error| error.to_string())?,
+                )
+                .map_err(|error| error.to_string())?;
+                match state
+                    .client
+                    .request(ContextServiceRequest::Storage {
+                        request: crate::storage::StorageRequest::IndexedDb { origin, command },
+                    })
+                    .map_err(|error| error.to_string())?
+                {
+                    ContextServiceResponse::Storage { response } => match *response {
+                        crate::storage::StorageResponse::IndexedDb { response } => {
+                            let response: IdbHostResponse = serde_json::from_value(
+                                serde_json::to_value(response)
+                                    .map_err(|error| error.to_string())?,
+                            )
+                            .map_err(|error| error.to_string())?;
+                            Ok(PlatformHostResult::IndexedDb { response })
+                        }
+                        _ => {
+                            Err("context service returned a non-IndexedDB storage response".into())
+                        }
+                    },
+                    _ => Err("context service returned an invalid IndexedDB response".into()),
+                }
+            }
+        }
+    }
+
     fn start_streamed_request(
         state: &ContextState,
         request: NetworkRequest,
@@ -2609,8 +3097,13 @@ mod raw_v8 {
                 .ok_or_else(|| HostError::Execution("source allocation failed".into()))?;
             let Some(script) = v8::Script::compile(scope, source, None) else {
                 let detail = scope
-                    .stack_trace()
-                    .or_else(|| scope.exception())
+                    .exception()
+                    .filter(|value| !value.is_null_or_undefined())
+                    .or_else(|| {
+                        scope
+                            .stack_trace()
+                            .filter(|value| !value.is_null_or_undefined())
+                    })
                     .and_then(|value| value.to_string(scope))
                     .map(|value| value.to_rust_string_lossy(scope))
                     .unwrap_or_else(|| "compilation failed".into());
@@ -2624,14 +3117,33 @@ mod raw_v8 {
                     });
                 }
                 let detail = scope
-                    .stack_trace()
-                    .or_else(|| scope.exception())
+                    .exception()
+                    .filter(|value| !value.is_null_or_undefined())
+                    .or_else(|| {
+                        scope
+                            .stack_trace()
+                            .filter(|value| !value.is_null_or_undefined())
+                    })
                     .and_then(|value| value.to_string(scope))
                     .map(|value| value.to_rust_string_lossy(scope))
                     .unwrap_or_else(|| "execution failed".into());
                 return Err(HostError::Execution(detail));
             }
             scope.perform_microtask_checkpoint();
+            if scope.has_caught() {
+                let detail = scope
+                    .exception()
+                    .filter(|value| !value.is_null_or_undefined())
+                    .or_else(|| {
+                        scope
+                            .stack_trace()
+                            .filter(|value| !value.is_null_or_undefined())
+                    })
+                    .and_then(|value| value.to_string(scope))
+                    .map(|value| value.to_rust_string_lossy(scope))
+                    .unwrap_or_else(|| "microtask checkpoint failed".into());
+                return Err(HostError::Execution(detail));
+            }
             if _deadline.expired() || scope.is_execution_terminating() {
                 scope.cancel_terminate_execution();
                 return Err(HostError::LimitExceeded {

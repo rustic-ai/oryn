@@ -7,7 +7,7 @@
 //! policy-enforced network broker; this service coordinates context state.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::{BufRead, BufReader, Read, Write},
     net::{Shutdown, TcpStream},
     os::unix::net::UnixStream,
@@ -58,6 +58,10 @@ pub enum ContextServiceRequest {
     HttpStreamAbort {
         page_id: PageId,
         stream_id: u64,
+    },
+    HttpRequestAbort {
+        page_id: PageId,
+        request_id: u64,
     },
     Storage {
         request: StorageRequest,
@@ -217,6 +221,7 @@ pub enum ContextServiceResponse {
         done: bool,
     },
     HttpStreamAborted,
+    HttpRequestAborted,
     Storage {
         response: Box<StorageResponse>,
     },
@@ -545,6 +550,7 @@ pub struct ParentContextService {
     network: Option<SharedNetworkBroker>,
     next_http_stream_id: AtomicU64,
     http_streams: Mutex<BTreeMap<u64, Arc<HttpStreamEntry>>>,
+    cancelled_http_requests: Mutex<BTreeSet<u64>>,
     shutting_down: AtomicBool,
     trusted_in_process_runtime: bool,
 }
@@ -609,6 +615,7 @@ impl ParentContextService {
             network,
             next_http_stream_id: AtomicU64::new(1),
             http_streams: Mutex::new(BTreeMap::new()),
+            cancelled_http_requests: Mutex::new(BTreeSet::new()),
             shutting_down: AtomicBool::new(false),
             trusted_in_process_runtime: false,
         }
@@ -662,6 +669,10 @@ impl ParentContextService {
             ContextServiceRequest::HttpStreamAbort { page_id, stream_id } => {
                 self.abort_http_stream(page_id, stream_id)
             }
+            ContextServiceRequest::HttpRequestAbort {
+                page_id,
+                request_id,
+            } => self.abort_http_request(page_id, request_id),
             ContextServiceRequest::Storage { request } => {
                 self.validate_storage_scope(&request)?;
                 let response = self
@@ -1134,6 +1145,14 @@ impl ParentContextService {
         request: HttpStreamRequest,
     ) -> Result<ContextServiceResponse, RuntimeError> {
         self.validate_socket_owner(page_id)?;
+        if self
+            .cancelled_http_requests
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("HTTP cancellation lock poisoned".into()))?
+            .remove(&request.request_id)
+        {
+            return Err(RuntimeError::Network("HTTP request cancelled".into()));
+        }
         let body = base64::Engine::decode(
             &base64::engine::general_purpose::STANDARD,
             request.body_base64,
@@ -1253,6 +1272,15 @@ impl ParentContextService {
                 resolved_addrs: Vec::new(),
             })
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
+        if self
+            .cancelled_http_requests
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("HTTP cancellation lock poisoned".into()))?
+            .remove(&operation.request_id)
+        {
+            let _ = network.cancel_operation(operation.request_id);
+            return Err(RuntimeError::Network("HTTP request cancelled".into()));
+        }
         let header_event =
             match receive_network_event(&mut operation.events, Duration::from_secs(30)) {
                 Ok(event) => event,
@@ -1261,6 +1289,15 @@ impl ParentContextService {
                     return Err(error);
                 }
             };
+        if self
+            .cancelled_http_requests
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("HTTP cancellation lock poisoned".into()))?
+            .remove(&operation.request_id)
+        {
+            let _ = network.cancel_operation(operation.request_id);
+            return Err(RuntimeError::Network("HTTP request cancelled".into()));
+        }
         let (response_request_id, response_status, response_headers, content_length) =
             match header_event {
                 Some(NetworkEvent::Headers {
@@ -1337,6 +1374,34 @@ impl ParentContextService {
             headers: sanitize_parent_response_headers(response_headers),
             total_bytes,
         })
+    }
+
+    fn abort_http_request(
+        &self,
+        page_id: PageId,
+        request_id: u64,
+    ) -> Result<ContextServiceResponse, RuntimeError> {
+        self.validate_socket_owner(page_id)?;
+        self.cancelled_http_requests
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("HTTP cancellation lock poisoned".into()))?
+            .insert(request_id);
+        let stream_ids = self
+            .http_streams
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("HTTP stream lock poisoned".into()))?
+            .iter()
+            .filter_map(|(stream_id, entry)| {
+                (entry.page_id == page_id && entry.request_id == request_id).then_some(*stream_id)
+            })
+            .collect::<Vec<_>>();
+        for stream_id in stream_ids {
+            let _ = self.abort_http_stream(page_id, stream_id);
+        }
+        if let Some(network) = &self.network {
+            let _ = network.cancel_operation(request_id);
+        }
+        Ok(ContextServiceResponse::HttpRequestAborted)
     }
 
     fn read_http_stream(

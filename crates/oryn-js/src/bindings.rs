@@ -70,17 +70,22 @@ impl WrapperRegistry {
         validate_node_brand(dom, node, brand)?;
         let identity = (realm, node);
         if let Some(wrapper) = self.by_identity.get(&identity) {
+            let wrapper = *wrapper;
             let metadata = self
                 .wrappers
-                .get(wrapper)
-                .ok_or(BindingError::UnknownWrapper(*wrapper))?;
+                .get(&wrapper)
+                .ok_or(BindingError::UnknownWrapper(wrapper))?;
             if metadata.document_generation != document_generation {
                 return Err(BindingError::StaleDocument {
                     expected: document_generation,
                     actual: metadata.document_generation,
                 });
             }
-            return Ok(*wrapper);
+            // A weak callback for an earlier V8 object may already be queued
+            // when the same Rust node is wrapped again. The replacement is a
+            // live lease and must cancel that stale release notification.
+            self.cancel_weak_release(wrapper);
+            return Ok(wrapper);
         }
         dom.retain_wrapper(node)?;
         let id = WrapperId(self.next_id);
@@ -137,6 +142,10 @@ impl WrapperRegistry {
     /// mutation; leases are released at the next safe scheduler checkpoint.
     pub fn enqueue_weak_release(&mut self, wrapper: WrapperId) {
         self.pending_release.push_back(wrapper);
+    }
+
+    pub fn cancel_weak_release(&mut self, wrapper: WrapperId) {
+        self.pending_release.retain(|queued| *queued != wrapper);
     }
 
     pub fn process_weak_releases(&mut self, dom: &mut DomRuntime) -> Result<usize, BindingError> {
@@ -275,5 +284,27 @@ mod tests {
         let mutations = dom.drain_mutations();
         dom.release_mutation_roots(&mutations).unwrap();
         assert_eq!(dom.arena().get(node), Err(DomError::StaleNode(node)));
+    }
+
+    #[test]
+    fn recreating_a_wrapper_cancels_an_older_weak_release() {
+        let mut dom = DomRuntime::new();
+        let node = dom.create(NodeKind::Text { data: "x".into() });
+        let mut wrappers = WrapperRegistry::default();
+        let wrapper = wrappers
+            .get_or_create(&mut dom, RealmId(0), 1, node, InterfaceBrand::Node)
+            .unwrap();
+        wrappers.enqueue_weak_release(wrapper);
+        assert_eq!(
+            wrappers
+                .get_or_create(&mut dom, RealmId(0), 1, node, InterfaceBrand::Node)
+                .unwrap(),
+            wrapper
+        );
+        assert_eq!(wrappers.process_weak_releases(&mut dom).unwrap(), 0);
+        assert_eq!(
+            wrappers.resolve(&dom, wrapper, RealmId(0), 1, InterfaceBrand::Node),
+            Ok(node)
+        );
     }
 }

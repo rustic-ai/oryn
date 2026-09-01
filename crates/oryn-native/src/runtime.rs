@@ -4799,6 +4799,10 @@ impl PageState {
                 serde_json::to_string(&self.csp)
                     .map_err(|error| RuntimeError::Script(error.to_string()))?,
             );
+            resources.insert(
+                "oryn:execution-wall-ms".into(),
+                self.config.command_timeout.as_millis().to_string(),
+            );
             #[cfg(unix)]
             let mut executable = match (self.context_client.clone(), parsed, live_source) {
                 (Some(context_client), None, Some(source)) => {
@@ -8599,9 +8603,14 @@ fn serialize_dom_node(dom: &crate::dom::DomArena, id: crate::dom::NodeId) -> Str
             .iter()
             .map(|child| serialize_dom_node(dom, *child))
             .collect(),
-        crate::dom::NodeKind::DocumentType { name } => format!("<!DOCTYPE {name}>"),
+        crate::dom::NodeKind::DocumentType { name, .. } => format!("<!DOCTYPE {name}>"),
         crate::dom::NodeKind::Text { data } => escape_html(data),
+        crate::dom::NodeKind::CDataSection { data } => escape_html(data),
+        crate::dom::NodeKind::ProcessingInstruction { target, data } => {
+            format!("<?{target} {data}?>")
+        }
         crate::dom::NodeKind::Comment { data } => format!("<!--{data}-->"),
+        crate::dom::NodeKind::Attribute { value, .. } => escape_html(value),
         crate::dom::NodeKind::Element { name } => {
             let attributes = node
                 .attributes
@@ -8611,6 +8620,12 @@ fn serialize_dom_node(dom: &crate::dom::DomArena, id: crate::dom::NodeId) -> Str
             let children = node
                 .children
                 .iter()
+                .filter(|child| {
+                    !matches!(
+                        dom.get(**child).map(|node| &node.kind),
+                        Ok(crate::dom::NodeKind::ShadowRoot { .. })
+                    )
+                })
                 .map(|child| serialize_dom_node(dom, *child))
                 .collect::<String>();
             format!("<{0}{attributes}>{children}</{0}>", name.local)

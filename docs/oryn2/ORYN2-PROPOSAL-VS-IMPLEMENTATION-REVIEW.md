@@ -55,9 +55,16 @@ navigation-body drop or supersession, page close, IPC cancellation and
 worker-service teardown; stale completions are rejected. Production semantic
 observation and resolution now use the persistent mutation-driven contract-v6
 graph; the full projector remains only as a test oracle. Generated WebIDL now
-covers cross-container Range extraction/editing, CharacterData editing and a
-wider Storage/IndexedDB interface family, but it does not yet cover every
-declared algorithm. Production style resolution now traverses an immutable
+covers cross-container Range extraction/editing, Selection mutation/direction,
+callback-filtered traversal, DOMImplementation, CharacterData editing,
+same-document History, generated Storage, and a wider IndexedDB interface
+family. Same-origin frame contexts reuse canonical origin security tokens and
+generated wrappers preserve identity across realms. It does not yet cover every
+long-tail browser algorithm, but the declared Fetch/File/Streams/XHR/WebSocket
+and IndexedDB inventory is now owned by generated Rust callback dispatch over
+typed asynchronous parent-host operations. Production restores the generated
+namespace after bootstrap; the handwritten implementations remain only in the
+explicit in-process compatibility probe. Production style resolution now traverses an immutable
 Rust DOM mirror through Blitz's native Stylo integration and serializes native
 Stylo `ComputedValues` into the existing Taffy/Parley consumers. This removes
 the handwritten selector, winner, inheritance, custom-property and value
@@ -92,7 +99,7 @@ The dependency-ordered completion backlog is maintained in
 | F11 — retained-state bounds | **Closed in software** | Revision history has count/byte ceilings, DOM slots and wrapper leases are reclaimed, and memory/persistent caches have entry and byte bounds. |
 | F12 — untrusted content | **Mostly closed** | Semantic nodes carry `ContentTrust::PageAuthored`, inferred facts use heuristic provenance, and raw inspection is policy-audited without recording page content. Broader prompt-boundary evidence remains narrower than the proposal's full trust model. |
 | F13 — secret leakage | **Closed in software** | Secret sensitivity is stored independently on Rust DOM nodes, applies to text inputs, survives page-controlled attribute changes, and redacts observation and HTML extraction. |
-| F14 — generated WebIDL | **Partial; materially advanced** | Deterministic generation, real prototypes, Rust callbacks, wrapper identity, brands, realms, origin and generation checks are active for migrated interfaces. Cross-container Range clone/extract/delete/surround operations, text splitting and CharacterData editing now mutate the Rust DOM; generated Storage and IndexedDB interfaces cover the worker variants exercised here. Complete Selection/editing commands, `NodeFilter` callbacks, and full IndexedDB connection/version/transaction semantics remain. |
+| F14 — generated WebIDL | **Closed in software for the declared interface inventory; broader conformance pending** | Deterministic generation, real prototypes, Rust callbacks, wrapper identity, brands, realms, origin and generation checks are authoritative in production. Cross-container Range operations, CharacterData/editing, generated Storage, Fetch/File/Streams/XHR/WebSocket and IndexedDB execute through Rust state and typed parent operations. The compatibility bootstrap is probe-only. Long-tail editing and full IndexedDB connection/version-change/transaction scheduling remain mapped conformance work rather than a second production implementation. |
 | F15 — production-path testing | **Partial; requested worker variants pass production locally** | Focused default, no-V8 and V8-host tests pass and the pinned upstream harness is fail-closed. All eight requested IndexedDB SharedWorker/ServiceWorker executions pass both the local V8 probe and a trusted, locally signed macOS App Sandbox worker with heap-sandbox metadata; a compact validator recomputes their `ef8a8d4` ledger. The macOS ARM64 full/lite profile builder verifies ICU, snapshot and external-reference inputs. Full four-profile equivalence, the complete mapped WPT/ARIA inventory, Linux sandboxed artifacts, performance and release attestation remain open. |
 | F16 — Intent/API/MCP | **Closed in software; release evidence pending** | Agent contract v3 additively exposes semantic contract v6 and scoped/delta observation while accepting frozen v2 requests. Rust, OIL, worker protocol v8, Python and MCP use the same graph resolver/action engine. Upload, context-virtual clipboard and parent-owned secret-label behavior remain unchanged and values never enter argv, environment, OIL, JSON-RPC, traces, observations or worker initialization. |
 
@@ -182,11 +189,13 @@ The current honest product statement is therefore:
 
 ### Remaining gaps and completion order
 
-1. **Generated WebIDL/API closure.** Cross-container Range contents and
-   CharacterData editing are implemented. Complete Selection/editing commands,
-   `NodeFilter` traversal behavior, remaining history/referrer cases and full
-   IndexedDB connection/version/transaction semantics. Remove each handwritten
-   compatibility interface only after its mapped tests pass.
+1. **Generated WebIDL/API conformance.** The architectural cutover is now
+   implemented for the declared inventory: DOM/editing/navigation,
+   Fetch/File/Streams/XHR/WebSocket and IndexedDB are generated/Rust-backed and
+   use typed asynchronous parent services. Apply the remaining cross-API
+   referrer cases and pass the complete mapped API inventory, especially
+   long-tail editing and IndexedDB connection/version-change/transaction
+   scheduling, before treating upstream conformance as closed.
 2. **Stylo conformance publication.** The native `ComputedValues` cutover is
    implemented. Pass and publish the frozen CSSOM and native-versus-Chromium
    differential set against the production worker, including the supported

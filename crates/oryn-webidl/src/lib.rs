@@ -13,10 +13,21 @@ pub enum Definition {
     Includes { target: String, mixin: String },
 }
 
+/// WebIDL extended attributes are executable binding metadata. Keeping the
+/// original name and optional payload lets the generator enforce exposure,
+/// conversion, descriptor and reaction semantics instead of silently erasing
+/// them before code generation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtendedAttribute {
+    pub name: String,
+    pub value: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Enumeration {
     pub name: String,
     pub values: Vec<String>,
+    pub extended_attributes: Vec<ExtendedAttribute>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +36,7 @@ pub struct Interface {
     pub inherits: Option<String>,
     pub partial: bool,
     pub members: Vec<Member>,
+    pub extended_attributes: Vec<ExtendedAttribute>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +45,7 @@ pub struct Dictionary {
     pub inherits: Option<String>,
     pub partial: bool,
     pub members: Vec<DictionaryMember>,
+    pub extended_attributes: Vec<ExtendedAttribute>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +55,7 @@ pub struct DictionaryMember {
     pub type_descriptor: TypeDescriptor,
     pub required: bool,
     pub default: Option<String>,
+    pub extended_attributes: Vec<ExtendedAttribute>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +64,7 @@ pub struct Callback {
     pub return_type: String,
     pub return_type_descriptor: TypeDescriptor,
     pub arguments: Vec<Argument>,
+    pub extended_attributes: Vec<ExtendedAttribute>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,24 +85,29 @@ pub enum Member {
         type_name: String,
         type_descriptor: TypeDescriptor,
         readonly: bool,
+        extended_attributes: Vec<ExtendedAttribute>,
     },
     Operation {
         name: String,
         return_type: String,
         return_type_descriptor: TypeDescriptor,
         arguments: Vec<Argument>,
+        extended_attributes: Vec<ExtendedAttribute>,
     },
     Constructor {
         arguments: Vec<Argument>,
+        extended_attributes: Vec<ExtendedAttribute>,
     },
     Constant {
         name: String,
         type_name: String,
         value: String,
+        extended_attributes: Vec<ExtendedAttribute>,
     },
     Iterable {
         key: Option<TypeDescriptor>,
         value: TypeDescriptor,
+        extended_attributes: Vec<ExtendedAttribute>,
     },
 }
 
@@ -98,6 +118,7 @@ pub struct Argument {
     pub type_descriptor: TypeDescriptor,
     pub optional: bool,
     pub default: Option<String>,
+    pub extended_attributes: Vec<ExtendedAttribute>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -115,7 +136,8 @@ pub enum ParseError {
 }
 
 pub fn parse_interface(input: &str) -> Result<Interface, ParseError> {
-    let source = strip_extended_attributes(&strip_line_comments(input));
+    let source = strip_line_comments(input);
+    let (extended_attributes, source) = take_extended_attributes(source.trim())?;
     let partial = source.trim_start().starts_with("partial interface");
     let declaration = source
         .split_once("interface")
@@ -150,28 +172,31 @@ pub fn parse_interface(input: &str) -> Result<Interface, ParseError> {
         inherits,
         partial,
         members,
+        extended_attributes,
     })
 }
 
 pub fn parse_definitions(input: &str) -> Result<Vec<Definition>, ParseError> {
-    split_definitions(&strip_extended_attributes(&strip_line_comments(input)))
+    split_definitions(&strip_line_comments(input))
         .into_iter()
         .map(|definition| {
             let trimmed = definition.trim();
-            if trimmed.starts_with("interface mixin ") {
+            let (_, declaration) = take_extended_attributes(trimmed)?;
+            if declaration.starts_with("interface mixin ") {
                 parse_interface_mixin(trimmed).map(Definition::InterfaceMixin)
-            } else if trimmed.starts_with("interface ") || trimmed.starts_with("partial interface ")
+            } else if declaration.starts_with("interface ")
+                || declaration.starts_with("partial interface ")
             {
                 parse_interface(trimmed).map(Definition::Interface)
-            } else if trimmed.starts_with("dictionary ")
-                || trimmed.starts_with("partial dictionary ")
+            } else if declaration.starts_with("dictionary ")
+                || declaration.starts_with("partial dictionary ")
             {
                 parse_dictionary(trimmed).map(Definition::Dictionary)
-            } else if trimmed.starts_with("callback ") {
+            } else if declaration.starts_with("callback ") {
                 parse_callback(trimmed).map(Definition::Callback)
-            } else if trimmed.starts_with("enum ") {
+            } else if declaration.starts_with("enum ") {
                 parse_enumeration(trimmed).map(Definition::Enumeration)
-            } else if trimmed.contains(" includes ") {
+            } else if declaration.contains(" includes ") {
                 parse_includes(trimmed)
             } else {
                 Err(ParseError::UnsupportedDefinition(trimmed.to_string()))
@@ -203,6 +228,9 @@ pub fn merge_partial_interfaces(definitions: &[Definition]) -> Result<Vec<Interf
                 existing.inherits.clone_from(&interface.inherits);
             }
             existing.members.extend(interface.members.clone());
+            existing
+                .extended_attributes
+                .extend(interface.extended_attributes.clone());
             existing.partial = existing.partial && interface.partial;
         } else {
             merged.insert(interface.name.clone(), interface.clone());
@@ -251,6 +279,40 @@ pub fn emit_rust_metadata(interface: &Interface) -> String {
     output
 }
 
+fn required_arity(arguments: &[Argument]) -> usize {
+    arguments
+        .iter()
+        .take_while(|argument| !argument.optional && argument.default.is_none())
+        .count()
+}
+
+fn has_extended_attribute(attributes: &[ExtendedAttribute], name: &str) -> bool {
+    attributes.iter().any(|attribute| attribute.name == name)
+}
+
+fn extended_attribute_value<'a>(
+    attributes: &'a [ExtendedAttribute],
+    name: &str,
+) -> Option<&'a str> {
+    attributes
+        .iter()
+        .find(|attribute| attribute.name == name)
+        .and_then(|attribute| attribute.value.as_deref())
+}
+
+fn exposure_set(attributes: &[ExtendedAttribute]) -> Vec<String> {
+    let Some(value) = extended_attribute_value(attributes, "Exposed") else {
+        return vec!["Window".into()];
+    };
+    value
+        .trim_matches(|character| character == '(' || character == ')')
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// Emit the deterministic, checked-in interface registry consumed by the V8
 /// template installer. Behavioral callbacks remain handwritten Rust.
 pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, ParseError> {
@@ -268,13 +330,34 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
              pub arity: u8,\n\
              pub readonly: bool,\n\
              pub constant_value: Option<&'static str>,\n\
+             pub type_name: Option<&'static str>,\n\
+             pub same_object: bool,\n\
+             pub new_object: bool,\n\
+             pub ce_reactions: bool,\n\
+             pub unforgeable: bool,\n\
+             pub replaceable: bool,\n\
+             pub put_forwards: Option<&'static str>,\n\
          }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub struct GeneratedInterface {\n\
              pub name: &'static str,\n\
              pub parent: Option<&'static str>,\n\
+             pub exposed: &'static [&'static str],\n\
+             pub constructible: bool,\n\
              pub members: &'static [GeneratedMember],\n\
          }\n\n",
+    );
+    output.push_str(
+        "#[allow(dead_code)]\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub struct GeneratedDictionaryMember { pub name: &'static str, pub type_name: &'static str, pub required: bool, pub default: Option<&'static str> }\n\
+         #[allow(dead_code)]\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub struct GeneratedDictionary { pub name: &'static str, pub parent: Option<&'static str>, pub members: &'static [GeneratedDictionaryMember] }\n\
+         #[allow(dead_code)]\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub struct GeneratedArgument { pub name: &'static str, pub type_name: &'static str, pub optional: bool, pub default: Option<&'static str> }\n\
+         #[allow(dead_code)]\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub struct GeneratedCallback { pub name: &'static str, pub return_type: &'static str, pub arguments: &'static [GeneratedArgument] }\n\
+         #[allow(dead_code)]\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub struct GeneratedEnum { pub name: &'static str, pub values: &'static [&'static str] }\n\n",
     );
     for (interface_index, interface) in interfaces.iter().enumerate() {
         output.push_str(&format!(
@@ -282,23 +365,87 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
             rust_constant(&interface.name)
         ));
         for (member_index, member) in interface.members.iter().enumerate() {
-            let (name, kind, arity, readonly, constant_value) = match member {
-                Member::Attribute { name, readonly, .. } => {
-                    (name.as_str(), "Attribute", 0, *readonly, None)
-                }
+            let (name, kind, arity, readonly, constant_value, type_name, attributes) = match member
+            {
+                Member::Attribute {
+                    name,
+                    readonly,
+                    type_name,
+                    extended_attributes,
+                    ..
+                } => (
+                    name.as_str(),
+                    "Attribute",
+                    0,
+                    *readonly,
+                    None,
+                    Some(type_name.as_str()),
+                    extended_attributes,
+                ),
                 Member::Operation {
-                    name, arguments, ..
-                } => (name.as_str(), "Operation", arguments.len(), false, None),
-                Member::Constant { name, value, .. } => {
-                    (name.as_str(), "Constant", 0, true, Some(value.as_str()))
-                }
-                Member::Constructor { arguments } => {
-                    ("constructor", "Constructor", arguments.len(), false, None)
-                }
-                Member::Iterable { .. } => ("@@iterator", "Iterable", 0, true, None),
+                    name,
+                    arguments,
+                    return_type,
+                    extended_attributes,
+                    ..
+                } => (
+                    name.as_str(),
+                    "Operation",
+                    required_arity(arguments),
+                    false,
+                    None,
+                    Some(return_type.as_str()),
+                    extended_attributes,
+                ),
+                Member::Constant {
+                    name,
+                    value,
+                    type_name,
+                    extended_attributes,
+                    ..
+                } => (
+                    name.as_str(),
+                    "Constant",
+                    0,
+                    true,
+                    Some(value.as_str()),
+                    Some(type_name.as_str()),
+                    extended_attributes,
+                ),
+                Member::Constructor {
+                    arguments,
+                    extended_attributes,
+                } => (
+                    "constructor",
+                    "Constructor",
+                    required_arity(arguments),
+                    false,
+                    None,
+                    None,
+                    extended_attributes,
+                ),
+                Member::Iterable {
+                    extended_attributes,
+                    ..
+                } => (
+                    "@@iterator",
+                    "Iterable",
+                    0,
+                    true,
+                    None,
+                    None,
+                    extended_attributes,
+                ),
             };
+            let same_object = has_extended_attribute(attributes, "SameObject");
+            let new_object = has_extended_attribute(attributes, "NewObject");
+            let ce_reactions = has_extended_attribute(attributes, "CEReactions");
+            let unforgeable = has_extended_attribute(attributes, "LegacyUnforgeable")
+                || has_extended_attribute(attributes, "Unforgeable");
+            let replaceable = has_extended_attribute(attributes, "Replaceable");
+            let put_forwards = extended_attribute_value(attributes, "PutForwards");
             output.push_str(&format!(
-                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, constant_value: {constant_value:?} }},",
+                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, constant_value: {constant_value:?}, type_name: {type_name:?}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unforgeable: {unforgeable}, replaceable: {replaceable}, put_forwards: {put_forwards:?} }},",
                 token = ((interface_index as u32) << 16) | member_index as u32,
             ));
         }
@@ -306,15 +453,104 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
     }
     output.push_str("\npub const GENERATED_INTERFACES: &[GeneratedInterface] = &[\n");
     for interface in &interfaces {
+        let exposed = exposure_set(&interface.extended_attributes);
+        let constructible = interface
+            .members
+            .iter()
+            .any(|member| matches!(member, Member::Constructor { .. }))
+            || has_extended_attribute(&interface.extended_attributes, "Constructor");
         output.push_str(&format!(
-            "    GeneratedInterface {{ name: {:?}, parent: {}, members: {}_MEMBERS }},\n",
+            "    GeneratedInterface {{ name: {:?}, parent: {}, exposed: &{:?}, constructible: {}, members: {}_MEMBERS }},\n",
             interface.name,
             interface
                 .inherits
                 .as_ref()
                 .map(|parent| format!("Some({parent:?})"))
                 .unwrap_or_else(|| "None".into()),
+            exposed,
+            constructible,
             rust_constant(&interface.name)
+        ));
+    }
+    output.push_str("];\n\n");
+    let dictionaries = definitions
+        .iter()
+        .filter_map(|definition| match definition {
+            Definition::Dictionary(dictionary) => Some(dictionary),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for dictionary in &dictionaries {
+        output.push_str(&format!(
+            "#[allow(dead_code)] pub const {}_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[",
+            rust_constant(&dictionary.name)
+        ));
+        for member in &dictionary.members {
+            output.push_str(&format!(
+                "GeneratedDictionaryMember {{ name: {:?}, type_name: {:?}, required: {}, default: {:?} }},",
+                member.name, member.type_name, member.required, member.default
+            ));
+        }
+        output.push_str("];\n");
+    }
+    output.push_str(
+        "#[allow(dead_code)] pub const GENERATED_DICTIONARIES: &[GeneratedDictionary] = &[\n",
+    );
+    for dictionary in &dictionaries {
+        output.push_str(&format!(
+            "GeneratedDictionary {{ name: {:?}, parent: {}, members: {}_DICTIONARY_MEMBERS }},\n",
+            dictionary.name,
+            dictionary
+                .inherits
+                .as_ref()
+                .map(|parent| format!("Some({parent:?})"))
+                .unwrap_or_else(|| "None".into()),
+            rust_constant(&dictionary.name)
+        ));
+    }
+    output.push_str("];\n\n");
+    let callbacks = definitions
+        .iter()
+        .filter_map(|definition| match definition {
+            Definition::Callback(callback) => Some(callback),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for callback in &callbacks {
+        output.push_str(&format!(
+            "#[allow(dead_code)] pub const {}_CALLBACK_ARGUMENTS: &[GeneratedArgument] = &[",
+            rust_constant(&callback.name)
+        ));
+        for argument in &callback.arguments {
+            output.push_str(&format!(
+                "GeneratedArgument {{ name: {:?}, type_name: {:?}, optional: {}, default: {:?} }},",
+                argument.name, argument.type_name, argument.optional, argument.default
+            ));
+        }
+        output.push_str("];\n");
+    }
+    output
+        .push_str("#[allow(dead_code)] pub const GENERATED_CALLBACKS: &[GeneratedCallback] = &[\n");
+    for callback in &callbacks {
+        output.push_str(&format!(
+            "GeneratedCallback {{ name: {:?}, return_type: {:?}, arguments: {}_CALLBACK_ARGUMENTS }},\n",
+            callback.name,
+            callback.return_type,
+            rust_constant(&callback.name)
+        ));
+    }
+    output.push_str("];\n\n");
+    output.push_str("#[allow(dead_code)] pub const GENERATED_ENUMS: &[GeneratedEnum] = &[\n");
+    for enumeration in definitions
+        .iter()
+        .filter_map(|definition| match definition {
+            Definition::Enumeration(enumeration) => Some(enumeration),
+            _ => None,
+        })
+    {
+        output.push_str(&format!(
+            "GeneratedEnum {{ name: {:?}, values: &{:?} }},\n",
+            enumeration.name, enumeration.values
         ));
     }
     output.push_str("];\n\n");
@@ -342,6 +578,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
 }
 
 fn parse_member(member: &str) -> Result<Member, ParseError> {
+    let (extended_attributes, member) = take_extended_attributes(member.trim())?;
     let (readonly, member) = member
         .strip_prefix("readonly ")
         .map_or((false, member), |rest| (true, rest.trim()));
@@ -352,6 +589,7 @@ fn parse_member(member: &str) -> Result<Member, ParseError> {
     {
         return Ok(Member::Constructor {
             arguments: parse_arguments(arguments)?,
+            extended_attributes,
         });
     }
 
@@ -365,6 +603,7 @@ fn parse_member(member: &str) -> Result<Member, ParseError> {
             name: name.into(),
             type_name: type_name.into(),
             value: constant.trim().into(),
+            extended_attributes,
         });
     }
 
@@ -377,10 +616,12 @@ fn parse_member(member: &str) -> Result<Member, ParseError> {
             [value] => Ok(Member::Iterable {
                 key: None,
                 value: parse_type(value)?,
+                extended_attributes,
             }),
             [key, value] => Ok(Member::Iterable {
                 key: Some(parse_type(key)?),
                 value: parse_type(value)?,
+                extended_attributes,
             }),
             _ => Err(ParseError::UnsupportedMember(member.into())),
         };
@@ -395,6 +636,7 @@ fn parse_member(member: &str) -> Result<Member, ParseError> {
             type_name: type_name.to_string(),
             type_descriptor: parse_type(type_name)?,
             readonly,
+            extended_attributes,
         });
     }
 
@@ -410,6 +652,7 @@ fn parse_member(member: &str) -> Result<Member, ParseError> {
             return_type: return_type.to_string(),
             return_type_descriptor: parse_type(return_type)?,
             arguments,
+            extended_attributes,
         });
     }
 
@@ -424,6 +667,7 @@ fn parse_arguments(arguments: &str) -> Result<Vec<Argument>, ParseError> {
         .into_iter()
         .map(|argument| {
             let argument = argument.trim();
+            let (extended_attributes, argument) = take_extended_attributes(argument)?;
             let (optional, argument) = argument
                 .strip_prefix("optional ")
                 .map_or((false, argument), |value| (true, value.trim()));
@@ -440,6 +684,7 @@ fn parse_arguments(arguments: &str) -> Result<Vec<Argument>, ParseError> {
                     type_descriptor: parse_type(type_name)?,
                     optional,
                     default,
+                    extended_attributes,
                 })
             } else {
                 Err(ParseError::UnsupportedMember(argument.trim().to_string()))
@@ -449,6 +694,7 @@ fn parse_arguments(arguments: &str) -> Result<Vec<Argument>, ParseError> {
 }
 
 fn parse_dictionary(input: &str) -> Result<Dictionary, ParseError> {
+    let (extended_attributes, input) = take_extended_attributes(input.trim())?;
     let partial = input.trim_start().starts_with("partial dictionary");
     let declaration = input
         .split_once("dictionary")
@@ -474,6 +720,7 @@ fn parse_dictionary(input: &str) -> Result<Dictionary, ParseError> {
         .map(str::trim)
         .filter(|member| !member.is_empty())
         .map(|member| {
+            let (extended_attributes, member) = take_extended_attributes(member)?;
             let (required, member) = member
                 .strip_prefix("required ")
                 .map_or((false, member), |value| (true, value.trim()));
@@ -491,6 +738,7 @@ fn parse_dictionary(input: &str) -> Result<Dictionary, ParseError> {
                 type_descriptor: parse_type(type_name)?,
                 required,
                 default,
+                extended_attributes,
             })
         })
         .collect::<Result<Vec<_>, ParseError>>()?;
@@ -499,10 +747,12 @@ fn parse_dictionary(input: &str) -> Result<Dictionary, ParseError> {
         inherits,
         partial,
         members,
+        extended_attributes,
     })
 }
 
 fn parse_callback(input: &str) -> Result<Callback, ParseError> {
+    let (extended_attributes, input) = take_extended_attributes(input.trim())?;
     let declaration = input
         .trim()
         .strip_prefix("callback ")
@@ -524,6 +774,7 @@ fn parse_callback(input: &str) -> Result<Callback, ParseError> {
         return_type: head.trim().to_string(),
         return_type_descriptor: parse_type(head.trim())?,
         arguments: parse_arguments(arguments)?,
+        extended_attributes,
     })
 }
 
@@ -589,6 +840,7 @@ fn parse_interface_mixin(input: &str) -> Result<Interface, ParseError> {
 }
 
 fn parse_enumeration(input: &str) -> Result<Enumeration, ParseError> {
+    let (extended_attributes, input) = take_extended_attributes(input.trim())?;
     let declaration = input
         .trim()
         .strip_prefix("enum ")
@@ -607,6 +859,7 @@ fn parse_enumeration(input: &str) -> Result<Enumeration, ParseError> {
     Ok(Enumeration {
         name: name.into(),
         values,
+        extended_attributes,
     })
 }
 
@@ -699,19 +952,58 @@ fn strip_line_comments(input: &str) -> String {
         .join("\n")
 }
 
-fn strip_extended_attributes(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
+fn take_extended_attributes(input: &str) -> Result<(Vec<ExtendedAttribute>, &str), ParseError> {
+    let input = input.trim_start();
+    if !input.starts_with('[') {
+        return Ok((Vec::new(), input));
+    }
     let mut depth = 0_u32;
-    for character in input.chars() {
+    let mut quoted = None;
+    let mut end = None;
+    for (index, character) in input.char_indices() {
+        if let Some(quote) = quoted {
+            if character == quote {
+                quoted = None;
+            }
+            continue;
+        }
         match character {
-            '[' if depth == 0 => depth = 1,
-            '[' if depth > 0 => depth += 1,
-            ']' if depth > 0 => depth -= 1,
-            _ if depth == 0 => output.push(character),
+            '\'' | '"' => quoted = Some(character),
+            '[' => depth += 1,
+            ']' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    end = Some(index);
+                    break;
+                }
+            }
             _ => {}
         }
     }
-    output
+    let end = end.ok_or_else(|| ParseError::UnsupportedDefinition(input.to_string()))?;
+    let payload = &input[1..end];
+    let attributes = split_top_level(payload, ',')
+        .into_iter()
+        .map(|attribute| {
+            let attribute = attribute.trim();
+            let (name, value) = if let Some((name, value)) = attribute.split_once('=') {
+                (name.trim(), Some(value.trim().to_string()))
+            } else if let Some((name, value)) = attribute.split_once('(') {
+                (
+                    name.trim(),
+                    Some(value.trim_end_matches(')').trim().to_string()),
+                )
+            } else {
+                (attribute, None)
+            };
+            validate_identifier(name)?;
+            Ok(ExtendedAttribute {
+                name: name.to_string(),
+                value,
+            })
+        })
+        .collect::<Result<Vec<_>, ParseError>>()?;
+    Ok((attributes, input[end + 1..].trim_start()))
 }
 
 fn rust_constant(value: &str) -> String {
@@ -800,14 +1092,31 @@ mod tests {
     }
 
     #[test]
-    fn extended_attributes_do_not_change_interface_shape() {
+    fn preserves_executable_extended_attribute_metadata() {
         let interfaces = parse_definitions(
-            "[Exposed=Window] interface EventTarget { undefined addEventListener(DOMString type); };",
+            "[Exposed=(Window,Worker), Constructor(DOMString value)] interface EventTarget { [SameObject] readonly attribute DOMString identity; [CEReactions, PutForwards=value] readonly attribute DOMString forwarded; undefined addEventListener(DOMString type, optional boolean capture = false); };",
         )
         .expect("extended attributes");
+        let Definition::Interface(interface) = &interfaces[0] else {
+            panic!("interface definition");
+        };
+        assert_eq!(
+            exposure_set(&interface.extended_attributes),
+            vec!["Window", "Worker"]
+        );
+        assert!(has_extended_attribute(
+            &interface.extended_attributes,
+            "Constructor"
+        ));
         let generated = emit_binding_registry(&interfaces).expect("generate registry");
         assert!(generated.contains("EVENT_TARGET_MEMBERS"));
         assert!(generated.contains("addEventListener"));
+        assert!(generated.contains("exposed: &[\"Window\", \"Worker\"]"));
+        assert!(generated.contains("same_object: true"));
+        assert!(generated.contains("ce_reactions: true"));
+        assert!(generated.contains("put_forwards: Some(\"value\")"));
+        assert!(generated.contains("arity: 1"));
+        assert!(generated.contains("constructible: true"));
     }
 
     #[test]

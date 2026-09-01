@@ -22,14 +22,13 @@ COMPLETION = r"""
 <script>
 globalThis.__oryn_wpt_results=[];
 function __oryn_publish_wpt(harness, complete) {
-  var value = {complete:!!complete,harness:harness && typeof harness.status === 'number' ? harness.status : 0,tests:globalThis.__oryn_wpt_results};
+  var value = {complete:!!complete,harness:harness && typeof harness.status === 'number' ? harness.status : 0,harnessMessage:harness && harness.message ? String(harness.message) : '',harnessStack:harness && harness.stack ? String(harness.stack) : '',tests:globalThis.__oryn_wpt_results};
   var output = document.getElementById('oryn-wpt-result') || document.createElement('pre');
   output.id='oryn-wpt-result'; output.textContent='__ORYN_WPT_DONE__'+JSON.stringify(value);
   if (!output.parentNode) (document.body || document.documentElement).appendChild(output);
 }
 add_result_callback(function(test) {
   globalThis.__oryn_wpt_results.push({name:String(test.name || ''),status:Number(test.status),message:String(test.message || '')});
-  __oryn_publish_wpt(null, false);
 });
 add_completion_callback(function(tests, harness) {
   __oryn_publish_wpt(harness, true);
@@ -40,11 +39,10 @@ WORKER_COMPLETION = r"""
 self.__oryn_wpt_results=[];
 let __oryn_wpt_result_generation=0;
 function __oryn_publish_wpt(harness, complete) {
-  self.postMessage({__oryn_wpt:true,value:{complete:!!complete,harness:harness && typeof harness.status === 'number' ? harness.status : 0,tests:self.__oryn_wpt_results}});
+  self.postMessage({__oryn_wpt:true,value:{complete:!!complete,harness:harness && typeof harness.status === 'number' ? harness.status : 0,harnessMessage:harness && harness.message ? String(harness.message) : '',harnessStack:harness && harness.stack ? String(harness.stack) : '',tests:self.__oryn_wpt_results}});
 }
 add_result_callback(function(test) {
   self.__oryn_wpt_results.push({name:String(test.name || ''),status:Number(test.status),message:String(test.message || '')});
-  __oryn_publish_wpt(null, false);
   const generation=++__oryn_wpt_result_generation;
   queueMicrotask(function(){
     if(generation===__oryn_wpt_result_generation)__oryn_publish_wpt(null, true);
@@ -147,7 +145,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             lowered = body.lower()
             harness = lowered.find("testharness.js")
             index = lowered.find("</script>", harness) + len("</script>") if harness >= 0 else -1
-            body = body[:index] + COMPLETION + body[index:] if index >= len("</script>") else body + COMPLETION
+            timeout_setup = (
+                "<script>setup({timeout_multiplier:4});</script>"
+                if "name=timeout" in lowered and "content=long" in lowered
+                else ""
+            )
+            injection = timeout_setup + COMPLETION
+            body = body[:index] + injection + body[index:] if index >= len("</script>") else body + injection
             encoded = body.encode()
             self.send_response(200); self.send_header("content-type", "text/html; charset=utf-8")
             self.send_header("content-length", str(len(encoded))); self.end_headers(); self.wfile.write(encoded)
@@ -210,6 +214,7 @@ def run_case(
     variant: str,
     timeout: int,
     in_process_probe: bool,
+    script_wall_ms: int | None,
 ) -> dict[str, object]:
     identifier = f"{test.as_posix()}|{global_name}|{variant}"
     if global_name not in {"window", "dedicatedworker", "sharedworker", "serviceworker"}:
@@ -241,6 +246,8 @@ def run_case(
         native = ["native", "--allow-loopback"]
         if in_process_probe:
             native.append("--in-process-probe")
+        if script_wall_ms is not None:
+            native.extend(["--script-wall-ms", str(script_wall_ms)])
         completed = subprocess.run(
             [str(binary), "--file", str(oil_path), *native, "--url", url, "--trace-out", str(trace_path)],
             cwd=ROOT, text=True, capture_output=True, timeout=timeout,
@@ -287,6 +294,11 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=int, default=30)
+    parser.add_argument(
+        "--script-wall-ms",
+        type=int,
+        help="explicit probe-only per-script wall limit for long upstream cases",
+    )
     parser.add_argument("--max-tests", type=int)
     parser.add_argument("--filter", help="substring filter applied to upstream test paths")
     parser.add_argument(
@@ -357,6 +369,7 @@ def main() -> int:
                 variant,
                 args.timeout,
                 args.in_process_probe,
+                args.script_wall_ms,
             )
             for test, classification, global_name, variant in tests
         ]

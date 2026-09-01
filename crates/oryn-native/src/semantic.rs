@@ -1208,7 +1208,8 @@ pub fn project_element(
         matches!(
             dom.get(*ancestor).ok().map(|node| &node.kind),
             Some(NodeKind::ShadowRoot {
-                mode: crate::dom::ShadowMode::Closed
+                mode: crate::dom::ShadowMode::Closed,
+                ..
             })
         )
     }) {

@@ -27,6 +27,23 @@ pub struct NodeId {
     pub generation: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LiveRangeId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BoundaryPoint {
+    pub container: NodeId,
+    /// A DOM offset: UTF-16 code units for character data and child index for
+    /// container nodes.
+    pub offset: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LiveRange {
+    pub start: BoundaryPoint,
+    pub end: BoundaryPoint,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShadowMode {
@@ -37,12 +54,37 @@ pub enum ShadowMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NodeKind {
     Document,
-    DocumentType { name: String },
-    Element { name: QualName },
-    Text { data: String },
-    Comment { data: String },
+    DocumentType {
+        name: String,
+        public_id: String,
+        system_id: String,
+    },
+    Element {
+        name: QualName,
+    },
+    Attribute {
+        name: String,
+        value: String,
+        owner: Option<NodeId>,
+    },
+    Text {
+        data: String,
+    },
+    CDataSection {
+        data: String,
+    },
+    ProcessingInstruction {
+        target: String,
+        data: String,
+    },
+    Comment {
+        data: String,
+    },
     DocumentFragment,
-    ShadowRoot { mode: ShadowMode },
+    ShadowRoot {
+        mode: ShadowMode,
+        clonable: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +122,14 @@ pub enum DomError {
     NotAChild(NodeId, NodeId),
     #[error("operation requires an element node, got {0:?}")]
     NotAnElement(NodeId),
+    #[error("invalid boundary offset {offset} for node {node:?} (maximum {maximum})")]
+    InvalidBoundaryOffset {
+        node: NodeId,
+        offset: u32,
+        maximum: u32,
+    },
+    #[error("unknown live range {0:?}")]
+    UnknownRange(LiveRangeId),
 }
 
 #[derive(Debug, Default, Clone)]
@@ -233,6 +283,17 @@ impl DomArena {
         Ok(result)
     }
 
+    pub fn descendants_inclusive(&self, id: NodeId) -> Result<Vec<NodeId>, DomError> {
+        self.get(id)?;
+        let mut result = Vec::new();
+        let mut pending = vec![id];
+        while let Some(node) = pending.pop() {
+            result.push(node);
+            pending.extend(self.get(node)?.children.iter().rev().copied());
+        }
+        Ok(result)
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (NodeId, &Node)> {
         self.slots.iter().enumerate().filter_map(|(index, slot)| {
             slot.node.as_ref().map(|node| {
@@ -249,7 +310,11 @@ impl DomArena {
 
     pub fn text_content(&self, id: NodeId) -> Result<String, DomError> {
         let node = self.get(id)?;
-        if let NodeKind::Text { data } = &node.kind {
+        if let NodeKind::Text { data }
+        | NodeKind::CDataSection { data }
+        | NodeKind::ProcessingInstruction { data, .. }
+        | NodeKind::Comment { data } = &node.kind
+        {
             return Ok(data.clone());
         }
         let mut result = String::new();
@@ -413,8 +478,11 @@ pub struct DomRuntime {
     connected: BTreeSet<NodeId>,
     roots: BTreeMap<NodeId, NodeRoots>,
     ids: BTreeMap<String, NodeId>,
+    attribute_nodes: BTreeMap<(NodeId, String), NodeId>,
     mutations: MutationJournal,
     focused: Option<NodeId>,
+    next_range: u64,
+    ranges: BTreeMap<LiveRangeId, LiveRange>,
 }
 
 impl DomRuntime {
@@ -451,8 +519,11 @@ impl DomRuntime {
         self.connected.clear();
         self.roots.clear();
         self.ids.clear();
+        self.attribute_nodes.clear();
         self.mutations.clear();
         self.focused = None;
+        self.next_range = 0;
+        self.ranges.clear();
         self.rebuild_document_indexes()
     }
 
@@ -495,6 +566,21 @@ impl DomRuntime {
 
     pub fn create_text(&mut self, data: impl Into<String>) -> NodeId {
         self.create(NodeKind::Text { data: data.into() })
+    }
+
+    pub fn create_cdata_section(&mut self, data: impl Into<String>) -> NodeId {
+        self.create(NodeKind::CDataSection { data: data.into() })
+    }
+
+    pub fn create_processing_instruction(
+        &mut self,
+        target: impl Into<String>,
+        data: impl Into<String>,
+    ) -> NodeId {
+        self.create(NodeKind::ProcessingInstruction {
+            target: target.into(),
+            data: data.into(),
+        })
     }
 
     pub fn create_comment(&mut self, data: impl Into<String>) -> NodeId {
@@ -657,8 +743,14 @@ impl DomRuntime {
 
     pub fn append_child(&mut self, parent: NodeId, child: NodeId) -> Result<(), DomError> {
         let former_parent = self.arena.get(child)?.parent;
+        if let Some(former_parent) = former_parent {
+            let former_index = self.child_index(former_parent, child)?;
+            self.adjust_ranges_for_removal(former_parent, former_index, child)?;
+        }
         let was_connected = self.connected.contains(&child);
         self.arena.append_child(parent, child)?;
+        let inserted_index = self.child_index(parent, child)?;
+        self.adjust_ranges_for_insertion(parent, inserted_index, 1)?;
         if was_connected {
             self.mark_disconnected(child)?;
         }
@@ -666,6 +758,7 @@ impl DomRuntime {
             self.mark_connected(child)?;
         }
         if former_parent.is_some() {
+            self.retain_native(child)?;
             self.mutations.push(Mutation::Removed {
                 node: child,
                 former_parent,
@@ -687,6 +780,10 @@ impl DomRuntime {
         self.arena.get(parent)?;
         self.arena.get(child)?;
         let former_parent = self.arena.get(child)?.parent;
+        if let Some(former_parent) = former_parent {
+            let former_index = self.child_index(former_parent, child)?;
+            self.adjust_ranges_for_removal(former_parent, former_index, child)?;
+        }
         let was_connected = self.connected.contains(&child);
         if let Some(reference) = reference {
             if self.arena.get(reference)?.parent != Some(parent) {
@@ -696,6 +793,8 @@ impl DomRuntime {
         } else {
             self.arena.append_child(parent, child)?;
         }
+        let inserted_index = self.child_index(parent, child)?;
+        self.adjust_ranges_for_insertion(parent, inserted_index, 1)?;
         if was_connected {
             self.mark_disconnected(child)?;
         }
@@ -703,6 +802,7 @@ impl DomRuntime {
             self.mark_connected(child)?;
         }
         if former_parent.is_some() {
+            self.retain_native(child)?;
             self.mutations.push(Mutation::Removed {
                 node: child,
                 former_parent,
@@ -758,6 +858,14 @@ impl DomRuntime {
                 self.ids.insert(value.clone(), node);
             }
         }
+        if let Some(attribute) = self.attribute_nodes.get(&(node, name.clone())).copied()
+            && let NodeKind::Attribute {
+                value: attribute_value,
+                ..
+            } = &mut self.arena.get_mut(attribute)?.kind
+        {
+            attribute_value.clone_from(&value);
+        }
         self.mutations.push(Mutation::Attribute {
             node,
             name,
@@ -772,6 +880,11 @@ impl DomRuntime {
             return Err(DomError::NotAnElement(node));
         }
         let old_value = self.arena.get_mut(node)?.attributes.remove(name);
+        if let Some(attribute) = self.attribute_nodes.remove(&(node, name.to_string()))
+            && let NodeKind::Attribute { owner, .. } = &mut self.arena.get_mut(attribute)?.kind
+        {
+            *owner = None;
+        }
         if name == "id"
             && let Some(old) = &old_value
             && self.ids.get(old) == Some(&node)
@@ -797,13 +910,92 @@ impl DomRuntime {
         Ok(record.attributes.get(name).map(String::as_str))
     }
 
+    pub fn attribute_node(
+        &mut self,
+        element: NodeId,
+        name: &str,
+    ) -> Result<Option<NodeId>, DomError> {
+        if !matches!(self.arena.get(element)?.kind, NodeKind::Element { .. }) {
+            return Err(DomError::NotAnElement(element));
+        }
+        let normalized = name.to_ascii_lowercase();
+        let Some(value) = self
+            .arena
+            .get(element)?
+            .attributes
+            .get(&normalized)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        if let Some(attribute) = self
+            .attribute_nodes
+            .get(&(element, normalized.clone()))
+            .copied()
+        {
+            return Ok(Some(attribute));
+        }
+        let attribute = self.create(NodeKind::Attribute {
+            name: normalized.clone(),
+            value,
+            owner: Some(element),
+        });
+        self.attribute_nodes
+            .insert((element, normalized), attribute);
+        Ok(Some(attribute))
+    }
+
+    pub fn set_attribute_node_value(
+        &mut self,
+        attribute: NodeId,
+        value: impl Into<String>,
+    ) -> Result<(), DomError> {
+        let value = value.into();
+        let (name, owner, old_value) = match &self.arena.get(attribute)?.kind {
+            NodeKind::Attribute { name, value, owner } => (name.clone(), *owner, value.clone()),
+            _ => return Err(DomError::StaleNode(attribute)),
+        };
+        if let NodeKind::Attribute {
+            value: attribute_value,
+            ..
+        } = &mut self.arena.get_mut(attribute)?.kind
+        {
+            attribute_value.clone_from(&value);
+        }
+        if let Some(owner) = owner {
+            self.arena
+                .get_mut(owner)?
+                .attributes
+                .insert(name.clone(), value.clone());
+            self.mutations.push(Mutation::Attribute {
+                node: owner,
+                name,
+                old_value: Some(old_value),
+                new_value: Some(value),
+            });
+        }
+        Ok(())
+    }
+
     pub fn set_text(&mut self, node: NodeId, value: impl Into<String>) -> Result<(), DomError> {
         let value = value.into();
         let data = match &mut self.arena.get_mut(node)?.kind {
-            NodeKind::Text { data } | NodeKind::Comment { data } => data,
+            NodeKind::Text { data }
+            | NodeKind::CDataSection { data }
+            | NodeKind::ProcessingInstruction { data, .. }
+            | NodeKind::Comment { data } => data,
             _ => return Err(DomError::StaleNode(node)),
         };
         let old_value = std::mem::replace(data, value.clone());
+        let new_length = utf16_len(&value);
+        for range in self.ranges.values_mut() {
+            if range.start.container == node {
+                range.start.offset = range.start.offset.min(new_length);
+            }
+            if range.end.container == node {
+                range.end.offset = range.end.offset.min(new_length);
+            }
+        }
         self.mutations.push(Mutation::CharacterData {
             node,
             old_value,
@@ -818,7 +1010,12 @@ impl DomRuntime {
         value: impl Into<String>,
     ) -> Result<(), DomError> {
         let value = value.into();
-        if matches!(self.arena.get(node)?.kind, NodeKind::Text { .. }) {
+        if matches!(
+            self.arena.get(node)?.kind,
+            NodeKind::Text { .. }
+                | NodeKind::CDataSection { .. }
+                | NodeKind::ProcessingInstruction { .. }
+        ) {
             return self.set_text(node, value);
         }
         let children = self.arena.get(node)?.children.clone();
@@ -843,6 +1040,13 @@ impl DomRuntime {
         }
         if deep {
             for child in source.children {
+                // Shadow roots are not light-DOM children and cloneNode does
+                // not copy an ordinary (non-clonable) attached shadow tree.
+                if let NodeKind::ShadowRoot { clonable, .. } = self.arena.get(child)?.kind
+                    && !clonable
+                {
+                    continue;
+                }
                 let child_clone = self.clone_node(child, true)?;
                 self.append_child(clone, child_clone)?;
             }
@@ -852,6 +1056,10 @@ impl DomRuntime {
 
     pub fn remove(&mut self, node: NodeId) -> Result<(), DomError> {
         let parent = self.arena.get(node)?.parent;
+        if let Some(parent) = parent {
+            let index = self.child_index(parent, node)?;
+            self.adjust_ranges_for_removal(parent, index, node)?;
+        }
         // Mutation delivery may expose the removed subtree to JavaScript.
         // Keep one native lease until every realm has consumed this journal
         // entry; wrapper leases then decide its ordinary detached lifetime.
@@ -863,6 +1071,127 @@ impl DomRuntime {
             former_parent: parent,
         });
         self.reclaim_if_unrooted(node)
+    }
+
+    pub fn create_live_range(
+        &mut self,
+        start: BoundaryPoint,
+        end: BoundaryPoint,
+    ) -> Result<LiveRangeId, DomError> {
+        self.validate_boundary(start)?;
+        self.validate_boundary(end)?;
+        let id = LiveRangeId(self.next_range.max(1));
+        self.next_range = id.0.saturating_add(1);
+        self.retain_native(start.container)?;
+        self.retain_native(end.container)?;
+        self.ranges.insert(id, LiveRange { start, end });
+        Ok(id)
+    }
+
+    pub fn live_range(&self, id: LiveRangeId) -> Result<LiveRange, DomError> {
+        self.ranges
+            .get(&id)
+            .copied()
+            .ok_or(DomError::UnknownRange(id))
+    }
+
+    pub fn set_live_range(
+        &mut self,
+        id: LiveRangeId,
+        start: BoundaryPoint,
+        end: BoundaryPoint,
+    ) -> Result<(), DomError> {
+        self.validate_boundary(start)?;
+        self.validate_boundary(end)?;
+        let previous = self.live_range(id)?;
+        self.retain_native(start.container)?;
+        self.retain_native(end.container)?;
+        self.ranges.insert(id, LiveRange { start, end });
+        self.release_native(previous.start.container)?;
+        self.release_native(previous.end.container)
+    }
+
+    pub fn drop_live_range(&mut self, id: LiveRangeId) -> Result<(), DomError> {
+        let range = self.ranges.remove(&id).ok_or(DomError::UnknownRange(id))?;
+        self.release_native(range.start.container)?;
+        self.release_native(range.end.container)
+    }
+
+    fn validate_boundary(&self, boundary: BoundaryPoint) -> Result<(), DomError> {
+        let node = self.arena.get(boundary.container)?;
+        let maximum = match &node.kind {
+            NodeKind::Text { data }
+            | NodeKind::CDataSection { data }
+            | NodeKind::ProcessingInstruction { data, .. }
+            | NodeKind::Comment { data } => utf16_len(data),
+            _ => node.children.len().try_into().unwrap_or(u32::MAX),
+        };
+        if boundary.offset > maximum {
+            return Err(DomError::InvalidBoundaryOffset {
+                node: boundary.container,
+                offset: boundary.offset,
+                maximum,
+            });
+        }
+        Ok(())
+    }
+
+    fn child_index(&self, parent: NodeId, child: NodeId) -> Result<u32, DomError> {
+        self.arena
+            .get(parent)?
+            .children
+            .iter()
+            .position(|candidate| *candidate == child)
+            .map(|index| index as u32)
+            .ok_or(DomError::NotAChild(child, parent))
+    }
+
+    fn adjust_ranges_for_insertion(
+        &mut self,
+        parent: NodeId,
+        index: u32,
+        count: u32,
+    ) -> Result<(), DomError> {
+        self.arena.get(parent)?;
+        for range in self.ranges.values_mut() {
+            for boundary in [&mut range.start, &mut range.end] {
+                if boundary.container == parent && boundary.offset > index {
+                    boundary.offset = boundary.offset.saturating_add(count);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn adjust_ranges_for_removal(
+        &mut self,
+        parent: NodeId,
+        index: u32,
+        removed: NodeId,
+    ) -> Result<(), DomError> {
+        self.arena.get(parent)?;
+        self.arena.get(removed)?;
+        let descendants = self.arena.descendants_inclusive(removed)?;
+        let descendant_set = descendants.into_iter().collect::<BTreeSet<_>>();
+        let mut root_changes = Vec::new();
+        for range in self.ranges.values_mut() {
+            for boundary in [&mut range.start, &mut range.end] {
+                if descendant_set.contains(&boundary.container) {
+                    root_changes.push((boundary.container, parent));
+                    *boundary = BoundaryPoint {
+                        container: parent,
+                        offset: index,
+                    };
+                } else if boundary.container == parent && boundary.offset > index {
+                    boundary.offset -= 1;
+                }
+            }
+        }
+        for (old, new) in root_changes {
+            self.retain_native(new)?;
+            self.release_native(old)?;
+        }
+        Ok(())
     }
 
     /// Detach a node for an html5ever tree-builder reparenting operation.
@@ -877,6 +1206,7 @@ impl DomRuntime {
         }
         self.arena.detach(node)?;
         self.mark_disconnected(node)?;
+        self.retain_native(node)?;
         self.mutations.push(Mutation::Removed {
             node,
             former_parent: parent,
@@ -1018,9 +1348,12 @@ impl DomRuntime {
     pub fn node_name(&self, node: NodeId) -> Result<String, DomError> {
         Ok(match &self.arena.get(node)?.kind {
             NodeKind::Document => "#document".into(),
-            NodeKind::DocumentType { name } => name.clone(),
+            NodeKind::DocumentType { name, .. } => name.clone(),
             NodeKind::Element { name } => name.local.as_ref().to_ascii_uppercase(),
+            NodeKind::Attribute { name, .. } => name.clone(),
             NodeKind::Text { .. } => "#text".into(),
+            NodeKind::CDataSection { .. } => "#cdata-section".into(),
+            NodeKind::ProcessingInstruction { target, .. } => target.clone(),
             NodeKind::Comment { .. } => "#comment".into(),
             NodeKind::DocumentFragment | NodeKind::ShadowRoot { .. } => "#document-fragment".into(),
         })
@@ -1110,9 +1443,12 @@ impl DomRuntime {
                 }
                 Ok(output)
             }
-            NodeKind::DocumentType { name } => Ok(format!("<!DOCTYPE {name}>")),
+            NodeKind::DocumentType { name, .. } => Ok(format!("<!DOCTYPE {name}>")),
             NodeKind::Text { data } => Ok(escape_text(data)),
+            NodeKind::CDataSection { data } => Ok(format!("<![CDATA[{data}]]>")),
+            NodeKind::ProcessingInstruction { target, data } => Ok(format!("<?{target} {data}?>")),
             NodeKind::Comment { data } => Ok(format!("<!--{data}-->")),
+            NodeKind::Attribute { value, .. } => Ok(escape_attribute(value)),
             NodeKind::Element { name } => {
                 let mut output = format!("<{}", name.local);
                 for (key, value) in &record.attributes {
@@ -1124,6 +1460,9 @@ impl DomRuntime {
                 }
                 output.push('>');
                 for child in &record.children {
+                    if matches!(self.arena.get(*child)?.kind, NodeKind::ShadowRoot { .. }) {
+                        continue;
+                    }
                     output.push_str(&self.serialize(*child)?);
                 }
                 if !is_void_html_element(&name.local) {
@@ -1220,6 +1559,10 @@ impl DomRuntime {
         }
         Ok(())
     }
+}
+
+fn utf16_len(value: &str) -> u32 {
+    value.encode_utf16().count().try_into().unwrap_or(u32::MAX)
 }
 
 fn matches_compound_selector(node: &Node, selector: &str) -> bool {
@@ -1396,6 +1739,8 @@ mod tests {
             Mutation::Inserted { node, parent: Some(parent) }
                 if *node == child && *parent == second
         )));
+        dom.release_mutation_roots(&mutations).unwrap();
+        assert_eq!(dom.parent(child).unwrap(), Some(second));
     }
 
     #[test]
@@ -1451,5 +1796,54 @@ mod tests {
             dom.matches_selector(button, "button.action, input")
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn live_ranges_follow_insertions_removals_and_character_data() {
+        let mut dom = DomRuntime::new();
+        let container = dom.create_element("section");
+        let before = dom.create_text("before");
+        let removed = dom.create_element("span");
+        let nested = dom.create_text("nested");
+        dom.append_child(dom.document(), container).unwrap();
+        dom.append_child(container, before).unwrap();
+        dom.append_child(container, removed).unwrap();
+        dom.append_child(removed, nested).unwrap();
+
+        let range = dom
+            .create_live_range(
+                BoundaryPoint {
+                    container: nested,
+                    offset: 6,
+                },
+                BoundaryPoint {
+                    container,
+                    offset: 2,
+                },
+            )
+            .unwrap();
+        dom.set_text(nested, "x").unwrap();
+        assert_eq!(dom.live_range(range).unwrap().start.offset, 1);
+
+        dom.remove_child(container, removed).unwrap();
+        assert_eq!(
+            dom.live_range(range).unwrap(),
+            LiveRange {
+                start: BoundaryPoint {
+                    container,
+                    offset: 1,
+                },
+                end: BoundaryPoint {
+                    container,
+                    offset: 1,
+                },
+            }
+        );
+
+        let inserted = dom.create_element("em");
+        dom.insert_before(container, inserted, Some(before))
+            .unwrap();
+        assert_eq!(dom.live_range(range).unwrap().start.offset, 2);
+        dom.drop_live_range(range).unwrap();
     }
 }

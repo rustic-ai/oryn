@@ -88,6 +88,22 @@ rewrite those historical payloads or present them as a new validation run.
   completion, navigation-body drop, superseding navigation, page close, IPC
   cancellation and worker-service teardown cancel their affected operation.
 - html5ever and V8 now share one live `DomRuntime` from the first parsed tag.
+- The generated-binding closure now covers generation-checked same-origin
+  cross-realm wrappers, canonical security tokens, named window properties,
+  DOMImplementation, Attr/DocumentType, cross-container Range algorithms,
+  Selection direction and mutation, callback-filtered TreeWalker/NodeIterator,
+  CharacterData editing, same-document History and generated Storage. Dynamic
+  and parser-created same-origin frames execute in separate V8 contexts in the
+  page isolate. The full native V8 library suite passes with these bindings.
+  Generated Rust callback dispatch now also owns the declared Blob, File,
+  FormData, Headers, Abort, Streams, Request/Response/Fetch, XHR, WebSocket and
+  IndexedDB object and algorithm surface. These objects communicate with the
+  parent exclusively through typed asynchronous HTTP, WebSocket and database
+  operations; promise/event progression, bounded streaming, abort, XHR timeout
+  and late-completion rejection occur at V8 scheduler checkpoints. Production
+  restores this generated namespace after bootstrap. Handwritten compatibility
+  classes remain only for the explicitly named in-process probe and are not the
+  secure worker's page-facing implementations.
   Parser-blocking scripts execute at the retained tokenizer boundary, V8
   microtasks/reactions/observers checkpoint before parsing resumes, and
   `document.write` re-enters the tokenizer ahead of the unconsumed suffix.
@@ -95,10 +111,11 @@ rewrite those historical payloads or present them as a new validation run.
   referrer policy cross typed parent operations at their discovery boundary.
   The former post-parse DOM-tail suspension, decoded-main-resource buffer, and
   snapshot handoff are absent from production source loads.
-- Generated bindings are authoritative for migrated DOM behavior and now cover
-  additional Range, Selection and traversal operations. Complex editing,
-  traversal filtering, history/referrer edge cases and complete IndexedDB
-  connection/transaction behavior remain.
+- Generated bindings are authoritative for the declared DOM and platform API
+  inventory. Complex editing, history/referrer edge cases, complete IndexedDB
+  connection/version-change scheduling and the broader mapped upstream API
+  inventory remain conformance work; they are not claimed from focused product
+  regressions.
 - The style service is now persistently fingerprinted as
   `stylo-stylesheets-selectors-0.20+oryn-cascade-v3`. Stylo parses complete
   stylesheets, media rules, selectors and declarations and supplies selector

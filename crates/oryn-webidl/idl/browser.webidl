@@ -86,6 +86,24 @@ interface SecurityPolicyViolationEvent : Event {
 
 [Exposed=Window]
 interface Node : EventTarget {
+  const unsigned short ELEMENT_NODE = 1;
+  const unsigned short ATTRIBUTE_NODE = 2;
+  const unsigned short TEXT_NODE = 3;
+  const unsigned short CDATA_SECTION_NODE = 4;
+  const unsigned short ENTITY_REFERENCE_NODE = 5;
+  const unsigned short ENTITY_NODE = 6;
+  const unsigned short PROCESSING_INSTRUCTION_NODE = 7;
+  const unsigned short COMMENT_NODE = 8;
+  const unsigned short DOCUMENT_NODE = 9;
+  const unsigned short DOCUMENT_TYPE_NODE = 10;
+  const unsigned short DOCUMENT_FRAGMENT_NODE = 11;
+  const unsigned short NOTATION_NODE = 12;
+  const unsigned short DOCUMENT_POSITION_DISCONNECTED = 1;
+  const unsigned short DOCUMENT_POSITION_PRECEDING = 2;
+  const unsigned short DOCUMENT_POSITION_FOLLOWING = 4;
+  const unsigned short DOCUMENT_POSITION_CONTAINS = 8;
+  const unsigned short DOCUMENT_POSITION_CONTAINED_BY = 16;
+  const unsigned short DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC = 32;
   readonly attribute DOMString nodeName;
   readonly attribute unsigned short nodeType;
   readonly attribute Document? ownerDocument;
@@ -106,8 +124,10 @@ interface Node : EventTarget {
   Node cloneNode(optional boolean deep = false);
   boolean contains(Node? other);
   boolean isEqualNode(Node? other);
+  unsigned short compareDocumentPosition(Node other);
   boolean hasChildNodes();
   Node getRootNode();
+  undefined append(DOMString node);
   undefined before(Node node);
   undefined after(Node node);
   undefined remove();
@@ -115,6 +135,7 @@ interface Node : EventTarget {
 
 dictionary ShadowRootInit {
   DOMString mode = "open";
+  boolean clonable = false;
 };
 
 [Exposed=Window]
@@ -137,6 +158,7 @@ interface Element : Node {
   readonly attribute ShadowRoot? shadowRoot;
   ShadowRoot attachShadow(ShadowRootInit init);
   DOMString? getAttribute(DOMString name);
+  Attr? getAttributeNode(DOMString name);
   sequence<DOMString> getAttributeNames();
   undefined setAttribute(DOMString name, DOMString value);
   undefined removeAttribute(DOMString name);
@@ -149,10 +171,27 @@ interface Element : Node {
   sequence<Element> getElementsByClassName(DOMString classNames);
   boolean matches(DOMString selectors);
   Element? closest(DOMString selectors);
+  Element? insertAdjacentElement(DOMString where, Element element);
+  undefined insertAdjacentText(DOMString where, DOMString data);
+  undefined insertAdjacentHTML(DOMString where, DOMString html);
   DOMRect getBoundingClientRect();
   sequence<DOMRect> getClientRects();
   undefined scrollIntoView(optional boolean alignToTop = true);
   undefined remove();
+};
+
+[Exposed=Window]
+interface Attr : Node {
+  readonly attribute DOMString name;
+  attribute DOMString value;
+  readonly attribute Element? ownerElement;
+};
+
+[Exposed=Window]
+interface DocumentType : Node {
+  readonly attribute DOMString name;
+  readonly attribute DOMString publicId;
+  readonly attribute DOMString systemId;
 };
 
 [Exposed=Window]
@@ -197,6 +236,8 @@ interface HTMLElement : Element {
   attribute EventListener? onblur;
   attribute EventListener? onkeydown;
   attribute EventListener? onkeyup;
+  attribute EventListener? onload;
+  attribute EventListener? onerror;
   attribute DOMString contentEditable;
   readonly attribute boolean isContentEditable;
   undefined click();
@@ -287,11 +328,15 @@ interface HTMLAnchorElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLIFrameElement : HTMLElement {
+  attribute DOMString src;
   readonly attribute Document? contentDocument;
+  readonly attribute any contentWindow;
 };
 
 [Exposed=Window]
 interface Document : Node {
+  constructor();
+  readonly attribute DOMImplementation implementation;
   readonly attribute DOMString URL;
   readonly attribute DOMString baseURI;
   attribute DOMString cookie;
@@ -299,6 +344,7 @@ interface Document : Node {
   readonly attribute HTMLElement? documentElement;
   readonly attribute HTMLElement? head;
   readonly attribute HTMLElement? body;
+  readonly attribute Node? doctype;
   readonly attribute HTMLElement? activeElement;
   readonly attribute HTMLElement? currentScript;
   readonly attribute sequence<CSSStyleSheet> styleSheets;
@@ -306,6 +352,8 @@ interface Document : Node {
   Element createElementNS(DOMString? namespace, DOMString qualifiedName);
   Text createTextNode(DOMString data);
   Comment createComment(DOMString data);
+  Text createCDATASection(DOMString data);
+  Comment createProcessingInstruction(DOMString target, DOMString data);
   DocumentFragment createDocumentFragment();
   Event createEvent(DOMString interfaceName);
   Document open();
@@ -319,9 +367,16 @@ interface Document : Node {
   sequence<Element> getElementsByClassName(DOMString classNames);
   sequence<Element> getElementsByName(DOMString elementName);
   Range createRange();
-  NodeIterator createNodeIterator(Node root, optional unsigned long whatToShow = 4294967295);
-  TreeWalker createTreeWalker(Node root, optional unsigned long whatToShow = 4294967295);
+  NodeIterator createNodeIterator(Node root, optional unsigned long whatToShow = 4294967295, optional NodeFilter? filter = null);
+  TreeWalker createTreeWalker(Node root, optional unsigned long whatToShow = 4294967295, optional NodeFilter? filter = null);
   Selection? getSelection();
+};
+
+[Exposed=Window]
+interface DOMImplementation {
+  Document createDocument(DOMString? namespace, DOMString? qualifiedName, optional Node? doctype = null);
+  Document createHTMLDocument(optional DOMString title = "");
+  Node createDocumentType(DOMString qualifiedName, optional DOMString publicId = "", optional DOMString systemId = "");
 };
 
 [Exposed=Window]
@@ -335,6 +390,7 @@ interface AbstractRange {
 
 [Exposed=Window]
 interface Range : AbstractRange {
+  constructor();
   const unsigned short START_TO_START = 0;
   const unsigned short START_TO_END = 1;
   const unsigned short END_TO_END = 2;
@@ -373,6 +429,7 @@ interface Selection {
   readonly attribute boolean isCollapsed;
   readonly attribute unsigned long rangeCount;
   readonly attribute DOMString type;
+  readonly attribute DOMString direction;
   Range getRangeAt(unsigned long index);
   undefined addRange(Range range);
   undefined removeRange(Range range);
@@ -380,12 +437,36 @@ interface Selection {
   undefined empty();
   undefined collapse(Node? node, optional unsigned long offset = 0);
   undefined setPosition(Node? node, optional unsigned long offset = 0);
+  undefined extend(Node node, optional unsigned long offset = 0);
+  undefined setBaseAndExtent(Node anchorNode, unsigned long anchorOffset, Node focusNode, unsigned long focusOffset);
+  undefined modify(optional DOMString alter = "move", optional DOMString direction = "forward", optional DOMString granularity = "character");
   undefined collapseToStart();
   undefined collapseToEnd();
   undefined selectAllChildren(Node node);
   undefined deleteFromDocument();
   boolean containsNode(Node node, optional boolean allowPartialContainment = false);
   DOMString toString();
+};
+
+[Exposed=Window]
+interface NodeFilter {
+  const unsigned short FILTER_ACCEPT = 1;
+  const unsigned short FILTER_REJECT = 2;
+  const unsigned short FILTER_SKIP = 3;
+  const unsigned long SHOW_ALL = 4294967295;
+  const unsigned long SHOW_ELEMENT = 1;
+  const unsigned long SHOW_ATTRIBUTE = 2;
+  const unsigned long SHOW_TEXT = 4;
+  const unsigned long SHOW_CDATA_SECTION = 8;
+  const unsigned long SHOW_ENTITY_REFERENCE = 16;
+  const unsigned long SHOW_ENTITY = 32;
+  const unsigned long SHOW_PROCESSING_INSTRUCTION = 64;
+  const unsigned long SHOW_COMMENT = 128;
+  const unsigned long SHOW_DOCUMENT = 256;
+  const unsigned long SHOW_DOCUMENT_TYPE = 512;
+  const unsigned long SHOW_DOCUMENT_FRAGMENT = 1024;
+  const unsigned long SHOW_NOTATION = 2048;
+  unsigned short acceptNode(Node node);
 };
 
 [Exposed=Window]
@@ -417,6 +498,7 @@ interface TreeWalker {
 interface History {
   readonly attribute unsigned long length;
   readonly attribute any state;
+  attribute DOMString scrollRestoration;
   undefined go(optional long delta = 0);
   undefined back();
   undefined forward();
@@ -439,6 +521,7 @@ interface IDBFactory {
   IDBOpenDBRequest open(DOMString name, optional unsigned long long version);
   IDBOpenDBRequest deleteDatabase(DOMString name);
   short cmp(any first, any second);
+  any databases();
 };
 
 [Exposed=(Window,Worker)]
@@ -446,16 +529,25 @@ interface IDBRequest : EventTarget {
   readonly attribute any result;
   readonly attribute any error;
   readonly attribute IDBTransaction? transaction;
+  attribute EventListener? onsuccess;
+  attribute EventListener? onerror;
 };
 
 [Exposed=(Window,Worker)]
-interface IDBOpenDBRequest : IDBRequest {};
+interface IDBOpenDBRequest : IDBRequest {
+  attribute EventListener? onblocked;
+  attribute EventListener? onupgradeneeded;
+};
 
 [Exposed=(Window,Worker)]
 interface IDBDatabase : EventTarget {
   readonly attribute DOMString name;
   readonly attribute unsigned long long version;
   readonly attribute sequence<DOMString> objectStoreNames;
+  attribute EventListener? onabort;
+  attribute EventListener? onclose;
+  attribute EventListener? onerror;
+  attribute EventListener? onversionchange;
   IDBObjectStore createObjectStore(DOMString name, optional any options);
   undefined deleteObjectStore(DOMString name);
   IDBTransaction transaction((DOMString or sequence<DOMString>) storeNames, optional DOMString mode = "readonly");
@@ -465,12 +557,18 @@ interface IDBDatabase : EventTarget {
 [Exposed=(Window,Worker)]
 interface IDBTransaction : EventTarget {
   readonly attribute DOMString mode;
+  readonly attribute DOMString durability;
+  readonly attribute any error;
   readonly attribute sequence<DOMString> objectStoreNames;
+  attribute EventListener? onabort;
+  attribute EventListener? oncomplete;
+  attribute EventListener? onerror;
   IDBObjectStore objectStore(DOMString name);
   undefined abort();
+  undefined commit();
 };
 
-[Exposed=Window]
+[Exposed=(Window,Worker)]
 interface IDBKeyRange {
   readonly attribute any lower;
   readonly attribute any upper;
@@ -478,13 +576,17 @@ interface IDBKeyRange {
   readonly attribute boolean upperOpen;
 };
 
-[Exposed=Window]
+[Exposed=(Window,Worker)]
 interface IDBCursor {
+  readonly attribute any source;
+  readonly attribute DOMString direction;
   readonly attribute any key;
   readonly attribute any primaryKey;
+  readonly attribute IDBRequest request;
   readonly attribute any value;
   undefined advance(unsigned long count);
   undefined continue(optional any key);
+  undefined continuePrimaryKey(any key, any primaryKey);
   undefined delete();
   undefined update(any value);
 };
@@ -493,6 +595,9 @@ interface IDBCursor {
 interface IDBIndex {
   readonly attribute DOMString name;
   readonly attribute IDBObjectStore objectStore;
+  readonly attribute any keyPath;
+  readonly attribute boolean multiEntry;
+  readonly attribute boolean unique;
   any get(any query);
   any getKey(any query);
   any getAll(optional any query, optional unsigned long count);
@@ -502,13 +607,17 @@ interface IDBIndex {
   any openKeyCursor(optional any query, optional DOMString direction = "next");
 };
 
-[Exposed=Window]
+[Exposed=(Window,Worker)]
 interface IDBObjectStore {
   readonly attribute DOMString name;
+  readonly attribute any keyPath;
+  readonly attribute sequence<DOMString> indexNames;
   readonly attribute IDBTransaction transaction;
+  readonly attribute boolean autoIncrement;
   any add(any value, optional any key);
   any put(any value, optional any key);
   any get(any query);
+  any getKey(any query);
   any getAll(optional any query, optional unsigned long count);
   any getAllKeys(optional any query, optional unsigned long count);
   any delete(any query);
@@ -517,6 +626,7 @@ interface IDBObjectStore {
   any openCursor(optional any query, optional DOMString direction = "next");
   any openKeyCursor(optional any query, optional DOMString direction = "next");
   IDBIndex createIndex(DOMString name, (DOMString or sequence<DOMString>) keyPath, optional any options);
+  undefined deleteIndex(DOMString name);
   IDBIndex index(DOMString name);
 };
 
@@ -566,6 +676,7 @@ interface DocumentFragment : Node {
 interface ShadowRoot : DocumentFragment {
   attribute DOMString innerHTML;
   readonly attribute DOMString mode;
+  readonly attribute boolean clonable;
   readonly attribute Element host;
   Element? getElementById(DOMString id);
 };
@@ -587,15 +698,213 @@ interface Text : CharacterData {
 };
 
 [Exposed=Window]
+interface CDATASection : Text {};
+
+[Exposed=Window]
+interface ProcessingInstruction : CharacterData {
+  readonly attribute DOMString target;
+};
+
+[Exposed=Window]
 interface Comment : CharacterData {
+};
+
+[Exposed=(Window,Worker)]
+interface Blob {
+  constructor(optional sequence<any> blobParts = [], optional any options = null);
+  readonly attribute unsigned long long size;
+  readonly attribute DOMString type;
+  Blob slice(optional long long start = 0, optional long long end, optional DOMString contentType = "");
+  Promise<ArrayBuffer> arrayBuffer();
+  Promise<DOMString> text();
+  ReadableStream stream();
+};
+
+[Exposed=(Window,Worker)]
+interface File : Blob {
+  constructor(sequence<any> fileBits, DOMString fileName, optional any options = null);
+  readonly attribute DOMString name;
+  readonly attribute long long lastModified;
+  readonly attribute DOMString webkitRelativePath;
+};
+
+[Exposed=(Window,Worker)]
+interface FormData {
+  constructor(optional any form = null);
+  undefined append(DOMString name, any value, optional DOMString filename);
+  undefined delete(DOMString name);
+  any get(DOMString name);
+  sequence<any> getAll(DOMString name);
+  boolean has(DOMString name);
+  undefined set(DOMString name, any value, optional DOMString filename);
+  iterable<DOMString, any>;
+};
+
+[Exposed=(Window,Worker)]
+interface Headers {
+  constructor(optional any init = null);
+  undefined append(DOMString name, DOMString value);
+  undefined delete(DOMString name);
+  DOMString? get(DOMString name);
+  boolean has(DOMString name);
+  undefined set(DOMString name, DOMString value);
+  iterable<DOMString, DOMString>;
+};
+
+[Exposed=(Window,Worker)]
+interface AbortSignal : EventTarget {
+  readonly attribute boolean aborted;
+  readonly attribute any reason;
+  attribute EventListener? onabort;
+  undefined throwIfAborted();
+};
+
+[Exposed=(Window,Worker)]
+interface AbortController {
+  constructor();
+  readonly attribute AbortSignal signal;
+  undefined abort(optional any reason = null);
+};
+
+[Exposed=(Window,Worker)]
+interface ReadableStream {
+  constructor(optional any underlyingSource = null, optional any strategy = null);
+  readonly attribute boolean locked;
+  ReadableStreamDefaultReader getReader();
+  Promise<undefined> cancel(optional any reason = null);
+  Promise<undefined> pipeTo(WritableStream destination);
+  ReadableStream pipeThrough(TransformStream transform);
+};
+
+[Exposed=(Window,Worker)]
+interface ReadableStreamDefaultReader {
+  readonly attribute Promise<undefined> closed;
+  Promise<any> read();
+  Promise<undefined> cancel(optional any reason = null);
+  undefined releaseLock();
+};
+
+[Exposed=(Window,Worker)]
+interface ReadableStreamDefaultController {
+  readonly attribute long desiredSize;
+  undefined close();
+  undefined enqueue(optional any chunk = null);
+  undefined error(optional any error = null);
+};
+
+[Exposed=(Window,Worker)]
+interface WritableStream {
+  constructor(optional any underlyingSink = null, optional any strategy = null);
+  readonly attribute boolean locked;
+  WritableStreamDefaultWriter getWriter();
+  Promise<undefined> abort(optional any reason = null);
+  Promise<undefined> close();
+};
+
+[Exposed=(Window,Worker)]
+interface WritableStreamDefaultWriter {
+  readonly attribute Promise<undefined> closed;
+  readonly attribute long desiredSize;
+  readonly attribute Promise<undefined> ready;
+  Promise<undefined> abort(optional any reason = null);
+  Promise<undefined> close();
+  Promise<undefined> write(optional any chunk = null);
+  undefined releaseLock();
+};
+
+[Exposed=(Window,Worker)]
+interface WritableStreamDefaultController {
+  readonly attribute AbortSignal signal;
+  undefined error(optional any error = null);
+};
+
+[Exposed=(Window,Worker)]
+interface TransformStream {
+  constructor(optional any transformer = null, optional any writableStrategy = null, optional any readableStrategy = null);
+  readonly attribute ReadableStream readable;
+  readonly attribute WritableStream writable;
+};
+
+[Exposed=(Window,Worker)]
+interface Request {
+  constructor(any input, optional any init = null);
+  readonly attribute DOMString url;
+  readonly attribute DOMString method;
+  readonly attribute Headers headers;
+  readonly attribute AbortSignal signal;
+  readonly attribute DOMString credentials;
+  readonly attribute any body;
+  readonly attribute boolean bodyUsed;
+  Request clone();
+  Promise<ArrayBuffer> arrayBuffer();
+  Promise<DOMString> text();
+};
+
+[Exposed=(Window,Worker)]
+interface Response {
+  constructor(optional any body = null, optional any init = null);
+  readonly attribute unsigned short status;
+  readonly attribute boolean ok;
+  readonly attribute DOMString url;
+  readonly attribute Headers headers;
+  readonly attribute ReadableStream? body;
+  readonly attribute boolean bodyUsed;
+  Response clone();
+  Promise<DOMString> text();
+  Promise<any> json();
+  Promise<ArrayBuffer> arrayBuffer();
+  Promise<Blob> blob();
 };
 
 [Exposed=Window]
 interface XMLHttpRequest : EventTarget {
+  constructor();
+  const unsigned short UNSENT = 0;
+  const unsigned short OPENED = 1;
+  const unsigned short HEADERS_RECEIVED = 2;
+  const unsigned short LOADING = 3;
+  const unsigned short DONE = 4;
   readonly attribute unsigned short readyState;
+  attribute unsigned long timeout;
+  attribute boolean withCredentials;
+  attribute DOMString responseType;
+  readonly attribute unsigned short status;
+  readonly attribute DOMString responseURL;
+  readonly attribute DOMString responseText;
+  readonly attribute any response;
+  attribute EventListener? onreadystatechange;
+  attribute EventListener? onloadstart;
+  attribute EventListener? onprogress;
+  attribute EventListener? onabort;
+  attribute EventListener? onerror;
+  attribute EventListener? ontimeout;
+  attribute EventListener? onload;
+  attribute EventListener? onloadend;
   undefined open(DOMString method, DOMString url, optional boolean async = true);
-  undefined send(optional DOMString? body = null);
+  undefined setRequestHeader(DOMString name, DOMString value);
+  DOMString? getResponseHeader(DOMString name);
+  DOMString getAllResponseHeaders();
+  undefined send(optional any body = null);
   undefined abort();
+};
+
+[Exposed=(Window,Worker)]
+interface WebSocket : EventTarget {
+  constructor(DOMString url, optional any protocols = null);
+  const unsigned short CONNECTING = 0;
+  const unsigned short OPEN = 1;
+  const unsigned short CLOSING = 2;
+  const unsigned short CLOSED = 3;
+  readonly attribute DOMString url;
+  readonly attribute unsigned short readyState;
+  readonly attribute DOMString protocol;
+  attribute DOMString binaryType;
+  attribute EventListener? onopen;
+  attribute EventListener? onmessage;
+  attribute EventListener? onerror;
+  attribute EventListener? onclose;
+  undefined send(any data);
+  undefined close(optional unsigned short code = 1000, optional DOMString reason = "");
 };
 
 dictionary WorkerOptions {
@@ -609,14 +918,6 @@ interface Worker : EventTarget {
   constructor(DOMString scriptURL, optional WorkerOptions options);
   undefined terminate();
   undefined postMessage(any message);
-};
-
-[Exposed=Window]
-interface Response {
-  readonly attribute unsigned short status;
-  readonly attribute boolean ok;
-  Promise<DOMString> text();
-  Promise<ArrayBuffer> arrayBuffer();
 };
 
 [Exposed=Window]
