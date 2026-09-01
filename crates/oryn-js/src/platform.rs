@@ -51,6 +51,10 @@ pub enum IdbHostCommand {
     DeleteDatabase {
         name: String,
     },
+    AbortUpgrade {
+        name: String,
+        old_version: u64,
+    },
     CreateObjectStore {
         database: String,
         definition: IdbObjectStoreDefinition,

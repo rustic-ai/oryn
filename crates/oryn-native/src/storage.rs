@@ -133,6 +133,10 @@ pub enum IdbCommand {
     DeleteDatabase {
         name: String,
     },
+    AbortUpgrade {
+        name: String,
+        old_version: u64,
+    },
     CreateObjectStore {
         database: String,
         definition: ObjectStoreDefinition,
@@ -836,6 +840,15 @@ fn execute_idb(
             databases.remove(&(origin.to_string(), name));
             IdbResponse::default()
         }
+        IdbCommand::AbortUpgrade { name, old_version } => {
+            let key = (origin.to_string(), name);
+            if old_version == 0 {
+                databases.remove(&key);
+            } else if let Some(database) = databases.get_mut(&key) {
+                database.version = old_version;
+            }
+            IdbResponse::default()
+        }
         IdbCommand::CreateObjectStore {
             database,
             definition,
@@ -928,7 +941,17 @@ fn execute_idb(
             key,
         } => {
             let store_data = store_mut(databases, origin, &database, &store)?;
-            store_data.records.remove(&encode_key(&key)?);
+            if key
+                .get("__oryn_key_range")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+            {
+                store_data
+                    .records
+                    .retain(|_, record| !indexed_db_key_matches(&key, &record.key));
+            } else {
+                store_data.records.remove(&encode_key(&key)?);
+            }
             IdbResponse::default()
         }
         IdbCommand::Clear { database, store } => {
@@ -971,7 +994,9 @@ fn execute_idb(
                 .values()
                 .filter_map(|record| {
                     let cursor_key = index_definition
-                        .and_then(|definition| record.value.get(&definition.key_path))
+                        .and_then(|definition| {
+                            json_value_at_key_path(&record.value, &definition.key_path)
+                        })
                         .unwrap_or(&record.key);
                     (query
                         .as_ref()
@@ -1122,7 +1147,7 @@ fn put_record(
     let key_from_path = definition
         .key_path
         .as_deref()
-        .and_then(|path| value.get(path).cloned());
+        .and_then(|path| json_value_at_key_path(&value, path).cloned());
     let key = write.key.or(key_from_path).or_else(|| {
         definition.auto_increment.then(|| {
             let key = serde_json::Value::from(store.next_key.max(1));
@@ -1140,21 +1165,21 @@ fn put_record(
         store.next_key = store.next_key.max(next.saturating_add(1));
     }
     if let Some(path) = definition.key_path
-        && value.get(&path).is_none()
-        && let Some(object) = value.as_object_mut()
+        && json_value_at_key_path(&value, &path).is_none()
     {
-        object.insert(path, key.clone());
+        inject_json_key_path(&mut value, &path, key.clone())?;
     }
     let encoded = encode_key(&key)?;
     if write.add_only && store.records.contains_key(&encoded) {
         return Err(StorageError::Constraint);
     }
     for index in store.indexes.values().filter(|index| index.unique) {
-        let Some(index_value) = value.get(&index.key_path) else {
+        let Some(index_value) = json_value_at_key_path(&value, &index.key_path) else {
             continue;
         };
         if store.records.iter().any(|(record_key, record)| {
-            record_key != &encoded && record.value.get(&index.key_path) == Some(index_value)
+            record_key != &encoded
+                && json_value_at_key_path(&record.value, &index.key_path) == Some(index_value)
         }) {
             return Err(StorageError::Constraint);
         }
@@ -1169,12 +1194,61 @@ fn put_record(
     Ok(key)
 }
 
+fn json_value_at_key_path<'a>(
+    value: &'a serde_json::Value,
+    path: &str,
+) -> Option<&'a serde_json::Value> {
+    path.split('.')
+        .try_fold(value, |current, segment| current.as_object()?.get(segment))
+}
+
+fn inject_json_key_path(
+    value: &mut serde_json::Value,
+    path: &str,
+    key: serde_json::Value,
+) -> Result<(), StorageError> {
+    let mut segments = path.split('.').peekable();
+    let mut current = value;
+    while let Some(segment) = segments.next() {
+        let object = current.as_object_mut().ok_or(StorageError::KeyRequired)?;
+        if segments.peek().is_none() {
+            object.insert(segment.to_string(), key);
+            return Ok(());
+        }
+        current = object
+            .entry(segment.to_string())
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        if !current.is_object() {
+            return Err(StorageError::KeyRequired);
+        }
+    }
+    Err(StorageError::KeyRequired)
+}
+
 fn encode_key(key: &serde_json::Value) -> Result<String, StorageError> {
     match key {
-        serde_json::Value::Null | serde_json::Value::Object(_) => {
+        serde_json::Value::Number(value) => {
+            let value = value
+                .as_f64()
+                .filter(|value| value.is_finite())
+                .ok_or_else(|| StorageError::DataClone("invalid IndexedDB number key".into()))?;
+            Ok(format!("n:{:016x}", value.to_bits()))
+        }
+        serde_json::Value::String(value) => serde_json::to_string(value)
+            .map(|value| format!("s:{value}"))
+            .map_err(|error| StorageError::DataClone(error.to_string())),
+        serde_json::Value::Array(values) => {
+            let encoded = values
+                .iter()
+                .map(encode_key)
+                .collect::<Result<Vec<_>, _>>()?;
+            serde_json::to_string(&encoded)
+                .map(|encoded| format!("a:{encoded}"))
+                .map_err(|error| StorageError::DataClone(error.to_string()))
+        }
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Object(_) => {
             Err(StorageError::DataClone("invalid IndexedDB key".into()))
         }
-        _ => serde_json::to_string(key).map_err(|error| StorageError::DataClone(error.to_string())),
     }
 }
 
@@ -1424,6 +1498,63 @@ mod tests {
     }
 
     #[test]
+    fn indexed_db_auto_increment_injects_nested_key_paths() {
+        let store = SharedContextStore::memory(StorageLimits::default());
+        let origin = "https://example.test".to_string();
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: origin.clone(),
+                command: IdbCommand::Open {
+                    name: "nested".into(),
+                    version: 1,
+                },
+            })
+            .unwrap();
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: origin.clone(),
+                command: IdbCommand::CreateObjectStore {
+                    database: "nested".into(),
+                    definition: ObjectStoreDefinition {
+                        name: "items".into(),
+                        key_path: Some("a.b.c".into()),
+                        auto_increment: true,
+                    },
+                },
+            })
+            .unwrap();
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: origin.clone(),
+                command: IdbCommand::Batch {
+                    database: "nested".into(),
+                    writes: vec![IdbWrite {
+                        store: "items".into(),
+                        key: None,
+                        value: serde_json::json!({}),
+                        add_only: false,
+                    }],
+                },
+            })
+            .unwrap();
+        let value = store
+            .execute(StorageRequest::IndexedDb {
+                origin,
+                command: IdbCommand::Get {
+                    database: "nested".into(),
+                    store: "items".into(),
+                    key: serde_json::json!(1),
+                },
+            })
+            .unwrap();
+        assert!(matches!(
+            value,
+            StorageResponse::IndexedDb { response }
+                if response.value == Some(serde_json::json!({"a":{"b":{"c":1}}}))
+        ));
+    }
+
+    #[test]
     fn storage_quotas_are_origin_scoped_and_failed_writes_are_atomic() {
         let store = SharedContextStore::memory(StorageLimits {
             web_storage_bytes_per_origin: 16,
@@ -1654,6 +1785,13 @@ mod tests {
 
     #[test]
     fn indexed_db_key_ranges_cover_numeric_string_and_compound_keys() {
+        assert_eq!(
+            encode_key(&serde_json::json!(1)).unwrap(),
+            encode_key(&serde_json::Value::Number(
+                serde_json::Number::from_f64(1.0).unwrap()
+            ))
+            .unwrap()
+        );
         let range = serde_json::json!({
             "__oryn_key_range": true,
             "lower": 2,

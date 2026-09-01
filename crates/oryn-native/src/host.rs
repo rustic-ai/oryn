@@ -1400,9 +1400,17 @@ mod raw_v8 {
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                     if pass > 0 {
                         scope.perform_microtask_checkpoint();
+                        state
+                            .finish_platform_task_checkpoint()
+                            .map_err(|error| HostError::Execution(error.to_string()))?;
                     }
                 }
                 delivered += pass;
+                // Timers are peer page tasks. Run ready timers between
+                // platform-completion turns so a self-sustaining request
+                // chain cannot starve cancellation, transaction release, or
+                // other zero-delay work.
+                delivered += self.drain_scheduled_timers(false)?;
                 let pending = self
                     .binding_states
                     .values()

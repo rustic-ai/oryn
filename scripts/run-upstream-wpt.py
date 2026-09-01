@@ -110,8 +110,60 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return str(self.root / "__denied__")
         return str(candidate)
 
+    def do_POST(self) -> None:  # noqa: N802
+        """Implement the deterministic subset of wptserve used by mapped tests."""
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != "/xhr/resources/content.py":
+            self.send_error(404)
+            return
+        length = int(self.headers.get("content-length", "0"))
+        body = self.rfile.read(length)
+        query = urllib.parse.parse_qs(parsed.query)
+        if "content" in query:
+            body = query["content"][0].encode("latin-1")
+        response_type = "text/plain"
+        if "response_charset_label" in query:
+            response_type += ";charset=" + query["response_charset_label"][0]
+        self.send_response(200)
+        self.send_header("content-type", response_type)
+        self.send_header("x-request-method", "POST")
+        self.send_header("x-request-query", parsed.query or "NO")
+        self.send_header("x-request-content-length", self.headers.get("content-length", "NO"))
+        self.send_header("x-request-content-type", self.headers.get("content-type", "NO"))
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path.endswith(".sub.js"):
+            source = Path(self.translate_path(self.path))
+            if not source.is_file():
+                self.send_error(404)
+                return
+            port = str(self.server.server_address[1])
+            request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
+            remote_host = "localhost" if request_host == "127.0.0.1" else "127.0.0.1"
+            body = source.read_text(encoding="utf-8", errors="replace")
+            replacements = {
+                "{{ports[http][0]}}": port,
+                "{{ports[http][1]}}": port,
+                "{{ports[https][0]}}": port,
+                "{{ports[https][1]}}": port,
+                "{{host}}": request_host,
+                "{{domains[www2]}}": remote_host,
+                "{{hosts[alt][]}}": remote_host,
+                "{{hosts[alt][www2]}}": remote_host,
+            }
+            for token, value in replacements.items():
+                body = body.replace(token, value)
+            encoded = body.encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/javascript; charset=utf-8")
+            self.send_header("content-length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+            return
         if parsed.path == "/__oryn_any_runner.html":
             source = urllib.parse.parse_qs(parsed.query).get("source", [""])[0]
             source_path = (self.root / source).resolve()

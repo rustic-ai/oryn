@@ -255,6 +255,7 @@ struct IdbRequestRecord {
 struct IdbDatabaseRecord {
     name: String,
     version: u64,
+    old_version: u64,
     object_stores: Vec<String>,
     object_store_definitions: BTreeMap<String, IdbObjectStoreDefinition>,
     upgrade_transaction_id: Option<u64>,
@@ -268,6 +269,10 @@ struct IdbTransactionRecord {
     object_stores: Vec<String>,
     aborted: bool,
     error: Option<String>,
+    pending_requests: usize,
+    completion_requested: bool,
+    completion_queued: bool,
+    active: bool,
 }
 
 struct IdbObjectStoreRecord {
@@ -385,6 +390,23 @@ struct QueuedIdbOperation {
     pending: PendingPlatformOperation,
 }
 
+enum DeferredPlatformTask {
+    Event {
+        target_id: u64,
+        event_type: &'static str,
+    },
+    FinalizeIdbOpen {
+        request_id: u64,
+        database_id: u64,
+        transaction_id: u64,
+    },
+    CompleteBlobXhr {
+        xhr_id: u64,
+        url: String,
+        blob: BlobRecord,
+    },
+}
+
 enum IdbCompletionAction {
     Open { name: String },
     DeleteDatabase,
@@ -480,9 +502,13 @@ pub struct V8BindingState {
     next_platform_operation_id: Cell<u64>,
     pending_platform_operations: RefCell<BTreeMap<HostOperationId, PendingPlatformOperation>>,
     queued_idb_operations: RefCell<VecDeque<QueuedIdbOperation>>,
+    deferred_platform_tasks: RefCell<VecDeque<DeferredPlatformTask>>,
     cancelled_platform_operations: RefCell<BTreeSet<HostOperationId>>,
     platform_listeners: RefCell<PlatformListenerMap>,
     platform_handlers: RefCell<BTreeMap<(u64, String), v8::Global<v8::Value>>>,
+    blob_urls: RefCell<BTreeMap<String, u64>>,
+    next_blob_url_id: Cell<u64>,
+    idb_transactions_to_deactivate: RefCell<BTreeSet<u64>>,
     node_documents: RefCell<BTreeMap<NodeId, NodeId>>,
     next_traversal_id: Cell<u64>,
     traversals: RefCell<BTreeMap<u64, TraversalRecord>>,
@@ -526,14 +552,35 @@ impl V8BindingState {
         limit: usize,
     ) -> Result<usize, V8BindingError> {
         self.expire_xhr_timeouts(scope)?;
-        let Some(host) = self.platform_host.borrow().clone() else {
-            return Ok(0);
-        };
-        let completions = host.drain_completions(limit);
-        let count = completions.len();
+        let completions = self
+            .platform_host
+            .borrow()
+            .as_ref()
+            .map_or_else(Vec::new, |host| host.drain_completions(limit));
+        let mut count = completions.len();
         for completion in completions {
             self.handle_platform_completion(scope, completion)?;
             self.flush_queued_idb_operations()?;
+        }
+        while count < limit {
+            let Some(task) = self.deferred_platform_tasks.borrow_mut().pop_front() else {
+                break;
+            };
+            match task {
+                DeferredPlatformTask::Event {
+                    target_id,
+                    event_type,
+                } => dispatch_platform_event(scope, self, target_id, event_type, None)?,
+                DeferredPlatformTask::FinalizeIdbOpen {
+                    request_id,
+                    database_id,
+                    transaction_id,
+                } => self.finalize_idb_open(scope, request_id, database_id, transaction_id)?,
+                DeferredPlatformTask::CompleteBlobXhr { xhr_id, url, blob } => {
+                    self.complete_blob_xhr(scope, xhr_id, url, blob)?
+                }
+            }
+            count += 1;
         }
         self.expire_xhr_timeouts(scope)?;
         Ok(count)
@@ -594,8 +641,51 @@ impl V8BindingState {
         Ok(())
     }
 
+    fn complete_blob_xhr(
+        self: &Rc<Self>,
+        scope: &mut v8::PinScope,
+        xhr_id: u64,
+        url: String,
+        blob: BlobRecord,
+    ) -> Result<(), V8BindingError> {
+        {
+            let mut record = platform_object_mut(self, xhr_id)?;
+            let PlatformObjectRecord::XMLHttpRequest(xhr) = &mut *record else {
+                return Err(V8BindingError::Allocation("XHR record"));
+            };
+            xhr.status = 200;
+            xhr.response_url = url;
+            xhr.response_headers = if blob.media_type.is_empty() {
+                Vec::new()
+            } else {
+                vec![("content-type".into(), blob.media_type)]
+            };
+            xhr.ready_state = 2;
+        }
+        dispatch_platform_event(scope, self, xhr_id, "readystatechange", None)?;
+        {
+            let mut record = platform_object_mut(self, xhr_id)?;
+            let PlatformObjectRecord::XMLHttpRequest(xhr) = &mut *record else {
+                return Err(V8BindingError::Allocation("XHR record"));
+            };
+            xhr.response_bytes = blob.bytes;
+            xhr.ready_state = 3;
+        }
+        dispatch_platform_event(scope, self, xhr_id, "readystatechange", None)?;
+        dispatch_platform_event(scope, self, xhr_id, "progress", None)?;
+        if let PlatformObjectRecord::XMLHttpRequest(xhr) = &mut *platform_object_mut(self, xhr_id)?
+        {
+            xhr.ready_state = 4;
+        }
+        dispatch_platform_event(scope, self, xhr_id, "readystatechange", None)?;
+        dispatch_platform_event(scope, self, xhr_id, "load", None)?;
+        dispatch_platform_event(scope, self, xhr_id, "loadend", None)?;
+        Ok(())
+    }
+
     pub fn has_pending_platform_work(&self) -> bool {
         !self.queued_idb_operations.borrow().is_empty()
+            || !self.deferred_platform_tasks.borrow().is_empty()
             || self
                 .pending_platform_operations
                 .borrow()
@@ -611,6 +701,39 @@ impl V8BindingState {
             submit_platform_operation(self, queued.request, queued.pending)?;
         }
         Ok(())
+    }
+
+    fn finalize_idb_open(
+        &self,
+        scope: &mut v8::PinScope,
+        request_id: u64,
+        database_id: u64,
+        _transaction_id: u64,
+    ) -> Result<(), V8BindingError> {
+        if let PlatformObjectRecord::IdbRequest(request) =
+            &mut *platform_object_mut(self, request_id)?
+        {
+            request.transaction_id = None;
+        }
+        let closed = {
+            let mut record = platform_object_mut(self, database_id)?;
+            let PlatformObjectRecord::IdbDatabase(database) = &mut *record else {
+                return Err(V8BindingError::Allocation("IDBDatabase record"));
+            };
+            database.upgrade_transaction_id = None;
+            database.closed
+        };
+        if closed {
+            if let PlatformObjectRecord::IdbRequest(request) =
+                &mut *platform_object_mut(self, request_id)?
+            {
+                request.result = None;
+                request.error = Some("AbortError".into());
+            }
+            dispatch_platform_event(scope, self, request_id, "error", None)
+        } else {
+            dispatch_platform_event(scope, self, request_id, "success", None)
+        }
     }
 
     fn handle_platform_completion(
@@ -1029,6 +1152,7 @@ impl V8BindingState {
                             PlatformObjectRecord::IdbDatabase(IdbDatabaseRecord {
                                 name,
                                 version: response.version.unwrap_or(1),
+                                old_version: response.old_version.unwrap_or(0),
                                 object_stores: response.object_stores.clone(),
                                 object_store_definitions: response
                                     .object_store_definitions
@@ -1050,6 +1174,10 @@ impl V8BindingState {
                                     object_stores: response.object_stores.clone(),
                                     aborted: false,
                                     error: None,
+                                    pending_requests: 0,
+                                    completion_requested: false,
+                                    completion_queued: false,
+                                    active: true,
                                 }),
                             )
                         });
@@ -1101,31 +1229,12 @@ impl V8BindingState {
                             return Ok(());
                         }
                         if let Some(transaction_id) = transaction_id {
-                            dispatch_platform_event(scope, self, transaction_id, "complete", None)?;
-                            if let PlatformObjectRecord::IdbRequest(request) =
-                                &mut *platform_object_mut(self, request_id)?
+                            if let PlatformObjectRecord::IdbTransaction(transaction) =
+                                &mut *platform_object_mut(self, transaction_id)?
                             {
-                                request.transaction_id = None;
+                                transaction.completion_requested = true;
                             }
-                            if let PlatformObjectRecord::IdbDatabase(database) =
-                                &mut *platform_object_mut(self, database_id)?
-                            {
-                                database.upgrade_transaction_id = None;
-                            }
-                        }
-                        let closed = matches!(
-                            &*platform_object(self, database_id)?,
-                            PlatformObjectRecord::IdbDatabase(database) if database.closed
-                        );
-                        if closed {
-                            if let PlatformObjectRecord::IdbRequest(request) =
-                                &mut *platform_object_mut(self, request_id)?
-                            {
-                                request.result = None;
-                                request.error = Some("AbortError".into());
-                                request.transaction_id = None;
-                            }
-                            dispatch_platform_event(scope, self, request_id, "error", None)?;
+                            queue_idb_transaction_completion(self, transaction_id)?;
                             return Ok(());
                         }
                         database.into()
@@ -1206,7 +1315,9 @@ impl V8BindingState {
                     }
                 };
                 set_idb_request_result(scope, self, request_id, value)?;
+                self.activate_idb_request_transaction(request_id)?;
                 dispatch_platform_event(scope, self, request_id, "success", None)?;
+                finish_idb_request(self, request_id)?;
             }
             (
                 PendingPlatformOperation::IdbDatabases { resolver },
@@ -1265,8 +1376,15 @@ impl V8BindingState {
                         request.error = Some(error_name.clone());
                         request.transaction_id
                     };
-                    dispatch_platform_event(scope, self, request_id, "error", None)?;
-                    if let Some(transaction_id) = transaction_id {
+                    self.activate_idb_request_transaction(request_id)?;
+                    let event = v8::Object::new(scope);
+                    dispatch_platform_event(scope, self, request_id, "error", Some(event))?;
+                    let default_prevented = v8::String::new(scope, "defaultPrevented")
+                        .and_then(|key| event.get(scope, key.into()))
+                        .is_some_and(|value| value.boolean_value(scope));
+                    if let Some(transaction_id) = transaction_id
+                        && !default_prevented
+                    {
                         if let PlatformObjectRecord::IdbTransaction(transaction) =
                             &mut *platform_object_mut(self, transaction_id)?
                         {
@@ -1276,6 +1394,7 @@ impl V8BindingState {
                         dispatch_platform_event(scope, self, transaction_id, "error", None)?;
                         dispatch_platform_event(scope, self, transaction_id, "abort", None)?;
                     }
+                    finish_idb_request(self, request_id)?;
                 }
             }
             _ => {
@@ -1290,6 +1409,37 @@ impl V8BindingState {
 
     pub fn dom(&self) -> SharedDom {
         self.dom.clone()
+    }
+
+    fn activate_idb_request_transaction(&self, request_id: u64) -> Result<(), V8BindingError> {
+        let transaction_id = match &*platform_object(self, request_id)? {
+            PlatformObjectRecord::IdbRequest(request) => request.transaction_id,
+            _ => None,
+        };
+        if let Some(transaction_id) = transaction_id {
+            if let PlatformObjectRecord::IdbTransaction(transaction) =
+                &mut *platform_object_mut(self, transaction_id)?
+            {
+                transaction.active = true;
+            }
+            self.idb_transactions_to_deactivate
+                .borrow_mut()
+                .insert(transaction_id);
+        }
+        Ok(())
+    }
+
+    /// End the task-scoped active window after V8 has drained promise jobs.
+    pub fn finish_platform_task_checkpoint(&self) -> Result<(), V8BindingError> {
+        let transactions = std::mem::take(&mut *self.idb_transactions_to_deactivate.borrow_mut());
+        for transaction_id in transactions {
+            if let Ok(mut record) = platform_object_mut(self, transaction_id)
+                && let PlatformObjectRecord::IdbTransaction(transaction) = &mut *record
+            {
+                transaction.active = false;
+            }
+        }
+        Ok(())
     }
 
     pub fn document_root(&self) -> NodeId {
@@ -1588,9 +1738,13 @@ pub fn install_generated_bindings_with_root_for_global(
         next_platform_operation_id: Cell::new(1),
         pending_platform_operations: RefCell::new(BTreeMap::new()),
         queued_idb_operations: RefCell::new(VecDeque::new()),
+        deferred_platform_tasks: RefCell::new(VecDeque::new()),
         cancelled_platform_operations: RefCell::new(BTreeSet::new()),
         platform_listeners: RefCell::new(BTreeMap::new()),
         platform_handlers: RefCell::new(BTreeMap::new()),
+        blob_urls: RefCell::new(BTreeMap::new()),
+        next_blob_url_id: Cell::new(1),
+        idb_transactions_to_deactivate: RefCell::new(BTreeSet::new()),
         node_documents: RefCell::new(BTreeMap::from([(document, document)])),
         next_traversal_id: Cell::new(1),
         traversals: RefCell::new(BTreeMap::new()),
@@ -1834,6 +1988,20 @@ pub fn install_generated_bindings_with_root_for_global(
         .ok_or(V8BindingError::Allocation("fetch function"))?;
     let name = v8::String::new(scope, "fetch").ok_or(V8BindingError::Allocation("fetch name"))?;
     context.global(scope).set(scope, name.into(), fetch.into());
+    let create_object_url = v8::Function::new(scope, blob_url_create_callback)
+        .ok_or(V8BindingError::Allocation("Blob URL create function"))?;
+    let name = v8::String::new(scope, "__oryn_blob_url_create")
+        .ok_or(V8BindingError::Allocation("Blob URL create name"))?;
+    context
+        .global(scope)
+        .set(scope, name.into(), create_object_url.into());
+    let revoke_object_url = v8::Function::new(scope, blob_url_revoke_callback)
+        .ok_or(V8BindingError::Allocation("Blob URL revoke function"))?;
+    let name = v8::String::new(scope, "__oryn_blob_url_revoke")
+        .ok_or(V8BindingError::Allocation("Blob URL revoke name"))?;
+    context
+        .global(scope)
+        .set(scope, name.into(), revoke_object_url.into());
     Ok(state)
 }
 
@@ -2400,7 +2568,9 @@ fn idb_json_to_value<'s>(
             let array = v8::Array::new(scope, values.len() as i32);
             for (index, value) in values.iter().enumerate() {
                 let value = idb_json_to_value(scope, state, value)?;
-                array.set_index(scope, index as u32, value);
+                let key = v8::String::new(scope, &index.to_string())
+                    .ok_or(V8BindingError::Allocation("IndexedDB array index"))?;
+                array.create_data_property(scope, key.into(), value);
             }
             Ok(array.into())
         }
@@ -2477,6 +2647,73 @@ fn submit_idb(
         queue.push_back(QueuedIdbOperation { request, pending });
     } else {
         submit_platform_operation(state, request, pending)?;
+    }
+    let transaction_id = match &*platform_object(state, request_id)? {
+        PlatformObjectRecord::IdbRequest(request) => request.transaction_id,
+        _ => None,
+    };
+    if let Some(transaction_id) = transaction_id
+        && let PlatformObjectRecord::IdbTransaction(transaction) =
+            &mut *platform_object_mut(state, transaction_id)?
+    {
+        transaction.pending_requests = transaction.pending_requests.saturating_add(1);
+    }
+    Ok(())
+}
+
+fn finish_idb_request(state: &V8BindingState, request_id: u64) -> Result<(), V8BindingError> {
+    let transaction_id = match &*platform_object(state, request_id)? {
+        PlatformObjectRecord::IdbRequest(request) => request.transaction_id,
+        _ => None,
+    };
+    let Some(transaction_id) = transaction_id else {
+        return Ok(());
+    };
+    if let PlatformObjectRecord::IdbTransaction(transaction) =
+        &mut *platform_object_mut(state, transaction_id)?
+    {
+        transaction.pending_requests = transaction.pending_requests.saturating_sub(1);
+        if transaction.mode != "versionchange" && transaction.pending_requests == 0 {
+            transaction.completion_requested = true;
+        }
+    }
+    queue_idb_transaction_completion(state, transaction_id)
+}
+
+fn queue_idb_transaction_completion(
+    state: &V8BindingState,
+    transaction_id: u64,
+) -> Result<(), V8BindingError> {
+    let completion = {
+        let mut record = platform_object_mut(state, transaction_id)?;
+        let PlatformObjectRecord::IdbTransaction(transaction) = &mut *record else {
+            return Err(V8BindingError::Allocation("IDBTransaction record"));
+        };
+        if transaction.aborted
+            || !transaction.completion_requested
+            || transaction.completion_queued
+            || transaction.pending_requests != 0
+        {
+            None
+        } else {
+            transaction.completion_queued = true;
+            Some((transaction.request_id, transaction.database_id))
+        }
+    };
+    let Some((request_id, database_id)) = completion else {
+        return Ok(());
+    };
+    let mut tasks = state.deferred_platform_tasks.borrow_mut();
+    tasks.push_back(DeferredPlatformTask::Event {
+        target_id: transaction_id,
+        event_type: "complete",
+    });
+    if let Some(request_id) = request_id {
+        tasks.push_back(DeferredPlatformTask::FinalizeIdbOpen {
+            request_id,
+            database_id,
+            transaction_id,
+        });
     }
     Ok(())
 }
@@ -3927,6 +4164,73 @@ fn resolve_platform_url(scope: &mut v8::PinScope, input: &str) -> Result<String,
         })
 }
 
+fn blob_url_create_callback(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    let result = (|| -> Result<v8::Local<v8::Value>, V8BindingError> {
+        let state = scope
+            .get_current_context()
+            .get_slot::<V8BindingState>()
+            .ok_or(V8BindingError::Allocation("Blob URL binding state"))?;
+        let object = args
+            .get(0)
+            .to_object(scope)
+            .ok_or(V8BindingError::Unsupported {
+                interface: "URL".into(),
+                member: "TypeError".into(),
+            })?;
+        let blob_id = stateful_id(scope, object)?;
+        if !matches!(
+            &*platform_object(&state, blob_id)?,
+            PlatformObjectRecord::Blob(_)
+        ) {
+            return Err(V8BindingError::Unsupported {
+                interface: "URL".into(),
+                member: "TypeError".into(),
+            });
+        }
+        let id = state.next_blob_url_id.get();
+        state.next_blob_url_id.set(id.saturating_add(1));
+        let url = format!(
+            "blob:{}/{}-{}",
+            current_platform_origin(scope),
+            state.document_generation,
+            id
+        );
+        state.blob_urls.borrow_mut().insert(url.clone(), blob_id);
+        v8_string(scope, &url)
+    })();
+    match result {
+        Ok(value) => return_value.set(value),
+        Err(error) => throw_binding_error(scope, &error),
+    }
+}
+
+fn blob_url_revoke_callback(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _return_value: v8::ReturnValue,
+) {
+    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+        return;
+    };
+    state
+        .blob_urls
+        .borrow_mut()
+        .remove(&args.get(0).to_rust_string_lossy(scope));
+}
+
+fn blob_url_record(state: &V8BindingState, url: &str) -> Option<BlobRecord> {
+    let id = state.blob_urls.borrow().get(url).copied()?;
+    let record = platform_object(state, id).ok()?;
+    let PlatformObjectRecord::Blob(blob) = &*record else {
+        return None;
+    };
+    Some(blob.clone())
+}
+
 fn clone_headers(state: &V8BindingState, id: u64) -> Result<u64, V8BindingError> {
     let record = platform_object(state, id)?;
     let PlatformObjectRecord::Headers(headers) = &*record else {
@@ -4652,6 +4956,32 @@ fn dispatch_platform_event(
     existing: Option<v8::Local<v8::Object>>,
 ) -> Result<(), V8BindingError> {
     let event = existing.unwrap_or_else(|| v8::Object::new(scope));
+    let default_prevented = v8::String::new(scope, "defaultPrevented")
+        .ok_or(V8BindingError::Allocation("event defaultPrevented"))?;
+    if !event
+        .has_own_property(scope, default_prevented.into())
+        .unwrap_or(false)
+    {
+        event.create_data_property(
+            scope,
+            default_prevented.into(),
+            v8::Boolean::new(scope, false).into(),
+        );
+    }
+    macro_rules! install_event_method {
+        ($name:literal, $callback:ident) => {{
+            let key = v8::String::new(scope, $name)
+                .ok_or(V8BindingError::Allocation("platform event method"))?;
+            if !event.has_own_property(scope, key.into()).unwrap_or(false) {
+                let function = v8::Function::new(scope, $callback)
+                    .ok_or(V8BindingError::Allocation("platform event method"))?;
+                event.create_data_property(scope, key.into(), function.into());
+            }
+        }};
+    }
+    install_event_method!("preventDefault", platform_event_prevent_default);
+    install_event_method!("stopPropagation", platform_event_stop);
+    install_event_method!("stopImmediatePropagation", platform_event_stop);
     let type_key =
         v8::String::new(scope, "type").ok_or(V8BindingError::Allocation("event type"))?;
     let type_value = v8_string(scope, event_type)?;
@@ -4689,6 +5019,24 @@ fn dispatch_platform_event(
         handler.call(scope, receiver, &[event.into()]);
     }
     Ok(())
+}
+
+fn platform_event_prevent_default(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
+    let receiver = args.this();
+    if let Some(key) = v8::String::new(scope, "defaultPrevented") {
+        receiver.create_data_property(scope, key.into(), v8::Boolean::new(scope, true).into());
+    }
+}
+
+fn platform_event_stop(
+    _scope: &mut v8::PinScope,
+    _args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
 }
 
 fn dispatch_platform_message_event(
@@ -5556,7 +5904,9 @@ fn document_is_editable(state: &V8BindingState) -> bool {
         return true;
     }
     let dom = state.dom.borrow();
-    let mut current = dom.focused();
+    let mut current = dom
+        .focused()
+        .or_else(|| state.selection_anchor.get().map(|point| point.container));
     while let Some(node) = current {
         let Ok(record) = dom.arena().get(node) else {
             return false;
@@ -5679,6 +6029,47 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
             offset: start,
         };
         set_selection_boundaries(state, point, point)?;
+    } else {
+        let adjacent = {
+            let dom = state.dom.borrow();
+            let children = dom.arena().get(range.start_container)?.children.clone();
+            if forward {
+                children.get(range.start_offset as usize).copied()
+            } else {
+                range
+                    .start_offset
+                    .checked_sub(1)
+                    .and_then(|index| children.get(index as usize))
+                    .copied()
+            }
+        };
+        if let Some(adjacent) = adjacent {
+            let adjacent_kind = state.dom.borrow().arena().get(adjacent)?.kind.clone();
+            if let NodeKind::Text { data } | NodeKind::CDataSection { data } = adjacent_kind {
+                let length = data.encode_utf16().count() as u32;
+                let (start, end) = if forward {
+                    (0, 1.min(length))
+                } else {
+                    (length.saturating_sub(1), length)
+                };
+                state
+                    .dom
+                    .borrow_mut()
+                    .set_text(adjacent, utf16_without_range(&data, start, end))?;
+                let point = if forward {
+                    BoundaryPoint {
+                        container: range.start_container,
+                        offset: range.start_offset,
+                    }
+                } else {
+                    BoundaryPoint {
+                        container: adjacent,
+                        offset: start,
+                    }
+                };
+                set_selection_boundaries(state, point, point)?;
+            }
+        }
     }
     Ok(())
 }
@@ -6870,6 +7261,33 @@ fn platform_fetch_callback(
             });
         }
         drop(signal);
+        if let Some(blob) = blob_url_record(&state, &url) {
+            let headers_id = register_platform_object(
+                &state,
+                PlatformObjectRecord::Headers(HeadersRecord {
+                    entries: if blob.media_type.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![("content-type".into(), blob.media_type)]
+                    },
+                }),
+            );
+            let body_stream_id = Some(new_byte_stream_record(scope, &state, blob.bytes.clone())?);
+            let response_id = register_platform_object(
+                &state,
+                PlatformObjectRecord::Response(ResponseRecord {
+                    status: 200,
+                    url,
+                    headers_id,
+                    body_stream_id,
+                    bytes: blob.bytes,
+                    body_used: false,
+                    signal_id: Some(signal_id),
+                }),
+            );
+            let response = new_platform_object(scope, &state, "Response", response_id)?;
+            return resolved_promise(scope, response.into());
+        }
         let headers = platform_object(&state, headers_id)?;
         let PlatformObjectRecord::Headers(headers) = &*headers else {
             return Err(V8BindingError::Allocation("Request Headers"));
@@ -7238,6 +7656,10 @@ fn call_platform_operation<'s>(
                     object_stores: names,
                     aborted: false,
                     error: None,
+                    pending_requests: 0,
+                    completion_requested: false,
+                    completion_queued: false,
+                    active: true,
                 }),
             );
             return Ok(Some(
@@ -7264,14 +7686,16 @@ fn call_platform_operation<'s>(
                     return Err(V8BindingError::Allocation("IDBDatabase record"));
                 };
                 (
-                    !transaction.aborted && transaction.object_stores.contains(&name),
+                    !transaction.aborted
+                        && transaction.active
+                        && transaction.object_stores.contains(&name),
                     database.object_store_definitions.get(&name).cloned(),
                 )
             };
             if !available {
                 return Err(V8BindingError::Unsupported {
                     interface: "IDBTransaction".into(),
-                    member: "object store unavailable".into(),
+                    member: "TransactionInactiveError".into(),
                 });
             }
             let store_id = register_platform_object(
@@ -7297,11 +7721,23 @@ fn call_platform_operation<'s>(
                 transaction.aborted = true;
                 (transaction.database_id, transaction.request_id)
             };
-            if request_id.is_some()
-                && let PlatformObjectRecord::IdbDatabase(database) =
-                    &mut *platform_object_mut(state, database_id)?
-            {
-                database.version = 0;
+            if request_id.is_some() {
+                let (name, old_version) = {
+                    let mut record = platform_object_mut(state, database_id)?;
+                    let PlatformObjectRecord::IdbDatabase(database) = &mut *record else {
+                        return Err(V8BindingError::Allocation("IDBDatabase record"));
+                    };
+                    database.version = 0;
+                    (database.name.clone(), database.old_version)
+                };
+                let hidden = new_idb_request(state, None);
+                submit_idb(
+                    scope,
+                    state,
+                    hidden,
+                    IdbHostCommand::AbortUpgrade { name, old_version },
+                    IdbCompletionAction::Unit,
+                )?;
             }
             dispatch_platform_event(scope, state, id, "abort", None)?;
             return Ok(None);
@@ -7368,7 +7804,7 @@ fn call_platform_operation<'s>(
                         add_only: member == "add",
                     }],
                 },
-                IdbCompletionAction::Value,
+                IdbCompletionAction::Key,
             )?;
             return Ok(Some(
                 new_platform_object(scope, state, "IDBRequest", request_id)?.into(),
@@ -7499,7 +7935,13 @@ fn call_platform_operation<'s>(
                 None => v8::null(scope).into(),
             };
             set_idb_request_result(scope, state, request_id, value)?;
-            dispatch_platform_event(scope, state, request_id, "success", None)?;
+            state
+                .deferred_platform_tasks
+                .borrow_mut()
+                .push_back(DeferredPlatformTask::Event {
+                    target_id: request_id,
+                    event_type: "success",
+                });
             return Ok(None);
         }
         ("IDBCursor", "delete" | "update") => {
@@ -7569,7 +8011,7 @@ fn call_platform_operation<'s>(
                 if member == "delete" {
                     IdbCompletionAction::Unit
                 } else {
-                    IdbCompletionAction::Value
+                    IdbCompletionAction::Key
                 },
             )?;
             if member == "update"
@@ -7857,16 +8299,29 @@ fn call_platform_operation<'s>(
                         member: "invalid state".into(),
                     });
                 }
+                let mut headers = xhr.request_headers.clone();
+                let body = if args.get(0).is_null_or_undefined() {
+                    Vec::new()
+                } else {
+                    if let Some(object) = args.get(0).to_object(scope)
+                        && let Ok(blob_id) = stateful_id(scope, object)
+                        && let Ok(blob) = platform_object(state, blob_id)
+                        && let PlatformObjectRecord::Blob(blob) = &*blob
+                        && !blob.media_type.is_empty()
+                        && !headers
+                            .iter()
+                            .any(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                    {
+                        headers.push(("content-type".into(), blob.media_type.clone()));
+                    }
+                    bytes_from_value(scope, state, args.get(0))?
+                };
                 (
                     PlatformHttpRequest {
                         method: xhr.method.clone(),
                         url: xhr.url.clone(),
-                        headers: xhr.request_headers.clone(),
-                        body: if args.get(0).is_null_or_undefined() {
-                            Vec::new()
-                        } else {
-                            bytes_from_value(scope, state, args.get(0))?
-                        },
+                        headers,
+                        body,
                         credentials: if xhr.with_credentials {
                             "include".into()
                         } else {
@@ -7877,6 +8332,16 @@ fn call_platform_operation<'s>(
                 )
             };
             dispatch_platform_event(scope, state, id, "loadstart", None)?;
+            if let Some(blob) = blob_url_record(state, &request.url) {
+                state.deferred_platform_tasks.borrow_mut().push_back(
+                    DeferredPlatformTask::CompleteBlobXhr {
+                        xhr_id: id,
+                        url: request.url,
+                        blob,
+                    },
+                );
+                return Ok(None);
+            }
             let operation = submit_platform_operation(
                 state,
                 PlatformHostRequest::HttpStart { request },
@@ -12866,7 +13331,8 @@ mod tests {
                     },
                 },
                 PlatformHostRequest::IndexedDb {
-                    command: IdbHostCommand::CreateObjectStore { .. },
+                    command:
+                        IdbHostCommand::CreateObjectStore { .. } | IdbHostCommand::AbortUpgrade { .. },
                     ..
                 } => PlatformHostResult::IndexedDb {
                     response: Default::default(),
@@ -13078,6 +13544,37 @@ mod tests {
     }
 
     #[test]
+    fn generated_blob_urls_feed_fetch_and_xhr_without_parent_network() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "globalThis.location={origin:'https://example.test'};let result='';const blob=new Blob(['oryn'],{type:'text/plain'});const url=__oryn_blob_url_create(blob);const xhr=new XMLHttpRequest();xhr.open('GET',url,true);xhr.onload=()=>result+='xhr:'+xhr.responseText+':'+xhr.getResponseHeader('content-type')+'|';xhr.send();fetch(url).then(response=>response.text()).then(text=>result+='fetch:'+text);",
+        )
+        .unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        state.drain_platform_completions(scope, 8).unwrap();
+        scope.perform_microtask_checkpoint();
+        let source = v8::String::new(scope, "result").unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert!(result.contains("xhr:oryn:text/plain|"));
+        assert!(result.contains("fetch:oryn"));
+    }
+
+    #[test]
     fn generated_streams_own_queues_backpressure_and_transform_callbacks() {
         initialize_v8();
         let parsed = html::parse("<main></main>");
@@ -13235,6 +13732,7 @@ mod tests {
             .run(scope)
             .unwrap();
         state.drain_platform_completions(scope, 8).unwrap();
+        state.drain_platform_completions(scope, 8).unwrap();
         let source = v8::String::new(scope, "result").unwrap();
         let result = v8::Script::compile(scope, source, None)
             .unwrap()
@@ -13264,6 +13762,7 @@ mod tests {
             .unwrap()
             .run(scope)
             .unwrap();
+        state.drain_platform_completions(scope, 8).unwrap();
         state.drain_platform_completions(scope, 8).unwrap();
         let source = v8::String::new(scope, "result").unwrap();
         let result = v8::Script::compile(scope, source, None)

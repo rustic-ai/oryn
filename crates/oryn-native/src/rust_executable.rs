@@ -1032,6 +1032,8 @@ class OrynURL {
   set href(value){Object.assign(this,new OrynURL(value,this.href))}
   toString(){return this.href}
   toJSON(){return this.href}
+  static createObjectURL(blob){return __oryn_blob_url_create(blob)}
+  static revokeObjectURL(url){__oryn_blob_url_revoke(String(url))}
 }
 globalThis.URL=OrynURL;globalThis.URLSearchParams=OrynURLSearchParams;
 Object.defineProperty(globalThis,'location',{value:new OrynURL(location.href),writable:true,enumerable:true,configurable:true});
