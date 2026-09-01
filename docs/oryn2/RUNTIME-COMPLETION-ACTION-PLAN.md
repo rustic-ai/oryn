@@ -17,10 +17,10 @@ of a completed production cutover.
 | Runtime manifest and evidence contract | Implemented | Immutable `runtime-completion-v1` classification manifest, result schema, cache bootstrapper and fail-closed validators exist. The manifest validator passes. | Produce an exact-binary result whose aggregate is recomputed from complete assertion ledgers. |
 | Async transport and streaming navigation | Implemented in software | `oryn-net` owns the async rustls/HTTP2 pool. Broker v4 emits correlated headers/chunk/completion/failure/cancel operations with explicit demand. Navigation incrementally consumes decoded chunks in the shared live `DomRuntime`. Images complete outside the page actor. Async/defer/module scripts, module graphs, stylesheets/imports, frames, and dynamic scripts start concurrently and join only their required parser/lifecycle barrier. All complete-resource operations are correlated, deadline-, size-, and lifetime-bounded. Worker connection loss, replacement, close, navigation supersession, timeout, and stale completion cancel or reject the affected operation. | Exact packaged-binary and broader WPT lifecycle evidence remain part of final validation. |
 | Incremental semantics | Implemented in software | Contract v6 uses one persistent graph for semantic nodes, accessibility, structures, reverse dependencies, frame ownership, computed visibility, scoped observations, deltas and graph-native resolution. Equal scores and missing spatial geometry fail explicitly. The full projector is a test/feature-gated oracle only. | Run the pinned ARIA/Accessible Name corpus, framework churn, navigation, shadow/frame and replay equivalence, then publish exact-candidate zero-false-preservation evidence. |
-| Generated WebIDL and compatibility APIs | Partial | Generated V8 prototypes route migrated operations into Rust and enforce identity, brand, realm, origin and generation checks. Range, Selection, NodeIterator, TreeWalker, History, referrer policy and broader IndexedDB behavior are present. | Implement the remaining declared Range/Selection/editing/traversal algorithms, traversal filtering, full history/referrer cases and IndexedDB connection/version/transaction semantics. Remove corresponding handwritten bootstrap interfaces only after mapped tests pass. |
-| Stylo cascade | Partial | A persistent style service uses Stylo stylesheet/media/declaration parsing, selector matching and specificity. Combinators, importance, pseudo-state, media and invalidation regressions pass, and computed visibility feeds the semantic graph. Taffy and Parley remain the box/text services. | Move the remaining winner, inheritance and supported-value projection onto Stylo computed values, add stylesheet origins/custom-property coverage, and pass mapped CSSOM/differential tests. |
+| Generated WebIDL and compatibility APIs | Partial | Generated V8 prototypes route migrated operations into Rust and enforce identity, brand, realm, origin and generation checks. Cross-container Range extraction/editing, CharacterData, Storage and the IndexedDB family required by the worker corpus are present. | Complete Selection/editing, traversal filtering, remaining history/referrer cases and full IndexedDB connection/version/transaction semantics. Remove corresponding handwritten bootstrap interfaces only after mapped tests pass. |
+| Stylo cascade | Implemented in software | Production resolves an immutable Rust style snapshot through native Stylo `ComputedValues`, including origins, inheritance, custom properties and supported values. Taffy and Parley remain the box/text consumers; the prior handwritten cascade is test-only. | Pass and publish the mapped CSSOM/native-versus-Chromium differential corpus, including the supported grid bridge and explicit long-tail layout boundaries. |
 | V8 sandbox, ICU and startup snapshots | Partial | Production features require `v8_enable_sandbox`; runtime initialization is fail-closed. Exact macOS ARM64 full and external-data lite archives build from pinned source. Lite embeds a physically reduced 2.2 MiB root/en/en-US ICU package. A versioned callback table and content-addressed snapshot are supplied to both snapshot creation and runtime isolates, with hashes in schema-v3 manifests. Heap-sandbox, locale, Segmenter and snapshot-load checks pass. | Build Linux x86_64 full/lite, regenerate the full macOS schema-v3 bundle, then attest all four exact profile artifacts. |
-| Upstream conformance | Partial | A pinned sparse WPT cache exists outside Git. The native harness supports applicable `.any.js`, `.window.js` and testharness HTML cases through controlled loopback and records assertion-level outcomes. | Fix the current Range timeout, then run every required mapped WPT/ARIA/Accessible Name case. Keep deferred, excluded and informational results separate. |
+| Upstream conformance | Partial | A pinned sparse WPT cache exists outside Git. The native harness supports applicable `.any.js`, `.window.js` and testharness HTML cases through controlled loopback and records assertion-level outcomes. Four SharedWorker and four ServiceWorker IndexedDB variants pass through a signed production worker and have a compact recomputable ledger. | Diagnose the broader Range/API inventory, then run every required mapped WPT/ARIA/Accessible Name case. Keep deferred, excluded and informational results separate. |
 | Product and release validation | Not started for this cutover | Focused Rust/V8 tests pass and historical product evidence remains available for its original commits. | Rerun framework/OAuth, MiniWoB, churn, replay, scanner, Python, MCP, platform security and benchmarks against one clean release candidate; privately sign and re-attest only after deterministic completion. |
 
 ## 2. Remaining implementation list
@@ -78,13 +78,14 @@ of a completed production cutover.
 
 ### Style and layout
 
-- Adapt Oryn DOM nodes to Stylo's document, node and element traits without
-  creating another canonical DOM.
-- Maintain user-agent, author and inline stylesheet origins and revisioned
-  invalidation state.
-- Convert Stylo computed values into Taffy/Parley inputs and semantic visibility.
-- Mark paint-only, fragmentation, unsupported writing-mode and other declared
-  boundaries unavailable instead of returning plausible geometry.
+- ~~Resolve an immutable Rust DOM mirror through native Stylo document/node/
+  element traversal without creating another canonical live DOM.~~ Implemented.
+- ~~Maintain user-agent, author and inline stylesheet origins and revisioned
+  invalidation state.~~ Implemented by the Stylo-backed snapshot service.
+- ~~Convert Stylo computed values into Taffy/Parley inputs and semantic
+  visibility.~~ Implemented, including the standalone grid-value bridge.
+- Continue marking paint-only, fragmentation, unsupported writing-mode and
+  other declared boundaries unavailable instead of returning plausible geometry.
 
 ### Runtime artifacts and profiles
 
@@ -160,13 +161,14 @@ tests pass without compatibility shims.
 
 ### Milestone D — replace the CSS cascade
 
-1. **Implemented in part:** Stylo owns stylesheet/media/declaration parsing,
-   selector matching and specificity in a persistent style service.
+1. **Implemented:** Stylo owns stylesheet/media/declaration parsing, selector
+   matching, specificity and computed-value resolution.
 2. **Implemented:** connect style caching/invalidation and computed visibility
    to the semantic graph.
-3. Feed computed values to Taffy/Parley and semantic visibility.
-4. Replace the remaining bounded winner/inheritance/value projection with Stylo
-   computed values and finish origin/custom-property coverage.
+3. **Implemented:** feed native computed values to Taffy/Parley and semantic
+   visibility, including the grid compatibility bridge.
+4. **Implemented:** the bounded winner/inheritance/value projection is no
+   longer in production and remains only as a test oracle.
 
 **Exit:** runtime metadata identifies a real Stylo cascade and every required
 mapped CSSOM/cascade/selector assertion plus native-versus-Chromium differential
@@ -213,15 +215,15 @@ release status be marked complete.
 
 ## 4. Immediate next actions
 
-1. Fix the upstream Range timeout using an isolated lifecycle/testharness
-   regression before broad WPT execution.
+1. Diagnose the remaining broader Range/API WPT inventory; the eight requested
+   SharedWorker/ServiceWorker IndexedDB variants now pass production and have a
+   recomputable compact ledger.
 2. Expand the now-production contract-v6 graph/oracle tests to framework churn,
    navigation, frames and shadow DOM, then run pinned ARIA/AccName mappings.
-3. Complete the remaining generated Range/Selection/traversal/editing,
-   history/referrer and IndexedDB algorithms.
-4. Complete Stylo computed-value traversal now that stylesheet parsing,
-   matching, specificity and persistent invalidation are active.
-5. Build custom V8 artifacts after software cutovers stabilize, avoiding costly
+3. Complete the remaining generated Selection/traversal/editing,
+   history/referrer and IndexedDB connection/version/transaction algorithms.
+4. Publish the Stylo CSSOM and native-versus-Chromium differential corpus.
+5. Build Linux custom V8 artifacts after software cutovers stabilize, avoiding costly
    rebuilds for a moving external-reference table.
 
 ## 5. Completion rules

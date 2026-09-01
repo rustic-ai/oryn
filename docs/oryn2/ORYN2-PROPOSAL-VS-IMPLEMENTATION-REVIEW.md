@@ -68,8 +68,9 @@ reduced-ICU lite V8 profiles plus callback-bearing startup snapshots are now
 built and verified on macOS ARM64; Linux profile artifacts and cross-platform
 attestation remain. The eight requested pinned IndexedDB worker variants pass
 in the local V8 probe and through a locally signed, trusted production worker
-(four SharedWorker and four ServiceWorker). Clean-source compact publication
-and the broader pinned Range/API inventory remain outstanding.
+(four SharedWorker and four ServiceWorker). A compact recomputable ledger binds
+those runs to signed source commit `ef8a8d4`; the broader pinned Range/API
+inventory remains outstanding.
 
 The dependency-ordered completion backlog is maintained in
 [`RUNTIME-COMPLETION-ACTION-PLAN.md`](RUNTIME-COMPLETION-ACTION-PLAN.md).
@@ -92,7 +93,7 @@ The dependency-ordered completion backlog is maintained in
 | F12 — untrusted content | **Mostly closed** | Semantic nodes carry `ContentTrust::PageAuthored`, inferred facts use heuristic provenance, and raw inspection is policy-audited without recording page content. Broader prompt-boundary evidence remains narrower than the proposal's full trust model. |
 | F13 — secret leakage | **Closed in software** | Secret sensitivity is stored independently on Rust DOM nodes, applies to text inputs, survives page-controlled attribute changes, and redacts observation and HTML extraction. |
 | F14 — generated WebIDL | **Partial; materially advanced** | Deterministic generation, real prototypes, Rust callbacks, wrapper identity, brands, realms, origin and generation checks are active for migrated interfaces. Cross-container Range clone/extract/delete/surround operations, text splitting and CharacterData editing now mutate the Rust DOM; generated Storage and IndexedDB interfaces cover the worker variants exercised here. Complete Selection/editing commands, `NodeFilter` callbacks, and full IndexedDB connection/version/transaction semantics remain. |
-| F15 — production-path testing | **Partial; requested worker variants pass production locally** | Focused default, no-V8 and V8-host tests pass and the pinned upstream harness is fail-closed. All eight requested IndexedDB SharedWorker/ServiceWorker executions pass both the local V8 probe and a trusted, locally signed macOS App Sandbox worker with heap-sandbox metadata. The macOS ARM64 full/lite profile builder verifies ICU, snapshot and external-reference inputs. Clean exact-source publication, full four-profile equivalence, the complete mapped WPT/ARIA inventory, Linux sandboxed artifacts, performance and release attestation remain open. |
+| F15 — production-path testing | **Partial; requested worker variants pass production locally** | Focused default, no-V8 and V8-host tests pass and the pinned upstream harness is fail-closed. All eight requested IndexedDB SharedWorker/ServiceWorker executions pass both the local V8 probe and a trusted, locally signed macOS App Sandbox worker with heap-sandbox metadata; a compact validator recomputes their `ef8a8d4` ledger. The macOS ARM64 full/lite profile builder verifies ICU, snapshot and external-reference inputs. Full four-profile equivalence, the complete mapped WPT/ARIA inventory, Linux sandboxed artifacts, performance and release attestation remain open. |
 | F16 — Intent/API/MCP | **Closed in software; release evidence pending** | Agent contract v3 additively exposes semantic contract v6 and scoped/delta observation while accepting frozen v2 requests. Rust, OIL, worker protocol v8, Python and MCP use the same graph resolver/action engine. Upload, context-virtual clipboard and parent-owned secret-label behavior remain unchanged and values never enter argv, environment, OIL, JSON-RPC, traces, observations or worker initialization. |
 
 ### Current broader-gap status
@@ -194,9 +195,9 @@ The current honest product statement is therefore:
    against its full-projector oracle across randomized mutations, frameworks,
    navigation, frames, shadow DOM and replay; run the pinned ARIA/Accessible
    Name mappings and require zero false reference preservation.
-4. **Upstream harness closure.** Publish the locally passing production-worker
-   ledger for the four SharedWorker and four ServiceWorker IndexedDB variants,
-   diagnose the broader Range/API inventory, then run every required
+4. **Upstream harness closure.** The production-worker ledger for the four
+   SharedWorker and four ServiceWorker IndexedDB variants is published.
+   Diagnose the broader Range/API inventory, then run every required
    `runtime-completion-v1` WPT/ARIA mapping. Keep deferred, excluded and
    informational cases visibly separate.
 5. **Linux and profile equivalence.** Build sandboxed full/lite Linux x86_64

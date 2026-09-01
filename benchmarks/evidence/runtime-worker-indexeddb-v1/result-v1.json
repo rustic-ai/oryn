@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "source": {
+    "commit": "ef8a8d4a8b18395ccae49d8aaf11853727f943f8",
+    "dirty": false,
+    "source_tree_sha256": "a84ef767dc318e138d344d38130c9373f816515e0f8320bb618f1e8d299a2d02"
+  },
+  "upstream": {
+    "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+    "inventory_sha256": "eed2da7271af0c7c01184936b85043f7fbdaa7619d39bf4d9b40c07a2a86cfa5"
+  },
+  "artifact": {
+    "execution_mode": "sandboxed_worker",
+    "parent_sha256": "7124c69aa5065dfb727808f4afa1a4911fc94eb6941d2e6b464bc8fc8f191f4b",
+    "parent_bytes": 6874960,
+    "worker_sha256": "3008f8486f82e1ce57d50fdbdb569099bbe2e9e94f755ce62f4adfbe3202395e",
+    "worker_bytes": 51514864,
+    "worker_manifest_sha256": "54789a26e8aef42dc65396ba1f033c9523eaaa61201e531d28510963ff72aeca",
+    "bundle_id": "ai.rustic.oryn.page-worker",
+    "team_id": "5HVA9VFF8K",
+    "signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "cdhash": "1e221fec74b0c7324ac183a43406fea6fd49face",
+    "entitlement_sha256": "cbb53a56267d47cc0e275b74373577dd1d6220f47d0e6da34599a7e9dc9c2d65"
+  },
+  "runtime": {
+    "protocol_version": 8,
+    "v8_version": "15.0.245.2-rusty",
+    "v8_heap_sandbox": true,
+    "runtime_profile": "core_full",
+    "transport_mode": "async_streaming_parent_broker",
+    "streaming_parser": true,
+    "semantic_graph_version": 2,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "webidl_manifest_sha256": "4a8c13c36e4676c7de80dbe011723040bb317aa6eb47e77835237d6969f74b5c",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "startup_snapshot_sha256": "3e64d70089b6ce478680bba85d50c320b039cc4f2160d1f72214028017c7f00c",
+    "external_references_sha256": "82e483160802d3c7495aec26420443e9485bb40922f7eb983f20174502d7591a"
+  },
+  "sandbox": {
+    "state": "app_sandbox",
+    "filesystem_read_succeeded": false,
+    "outgoing_connection_succeeded": false,
+    "listener_succeeded": false,
+    "secret_environment_present": false
+  },
+  "assertions": [
+    {"id":"IndexedDB/reading-autoincrement-indexes-cursors.any.js|sharedworker|","global":"sharedworker","status":"passed"},
+    {"id":"IndexedDB/reading-autoincrement-indexes.any.js|sharedworker|","global":"sharedworker","status":"passed"},
+    {"id":"IndexedDB/reading-autoincrement-store-cursors.any.js|sharedworker|","global":"sharedworker","status":"passed"},
+    {"id":"IndexedDB/reading-autoincrement-store.any.js|sharedworker|","global":"sharedworker","status":"passed"},
+    {"id":"IndexedDB/reading-autoincrement-indexes-cursors.any.js|serviceworker|","global":"serviceworker","status":"passed"},
+    {"id":"IndexedDB/reading-autoincrement-indexes.any.js|serviceworker|","global":"serviceworker","status":"passed"},
+    {"id":"IndexedDB/reading-autoincrement-store-cursors.any.js|serviceworker|","global":"serviceworker","status":"passed"},
+    {"id":"IndexedDB/reading-autoincrement-store.any.js|serviceworker|","global":"serviceworker","status":"passed"}
+  ],
+  "outcome": {
+    "required_total": 8,
+    "required_passed": 8,
+    "required_failed": 0,
+    "status": "passed"
+  }
+}
