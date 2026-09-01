@@ -532,10 +532,19 @@ interface IDBFactory {
 };
 
 [Exposed=(Window,Worker)]
+interface IDBVersionChangeEvent : Event {
+  constructor(DOMString type, optional any eventInitDict);
+  readonly attribute unsigned long long oldVersion;
+  readonly attribute any newVersion;
+};
+
+[Exposed=(Window,Worker)]
 interface IDBRequest : EventTarget {
   readonly attribute any result;
   readonly attribute any error;
+  readonly attribute any source;
   readonly attribute IDBTransaction? transaction;
+  readonly attribute DOMString readyState;
   attribute EventListener? onsuccess;
   attribute EventListener? onerror;
 };

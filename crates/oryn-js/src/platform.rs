@@ -23,6 +23,8 @@ pub struct IdbObjectStoreDefinition {
     pub name: String,
     pub key_path: Option<String>,
     pub auto_increment: bool,
+    #[serde(default)]
+    pub indexes: Vec<IdbIndexDefinition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

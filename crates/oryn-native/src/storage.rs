@@ -105,6 +105,8 @@ pub struct ObjectStoreDefinition {
     pub name: String,
     pub key_path: Option<String>,
     pub auto_increment: bool,
+    #[serde(default)]
+    pub indexes: Vec<IndexDefinition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -831,7 +833,11 @@ fn execute_idb(
                 object_store_definitions: database
                     .stores
                     .values()
-                    .filter_map(|store| store.definition.clone())
+                    .filter_map(|store| {
+                        let mut definition = store.definition.clone()?;
+                        definition.indexes = store.indexes.values().cloned().collect();
+                        Some(definition)
+                    })
                     .collect(),
                 ..IdbResponse::default()
             }
@@ -1039,30 +1045,36 @@ fn indexed_db_key_matches(query: &serde_json::Value, key: &serde_json::Value) ->
     }) else {
         return query == key;
     };
-    let lower_matches = range.get("lower").is_none_or(|lower| {
-        let ordering = compare_indexed_db_keys(key, lower);
-        if range
-            .get("lower_open")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false)
-        {
-            ordering.is_gt()
-        } else {
-            ordering.is_ge()
-        }
-    });
-    let upper_matches = range.get("upper").is_none_or(|upper| {
-        let ordering = compare_indexed_db_keys(key, upper);
-        if range
-            .get("upper_open")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false)
-        {
-            ordering.is_lt()
-        } else {
-            ordering.is_le()
-        }
-    });
+    let lower_matches = range
+        .get("lower")
+        .filter(|value| !value.is_null())
+        .is_none_or(|lower| {
+            let ordering = compare_indexed_db_keys(key, lower);
+            if range
+                .get("lower_open")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false)
+            {
+                ordering.is_gt()
+            } else {
+                ordering.is_ge()
+            }
+        });
+    let upper_matches = range
+        .get("upper")
+        .filter(|value| !value.is_null())
+        .is_none_or(|upper| {
+            let ordering = compare_indexed_db_keys(key, upper);
+            if range
+                .get("upper_open")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false)
+            {
+                ordering.is_lt()
+            } else {
+                ordering.is_le()
+            }
+        });
     lower_matches && upper_matches
 }
 
@@ -1085,6 +1097,30 @@ fn compare_indexed_db_keys(
                 }
             }
             left.len().cmp(&right.len())
+        }
+        (serde_json::Value::Object(left), serde_json::Value::Object(right))
+            if left
+                .get("__oryn_idb_key_type")
+                .and_then(|value| value.as_str())
+                == Some("binary")
+                && right
+                    .get("__oryn_idb_key_type")
+                    .and_then(|value| value.as_str())
+                    == Some("binary") =>
+        {
+            let bytes = |value: &serde_json::Map<String, serde_json::Value>| {
+                value
+                    .get("bytes")
+                    .and_then(|value| value.as_array())
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(|value| value.as_u64().map(|value| value as u8))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            };
+            bytes(left).cmp(&bytes(right))
         }
         _ => encode_key(left)
             .unwrap_or_default()
@@ -1142,6 +1178,7 @@ fn put_record(
         name: write.store,
         key_path: None,
         auto_increment: false,
+        indexes: Vec::new(),
     });
     let mut value = write.value;
     let key_from_path = definition
@@ -1198,6 +1235,9 @@ fn json_value_at_key_path<'a>(
     value: &'a serde_json::Value,
     path: &str,
 ) -> Option<&'a serde_json::Value> {
+    if path.is_empty() {
+        return Some(value);
+    }
     path.split('.')
         .try_fold(value, |current, segment| current.as_object()?.get(segment))
 }
@@ -1245,6 +1285,27 @@ fn encode_key(key: &serde_json::Value) -> Result<String, StorageError> {
             serde_json::to_string(&encoded)
                 .map(|encoded| format!("a:{encoded}"))
                 .map_err(|error| StorageError::DataClone(error.to_string()))
+        }
+        serde_json::Value::Object(value)
+            if value
+                .get("__oryn_idb_key_type")
+                .and_then(|value| value.as_str())
+                == Some("binary") =>
+        {
+            let bytes = value
+                .get("bytes")
+                .and_then(|value| value.as_array())
+                .ok_or_else(|| StorageError::DataClone("invalid binary IndexedDB key".into()))?;
+            let mut encoded = String::from("b:");
+            for byte in bytes {
+                let byte = byte.as_u64().filter(|value| *value <= 255).ok_or_else(|| {
+                    StorageError::DataClone("invalid binary IndexedDB key".into())
+                })?;
+                use std::fmt::Write as _;
+                write!(&mut encoded, "{byte:02x}")
+                    .map_err(|error| StorageError::DataClone(error.to_string()))?;
+            }
+            Ok(encoded)
         }
         serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Object(_) => {
             Err(StorageError::DataClone("invalid IndexedDB key".into()))
@@ -1339,6 +1400,7 @@ mod tests {
                         name: "items".into(),
                         key_path: Some("id".into()),
                         auto_increment: true,
+                        indexes: Vec::new(),
                     },
                 },
             })
@@ -1393,6 +1455,7 @@ mod tests {
                         name: "items".into(),
                         key_path: Some("id".into()),
                         auto_increment: true,
+                        indexes: Vec::new(),
                     },
                 },
             })
@@ -1437,6 +1500,7 @@ mod tests {
             name: "items".into(),
             key_path: Some("id".into()),
             auto_increment: true,
+            indexes: Vec::new(),
         };
         store
             .execute(StorageRequest::IndexedDb {
@@ -1519,6 +1583,7 @@ mod tests {
                         name: "items".into(),
                         key_path: Some("a.b.c".into()),
                         auto_increment: true,
+                        indexes: Vec::new(),
                     },
                 },
             })
@@ -1711,6 +1776,7 @@ mod tests {
                             name: "tokens".into(),
                             key_path: None,
                             auto_increment: false,
+                            indexes: Vec::new(),
                         },
                     },
                 })

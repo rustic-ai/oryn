@@ -2,7 +2,8 @@
 
 > **Current status: runtime-completion cutover in progress; exact-artifact
 > attestation pending on macOS and Linux.** The committed runtime baseline is
-> `21588f5`. The current working tree additionally completes the remaining
+> `140f89e`. The current working tree additionally deepens the pinned
+> IndexedDB and editing release-validation surface while retaining the remaining
 > script/style/module/frame resource scheduler and protocol-v4/v8/v10 transport contracts,
 > streaming navigation foundations, an incremental semantic graph, expanded
 > generated WebIDL behavior, referrer and IndexedDB work, V8 profile tooling and
@@ -123,14 +124,25 @@ rewrite those historical payloads or present them as a new validation run.
   transitive `META: script` dependencies, supports bounded parallel execution,
   writes atomic checkpoints, and resumes only on an exact source, binary,
   runtime, inventory, and selection fingerprint. Initial diagnostic shards are
-  intentionally not committed as passing evidence: 5/20 broad IndexedDB and
-  1/20 broad editing executions passed. They identified real long-tail engine
-  work plus explicit geometry/testdriver/bfcache capability boundaries.
+  intentionally not committed as passing release evidence. The clean first-20
+  IndexedDB diagnostic now passes 17/20; its only remaining cases are two live
+  BFCache workflows and the cross-origin iframe/window messaging workflow. A
+  broader first-100 IndexedDB run improved from 26/100 to 42/100 after request
+  lifecycle, transaction activity, event propagation, binary keys, persisted
+  index metadata and cursor scheduling fixes. A non-EditContext editing shard
+  passes 5/40. The remaining failures identify real long-tail connection,
+  versionchange, cursor/index-renaming and editing-normalization work plus
+  explicit geometry, testdriver/clipboard, cross-origin and BFCache boundaries.
 - Generated IndexedDB now implements the browser key ordering used by
   `IDBFactory.cmp`, including dates, unsigned binary keys and recursive arrays,
   and exposes a real versionchange transaction during upgrade. Upgrade abort
   resets the initial database version, rejects the open request with an
-  `AbortError` DOMException, and clears the request transaction. Generated
+  `AbortError` DOMException, and clears the request transaction. It also exposes
+  generated request `source`/`readyState`, task-scoped transaction activity,
+  cancelable request/transaction/connection error propagation, listener-object
+  dispatch, Blob URL round trips, binary BufferSource keys, persisted index
+  definitions, deleted-store invalidation and asynchronous cursor
+  advance/continue state. Generated
   Document editing now supplies `designMode`, safe command queries, and
   selection-backed insert-text/HTML, line/paragraph insertion, directional
   deletion and select-all. Unsupported formatting commands report `false`
