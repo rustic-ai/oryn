@@ -36,9 +36,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("shards", nargs="+", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--inventory", type=Path, default=INVENTORY)
     args = parser.parse_args()
-    inventory = json.loads(INVENTORY.read_text(encoding="utf-8"))
-    inventory_sha = digest(INVENTORY)
+    inventory_path = args.inventory.resolve()
+    inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+    inventory_sha = digest(inventory_path)
     expected = expected_assertions(inventory)
     assertions: dict[str, dict[str, object]] = {}
     shard_count: int | None = None

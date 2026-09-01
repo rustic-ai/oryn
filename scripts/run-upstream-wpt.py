@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
+import html as html_module
 import http.server
 import json
 import os
@@ -13,6 +15,7 @@ import tempfile
 import threading
 import urllib.parse
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "benchmarks/conformance/runtime-completion-v1.json"
@@ -52,6 +55,51 @@ add_completion_callback(function(tests, harness) { __oryn_publish_wpt(harness, t
 """
 
 
+def meta_script_paths(root: Path, source_path: Path, source_text: str) -> list[str]:
+    dependencies: list[str] = []
+    for line in source_text.splitlines():
+        if not line.startswith("// META: script="):
+            continue
+        declared = line.split("=", 1)[1].strip()
+        dependency = (
+            root / declared.lstrip("/")
+            if declared.startswith("/")
+            else source_path.parent / declared
+        ).resolve()
+        if root not in dependency.parents or not dependency.is_file():
+            raise ValueError(f"invalid WPT META script: {declared}")
+        dependencies.append("/" + dependency.relative_to(root).as_posix())
+    return dependencies
+
+
+def sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def outcome(assertions: list[dict[str, object]], expected_total: int, complete: bool) -> dict[str, object]:
+    passed = sum(item["status"] == "passed" for item in assertions)
+    finished = len(assertions)
+    if not complete:
+        status = "running"
+    elif finished == expected_total and assertions and passed == finished:
+        status = "passed"
+    else:
+        status = "failed"
+    return {
+        "status": status,
+        "required_total": expected_total,
+        "required_finished": finished,
+        "required_passed": passed,
+    }
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     root: Path
 
@@ -66,11 +114,32 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/__oryn_any_runner.html":
             source = urllib.parse.parse_qs(parsed.query).get("source", [""])[0]
+            source_path = (self.root / source).resolve()
+            if self.root not in source_path.parents or not source_path.is_file():
+                self.send_error(404)
+                return
+            source_text = source_path.read_text(encoding="utf-8", errors="replace")
+            try:
+                dependencies = meta_script_paths(self.root, source_path, source_text)
+            except ValueError as error:
+                self.send_error(400, str(error))
+                return
+            dependency_tags = "".join(
+                f'<script src="{html_module.escape(path, quote=True)}"></script>'
+                for path in dependencies
+            )
+            timeout_setup = (
+                "<script>setup({timeout_multiplier:4});</script>"
+                if "// META: timeout=long" in source_text
+                else ""
+            )
             body = (
                 "<!doctype html><meta charset=utf-8><title>Oryn WPT</title>"
                 '<script src="/resources/testharness.js"></script>'
+                + timeout_setup
                 + COMPLETION
-                + f'<script src="/{source}"></script>'
+                + dependency_tags
+                + f'<script src="/{html_module.escape(source, quote=True)}"></script>'
             ).encode()
             self.send_response(200); self.send_header("content-type", "text/html; charset=utf-8")
             self.send_header("content-length", str(len(body))); self.end_headers(); self.wfile.write(body)
@@ -112,20 +181,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 encoding="utf-8", errors="replace"
             )
             test_source = source_path.read_text(encoding="utf-8", errors="replace")
-            dependencies = []
-            for line in test_source.splitlines():
-                if not line.startswith("// META: script="):
-                    continue
-                dependency = line.split("=", 1)[1].strip()
-                dependency_path = (
-                    (self.root / dependency.lstrip("/"))
-                    if dependency.startswith("/")
-                    else (source_path.parent / dependency)
-                ).resolve()
-                if self.root in dependency_path.parents and dependency_path.is_file():
-                    dependencies.append(
-                        dependency_path.read_text(encoding="utf-8", errors="replace")
-                    )
+            dependencies = [
+                (self.root / dependency.lstrip("/")).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+                for dependency in meta_script_paths(self.root, source_path, test_source)
+            ]
             body = (
                 harness
                 + "\n"
@@ -280,7 +341,26 @@ def run_case(
             or not result.get("tests")
             or any(item.get("status") != 0 for item in result.get("tests", []))
         )
-        return {"id":identifier,"path":test.as_posix(),"classification":classification,"global":global_name,"variant":variant,"status":"failed" if failed else "passed","result":result}
+        failure_domain = None
+        if failed:
+            if not result.get("complete", False):
+                failure_domain = "incomplete"
+            elif result.get("harness") not in (0, None):
+                failure_domain = "harness"
+            elif not result.get("tests"):
+                failure_domain = "no_assertions"
+            else:
+                failure_domain = "assertion"
+        return {
+            "id": identifier,
+            "path": test.as_posix(),
+            "classification": classification,
+            "global": global_name,
+            "variant": variant,
+            "status": "failed" if failed else "passed",
+            "failure_domain": failure_domain,
+            "result": result,
+        }
     except subprocess.TimeoutExpired:
         return {"id":identifier,"path":test.as_posix(),"classification":classification,"global":global_name,"variant":variant,"status":"failed","diagnostics":[f"timeout after {timeout}s"]}
     finally:
@@ -311,11 +391,24 @@ def main() -> int:
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument(
+        "--jobs",
+        type=int,
+        default=4,
+        help="maximum concurrent native test processes (default: 4)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="resume only assertions whose complete runtime and selection fingerprint matches",
+    )
+    parser.add_argument(
         "--in-process-probe",
         action="store_true",
         help="explicit local diagnostic only; release evidence must use the worker boundary",
     )
     args = parser.parse_args()
+    if args.jobs < 1 or args.jobs > 32:
+        raise SystemExit("jobs must be between 1 and 32")
     revision_manifest = EXPANDED_MANIFEST if args.inventory else MANIFEST
     revision = json.loads(revision_manifest.read_text())["upstream"]["revision"]
     actual = subprocess.check_output(["git", "-C", args.checkout, "rev-parse", "HEAD"], text=True).strip()
@@ -346,6 +439,9 @@ def main() -> int:
             text=True,
         ).strip()
     )
+    source_patch = subprocess.check_output(
+        ["git", "-C", str(ROOT), "diff", "--binary", "HEAD"],
+    )
     Handler.root = args.checkout.resolve()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
@@ -358,25 +454,106 @@ def main() -> int:
         tests = [item for item in tests if item[2] == args.global_filter]
     tests = [item for index, item in enumerate(tests) if index % args.shard_count == args.shard_index]
     if args.max_tests is not None: tests = tests[: args.max_tests]
+    inventory_sha256 = (
+        sha256_bytes((args.inventory or EXPANDED_INVENTORY).read_bytes())
+        if args.inventory
+        else None
+    )
+    binary_fingerprint = {
+        "sha256": sha256_bytes(binary.read_bytes()),
+        "size_bytes": binary.stat().st_size,
+    }
+    selection = {
+        "filter": args.filter,
+        "global": args.global_filter,
+        "shard_index": args.shard_index,
+        "shard_count": args.shard_count,
+        "max_tests": args.max_tests,
+        "timeout_seconds": args.timeout,
+        "script_wall_ms": args.script_wall_ms,
+    }
+    fingerprint_input = {
+        "upstream_revision": revision,
+        "inventory_sha256": inventory_sha256,
+        "execution_mode": "in_process_probe" if args.in_process_probe else "sandboxed_worker",
+        "binary": binary_fingerprint,
+        "runtime_metadata": runtime_metadata,
+        "source_commit": source_commit,
+        "source_patch_sha256": sha256_bytes(source_patch),
+        "selection": selection,
+    }
+    run_fingerprint = sha256_bytes(
+        json.dumps(fingerprint_input, sort_keys=True, separators=(",", ":")).encode()
+    )
+    expected_ids = {
+        f"{test.as_posix()}|{global_name}|{variant}"
+        for test, _classification, global_name, variant in tests
+    }
+    completed_by_id: dict[str, dict[str, object]] = {}
+    if args.resume and args.output.is_file():
+        prior = json.loads(args.output.read_text(encoding="utf-8"))
+        if prior.get("run_fingerprint") != run_fingerprint:
+            raise SystemExit("refusing to resume: WPT run fingerprint changed")
+        completed_by_id = {
+            str(item["id"]): item
+            for item in prior.get("assertions", [])
+            if item.get("id") in expected_ids and item.get("status") in {"passed", "failed"}
+        }
+
+    def publish(complete: bool) -> dict[str, Any]:
+        assertions = [completed_by_id[key] for key in sorted(completed_by_id)]
+        result: dict[str, Any] = {
+            "schema_version": 2 if args.inventory else 1,
+            "upstream_revision": revision,
+            "inventory_sha256": inventory_sha256,
+            "execution_mode": fingerprint_input["execution_mode"],
+            "run_fingerprint": run_fingerprint,
+            "binary": binary_fingerprint,
+            "runtime_metadata": runtime_metadata,
+            "source": {
+                "commit": source_commit,
+                "dirty": source_tree_dirty,
+                "patch_sha256": fingerprint_input["source_patch_sha256"],
+            },
+            "selection": selection,
+            "shard": {"index": args.shard_index, "count": args.shard_count},
+            "jobs": args.jobs,
+            "assertions": assertions,
+            "outcome": outcome(assertions, len(tests), complete),
+        }
+        atomic_write_json(args.output, result)
+        return result
+
+    pending = [
+        item
+        for item in tests
+        if f"{item[0].as_posix()}|{item[2]}|{item[3]}" not in completed_by_id
+    ]
+    publish(complete=False)
     try:
-        assertions = [
-            run_case(
-                binary,
-                server.server_port,
-                test,
-                classification,
-                global_name,
-                variant,
-                args.timeout,
-                args.in_process_probe,
-                args.script_wall_ms,
-            )
-            for test, classification, global_name, variant in tests
-        ]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
+            futures = {
+                executor.submit(
+                    run_case,
+                    binary,
+                    server.server_port,
+                    test,
+                    classification,
+                    global_name,
+                    variant,
+                    args.timeout,
+                    args.in_process_probe,
+                    args.script_wall_ms,
+                ): f"{test.as_posix()}|{global_name}|{variant}"
+                for test, classification, global_name, variant in pending
+            }
+            for future in concurrent.futures.as_completed(futures):
+                assertion = future.result()
+                completed_by_id[str(assertion["id"])] = assertion
+                publish(complete=False)
     finally:
         server.shutdown(); thread.join()
-    result = {"schema_version":2 if args.inventory else 1,"upstream_revision":revision,"inventory_sha256":hashlib.sha256((args.inventory or EXPANDED_INVENTORY).read_bytes()).hexdigest() if args.inventory else None,"execution_mode":"in_process_probe" if args.in_process_probe else "sandboxed_worker","binary":{"sha256":hashlib.sha256(binary.read_bytes()).hexdigest(),"size_bytes":binary.stat().st_size},"runtime_metadata":runtime_metadata,"source":{"commit":source_commit,"dirty":source_tree_dirty},"shard":{"index":args.shard_index,"count":args.shard_count},"assertions":assertions,"outcome":{"status":"passed" if assertions and all(item["status"]=="passed" for item in assertions) else "failed","required_total":len(assertions),"required_passed":sum(item["status"]=="passed" for item in assertions)}}
-    args.output.parent.mkdir(parents=True, exist_ok=True); args.output.write_text(json.dumps(result, indent=2, sort_keys=True)+"\n")
+    result = publish(complete=True)
     print(json.dumps(result["outcome"], sort_keys=True))
     return 0 if result["outcome"]["status"] == "passed" else 1
 

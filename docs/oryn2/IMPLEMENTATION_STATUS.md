@@ -2,7 +2,7 @@
 
 > **Current status: runtime-completion cutover in progress; exact-artifact
 > attestation pending on macOS and Linux.** The committed runtime baseline is
-> `a39d7a6`. The current working tree additionally completes the remaining
+> `21588f5`. The current working tree additionally completes the remaining
 > script/style/module/frame resource scheduler and protocol-v4/v8/v10 transport contracts,
 > streaming navigation foundations, an incremental semantic graph, expanded
 > generated WebIDL behavior, referrer and IndexedDB work, V8 profile tooling and
@@ -116,6 +116,25 @@ rewrite those historical payloads or present them as a new validation run.
   connection/version-change scheduling and the broader mapped upstream API
   inventory remain conformance work; they are not claimed from focused product
   regressions.
+- Broader release validation now uses the additive, locked
+  `runtime-api-style-semantics-v2` manifest. It preserves the pinned WPT commit
+  and all 3,184 v1 files, adds every HTML-declared test variant, and therefore
+  expands the required execution ledger from 3,462 to 4,022. The runner loads
+  transitive `META: script` dependencies, supports bounded parallel execution,
+  writes atomic checkpoints, and resumes only on an exact source, binary,
+  runtime, inventory, and selection fingerprint. Initial diagnostic shards are
+  intentionally not committed as passing evidence: 5/20 broad IndexedDB and
+  1/20 broad editing executions passed. They identified real long-tail engine
+  work plus explicit geometry/testdriver/bfcache capability boundaries.
+- Generated IndexedDB now implements the browser key ordering used by
+  `IDBFactory.cmp`, including dates, unsigned binary keys and recursive arrays,
+  and exposes a real versionchange transaction during upgrade. Upgrade abort
+  resets the initial database version, rejects the open request with an
+  `AbortError` DOMException, and clears the request transaction. Generated
+  Document editing now supplies `designMode`, safe command queries, and
+  selection-backed insert-text/HTML, line/paragraph insertion, directional
+  deletion and select-all. Unsupported formatting commands report `false`
+  rather than claiming an algorithm that is not installed.
 - The style service is now persistently fingerprinted as
   `stylo-stylesheets-selectors-0.20+oryn-cascade-v3`. Stylo parses complete
   stylesheets, media rules, selectors and declarations and supplies selector

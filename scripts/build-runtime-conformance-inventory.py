@@ -8,12 +8,32 @@ import hashlib
 import json
 import re
 import subprocess
+from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "benchmarks/conformance/runtime-api-style-semantics-v1.json"
 META_GLOBAL = re.compile(r"^//\s*META:\s*global=(.+)$", re.MULTILINE)
 META_VARIANT = re.compile(r"^//\s*META:\s*variant=(.*)$", re.MULTILINE)
+
+
+class HtmlVariantParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.variants: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "meta":
+            return
+        values = {name.lower(): value or "" for name, value in attrs}
+        if values.get("name", "").lower() == "variant":
+            self.variants.append(values.get("content", ""))
+
+
+def html_variants(source: str) -> list[str]:
+    parser = HtmlVariantParser()
+    parser.feed(source)
+    return parser.variants or [""]
 
 
 def sha256(path: Path) -> str:
@@ -35,9 +55,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkout", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path, default=MANIFEST)
     args = parser.parse_args()
 
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest_path = args.manifest.resolve()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     checkout = args.checkout.resolve()
     actual = subprocess.check_output(
         ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
@@ -87,7 +109,7 @@ def main() -> int:
                     continue
                 kind = "html"
                 globals_ = ["window"]
-                variants = [""]
+                variants = html_variants(text)
             if kind is None:
                 continue
             classification = classify(relative, roots)
@@ -116,7 +138,7 @@ def main() -> int:
             required_executions += variants
     output = {
         "schema_version": 1,
-        "manifest_sha256": sha256(MANIFEST),
+        "manifest_sha256": sha256(manifest_path),
         "upstream_revision": expected,
         "required_total": len(tests),
         "required_execution_total": required_executions,

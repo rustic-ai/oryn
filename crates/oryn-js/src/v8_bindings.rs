@@ -256,13 +256,16 @@ struct IdbDatabaseRecord {
     name: String,
     version: u64,
     object_stores: Vec<String>,
+    upgrade_transaction_id: Option<u64>,
 }
 
 struct IdbTransactionRecord {
     database_id: u64,
+    request_id: Option<u64>,
     mode: String,
     object_stores: Vec<String>,
     aborted: bool,
+    error: Option<String>,
 }
 
 struct IdbObjectStoreRecord {
@@ -480,6 +483,8 @@ pub struct V8BindingState {
     parser_input_active: Cell<bool>,
     parser_input_commands: RefCell<VecDeque<ParserInputCommand>>,
     document_open: Cell<bool>,
+    design_mode: Cell<bool>,
+    style_with_css: Cell<bool>,
     document_write_buffer: RefCell<String>,
     document_write_depth: Cell<u32>,
     pending_dynamic_scripts: RefCell<VecDeque<NodeId>>,
@@ -1001,8 +1006,34 @@ impl V8BindingState {
                                 name,
                                 version: response.version.unwrap_or(1),
                                 object_stores: response.object_stores.clone(),
+                                upgrade_transaction_id: None,
                             }),
                         );
+                        let transaction_id = response.upgrade_needed.then(|| {
+                            register_platform_object(
+                                self,
+                                PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
+                                    database_id,
+                                    request_id: Some(request_id),
+                                    mode: "versionchange".into(),
+                                    object_stores: response.object_stores.clone(),
+                                    aborted: false,
+                                    error: None,
+                                }),
+                            )
+                        });
+                        if let Some(transaction_id) = transaction_id {
+                            if let PlatformObjectRecord::IdbDatabase(database) =
+                                &mut *platform_object_mut(self, database_id)?
+                            {
+                                database.upgrade_transaction_id = Some(transaction_id);
+                            }
+                            if let PlatformObjectRecord::IdbRequest(request) =
+                                &mut *platform_object_mut(self, request_id)?
+                            {
+                                request.transaction_id = Some(transaction_id);
+                            }
+                        }
                         let database =
                             new_platform_object(scope, self, "IDBDatabase", database_id)?;
                         if response.upgrade_needed {
@@ -1014,6 +1045,42 @@ impl V8BindingState {
                                 "upgradeneeded",
                                 None,
                             )?;
+                        }
+                        let aborted = transaction_id.is_some_and(|transaction_id| {
+                            matches!(
+                                &*platform_object(self, transaction_id).unwrap(),
+                                PlatformObjectRecord::IdbTransaction(transaction) if transaction.aborted
+                            )
+                        });
+                        if aborted {
+                            if let PlatformObjectRecord::IdbDatabase(database) =
+                                &mut *platform_object_mut(self, database_id)?
+                            {
+                                database.version = 0;
+                                database.upgrade_transaction_id = None;
+                            }
+                            if let PlatformObjectRecord::IdbRequest(request) =
+                                &mut *platform_object_mut(self, request_id)?
+                            {
+                                request.result = None;
+                                request.error = Some("AbortError".into());
+                                request.transaction_id = None;
+                            }
+                            dispatch_platform_event(scope, self, request_id, "error", None)?;
+                            return Ok(());
+                        }
+                        if let Some(transaction_id) = transaction_id {
+                            dispatch_platform_event(scope, self, transaction_id, "complete", None)?;
+                            if let PlatformObjectRecord::IdbRequest(request) =
+                                &mut *platform_object_mut(self, request_id)?
+                            {
+                                request.transaction_id = None;
+                            }
+                            if let PlatformObjectRecord::IdbDatabase(database) =
+                                &mut *platform_object_mut(self, database_id)?
+                            {
+                                database.upgrade_transaction_id = None;
+                            }
                         }
                         database.into()
                     }
@@ -1124,12 +1191,26 @@ impl V8BindingState {
                     dispatch_platform_event(scope, self, id, event, None)?;
                 }
                 if let PendingPlatformOperation::IndexedDb { request_id, .. } = pending {
-                    if let PlatformObjectRecord::IdbRequest(request) =
-                        &mut *platform_object_mut(self, request_id)?
-                    {
-                        request.error = Some(error.to_string());
-                    }
+                    let error_name = idb_error_name(&error.to_string());
+                    let transaction_id = {
+                        let mut record = platform_object_mut(self, request_id)?;
+                        let PlatformObjectRecord::IdbRequest(request) = &mut *record else {
+                            return Err(V8BindingError::Allocation("IDBRequest record"));
+                        };
+                        request.error = Some(error_name.clone());
+                        request.transaction_id
+                    };
                     dispatch_platform_event(scope, self, request_id, "error", None)?;
+                    if let Some(transaction_id) = transaction_id {
+                        if let PlatformObjectRecord::IdbTransaction(transaction) =
+                            &mut *platform_object_mut(self, transaction_id)?
+                        {
+                            transaction.aborted = true;
+                            transaction.error = Some(error_name);
+                        }
+                        dispatch_platform_event(scope, self, transaction_id, "error", None)?;
+                        dispatch_platform_event(scope, self, transaction_id, "abort", None)?;
+                    }
                 }
             }
             _ => {
@@ -1305,6 +1386,51 @@ fn set_idb_request_result(
     Ok(())
 }
 
+fn idb_error_name(error: &str) -> String {
+    const NAMES: &[&str] = &[
+        "AbortError",
+        "ConstraintError",
+        "DataCloneError",
+        "DataError",
+        "InvalidAccessError",
+        "InvalidStateError",
+        "NotFoundError",
+        "QuotaExceededError",
+        "ReadOnlyError",
+        "TransactionInactiveError",
+        "UnknownError",
+        "VersionError",
+    ];
+    NAMES
+        .iter()
+        .find(|name| error.contains(**name))
+        .copied()
+        .unwrap_or("UnknownError")
+        .to_string()
+}
+
+fn dom_exception_value<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    name: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    let object = v8::Object::new(scope);
+    let name_value = v8_string(scope, name)?;
+    set_object_property(scope, object, "name", name_value)?;
+    let message = v8_string(scope, name)?;
+    set_object_property(scope, object, "message", message)?;
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+    if let Some(constructor_key) = v8::String::new(scope, "DOMException")
+        && let Some(constructor) = global.get(scope, constructor_key.into())
+        && let Ok(constructor) = v8::Local::<v8::Object>::try_from(constructor)
+        && let Some(prototype_key) = v8::String::new(scope, "prototype")
+        && let Some(prototype) = constructor.get(scope, prototype_key.into())
+    {
+        object.set_prototype(scope, prototype);
+    }
+    Ok(object.into())
+}
+
 impl Drop for V8BindingState {
     fn drop(&mut self) {
         let _ = self
@@ -1395,6 +1521,8 @@ pub fn install_generated_bindings_with_root_for_global(
         parser_input_active: Cell::new(false),
         parser_input_commands: RefCell::new(VecDeque::new()),
         document_open: Cell::new(false),
+        design_mode: Cell::new(false),
+        style_with_css: Cell::new(false),
         document_write_buffer: RefCell::new(String::new()),
         document_write_depth: Cell::new(0),
         pending_dynamic_scripts: RefCell::new(VecDeque::new()),
@@ -1857,6 +1985,95 @@ fn idb_value_to_json(
     value: v8::Local<v8::Value>,
 ) -> Result<serde_json::Value, V8BindingError> {
     idb_value_to_json_inner(scope, state, value, 0)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum IdbKey {
+    Number(f64),
+    Date(f64),
+    String(String),
+    Binary(Vec<u8>),
+    Array(Vec<IdbKey>),
+}
+
+fn idb_key_from_value(
+    scope: &mut v8::PinScope,
+    value: v8::Local<v8::Value>,
+) -> Result<IdbKey, V8BindingError> {
+    let data_error = || V8BindingError::Unsupported {
+        interface: "IndexedDB".into(),
+        member: "DataError".into(),
+    };
+    if value.is_number() {
+        let value = value.number_value(scope).ok_or_else(data_error)?;
+        return value
+            .is_finite()
+            .then_some(IdbKey::Number(value))
+            .ok_or_else(data_error);
+    }
+    if value.is_date() {
+        let value = v8::Local::<v8::Date>::try_from(value)
+            .map_err(|_| data_error())?
+            .value_of();
+        return value
+            .is_finite()
+            .then_some(IdbKey::Date(value))
+            .ok_or_else(data_error);
+    }
+    if value.is_string() {
+        return Ok(IdbKey::String(value.to_rust_string_lossy(scope)));
+    }
+    if let Ok(buffer) = v8::Local::<v8::ArrayBuffer>::try_from(value) {
+        return Ok(IdbKey::Binary(bytes_from_array_buffer(buffer)));
+    }
+    if let Ok(view) = v8::Local::<v8::ArrayBufferView>::try_from(value) {
+        let mut bytes = vec![0; view.byte_length()];
+        view.copy_contents(&mut bytes);
+        return Ok(IdbKey::Binary(bytes));
+    }
+    if let Ok(array) = v8::Local::<v8::Array>::try_from(value) {
+        let mut keys = Vec::with_capacity(array.length() as usize);
+        for index in 0..array.length() {
+            let item = array.get_index(scope, index).ok_or_else(data_error)?;
+            keys.push(idb_key_from_value(scope, item)?);
+        }
+        return Ok(IdbKey::Array(keys));
+    }
+    Err(data_error())
+}
+
+fn compare_idb_keys(left: &IdbKey, right: &IdbKey) -> std::cmp::Ordering {
+    fn rank(key: &IdbKey) -> u8 {
+        match key {
+            IdbKey::Number(_) => 0,
+            IdbKey::Date(_) => 1,
+            IdbKey::String(_) => 2,
+            IdbKey::Binary(_) => 3,
+            IdbKey::Array(_) => 4,
+        }
+    }
+    let type_order = rank(left).cmp(&rank(right));
+    if type_order != std::cmp::Ordering::Equal {
+        return type_order;
+    }
+    match (left, right) {
+        (IdbKey::Number(left), IdbKey::Number(right))
+        | (IdbKey::Date(left), IdbKey::Date(right)) => {
+            left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
+        }
+        (IdbKey::String(left), IdbKey::String(right)) => left.cmp(right),
+        (IdbKey::Binary(left), IdbKey::Binary(right)) => left.cmp(right),
+        (IdbKey::Array(left), IdbKey::Array(right)) => {
+            for (left, right) in left.iter().zip(right) {
+                let ordering = compare_idb_keys(left, right);
+                if ordering != std::cmp::Ordering::Equal {
+                    return ordering;
+                }
+            }
+            left.len().cmp(&right.len())
+        }
+        _ => std::cmp::Ordering::Equal,
+    }
 }
 
 fn idb_value_to_json_inner(
@@ -4180,6 +4397,10 @@ fn generated_operation<'s>(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "IDBFactory" && member == "cmp" && args.length() < 2 {
+        throw_type_error(scope, "IDBFactory.cmp requires two keys");
+        return;
+    }
     if interface == "EventTarget" && is_platform_receiver(scope, &state, args.this()) {
         match call_platform_event_target(scope, &state, args.this(), member, &args) {
             Ok(Some(value)) => return_value.set(value),
@@ -5207,6 +5428,185 @@ fn clear_selection(state: &V8BindingState) {
     state.selection_focus.set(None);
 }
 
+fn edit_command_supported(command: &str) -> bool {
+    matches!(
+        command,
+        "delete"
+            | "forwarddelete"
+            | "inserthtml"
+            | "insertlinebreak"
+            | "insertparagraph"
+            | "inserttext"
+            | "selectall"
+            | "stylewithcss"
+    )
+}
+
+fn document_is_editable(state: &V8BindingState) -> bool {
+    if state.design_mode.get() {
+        return true;
+    }
+    let dom = state.dom.borrow();
+    let mut current = dom.focused();
+    while let Some(node) = current {
+        let Ok(record) = dom.arena().get(node) else {
+            return false;
+        };
+        if let Some(value) = record.attributes.get("contenteditable") {
+            return !value.eq_ignore_ascii_case("false");
+        }
+        current = record.parent;
+    }
+    false
+}
+
+fn replace_selection_with_text(
+    state: &V8BindingState,
+    replacement: &str,
+) -> Result<(), V8BindingError> {
+    let id = state
+        .selection_range
+        .get()
+        .ok_or(V8BindingError::Unsupported {
+            interface: "Document".into(),
+            member: "no active selection".into(),
+        })?;
+    let range = state
+        .ranges
+        .borrow()
+        .get(&id)
+        .cloned()
+        .ok_or(V8BindingError::Allocation("Range record"))?;
+    if compare_boundary_points(
+        &state.dom.borrow(),
+        (range.start_container, range.start_offset),
+        (range.end_container, range.end_offset),
+    )? != 0
+    {
+        range_contents(
+            &mut state.dom.borrow_mut(),
+            &range,
+            RangeContentsMode::Delete,
+        )?;
+    }
+    let mut point = BoundaryPoint {
+        container: range.start_container,
+        offset: range.start_offset,
+    };
+    if !replacement.is_empty() {
+        let kind = state
+            .dom
+            .borrow()
+            .arena()
+            .get(point.container)?
+            .kind
+            .clone();
+        match kind {
+            NodeKind::Text { data } | NodeKind::CDataSection { data } => {
+                let updated = utf16_replace(&data, point.offset, 0, replacement);
+                state.dom.borrow_mut().set_text(point.container, updated)?;
+                point.offset = point
+                    .offset
+                    .saturating_add(replacement.encode_utf16().count() as u32);
+            }
+            _ => {
+                let text = state.dom.borrow_mut().create_text(replacement);
+                insert_at_boundary(
+                    &mut state.dom.borrow_mut(),
+                    point.container,
+                    point.offset,
+                    text,
+                )?;
+                let (container, offset) = relative_boundary(&state.dom.borrow(), text, true)?;
+                point = BoundaryPoint { container, offset };
+            }
+        }
+    }
+    set_selection_boundaries(state, point, point)?;
+    Ok(())
+}
+
+fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(), V8BindingError> {
+    let Some(id) = state.selection_range.get() else {
+        return Ok(());
+    };
+    let range = state
+        .ranges
+        .borrow()
+        .get(&id)
+        .cloned()
+        .ok_or(V8BindingError::Allocation("Range record"))?;
+    if compare_boundary_points(
+        &state.dom.borrow(),
+        (range.start_container, range.start_offset),
+        (range.end_container, range.end_offset),
+    )? != 0
+    {
+        return replace_selection_with_text(state, "");
+    }
+    let kind = state
+        .dom
+        .borrow()
+        .arena()
+        .get(range.start_container)?
+        .kind
+        .clone();
+    if let NodeKind::Text { data } | NodeKind::CDataSection { data } = kind {
+        let length = data.encode_utf16().count() as u32;
+        let (start, end) = if forward {
+            (
+                range.start_offset,
+                range.start_offset.saturating_add(1).min(length),
+            )
+        } else {
+            (range.start_offset.saturating_sub(1), range.start_offset)
+        };
+        state.dom.borrow_mut().set_text(
+            range.start_container,
+            utf16_without_range(&data, start, end),
+        )?;
+        let point = BoundaryPoint {
+            container: range.start_container,
+            offset: start,
+        };
+        set_selection_boundaries(state, point, point)?;
+    }
+    Ok(())
+}
+
+fn replace_selection_with_html(state: &V8BindingState, markup: &str) -> Result<(), V8BindingError> {
+    replace_selection_with_text(state, "")?;
+    let id = state
+        .selection_range
+        .get()
+        .ok_or(V8BindingError::Allocation("selection range"))?;
+    let range = state
+        .ranges
+        .borrow()
+        .get(&id)
+        .cloned()
+        .ok_or(V8BindingError::Allocation("Range record"))?;
+    let parsed = oryn_dom::html::parse_fragment(markup, "div");
+    let children = parsed.dom.get(parsed.document)?.children.clone();
+    let mut point = BoundaryPoint {
+        container: range.start_container,
+        offset: range.start_offset,
+    };
+    for child in children {
+        let imported = state.dom.borrow_mut().import_subtree(&parsed.dom, child)?;
+        insert_at_boundary(
+            &mut state.dom.borrow_mut(),
+            point.container,
+            point.offset,
+            imported,
+        )?;
+        let (container, offset) = relative_boundary(&state.dom.borrow(), imported, true)?;
+        point = BoundaryPoint { container, offset };
+    }
+    set_selection_boundaries(state, point, point)?;
+    Ok(())
+}
+
 fn global_property<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     name: &str,
@@ -6000,7 +6400,7 @@ fn get_platform_attribute<'s>(
             .unwrap_or_else(|| v8::undefined(scope).into())),
         (PlatformObjectRecord::IdbRequest(request), "IDBRequest" | "IDBOpenDBRequest", "error") => {
             match &request.error {
-                Some(error) => v8_string(scope, error),
+                Some(error) => dom_exception_value(scope, error),
                 None => Ok(v8::null(scope).into()),
             }
         }
@@ -6024,11 +6424,17 @@ fn get_platform_attribute<'s>(
         (PlatformObjectRecord::IdbTransaction(transaction), "IDBTransaction", "mode") => {
             v8_string(scope, &transaction.mode)
         }
+        (PlatformObjectRecord::IdbTransaction(transaction), "IDBTransaction", "db") => {
+            Ok(new_platform_object(scope, state, "IDBDatabase", transaction.database_id)?.into())
+        }
         (PlatformObjectRecord::IdbTransaction(_), "IDBTransaction", "durability") => {
             v8_string(scope, "default")
         }
-        (PlatformObjectRecord::IdbTransaction(_), "IDBTransaction", "error") => {
-            Ok(v8::null(scope).into())
+        (PlatformObjectRecord::IdbTransaction(transaction), "IDBTransaction", "error") => {
+            match &transaction.error {
+                Some(error) => dom_exception_value(scope, error),
+                None => Ok(v8::null(scope).into()),
+            }
         }
         (
             PlatformObjectRecord::IdbTransaction(transaction),
@@ -6574,11 +6980,9 @@ fn call_platform_operation<'s>(
             ));
         }
         ("IDBFactory", "cmp") => {
-            let first = idb_value_to_json(scope, state, args.get(0))?;
-            let second = idb_value_to_json(scope, state, args.get(1))?;
-            let ordering = serde_json::to_string(&first)
-                .unwrap_or_default()
-                .cmp(&serde_json::to_string(&second).unwrap_or_default());
+            let first = idb_key_from_value(scope, args.get(0))?;
+            let second = idb_key_from_value(scope, args.get(1))?;
+            let ordering = compare_idb_keys(&first, &second);
             return Ok(Some(
                 v8::Integer::new(
                     scope,
@@ -6597,7 +7001,7 @@ fn call_platform_operation<'s>(
         }
         ("IDBDatabase", "createObjectStore") => {
             let name = required_string(scope, args, 0)?;
-            let database = {
+            let (database, upgrade_transaction_id) = {
                 let mut record = platform_object_mut(state, id)?;
                 let PlatformObjectRecord::IdbDatabase(database) = &mut *record else {
                     return Err(V8BindingError::Allocation("IDBDatabase record"));
@@ -6605,17 +7009,18 @@ fn call_platform_operation<'s>(
                 if !database.object_stores.contains(&name) {
                     database.object_stores.push(name.clone());
                 }
-                database.name.clone()
+                (database.name.clone(), database.upgrade_transaction_id)
             };
-            let transaction_id = register_platform_object(
-                state,
-                PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
-                    database_id: id,
-                    mode: "versionchange".into(),
-                    object_stores: vec![name.clone()],
-                    aborted: false,
-                }),
-            );
+            let transaction_id = upgrade_transaction_id.ok_or(V8BindingError::Unsupported {
+                interface: "IDBDatabase".into(),
+                member: "InvalidStateError".into(),
+            })?;
+            if let PlatformObjectRecord::IdbTransaction(transaction) =
+                &mut *platform_object_mut(state, transaction_id)?
+                && !transaction.object_stores.contains(&name)
+            {
+                transaction.object_stores.push(name.clone());
+            }
             let options = args.get(1);
             let key_path = option_value(scope, options, "keyPath")
                 .filter(|value| !value.is_null_or_undefined())
@@ -6682,9 +7087,11 @@ fn call_platform_operation<'s>(
                 state,
                 PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
                     database_id: id,
+                    request_id: None,
                     mode,
                     object_stores: names,
                     aborted: false,
+                    error: None,
                 }),
             );
             return Ok(Some(
@@ -6722,10 +7129,19 @@ fn call_platform_operation<'s>(
             ));
         }
         ("IDBTransaction", "abort") => {
-            if let PlatformObjectRecord::IdbTransaction(transaction) =
-                &mut *platform_object_mut(state, id)?
-            {
+            let (database_id, request_id) = {
+                let mut record = platform_object_mut(state, id)?;
+                let PlatformObjectRecord::IdbTransaction(transaction) = &mut *record else {
+                    return Err(V8BindingError::Allocation("IDBTransaction record"));
+                };
                 transaction.aborted = true;
+                (transaction.database_id, transaction.request_id)
+            };
+            if request_id.is_some()
+                && let PlatformObjectRecord::IdbDatabase(database) =
+                    &mut *platform_object_mut(state, database_id)?
+            {
+                database.version = 0;
             }
             dispatch_platform_event(scope, state, id, "abort", None)?;
             return Ok(None);
@@ -9649,6 +10065,9 @@ fn get_attribute_value<'s>(
         let focused = state.dom.borrow().focused();
         return optional_node(scope, state, focused);
     }
+    if interface == "Document" && member == "designMode" {
+        return v8_string(scope, if state.design_mode.get() { "on" } else { "off" });
+    }
     if interface == "HTMLSelectElement" && member == "options" {
         let options = state.dom.borrow().query_selector_all(node, "option")?;
         return node_array(scope, state, &options);
@@ -10127,6 +10546,12 @@ fn set_attribute_value(
     member: &str,
     value: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
+    if interface == "Document" && member == "designMode" {
+        state
+            .design_mode
+            .set(value.to_rust_string_lossy(scope).eq_ignore_ascii_case("on"));
+        return Ok(());
+    }
     if interface == "HTMLElement" && member.starts_with("on") {
         let key = (node, member.to_string());
         let present = if value.is_null_or_undefined() {
@@ -10578,6 +11003,109 @@ fn call_operation<'s>(
         ("Document", "createEvent") => {
             let event = create_event_object(scope, state, "", false, false)?;
             Ok(Some(event.into()))
+        }
+        (
+            "Document",
+            "execCommand"
+            | "queryCommandEnabled"
+            | "queryCommandIndeterm"
+            | "queryCommandState"
+            | "queryCommandSupported"
+            | "queryCommandValue",
+        ) => {
+            let command = required_string(scope, args, 0)?.to_ascii_lowercase();
+            let supported = edit_command_supported(&command);
+            if member == "queryCommandSupported" {
+                return Ok(Some(v8::Boolean::new(scope, supported).into()));
+            }
+            if member == "queryCommandEnabled" {
+                return Ok(Some(
+                    v8::Boolean::new(scope, supported && document_is_editable(state)).into(),
+                ));
+            }
+            if member == "queryCommandIndeterm" {
+                return Ok(Some(v8::Boolean::new(scope, false).into()));
+            }
+            if member == "queryCommandState" {
+                let active = command == "stylewithcss" && state.style_with_css.get();
+                return Ok(Some(v8::Boolean::new(scope, active).into()));
+            }
+            if member == "queryCommandValue" {
+                let value = if command == "stylewithcss" {
+                    if state.style_with_css.get() {
+                        "true"
+                    } else {
+                        "false"
+                    }
+                } else {
+                    ""
+                };
+                return Ok(Some(v8_string(scope, value)?));
+            }
+            if !supported || !document_is_editable(state) {
+                return Ok(Some(v8::Boolean::new(scope, false).into()));
+            }
+            let value = if args.get(2).is_undefined() {
+                String::new()
+            } else {
+                args.get(2).to_rust_string_lossy(scope)
+            };
+            let executed = match command.as_str() {
+                "stylewithcss" => {
+                    state.style_with_css.set(value.eq_ignore_ascii_case("true"));
+                    true
+                }
+                "selectall" => {
+                    let root = state
+                        .dom
+                        .borrow()
+                        .focused()
+                        .or_else(|| {
+                            state
+                                .dom
+                                .borrow()
+                                .query_selector_all(node, "body")
+                                .ok()
+                                .and_then(|nodes| nodes.first().copied())
+                        })
+                        .unwrap_or(node);
+                    let end = boundary_length(&state.dom.borrow(), root)?;
+                    set_selection_boundaries(
+                        state,
+                        BoundaryPoint {
+                            container: root,
+                            offset: 0,
+                        },
+                        BoundaryPoint {
+                            container: root,
+                            offset: end,
+                        },
+                    )?;
+                    true
+                }
+                "inserttext" => {
+                    replace_selection_with_text(state, &value)?;
+                    true
+                }
+                "inserthtml" => {
+                    replace_selection_with_html(state, &value)?;
+                    true
+                }
+                "insertlinebreak" | "insertparagraph" => {
+                    replace_selection_with_text(state, "\n")?;
+                    true
+                }
+                "delete" => {
+                    delete_selection_direction(state, false)?;
+                    true
+                }
+                "forwarddelete" => {
+                    delete_selection_direction(state, true)?;
+                    true
+                }
+                _ => false,
+            };
+            Ok(Some(v8::Boolean::new(scope, executed).into()))
         }
         ("Document", "createRange") => {
             let id = register_live_range(
@@ -12311,6 +12839,82 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "abort|201|true|text/plain|upgrade|db:2");
+    }
+
+    #[test]
+    fn generated_indexeddb_cmp_uses_the_browser_key_order() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "let missing='',invalid='';try{indexedDB.cmp()}catch(e){missing=e.name}try{indexedDB.cmp(null,null)}catch(e){invalid=e.name}[indexedDB.cmp([1],new Uint8Array([1])),indexedDB.cmp(new Uint8Array([255]),new Uint8Array([0])),indexedDB.cmp('a',new Date(0)),indexedDB.cmp(new Date(0),0),missing,invalid].join('|')",
+        )
+        .unwrap();
+        let value = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(value, "1|1|1|1|TypeError|DataError");
+    }
+
+    #[test]
+    fn generated_indexeddb_upgrade_exposes_and_aborts_its_versionchange_transaction() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source = v8::String::new(
+            scope,
+            "let result='';const request=indexedDB.open('abort-me',2);request.onupgradeneeded=e=>{result=e.target.transaction.mode+'|'+(e.target.transaction.db===e.target.result);e.target.transaction.onabort=event=>result+='|abort:'+event.target.db.version;e.target.transaction.abort()};request.onerror=e=>result+='|error:'+e.target.error.name+'|'+String(e.target.transaction)",
+        )
+        .unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        state.drain_platform_completions(scope, 8).unwrap();
+        let source = v8::String::new(scope, "result").unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "versionchange|true|abort:0|error:AbortError|null");
+    }
+
+    #[test]
+    fn generated_edit_commands_are_selection_backed_and_unknown_commands_are_safe() {
+        initialize_v8();
+        let parsed = html::parse("<main id='editor' contenteditable>abc</main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor');editor.focus();const selection=document.getSelection();selection.selectAllChildren(editor);const inserted=document.execCommand('insertText',false,'oryn');[inserted,editor.textContent,document.execCommand('unknown',false,'x'),document.queryCommandEnabled('unknown'),document.queryCommandIndeterm('unknown'),document.queryCommandState('unknown'),document.queryCommandSupported('unknown'),document.queryCommandValue('unknown')].join('|')",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "true|oryn|false|false|false|false|false|");
     }
 
     #[test]

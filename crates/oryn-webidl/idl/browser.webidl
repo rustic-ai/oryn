@@ -348,6 +348,7 @@ interface Document : Node {
   readonly attribute HTMLElement? activeElement;
   readonly attribute HTMLElement? currentScript;
   readonly attribute sequence<CSSStyleSheet> styleSheets;
+  attribute DOMString designMode;
   Element createElement(DOMString localName);
   Element createElementNS(DOMString? namespace, DOMString qualifiedName);
   Text createTextNode(DOMString data);
@@ -370,6 +371,12 @@ interface Document : Node {
   NodeIterator createNodeIterator(Node root, optional unsigned long whatToShow = 4294967295, optional NodeFilter? filter = null);
   TreeWalker createTreeWalker(Node root, optional unsigned long whatToShow = 4294967295, optional NodeFilter? filter = null);
   Selection? getSelection();
+  boolean execCommand(DOMString commandId, optional boolean showUI = false, optional DOMString value = "");
+  boolean queryCommandEnabled(DOMString commandId);
+  boolean queryCommandIndeterm(DOMString commandId);
+  boolean queryCommandState(DOMString commandId);
+  boolean queryCommandSupported(DOMString commandId);
+  DOMString queryCommandValue(DOMString commandId);
 };
 
 [Exposed=Window]
@@ -556,6 +563,7 @@ interface IDBDatabase : EventTarget {
 
 [Exposed=(Window,Worker)]
 interface IDBTransaction : EventTarget {
+  readonly attribute IDBDatabase db;
   readonly attribute DOMString mode;
   readonly attribute DOMString durability;
   readonly attribute any error;

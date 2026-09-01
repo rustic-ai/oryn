@@ -1,0 +1,38 @@
+{
+  "schema_version": 2,
+  "locked": true,
+  "suite": "runtime-api-style-semantics-v2",
+  "supersedes": "runtime-api-style-semantics-v1",
+  "upstream": {
+    "project": "web-platform-tests/wpt",
+    "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+  },
+  "selection": {
+    "policy": "all_automated_testharness_files_and_declared_variants_in_selected_directories",
+    "required_suffixes": [".any.js", ".window.js", ".html", ".htm"],
+    "html_requires": "testharness.js",
+    "html_variants": "every meta[name=variant] content value, or the empty variant when absent",
+    "excluded_filename_markers": ["-ref.", "-manual.", ".manual."],
+    "excluded_path_segments": ["manual"],
+    "unsupported_is_failure": true,
+    "timeout_is_failure": true,
+    "crash_is_failure": true
+  },
+  "roots": [
+    {"path": "WebIDL", "workstream": "generated_webidl"},
+    {"path": "dom", "workstream": "generated_webidl"},
+    {"path": "nodes", "workstream": "generated_webidl"},
+    {"path": "interfaces", "workstream": "generated_webidl"},
+    {"path": "selection-api", "workstream": "generated_webidl"},
+    {"path": "traversal", "workstream": "generated_webidl"},
+    {"path": "editing", "workstream": "generated_webidl"},
+    {"path": "html/browsers/history", "workstream": "generated_webidl"},
+    {"path": "referrer-policy", "workstream": "generated_webidl"},
+    {"path": "IndexedDB", "workstream": "generated_webidl"},
+    {"path": "css/css-cascade", "workstream": "stylo_computed_values"},
+    {"path": "css/cssom", "workstream": "stylo_computed_values"},
+    {"path": "css/selectors", "workstream": "stylo_computed_values"},
+    {"path": "accname", "workstream": "semantic_accessibility"},
+    {"path": "wai-aria", "workstream": "semantic_accessibility"}
+  ]
+}

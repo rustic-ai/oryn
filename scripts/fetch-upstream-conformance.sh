@@ -16,7 +16,7 @@ git -C "$checkout" sparse-checkout init --cone
 git -C "$checkout" sparse-checkout set \
   accname wai-aria WebIDL dom nodes interfaces html encoding fetch streams xhr websockets \
   selection-api traversal editing css/css-cascade css/cssom css/selectors referrer-policy \
-  IndexedDB intl wasm resources tools
+  IndexedDB intl wasm resources tools common
 git -C "$checkout" checkout --detach "$revision"
 test "$(git -C "$checkout" rev-parse HEAD)" = "$revision"
 printf '%s\n' "$checkout"

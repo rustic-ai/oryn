@@ -27,7 +27,7 @@ v1 product described by the proposal is complete.
 
 ## Current HEAD status
 
-At signed commit `0bbe18f`, Oryn has completed important parts of the
+Through signed checkpoint `21588f5`, Oryn has completed important parts of the
 proposal-v1 architecture: Rust owns
 the live DOM, generated V8 bindings execute Rust behavior for the migrated
 interfaces, the parent owns network and security policy, and the production
@@ -77,7 +77,15 @@ attestation remain. The eight requested pinned IndexedDB worker variants pass
 in the local V8 probe and through a locally signed, trusted production worker
 (four SharedWorker and four ServiceWorker). A compact recomputable ledger binds
 those runs to signed source commit `ef8a8d4`; the broader pinned Range/API
-inventory remains outstanding.
+inventory remains outstanding. The additive locked v2 inventory corrects the
+earlier omission of HTML-declared variants: it contains the same 3,184 pinned
+files but 4,022 executions rather than 3,462. Its runner now resolves WPT META
+dependencies, executes with bounded concurrency, checkpoints atomically and
+refuses fingerprint-mismatched resume. Focused upstream regressions for
+IDBFactory key comparison, initial versionchange abort and unknown editing
+commands pass. Broader local-probe diagnostic shards remain red (IndexedDB
+5/20, editing 1/20), so they are not release evidence and this review does not
+claim conformance closure.
 
 The dependency-ordered completion backlog is maintained in
 [`RUNTIME-COMPLETION-ACTION-PLAN.md`](RUNTIME-COMPLETION-ACTION-PLAN.md).
@@ -99,8 +107,8 @@ The dependency-ordered completion backlog is maintained in
 | F11 — retained-state bounds | **Closed in software** | Revision history has count/byte ceilings, DOM slots and wrapper leases are reclaimed, and memory/persistent caches have entry and byte bounds. |
 | F12 — untrusted content | **Mostly closed** | Semantic nodes carry `ContentTrust::PageAuthored`, inferred facts use heuristic provenance, and raw inspection is policy-audited without recording page content. Broader prompt-boundary evidence remains narrower than the proposal's full trust model. |
 | F13 — secret leakage | **Closed in software** | Secret sensitivity is stored independently on Rust DOM nodes, applies to text inputs, survives page-controlled attribute changes, and redacts observation and HTML extraction. |
-| F14 — generated WebIDL | **Closed in software for the declared interface inventory; broader conformance pending** | Deterministic generation, real prototypes, Rust callbacks, wrapper identity, brands, realms, origin and generation checks are authoritative in production. Cross-container Range operations, CharacterData/editing, generated Storage, Fetch/File/Streams/XHR/WebSocket and IndexedDB execute through Rust state and typed parent operations. The compatibility bootstrap is probe-only. Long-tail editing and full IndexedDB connection/version-change/transaction scheduling remain mapped conformance work rather than a second production implementation. |
-| F15 — production-path testing | **Partial; requested worker variants pass production locally** | Focused default, no-V8 and V8-host tests pass and the pinned upstream harness is fail-closed. All eight requested IndexedDB SharedWorker/ServiceWorker executions pass both the local V8 probe and a trusted, locally signed macOS App Sandbox worker with heap-sandbox metadata; a compact validator recomputes their `ef8a8d4` ledger. The macOS ARM64 full/lite profile builder verifies ICU, snapshot and external-reference inputs. Full four-profile equivalence, the complete mapped WPT/ARIA inventory, Linux sandboxed artifacts, performance and release attestation remain open. |
+| F14 — generated WebIDL | **Partial; architecture closed, long-tail algorithms measured** | Deterministic generation, real prototypes, Rust callbacks, wrapper identity, brands, realms, origin and generation checks are authoritative in production. Cross-container Range operations, CharacterData/editing, generated Storage, Fetch/File/Streams/XHR/WebSocket and IndexedDB execute through Rust state and typed parent operations. Browser-correct IndexedDB key comparison and initial versionchange abort plus a bounded editing-command surface are now covered by focused upstream regressions. The compatibility bootstrap is probe-only. The v2 broad shards expose remaining editing formatting/tree-normalization and IndexedDB connection/version-change/transaction-scheduling failures, so API conformance is not closed. |
+| F15 — production-path testing | **Partial; exhaustive inventory is truthful but red** | Focused default, no-V8 and V8-host tests pass and the pinned upstream harness is fail-closed. All eight requested IndexedDB SharedWorker/ServiceWorker executions pass both the local V8 probe and a trusted, locally signed macOS App Sandbox worker with heap-sandbox metadata; a compact validator recomputes their `ef8a8d4` ledger. The new v2 inventory expands coverage to 4,022 exact executions and makes long runs parallel, checkpointed and fingerprint-resumable. Current broad diagnostic shards pass only 5/20 IndexedDB and 1/20 editing, so no aggregate is published as passing. Full sandboxed v2 execution, four-profile equivalence, Linux artifacts, performance and release attestation remain open. |
 | F16 — Intent/API/MCP | **Closed in software; release evidence pending** | Agent contract v3 additively exposes semantic contract v6 and scoped/delta observation while accepting frozen v2 requests. Rust, OIL, worker protocol v8, Python and MCP use the same graph resolver/action engine. Upload, context-virtual clipboard and parent-owned secret-label behavior remain unchanged and values never enter argv, environment, OIL, JSON-RPC, traces, observations or worker initialization. |
 
 ### Current broader-gap status
