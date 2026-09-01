@@ -57,6 +57,9 @@ pub enum IdbHostCommand {
         name: String,
         old_version: u64,
     },
+    CommitUpgrade {
+        name: String,
+    },
     CreateObjectStore {
         database: String,
         definition: IdbObjectStoreDefinition,
@@ -69,6 +72,11 @@ pub enum IdbHostCommand {
         database: String,
         store: String,
         definition: IdbIndexDefinition,
+    },
+    DeleteIndex {
+        database: String,
+        store: String,
+        index: String,
     },
     Batch {
         database: String,

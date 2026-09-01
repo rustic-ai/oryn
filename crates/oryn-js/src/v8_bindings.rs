@@ -260,6 +260,8 @@ struct IdbDatabaseRecord {
     old_version: u64,
     object_stores: Vec<String>,
     object_store_definitions: BTreeMap<String, IdbObjectStoreDefinition>,
+    upgrade_base_object_stores: Vec<String>,
+    upgrade_base_definitions: BTreeMap<String, IdbObjectStoreDefinition>,
     upgrade_transaction_id: Option<u64>,
     closed: bool,
 }
@@ -301,6 +303,7 @@ struct IdbCursorRecord {
     index: usize,
     got_value: bool,
     iteration_pending: bool,
+    with_value: bool,
 }
 
 struct IdbKeyRangeRecord {
@@ -417,14 +420,24 @@ enum DeferredPlatformTask {
 }
 
 enum IdbCompletionAction {
-    Open { name: String },
+    Open {
+        name: String,
+    },
     DeleteDatabase,
     Value,
     Key,
-    Values { count: Option<usize> },
-    Keys { count: Option<usize> },
+    Values {
+        count: Option<usize>,
+    },
+    Keys {
+        count: Option<usize>,
+    },
     Count,
-    Cursor { source_id: u64, direction: String },
+    Cursor {
+        source_id: u64,
+        direction: String,
+        with_value: bool,
+    },
     Unit,
 }
 
@@ -600,12 +613,20 @@ impl V8BindingState {
                         };
                         cursor.iteration_pending = false;
                         cursor.got_value = cursor.index < cursor.records.len();
-                        cursor.got_value.then_some(cursor_id)
+                        cursor.got_value.then_some((cursor_id, cursor.with_value))
                     };
                     let value = match value {
-                        Some(cursor_id) => {
-                            new_platform_object(scope, self, "IDBCursor", cursor_id)?.into()
-                        }
+                        Some((cursor_id, with_value)) => new_platform_object(
+                            scope,
+                            self,
+                            if with_value {
+                                "IDBCursorWithValue"
+                            } else {
+                                "IDBCursor"
+                            },
+                            cursor_id,
+                        )?
+                        .into(),
                         None => v8::null(scope).into(),
                     };
                     set_idb_request_result(scope, self, request_id, value)?;
@@ -749,13 +770,13 @@ impl V8BindingState {
         {
             request.transaction_id = None;
         }
-        let closed = {
+        let (closed, database_name) = {
             let mut record = platform_object_mut(self, database_id)?;
             let PlatformObjectRecord::IdbDatabase(database) = &mut *record else {
                 return Err(V8BindingError::Allocation("IDBDatabase record"));
             };
             database.upgrade_transaction_id = None;
-            database.closed
+            (database.closed, database.name.clone())
         };
         if closed {
             if let PlatformObjectRecord::IdbRequest(request) =
@@ -766,6 +787,16 @@ impl V8BindingState {
             }
             dispatch_platform_event(scope, self, request_id, "error", None)
         } else {
+            let hidden = new_idb_request(self, None);
+            submit_idb(
+                scope,
+                self,
+                hidden,
+                IdbHostCommand::CommitUpgrade {
+                    name: database_name,
+                },
+                IdbCompletionAction::Unit,
+            )?;
             dispatch_platform_event(scope, self, request_id, "success", None)
         }
     }
@@ -1181,6 +1212,12 @@ impl V8BindingState {
             ) => {
                 let value = match action {
                     IdbCompletionAction::Open { name } => {
+                        let definitions = response
+                            .object_store_definitions
+                            .iter()
+                            .cloned()
+                            .map(|definition| (definition.name.clone(), definition))
+                            .collect::<BTreeMap<_, _>>();
                         let database_id = register_platform_object(
                             self,
                             PlatformObjectRecord::IdbDatabase(IdbDatabaseRecord {
@@ -1188,12 +1225,9 @@ impl V8BindingState {
                                 version: response.version.unwrap_or(1),
                                 old_version: response.old_version.unwrap_or(0),
                                 object_stores: response.object_stores.clone(),
-                                object_store_definitions: response
-                                    .object_store_definitions
-                                    .iter()
-                                    .cloned()
-                                    .map(|definition| (definition.name.clone(), definition))
-                                    .collect(),
+                                object_store_definitions: definitions.clone(),
+                                upgrade_base_object_stores: response.object_stores.clone(),
+                                upgrade_base_definitions: definitions,
                                 upgrade_transaction_id: None,
                                 closed: false,
                             }),
@@ -1234,12 +1268,17 @@ impl V8BindingState {
                             new_platform_object(scope, self, "IDBDatabase", database_id)?;
                         if response.upgrade_needed {
                             set_idb_request_result(scope, self, request_id, database.into())?;
+                            let event = idb_version_change_event(
+                                scope,
+                                response.old_version.unwrap_or(0),
+                                response.version,
+                            )?;
                             let threw = dispatch_platform_event_capturing(
                                 scope,
                                 self,
                                 request_id,
                                 "upgradeneeded",
-                                None,
+                                Some(event),
                             )?;
                             if threw
                                 && let Some(transaction_id) = transaction_id
@@ -1267,7 +1306,11 @@ impl V8BindingState {
                                 else {
                                     return Err(V8BindingError::Allocation("IDBDatabase record"));
                                 };
-                                database.version = 0;
+                                database.version = database.old_version;
+                                database.object_stores =
+                                    database.upgrade_base_object_stores.clone();
+                                database.object_store_definitions =
+                                    database.upgrade_base_definitions.clone();
                                 database.upgrade_transaction_id = None;
                                 (database.name.clone(), database.old_version)
                             };
@@ -1309,9 +1352,23 @@ impl V8BindingState {
                         }
                         database.into()
                     }
-                    IdbCompletionAction::DeleteDatabase | IdbCompletionAction::Unit => {
-                        v8::undefined(scope).into()
+                    IdbCompletionAction::DeleteDatabase => {
+                        let event = idb_version_change_event(
+                            scope,
+                            response.old_version.unwrap_or(0),
+                            None,
+                        )?;
+                        set_idb_request_result(
+                            scope,
+                            self,
+                            request_id,
+                            v8::undefined(scope).into(),
+                        )?;
+                        dispatch_platform_event(scope, self, request_id, "success", Some(event))?;
+                        finish_idb_request(self, request_id)?;
+                        return Ok(());
                     }
+                    IdbCompletionAction::Unit => v8::undefined(scope).into(),
                     IdbCompletionAction::Value => response
                         .value
                         .as_ref()
@@ -1366,6 +1423,7 @@ impl V8BindingState {
                     IdbCompletionAction::Cursor {
                         source_id,
                         direction,
+                        with_value,
                     } => {
                         if response.records.is_empty() {
                             v8::null(scope).into()
@@ -1380,9 +1438,20 @@ impl V8BindingState {
                                     index: 0,
                                     got_value: true,
                                     iteration_pending: false,
+                                    with_value,
                                 }),
                             );
-                            new_platform_object(scope, self, "IDBCursor", cursor_id)?.into()
+                            new_platform_object(
+                                scope,
+                                self,
+                                if with_value {
+                                    "IDBCursorWithValue"
+                                } else {
+                                    "IDBCursor"
+                                },
+                                cursor_id,
+                            )?
+                            .into()
                         }
                     }
                 };
@@ -1946,6 +2015,12 @@ pub fn install_generated_bindings_with_root_for_global(
             // use only field zero.
             instance.set_internal_field_count(5);
             let prototype = template.prototype_template(scope);
+            prototype.set(
+                v8::Symbol::get_to_string_tag(scope).into(),
+                v8::String::new(scope, interface.name)
+                    .ok_or(V8BindingError::Allocation("interface toStringTag"))?
+                    .into(),
+            );
             for (member_position, member) in interface.members.iter().enumerate() {
                 if interface.members[..member_position]
                     .iter()
@@ -2026,6 +2101,25 @@ pub fn install_generated_bindings_with_root_for_global(
             let constructor = template
                 .get_function(scope)
                 .ok_or(V8BindingError::Allocation("interface constructor"))?;
+            if let Some(parent) = interface.parent {
+                let global = context.global(scope);
+                let parent_name = v8::String::new(scope, parent)
+                    .ok_or(V8BindingError::Allocation("parent interface name"))?;
+                let parent_constructor = global
+                    .get(scope, parent_name.into())
+                    .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+                    .ok_or(V8BindingError::MissingInterface(parent))?;
+                let prototype_name = v8::String::new(scope, "prototype")
+                    .ok_or(V8BindingError::Allocation("prototype name"))?;
+                let child_prototype = constructor
+                    .get(scope, prototype_name.into())
+                    .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+                    .ok_or(V8BindingError::Allocation("child interface prototype"))?;
+                let parent_prototype = parent_constructor
+                    .get(scope, prototype_name.into())
+                    .ok_or(V8BindingError::Allocation("parent interface prototype"))?;
+                child_prototype.set_prototype(scope, parent_prototype);
+            }
             for member in interface
                 .members
                 .iter()
@@ -2879,7 +2973,7 @@ fn submit_idb(
     let pending = PendingPlatformOperation::IndexedDb { request_id, action };
     if state.pending_platform_operations.borrow().len() >= 32 {
         let mut queue = state.queued_idb_operations.borrow_mut();
-        if queue.len() >= 1024 {
+        if queue.len() >= 16_384 {
             return Err(V8BindingError::Unsupported {
                 interface: "IndexedDB".into(),
                 member: "request queue limit exceeded".into(),
@@ -3454,6 +3548,7 @@ fn is_platform_interface(interface: &str) -> bool {
             | "IDBTransaction"
             | "IDBKeyRange"
             | "IDBCursor"
+            | "IDBCursorWithValue"
             | "IDBIndex"
             | "IDBObjectStore"
     )
@@ -5191,9 +5286,8 @@ fn call_platform_event_target<'s>(
                 .borrow_mut()
                 .get_mut(&(id, event_type))
             {
-                listeners.retain(|candidate| {
-                    !v8::Local::new(scope, candidate).strict_equals(callback.into())
-                });
+                listeners
+                    .retain(|candidate| !v8::Local::new(scope, candidate).strict_equals(callback));
             }
             Ok(None)
         }
@@ -5226,6 +5320,58 @@ fn dispatch_platform_event(
     existing: Option<v8::Local<v8::Object>>,
 ) -> Result<(), V8BindingError> {
     dispatch_platform_event_capturing(scope, state, id, event_type, existing).map(|_| ())
+}
+
+fn idb_version_change_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    old_version: u64,
+    new_version: Option<u64>,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let init = v8::Object::new(scope);
+    let old_key = v8::String::new(scope, "oldVersion").ok_or(V8BindingError::Allocation(
+        "IDBVersionChangeEvent.oldVersion",
+    ))?;
+    let old_value = v8::Number::new(scope, old_version as f64);
+    init.create_data_property(scope, old_key.into(), old_value.into());
+    let new_key = v8::String::new(scope, "newVersion").ok_or(V8BindingError::Allocation(
+        "IDBVersionChangeEvent.newVersion",
+    ))?;
+    let new_value = new_version.map_or_else(
+        || v8::null(scope).into(),
+        |version| v8::Number::new(scope, version as f64).into(),
+    );
+    init.create_data_property(scope, new_key.into(), new_value);
+    let context = scope.get_current_context();
+    let constructor_name = v8::String::new(scope, "IDBVersionChangeEvent").ok_or(
+        V8BindingError::Allocation("IDBVersionChangeEvent constructor"),
+    )?;
+    let constructor = context
+        .global(scope)
+        .get(scope, constructor_name.into())
+        .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+        .ok_or(V8BindingError::MissingInterface("IDBVersionChangeEvent"))?;
+    let prototype_name =
+        v8::String::new(scope, "prototype").ok_or(V8BindingError::Allocation("prototype name"))?;
+    let child_prototype = constructor
+        .get(scope, prototype_name.into())
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+        .ok_or(V8BindingError::Allocation(
+            "IDBVersionChangeEvent prototype",
+        ))?;
+    let event_name =
+        v8::String::new(scope, "Event").ok_or(V8BindingError::Allocation("Event constructor"))?;
+    let event_prototype = context
+        .global(scope)
+        .get(scope, event_name.into())
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+        .and_then(|constructor| constructor.get(scope, prototype_name.into()))
+        .ok_or(V8BindingError::Allocation("Event prototype"))?;
+    child_prototype.set_prototype(scope, event_prototype);
+    let event_type = v8::String::new(scope, "")
+        .ok_or(V8BindingError::Allocation("IDBVersionChangeEvent type"))?;
+    constructor
+        .new_instance(scope, &[event_type.into(), init.into()])
+        .ok_or(V8BindingError::Allocation("IDBVersionChangeEvent instance"))
 }
 
 fn dispatch_platform_event_capturing(
@@ -5322,12 +5468,12 @@ fn invoke_platform_listener(
 ) -> bool {
     let try_catch = std::pin::pin!(v8::TryCatch::new(scope));
     let mut try_catch = try_catch.init();
-    let listener = v8::Local::new(&mut try_catch, listener);
+    let listener = v8::Local::new(&try_catch, listener);
     let (callback, receiver) = if let Ok(callback) = v8::Local::<v8::Function>::try_from(listener) {
         (Some(callback), target)
     } else if let Ok(object) = v8::Local::<v8::Object>::try_from(listener) {
-        let callback = v8::String::new(&mut try_catch, "handleEvent")
-            .and_then(|key| object.get(&mut try_catch, key.into()))
+        let callback = v8::String::new(&try_catch, "handleEvent")
+            .and_then(|key| object.get(&try_catch, key.into()))
             .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok());
         (callback, object.into())
     } else {
@@ -5335,7 +5481,7 @@ fn invoke_platform_listener(
     };
     let succeeded = callback.is_some_and(|callback| {
         callback
-            .call(&mut try_catch, receiver, &[event.into()])
+            .call(&try_catch, receiver, &[event.into()])
             .is_some()
     });
     let threw = !succeeded || try_catch.has_caught();
@@ -7245,7 +7391,13 @@ fn get_platform_attribute<'s>(
                 let interface = match &*platform_object(state, id)? {
                     PlatformObjectRecord::IdbObjectStore(_) => "IDBObjectStore",
                     PlatformObjectRecord::IdbIndex(_) => "IDBIndex",
-                    PlatformObjectRecord::IdbCursor(_) => "IDBCursor",
+                    PlatformObjectRecord::IdbCursor(cursor) => {
+                        if cursor.with_value {
+                            "IDBCursorWithValue"
+                        } else {
+                            "IDBCursor"
+                        }
+                    }
                     _ => return Err(V8BindingError::Allocation("IDBRequest source record")),
                 };
                 Ok(new_platform_object(scope, state, interface, id)?.into())
@@ -7337,7 +7489,7 @@ fn get_platform_attribute<'s>(
         (PlatformObjectRecord::IdbKeyRange(range), "IDBKeyRange", "upperOpen") => {
             Ok(v8::Boolean::new(scope, range.upper_open).into())
         }
-        (PlatformObjectRecord::IdbCursor(cursor), "IDBCursor", "source") => {
+        (PlatformObjectRecord::IdbCursor(cursor), "IDBCursor" | "IDBCursorWithValue", "source") => {
             Ok(new_platform_object(
                 scope,
                 state,
@@ -7353,13 +7505,21 @@ fn get_platform_attribute<'s>(
             )?
             .into())
         }
-        (PlatformObjectRecord::IdbCursor(cursor), "IDBCursor", "direction") => {
-            v8_string(scope, &cursor.direction)
-        }
-        (PlatformObjectRecord::IdbCursor(cursor), "IDBCursor", "request") => {
-            Ok(new_platform_object(scope, state, "IDBRequest", cursor.request_id)?.into())
-        }
-        (PlatformObjectRecord::IdbCursor(cursor), "IDBCursor", "key" | "primaryKey" | "value") => {
+        (
+            PlatformObjectRecord::IdbCursor(cursor),
+            "IDBCursor" | "IDBCursorWithValue",
+            "direction",
+        ) => v8_string(scope, &cursor.direction),
+        (
+            PlatformObjectRecord::IdbCursor(cursor),
+            "IDBCursor" | "IDBCursorWithValue",
+            "request",
+        ) => Ok(new_platform_object(scope, state, "IDBRequest", cursor.request_id)?.into()),
+        (
+            PlatformObjectRecord::IdbCursor(cursor),
+            "IDBCursor" | "IDBCursorWithValue",
+            "key" | "primaryKey" | "value",
+        ) => {
             let record = cursor.records.get(cursor.index);
             let value = match (member, record) {
                 ("key", Some(record)) => Some(&record.key),
@@ -7865,7 +8025,19 @@ fn call_platform_operation<'s>(
         }
         ("IDBFactory", "open") => {
             let name = required_string(scope, args, 0)?;
-            let version = args.get(1).integer_value(scope).unwrap_or(1).max(1) as u64;
+            let version = if args.get(1).is_undefined() {
+                0
+            } else {
+                let raw = args.get(1).number_value(scope).unwrap_or(f64::NAN);
+                let integer = raw.trunc();
+                if !raw.is_finite() || integer < 1.0 || integer > 9_007_199_254_740_991.0 {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "IDBFactory".into(),
+                        member: "TypeError: version is outside the unsigned long long range".into(),
+                    });
+                }
+                integer as u64
+            };
             let request_id = new_idb_request(state, None);
             submit_idb(
                 scope,
@@ -8227,7 +8399,9 @@ fn call_platform_operation<'s>(
                     let PlatformObjectRecord::IdbDatabase(database) = &mut *record else {
                         return Err(V8BindingError::Allocation("IDBDatabase record"));
                     };
-                    database.version = 0;
+                    database.version = database.old_version;
+                    database.object_stores = database.upgrade_base_object_stores.clone();
+                    database.object_store_definitions = database.upgrade_base_definitions.clone();
                     (database.name.clone(), database.old_version)
                 };
                 let hidden = new_idb_request(state, None);
@@ -8476,6 +8650,22 @@ fn call_platform_operation<'s>(
             {
                 definition.indexes.retain(|index| index.name != name);
             }
+            let database_name = match &*platform_object(state, database_id)? {
+                PlatformObjectRecord::IdbDatabase(database) => database.name.clone(),
+                _ => return Err(V8BindingError::Allocation("IDBDatabase record")),
+            };
+            let hidden = new_idb_request(state, Some(transaction_id));
+            submit_idb(
+                scope,
+                state,
+                hidden,
+                IdbHostCommand::DeleteIndex {
+                    database: database_name,
+                    store: store_name,
+                    index: name,
+                },
+                IdbCompletionAction::Unit,
+            )?;
             return Ok(None);
         }
         ("IDBCursor", "continue" | "advance" | "continuePrimaryKey") => {
@@ -9732,6 +9922,14 @@ fn idb_source_request<'s>(
         (source_id, None)
     };
     let (database, store, transaction_id) = idb_store_context(state, store_id)?;
+    // IndexedDB applies WebIDL [EnforceRange] to the optional count before
+    // converting the query union. This ordering is observable when both
+    // arguments are invalid.
+    let count = if matches!(member, "getAll" | "getAllKeys") {
+        idb_optional_count(scope, args.get(1))?
+    } else {
+        None
+    };
     let query = if args.get(0).is_undefined() {
         None
     } else {
@@ -9755,9 +9953,7 @@ fn idb_source_request<'s>(
         ),
         "getAll" if index.is_none() && query.is_none() => (
             IdbHostCommand::GetAll { database, store },
-            IdbCompletionAction::Values {
-                count: args.get(1).uint32_value(scope).map(|value| value as usize),
-            },
+            IdbCompletionAction::Values { count },
         ),
         "count" if index.is_none() && query.is_none() => (
             IdbHostCommand::Count { database, store },
@@ -9774,6 +9970,7 @@ fn idb_source_request<'s>(
             IdbCompletionAction::Cursor {
                 source_id,
                 direction,
+                with_value: member == "openCursor",
             },
         ),
         "getAll" => (
@@ -9784,9 +9981,7 @@ fn idb_source_request<'s>(
                 query,
                 reverse: false,
             },
-            IdbCompletionAction::Values {
-                count: args.get(1).uint32_value(scope).map(|value| value as usize),
-            },
+            IdbCompletionAction::Values { count },
         ),
         "getAllKeys" => (
             IdbHostCommand::Cursor {
@@ -9796,9 +9991,7 @@ fn idb_source_request<'s>(
                 query,
                 reverse: false,
             },
-            IdbCompletionAction::Keys {
-                count: args.get(1).uint32_value(scope).map(|value| value as usize),
-            },
+            IdbCompletionAction::Keys { count },
         ),
         "count" => (
             IdbHostCommand::Cursor {
@@ -9841,6 +10034,23 @@ fn idb_source_request<'s>(
     Ok(Some(
         new_platform_object(scope, state, "IDBRequest", request_id)?.into(),
     ))
+}
+
+fn idb_optional_count(
+    scope: &mut v8::PinScope,
+    value: v8::Local<v8::Value>,
+) -> Result<Option<usize>, V8BindingError> {
+    if value.is_undefined() {
+        return Ok(None);
+    }
+    let number = value.number_value(scope).unwrap_or(f64::NAN);
+    if !number.is_finite() || number < 0.0 || number > u32::MAX as f64 {
+        return Err(V8BindingError::Unsupported {
+            interface: "IndexedDB".into(),
+            member: "TypeError: count is outside the unsigned long range".into(),
+        });
+    }
+    Ok(Some(number.trunc() as usize))
 }
 
 fn call_stateful_operation<'s>(
@@ -14022,7 +14232,9 @@ mod tests {
                 },
                 PlatformHostRequest::IndexedDb {
                     command:
-                        IdbHostCommand::CreateObjectStore { .. } | IdbHostCommand::AbortUpgrade { .. },
+                        IdbHostCommand::CreateObjectStore { .. }
+                        | IdbHostCommand::AbortUpgrade { .. }
+                        | IdbHostCommand::CommitUpgrade { .. },
                     ..
                 } => PlatformHostResult::IndexedDb {
                     response: Default::default(),
@@ -14414,7 +14626,7 @@ mod tests {
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(
             scope,
-            "let result='';const request=indexedDB.open('abort-me',2);request.onupgradeneeded=e=>{result=e.target.transaction.mode+'|'+(e.target.transaction.db===e.target.result);e.target.transaction.onabort=event=>result+='|abort:'+event.target.db.version;e.target.transaction.abort()};request.onerror=e=>result+='|error:'+e.target.error.name+'|'+String(e.target.transaction)",
+            "let result='';const request=indexedDB.open('abort-me',2);request.onupgradeneeded=e=>{result=(e instanceof Event)+'|'+(e instanceof IDBVersionChangeEvent)+'|'+e.target.transaction.mode+'|'+(e.target.transaction.db===e.target.result);e.target.transaction.onabort=event=>result+='|abort:'+event.target.db.version;e.target.transaction.abort()};request.onerror=e=>result+='|error:'+e.target.error.name+'|'+String(e.target.transaction)",
         )
         .unwrap();
         v8::Script::compile(scope, source, None)
@@ -14429,7 +14641,10 @@ mod tests {
             .run(scope)
             .unwrap()
             .to_rust_string_lossy(scope);
-        assert_eq!(result, "versionchange|true|abort:0|error:AbortError|null");
+        assert_eq!(
+            result,
+            "true|true|versionchange|true|abort:0|error:AbortError|null"
+        );
     }
 
     #[test]

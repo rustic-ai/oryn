@@ -139,6 +139,9 @@ pub enum IdbCommand {
         name: String,
         old_version: u64,
     },
+    CommitUpgrade {
+        name: String,
+    },
     CreateObjectStore {
         database: String,
         definition: ObjectStoreDefinition,
@@ -151,6 +154,11 @@ pub enum IdbCommand {
         database: String,
         store: String,
         definition: IndexDefinition,
+    },
+    DeleteIndex {
+        database: String,
+        store: String,
+        index: String,
     },
     Batch {
         database: String,
@@ -235,6 +243,10 @@ pub enum StorageError {
     Constraint,
     #[error("IndexedDB structured value cannot be cloned: {0}")]
     DataClone(String),
+    #[error(
+        "VersionError: requested IndexedDB version {requested} is below current version {current}"
+    )]
+    Version { requested: u64, current: u64 },
 }
 
 pub trait ContextStore: Send + Sync {
@@ -778,6 +790,8 @@ fn memory_area_bytes(state: &MemoryState, area: StorageArea, scope: &StorageScop
 struct DatabaseData {
     version: u64,
     stores: BTreeMap<String, ObjectStoreData>,
+    #[serde(skip)]
+    upgrade_backup: Option<Box<DatabaseData>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -821,8 +835,17 @@ fn execute_idb(
             } else {
                 version
             };
+            if old_version > 0 && requested < old_version {
+                return Err(StorageError::Version {
+                    requested,
+                    current: old_version,
+                });
+            }
             let upgrade_needed = requested > old_version;
             if upgrade_needed {
+                let mut backup = database.clone();
+                backup.upgrade_backup = None;
+                database.upgrade_backup = Some(Box::new(backup));
                 database.version = requested;
             }
             IdbResponse {
@@ -843,15 +866,32 @@ fn execute_idb(
             }
         }
         IdbCommand::DeleteDatabase { name } => {
-            databases.remove(&(origin.to_string(), name));
-            IdbResponse::default()
+            let old_version = databases
+                .remove(&(origin.to_string(), name))
+                .map(|database| database.version)
+                .unwrap_or(0);
+            IdbResponse {
+                old_version: Some(old_version),
+                ..IdbResponse::default()
+            }
         }
         IdbCommand::AbortUpgrade { name, old_version } => {
             let key = (origin.to_string(), name);
-            if old_version == 0 {
+            if let Some(backup) = databases
+                .get_mut(&key)
+                .and_then(|database| database.upgrade_backup.take())
+            {
+                databases.insert(key, *backup);
+            } else if old_version == 0 {
                 databases.remove(&key);
             } else if let Some(database) = databases.get_mut(&key) {
                 database.version = old_version;
+            }
+            IdbResponse::default()
+        }
+        IdbCommand::CommitUpgrade { name } => {
+            if let Some(database) = databases.get_mut(&(origin.to_string(), name)) {
+                database.upgrade_backup = None;
             }
             IdbResponse::default()
         }
@@ -893,6 +933,17 @@ fn execute_idb(
             store_data
                 .indexes
                 .insert(definition.name.clone(), definition);
+            IdbResponse::default()
+        }
+        IdbCommand::DeleteIndex {
+            database,
+            store,
+            index,
+        } => {
+            let store_data = store_mut(databases, origin, &database, &store)?;
+            if store_data.indexes.remove(&index).is_none() {
+                return Err(StorageError::IndexNotFound { store, index });
+            }
             IdbResponse::default()
         }
         IdbCommand::Batch { database, writes } => {
@@ -1496,7 +1547,7 @@ mod tests {
                 },
             })
             .unwrap();
-        let definition = ObjectStoreDefinition {
+        let mut definition = ObjectStoreDefinition {
             name: "items".into(),
             key_path: Some("id".into()),
             auto_increment: true,
@@ -1511,6 +1562,22 @@ mod tests {
                 },
             })
             .unwrap();
+        let index = IndexDefinition {
+            name: "by_name".into(),
+            key_path: "name".into(),
+            unique: false,
+        };
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: origin.clone(),
+                command: IdbCommand::CreateIndex {
+                    database: "metadata".into(),
+                    store: "items".into(),
+                    definition: index.clone(),
+                },
+            })
+            .unwrap();
+        definition.indexes.push(index);
         let reopened = store
             .execute(StorageRequest::IndexedDb {
                 origin,
@@ -1524,6 +1591,94 @@ mod tests {
             reopened,
             StorageResponse::IndexedDb { response }
                 if response.object_store_definitions == vec![definition]
+        ));
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: "https://example.test".into(),
+                command: IdbCommand::DeleteIndex {
+                    database: "metadata".into(),
+                    store: "items".into(),
+                    index: "by_name".into(),
+                },
+            })
+            .unwrap();
+        let reopened = store
+            .execute(StorageRequest::IndexedDb {
+                origin: "https://example.test".into(),
+                command: IdbCommand::Open {
+                    name: "metadata".into(),
+                    version: 1,
+                },
+            })
+            .unwrap();
+        assert!(matches!(
+            reopened,
+            StorageResponse::IndexedDb { response }
+                if response.object_store_definitions[0].indexes.is_empty()
+        ));
+    }
+
+    #[test]
+    fn indexed_db_aborted_upgrade_restores_schema_and_version() {
+        let store = SharedContextStore::memory(StorageLimits::default());
+        let origin = "https://example.test".to_string();
+        for version in [1, 2] {
+            store
+                .execute(StorageRequest::IndexedDb {
+                    origin: origin.clone(),
+                    command: IdbCommand::Open {
+                        name: "rollback".into(),
+                        version,
+                    },
+                })
+                .unwrap();
+            if version == 1 {
+                store
+                    .execute(StorageRequest::IndexedDb {
+                        origin: origin.clone(),
+                        command: IdbCommand::CommitUpgrade {
+                            name: "rollback".into(),
+                        },
+                    })
+                    .unwrap();
+            }
+        }
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: origin.clone(),
+                command: IdbCommand::CreateObjectStore {
+                    database: "rollback".into(),
+                    definition: ObjectStoreDefinition {
+                        name: "transient".into(),
+                        key_path: None,
+                        auto_increment: false,
+                        indexes: Vec::new(),
+                    },
+                },
+            })
+            .unwrap();
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: origin.clone(),
+                command: IdbCommand::AbortUpgrade {
+                    name: "rollback".into(),
+                    old_version: 1,
+                },
+            })
+            .unwrap();
+        let reopened = store
+            .execute(StorageRequest::IndexedDb {
+                origin,
+                command: IdbCommand::Open {
+                    name: "rollback".into(),
+                    version: 1,
+                },
+            })
+            .unwrap();
+        assert!(matches!(
+            reopened,
+            StorageResponse::IndexedDb { response }
+                if response.version == Some(1) && response.object_stores.is_empty()
         ));
     }
 

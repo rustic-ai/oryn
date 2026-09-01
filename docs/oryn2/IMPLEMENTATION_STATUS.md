@@ -2,7 +2,7 @@
 
 > **Current status: runtime-completion cutover in progress; exact-artifact
 > attestation pending on macOS and Linux.** The committed runtime baseline is
-> `140f89e`. The current working tree additionally deepens the pinned
+> `cade369`. The current working tree additionally deepens the pinned
 > IndexedDB and editing release-validation surface while retaining the remaining
 > script/style/module/frame resource scheduler and protocol-v4/v8/v10 transport contracts,
 > streaming navigation foundations, an incremental semantic graph, expanded
@@ -127,7 +127,7 @@ rewrite those historical payloads or present them as a new validation run.
   intentionally not committed as passing release evidence. The clean first-20
   IndexedDB diagnostic now passes 17/20; its only remaining cases are two live
   BFCache workflows and the cross-origin iframe/window messaging workflow. A
-  broader first-100 IndexedDB run improved from 26/100 to 42/100 after request
+  broader first-100 IndexedDB run improved from 26/100 to 44/100 after request
   lifecycle, transaction activity, event propagation, binary keys, persisted
   index metadata and cursor scheduling fixes. A non-EditContext editing shard
   passes 5/40. The remaining failures identify real long-tail connection,
@@ -141,8 +141,15 @@ rewrite those historical payloads or present them as a new validation run.
   generated request `source`/`readyState`, task-scoped transaction activity,
   cancelable request/transaction/connection error propagation, listener-object
   dispatch, Blob URL round trips, binary BufferSource keys, persisted index
-  definitions, deleted-store invalidation and asynchronous cursor
-  advance/continue state. Generated
+  definitions, persisted index deletion, parent-owned schema rollback,
+  generated `IDBVersionChangeEvent`, `IDBCursorWithValue`, bounded high-volume
+  request scheduling, WebIDL count/version range conversion, deleted-store
+  invalidation and asynchronous cursor advance/continue state. Focused pinned
+  WPT now passes delete-database version events, historical interface checks,
+  index `getAll` range enforcement and cursor source/class identity. The full
+  `IDBFactory.open` file remains red on a cross-harness Event-brand assertion
+  and a later compound rollback/index lookup, so no aggregate closure is
+  claimed. Generated
   Document editing now supplies `designMode`, safe command queries, and
   selection-backed insert-text/HTML, line/paragraph insertion, directional
   deletion and select-all. Unsupported formatting commands report `false`

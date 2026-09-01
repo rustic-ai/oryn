@@ -600,12 +600,16 @@ interface IDBCursor {
   readonly attribute any key;
   readonly attribute any primaryKey;
   readonly attribute IDBRequest request;
-  readonly attribute any value;
   undefined advance(unsigned long count);
   undefined continue(optional any key);
   undefined continuePrimaryKey(any key, any primaryKey);
   undefined delete();
   undefined update(any value);
+};
+
+[Exposed=(Window,Worker)]
+interface IDBCursorWithValue : IDBCursor {
+  readonly attribute any value;
 };
 
 [Exposed=(Window,Worker)]
