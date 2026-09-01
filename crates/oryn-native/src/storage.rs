@@ -887,10 +887,11 @@ fn execute_idb(
         }
         IdbCommand::GetAll { database, store } => {
             let store_data = store_ref(databases, origin, &database, &store)?;
+            let mut records = store_data.records.values().collect::<Vec<_>>();
+            records.sort_by(|left, right| compare_indexed_db_keys(&left.key, &right.key));
             IdbResponse {
-                values: store_data
-                    .records
-                    .values()
+                values: records
+                    .into_iter()
                     .map(|record| record.value.clone())
                     .collect(),
                 ..IdbResponse::default()
@@ -957,7 +958,10 @@ fn execute_idb(
                     })
                 })
                 .collect::<Vec<_>>();
-            records.sort_by_key(|record| encode_key(&record.key).unwrap_or_default());
+            records.sort_by(|left, right| {
+                compare_indexed_db_keys(&left.key, &right.key)
+                    .then_with(|| compare_indexed_db_keys(&left.primary_key, &right.primary_key))
+            });
             if reverse {
                 records.reverse();
             }
@@ -1102,6 +1106,14 @@ fn put_record(
         })
     });
     let key = key.ok_or(StorageError::KeyRequired)?;
+    if definition.auto_increment
+        && let Some(numeric) = key.as_f64()
+        && numeric.is_finite()
+        && numeric >= 1.0
+    {
+        let next = numeric.floor().min(u64::MAX as f64) as u64;
+        store.next_key = store.next_key.max(next.saturating_add(1));
+    }
     if let Some(path) = definition.key_path
         && value.get(&path).is_none()
         && let Some(object) = value.as_object_mut()
@@ -1258,6 +1270,55 @@ mod tests {
         assert!(
             matches!(values, StorageResponse::IndexedDb { response } if response.values.len() == 1)
         );
+    }
+
+    #[test]
+    fn indexed_db_explicit_numeric_keys_advance_the_auto_increment_generator() {
+        let store = SharedContextStore::memory(StorageLimits::default());
+        let origin = "https://example.test".to_string();
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: origin.clone(),
+                command: IdbCommand::Open {
+                    name: "keys".into(),
+                    version: 1,
+                },
+            })
+            .unwrap();
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: origin.clone(),
+                command: IdbCommand::CreateObjectStore {
+                    database: "keys".into(),
+                    definition: ObjectStoreDefinition {
+                        name: "items".into(),
+                        key_path: Some("id".into()),
+                        auto_increment: true,
+                    },
+                },
+            })
+            .unwrap();
+        let write = |value| StorageRequest::IndexedDb {
+            origin: origin.clone(),
+            command: IdbCommand::Batch {
+                database: "keys".into(),
+                writes: vec![IdbWrite {
+                    store: "items".into(),
+                    key: None,
+                    value,
+                    add_only: false,
+                }],
+            },
+        };
+        store.execute(write(serde_json::json!({"id": 8}))).unwrap();
+        let generated = store
+            .execute(write(serde_json::json!({"name": "generated"})))
+            .unwrap();
+        assert!(matches!(
+            generated,
+            StorageResponse::IndexedDb { response }
+                if response.key == Some(serde_json::json!(9))
+        ));
     }
 
     #[test]

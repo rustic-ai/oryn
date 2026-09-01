@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oryn.dev/schema/runtime-api-style-semantics-result-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "upstream_revision",
+    "inventory_sha256",
+    "execution_mode",
+    "binary",
+    "runtime_metadata",
+    "source",
+    "shard",
+    "assertions",
+    "outcome"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "upstream_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "inventory_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "execution_mode": {"const": "sandboxed_worker"},
+    "binary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "size_bytes"],
+      "properties": {
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "size_bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "runtime_metadata": {
+      "type": "object",
+      "required": [
+        "native_v8",
+        "sandboxed",
+        "v8_heap_sandbox",
+        "streaming_parser",
+        "transport_mode",
+        "worker_binary_sha256",
+        "webidl_manifest_sha256",
+        "style_engine_version",
+        "semantic_graph_version"
+      ],
+      "properties": {
+        "native_v8": {"const": true},
+        "sandboxed": {"const": true},
+        "v8_heap_sandbox": {"const": true},
+        "streaming_parser": {"const": true},
+        "transport_mode": {"const": "async_streaming_parent_broker"},
+        "worker_binary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "webidl_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "style_engine_version": {"type": "string", "minLength": 1},
+        "semantic_graph_version": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": true
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "dirty"],
+      "properties": {
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "dirty": {"const": false}
+      }
+    },
+    "shard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "count"],
+      "properties": {
+        "index": {"type": "integer", "minimum": 0},
+        "count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "path", "classification", "global", "variant", "status"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1},
+          "classification": {
+            "enum": ["generated_webidl", "stylo_computed_values", "semantic_accessibility"]
+          },
+          "global": {
+            "enum": ["window", "dedicatedworker", "sharedworker", "serviceworker"]
+          },
+          "variant": {"type": "string"},
+          "status": {"enum": ["passed", "failed"]},
+          "diagnostics": {"type": "array", "items": {"type": "string"}},
+          "result": {"type": "object"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "required_total", "required_passed"],
+      "properties": {
+        "status": {"enum": ["passed", "failed"]},
+        "required_total": {"type": "integer", "minimum": 1},
+        "required_passed": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

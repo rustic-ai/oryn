@@ -50,8 +50,8 @@ use style_dom::ElementState;
 use style_traits::ToCss;
 use taffy::{
     prelude::{
-        AvailableSpace, Display, FlexDirection, Size as TaffySize, Style as TaffyStyle, TaffyTree,
-        auto, fr, length as taffy_length,
+        AvailableSpace, Display, FlexDirection, GridAutoFlow, Line, Size as TaffySize,
+        Style as TaffyStyle, TaffyTree, auto, fr, length as taffy_length, line,
     },
     style::{Clear, Float},
 };
@@ -61,7 +61,7 @@ pub const DEFAULT_FONT_FAMILY: &str = "Oryn Noto Sans";
 pub const DEFAULT_FONT_SHA256: &str =
     "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5";
 pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("../assets/NotoSans-Regular.ttf");
-pub const STYLE_ENGINE_VERSION: &str = "stylo-stylesheets-selectors-0.20+oryn-cascade-v3";
+pub const STYLE_ENGINE_VERSION: &str = "stylo-stylesheets-selectors-0.20+oryn-cascade-v4-grid";
 pub const BOX_ENGINE_VERSION: &str = "taffy-0.14";
 pub const INLINE_ENGINE_VERSION: &str = "parley-0.11.1";
 
@@ -565,9 +565,9 @@ fn compute_with_rules(
         .map(|node| (node.id, node))
         .collect::<BTreeMap<_, _>>();
     let mut computed_styles = BTreeMap::new();
+    let mut visiting = BTreeSet::new();
     for node in &input.nodes {
-        let parent_style = node.parent.and_then(|parent| computed_styles.get(&parent));
-        computed_styles.insert(node.id, cascade(node, &by_id, parent_style, rules));
+        cascade_subtree(node.id, &by_id, rules, &mut visiting, &mut computed_styles);
     }
 
     let roots = input
@@ -640,6 +640,31 @@ fn compute_with_rules(
         diagnostics,
         loaded_fonts,
     })
+}
+
+/// Traverse parent dependencies rather than relying on snapshot vector order.
+/// The resulting map is the compatibility projection of Stylo's parsed values
+/// consumed by Taffy/Parley and by `getComputedStyle`.
+fn cascade_subtree(
+    id: u64,
+    by_id: &BTreeMap<u64, &LayoutNode>,
+    rules: &[Rule],
+    visiting: &mut BTreeSet<u64>,
+    output: &mut BTreeMap<u64, BTreeMap<String, String>>,
+) {
+    if output.contains_key(&id) || !visiting.insert(id) {
+        return;
+    }
+    let Some(node) = by_id.get(&id).copied() else {
+        visiting.remove(&id);
+        return;
+    };
+    if let Some(parent) = node.parent {
+        cascade_subtree(parent, by_id, rules, visiting, output);
+    }
+    let parent_style = node.parent.and_then(|parent| output.get(&parent));
+    output.insert(id, cascade(node, by_id, parent_style, rules));
+    visiting.remove(&id);
 }
 
 fn stylesheet_fingerprint(input: &LayoutInput) -> [u8; 32] {
@@ -923,6 +948,7 @@ fn cascade(
     rules: &[Rule],
 ) -> BTreeMap<String, String> {
     let mut style = ua_style(node);
+    let initial = style.clone();
     for property in [
         "color",
         "font-family",
@@ -952,13 +978,19 @@ fn cascade(
             }
         }
     }
-    for (property, (_, _, _, value)) in winners {
-        style.insert(property, resolve_value(&value, &style, parent));
-    }
     if let Some(inline) = node.attributes.get("style") {
-        for (property, (value, _)) in declarations_with_importance(inline) {
-            style.insert(property, resolve_value(&value, &style, parent));
+        for (property, (value, important)) in declarations_with_importance(inline) {
+            let candidate = (important, u32::MAX, usize::MAX, value);
+            if winners.get(&property).is_none_or(|current| {
+                (candidate.0, candidate.1, candidate.2) >= (current.0, current.1, current.2)
+            }) {
+                winners.insert(property, candidate);
+            }
         }
+    }
+    for (property, (_, _, _, value)) in winners {
+        let value = resolve_value(&property, &value, &style, parent, &initial);
+        style.insert(property, value);
     }
     if node.attributes.contains_key("hidden") {
         style.insert("display".into(), "none".into());
@@ -1026,7 +1058,7 @@ fn ua_style(node: &LayoutNode) -> BTreeMap<String, String> {
     ])
 }
 
-fn declarations(input: &str) -> BTreeMap<String, String> {
+fn declarations_with_importance(input: &str) -> BTreeMap<String, (String, bool)> {
     let url_data = UrlExtraData::from(
         url::Url::parse("about:blank").expect("constant Stylo declaration base URL"),
     );
@@ -1037,33 +1069,55 @@ fn declarations(input: &str) -> BTreeMap<String, String> {
         QuirksMode::NoQuirks,
         CssRuleType::Style,
     );
-    let mut canonical = String::new();
-    block
-        .to_css(&mut canonical)
-        .expect("writing canonical CSS to a String cannot fail");
-    let mut parsed = raw_declarations(&canonical);
-    let raw = raw_declarations(input);
-    if let Some(value) = parsed
-        .get("overflow")
-        .or_else(|| raw.get("overflow"))
-        .cloned()
-    {
-        let axes = value.split_whitespace().collect::<Vec<_>>();
-        if let Some(x) = axes.first() {
-            parsed.insert("overflow-x".into(), (*x).into());
-            parsed.insert("overflow-y".into(), axes.get(1).unwrap_or(x).to_string());
-        }
-    }
-    for property in ["display", "grid-template-columns"] {
-        if parsed.contains_key(property) {
-            continue;
-        }
-        let Some(value) = raw.get(property) else {
+    let mut declarations = block
+        .declaration_importance_iter()
+        .filter_map(|(declaration, importance)| {
+            let mut value = String::new();
+            declaration.to_css(&mut value).ok()?;
+            Some((
+                declaration.id().name().into_owned(),
+                (value, importance.important()),
+            ))
+        })
+        .collect::<BTreeMap<_, _>>();
+    // Stylo's standalone Servo profile omits a small set of grid computed
+    // structs. Preserve only those already-validated authored values for the
+    // Taffy compatibility bridge; selector matching, normal declarations,
+    // origins, importance, inheritance, and all non-grid values remain
+    // Stylo-owned.
+    for item in input.split(';') {
+        let Some((name, raw_value)) = item.split_once(':') else {
             continue;
         };
-        let accepted = match property {
+        let name = name.trim().to_ascii_lowercase();
+        if !matches!(
+            name.as_str(),
+            "display"
+                | "grid-template-columns"
+                | "grid-template-rows"
+                | "grid-auto-flow"
+                | "grid-column-start"
+                | "grid-column-end"
+                | "grid-row-start"
+                | "grid-row-end"
+                | "column-gap"
+                | "row-gap"
+                | "gap"
+        ) {
+            continue;
+        }
+        let raw_value = raw_value.trim();
+        let important = raw_value
+            .to_ascii_lowercase()
+            .strip_suffix("!important")
+            .is_some();
+        let value = raw_value
+            .strip_suffix("!important")
+            .unwrap_or(raw_value)
+            .trim();
+        let supported = match name.as_str() {
             "display" => matches!(
-                value.as_str(),
+                value,
                 "none"
                     | "block"
                     | "inline"
@@ -1074,87 +1128,79 @@ fn declarations(input: &str) -> BTreeMap<String, String> {
                     | "table-row"
                     | "table-cell"
             ),
-            "grid-template-columns" => bounded_grid_template(value),
+            "grid-template-columns"
+            | "grid-template-rows"
+            | "grid-auto-flow"
+            | "grid-column-start"
+            | "grid-column-end"
+            | "grid-row-start"
+            | "grid-row-end"
+            | "column-gap"
+            | "row-gap"
+            | "gap" => {
+                !value.is_empty()
+                    && value.len() <= 1024
+                    && value.chars().all(|character| {
+                        character.is_ascii_alphanumeric()
+                            || character.is_ascii_whitespace()
+                            || matches!(
+                                character,
+                                '.' | '%' | '(' | ')' | ',' | '-' | '/' | '[' | ']'
+                            )
+                    })
+            }
             _ => false,
         };
-        if accepted {
-            parsed.insert(property.into(), value.clone());
+        if supported {
+            declarations.insert(name, (value.to_string(), important));
         }
     }
-    parsed
-}
-
-fn declarations_with_importance(input: &str) -> BTreeMap<String, (String, bool)> {
-    let important = input
-        .split(';')
-        .filter_map(|item| item.split_once(':'))
-        .filter(|(_, value)| value.trim().to_ascii_lowercase().ends_with("!important"))
-        .map(|(name, _)| name.trim().to_ascii_lowercase())
-        .collect::<BTreeSet<_>>();
-    declarations(input)
-        .into_iter()
-        .map(|(name, value)| {
-            let is_important = important.contains(&name);
-            (name, (value, is_important))
-        })
-        .collect()
-}
-
-fn bounded_grid_template(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 1024
-        && value.chars().all(|character| {
-            character.is_ascii_alphanumeric()
-                || character.is_ascii_whitespace()
-                || matches!(character, '.' | '%' | '(' | ')' | ',' | '-')
-        })
-        && (value.contains("fr")
-            || value.contains("px")
-            || value.contains('%')
-            || value.starts_with("repeat("))
-}
-
-fn raw_declarations(input: &str) -> BTreeMap<String, String> {
-    input
-        .split(';')
-        .filter_map(|item| item.split_once(':'))
-        .map(|(name, value)| {
-            (
-                name.trim().to_ascii_lowercase(),
-                value
-                    .trim()
-                    .trim_end_matches("!important")
-                    .trim()
-                    .to_string(),
-            )
-        })
-        .filter(|(name, value)| !name.is_empty() && !value.is_empty())
-        .collect()
+    declarations
 }
 
 fn resolve_value(
+    property: &str,
     value: &str,
     current: &BTreeMap<String, String>,
     parent: Option<&BTreeMap<String, String>>,
+    initial: &BTreeMap<String, String>,
 ) -> String {
     if value == "inherit" {
         return parent
-            .and_then(|style| style.get("color"))
+            .and_then(|style| style.get(property))
             .cloned()
+            .or_else(|| initial.get(property).cloned())
             .unwrap_or_default();
     }
-    if let Some(name) = value
-        .strip_prefix("var(")
-        .and_then(|value| value.strip_suffix(')'))
-    {
-        let (name, fallback) = name.split_once(',').unwrap_or((name, ""));
-        return current
+    if value == "initial" || value == "revert" || value == "revert-layer" {
+        return initial.get(property).cloned().unwrap_or_default();
+    }
+    if value == "unset" {
+        return parent
+            .and_then(|style| style.get(property))
+            .cloned()
+            .or_else(|| initial.get(property).cloned())
+            .unwrap_or_default();
+    }
+    let mut resolved = value.to_string();
+    for _ in 0..16 {
+        let Some(start) = resolved.find("var(") else {
+            break;
+        };
+        let Some(relative_end) = resolved[start + 4..].find(')') else {
+            break;
+        };
+        let end = start + 4 + relative_end;
+        let expression = &resolved[start + 4..end];
+        let (name, fallback) = expression.split_once(',').unwrap_or((expression, ""));
+        let replacement = current
             .get(name.trim())
             .or_else(|| parent.and_then(|style| style.get(name.trim())))
             .cloned()
             .unwrap_or_else(|| fallback.trim().to_string());
+        resolved.replace_range(start..=end, &replacement);
     }
-    value.to_string()
+    resolved
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1530,8 +1576,22 @@ fn taffy_child_placements(
         16.0,
         viewport,
     );
-    let gap = length(
-        style_value(parent_style, "gap", "0px"),
+    let column_gap = length(
+        style_value(
+            parent_style,
+            "column-gap",
+            style_value(parent_style, "gap", "0px"),
+        ),
+        width,
+        font_size,
+        viewport,
+    ) as f32;
+    let row_gap = length(
+        style_value(
+            parent_style,
+            "row-gap",
+            style_value(parent_style, "gap", "0px"),
+        ),
         width,
         font_size,
         viewport,
@@ -1582,6 +1642,14 @@ fn taffy_child_placements(
                 },
                 float,
                 clear,
+                grid_column: grid_line(
+                    style_value(child_style, "grid-column-start", "auto"),
+                    style_value(child_style, "grid-column-end", "auto"),
+                ),
+                grid_row: grid_line(
+                    style_value(child_style, "grid-row-start", "auto"),
+                    style_value(child_style, "grid-row-end", "auto"),
+                ),
                 flex_grow: if child_width.is_none() { 1.0 } else { 0.0 },
                 ..TaffyStyle::default()
             })
@@ -1609,11 +1677,25 @@ fn taffy_child_placements(
                     height: auto(),
                 },
                 gap: TaffySize {
-                    width: taffy_length(gap),
-                    height: taffy_length(gap),
+                    width: taffy_length(column_gap),
+                    height: taffy_length(row_gap),
+                },
+                grid_auto_flow: match style_value(parent_style, "grid-auto-flow", "row") {
+                    "column" => GridAutoFlow::Column,
+                    "column dense" | "dense column" => GridAutoFlow::ColumnDense,
+                    "row dense" | "dense" | "dense row" => GridAutoFlow::RowDense,
+                    _ => GridAutoFlow::Row,
                 },
                 grid_template_columns: if display == Display::Grid {
                     vec![fr(1.0); columns]
+                } else {
+                    Vec::new()
+                },
+                grid_template_rows: if display == Display::Grid {
+                    vec![
+                        fr(1.0);
+                        grid_track_count(style_value(parent_style, "grid-template-rows", "1fr",))
+                    ]
                 } else {
                     Vec::new()
                 },
@@ -1644,6 +1726,10 @@ fn taffy_child_placements(
 }
 
 fn grid_column_count(value: &str) -> usize {
+    grid_track_count(value)
+}
+
+fn grid_track_count(value: &str) -> usize {
     let repeated = Regex::new(r"(?i)^repeat\(\s*(\d+)")
         .expect("constant grid repeat regex")
         .captures(value.trim())
@@ -1651,6 +1737,22 @@ fn grid_column_count(value: &str) -> usize {
     repeated
         .unwrap_or_else(|| value.split_whitespace().count())
         .clamp(1, 64)
+}
+
+fn grid_line(start: &str, end: &str) -> Line<taffy::style::GridPlacement> {
+    let placement = |value: &str| {
+        value
+            .trim()
+            .parse::<i16>()
+            .ok()
+            .filter(|value| *value != 0)
+            .map(line)
+            .unwrap_or_default()
+    };
+    Line {
+        start: placement(start),
+        end: placement(end),
+    }
 }
 
 fn hidden_geometry() -> NodeGeometry {
@@ -2050,9 +2152,11 @@ mod tests {
 
     #[test]
     fn stylo_parses_and_filters_author_declarations() {
-        let parsed =
-            declarations("color: rgb(255, 0, 0); width: calc(1px + ); not-a-real-property: nope");
+        let parsed = declarations_with_importance(
+            "color: rgb(255, 0, 0) !important; width: calc(1px + ); not-a-real-property: nope",
+        );
         assert!(parsed.contains_key("color"));
+        assert!(parsed["color"].1);
         assert!(!parsed.contains_key("width"));
         assert!(!parsed.contains_key("not-a-real-property"));
     }
@@ -2088,6 +2192,73 @@ mod tests {
         assert_eq!(output.computed_styles[&2]["color"], "black");
         assert_eq!(output.computed_styles[&3]["width"], "71px");
         assert_eq!(output.computed_styles[&2]["height"], "33px");
+    }
+
+    #[test]
+    fn computed_style_traversal_is_parent_order_independent_and_bridges_grid_values() {
+        let mut parent = node(1, None, "main", "");
+        parent.children = vec![2];
+        parent.attributes.insert(
+            "style".into(),
+            "color:blue;display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:1fr 2fr;grid-auto-flow:column dense;column-gap:7px;row-gap:9px"
+                .into(),
+        );
+        let mut child = node(2, Some(1), "button", "Save");
+        child.attributes.insert(
+            "style".into(),
+            "grid-column-start:2;grid-row-start:1".into(),
+        );
+        let output = compute(
+            &LayoutInput {
+                // Deliberately place the child before its parent. A full style
+                // traversal must still see inherited parent ComputedValues.
+                nodes: vec![child, parent],
+                stylesheets: Vec::new(),
+                viewport: ViewportState::default(),
+                scroll: ScrollState::default(),
+                color_scheme: ColorScheme::Light,
+                reduced_motion: false,
+                web_fonts: Vec::new(),
+            },
+            &LayoutLimits::default(),
+        )
+        .expect("Stylo/Taffy grid projection");
+        assert_eq!(output.computed_styles[&2]["color"], "blue");
+        assert_eq!(output.computed_styles[&1]["display"], "grid");
+        assert_eq!(output.computed_styles[&1]["grid-template-rows"], "1fr 2fr");
+        assert_eq!(output.computed_styles[&2]["grid-column-start"], "2");
+        assert!(output.geometry[&2].box_model.is_some());
+    }
+
+    #[test]
+    fn cascade_respects_importance_property_inheritance_and_nested_variables() {
+        let mut root = node(1, None, "main", "");
+        root.attributes.insert(
+            "style".into(),
+            "color:blue;visibility:hidden;--size:41px".into(),
+        );
+        root.children = vec![2];
+        let mut child = node(2, Some(1), "button", "Save");
+        child.attributes.insert(
+            "style".into(),
+            "color:red;visibility:inherit;width:calc(var(--size) + 1px)".into(),
+        );
+        let output = compute(
+            &LayoutInput {
+                nodes: vec![root, child],
+                stylesheets: vec!["button { color: black !important }".into()],
+                viewport: ViewportState::default(),
+                scroll: ScrollState::default(),
+                color_scheme: ColorScheme::Light,
+                reduced_motion: false,
+                web_fonts: Vec::new(),
+            },
+            &LayoutLimits::default(),
+        )
+        .expect("cascade projection");
+        assert_eq!(output.computed_styles[&2]["color"], "black");
+        assert_eq!(output.computed_styles[&2]["visibility"], "hidden");
+        assert_eq!(output.computed_styles[&2]["width"], "calc(41px + 1px)");
     }
 
     #[test]

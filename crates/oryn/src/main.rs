@@ -58,7 +58,7 @@ struct NativeArgs {
     runtime_info: bool,
     /// Report the explicitly named in-process probe rather than launching
     /// the production worker boundary
-    #[arg(long, requires = "runtime_info")]
+    #[arg(long)]
     in_process_probe: bool,
     /// Local HTML document to load before executing OIL
     #[arg(long, conflicts_with = "url")]

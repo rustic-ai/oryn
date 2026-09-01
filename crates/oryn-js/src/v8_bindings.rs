@@ -14,7 +14,9 @@ use oryn_dom::{DomError, DomRuntime, Mutation, NodeId, NodeKind, ShadowMode};
 
 use crate::{
     bindings::{BindingError, InterfaceBrand, WrapperId, WrapperRegistry},
-    generated::{GENERATED_INTERFACES, GeneratedMemberKind},
+    generated::{
+        GENERATED_INTERFACES, GeneratedMemberId, GeneratedMemberKind, generated_member_by_id,
+    },
     realm::RealmId,
     trusted_types::{TrustedKind, TrustedTypesConfig, TrustedTypesRegistry, TrustedValue},
 };
@@ -398,9 +400,8 @@ pub fn install_generated_bindings_with_root(
             let instance = template.instance_template(scope);
             instance.set_internal_field_count(1);
             let prototype = template.prototype_template(scope);
-            for (member_index, member) in interface.members.iter().enumerate() {
-                let token = member_token(interface_index, member_index);
-                let data = v8::Integer::new(scope, token);
+            for member in interface.members {
+                let data = v8::Integer::new(scope, member.id.0 as i32);
                 let name = v8::String::new(scope, member.name)
                     .ok_or(V8BindingError::Allocation("member name"))?;
                 match member.kind {
@@ -432,14 +433,36 @@ pub fn install_generated_bindings_with_root(
                             .build(scope);
                         prototype.set(name.into(), function.into());
                     }
-                    GeneratedMemberKind::Constant
-                    | GeneratedMemberKind::Constructor
-                    | GeneratedMemberKind::Iterable => {}
+                    GeneratedMemberKind::Constant => {
+                        let value = generated_constant_value(
+                            scope,
+                            member
+                                .constant_value
+                                .ok_or(V8BindingError::Allocation("WebIDL constant value"))?,
+                        )?;
+                        prototype.set(name.into(), value.into());
+                    }
+                    GeneratedMemberKind::Constructor | GeneratedMemberKind::Iterable => {}
                 }
             }
             let constructor = template
                 .get_function(scope)
                 .ok_or(V8BindingError::Allocation("interface constructor"))?;
+            for member in interface
+                .members
+                .iter()
+                .filter(|member| member.kind == GeneratedMemberKind::Constant)
+            {
+                let name = v8::String::new(scope, member.name)
+                    .ok_or(V8BindingError::Allocation("WebIDL constant name"))?;
+                let value = generated_constant_value(
+                    scope,
+                    member
+                        .constant_value
+                        .ok_or(V8BindingError::Allocation("WebIDL constant value"))?,
+                )?;
+                constructor.create_data_property(scope, name.into(), value);
+            }
             let global = context.global(scope);
             global.set(
                 scope,
@@ -474,6 +497,31 @@ pub fn install_generated_bindings_with_root(
         .set(scope, name.into(), get_computed_style.into());
     install_trusted_types(scope, context)?;
     Ok(state)
+}
+
+fn generated_constant_value<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    raw: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if let Ok(value) = raw.parse::<i32>() {
+        return Ok(v8::Integer::new(scope, value).into());
+    }
+    if let Ok(value) = raw.parse::<f64>() {
+        return Ok(v8::Number::new(scope, value).into());
+    }
+    match raw {
+        "true" => Ok(v8::Boolean::new(scope, true).into()),
+        "false" => Ok(v8::Boolean::new(scope, false).into()),
+        _ => {
+            let value = raw
+                .strip_prefix('"')
+                .and_then(|value| value.strip_suffix('"'))
+                .unwrap_or(raw);
+            Ok(v8::String::new(scope, value)
+                .ok_or(V8BindingError::Allocation("WebIDL string constant"))?
+                .into())
+        }
+    }
 }
 
 fn install_trusted_types(
@@ -934,13 +982,8 @@ fn dom_rect_object<'s>(
     Ok(object)
 }
 
-fn member_token(interface: usize, member: usize) -> i32 {
-    ((interface as i32) << 16) | member as i32
-}
-
 fn member_from_token(token: i32) -> Option<(&'static str, &'static str)> {
-    let interface = GENERATED_INTERFACES.get(((token as u32) >> 16) as usize)?;
-    let member = interface.members.get((token as u32 & 0xffff) as usize)?;
+    let (interface, member) = generated_member_by_id(GeneratedMemberId(token as u32))?;
     Some((interface.name, member.name))
 }
 
@@ -1314,6 +1357,335 @@ fn direct_child_offset(
     }
 }
 
+fn boundary_length(dom: &DomRuntime, node: NodeId) -> Result<u32, V8BindingError> {
+    Ok(match &dom.arena().get(node)?.kind {
+        NodeKind::Text { data } | NodeKind::Comment { data } => data.encode_utf16().count() as u32,
+        _ => dom.children(node)?.len() as u32,
+    })
+}
+
+fn compare_boundary_points(
+    dom: &DomRuntime,
+    left: (NodeId, u32),
+    right: (NodeId, u32),
+) -> Result<i32, V8BindingError> {
+    if left.0 == right.0 {
+        return Ok(match left.1.cmp(&right.1) {
+            std::cmp::Ordering::Less => -1,
+            std::cmp::Ordering::Equal => 0,
+            std::cmp::Ordering::Greater => 1,
+        });
+    }
+    if let Some(offset) = direct_child_offset(dom, left.0, right.0)? {
+        return Ok(if left.1 <= offset { -1 } else { 1 });
+    }
+    if let Some(offset) = direct_child_offset(dom, right.0, left.0)? {
+        return Ok(if offset < right.1 { -1 } else { 1 });
+    }
+    let left_position = traversal_position(dom, left.0)?;
+    let right_position = traversal_position(dom, right.0)?;
+    Ok(match left_position.cmp(&right_position) {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RangeContentsMode {
+    Clone,
+    Extract,
+    Delete,
+}
+
+fn utf16_slice(value: &str, start: u32, end: u32) -> String {
+    let units = value.encode_utf16().collect::<Vec<_>>();
+    let start = (start as usize).min(units.len());
+    let end = (end as usize).clamp(start, units.len());
+    String::from_utf16_lossy(&units[start..end])
+}
+
+fn utf16_without_range(value: &str, start: u32, end: u32) -> String {
+    let units = value.encode_utf16().collect::<Vec<_>>();
+    let start = (start as usize).min(units.len());
+    let end = (end as usize).clamp(start, units.len());
+    let mut retained = Vec::with_capacity(units.len() - (end - start));
+    retained.extend_from_slice(&units[..start]);
+    retained.extend_from_slice(&units[end..]);
+    String::from_utf16_lossy(&retained)
+}
+
+fn utf16_replace(value: &str, start: u32, count: u32, replacement: &str) -> String {
+    let units = value.encode_utf16().collect::<Vec<_>>();
+    let start = (start as usize).min(units.len());
+    let end = start.saturating_add(count as usize).min(units.len());
+    let mut output =
+        Vec::with_capacity(units.len() - (end - start) + replacement.encode_utf16().count());
+    output.extend_from_slice(&units[..start]);
+    output.extend(replacement.encode_utf16());
+    output.extend_from_slice(&units[end..]);
+    String::from_utf16_lossy(&output)
+}
+
+fn range_contents(
+    dom: &mut DomRuntime,
+    range: &RangeRecord,
+    mode: RangeContentsMode,
+) -> Result<NodeId, V8BindingError> {
+    let fragment = dom.create_fragment();
+    if compare_boundary_points(
+        dom,
+        (range.start_container, range.start_offset),
+        (range.end_container, range.end_offset),
+    )? == 0
+    {
+        return Ok(fragment);
+    }
+    let container = range.start_container;
+    if range.start_container == range.end_container {
+        let kind = dom.arena().get(container)?.kind.clone();
+        let is_comment = matches!(kind, NodeKind::Comment { .. });
+        match kind {
+            NodeKind::Text { data } | NodeKind::Comment { data } => {
+                let selected = utf16_slice(&data, range.start_offset, range.end_offset);
+                if mode != RangeContentsMode::Delete && !selected.is_empty() {
+                    let selected = if is_comment {
+                        dom.create_comment(selected)
+                    } else {
+                        dom.create_text(selected)
+                    };
+                    dom.append_child(fragment, selected)?;
+                }
+                if mode != RangeContentsMode::Clone {
+                    let retained = utf16_without_range(&data, range.start_offset, range.end_offset);
+                    dom.set_text(container, retained)?;
+                }
+            }
+            _ => {
+                let children = dom.children(container)?.to_vec();
+                let start = (range.start_offset as usize).min(children.len());
+                let end = (range.end_offset as usize).clamp(start, children.len());
+                for child in children[start..end].iter().copied() {
+                    match mode {
+                        RangeContentsMode::Clone => {
+                            let clone = dom.clone_node(child, true)?;
+                            dom.append_child(fragment, clone)?;
+                        }
+                        RangeContentsMode::Extract => dom.append_child(fragment, child)?,
+                        RangeContentsMode::Delete => dom.remove_child(container, child)?,
+                    }
+                }
+            }
+        }
+        return Ok(fragment);
+    }
+
+    let common = common_ancestor(dom, range.start_container, range.end_container)?;
+    for child in dom.children(common)?.to_vec() {
+        if let Some(selected) = range_process_node(dom, child, range, mode)? {
+            dom.append_child(fragment, selected)?;
+        }
+    }
+    Ok(fragment)
+}
+
+fn range_process_node(
+    dom: &mut DomRuntime,
+    node: NodeId,
+    range: &RangeRecord,
+    mode: RangeContentsMode,
+) -> Result<Option<NodeId>, V8BindingError> {
+    let before = relative_boundary(dom, node, false)?;
+    let after = relative_boundary(dom, node, true)?;
+    let start = (range.start_container, range.start_offset);
+    let end = (range.end_container, range.end_offset);
+    if compare_boundary_points(dom, end, before)? <= 0
+        || compare_boundary_points(dom, start, after)? >= 0
+    {
+        return Ok(None);
+    }
+    let fully_contained = compare_boundary_points(dom, start, before)? <= 0
+        && compare_boundary_points(dom, after, end)? <= 0;
+    if fully_contained {
+        return match mode {
+            RangeContentsMode::Clone => Ok(Some(dom.clone_node(node, true)?)),
+            RangeContentsMode::Extract => Ok(Some(node)),
+            RangeContentsMode::Delete => {
+                let parent = dom.parent(node)?.ok_or(V8BindingError::Unsupported {
+                    interface: "Range".into(),
+                    member: "InvalidNodeTypeError".into(),
+                })?;
+                dom.remove_child(parent, node)?;
+                Ok(None)
+            }
+        };
+    }
+
+    let kind = dom.arena().get(node)?.kind.clone();
+    let is_comment = matches!(kind, NodeKind::Comment { .. });
+    if let NodeKind::Text { data } | NodeKind::Comment { data } = kind {
+        let start_offset = if node == range.start_container {
+            range.start_offset
+        } else {
+            0
+        };
+        let end_offset = if node == range.end_container {
+            range.end_offset
+        } else {
+            data.encode_utf16().count() as u32
+        };
+        let selected = utf16_slice(&data, start_offset, end_offset);
+        let output = if mode == RangeContentsMode::Delete || selected.is_empty() {
+            None
+        } else {
+            Some(if is_comment {
+                dom.create_comment(selected)
+            } else {
+                dom.create_text(selected)
+            })
+        };
+        if mode != RangeContentsMode::Clone {
+            dom.set_text(node, utf16_without_range(&data, start_offset, end_offset))?;
+        }
+        return Ok(output);
+    }
+
+    let shell = (mode != RangeContentsMode::Delete)
+        .then(|| dom.clone_node(node, false))
+        .transpose()?;
+    for child in dom.children(node)?.to_vec() {
+        if let Some(selected) = range_process_node(dom, child, range, mode)?
+            && let Some(shell) = shell
+        {
+            dom.append_child(shell, selected)?;
+        }
+    }
+    Ok(shell)
+}
+
+fn range_partially_contains_non_text(
+    dom: &DomRuntime,
+    range: &RangeRecord,
+) -> Result<bool, V8BindingError> {
+    let common = common_ancestor(dom, range.start_container, range.end_container)?;
+    let start = (range.start_container, range.start_offset);
+    let end = (range.end_container, range.end_offset);
+    for node in traversal_nodes(dom, common)?.into_iter().skip(1) {
+        if matches!(dom.arena().get(node)?.kind, NodeKind::Text { .. }) {
+            continue;
+        }
+        let before = relative_boundary(dom, node, false)?;
+        let after = relative_boundary(dom, node, true)?;
+        let intersects = compare_boundary_points(dom, end, before)? > 0
+            && compare_boundary_points(dom, start, after)? < 0;
+        let contained = compare_boundary_points(dom, start, before)? <= 0
+            && compare_boundary_points(dom, after, end)? <= 0;
+        if intersects && !contained {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn range_text(dom: &DomRuntime, range: &RangeRecord) -> Result<String, V8BindingError> {
+    if range.start_container == range.end_container {
+        let container = dom.arena().get(range.start_container)?;
+        return match &container.kind {
+            NodeKind::Text { data } => Ok(utf16_slice(data, range.start_offset, range.end_offset)),
+            _ => {
+                let children = dom.children(range.start_container)?;
+                let start = (range.start_offset as usize).min(children.len());
+                let end = (range.end_offset as usize).clamp(start, children.len());
+                let mut text = String::new();
+                for child in &children[start..end] {
+                    text.push_str(&dom.arena().text_content(*child)?);
+                }
+                Ok(text)
+            }
+        };
+    }
+    let nodes = traversal_nodes(
+        dom,
+        common_ancestor(dom, range.start_container, range.end_container)?,
+    )?;
+    let start = nodes
+        .iter()
+        .position(|node| *node == range.start_container)
+        .ok_or(V8BindingError::Allocation("Range start"))?;
+    let end = nodes
+        .iter()
+        .position(|node| *node == range.end_container)
+        .ok_or(V8BindingError::Allocation("Range end"))?;
+    let mut text = String::new();
+    for node in &nodes[start..=end] {
+        if let NodeKind::Text { data } = &dom.arena().get(*node)?.kind {
+            let value = if *node == range.start_container {
+                utf16_slice(data, range.start_offset, data.encode_utf16().count() as u32)
+            } else if *node == range.end_container {
+                utf16_slice(data, 0, range.end_offset)
+            } else {
+                data.clone()
+            };
+            text.push_str(&value);
+        }
+    }
+    Ok(text)
+}
+
+fn insert_at_boundary(
+    dom: &mut DomRuntime,
+    container: NodeId,
+    offset: u32,
+    node: NodeId,
+) -> Result<(), V8BindingError> {
+    match dom.arena().get(container)?.kind.clone() {
+        NodeKind::Text { data } | NodeKind::Comment { data } => {
+            let parent = dom.parent(container)?.ok_or(V8BindingError::Unsupported {
+                interface: "Range".into(),
+                member: "HierarchyRequestError".into(),
+            })?;
+            let units = data.encode_utf16().collect::<Vec<_>>();
+            let split = (offset as usize).min(units.len());
+            let left = String::from_utf16_lossy(&units[..split]);
+            let right = String::from_utf16_lossy(&units[split..]);
+            let is_comment = matches!(dom.arena().get(container)?.kind, NodeKind::Comment { .. });
+            dom.set_text(container, left)?;
+            let trailing = if is_comment {
+                dom.create_comment(right)
+            } else {
+                dom.create_text(right)
+            };
+            let next = dom
+                .children(parent)?
+                .iter()
+                .position(|child| *child == container)
+                .and_then(|index| dom.children(parent).ok()?.get(index + 1).copied());
+            dom.insert_before(parent, trailing, next)?;
+            insert_range_node(dom, parent, node, Some(trailing))
+        }
+        _ => {
+            let reference = dom.children(container)?.get(offset as usize).copied();
+            insert_range_node(dom, container, node, reference)
+        }
+    }
+}
+
+fn insert_range_node(
+    dom: &mut DomRuntime,
+    parent: NodeId,
+    node: NodeId,
+    reference: Option<NodeId>,
+) -> Result<(), V8BindingError> {
+    if matches!(dom.arena().get(node)?.kind, NodeKind::DocumentFragment) {
+        for child in dom.children(node)?.to_vec() {
+            dom.insert_before(parent, child, reference)?;
+        }
+    } else {
+        dom.insert_before(parent, node, reference)?;
+    }
+    Ok(())
+}
+
 fn get_stateful_attribute<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
@@ -1446,6 +1818,12 @@ fn call_stateful_operation<'s>(
             "setStart" | "setEnd" => {
                 let node = argument_node(scope, state, args.get(0))?;
                 let offset = args.get(1).uint32_value(scope).unwrap_or(0);
+                if offset > boundary_length(&state.dom.borrow(), node)? {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Range".into(),
+                        member: "IndexSizeError".into(),
+                    });
+                }
                 let mut ranges = state.ranges.borrow_mut();
                 let range = ranges
                     .get_mut(&id)
@@ -1453,9 +1831,27 @@ fn call_stateful_operation<'s>(
                 if member == "setStart" {
                     range.start_container = node;
                     range.start_offset = offset;
+                    if compare_boundary_points(
+                        &state.dom.borrow(),
+                        (range.start_container, range.start_offset),
+                        (range.end_container, range.end_offset),
+                    )? > 0
+                    {
+                        range.end_container = node;
+                        range.end_offset = offset;
+                    }
                 } else {
                     range.end_container = node;
                     range.end_offset = offset;
+                    if compare_boundary_points(
+                        &state.dom.borrow(),
+                        (range.start_container, range.start_offset),
+                        (range.end_container, range.end_offset),
+                    )? > 0
+                    {
+                        range.start_container = node;
+                        range.start_offset = offset;
+                    }
                 }
                 return Ok(None);
             }
@@ -1493,15 +1889,149 @@ fn call_stateful_operation<'s>(
             }
             "selectNode" | "selectNodeContents" => {
                 let node = argument_node(scope, state, args.get(0))?;
-                let length = state.dom.borrow().children(node)?.len() as u32;
+                let (container, start, end) = if member == "selectNode" {
+                    let (container, start) = relative_boundary(&state.dom.borrow(), node, false)?;
+                    (container, start, start.saturating_add(1))
+                } else {
+                    let dom = state.dom.borrow();
+                    let end = boundary_length(&dom, node)?;
+                    (node, 0, end)
+                };
                 let mut ranges = state.ranges.borrow_mut();
                 let range = ranges
                     .get_mut(&id)
                     .ok_or(V8BindingError::Allocation("Range record"))?;
-                range.start_container = node;
-                range.start_offset = 0;
-                range.end_container = node;
-                range.end_offset = length;
+                range.start_container = container;
+                range.start_offset = start;
+                range.end_container = container;
+                range.end_offset = end;
+                return Ok(None);
+            }
+            "compareBoundaryPoints" => {
+                let how = args.get(0).uint32_value(scope).unwrap_or(u32::MAX);
+                let other_id = stateful_id(
+                    scope,
+                    v8::Local::<v8::Object>::try_from(args.get(1))
+                        .map_err(|_| V8BindingError::Allocation("Range argument"))?,
+                )?;
+                let ranges = state.ranges.borrow();
+                let range = ranges
+                    .get(&id)
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                let other = ranges
+                    .get(&other_id)
+                    .ok_or(V8BindingError::Allocation("Range argument"))?;
+                let (left, right) = match how {
+                    0 => (
+                        (range.start_container, range.start_offset),
+                        (other.start_container, other.start_offset),
+                    ),
+                    1 => (
+                        (range.end_container, range.end_offset),
+                        (other.start_container, other.start_offset),
+                    ),
+                    2 => (
+                        (range.end_container, range.end_offset),
+                        (other.end_container, other.end_offset),
+                    ),
+                    3 => (
+                        (range.start_container, range.start_offset),
+                        (other.end_container, other.end_offset),
+                    ),
+                    _ => {
+                        return Err(V8BindingError::Unsupported {
+                            interface: "Range".into(),
+                            member: "NotSupportedError".into(),
+                        });
+                    }
+                };
+                let ordering = compare_boundary_points(&state.dom.borrow(), left, right)?;
+                return Ok(Some(v8::Integer::new(scope, ordering).into()));
+            }
+            "deleteContents" | "extractContents" | "cloneContents" => {
+                let range = state
+                    .ranges
+                    .borrow()
+                    .get(&id)
+                    .cloned()
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                let mode = match member {
+                    "deleteContents" => RangeContentsMode::Delete,
+                    "extractContents" => RangeContentsMode::Extract,
+                    _ => RangeContentsMode::Clone,
+                };
+                let fragment = range_contents(&mut state.dom.borrow_mut(), &range, mode)?;
+                if mode != RangeContentsMode::Clone {
+                    let mut ranges = state.ranges.borrow_mut();
+                    let range = ranges
+                        .get_mut(&id)
+                        .ok_or(V8BindingError::Allocation("Range record"))?;
+                    range.end_container = range.start_container;
+                    range.end_offset = range.start_offset;
+                }
+                if member == "deleteContents" {
+                    return Ok(None);
+                }
+                return Ok(Some(wrap_node(scope, state, fragment)?.into()));
+            }
+            "insertNode" => {
+                let node = argument_node(scope, state, args.get(0))?;
+                let range = state
+                    .ranges
+                    .borrow()
+                    .get(&id)
+                    .cloned()
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                insert_at_boundary(
+                    &mut state.dom.borrow_mut(),
+                    range.start_container,
+                    range.start_offset,
+                    node,
+                )?;
+                return Ok(None);
+            }
+            "surroundContents" => {
+                let wrapper = argument_node(scope, state, args.get(0))?;
+                let range = state
+                    .ranges
+                    .borrow()
+                    .get(&id)
+                    .cloned()
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                let mut dom = state.dom.borrow_mut();
+                if range_partially_contains_non_text(&dom, &range)? {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Range".into(),
+                        member: "InvalidStateError".into(),
+                    });
+                }
+                if matches!(
+                    dom.arena().get(wrapper)?.kind,
+                    NodeKind::Document | NodeKind::DocumentType { .. } | NodeKind::DocumentFragment
+                ) {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Range".into(),
+                        member: "InvalidNodeTypeError".into(),
+                    });
+                }
+                for child in dom.children(wrapper)?.to_vec() {
+                    dom.remove_child(wrapper, child)?;
+                }
+                let fragment = range_contents(&mut dom, &range, RangeContentsMode::Extract)?;
+                insert_at_boundary(&mut dom, range.start_container, range.start_offset, wrapper)?;
+                for child in dom.children(fragment)?.to_vec() {
+                    dom.append_child(wrapper, child)?;
+                }
+                drop(dom);
+                let mut ranges = state.ranges.borrow_mut();
+                let range = ranges
+                    .get_mut(&id)
+                    .ok_or(V8BindingError::Allocation("Range record"))?;
+                let (container, start) = relative_boundary(&state.dom.borrow(), wrapper, false)?;
+                range.start_container = container;
+                range.start_offset = start;
+                range.end_container = container;
+                range.end_offset = start.saturating_add(1);
                 return Ok(None);
             }
             "cloneRange" => {
@@ -1578,11 +2108,7 @@ fn call_stateful_operation<'s>(
                     .get(&id)
                     .cloned()
                     .ok_or(V8BindingError::Allocation("Range record"))?;
-                let text = state
-                    .dom
-                    .borrow()
-                    .arena()
-                    .text_content(range.start_container)?;
+                let text = range_text(&state.dom.borrow(), &range)?;
                 return Ok(Some(v8_string(scope, &text)?));
             }
             "createContextualFragment" => {
@@ -1634,6 +2160,28 @@ fn call_stateful_operation<'s>(
             }
             "removeAllRanges" | "empty" => {
                 state.selection_range.set(None);
+                return Ok(None);
+            }
+            "deleteFromDocument" => {
+                if let Some(id) = state.selection_range.get() {
+                    let range = state
+                        .ranges
+                        .borrow()
+                        .get(&id)
+                        .cloned()
+                        .ok_or(V8BindingError::Allocation("Range record"))?;
+                    range_contents(
+                        &mut state.dom.borrow_mut(),
+                        &range,
+                        RangeContentsMode::Delete,
+                    )?;
+                    let mut ranges = state.ranges.borrow_mut();
+                    let range = ranges
+                        .get_mut(&id)
+                        .ok_or(V8BindingError::Allocation("Range record"))?;
+                    range.end_container = range.start_container;
+                    range.end_offset = range.start_offset;
+                }
                 return Ok(None);
             }
             "collapse" | "setPosition" | "selectAllChildren" => {
@@ -2831,10 +3379,36 @@ fn get_attribute_value<'s>(
                 .unwrap_or_else(|| if options.is_empty() { -1 } else { 0 });
             v8::Integer::new(scope, index).into()
         }
-        ("Text" | "Comment", "data") => match &record.kind {
+        ("CharacterData", "data") => match &record.kind {
             NodeKind::Text { data } | NodeKind::Comment { data } => v8_string(scope, data)?,
             _ => return Err(DomError::StaleNode(node).into()),
         },
+        ("CharacterData", "length") => match &record.kind {
+            NodeKind::Text { data } | NodeKind::Comment { data } => {
+                v8::Integer::new_from_unsigned(scope, data.encode_utf16().count() as u32).into()
+            }
+            _ => return Err(DomError::StaleNode(node).into()),
+        },
+        ("HTMLElement", "contentEditable") => v8_string(
+            scope,
+            record
+                .attributes
+                .get("contenteditable")
+                .map_or("inherit", String::as_str),
+        )?,
+        ("HTMLElement", "isContentEditable") => {
+            let mut current = Some(node);
+            let mut editable = false;
+            while let Some(candidate) = current {
+                let candidate_record = dom.arena().get(candidate)?;
+                if let Some(value) = candidate_record.attributes.get("contenteditable") {
+                    editable = !value.eq_ignore_ascii_case("false");
+                    break;
+                }
+                current = candidate_record.parent;
+            }
+            v8::Boolean::new(scope, editable).into()
+        }
         _ => {
             return Err(V8BindingError::Unsupported {
                 interface: interface.into(),
@@ -2938,7 +3512,24 @@ fn set_attribute_value(
         ("CSSStyleDeclaration", member) => {
             set_inline_style_property(&mut dom, node, css_property_name(member), &value)?;
         }
-        ("Text" | "Comment", "data") => dom.set_text(node, value)?,
+        ("CharacterData", "data") => dom.set_text(node, value)?,
+        ("HTMLElement", "contentEditable") => {
+            let normalized = value.to_ascii_lowercase();
+            if !matches!(
+                normalized.as_str(),
+                "true" | "false" | "plaintext-only" | "inherit"
+            ) {
+                return Err(V8BindingError::Unsupported {
+                    interface: "HTMLElement".into(),
+                    member: "SyntaxError".into(),
+                });
+            }
+            if normalized == "inherit" {
+                dom.remove_attribute(node, "contenteditable")?;
+            } else {
+                dom.set_attribute(node, "contenteditable", normalized)?;
+            }
+        }
         ("HTMLSelectElement", "value") => {
             let options = dom.query_selector_all(node, "option")?;
             for option in options {
@@ -3058,6 +3649,99 @@ fn call_operation<'s>(
     args: &v8::FunctionCallbackArguments,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     match (interface, member) {
+        ("CharacterData", "substringData") => {
+            let offset = args.get(0).uint32_value(scope).unwrap_or(0);
+            let count = args.get(1).uint32_value(scope).unwrap_or(0);
+            let dom = state.dom.borrow();
+            let data = match &dom.arena().get(node)?.kind {
+                NodeKind::Text { data } | NodeKind::Comment { data } => data,
+                _ => return Err(DomError::StaleNode(node).into()),
+            };
+            if offset as usize > data.encode_utf16().count() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "CharacterData".into(),
+                    member: "IndexSizeError".into(),
+                });
+            }
+            Ok(Some(v8_string(
+                scope,
+                &utf16_slice(data, offset, offset.saturating_add(count)),
+            )?))
+        }
+        ("CharacterData", "appendData" | "insertData" | "deleteData" | "replaceData") => {
+            let current = {
+                let dom = state.dom.borrow();
+                match &dom.arena().get(node)?.kind {
+                    NodeKind::Text { data } | NodeKind::Comment { data } => data.clone(),
+                    _ => return Err(DomError::StaleNode(node).into()),
+                }
+            };
+            let length = current.encode_utf16().count() as u32;
+            let (offset, count, replacement) = match member {
+                "appendData" => (length, 0, required_string(scope, args, 0)?),
+                "insertData" => (
+                    args.get(0).uint32_value(scope).unwrap_or(0),
+                    0,
+                    required_string(scope, args, 1)?,
+                ),
+                "deleteData" => (
+                    args.get(0).uint32_value(scope).unwrap_or(0),
+                    args.get(1).uint32_value(scope).unwrap_or(0),
+                    String::new(),
+                ),
+                _ => (
+                    args.get(0).uint32_value(scope).unwrap_or(0),
+                    args.get(1).uint32_value(scope).unwrap_or(0),
+                    required_string(scope, args, 2)?,
+                ),
+            };
+            if offset > length {
+                return Err(V8BindingError::Unsupported {
+                    interface: "CharacterData".into(),
+                    member: "IndexSizeError".into(),
+                });
+            }
+            state
+                .dom
+                .borrow_mut()
+                .set_text(node, utf16_replace(&current, offset, count, &replacement))?;
+            Ok(None)
+        }
+        ("Text", "splitText") => {
+            let offset = args.get(0).uint32_value(scope).unwrap_or(0);
+            let (data, parent) = {
+                let dom = state.dom.borrow();
+                let record = dom.arena().get(node)?;
+                let NodeKind::Text { data } = &record.kind else {
+                    return Err(DomError::StaleNode(node).into());
+                };
+                (data.clone(), record.parent)
+            };
+            let length = data.encode_utf16().count() as u32;
+            if offset > length {
+                return Err(V8BindingError::Unsupported {
+                    interface: "Text".into(),
+                    member: "IndexSizeError".into(),
+                });
+            }
+            let head = utf16_slice(&data, 0, offset);
+            let tail = utf16_slice(&data, offset, length);
+            let created = {
+                let mut dom = state.dom.borrow_mut();
+                dom.set_text(node, head)?;
+                let created = dom.create_text(tail);
+                if let Some(parent) = parent {
+                    let siblings = dom.children(parent)?.to_vec();
+                    let index = siblings
+                        .iter()
+                        .position(|candidate| *candidate == node)
+                        .ok_or(DomError::StaleNode(node))?;
+                    dom.insert_before(parent, created, siblings.get(index + 1).copied())?;
+                }
+                created
+            };
+            Ok(Some(wrap_node(scope, state, created)?.into()))
+        }
         ("EventTarget", "addEventListener") => {
             let event_type = required_string(scope, args, 0)?;
             if args.get(1).is_null_or_undefined() {
@@ -4781,6 +5465,99 @@ mod tests {
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
             "true|1|root|one|one|two|root|true|true"
+        );
+    }
+
+    #[test]
+    fn generated_range_content_operations_mutate_the_rust_dom() {
+        initialize_v8();
+        let parsed =
+            html::parse("<main id='root'><i id='a'>A</i><b id='b'>B</b><u id='c'>C</u></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const root=document.getElementById('root'),b=document.getElementById('b');const selected=document.createRange();selected.selectNode(b);const copy=selected.cloneContents();const comparison=selected.compareBoundaryPoints(Range.START_TO_START,selected);const wrapper=document.createElement('span');selected.surroundContents(wrapper);const insertion=document.createRange();insertion.selectNodeContents(root);insertion.collapse(true);const prefix=document.createElement('em');prefix.textContent='P';insertion.insertNode(prefix);const deletion=document.getSelection();const tail=document.createRange();tail.selectNode(document.getElementById('c'));deletion.addRange(tail);deletion.deleteFromDocument();comparison+'|'+copy.firstChild.id+'|'+root.firstChild.tagName+'|'+root.children[2].tagName+'|'+root.textContent",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "0|b|EM|SPAN|PAB"
+        );
+    }
+
+    #[test]
+    fn cross_container_range_extracts_partial_ancestors_and_moves_contained_nodes() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<main id='root'><p id='a'>ab<strong id='kept'>cd</strong>ef</p><p id='b'>gh<em>ij</em>kl</p></main>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const a=document.getElementById('a'),b=document.getElementById('b'),kept=document.getElementById('kept');const r=document.createRange();r.setStart(a.firstChild,1);r.setEnd(b.lastChild,1);const f=r.extractContents();[f.textContent,a.textContent,b.textContent,f.querySelector('#kept')===kept,r.collapsed].join('|')",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "bcdefghijk|a|l|true|true"
+        );
+    }
+
+    #[test]
+    fn cross_container_range_clone_delete_and_surround_follow_dom_boundaries() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<main><p id='a'>abc<strong>def</strong></p><p id='b'><em>ghi</em>jkl</p></main>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const a=document.getElementById('a'),b=document.getElementById('b');const r=document.createRange();r.setStart(a.firstChild,1);r.setEnd(b.lastChild,2);const clone=r.cloneContents();let rejected=false;try{r.surroundContents(document.createElement('section'))}catch(e){rejected=String(e).includes('InvalidStateError')}r.deleteContents();[clone.textContent,a.textContent,b.textContent,rejected,r.collapsed].join('|')",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "bcdefghijk|a|l|true|true"
+        );
+    }
+
+    #[test]
+    fn generated_character_data_and_editing_state_mutate_the_rust_dom() {
+        initialize_v8();
+        let parsed = html::parse("<main id='editor' contenteditable><p id='line'>hello</p></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor'),text=document.getElementById('line').firstChild;const tail=text.splitText(2);tail.insertData(0,'!');tail.replaceData(1,2,'YY');text.appendData('?');[editor.isContentEditable,editor.contentEditable,text.data,tail.data,tail.length,tail.substringData(1,2),text instanceof CharacterData].join('|')",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "true||he?|!YYo|4|YY|true"
         );
     }
 

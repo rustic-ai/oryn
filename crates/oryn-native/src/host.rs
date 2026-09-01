@@ -278,6 +278,32 @@ mod raw_v8 {
         closed: bool,
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum WorkerGlobalKind {
+        Dedicated,
+        Shared,
+        Service,
+    }
+
+    impl WorkerGlobalKind {
+        fn parse(value: &str) -> Result<Self, String> {
+            match value {
+                "" | "dedicatedworker" => Ok(Self::Dedicated),
+                "sharedworker" => Ok(Self::Shared),
+                "serviceworker" => Ok(Self::Service),
+                _ => Err(format!("unsupported worker global {value:?}")),
+            }
+        }
+
+        fn web_name(self) -> &'static str {
+            match self {
+                Self::Dedicated => "DedicatedWorkerGlobalScope",
+                Self::Shared => "SharedWorkerGlobalScope",
+                Self::Service => "ServiceWorkerGlobalScope",
+            }
+        }
+    }
+
     struct DedicatedWorkers {
         next_id: u64,
         workers: BTreeMap<u64, DedicatedWorker>,
@@ -1497,8 +1523,28 @@ mod raw_v8 {
         (() => {
           const listeners = new Map();
           class WorkerEvent {
-            constructor(type, init = {}) { this.type = String(type); Object.assign(this, init); }
+            constructor(type, init = {}) { this.type = String(type); this.defaultPrevented = false; Object.assign(this, init); }
+            preventDefault() { this.defaultPrevented = true; }
           }
+          class WorkerEventTarget {
+            addEventListener(type, callback) {
+              const key = String(type), list = this.__listeners?.get(key) || [];
+              list.push(callback); (this.__listeners || (this.__listeners = new Map())).set(key, list);
+            }
+            removeEventListener(type, callback) {
+              const key = String(type);
+              this.__listeners?.set(key, (this.__listeners.get(key) || []).filter(item => item !== callback));
+            }
+            dispatchEvent(event) {
+              for (const callback of this.__listeners?.get(event.type) || []) callback.call(this, event);
+              const handler = this['on' + event.type];
+              if (typeof handler === 'function') handler.call(this, event);
+              return !event.defaultPrevented;
+            }
+          }
+          class DedicatedWorkerGlobalScope extends WorkerEventTarget {}
+          class SharedWorkerGlobalScope extends WorkerEventTarget {}
+          class ServiceWorkerGlobalScope extends WorkerEventTarget {}
           const cloneJson = value => {
             const encoded = JSON.stringify(value);
             if (encoded === undefined) {
@@ -1511,6 +1557,18 @@ mod raw_v8 {
           globalThis.self = globalThis;
           globalThis.Event = WorkerEvent;
           globalThis.MessageEvent = WorkerEvent;
+          globalThis.EventTarget = WorkerEventTarget;
+          globalThis.queueMicrotask = callback => Promise.resolve().then(callback);
+          globalThis.setTimeout = (callback, delay = 0, ...args) => __oryn_timer_schedule(callback, delay, false, args);
+          globalThis.setInterval = (callback, delay = 0, ...args) => __oryn_timer_schedule(callback, delay, true, args);
+          globalThis.clearTimeout = id => __oryn_timer_cancel(Number(id));
+          globalThis.clearInterval = globalThis.clearTimeout;
+          globalThis.DedicatedWorkerGlobalScope = DedicatedWorkerGlobalScope;
+          globalThis.SharedWorkerGlobalScope = SharedWorkerGlobalScope;
+          globalThis.ServiceWorkerGlobalScope = ServiceWorkerGlobalScope;
+          const Scope = globalThis[globalThis.__oryn_worker_global_name] || DedicatedWorkerGlobalScope;
+          Object.setPrototypeOf(globalThis, Scope.prototype);
+          Object.defineProperty(globalThis, Symbol.toStringTag, {value:globalThis.__oryn_worker_global_name});
           globalThis.onmessage = null;
           globalThis.onerror = null;
           globalThis.addEventListener = (type, callback) => {
@@ -1534,6 +1592,78 @@ mod raw_v8 {
             dispatchEvent(event);
           };
         })();
+    "#;
+
+    // Parent-owned IndexedDB is available in every worker realm. The worker
+    // holds only request/cursor objects; all durable state and quota decisions
+    // remain behind the typed context-service operation.
+    const WORKER_INDEXED_DB_BOOTSTRAP: &str = r#"
+      (() => {
+        if (typeof globalThis.__oryn_context_call !== 'function') return;
+        const call = command => {
+          const outer = JSON.parse(__oryn_context_call(JSON.stringify({operation:'storage',request:{operation:'indexed_db',origin:location.origin,command}})));
+          if (outer.result !== 'storage' || outer.response.result !== 'indexed_db') throw new Error('invalid IndexedDB response');
+          return outer.response.response;
+        };
+        const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+        class Request extends EventTarget {
+          constructor(){super();this.result=undefined;this.error=null;this.transaction=null;this.onsuccess=null;this.onerror=null;this.onupgradeneeded=null;this.onblocked=null}
+          fire(type,extra={}){const event=new Event(type,{target:this,...extra});event.target=this;this.dispatchEvent(event)}
+          success(value){queueMicrotask(()=>{this.result=value;this.fire('success')})}
+          failure(error){queueMicrotask(()=>{this.error=error;this.fire('error')})}
+        }
+        class Cursor {
+          constructor(request,store,records,keyOnly=false,index=0){this.request=request;this.store=store;this.records=records;this.keyOnly=keyOnly;this.index=index;this.sync()}
+          sync(){const record=this.records[this.index];this.key=record?.key;this.primaryKey=record?.primary_key;this.value=this.keyOnly?undefined:clone(record?.value)}
+          continue(key){let next=this.index+1;if(key!==undefined)next=this.records.findIndex((record,index)=>index>this.index&&indexedDB.cmp(record.key,key)>=0);this.index=next<0?this.records.length:next;queueMicrotask(()=>{if(this.index>=this.records.length)this.request.success(null);else{this.sync();this.request.success(this)}})}
+          advance(count){this.index+=Math.max(1,Number(count)||1)-1;this.continue()}
+          delete(){return this.store.delete(this.primaryKey)}
+          update(value){return this.store.put(value,this.primaryKey)}
+        }
+        class Index {
+          constructor(store,name){this.objectStore=store;this.name=String(name)}
+          records(query,direction='next'){return call({command:'cursor',database:this.objectStore.transaction.db.name,store:this.objectStore.name,index:this.name,query:query??null,reverse:String(direction).startsWith('prev')}).records}
+          request(transform){const request=new Request();try{request.success(transform())}catch(error){request.failure(error)}return request}
+          get(query){return this.request(()=>clone(this.records(query)[0]?.value))}
+          getKey(query){return this.request(()=>clone(this.records(query)[0]?.primary_key))}
+          getAll(query,count){return this.request(()=>this.records(query).slice(0,count??Infinity).map(record=>clone(record.value)))}
+          getAllKeys(query,count){return this.request(()=>this.records(query).slice(0,count??Infinity).map(record=>clone(record.primary_key)))}
+          count(query){return this.request(()=>this.records(query).length)}
+          openCursor(query,direction='next'){return this.objectStore.cursor(query,direction,this.name,false)}
+          openKeyCursor(query,direction='next'){return this.objectStore.cursor(query,direction,this.name,true)}
+        }
+        class ObjectStore {
+          constructor(transaction,name){this.transaction=transaction;this.name=String(name)}
+          request(command,transform=value=>value){const request=new Request();try{request.success(transform(call(command)))}catch(error){request.failure(error)}return request}
+          put(value,key){return this.request({command:'batch',database:this.transaction.db.name,writes:[{store:this.name,key:key??null,value:clone(value),add_only:false}]},response=>response.key)}
+          add(value,key){return this.request({command:'batch',database:this.transaction.db.name,writes:[{store:this.name,key:key??null,value:clone(value),add_only:true}]},response=>response.key)}
+          get(key){return this.request({command:'get',database:this.transaction.db.name,store:this.name,key},response=>clone(response.value))}
+          getAll(query,count){if(query===undefined)return this.request({command:'get_all',database:this.transaction.db.name,store:this.name},response=>response.values.slice(0,count??Infinity).map(clone));return this.request({command:'cursor',database:this.transaction.db.name,store:this.name,index:null,query,reverse:false},response=>response.records.slice(0,count??Infinity).map(record=>clone(record.value)))}
+          getAllKeys(query,count){return this.request({command:'cursor',database:this.transaction.db.name,store:this.name,index:null,query:query??null,reverse:false},response=>response.records.slice(0,count??Infinity).map(record=>clone(record.primary_key)))}
+          delete(key){return this.request({command:'delete',database:this.transaction.db.name,store:this.name,key})}
+          clear(){return this.request({command:'clear',database:this.transaction.db.name,store:this.name})}
+          count(query){return this.request(query===undefined?{command:'count',database:this.transaction.db.name,store:this.name}:{command:'cursor',database:this.transaction.db.name,store:this.name,index:null,query,reverse:false},response=>response.count??response.records.length)}
+          cursor(query,direction,index,keyOnly){const request=new Request();request.store=this;try{const records=call({command:'cursor',database:this.transaction.db.name,store:this.name,index,query:query??null,reverse:String(direction).startsWith('prev')}).records;queueMicrotask(()=>request.success(records.length?new Cursor(request,this,records,keyOnly):null))}catch(error){request.failure(error)}return request}
+          openCursor(query,direction='next'){return this.cursor(query,direction,null,false)}
+          openKeyCursor(query,direction='next'){return this.cursor(query,direction,null,true)}
+          createIndex(name,keyPath,options={}){call({command:'create_index',database:this.transaction.db.name,store:this.name,definition:{name:String(name),key_path:String(keyPath),unique:!!options.unique}});return new Index(this,name)}
+          index(name){return new Index(this,name)}
+        }
+        class Transaction extends EventTarget {
+          constructor(db,names,mode='readonly'){super();this.db=db;this.mode=mode;this.objectStoreNames=Array.isArray(names)?names.map(String):[String(names)];this.oncomplete=null;this.onabort=null;this.onerror=null;queueMicrotask(()=>this.dispatchEvent(new Event('complete',{target:this})))}
+          objectStore(name){if(!this.objectStoreNames.includes(String(name)))throw new Error('NotFoundError');return new ObjectStore(this,name)}
+          abort(){this.dispatchEvent(new Event('abort',{target:this}))}
+        }
+        class Database extends EventTarget {
+          constructor(name,version,stores=[]){super();this.name=String(name);this.version=version;this.objectStoreNames=stores}
+          createObjectStore(name,options={}){const response=call({command:'create_object_store',database:this.name,definition:{name:String(name),key_path:options.keyPath??null,auto_increment:!!options.autoIncrement}});this.objectStoreNames=response.object_stores;return new ObjectStore(this.__upgradeTransaction||(this.__upgradeTransaction=new Transaction(this,[name],'versionchange')),name)}
+          transaction(names,mode='readonly'){return new Transaction(this,names,mode)}
+          close(){}
+        }
+        const compare=(left,right)=>{if(typeof left==='number'&&typeof right==='number')return Math.sign(left-right);if(typeof left==='string'&&typeof right==='string')return left<right?-1:left>right?1:0;const a=JSON.stringify(left),b=JSON.stringify(right);return a<b?-1:a>b?1:0};
+        globalThis.IDBRequest=Request;globalThis.IDBOpenDBRequest=Request;globalThis.IDBCursor=Cursor;globalThis.IDBIndex=Index;globalThis.IDBObjectStore=ObjectStore;globalThis.IDBTransaction=Transaction;globalThis.IDBDatabase=Database;
+        globalThis.indexedDB={cmp:compare,open(name,version=0){const request=new Request();try{const response=call({command:'open',name:String(name),version:Number(version)||0});const db=new Database(name,response.version,response.object_stores);const transaction=new Transaction(db,response.object_stores,'versionchange');db.__upgradeTransaction=transaction;request.transaction=transaction;queueMicrotask(()=>{request.result=db;if(response.upgrade_needed)request.fire('upgradeneeded',{oldVersion:response.old_version,newVersion:response.version});request.fire('success')})}catch(error){request.failure(error)}return request},deleteDatabase(name){const request=new Request();try{call({command:'delete_database',name:String(name)});request.success(undefined)}catch(error){request.failure(error)}return request}};
+      })();
     "#;
 
     fn worker_id_argument(
@@ -1579,6 +1709,13 @@ mod raw_v8 {
                 .map(|value| value.to_rust_string_lossy(scope))
                 .unwrap_or_else(|| "oryn:dedicated-worker".into());
             let module = args.get(2).boolean_value(scope);
+            let global_kind = WorkerGlobalKind::parse(
+                &args
+                    .get(3)
+                    .to_string(scope)
+                    .map(|value| value.to_rust_string_lossy(scope))
+                    .unwrap_or_default(),
+            )?;
             let owner_identity = current_global_identity(scope);
             let worker_id = {
                 let registry = scope
@@ -1634,10 +1771,22 @@ mod raw_v8 {
                     name.into(),
                     close.into(),
                 );
+                let parsed_url = Url::parse(&resource_name).ok();
                 let url = serde_json::to_string(&resource_name).map_err(|e| e.to_string())?;
+                let origin = serde_json::to_string(
+                    &parsed_url
+                        .as_ref()
+                        .map(|url| url.origin().ascii_serialization())
+                        .unwrap_or_else(|| "null".into()),
+                )
+                .map_err(|error| error.to_string())?;
+                let pathname = serde_json::to_string(parsed_url.as_ref().map_or("", Url::path))
+                    .map_err(|error| error.to_string())?;
+                let global_name = serde_json::to_string(global_kind.web_name())
+                    .map_err(|error| error.to_string())?;
                 let bootstrap = format!(
-                    "globalThis.location=Object.freeze({{href:{url}}});{}",
-                    DEDICATED_WORKER_BOOTSTRAP
+                    "globalThis.location=Object.freeze({{href:{url},origin:{origin},pathname:{pathname}}});globalThis.__oryn_worker_global_name={global_name};{}{}",
+                    DEDICATED_WORKER_BOOTSTRAP, WORKER_INDEXED_DB_BOOTSTRAP
                 );
                 let bootstrap = v8::String::new(worker_scope, &bootstrap)
                     .ok_or_else(|| "worker bootstrap allocation failed".to_string())?;
@@ -2635,6 +2784,34 @@ mod tests {
         );
         let button = dom.borrow().find_by_id("go").unwrap();
         assert_eq!(dom.borrow().arena().text_content(button).unwrap(), "Run");
+    }
+
+    #[test]
+    fn shared_and_service_worker_realms_report_their_distinct_global_scope() {
+        let mut host = RawV8Host::new();
+        for (kind, expected) in [
+            ("sharedworker", "SharedWorkerGlobalScope"),
+            ("serviceworker", "ServiceWorkerGlobalScope"),
+        ] {
+            let source = serde_json::to_string(
+                "postMessage({scope:__oryn_worker_global_name,tag:Object.prototype.toString.call(self),matches:self instanceof globalThis[__oryn_worker_global_name]})",
+            )
+            .unwrap();
+            let kind = serde_json::to_string(kind).unwrap();
+            let id = host
+                .evaluate_string(&format!(
+                    "__oryn_worker_create({source},'https://example.test/worker.js',false,{kind})"
+                ))
+                .unwrap();
+            let messages = host
+                .evaluate_string(&format!("__oryn_worker_take({id})"))
+                .unwrap();
+            let messages: Vec<String> = serde_json::from_str(&messages).unwrap();
+            let payload: serde_json::Value = serde_json::from_str(&messages[0]).unwrap();
+            assert_eq!(payload["scope"], expected);
+            assert_eq!(payload["tag"], format!("[object {expected}]"));
+            assert_eq!(payload["matches"], true);
+        }
     }
 
     #[test]

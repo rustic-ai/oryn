@@ -258,12 +258,16 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
     let mut output = String::from(
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub enum GeneratedMemberKind { Attribute, Operation, Constructor, Constant, Iterable }\n\
+         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\n\
+         pub struct GeneratedMemberId(pub u32);\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub struct GeneratedMember {\n\
+             pub id: GeneratedMemberId,\n\
              pub name: &'static str,\n\
              pub kind: GeneratedMemberKind,\n\
              pub arity: u8,\n\
              pub readonly: bool,\n\
+             pub constant_value: Option<&'static str>,\n\
          }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub struct GeneratedInterface {\n\
@@ -272,27 +276,30 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
              pub members: &'static [GeneratedMember],\n\
          }\n\n",
     );
-    for interface in &interfaces {
+    for (interface_index, interface) in interfaces.iter().enumerate() {
         output.push_str(&format!(
             "pub const {}_MEMBERS: &[GeneratedMember] = &[",
             rust_constant(&interface.name)
         ));
-        for member in &interface.members {
-            let (name, kind, arity, readonly) = match member {
+        for (member_index, member) in interface.members.iter().enumerate() {
+            let (name, kind, arity, readonly, constant_value) = match member {
                 Member::Attribute { name, readonly, .. } => {
-                    (name.as_str(), "Attribute", 0, *readonly)
+                    (name.as_str(), "Attribute", 0, *readonly, None)
                 }
                 Member::Operation {
                     name, arguments, ..
-                } => (name.as_str(), "Operation", arguments.len(), false),
-                Member::Constant { name, .. } => (name.as_str(), "Constant", 0, true),
-                Member::Constructor { arguments } => {
-                    ("constructor", "Constructor", arguments.len(), false)
+                } => (name.as_str(), "Operation", arguments.len(), false, None),
+                Member::Constant { name, value, .. } => {
+                    (name.as_str(), "Constant", 0, true, Some(value.as_str()))
                 }
-                Member::Iterable { .. } => ("@@iterator", "Iterable", 0, true),
+                Member::Constructor { arguments } => {
+                    ("constructor", "Constructor", arguments.len(), false, None)
+                }
+                Member::Iterable { .. } => ("@@iterator", "Iterable", 0, true, None),
             };
             output.push_str(&format!(
-                "GeneratedMember {{ name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly} }},"
+                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, constant_value: {constant_value:?} }},",
+                token = ((interface_index as u32) << 16) | member_index as u32,
             ));
         }
         output.push_str("];\n");
@@ -317,6 +324,12 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
          }\n\n\
          pub fn generated_member(interface: &str, member: &str) -> Option<&'static GeneratedMember> {\n\
              generated_interface(interface)?.members.iter().find(|candidate| candidate.name == member)\n\
+         }\n\n\
+         #[allow(dead_code)]\n\
+         pub fn generated_member_by_id(id: GeneratedMemberId) -> Option<(&'static GeneratedInterface, &'static GeneratedMember)> {\n\
+             let interface = GENERATED_INTERFACES.get((id.0 >> 16) as usize)?;\n\
+             let member = interface.members.get((id.0 & 0xffff) as usize)?;\n\
+             (member.id == id).then_some((interface, member))\n\
          }\n",
     );
     let syntax = syn::parse_file(&output).map_err(|error| {

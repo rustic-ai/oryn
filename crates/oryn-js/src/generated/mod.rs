@@ -2,8 +2,8 @@
 mod browser;
 
 pub use browser::{
-    GENERATED_INTERFACES, GeneratedInterface, GeneratedMember, GeneratedMemberKind,
-    generated_interface, generated_member,
+    GENERATED_INTERFACES, GeneratedInterface, GeneratedMember, GeneratedMemberId,
+    GeneratedMemberKind, generated_interface, generated_member, generated_member_by_id,
 };
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -144,5 +144,26 @@ mod tests {
                 .iter()
                 .any(|entry| entry == "member:Document.createElement")
         );
+    }
+
+    #[test]
+    fn generated_member_ids_are_unique_and_round_trip() {
+        let mut ids = std::collections::BTreeSet::new();
+        for interface in GENERATED_INTERFACES {
+            for member in interface.members {
+                assert!(ids.insert(member.id), "duplicate generated member id");
+                let (resolved_interface, resolved_member) =
+                    generated_member_by_id(member.id).expect("generated member id");
+                assert_eq!(resolved_interface.name, interface.name);
+                assert_eq!(resolved_member, member);
+            }
+        }
+    }
+
+    #[test]
+    fn generated_constants_retain_their_webidl_values() {
+        let member = generated_member("Range", "START_TO_START").expect("Range constant");
+        assert_eq!(member.kind, GeneratedMemberKind::Constant);
+        assert_eq!(member.constant_value, Some("0"));
     }
 }

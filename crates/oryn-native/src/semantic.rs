@@ -185,9 +185,26 @@ impl SemanticGraph {
             }
         }
         if dependency_change {
+            let previous_dependencies = self.referenced_by.clone();
             self.rebuild_dependencies(dom);
-            for dependents in self.referenced_by.values() {
-                dirty.extend(dependents);
+            let targets = previous_dependencies
+                .keys()
+                .chain(self.referenced_by.keys())
+                .copied()
+                .collect::<BTreeSet<_>>();
+            for target in targets {
+                let previous = previous_dependencies.get(&target);
+                let current = self.referenced_by.get(&target);
+                if previous == current {
+                    continue;
+                }
+                dirty.insert(target);
+                if let Some(dependents) = previous {
+                    dirty.extend(dependents);
+                }
+                if let Some(dependents) = current {
+                    dirty.extend(dependents);
+                }
             }
         }
         for node in dirty {
@@ -2756,6 +2773,66 @@ mod tests {
     }
 
     #[test]
+    fn incremental_graph_matches_the_full_oracle_at_every_mutation_checkpoint() {
+        let parsed = crate::html::parse(
+            "<main id=root><span id=name>Initial</span><input id=field aria-labelledby=name><button id=save>Save</button></main>",
+        );
+        let mut dom = parsed.into_runtime().expect("live DOM");
+        let page_id = PageId(19);
+        let generation = 7;
+        let mut graph = SemanticGraph::new(page_id, generation);
+        graph.reset(dom.arena(), generation);
+        let root = dom.find_by_id("root").expect("root");
+        let name = dom.find_by_id("name").expect("name");
+        let field = dom.find_by_id("field").expect("field");
+        let save = dom.find_by_id("save").expect("save");
+
+        for step in 0..48 {
+            let cursor = dom.mutation_cursor();
+            match step % 8 {
+                0 => dom
+                    .set_text_content(name, format!("Account {step}"))
+                    .expect("label text"),
+                1 => dom
+                    .set_attribute(field, "aria-describedby", "name")
+                    .expect("description relation"),
+                2 => dom
+                    .set_attribute(save, "aria-label", format!("Save {step}"))
+                    .expect("button name"),
+                3 => dom
+                    .set_attribute(field, "value", format!("value-{step}"))
+                    .expect("form value"),
+                4 => dom.set_attribute(save, "hidden", "").expect("hide button"),
+                5 => dom.remove_attribute(save, "hidden").expect("show button"),
+                6 => {
+                    let status = dom.create_element("output");
+                    dom.set_attribute(status, "aria-live", "polite")
+                        .expect("live region");
+                    let text = dom.create_text(format!("Status {step}"));
+                    dom.append_child(status, text).expect("status text");
+                    dom.append_child(root, status).expect("status node");
+                }
+                _ => dom
+                    .set_attribute(field, "aria-labelledby", "name")
+                    .expect("label relation"),
+            }
+            let batch = dom.mutations_since(cursor);
+            assert!(!batch.truncated);
+            graph.apply_mutations(dom.arena(), &batch.mutations);
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Compact),
+                project_document(dom.arena(), page_id, generation),
+                "compact projection diverged at step {step}"
+            );
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Full),
+                project_document_full(dom.arena(), page_id, generation),
+                "full projection diverged at step {step}"
+            );
+        }
+    }
+
+    #[test]
     fn v6_graph_owns_accessibility_structures_and_field_evidence() {
         let parsed =
             crate::html::parse("<nav aria-label=Primary><a id=home href=/home>Home</a></nav>");
@@ -2890,6 +2967,40 @@ mod tests {
             .expect("visibility upsert");
         assert!(save.semantic.states.contains(&NodeState::Hidden));
         assert!(changes.upserted_accessibility[0].excluded);
+    }
+
+    #[test]
+    fn dependency_reindex_does_not_republish_unrelated_accessible_names() {
+        let parsed = crate::html::parse(
+            "<span id=one>One</span><button id=a aria-labelledby=one></button>\
+             <span id=two>Two</span><button id=b aria-labelledby=two></button>",
+        );
+        let mut dom = parsed.into_runtime().expect("live DOM");
+        let mut graph = SemanticGraph::new(PageId(15), 6);
+        graph.reset(dom.arena(), 6);
+        let _ = graph.take_v6_changes();
+        let label = dom
+            .query_selector(dom.document(), "#one")
+            .expect("query")
+            .expect("first label");
+        let unrelated = dom
+            .query_selector(dom.document(), "#b")
+            .expect("query")
+            .expect("unrelated button");
+        let unrelated_ref = semantic_ref_for(unrelated, PageId(15), 6);
+        let cursor = dom.mutation_cursor();
+        dom.set_attribute(label, "id", "renamed")
+            .expect("rename id");
+        let batch = dom.mutations_since(cursor);
+        graph.apply_mutations(dom.arena(), &batch.mutations);
+        let changes = graph.take_v6_changes();
+        assert!(
+            changes
+                .upserted_accessibility
+                .iter()
+                .all(|node| node.semantic_ref != unrelated_ref),
+            "an unrelated accessible-name dependency was republished"
+        );
     }
 
     fn semantic_observation(html: &str) -> SemanticObservation {

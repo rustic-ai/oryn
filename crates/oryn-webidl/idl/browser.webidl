@@ -335,6 +335,10 @@ interface AbstractRange {
 
 [Exposed=Window]
 interface Range : AbstractRange {
+  const unsigned short START_TO_START = 0;
+  const unsigned short START_TO_END = 1;
+  const unsigned short END_TO_END = 2;
+  const unsigned short END_TO_START = 3;
   readonly attribute Node commonAncestorContainer;
   undefined setStart(Node node, unsigned long offset);
   undefined setEnd(Node node, unsigned long offset);
@@ -420,6 +424,52 @@ interface History {
   undefined replaceState(any data, DOMString unused, optional DOMString? url = null);
 };
 
+[Exposed=(Window,Worker)]
+interface Storage {
+  readonly attribute unsigned long length;
+  DOMString? key(unsigned long index);
+  DOMString? getItem(DOMString key);
+  undefined setItem(DOMString key, DOMString value);
+  undefined removeItem(DOMString key);
+  undefined clear();
+};
+
+[Exposed=(Window,Worker)]
+interface IDBFactory {
+  IDBOpenDBRequest open(DOMString name, optional unsigned long long version);
+  IDBOpenDBRequest deleteDatabase(DOMString name);
+  short cmp(any first, any second);
+};
+
+[Exposed=(Window,Worker)]
+interface IDBRequest : EventTarget {
+  readonly attribute any result;
+  readonly attribute any error;
+  readonly attribute IDBTransaction? transaction;
+};
+
+[Exposed=(Window,Worker)]
+interface IDBOpenDBRequest : IDBRequest {};
+
+[Exposed=(Window,Worker)]
+interface IDBDatabase : EventTarget {
+  readonly attribute DOMString name;
+  readonly attribute unsigned long long version;
+  readonly attribute sequence<DOMString> objectStoreNames;
+  IDBObjectStore createObjectStore(DOMString name, optional any options);
+  undefined deleteObjectStore(DOMString name);
+  IDBTransaction transaction((DOMString or sequence<DOMString>) storeNames, optional DOMString mode = "readonly");
+  undefined close();
+};
+
+[Exposed=(Window,Worker)]
+interface IDBTransaction : EventTarget {
+  readonly attribute DOMString mode;
+  readonly attribute sequence<DOMString> objectStoreNames;
+  IDBObjectStore objectStore(DOMString name);
+  undefined abort();
+};
+
 [Exposed=Window]
 interface IDBKeyRange {
   readonly attribute any lower;
@@ -439,16 +489,35 @@ interface IDBCursor {
   undefined update(any value);
 };
 
+[Exposed=(Window,Worker)]
+interface IDBIndex {
+  readonly attribute DOMString name;
+  readonly attribute IDBObjectStore objectStore;
+  any get(any query);
+  any getKey(any query);
+  any getAll(optional any query, optional unsigned long count);
+  any getAllKeys(optional any query, optional unsigned long count);
+  any count(optional any query);
+  any openCursor(optional any query, optional DOMString direction = "next");
+  any openKeyCursor(optional any query, optional DOMString direction = "next");
+};
+
 [Exposed=Window]
 interface IDBObjectStore {
+  readonly attribute DOMString name;
+  readonly attribute IDBTransaction transaction;
   any add(any value, optional any key);
   any put(any value, optional any key);
   any get(any query);
   any getAll(optional any query, optional unsigned long count);
+  any getAllKeys(optional any query, optional unsigned long count);
   any delete(any query);
   any clear();
   any count(optional any query);
   any openCursor(optional any query, optional DOMString direction = "next");
+  any openKeyCursor(optional any query, optional DOMString direction = "next");
+  IDBIndex createIndex(DOMString name, (DOMString or sequence<DOMString>) keyPath, optional any options);
+  IDBIndex index(DOMString name);
 };
 
 [Exposed=Window]
@@ -502,13 +571,23 @@ interface ShadowRoot : DocumentFragment {
 };
 
 [Exposed=Window]
-interface Text : Node {
+interface CharacterData : Node {
   attribute DOMString data;
+  readonly attribute unsigned long length;
+  DOMString substringData(unsigned long offset, unsigned long count);
+  undefined appendData(DOMString data);
+  undefined insertData(unsigned long offset, DOMString data);
+  undefined deleteData(unsigned long offset, unsigned long count);
+  undefined replaceData(unsigned long offset, unsigned long count, DOMString data);
 };
 
 [Exposed=Window]
-interface Comment : Node {
-  attribute DOMString data;
+interface Text : CharacterData {
+  Text splitText(unsigned long offset);
+};
+
+[Exposed=Window]
+interface Comment : CharacterData {
 };
 
 [Exposed=Window]

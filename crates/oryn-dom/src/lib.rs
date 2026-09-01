@@ -656,9 +656,20 @@ impl DomRuntime {
     }
 
     pub fn append_child(&mut self, parent: NodeId, child: NodeId) -> Result<(), DomError> {
+        let former_parent = self.arena.get(child)?.parent;
+        let was_connected = self.connected.contains(&child);
         self.arena.append_child(parent, child)?;
+        if was_connected {
+            self.mark_disconnected(child)?;
+        }
         if self.connected.contains(&parent) {
             self.mark_connected(child)?;
+        }
+        if former_parent.is_some() {
+            self.mutations.push(Mutation::Removed {
+                node: child,
+                former_parent,
+            });
         }
         self.mutations.push(Mutation::Inserted {
             node: child,
@@ -675,6 +686,8 @@ impl DomRuntime {
     ) -> Result<(), DomError> {
         self.arena.get(parent)?;
         self.arena.get(child)?;
+        let former_parent = self.arena.get(child)?.parent;
+        let was_connected = self.connected.contains(&child);
         if let Some(reference) = reference {
             if self.arena.get(reference)?.parent != Some(parent) {
                 return Err(DomError::NotAChild(reference, parent));
@@ -683,8 +696,17 @@ impl DomRuntime {
         } else {
             self.arena.append_child(parent, child)?;
         }
+        if was_connected {
+            self.mark_disconnected(child)?;
+        }
         if self.connected.contains(&parent) {
             self.mark_connected(child)?;
+        }
+        if former_parent.is_some() {
+            self.mutations.push(Mutation::Removed {
+                node: child,
+                former_parent,
+            });
         }
         self.mutations.push(Mutation::Inserted {
             node: child,
@@ -1346,6 +1368,34 @@ mod tests {
         dom.set_attribute(node, "id", "go").unwrap();
         assert_eq!(dom.find_by_id("go"), Some(node));
         assert!(dom.drain_mutations().len() >= 3);
+    }
+
+    #[test]
+    fn reparenting_preserves_identity_connectivity_and_both_mutation_edges() {
+        let mut dom = DomRuntime::new();
+        let first = dom.create_element("section");
+        let second = dom.create_element("section");
+        let child = dom.create_element("button");
+        dom.set_attribute(child, "id", "move-me").unwrap();
+        dom.append_child(dom.document(), first).unwrap();
+        dom.append_child(dom.document(), second).unwrap();
+        dom.append_child(first, child).unwrap();
+        let _ = dom.drain_mutations();
+
+        dom.append_child(second, child).unwrap();
+        assert_eq!(dom.parent(child).unwrap(), Some(second));
+        assert_eq!(dom.find_by_id("move-me"), Some(child));
+        let mutations = dom.drain_mutations();
+        assert!(mutations.iter().any(|mutation| matches!(
+            mutation,
+            Mutation::Removed { node, former_parent: Some(parent) }
+                if *node == child && *parent == first
+        )));
+        assert!(mutations.iter().any(|mutation| matches!(
+            mutation,
+            Mutation::Inserted { node, parent: Some(parent) }
+                if *node == child && *parent == second
+        )));
     }
 
     #[test]
