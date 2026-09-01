@@ -125,6 +125,7 @@ pub struct IdbWrite {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum IdbCommand {
+    ListDatabases,
     Open {
         name: String,
         version: u64,
@@ -187,12 +188,20 @@ pub struct IdbRecord {
     pub value: serde_json::Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DatabaseInfo {
+    pub name: String,
+    pub version: u64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct IdbResponse {
+    pub databases: Vec<DatabaseInfo>,
     pub version: Option<u64>,
     pub old_version: Option<u64>,
     pub upgrade_needed: bool,
     pub object_stores: Vec<String>,
+    pub object_store_definitions: Vec<ObjectStoreDefinition>,
     pub key: Option<serde_json::Value>,
     pub value: Option<serde_json::Value>,
     pub values: Vec<serde_json::Value>,
@@ -786,6 +795,17 @@ fn execute_idb(
     limit: usize,
 ) -> Result<IdbResponse, StorageError> {
     let response = match command {
+        IdbCommand::ListDatabases => IdbResponse {
+            databases: databases
+                .iter()
+                .filter(|((item_origin, _), _)| item_origin == origin)
+                .map(|((_, name), database)| DatabaseInfo {
+                    name: name.clone(),
+                    version: database.version,
+                })
+                .collect(),
+            ..IdbResponse::default()
+        },
         IdbCommand::Open { name, version } => {
             let key = (origin.to_string(), name);
             let database = databases.entry(key).or_default();
@@ -804,6 +824,11 @@ fn execute_idb(
                 old_version: Some(old_version),
                 upgrade_needed,
                 object_stores: database.stores.keys().cloned().collect(),
+                object_store_definitions: database
+                    .stores
+                    .values()
+                    .filter_map(|store| store.definition.clone())
+                    .collect(),
                 ..IdbResponse::default()
             }
         }
@@ -1318,6 +1343,83 @@ mod tests {
             generated,
             StorageResponse::IndexedDb { response }
                 if response.key == Some(serde_json::json!(9))
+        ));
+    }
+
+    #[test]
+    fn indexed_db_open_restores_object_store_definitions() {
+        let store = SharedContextStore::memory(StorageLimits::default());
+        let origin = "https://example.test".to_string();
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: origin.clone(),
+                command: IdbCommand::Open {
+                    name: "metadata".into(),
+                    version: 1,
+                },
+            })
+            .unwrap();
+        let definition = ObjectStoreDefinition {
+            name: "items".into(),
+            key_path: Some("id".into()),
+            auto_increment: true,
+        };
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: origin.clone(),
+                command: IdbCommand::CreateObjectStore {
+                    database: "metadata".into(),
+                    definition: definition.clone(),
+                },
+            })
+            .unwrap();
+        let reopened = store
+            .execute(StorageRequest::IndexedDb {
+                origin,
+                command: IdbCommand::Open {
+                    name: "metadata".into(),
+                    version: 1,
+                },
+            })
+            .unwrap();
+        assert!(matches!(
+            reopened,
+            StorageResponse::IndexedDb { response }
+                if response.object_store_definitions == vec![definition]
+        ));
+    }
+
+    #[test]
+    fn indexed_db_database_listing_is_partitioned_by_origin() {
+        let store = SharedContextStore::memory(StorageLimits::default());
+        for (origin, name, version) in [
+            ("https://one.test", "first", 1),
+            ("https://one.test", "second", 2),
+            ("https://two.test", "private", 4),
+        ] {
+            store
+                .execute(StorageRequest::IndexedDb {
+                    origin: origin.into(),
+                    command: IdbCommand::Open {
+                        name: name.into(),
+                        version,
+                    },
+                })
+                .unwrap();
+        }
+        let listed = store
+            .execute(StorageRequest::IndexedDb {
+                origin: "https://one.test".into(),
+                command: IdbCommand::ListDatabases,
+            })
+            .unwrap();
+        assert!(matches!(
+            listed,
+            StorageResponse::IndexedDb { response }
+                if response.databases == vec![
+                    DatabaseInfo { name: "first".into(), version: 1 },
+                    DatabaseInfo { name: "second".into(), version: 2 },
+                ]
         ));
     }
 

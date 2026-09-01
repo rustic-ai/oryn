@@ -43,6 +43,7 @@ pub struct IdbWrite {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum IdbHostCommand {
+    ListDatabases,
     Open {
         name: String,
         version: u64,
@@ -105,12 +106,23 @@ pub struct IdbHostRecord {
     pub value: serde_json::Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdbDatabaseInfo {
+    pub name: String,
+    pub version: u64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct IdbHostResponse {
+    pub databases: Vec<IdbDatabaseInfo>,
     pub version: Option<u64>,
     pub old_version: Option<u64>,
     pub upgrade_needed: bool,
     pub object_stores: Vec<String>,
+    /// Authoritative object-store metadata returned when a database is opened.
+    /// Keeping this in the parent-owned store prevents a reopened transaction
+    /// from losing key-path and auto-increment semantics.
+    pub object_store_definitions: Vec<IdbObjectStoreDefinition>,
     pub key: Option<serde_json::Value>,
     pub value: Option<serde_json::Value>,
     pub values: Vec<serde_json::Value>,
