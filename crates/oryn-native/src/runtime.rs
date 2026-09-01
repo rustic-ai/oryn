@@ -11361,7 +11361,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .border_box;
-        assert_eq!(first_rect.width, 120.0);
+        assert_eq!(first_rect.width, 134.0);
         assert!(second_rect.y > first_rect.y);
         let style = page
             .computed_style(first.semantic.semantic_ref)
@@ -11378,7 +11378,7 @@ mod tests {
             page.evaluate("document.querySelector('#first').getBoundingClientRect().width")
                 .await
                 .expect("script geometry"),
-            "120"
+            "134"
         );
         page.evaluate("document.styleSheets[0].insertRule('#first { width: 140px }');'updated'")
             .await
@@ -11522,7 +11522,7 @@ mod tests {
             r#"<style>
                 button { display:block; width:100px; height:30px }
                 #hidden { display:none }
-                #zero { width:0; height:0 }
+                #zero { box-sizing:border-box; width:0; height:0; padding:0; border:0 }
                 #blocked { pointer-events:none }
                 #spacer { height:900px }
               </style>

@@ -57,17 +57,19 @@ observation and resolution now use the persistent mutation-driven contract-v6
 graph; the full projector remains only as a test oracle. Generated WebIDL now
 covers cross-container Range extraction/editing, CharacterData editing and a
 wider Storage/IndexedDB interface family, but it does not yet cover every
-declared algorithm. Stylo owns stylesheet/selector/specificity parsing and
-matching; grid values now cross the standalone Stylo/Taffy compatibility
-boundary and style traversal is parent-dependency ordered. The computed-value
-winner and inheritance projection nevertheless remains Oryn-owned rather than
-native Stylo `ComputedValues`. Sandboxed full and genuinely
+declared algorithm. Production style resolution now traverses an immutable
+Rust DOM mirror through Blitz's native Stylo integration and serializes native
+Stylo `ComputedValues` into the existing Taffy/Parley consumers. This removes
+the handwritten selector, winner, inheritance, custom-property and value
+computation path from production; the old cascade is retained only as a test
+oracle. Grid values cross the Stylo/Taffy compatibility boundary. Sandboxed
+full and genuinely
 reduced-ICU lite V8 profiles plus callback-bearing startup snapshots are now
 built and verified on macOS ARM64; Linux profile artifacts and cross-platform
 attestation remain. The eight requested pinned IndexedDB worker variants pass
-in the local V8 probe (four SharedWorker and four ServiceWorker); the broader
-pinned Range and API inventory is not yet publishable runtime-completion
-evidence.
+in the local V8 probe and through a locally signed, trusted production worker
+(four SharedWorker and four ServiceWorker). Clean-source compact publication
+and the broader pinned Range/API inventory remain outstanding.
 
 The dependency-ordered completion backlog is maintained in
 [`RUNTIME-COMPLETION-ACTION-PLAN.md`](RUNTIME-COMPLETION-ACTION-PLAN.md).
@@ -78,7 +80,7 @@ The dependency-ordered completion backlog is maintained in
 |---|---|---|
 | F1 — Rust-owned DOM | **Closed in software** | `oryn-dom` is the sole live-DOM authority. The JavaScript-owned graph, full-document export/synchronization, and old frame-document path are absent from production. |
 | F2 — semantic KPIs | **Closed in software; current-candidate evidence pending** | Schema v5 implements compact-versus-full failure attribution, labelled causal classes, confirmed-only challenge detection, corrected canary classification, and expanded exact-identity churn. A historical schema-v5 panel and churn result passed, but they do not attest the eventual runtime-completion candidate. |
-| F3 — style/layout architecture | **Partial; materially advanced** | A persistent style service uses Stylo for stylesheet/media/declaration parsing, selector matching and specificity, including combinators, pseudo-state, importance and media regressions. Traversal now resolves parent state independently of snapshot order, and the standalone Stylo/Taffy bridge covers required grid templates, placement, flow and gaps. Oryn still projects declaration winners and inheritance; native Stylo `ComputedValues` traversal and the mapped CSS differential suite remain required before closure. |
+| F3 — style/layout architecture | **Closed in software for the declared computed-style boundary; conformance evidence pending** | Production constructs an immutable Rust style snapshot and uses Blitz/Stylo document resolution for stylesheet parsing, matching, cascade, origins, inheritance, custom properties and supported-value computation. Native `ComputedValues` are serialized into the existing Taffy/Parley layout inputs, including the grid compatibility bridge. The handwritten cascade is test-only. The mapped CSS differential suite and the proposal's explicit long-tail layout boundaries remain evidence work. |
 | F4 — act/wait/event loop | **Closed for the declared scheduler profile** | Rust owns timer deadlines and ordering. Each checkpoint runs V8 microtasks, host-phased custom-element reactions, Rust-journal MutationObservers to a stable point, style/semantic publication, then rendering-opportunity animation, ResizeObserver and IntersectionObserver delivery. Focused ordering and self-mutation regressions pass. |
 | F5 — evidence integrity | **Partial** | Layout and security evidence builders now bind manifest cases to assertions and recompute their aggregates. Some historical builders/manifests still carry supplied pass states, and the current source tree has no unified exact-artifact attestation. |
 | F6 — CORS/SameSite/CSP | **Closed in software; release evidence pending** | Parent CORS/preflight authority, schemeful SameSite cookies, mixed-content policy, CSP reporting, violation events, opaque sandbox origins, and worker/media/object/manifest directives are implemented. The latest CSP change is newer than the committed signed security evidence. |
@@ -90,7 +92,7 @@ The dependency-ordered completion backlog is maintained in
 | F12 — untrusted content | **Mostly closed** | Semantic nodes carry `ContentTrust::PageAuthored`, inferred facts use heuristic provenance, and raw inspection is policy-audited without recording page content. Broader prompt-boundary evidence remains narrower than the proposal's full trust model. |
 | F13 — secret leakage | **Closed in software** | Secret sensitivity is stored independently on Rust DOM nodes, applies to text inputs, survives page-controlled attribute changes, and redacts observation and HTML extraction. |
 | F14 — generated WebIDL | **Partial; materially advanced** | Deterministic generation, real prototypes, Rust callbacks, wrapper identity, brands, realms, origin and generation checks are active for migrated interfaces. Cross-container Range clone/extract/delete/surround operations, text splitting and CharacterData editing now mutate the Rust DOM; generated Storage and IndexedDB interfaces cover the worker variants exercised here. Complete Selection/editing commands, `NodeFilter` callbacks, and full IndexedDB connection/version/transaction semantics remain. |
-| F15 — production-path testing | **Partial** | Focused default, no-V8 and V8-host tests pass, the pinned upstream harness is fail-closed, and all eight requested IndexedDB SharedWorker/ServiceWorker executions pass in the local V8 probe. The macOS ARM64 full/lite profile builder verifies heap-sandbox, ICU, snapshot and external-reference inputs. Production-worker execution, full four-profile equivalence, the complete mapped WPT/ARIA inventory, Linux sandboxed artifacts, performance and exact-binary attestation remain open. |
+| F15 — production-path testing | **Partial; requested worker variants pass production locally** | Focused default, no-V8 and V8-host tests pass and the pinned upstream harness is fail-closed. All eight requested IndexedDB SharedWorker/ServiceWorker executions pass both the local V8 probe and a trusted, locally signed macOS App Sandbox worker with heap-sandbox metadata. The macOS ARM64 full/lite profile builder verifies ICU, snapshot and external-reference inputs. Clean exact-source publication, full four-profile equivalence, the complete mapped WPT/ARIA inventory, Linux sandboxed artifacts, performance and release attestation remain open. |
 | F16 — Intent/API/MCP | **Closed in software; release evidence pending** | Agent contract v3 additively exposes semantic contract v6 and scoped/delta observation while accepting frozen v2 requests. Rust, OIL, worker protocol v8, Python and MCP use the same graph resolver/action engine. Upload, context-virtual clipboard and parent-owned secret-label behavior remain unchanged and values never enter argv, environment, OIL, JSON-RPC, traces, observations or worker initialization. |
 
 ### Current broader-gap status
@@ -169,8 +171,9 @@ The current honest product statement is therefore:
 
 > **The proposal-v1 foundation is substantially implemented, but the runtime
 > completion cutover remains open. The principal remaining software work is
-> completion of generated WebIDL algorithms and full Stylo computed-value
-> cascade. Reproducible macOS ARM64 full/lite V8, reduced-ICU and startup-
+> completion of generated WebIDL algorithms and semantic/accessibility
+> conformance breadth. The native Stylo computed-value cutover is complete in
+> software. Reproducible macOS ARM64 full/lite V8, reduced-ICU and startup-
 > snapshot tooling now exists; Linux x86_64 artifacts and four-profile
 > equivalence remain. Upstream conformance,
 > platform validation, performance and model evidence follow those cutovers and
@@ -183,16 +186,16 @@ The current honest product statement is therefore:
    `NodeFilter` traversal behavior, remaining history/referrer cases and full
    IndexedDB connection/version/transaction semantics. Remove each handwritten
    compatibility interface only after its mapped tests pass.
-2. **Stylo computed-value cutover.** Move declaration winning, inheritance,
-   origins, custom properties and supported-value computation into Stylo while
-   retaining Taffy/Parley as layout/text consumers. Pass the frozen CSSOM and
-   native-versus-Chromium differential set.
+2. **Stylo conformance publication.** The native `ComputedValues` cutover is
+   implemented. Pass and publish the frozen CSSOM and native-versus-Chromium
+   differential set against the production worker, including the supported
+   grid bridge and explicit long-tail capability boundaries.
 3. **Semantic and accessibility equivalence.** Exercise the contract-v6 graph
    against its full-projector oracle across randomized mutations, frameworks,
    navigation, frames, shadow DOM and replay; run the pinned ARIA/Accessible
    Name mappings and require zero false reference preservation.
-4. **Upstream harness closure.** Promote the locally passing four SharedWorker
-   and four ServiceWorker IndexedDB variants to the production worker path,
+4. **Upstream harness closure.** Publish the locally passing production-worker
+   ledger for the four SharedWorker and four ServiceWorker IndexedDB variants,
    diagnose the broader Range/API inventory, then run every required
    `runtime-completion-v1` WPT/ARIA mapping. Keep deferred, excluded and
    informational cases visibly separate.

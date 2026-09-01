@@ -32,7 +32,7 @@ use crate::{
     },
 };
 
-const EXPECTED_STYLE_ENGINE_VERSION: &str = "stylo-stylesheets-selectors-0.20+oryn-cascade-v3";
+const EXPECTED_STYLE_ENGINE_VERSION: &str = oryn_common::STYLE_ENGINE_VERSION;
 const EXPECTED_BOX_ENGINE_VERSION: &str = "taffy-0.14";
 const EXPECTED_INLINE_ENGINE_VERSION: &str = "parley-0.11.1";
 

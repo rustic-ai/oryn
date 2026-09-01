@@ -5,13 +5,18 @@
 //! geometry keyed by the stable DOM node identifier.  It never owns DOM,
 //! JavaScript, networking, cookies, or browser policy.
 
+#[cfg(test)]
+use std::ptr::NonNull;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
-    ptr::NonNull,
     sync::Arc,
 };
 
+use blitz_dom::{
+    Attribute as BlitzAttribute, BaseDocument, DocumentConfig, LocalName, Namespace, QualName,
+};
+use blitz_traits::shell::{ColorScheme as BlitzColorScheme, Viewport as BlitzViewport};
 use oryn_common::v4::{
     BoxModel, CssRect, EdgeSizes, GeometryAvailability, NodeGeometry, PaintTextFragment,
     ScrollState, ViewportState,
@@ -20,6 +25,7 @@ use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, Layout, LayoutContext, StyleProperty,
 };
 use regex::Regex;
+#[cfg(test)]
 use selectors::{
     Element as SelectorElement, OpaqueElement,
     attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint},
@@ -32,7 +38,9 @@ use selectors::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use skrifa::FontRef;
+#[cfg(test)]
 use style::media_queries::MediaList;
+#[cfg(test)]
 use style::{
     CaseSensitivityExt,
     context::QuirksMode,
@@ -41,12 +49,15 @@ use style::{
     servo_arc::Arc as ServoArc,
     shared_lock::{SharedRwLock, SharedRwLockReadGuard},
     stylesheets::{
-        AllowImportRules, CssRule, CssRuleType, CssRules, Origin, Stylesheet, StylesheetInDocument,
+        AllowImportRules, CssRule, CssRuleType, CssRules, Stylesheet, StylesheetInDocument,
         UrlExtraData,
     },
     values::{AtomIdent, AtomString},
 };
+use style::{properties::PropertyId, stylesheets::Origin};
+#[cfg(test)]
 use style_dom::ElementState;
+#[cfg(test)]
 use style_traits::ToCss;
 use taffy::{
     prelude::{
@@ -61,7 +72,7 @@ pub const DEFAULT_FONT_FAMILY: &str = "Oryn Noto Sans";
 pub const DEFAULT_FONT_SHA256: &str =
     "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5";
 pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("../assets/NotoSans-Regular.ttf");
-pub const STYLE_ENGINE_VERSION: &str = "stylo-stylesheets-selectors-0.20+oryn-cascade-v4-grid";
+pub const STYLE_ENGINE_VERSION: &str = oryn_common::STYLE_ENGINE_VERSION;
 pub const BOX_ENGINE_VERSION: &str = "taffy-0.14";
 pub const INLINE_ENGINE_VERSION: &str = "parley-0.11.1";
 
@@ -154,9 +165,13 @@ pub enum LayoutError {
     NodeLimit { actual: usize, limit: usize },
     #[error("viewport dimension {value} is outside 1..={limit} CSS px")]
     ViewportLimit { value: f64, limit: f64 },
+    #[error("Stylo computed-value traversal failed: {0}")]
+    StyleTraversal(String),
 }
 
 #[derive(Debug, Clone)]
+#[cfg(test)]
+#[allow(dead_code)]
 struct Rule {
     selector: Selector<SelectorImpl>,
     declarations: BTreeMap<String, (String, bool)>,
@@ -166,8 +181,7 @@ struct Rule {
 
 #[derive(Debug, Default)]
 pub struct StyleEngine {
-    stylesheet_fingerprint: Option<[u8; 32]>,
-    rules: Vec<Rule>,
+    _private: (),
 }
 
 impl StyleEngine {
@@ -176,21 +190,20 @@ impl StyleEngine {
         input: &LayoutInput,
         limits: &LayoutLimits,
     ) -> Result<LayoutOutput, LayoutError> {
-        let fingerprint = stylesheet_fingerprint(input);
-        if self.stylesheet_fingerprint != Some(fingerprint) {
-            self.rules = parse_rules(&input.stylesheets, input);
-            self.stylesheet_fingerprint = Some(fingerprint);
-        }
-        compute_with_rules(input, limits, &self.rules)
+        let computed_styles = stylo_computed_values(input)?;
+        compute_with_styles(input, limits, computed_styles)
     }
 }
 
 #[derive(Clone, Copy)]
+#[cfg(test)]
+#[allow(dead_code)]
 struct LayoutElement<'a> {
     node: &'a LayoutNode,
     by_id: &'a BTreeMap<u64, &'a LayoutNode>,
 }
 
+#[cfg(test)]
 impl std::fmt::Debug for LayoutElement<'_> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -201,12 +214,15 @@ impl std::fmt::Debug for LayoutElement<'_> {
     }
 }
 
+#[cfg(test)]
 impl PartialEq for LayoutElement<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.node.id == other.node.id
     }
 }
 
+#[allow(dead_code)]
+#[cfg(test)]
 impl LayoutElement<'_> {
     fn element(&self, id: u64) -> Option<Self> {
         self.by_id
@@ -247,6 +263,7 @@ impl LayoutElement<'_> {
     }
 }
 
+#[cfg(test)]
 impl SelectorElement for LayoutElement<'_> {
     type Impl = SelectorImpl;
 
@@ -552,10 +569,10 @@ pub fn compute(input: &LayoutInput, limits: &LayoutLimits) -> Result<LayoutOutpu
     StyleEngine::default().compute(input, limits)
 }
 
-fn compute_with_rules(
+fn compute_with_styles(
     input: &LayoutInput,
     limits: &LayoutLimits,
-    rules: &[Rule],
+    computed_styles: BTreeMap<u64, BTreeMap<String, String>>,
 ) -> Result<LayoutOutput, LayoutError> {
     validate(input, limits)?;
     let (web_fonts, loaded_fonts, mut diagnostics) = prepare_web_fonts(input, limits);
@@ -564,12 +581,6 @@ fn compute_with_rules(
         .iter()
         .map(|node| (node.id, node))
         .collect::<BTreeMap<_, _>>();
-    let mut computed_styles = BTreeMap::new();
-    let mut visiting = BTreeSet::new();
-    for node in &input.nodes {
-        cascade_subtree(node.id, &by_id, rules, &mut visiting, &mut computed_styles);
-    }
-
     let roots = input
         .nodes
         .iter()
@@ -642,9 +653,223 @@ fn compute_with_rules(
     })
 }
 
+const COMPUTED_PROPERTIES: &[&str] = &[
+    "display",
+    "position",
+    "visibility",
+    "opacity",
+    "pointer-events",
+    "box-sizing",
+    "width",
+    "height",
+    "left",
+    "top",
+    "transform",
+    "background-color",
+    "color",
+    "font-family",
+    "font-size",
+    "font-style",
+    "font-weight",
+    "line-height",
+    "text-align",
+    "white-space",
+    "overflow-x",
+    "overflow-y",
+    "float",
+    "clear",
+    "flex-direction",
+    "row-gap",
+    "column-gap",
+    "grid-template-columns",
+    "grid-template-rows",
+    "grid-auto-flow",
+    "grid-column-start",
+    "grid-column-end",
+    "grid-row-start",
+    "grid-row-end",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "border-top-width",
+    "border-right-width",
+    "border-bottom-width",
+    "border-left-width",
+];
+
+/// Run Stylo's own DOM traversal and serialize the computed longhands consumed
+/// by Oryn's non-painting Taffy/Parley layout layer. The mirror is an immutable
+/// style snapshot: the live DOM remains Rust-owned by `oryn-dom`, while selector
+/// matching, origins, cascade, variables and inheritance are all resolved by
+/// Stylo rather than reconstructed by Oryn.
+fn stylo_computed_values(
+    input: &LayoutInput,
+) -> Result<BTreeMap<u64, BTreeMap<String, String>>, LayoutError> {
+    let viewport = BlitzViewport::new(
+        input.viewport.width.clamp(1.0, f64::from(u32::MAX)) as u32,
+        input.viewport.height.clamp(1.0, f64::from(u32::MAX)) as u32,
+        1.0,
+        match input.color_scheme {
+            ColorScheme::Light => BlitzColorScheme::Light,
+            ColorScheme::Dark => BlitzColorScheme::Dark,
+        },
+    );
+    let mut document = BaseDocument::new(DocumentConfig {
+        viewport: Some(viewport),
+        base_url: Some("https://oryn.invalid/".into()),
+        style_threading: blitz_dom::StyleThreading::Sequential,
+        ..Default::default()
+    });
+    let html_namespace = Namespace::from("http://www.w3.org/1999/xhtml");
+    let by_id = input
+        .nodes
+        .iter()
+        .map(|node| (node.id, node))
+        .collect::<BTreeMap<_, _>>();
+    let mut mirror_ids = BTreeMap::new();
+    {
+        let mut mutator = document.mutate();
+        for node in &input.nodes {
+            let mirror = match node.tag.as_str() {
+                "#text" => mutator.create_text_node(&node.text),
+                "#comment" => mutator.create_comment_node(&node.text),
+                _ => {
+                    let attributes = node
+                        .attributes
+                        .iter()
+                        .map(|(name, value)| BlitzAttribute {
+                            name: QualName::new(
+                                None,
+                                Namespace::from(""),
+                                LocalName::from(name.as_str()),
+                            ),
+                            value: value.clone(),
+                        })
+                        .collect();
+                    mutator.create_element(
+                        QualName::new(
+                            None,
+                            html_namespace.clone(),
+                            LocalName::from(node.tag.as_str()),
+                        ),
+                        attributes,
+                    )
+                }
+            };
+            mirror_ids.insert(node.id, mirror);
+        }
+        for node in &input.nodes {
+            let parent = node
+                .parent
+                .and_then(|parent| mirror_ids.get(&parent).copied())
+                .unwrap_or_else(|| mutator.doc.root_node().id);
+            let Some(child) = mirror_ids.get(&node.id).copied() else {
+                continue;
+            };
+            if !mutator.node_has_parent(child) {
+                mutator.append_children(parent, &[child]);
+            }
+        }
+    }
+    for stylesheet in &input.stylesheets {
+        let style_node = {
+            let mut mutator = document.mutate();
+            mutator.create_element(
+                QualName::new(None, html_namespace.clone(), LocalName::from("style")),
+                Vec::new(),
+            )
+        };
+        let stylesheet = document.make_stylesheet(stylesheet, Origin::Author);
+        document.add_stylesheet_for_node(stylesheet, style_node);
+    }
+    document.resolve(0.0);
+
+    let mut output: BTreeMap<u64, BTreeMap<String, String>> = BTreeMap::new();
+    let mut pending = BTreeSet::new();
+    for node in &input.nodes {
+        let mut values = BTreeMap::new();
+        if node.tag == "#text" || node.tag == "#comment" {
+            pending.insert(node.id);
+        } else {
+            let mirror = mirror_ids.get(&node.id).copied().ok_or_else(|| {
+                LayoutError::StyleTraversal(format!("missing mirror for node {}", node.id))
+            })?;
+            if let Some(computed) = document
+                .get_node(mirror)
+                .and_then(|node| node.primary_styles())
+            {
+                for name in COMPUTED_PROPERTIES {
+                    let Ok(property) = PropertyId::parse_enabled_for_all_content(name) else {
+                        continue;
+                    };
+                    let Err(longhand) = property.as_shorthand() else {
+                        continue;
+                    };
+                    values.insert(
+                        (*name).to_string(),
+                        computed.computed_value_to_string(longhand),
+                    );
+                }
+            } else {
+                // Stylo intentionally prunes descendants of `display:none`
+                // during the normal traversal. They inherit the nearest
+                // computed ancestor for Oryn's hidden-subtree bookkeeping and
+                // never reach layout or semantic geometry.
+                pending.insert(node.id);
+            }
+        }
+        if node.attributes.contains_key("hidden") {
+            values.insert("display".into(), "none".into());
+        }
+        output.insert(node.id, values);
+    }
+    // Parent-first traversal is required for text nodes even when the input
+    // snapshot itself is deliberately out of order.
+    while !pending.is_empty() {
+        let before = pending.len();
+        pending.retain(|id| {
+            let Some(node) = by_id.get(id).copied() else {
+                return false;
+            };
+            let Some(parent) = node.parent else {
+                output.insert(*id, ua_style(node));
+                return false;
+            };
+            let Some(parent_style) = output.get(&parent).cloned() else {
+                return true;
+            };
+            let style = output.entry(*id).or_default();
+            *style = parent_style;
+            if node.tag == "#text" || node.tag == "#comment" {
+                style.insert("display".into(), "inline".into());
+            }
+            false
+        });
+        if pending.len() == before {
+            break;
+        }
+    }
+    for node in &input.nodes {
+        if node.attributes.contains_key("hidden") {
+            output
+                .entry(node.id)
+                .or_default()
+                .insert("display".into(), "none".into());
+        }
+    }
+    Ok(output)
+}
+
 /// Traverse parent dependencies rather than relying on snapshot vector order.
 /// The resulting map is the compatibility projection of Stylo's parsed values
 /// consumed by Taffy/Parley and by `getComputedStyle`.
+#[allow(dead_code)]
+#[cfg(test)]
 fn cascade_subtree(
     id: u64,
     by_id: &BTreeMap<u64, &LayoutNode>,
@@ -667,6 +892,8 @@ fn cascade_subtree(
     visiting.remove(&id);
 }
 
+#[allow(dead_code)]
+#[cfg(test)]
 fn stylesheet_fingerprint(input: &LayoutInput) -> [u8; 32] {
     let mut digest = Sha256::new();
     for sheet in &input.stylesheets {
@@ -841,6 +1068,8 @@ fn validate(input: &LayoutInput, limits: &LayoutLimits) -> Result<(), LayoutErro
     Ok(())
 }
 
+#[allow(dead_code)]
+#[cfg(test)]
 fn parse_rules(stylesheets: &[String], input: &LayoutInput) -> Vec<Rule> {
     let mut rules = Vec::new();
     let mut order = 0;
@@ -873,6 +1102,8 @@ fn parse_rules(stylesheets: &[String], input: &LayoutInput) -> Vec<Rule> {
     rules
 }
 
+#[allow(dead_code)]
+#[cfg(test)]
 fn collect_stylo_rules(
     css_rules: &CssRules,
     guard: &SharedRwLockReadGuard,
@@ -911,6 +1142,7 @@ fn collect_stylo_rules(
     }
 }
 
+#[cfg(test)]
 fn media_matches(condition: &str, input: &LayoutInput) -> bool {
     let condition = condition.to_ascii_lowercase();
     if let Some(value) = condition
@@ -941,6 +1173,8 @@ fn media_matches(condition: &str, input: &LayoutInput) -> bool {
     true
 }
 
+#[allow(dead_code)]
+#[cfg(test)]
 fn cascade(
     node: &LayoutNode,
     by_id: &BTreeMap<u64, &LayoutNode>,
@@ -998,6 +1232,8 @@ fn cascade(
     style
 }
 
+#[allow(dead_code)]
+#[cfg(test)]
 fn stylo_selector_matches(
     node: &LayoutNode,
     selector: &Selector<SelectorImpl>,
@@ -1058,6 +1294,7 @@ fn ua_style(node: &LayoutNode) -> BTreeMap<String, String> {
     ])
 }
 
+#[cfg(test)]
 fn declarations_with_importance(input: &str) -> BTreeMap<String, (String, bool)> {
     let url_data = UrlExtraData::from(
         url::Url::parse("about:blank").expect("constant Stylo declaration base URL"),
@@ -1158,6 +1395,8 @@ fn declarations_with_importance(input: &str) -> BTreeMap<String, (String, bool)>
     declarations
 }
 
+#[allow(dead_code)]
+#[cfg(test)]
 fn resolve_value(
     property: &str,
     value: &str,
@@ -1994,7 +2233,16 @@ mod tests {
         let output = compute(&input, &LayoutLimits::default()).expect("layout");
         let first = output.geometry[&2].box_model.as_ref().unwrap().border_box;
         let second = output.geometry[&3].box_model.as_ref().unwrap().border_box;
-        assert_eq!(first.width, 120.0);
+        assert_eq!(first.width, 134.0);
+        assert_eq!(
+            output.geometry[&2]
+                .box_model
+                .as_ref()
+                .unwrap()
+                .content_box
+                .width,
+            120.0
+        );
         assert!(second.y > first.y);
         assert!(output.geometry[&2].client_rects[0].width > 0.0);
         assert_eq!(output.computed_styles[&2]["height"], "30px");
@@ -2189,7 +2437,7 @@ mod tests {
             &LayoutLimits::default(),
         )
         .expect("Stylo cascade projection");
-        assert_eq!(output.computed_styles[&2]["color"], "black");
+        assert_eq!(output.computed_styles[&2]["color"], "rgb(0, 0, 0)");
         assert_eq!(output.computed_styles[&3]["width"], "71px");
         assert_eq!(output.computed_styles[&2]["height"], "33px");
     }
@@ -2203,7 +2451,7 @@ mod tests {
             "color:blue;display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:1fr 2fr;grid-auto-flow:column dense;column-gap:7px;row-gap:9px"
                 .into(),
         );
-        let mut child = node(2, Some(1), "button", "Save");
+        let mut child = node(2, Some(1), "span", "Save");
         child.attributes.insert(
             "style".into(),
             "grid-column-start:2;grid-row-start:1".into(),
@@ -2223,7 +2471,11 @@ mod tests {
             &LayoutLimits::default(),
         )
         .expect("Stylo/Taffy grid projection");
-        assert_eq!(output.computed_styles[&2]["color"], "blue");
+        assert_eq!(
+            output.computed_styles[&2]["color"], "rgb(0, 0, 255)",
+            "{:?}",
+            output.computed_styles
+        );
         assert_eq!(output.computed_styles[&1]["display"], "grid");
         assert_eq!(output.computed_styles[&1]["grid-template-rows"], "1fr 2fr");
         assert_eq!(output.computed_styles[&2]["grid-column-start"], "2");
@@ -2256,9 +2508,9 @@ mod tests {
             &LayoutLimits::default(),
         )
         .expect("cascade projection");
-        assert_eq!(output.computed_styles[&2]["color"], "black");
+        assert_eq!(output.computed_styles[&2]["color"], "rgb(0, 0, 0)");
         assert_eq!(output.computed_styles[&2]["visibility"], "hidden");
-        assert_eq!(output.computed_styles[&2]["width"], "calc(41px + 1px)");
+        assert_eq!(output.computed_styles[&2]["width"], "42px");
     }
 
     #[test]
@@ -2279,8 +2531,8 @@ mod tests {
         let second = engine
             .compute(&input("blue"), &LayoutLimits::default())
             .expect("invalidated style pass");
-        assert_eq!(first.computed_styles[&1]["color"], "red");
-        assert_eq!(second.computed_styles[&1]["color"], "blue");
+        assert_eq!(first.computed_styles[&1]["color"], "rgb(255, 0, 0)");
+        assert_eq!(second.computed_styles[&1]["color"], "rgb(0, 0, 255)");
     }
 
     #[test]
