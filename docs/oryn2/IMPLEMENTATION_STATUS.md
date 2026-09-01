@@ -127,12 +127,14 @@ rewrite those historical payloads or present them as a new validation run.
   intentionally not committed as passing release evidence. The clean first-20
   IndexedDB diagnostic now passes 17/20; its only remaining cases are two live
   BFCache workflows and the cross-origin iframe/window messaging workflow. A
-  broader first-100 IndexedDB run improved from 26/100 to 44/100 after request
-  lifecycle, transaction activity, event propagation, binary keys, persisted
-  index metadata and cursor scheduling fixes. A non-EditContext editing shard
-  passes 5/40. The remaining failures identify real long-tail connection,
-  versionchange, cursor/index-renaming and editing-normalization work plus
-  explicit geometry, testdriver/clipboard, cross-origin and BFCache boundaries.
+  broader first-100 IndexedDB run now passes 71/100 after request lifecycle,
+  transaction activity, event propagation, binary keys, committed and aborted
+  schema renames, multi-entry indexes, unique cursor directions, and cursor
+  exception-order fixes. A non-EditContext editing shard passes 5/40. The
+  remaining failures identify real transaction rollback, live-cursor,
+  connection/versionchange, UTF-16 name-preservation and editing-normalization
+  work plus explicit geometry, MessageChannel, cross-origin, opaque-origin and
+  BFCache boundaries.
 - Generated IndexedDB now implements the browser key ordering used by
   `IDBFactory.cmp`, including dates, unsigned binary keys and recursive arrays,
   and exposes a real versionchange transaction during upgrade. Upgrade abort
@@ -144,12 +146,13 @@ rewrite those historical payloads or present them as a new validation run.
   definitions, persisted index deletion, parent-owned schema rollback,
   generated `IDBVersionChangeEvent`, `IDBCursorWithValue`, bounded high-volume
   request scheduling, WebIDL count/version range conversion, deleted-store
-  invalidation and asynchronous cursor advance/continue state. Focused pinned
-  WPT now passes delete-database version events, historical interface checks,
-  index `getAll` range enforcement and cursor source/class identity. The full
-  `IDBFactory.open` file remains red on a cross-harness Event-brand assertion
-  and a later compound rollback/index lookup, so no aggregate closure is
-  claimed. Generated
+  invalidation, asynchronous cursor advance/continue state, generated Event
+  identity, database-list visibility during upgrades, index rename/rollback,
+  multi-entry expansion, unique cursor selection, and update/delete exception
+  ordering. Focused pinned WPT now passes the full `IDBFactory.open` file,
+  delete-database version events, historical interface checks, index `getAll`
+  range enforcement and cursor source/class identity. The broader 71/100 shard
+  remains red, so no aggregate closure is claimed. Generated
   Document editing now supplies `designMode`, safe command queries, and
   selection-backed insert-text/HTML, line/paragraph insertion, directional
   deletion and select-all. Unsupported formatting commands report `false`

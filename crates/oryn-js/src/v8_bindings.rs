@@ -276,6 +276,7 @@ struct IdbTransactionRecord {
     pending_requests: usize,
     completion_requested: bool,
     completion_queued: bool,
+    explicit_commit: bool,
     active: bool,
 }
 
@@ -284,15 +285,18 @@ struct IdbObjectStoreRecord {
     name: String,
     key_path: Option<String>,
     auto_increment: bool,
-    indexes: BTreeMap<String, (String, bool)>,
+    indexes: BTreeMap<String, (String, bool, bool)>,
     deleted: bool,
 }
 
 struct IdbIndexRecord {
     object_store_id: u64,
     name: String,
+    upgrade_base_name: Option<String>,
     key_path: String,
     unique: bool,
+    multi_entry: bool,
+    deleted: bool,
 }
 
 struct IdbCursorRecord {
@@ -304,6 +308,9 @@ struct IdbCursorRecord {
     got_value: bool,
     iteration_pending: bool,
     with_value: bool,
+    key_value: Option<v8::Global<v8::Value>>,
+    primary_key_value: Option<v8::Global<v8::Value>>,
+    record_value: Option<v8::Global<v8::Value>>,
 }
 
 struct IdbKeyRangeRecord {
@@ -593,7 +600,15 @@ impl V8BindingState {
                 DeferredPlatformTask::Event {
                     target_id,
                     event_type,
-                } => dispatch_platform_event(scope, self, target_id, event_type, None)?,
+                } => {
+                    if matches!(event_type, "complete" | "abort")
+                        && let Ok(mut record) = platform_object_mut(self, target_id)
+                        && let PlatformObjectRecord::IdbTransaction(transaction) = &mut *record
+                    {
+                        transaction.active = false;
+                    }
+                    dispatch_platform_event(scope, self, target_id, event_type, None)?;
+                }
                 DeferredPlatformTask::FinalizeIdbOpen {
                     request_id,
                     database_id,
@@ -613,6 +628,9 @@ impl V8BindingState {
                         };
                         cursor.iteration_pending = false;
                         cursor.got_value = cursor.index < cursor.records.len();
+                        cursor.key_value = None;
+                        cursor.primary_key_value = None;
+                        cursor.record_value = None;
                         cursor.got_value.then_some((cursor_id, cursor.with_value))
                     };
                     let value = match value {
@@ -1245,6 +1263,7 @@ impl V8BindingState {
                                     pending_requests: 0,
                                     completion_requested: false,
                                     completion_queued: false,
+                                    explicit_commit: false,
                                     active: true,
                                 }),
                             )
@@ -1425,7 +1444,35 @@ impl V8BindingState {
                         direction,
                         with_value,
                     } => {
-                        if response.records.is_empty() {
+                        let mut records = response.records;
+                        if direction == "prevunique" {
+                            let mut unique_records: Vec<crate::platform::IdbHostRecord> =
+                                Vec::new();
+                            for record in records {
+                                if unique_records.last().is_some_and(|previous| {
+                                    compare_idb_json_keys(&previous.key, &record.key).is_eq()
+                                }) {
+                                    if let Some(previous) = unique_records.last_mut() {
+                                        *previous = record;
+                                    }
+                                } else {
+                                    unique_records.push(record);
+                                }
+                            }
+                            records = unique_records;
+                        } else if direction == "nextunique" {
+                            let mut previous_key: Option<serde_json::Value> = None;
+                            records.retain(|record| {
+                                let duplicate = previous_key.as_ref().is_some_and(|previous| {
+                                    compare_idb_json_keys(previous, &record.key).is_eq()
+                                });
+                                if !duplicate {
+                                    previous_key = Some(record.key.clone());
+                                }
+                                !duplicate
+                            });
+                        }
+                        if records.is_empty() {
                             v8::null(scope).into()
                         } else {
                             let cursor_id = register_platform_object(
@@ -1434,11 +1481,14 @@ impl V8BindingState {
                                     request_id,
                                     source_id,
                                     direction,
-                                    records: response.records,
+                                    records,
                                     index: 0,
                                     got_value: true,
                                     iteration_pending: false,
                                     with_value,
+                                    key_value: None,
+                                    primary_key_value: None,
+                                    record_value: None,
                                 }),
                             );
                             new_platform_object(
@@ -1465,13 +1515,20 @@ impl V8BindingState {
                         _ => None,
                     };
                     if let Some(transaction_id) = transaction_id {
-                        if let PlatformObjectRecord::IdbTransaction(transaction) =
-                            &mut *platform_object_mut(self, transaction_id)?
-                        {
-                            transaction.aborted = true;
-                            transaction.error = Some("AbortError".into());
+                        let explicit_commit = matches!(
+                            &*platform_object(self, transaction_id)?,
+                            PlatformObjectRecord::IdbTransaction(transaction)
+                                if transaction.explicit_commit
+                        );
+                        if !explicit_commit {
+                            if let PlatformObjectRecord::IdbTransaction(transaction) =
+                                &mut *platform_object_mut(self, transaction_id)?
+                            {
+                                transaction.aborted = true;
+                                transaction.error = Some("AbortError".into());
+                            }
+                            dispatch_platform_event(scope, self, transaction_id, "abort", None)?;
                         }
-                        dispatch_platform_event(scope, self, transaction_id, "abort", None)?;
                     }
                 }
                 finish_idb_request(self, request_id)?;
@@ -1611,7 +1668,10 @@ impl V8BindingState {
             if let PlatformObjectRecord::IdbTransaction(transaction) =
                 &mut *platform_object_mut(self, transaction_id)?
             {
-                if transaction.aborted || transaction.completion_requested {
+                if transaction.aborted
+                    || transaction.explicit_commit
+                    || transaction.completion_queued
+                {
                     return Ok(());
                 }
                 transaction.active = true;
@@ -5374,6 +5434,25 @@ fn idb_version_change_event<'s>(
         .ok_or(V8BindingError::Allocation("IDBVersionChangeEvent instance"))
 }
 
+fn generated_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event_type: &str,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let context = scope.get_current_context();
+    let constructor_name =
+        v8::String::new(scope, "Event").ok_or(V8BindingError::Allocation("Event constructor"))?;
+    let constructor = context
+        .global(scope)
+        .get(scope, constructor_name.into())
+        .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+        .ok_or(V8BindingError::MissingInterface("Event"))?;
+    let event_type =
+        v8::String::new(scope, event_type).ok_or(V8BindingError::Allocation("Event type"))?;
+    constructor
+        .new_instance(scope, &[event_type.into()])
+        .ok_or(V8BindingError::Allocation("Event instance"))
+}
+
 fn dispatch_platform_event_capturing(
     scope: &mut v8::PinScope,
     state: &V8BindingState,
@@ -5387,7 +5466,10 @@ fn dispatch_platform_event_capturing(
     {
         request.done = true;
     }
-    let event = existing.unwrap_or_else(|| v8::Object::new(scope));
+    let event = match existing {
+        Some(event) => event,
+        None => generated_event(scope, event_type)?,
+    };
     let default_prevented = v8::String::new(scope, "defaultPrevented")
         .ok_or(V8BindingError::Allocation("event defaultPrevented"))?;
     if !event
@@ -7244,6 +7326,51 @@ fn get_platform_attribute<'s>(
             }),
         };
     }
+    if matches!(interface, "IDBCursor" | "IDBCursorWithValue")
+        && matches!(member, "key" | "primaryKey" | "value")
+    {
+        let (cached, json) = {
+            let record = platform_object(state, id)?;
+            let PlatformObjectRecord::IdbCursor(cursor) = &*record else {
+                return Err(V8BindingError::Allocation("IDBCursor record"));
+            };
+            let cached = match member {
+                "key" => cursor.key_value.as_ref(),
+                "primaryKey" => cursor.primary_key_value.as_ref(),
+                "value" => cursor.record_value.as_ref(),
+                _ => unreachable!(),
+            }
+            .map(|value| v8::Local::new(scope, value));
+            let source = cursor.records.get(cursor.index);
+            let json = match (member, source) {
+                ("key", Some(record)) => Some(record.key.clone()),
+                ("primaryKey", Some(record)) => Some(record.primary_key.clone()),
+                ("value", Some(record)) if cursor.with_value => Some(record.value.clone()),
+                _ => None,
+            };
+            (cached, json)
+        };
+        if let Some(cached) = cached {
+            return Ok(cached);
+        }
+        let value = json
+            .as_ref()
+            .map(|value| idb_json_to_value(scope, state, value))
+            .transpose()?
+            .unwrap_or_else(|| v8::undefined(scope).into());
+        let mut record = platform_object_mut(state, id)?;
+        let PlatformObjectRecord::IdbCursor(cursor) = &mut *record else {
+            return Err(V8BindingError::Allocation("IDBCursor record"));
+        };
+        let cache = match member {
+            "key" => &mut cursor.key_value,
+            "primaryKey" => &mut cursor.primary_key_value,
+            "value" => &mut cursor.record_value,
+            _ => unreachable!(),
+        };
+        *cache = Some(v8::Global::new(scope, value));
+        return Ok(value);
+    }
     let record = platform_object(state, id)?;
     match (&*record, interface, member) {
         (PlatformObjectRecord::Blob(blob), "Blob", "size") => {
@@ -7465,8 +7592,8 @@ fn get_platform_attribute<'s>(
         (PlatformObjectRecord::IdbIndex(index), "IDBIndex", "keyPath") => {
             v8_string(scope, &index.key_path)
         }
-        (PlatformObjectRecord::IdbIndex(_), "IDBIndex", "multiEntry") => {
-            Ok(v8::Boolean::new(scope, false).into())
+        (PlatformObjectRecord::IdbIndex(index), "IDBIndex", "multiEntry") => {
+            Ok(v8::Boolean::new(scope, index.multi_entry).into())
         }
         (PlatformObjectRecord::IdbIndex(index), "IDBIndex", "unique") => {
             Ok(v8::Boolean::new(scope, index.unique).into())
@@ -7914,6 +8041,93 @@ fn set_platform_attribute(
             .insert((id, event_type.into()), v8::Global::new(scope, value));
         return Ok(());
     }
+    if interface == "IDBIndex" && member == "name" {
+        let Some(new_name) = value.to_string(scope) else {
+            // JavaScript ToString raised. Leave the original pending
+            // exception untouched so the generated setter rethrows it.
+            return Ok(());
+        };
+        let new_name = new_name.to_rust_string_lossy(scope);
+        let (store_id, old_name, deleted) = {
+            let record = platform_object(state, id)?;
+            let PlatformObjectRecord::IdbIndex(index) = &*record else {
+                return Err(V8BindingError::Allocation("IDBIndex record"));
+            };
+            (index.object_store_id, index.name.clone(), index.deleted)
+        };
+        if deleted {
+            return Err(V8BindingError::Unsupported {
+                interface: "IDBIndex".into(),
+                member: "InvalidStateError".into(),
+            });
+        }
+        let (database, store_name, transaction_id) = idb_store_context(state, store_id)?;
+        let versionchange = matches!(
+            &*platform_object(state, transaction_id)?,
+            PlatformObjectRecord::IdbTransaction(transaction)
+                if transaction.mode == "versionchange" && transaction.active && !transaction.aborted
+        );
+        if !versionchange {
+            return Err(V8BindingError::Unsupported {
+                interface: "IDBIndex".into(),
+                member: "InvalidStateError".into(),
+            });
+        }
+        if old_name != new_name {
+            let mut store_record = platform_object_mut(state, store_id)?;
+            let PlatformObjectRecord::IdbObjectStore(store) = &mut *store_record else {
+                return Err(V8BindingError::Allocation("IDBObjectStore record"));
+            };
+            if store.indexes.contains_key(&new_name) {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBIndex".into(),
+                    member: "ConstraintError".into(),
+                });
+            }
+            let metadata = store
+                .indexes
+                .remove(&old_name)
+                .ok_or(V8BindingError::Unsupported {
+                    interface: "IDBIndex".into(),
+                    member: "InvalidStateError".into(),
+                })?;
+            store.indexes.insert(new_name.clone(), metadata);
+            drop(store_record);
+            let database_id = match &*platform_object(state, transaction_id)? {
+                PlatformObjectRecord::IdbTransaction(transaction) => transaction.database_id,
+                _ => return Err(V8BindingError::Allocation("IDBTransaction record")),
+            };
+            if let PlatformObjectRecord::IdbDatabase(database_record) =
+                &mut *platform_object_mut(state, database_id)?
+                && let Some(definition) = database_record
+                    .object_store_definitions
+                    .get_mut(&store_name)
+                && let Some(index) = definition
+                    .indexes
+                    .iter_mut()
+                    .find(|index| index.name == old_name)
+            {
+                index.name = new_name.clone();
+            }
+            if let PlatformObjectRecord::IdbIndex(index) = &mut *platform_object_mut(state, id)? {
+                index.name = new_name.clone();
+            }
+            let hidden = new_idb_request(state, Some(transaction_id));
+            submit_idb(
+                scope,
+                state,
+                hidden,
+                IdbHostCommand::RenameIndex {
+                    database,
+                    store: store_name,
+                    index: old_name,
+                    new_name,
+                },
+                IdbCompletionAction::Unit,
+            )?;
+        }
+        return Ok(());
+    }
     let mut record = platform_object_mut(state, id)?;
     match (&mut *record, interface, member) {
         (PlatformObjectRecord::XMLHttpRequest(xhr), "XMLHttpRequest", "timeout") => {
@@ -8114,7 +8328,7 @@ fn call_platform_operation<'s>(
             };
             let transaction_id = upgrade_transaction_id.ok_or(V8BindingError::Unsupported {
                 interface: "IDBDatabase".into(),
-                member: "TransactionInactiveError".into(),
+                member: "InvalidStateError".into(),
             })?;
             let active = matches!(
                 &*platform_object(state, transaction_id)?,
@@ -8126,18 +8340,27 @@ fn call_platform_operation<'s>(
                     member: "TransactionInactiveError".into(),
                 });
             }
-            if exists {
-                return Err(V8BindingError::Unsupported {
-                    interface: "IDBDatabase".into(),
-                    member: "ConstraintError".into(),
-                });
-            }
             let options = args.get(1);
             let key_path = option_value(scope, options, "keyPath")
                 .filter(|value| !value.is_null_or_undefined())
                 .map(|value| value.to_rust_string_lossy(scope));
             let auto_increment = option_value(scope, options, "autoIncrement")
                 .is_some_and(|value| value.boolean_value(scope));
+            if key_path
+                .as_deref()
+                .is_some_and(|path| !valid_idb_key_path(path))
+            {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBDatabase".into(),
+                    member: "SyntaxError".into(),
+                });
+            }
+            if exists {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBDatabase".into(),
+                    member: "ConstraintError".into(),
+                });
+            }
             let store_id = register_platform_object(
                 state,
                 PlatformObjectRecord::IdbObjectStore(IdbObjectStoreRecord {
@@ -8203,7 +8426,7 @@ fn call_platform_operation<'s>(
             };
             let transaction_id = transaction_id.ok_or(V8BindingError::Unsupported {
                 interface: "IDBDatabase".into(),
-                member: "TransactionInactiveError".into(),
+                member: "InvalidStateError".into(),
             })?;
             let active = matches!(
                 &*platform_object(state, transaction_id)?,
@@ -8300,6 +8523,7 @@ fn call_platform_operation<'s>(
                     pending_requests: 0,
                     completion_requested: false,
                     completion_queued: false,
+                    explicit_commit: false,
                     active: true,
                 }),
             );
@@ -8362,7 +8586,12 @@ fn call_platform_operation<'s>(
                             value
                                 .indexes
                                 .into_iter()
-                                .map(|index| (index.name, (index.key_path, index.unique)))
+                                .map(|index| {
+                                    (
+                                        index.name,
+                                        (index.key_path, index.unique, index.multi_entry),
+                                    )
+                                })
                                 .collect()
                         })
                         .unwrap_or_default(),
@@ -8394,7 +8623,7 @@ fn call_platform_operation<'s>(
                 (transaction.database_id, transaction.request_id)
             };
             if request_id.is_some() {
-                let (name, old_version) = {
+                let (name, old_version, base_definitions) = {
                     let mut record = platform_object_mut(state, database_id)?;
                     let PlatformObjectRecord::IdbDatabase(database) = &mut *record else {
                         return Err(V8BindingError::Allocation("IDBDatabase record"));
@@ -8402,8 +8631,47 @@ fn call_platform_operation<'s>(
                     database.version = database.old_version;
                     database.object_stores = database.upgrade_base_object_stores.clone();
                     database.object_store_definitions = database.upgrade_base_definitions.clone();
-                    (database.name.clone(), database.old_version)
+                    (
+                        database.name.clone(),
+                        database.old_version,
+                        database.upgrade_base_definitions.clone(),
+                    )
                 };
+                for record in state.platform_objects.borrow_mut().values_mut() {
+                    match record {
+                        PlatformObjectRecord::IdbObjectStore(store)
+                            if store.transaction_id == id =>
+                        {
+                            let definition = base_definitions.get(&store.name);
+                            store.deleted = definition.is_none();
+                            if let Some(definition) = definition {
+                                store.indexes = definition
+                                    .indexes
+                                    .iter()
+                                    .map(|index| {
+                                        (
+                                            index.name.clone(),
+                                            (
+                                                index.key_path.clone(),
+                                                index.unique,
+                                                index.multi_entry,
+                                            ),
+                                        )
+                                    })
+                                    .collect();
+                            }
+                        }
+                        PlatformObjectRecord::IdbIndex(index) => {
+                            if let Some(restored_name) = &index.upgrade_base_name {
+                                index.name = restored_name.clone();
+                                index.deleted = false;
+                            } else {
+                                index.deleted = true;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 let hidden = new_idb_request(state, None);
                 submit_idb(
                     scope,
@@ -8434,6 +8702,7 @@ fn call_platform_operation<'s>(
                 }
                 transaction.active = false;
                 transaction.completion_requested = true;
+                transaction.explicit_commit = true;
             }
             queue_idb_transaction_completion(state, id)?;
             return Ok(None);
@@ -8529,16 +8798,24 @@ fn call_platform_operation<'s>(
         }
         ("IDBObjectStore", "createIndex") => {
             let index_name = required_string(scope, args, 0)?;
-            let key_path = required_string(scope, args, 1)?;
             let unique = option_value(scope, args.get(2), "unique")
                 .is_some_and(|value| value.boolean_value(scope));
+            let multi_entry = option_value(scope, args.get(2), "multiEntry")
+                .is_some_and(|value| value.boolean_value(scope));
+            if multi_entry && args.get(1).is_array() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBObjectStore".into(),
+                    member: "InvalidAccessError".into(),
+                });
+            }
+            let key_path = required_string(scope, args, 1)?;
             let (database, store, transaction_id) = idb_store_context(state, id)?;
             if let PlatformObjectRecord::IdbObjectStore(record) =
                 &mut *platform_object_mut(state, id)?
             {
                 record
                     .indexes
-                    .insert(index_name.clone(), (key_path.clone(), unique));
+                    .insert(index_name.clone(), (key_path.clone(), unique, multi_entry));
             }
             let database_id = match &*platform_object(state, transaction_id)? {
                 PlatformObjectRecord::IdbTransaction(transaction) => transaction.database_id,
@@ -8553,6 +8830,7 @@ fn call_platform_operation<'s>(
                     name: index_name.clone(),
                     key_path: key_path.clone(),
                     unique,
+                    multi_entry,
                 });
             }
             let index_id = register_platform_object(
@@ -8560,8 +8838,11 @@ fn call_platform_operation<'s>(
                 PlatformObjectRecord::IdbIndex(IdbIndexRecord {
                     object_store_id: id,
                     name: index_name.clone(),
+                    upgrade_base_name: None,
                     key_path: key_path.clone(),
                     unique,
+                    multi_entry,
+                    deleted: false,
                 }),
             );
             let hidden = new_idb_request(state, Some(transaction_id));
@@ -8576,6 +8857,7 @@ fn call_platform_operation<'s>(
                         name: index_name,
                         key_path,
                         unique,
+                        multi_entry,
                     },
                 },
                 IdbCompletionAction::Unit,
@@ -8586,7 +8868,7 @@ fn call_platform_operation<'s>(
         }
         ("IDBObjectStore", "index") => {
             let name = required_string(scope, args, 0)?;
-            let (key_path, unique) = {
+            let (key_path, unique, multi_entry) = {
                 let record = platform_object(state, id)?;
                 let PlatformObjectRecord::IdbObjectStore(store) = &*record else {
                     return Err(V8BindingError::Allocation("IDBObjectStore record"));
@@ -8606,13 +8888,55 @@ fn call_platform_operation<'s>(
                         member: "NotFoundError".into(),
                     })?
             };
+            if let Some(existing_id) =
+                state
+                    .platform_objects
+                    .borrow()
+                    .iter()
+                    .find_map(|(candidate_id, candidate)| match candidate {
+                        PlatformObjectRecord::IdbIndex(index)
+                            if index.object_store_id == id
+                                && index.name == name
+                                && !index.deleted =>
+                        {
+                            Some(*candidate_id)
+                        }
+                        _ => None,
+                    })
+            {
+                return Ok(Some(
+                    new_platform_object(scope, state, "IDBIndex", existing_id)?.into(),
+                ));
+            }
+            let upgrade_base_name = {
+                let transaction_id = match &*platform_object(state, id)? {
+                    PlatformObjectRecord::IdbObjectStore(store) => store.transaction_id,
+                    _ => return Err(V8BindingError::Allocation("IDBObjectStore record")),
+                };
+                let database_id = match &*platform_object(state, transaction_id)? {
+                    PlatformObjectRecord::IdbTransaction(transaction) => transaction.database_id,
+                    _ => return Err(V8BindingError::Allocation("IDBTransaction record")),
+                };
+                match &*platform_object(state, database_id)? {
+                    PlatformObjectRecord::IdbDatabase(database) => database
+                        .upgrade_base_definitions
+                        .values()
+                        .flat_map(|definition| &definition.indexes)
+                        .find(|index| index.name == name)
+                        .map(|index| index.name.clone()),
+                    _ => None,
+                }
+            };
             let index_id = register_platform_object(
                 state,
                 PlatformObjectRecord::IdbIndex(IdbIndexRecord {
                     object_store_id: id,
                     name,
+                    upgrade_base_name,
                     key_path,
                     unique,
+                    multi_entry,
+                    deleted: false,
                 }),
             );
             return Ok(Some(
@@ -8650,6 +8974,14 @@ fn call_platform_operation<'s>(
             {
                 definition.indexes.retain(|index| index.name != name);
             }
+            for record in state.platform_objects.borrow_mut().values_mut() {
+                if let PlatformObjectRecord::IdbIndex(index) = record
+                    && index.object_store_id == id
+                    && index.name == name
+                {
+                    index.deleted = true;
+                }
+            }
             let database_name = match &*platform_object(state, database_id)? {
                 PlatformObjectRecord::IdbDatabase(database) => database.name.clone(),
                 _ => return Err(V8BindingError::Allocation("IDBDatabase record")),
@@ -8669,7 +9001,74 @@ fn call_platform_operation<'s>(
             return Ok(None);
         }
         ("IDBCursor", "continue" | "advance" | "continuePrimaryKey") => {
-            let (request_id, source_id, direction, current_key, current_primary_key, current_index) = {
+            let advance_count = if member == "advance" {
+                let raw = args.get(0).number_value(scope).unwrap_or(f64::NAN);
+                if !raw.is_finite() || raw.fract() != 0.0 || raw < 1.0 || raw > u32::MAX as f64 {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "IDBCursor".into(),
+                        member: "advance count must be greater than zero".into(),
+                    });
+                }
+                Some(raw as u32)
+            } else {
+                None
+            };
+            let (source_id, cursor_direction) = match &*platform_object(state, id)? {
+                PlatformObjectRecord::IdbCursor(cursor) => {
+                    (cursor.source_id, cursor.direction.clone())
+                }
+                _ => return Err(V8BindingError::Allocation("IDBCursor record")),
+            };
+            let (store_id, source_deleted, source_is_index) =
+                match &*platform_object(state, source_id)? {
+                    PlatformObjectRecord::IdbIndex(index) => {
+                        (index.object_store_id, index.deleted, true)
+                    }
+                    PlatformObjectRecord::IdbObjectStore(store) => {
+                        (source_id, store.deleted, false)
+                    }
+                    _ => return Err(V8BindingError::Allocation("IDBCursor source record")),
+                };
+            let (transaction_id, store_deleted) = match &*platform_object(state, store_id)? {
+                PlatformObjectRecord::IdbObjectStore(store) => {
+                    (store.transaction_id, store.deleted)
+                }
+                _ => return Err(V8BindingError::Allocation("IDBCursor object store record")),
+            };
+            let transaction_active = matches!(
+                &*platform_object(state, transaction_id)?,
+                PlatformObjectRecord::IdbTransaction(transaction)
+                    if transaction.active && !transaction.aborted
+            );
+            if !transaction_active {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBTransaction".into(),
+                    member: "TransactionInactiveError".into(),
+                });
+            }
+            if source_deleted || store_deleted {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBCursor".into(),
+                    member: "InvalidStateError".into(),
+                });
+            }
+            if member == "continuePrimaryKey"
+                && (!source_is_index
+                    || matches!(cursor_direction.as_str(), "nextunique" | "prevunique"))
+            {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBCursor".into(),
+                    member: "InvalidAccessError".into(),
+                });
+            }
+            let (
+                request_id,
+                _source_id,
+                direction,
+                current_key,
+                current_primary_key,
+                current_index,
+            ) = {
                 let record = platform_object(state, id)?;
                 let PlatformObjectRecord::IdbCursor(cursor) = &*record else {
                     return Err(V8BindingError::Allocation("IDBCursor record"));
@@ -8697,12 +9096,6 @@ fn call_platform_operation<'s>(
                     cursor.index,
                 )
             };
-            let store_id = match &*platform_object(state, source_id)? {
-                PlatformObjectRecord::IdbIndex(index) => index.object_store_id,
-                PlatformObjectRecord::IdbObjectStore(_) => source_id,
-                _ => return Err(V8BindingError::Allocation("IDBCursor source record")),
-            };
-            idb_store_context(state, store_id)?;
             let reverse = direction.starts_with("prev");
             let requested_key = (!args.get(0).is_undefined() && member != "advance")
                 .then(|| idb_key_from_value(scope, args.get(0)).map(idb_key_to_json))
@@ -8711,18 +9104,7 @@ fn call_platform_operation<'s>(
                 .then(|| idb_key_from_value(scope, args.get(1)).map(idb_key_to_json))
                 .transpose()?;
             let next_index = if member == "advance" {
-                let raw_count = args.get(0).number_value(scope).unwrap_or(f64::NAN);
-                if !raw_count.is_finite()
-                    || raw_count.fract() != 0.0
-                    || raw_count < 1.0
-                    || raw_count > u32::MAX as f64
-                {
-                    return Err(V8BindingError::Unsupported {
-                        interface: "IDBCursor".into(),
-                        member: "advance count must be greater than zero".into(),
-                    });
-                }
-                let count = raw_count as u32;
+                let count = advance_count.expect("advance count was validated");
                 current_index.saturating_add(count as usize)
             } else if let Some(requested_key) = requested_key {
                 let key_order = compare_idb_json_keys(&requested_key, &current_key);
@@ -8813,24 +9195,18 @@ fn call_platform_operation<'s>(
             return Ok(None);
         }
         ("IDBCursor", "delete" | "update") => {
-            let (source_id, primary_key, current_value) = {
+            if member == "update" && args.length() == 0 {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBCursor".into(),
+                    member: "update requires a value".into(),
+                });
+            }
+            let source_id = {
                 let record = platform_object(state, id)?;
                 let PlatformObjectRecord::IdbCursor(cursor) = &*record else {
                     return Err(V8BindingError::Allocation("IDBCursor record"));
                 };
-                let current =
-                    cursor
-                        .records
-                        .get(cursor.index)
-                        .ok_or(V8BindingError::Unsupported {
-                            interface: "IDBCursor".into(),
-                            member: "InvalidStateError".into(),
-                        })?;
-                (
-                    cursor.source_id,
-                    current.primary_key.clone(),
-                    current.value.clone(),
-                )
+                cursor.source_id
             };
             let store_id = match &*platform_object(state, source_id)? {
                 PlatformObjectRecord::IdbIndex(index) => index.object_store_id,
@@ -8850,9 +9226,50 @@ fn call_platform_operation<'s>(
                     });
                 }
             }
+            let (primary_key, current_value) = {
+                let record = platform_object(state, id)?;
+                let PlatformObjectRecord::IdbCursor(cursor) = &*record else {
+                    return Err(V8BindingError::Allocation("IDBCursor record"));
+                };
+                if cursor.iteration_pending || !cursor.got_value {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "IDBCursor".into(),
+                        member: "InvalidStateError".into(),
+                    });
+                }
+                let current =
+                    cursor
+                        .records
+                        .get(cursor.index)
+                        .ok_or(V8BindingError::Unsupported {
+                            interface: "IDBCursor".into(),
+                            member: "InvalidStateError".into(),
+                        })?;
+                (current.primary_key.clone(), current.value.clone())
+            };
             let update_value = (member == "update")
                 .then(|| idb_value_to_json(scope, state, args.get(0)))
                 .transpose()?;
+            if let Some(update_value) = &update_value {
+                let key_path = match &*platform_object(state, store_id)? {
+                    PlatformObjectRecord::IdbObjectStore(store) => store.key_path.clone(),
+                    _ => return Err(V8BindingError::Allocation("IDBObjectStore record")),
+                };
+                if let Some(key_path) = key_path {
+                    let inline_key = idb_json_key_path(update_value, &key_path)
+                        .and_then(normalize_idb_json_key)
+                        .ok_or(V8BindingError::Unsupported {
+                            interface: "IDBCursor".into(),
+                            member: "DataError".into(),
+                        })?;
+                    if compare_idb_json_keys(&inline_key, &primary_key).is_ne() {
+                        return Err(V8BindingError::Unsupported {
+                            interface: "IDBCursor".into(),
+                            member: "DataError".into(),
+                        });
+                    }
+                }
+            }
             let command = if member == "delete" {
                 IdbHostCommand::Delete {
                     database,
@@ -9917,6 +10334,12 @@ fn idb_source_request<'s>(
         let PlatformObjectRecord::IdbIndex(index) = &*record else {
             return Err(V8BindingError::Allocation("IDBIndex record"));
         };
+        if index.deleted {
+            return Err(V8BindingError::Unsupported {
+                interface: "IDBIndex".into(),
+                member: "InvalidStateError".into(),
+            });
+        }
         (index.object_store_id, Some(index.name.clone()))
     } else {
         (source_id, None)
@@ -9930,10 +10353,15 @@ fn idb_source_request<'s>(
     } else {
         None
     };
-    let query = if args.get(0).is_undefined() {
+    let query_value = args.get(0);
+    let null_is_unbounded = matches!(
+        member,
+        "getAll" | "getAllKeys" | "count" | "openCursor" | "openKeyCursor"
+    );
+    let query = if query_value.is_undefined() || (null_is_unbounded && query_value.is_null()) {
         None
     } else {
-        Some(idb_query_to_json(scope, state, args.get(0))?)
+        Some(idb_query_to_json(scope, state, query_value)?)
     };
     let request_id = new_idb_request_for_source(state, Some(transaction_id), Some(source_id));
     let direction_index = if member.starts_with("open") { 1 } else { 0 };
@@ -10051,6 +10479,17 @@ fn idb_optional_count(
         });
     }
     Ok(Some(number.trunc() as usize))
+}
+
+fn valid_idb_key_path(path: &str) -> bool {
+    path.is_empty()
+        || path.split('.').all(|component| {
+            let mut characters = component.chars();
+            characters
+                .next()
+                .is_some_and(|value| value == '_' || value == '$' || value.is_alphabetic())
+                && characters.all(|value| value == '_' || value == '$' || value.is_alphanumeric())
+        })
 }
 
 fn call_stateful_operation<'s>(

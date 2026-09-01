@@ -614,7 +614,7 @@ interface IDBCursorWithValue : IDBCursor {
 
 [Exposed=(Window,Worker)]
 interface IDBIndex {
-  readonly attribute DOMString name;
+  attribute DOMString name;
   readonly attribute IDBObjectStore objectStore;
   readonly attribute any keyPath;
   readonly attribute boolean multiEntry;

@@ -32,6 +32,8 @@ pub struct IdbIndexDefinition {
     pub name: String,
     pub key_path: String,
     pub unique: bool,
+    #[serde(default)]
+    pub multi_entry: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -77,6 +79,12 @@ pub enum IdbHostCommand {
         database: String,
         store: String,
         index: String,
+    },
+    RenameIndex {
+        database: String,
+        store: String,
+        index: String,
+        new_name: String,
     },
     Batch {
         database: String,

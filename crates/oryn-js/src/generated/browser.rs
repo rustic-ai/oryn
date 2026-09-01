@@ -4441,7 +4441,7 @@ pub const I_D_B_INDEX_MEMBERS: &[GeneratedMember] = &[
         name: "name",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
-        readonly: true,
+        readonly: false,
         constant_value: None,
         type_name: Some("DOMString"),
         same_object: false,

@@ -114,6 +114,8 @@ pub struct IndexDefinition {
     pub name: String,
     pub key_path: String,
     pub unique: bool,
+    #[serde(default)]
+    pub multi_entry: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,6 +161,12 @@ pub enum IdbCommand {
         database: String,
         store: String,
         index: String,
+    },
+    RenameIndex {
+        database: String,
+        store: String,
+        index: String,
+        new_name: String,
     },
     Batch {
         database: String,
@@ -819,9 +827,12 @@ fn execute_idb(
             databases: databases
                 .iter()
                 .filter(|((item_origin, _), _)| item_origin == origin)
-                .map(|((_, name), database)| DatabaseInfo {
-                    name: name.clone(),
-                    version: database.version,
+                .filter_map(|((_, name), database)| {
+                    let visible = database.upgrade_backup.as_deref().unwrap_or(database);
+                    (visible.version > 0).then(|| DatabaseInfo {
+                        name: name.clone(),
+                        version: visible.version,
+                    })
                 })
                 .collect(),
             ..IdbResponse::default()
@@ -946,6 +957,28 @@ fn execute_idb(
             }
             IdbResponse::default()
         }
+        IdbCommand::RenameIndex {
+            database,
+            store,
+            index,
+            new_name,
+        } => {
+            let store_data = store_mut(databases, origin, &database, &store)?;
+            if new_name != index && store_data.indexes.contains_key(&new_name) {
+                return Err(StorageError::Constraint);
+            }
+            let mut definition =
+                store_data
+                    .indexes
+                    .remove(&index)
+                    .ok_or_else(|| StorageError::IndexNotFound {
+                        store: store.clone(),
+                        index: index.clone(),
+                    })?;
+            definition.name = new_name.clone();
+            store_data.indexes.insert(new_name, definition);
+            IdbResponse::default()
+        }
         IdbCommand::Batch { database, writes } => {
             let before = databases.clone();
             let mut last_key = None;
@@ -1049,19 +1082,33 @@ fn execute_idb(
             let mut records = store_data
                 .records
                 .values()
-                .filter_map(|record| {
-                    let cursor_key = index_definition
-                        .and_then(|definition| {
-                            json_value_at_key_path(&record.value, &definition.key_path)
-                        })
-                        .unwrap_or(&record.key);
-                    (query
-                        .as_ref()
-                        .is_none_or(|query| indexed_db_key_matches(query, cursor_key)))
-                    .then(|| IdbRecord {
-                        key: cursor_key.clone(),
-                        primary_key: record.key.clone(),
-                        value: record.value.clone(),
+                .flat_map(|record| {
+                    let indexed_key = index_definition.and_then(|definition| {
+                        json_value_at_key_path(&record.value, &definition.key_path)
+                    });
+                    let mut cursor_keys = match (index_definition, indexed_key) {
+                        (Some(definition), Some(serde_json::Value::Array(values)))
+                            if definition.multi_entry =>
+                        {
+                            values.clone()
+                        }
+                        (_, Some(value)) => vec![value.clone()],
+                        (Some(_), None) => Vec::new(),
+                        (None, None) => vec![record.key.clone()],
+                    };
+                    cursor_keys.retain(|key| encode_key(key).is_ok());
+                    cursor_keys.sort_by(compare_indexed_db_keys);
+                    cursor_keys
+                        .dedup_by(|left, right| compare_indexed_db_keys(left, right).is_eq());
+                    cursor_keys.into_iter().filter_map(|cursor_key| {
+                        query
+                            .as_ref()
+                            .is_none_or(|query| indexed_db_key_matches(query, &cursor_key))
+                            .then(|| IdbRecord {
+                                key: cursor_key,
+                                primary_key: record.key.clone(),
+                                value: record.value.clone(),
+                            })
                     })
                 })
                 .collect::<Vec<_>>();
@@ -1566,6 +1613,7 @@ mod tests {
             name: "by_name".into(),
             key_path: "name".into(),
             unique: false,
+            multi_entry: false,
         };
         store
             .execute(StorageRequest::IndexedDb {
@@ -1697,6 +1745,12 @@ mod tests {
                         name: name.into(),
                         version,
                     },
+                })
+                .unwrap();
+            store
+                .execute(StorageRequest::IndexedDb {
+                    origin: origin.into(),
+                    command: IdbCommand::CommitUpgrade { name: name.into() },
                 })
                 .unwrap();
         }
