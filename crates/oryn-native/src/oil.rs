@@ -809,7 +809,7 @@ impl NativeOilSession {
                         });
                     }
                 };
-                self.page.wait_for(predicate).await?;
+                self.wait_for_page_predicate(predicate).await?;
                 Ok(NativeOilOutput::Text {
                     value: "satisfied".into(),
                 })
@@ -959,6 +959,26 @@ impl NativeOilSession {
         Ok(observation)
     }
 
+    async fn wait_for_page_predicate(
+        &mut self,
+        predicate: WaitPredicate,
+    ) -> Result<(), NativeOilError> {
+        const WAIT_ATTEMPTS: usize = 3_000;
+        let mut last = None;
+        for attempt in 0..WAIT_ATTEMPTS {
+            match self.page.wait_for(predicate.clone()).await {
+                Ok(()) => return Ok(()),
+                Err(RuntimeError::WaitUnsatisfied(message)) => last = Some(message),
+                Err(error) => return Err(error.into()),
+            }
+            let _ = self.page.evaluate("__oryn_drain(true);''").await;
+            if attempt + 1 < WAIT_ATTEMPTS {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
+        Err(RuntimeError::WaitUnsatisfied(last.unwrap_or_else(|| format!("{predicate:?}"))).into())
+    }
+
     async fn assert_target_visibility(
         &mut self,
         target: &Target,
@@ -970,7 +990,11 @@ impl NativeOilSession {
             } else {
                 WaitPredicate::SelectorHidden(value.clone())
             };
-            for attempt in 0..500 {
+            // Match the production navigation/action wall rather than the old
+            // five-second probe bound. Multi-page flows can be making real
+            // progress while a popup worker starts and exchanges messages.
+            const WAIT_ATTEMPTS: usize = 3_000;
+            for attempt in 0..WAIT_ATTEMPTS {
                 match self.page.wait_for(predicate.clone()).await {
                     Ok(()) => {
                         self.last_observation = Some(self.page.observe().await?);
@@ -980,7 +1004,7 @@ impl NativeOilSession {
                     Err(error) => return Err(error.into()),
                 }
                 let _ = self.page.evaluate("__oryn_drain(true);''").await;
-                if attempt < 499 {
+                if attempt + 1 < WAIT_ATTEMPTS {
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }
             }
@@ -989,7 +1013,8 @@ impl NativeOilSession {
         // Text/role waits must tolerate genuinely asynchronous resource and
         // Fetch completions. Poll the semantic projection while advancing one
         // scheduler checkpoint; a fixed two-pass drain races loopback and HTTP/2.
-        for attempt in 0..500 {
+        const WAIT_ATTEMPTS: usize = 3_000;
+        for attempt in 0..WAIT_ATTEMPTS {
             let observation = self.page.observe_profile(ProjectionProfile::Full).await?;
             let found = observation.nodes.iter().find(|node| match &target.atomic {
                 TargetAtomic::Id(alias) => node.alias as usize == *alias,
@@ -1011,7 +1036,7 @@ impl NativeOilSession {
                 return Ok(());
             }
             let _ = self.page.evaluate("__oryn_drain(true);''").await;
-            if attempt < 499 {
+            if attempt + 1 < WAIT_ATTEMPTS {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         }

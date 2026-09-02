@@ -299,6 +299,7 @@ struct WorkerPage {
     config: BrowserConfig,
     options: ContextOptions,
     pending: AtomicUsize,
+    context_wakeups: AtomicUsize,
     process_id: AtomicU32,
 }
 
@@ -939,6 +940,7 @@ enum PageCommand {
         source: String,
         reply: oneshot::Sender<Result<String, RuntimeError>>,
     },
+    PollContextEvents,
     Capabilities {
         reply: oneshot::Sender<Vec<CapabilityDiagnostic>>,
     },
@@ -2336,6 +2338,69 @@ impl BrowserContext {
             .push(ContextEventRecord { event_id, event });
     }
 
+    /// Wake the target page actor after a parent-owned context event arrives.
+    /// Browser event loops do not require an API call on the receiving page to
+    /// deliver `postMessage`; without this bounded wakeup an idle popup can
+    /// retain a queued event forever.
+    #[cfg(unix)]
+    pub(crate) fn wake_context_events(&self, page_id: PageId) {
+        let Some(page) = self.inner.group.handle(page_id) else {
+            return;
+        };
+        if let Some(sender) = page.sender.as_ref() {
+            // Context events are durable in the parent journal. A full actor
+            // queue therefore needs no unbounded retry: commands already ahead
+            // of this wake run scheduler checkpoints, and a later page command
+            // will observe any event not covered by this notification.
+            let _ = sender.try_send(PageCommand::PollContextEvents);
+            return;
+        }
+
+        let Some(worker) = page.worker.as_ref().cloned() else {
+            return;
+        };
+        let became_leader = worker
+            .context_wakeups
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
+                Some(pending.saturating_add(1).min(32))
+            })
+            .is_ok_and(|previous| previous == 0);
+        if !became_leader {
+            return;
+        }
+        std::thread::spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                worker.context_wakeups.store(0, Ordering::Release);
+                return;
+            };
+            loop {
+                // Internal event-loop progress is not raw user inspection and
+                // must remain available even when `evaluate` is policy-denied.
+                let _ =
+                    runtime.block_on(page.worker_request(crate::worker::WorkerRequest::Evaluate {
+                        source: "__oryn_drain(false);''".into(),
+                    }));
+                // Coalesce events which arrived while the worker was draining.
+                // The zero transition lets a racing event elect a new leader,
+                // so no wakeup can be stranded between iterations.
+                let observed = worker.context_wakeups.swap(0, Ordering::AcqRel);
+                if observed <= 1 {
+                    break;
+                }
+                if worker
+                    .context_wakeups
+                    .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+    }
+
     #[cfg(unix)]
     pub(crate) fn poll_context_events(
         &self,
@@ -2938,6 +3003,7 @@ impl BrowserContext {
                     config: self.inner.config.clone(),
                     options: self.inner.options.clone(),
                     pending: AtomicUsize::new(0),
+                    context_wakeups: AtomicUsize::new(0),
                     process_id: AtomicU32::new(0),
                 })),
             };
@@ -3038,6 +3104,9 @@ impl BrowserContext {
                     }
                     PageCommand::Evaluate { source, reply } => {
                         let _ = reply.send(state.evaluate(&source));
+                    }
+                    PageCommand::PollContextEvents => {
+                        let _ = state.evaluate("__oryn_drain(false);''");
                     }
                     PageCommand::Capabilities { reply } => {
                         let _ = reply.send(state.capabilities());
@@ -9977,8 +10046,9 @@ mod tests {
     async fn same_origin_iframe_is_semantic_and_cross_origin_is_diagnostic() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture server");
         let address = listener.local_addr().expect("fixture address");
+        let cross_origin = format!("http://localhost:{}", address.port());
         let server = std::thread::spawn(move || {
-            for _ in 0..2 {
+            for _ in 0..3 {
                 let (mut stream, _) = listener.accept().expect("accept request");
                 let mut request = [0_u8; 2048];
                 let length = stream.read(&mut request).expect("read request");
@@ -9989,12 +10059,15 @@ mod tests {
                     .and_then(|line| line.split_whitespace().nth(1))
                     .unwrap_or("/");
                 let body = if path == "/frame" {
-                    "<title>Child</title><button id=frame-action onclick=\"this.textContent='Clicked in child'\">Pending</button><script>globalThis.frameRealmMarker='isolated';document.querySelector('#frame-action').textContent='Frame action'</script>"
+                    "<title>Child</title><button id=frame-action onclick=\"this.textContent='Clicked in child'\">Pending</button><script>globalThis.frameRealmMarker='isolated';document.querySelector('#frame-action').textContent='Frame action';addEventListener('message',async event=>{await indexedDB.databases();event.source.postMessage({reply:event.data},'*')})</script>".to_owned()
                 } else {
-                    "<iframe src=/frame></iframe><iframe src=https://cross-origin.invalid/frame></iframe>"
+                    format!(
+                        "<iframe src=/frame></iframe><iframe src=\"http://localhost:{}/frame\"></iframe>",
+                        address.port()
+                    )
                 };
                 stream
-                    .write_all(fixture_response(body).as_bytes())
+                    .write_all(fixture_response(&body).as_bytes())
                     .expect("write response");
             }
         });
@@ -10006,15 +10079,19 @@ mod tests {
             .expect("navigate frame fixture");
         let observation = page.observe().await.expect("observe frames");
         assert!(
+            observation.capabilities.iter().any(|capability| {
+                capability.capability == "html.frame.cross_origin"
+                    && capability.support == SupportLevel::Partial
+            }),
+            "frame diagnostics: {:#?}",
+            observation.capabilities
+        );
+        assert!(
             observation
                 .nodes
                 .iter()
                 .any(|node| node.name == "Frame action")
         );
-        assert!(observation.capabilities.iter().any(|capability| {
-            capability.capability == "html.frame.cross_origin"
-                && capability.support == SupportLevel::Unsupported
-        }));
         assert_eq!(
             page.evaluate("typeof frameRealmMarker")
                 .await
@@ -10026,6 +10103,30 @@ mod tests {
                 .await
                 .expect("same-origin frame DOM is accessible"),
             "Frame action"
+        );
+        page.evaluate("globalThis.frameReply='';addEventListener('message',event=>frameReply=event.data.reply);document.querySelector('iframe').contentWindow.postMessage('ping','*');'sent'")
+            .await
+            .expect("send same-origin frame message");
+        assert_eq!(
+            page.evaluate("frameReply")
+                .await
+                .expect("same-origin frame postMessage round trip"),
+            "ping"
+        );
+        page.evaluate(&format!("globalThis.crossFrameReply='';addEventListener('message',event=>crossFrameReply=event.data.reply);document.querySelectorAll('iframe')[1].contentWindow.postMessage('opaque',{cross_origin:?});'sent'"))
+            .await
+            .expect("send opaque frame message");
+        assert_eq!(
+            page.evaluate("crossFrameReply")
+                .await
+                .expect("opaque frame postMessage round trip"),
+            "opaque"
+        );
+        assert_eq!(
+            page.evaluate("document.querySelectorAll('iframe')[1].contentDocument===null")
+                .await
+                .expect("opaque frame document is inaccessible"),
+            "true"
         );
         let frame_action = observation
             .nodes

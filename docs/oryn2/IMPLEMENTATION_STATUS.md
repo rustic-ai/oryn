@@ -125,19 +125,31 @@ rewrite those historical payloads or present them as a new validation run.
   writes atomic checkpoints, and resumes only on an exact source, binary,
   runtime, inventory, and selection fingerprint. Initial diagnostic shards are
   intentionally not committed as passing release evidence. The clean first-20
-  IndexedDB diagnostic now passes 17/20; its only remaining cases are two live
-  BFCache workflows and the cross-origin iframe/window messaging workflow. A
-  broader first-100 IndexedDB run now passes 85/100 after adding atomic
+  IndexedDB diagnostic now passes 18/20; its only remaining cases are two live
+  BFCache workflows. The previously failing cross-origin iframe/window origin-
+  isolation case now passes through opaque frame realms, brokered popup
+  messaging, origin-partitioned storage, and autonomous receiving-page wakeups.
+  A broader first-100 IndexedDB run now passes 88/100 after adding atomic
   read/write transaction rollback, compound key paths, transaction-scoped
   upgrade restoration, and live cursor refresh/invalidation. The complete
   discovered cursor slice passes 11/11, including a 997-record iteration case.
   Cursor task-boundary, connection-close/versionchange, failed-upgrade ordering,
   index-key re-entry, and exact WTF-16 index names now pass. A generated
   MessageChannel transfer regression also passes after the aggregate and makes
-  detached binary IndexedDB keys fail with `DataError`. A non-EditContext
+  detached binary IndexedDB keys fail with `DataError`. The WPT harness now
+  uses a real localhost/127.0.0.1 origin pair, avoids injecting completion code
+  into helper documents, retains diagnostics on harness failures, and gives
+  long tests a declared bounded wait. The harness also applies its pinned
+  wptserve substitutions to `.sub.html` as well as `.sub.js`. Parser-created
+  and dynamic cross-origin frames now execute in isolated Rust DOM/V8 realms,
+  receive origin-aware parent/opener proxies before their lifecycle events,
+  resolve child resources against the child URL, and remain opaque to parent
+  DOM and semantic traversal. Focused partitioned-storage basic and persistence
+  workflows pass; the broader coverage stress case reaches the real generated-
+  operation wall limit and remains red. A non-EditContext
   editing shard passes 5/40. The remaining first-100 failures are high-volume
   debug-probe limits plus explicit geometry, cross-realm, cross-origin,
-  opaque-origin, partitioning and BFCache boundaries.
+  opaque-origin, partitioning-coverage and BFCache boundaries.
 - Generated IndexedDB now implements the browser key ordering used by
   `IDBFactory.cmp`, including dates, unsigned binary keys and recursive arrays,
   and exposes a real versionchange transaction during upgrade. Upgrade abort
@@ -157,7 +169,7 @@ rewrite those historical payloads or present them as a new validation run.
   WPT now passes the complete discovered 11-file cursor slice and the full
   `IDBFactory.open` file,
   delete-database version events, historical interface checks, index `getAll`
-  range enforcement and cursor source/class identity. The broader 85/100 shard
+  range enforcement and cursor source/class identity. The broader 88/100 shard
   remains red, so no aggregate closure is claimed. Generated
   Document editing now supplies `designMode`, safe command queries, and
   selection-backed insert-text/HTML, line/paragraph insertion, directional

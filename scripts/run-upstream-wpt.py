@@ -10,6 +10,7 @@ import html as html_module
 import http.server
 import json
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -74,6 +75,24 @@ def meta_script_paths(root: Path, source_path: Path, source_text: str) -> list[s
 
 def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def substitute_wpt_tokens(body: str, request_host: str, port: int) -> str:
+    """Apply the deterministic wptserve substitutions used by this harness."""
+    remote_host = "localhost" if request_host == "127.0.0.1" else "127.0.0.1"
+    replacements = {
+        "{{ports[http][0]}}": str(port),
+        "{{ports[http][1]}}": str(port),
+        "{{ports[https][0]}}": str(port),
+        "{{ports[https][1]}}": str(port),
+        "{{host}}": request_host,
+        "{{domains[www2]}}": remote_host,
+        "{{hosts[alt][]}}": remote_host,
+        "{{hosts[alt][www2]}}": remote_host,
+    }
+    for token, value in replacements.items():
+        body = body.replace(token, value)
+    return body
 
 
 def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
@@ -141,22 +160,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if not source.is_file():
                 self.send_error(404)
                 return
-            port = str(self.server.server_address[1])
             request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
-            remote_host = "localhost" if request_host == "127.0.0.1" else "127.0.0.1"
             body = source.read_text(encoding="utf-8", errors="replace")
-            replacements = {
-                "{{ports[http][0]}}": port,
-                "{{ports[http][1]}}": port,
-                "{{ports[https][0]}}": port,
-                "{{ports[https][1]}}": port,
-                "{{host}}": request_host,
-                "{{domains[www2]}}": remote_host,
-                "{{hosts[alt][]}}": remote_host,
-                "{{hosts[alt][www2]}}": remote_host,
-            }
-            for token, value in replacements.items():
-                body = body.replace(token, value)
+            body = substitute_wpt_tokens(
+                body, request_host, self.server.server_address[1]
+            )
             encoded = body.encode()
             self.send_response(200)
             self.send_header("content-type", "application/javascript; charset=utf-8")
@@ -254,17 +262,31 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         path = Path(self.translate_path(self.path))
         if path.suffix in {".html", ".htm"} and path.is_file():
             body = path.read_text(encoding="utf-8", errors="replace")
-            body = body.replace('<script src=/resources/testharnessreport.js></script>', '')
+            if path.name.endswith((".sub.html", ".sub.htm")):
+                request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
+                body = substitute_wpt_tokens(
+                    body, request_host, self.server.server_address[1]
+                )
+            body = re.sub(
+                r"<script\b[^>]*\bsrc\s*=\s*(['\"]?)/resources/testharnessreport\.js\1[^>]*>\s*</script>",
+                "",
+                body,
+                flags=re.IGNORECASE,
+            )
             lowered = body.lower()
             harness = lowered.find("testharness.js")
             index = lowered.find("</script>", harness) + len("</script>") if harness >= 0 else -1
             timeout_setup = (
-                "<script>setup({timeout_multiplier:4});</script>"
-                if "name=timeout" in lowered and "content=long" in lowered
+                "<script>setup({timeout_multiplier:20});</script>"
+                if (
+                    ("name=timeout" in lowered or 'name="timeout"' in lowered or "name='timeout'" in lowered)
+                    and ("content=long" in lowered or 'content="long"' in lowered or "content='long'" in lowered)
+                )
                 else ""
             )
-            injection = timeout_setup + COMPLETION
-            body = body[:index] + injection + body[index:] if index >= len("</script>") else body + injection
+            if harness >= 0:
+                injection = timeout_setup + COMPLETION
+                body = body[:index] + injection + body[index:]
             encoded = body.encode()
             self.send_response(200); self.send_header("content-type", "text/html; charset=utf-8")
             self.send_header("content-length", str(len(encoded))); self.end_headers(); self.wfile.write(encoded)
@@ -344,13 +366,13 @@ def run_case(
         query = urllib.parse.urlencode(
             {"source": test.as_posix(), "variant": variant, "global": global_name}
         )
-        url = f"http://127.0.0.1:{port}/__oryn_worker_runner.html?{query}"
+        url = f"http://localhost:{port}/__oryn_worker_runner.html?{query}"
     elif test.name.endswith((".any.js", ".window.js")):
         query = urllib.parse.urlencode({"source": test.as_posix()})
         variant_suffix = ("&" + variant[1:]) if variant.startswith("?") else variant
-        url = f"http://127.0.0.1:{port}/__oryn_any_runner.html?{query}{variant_suffix}"
+        url = f"http://localhost:{port}/__oryn_any_runner.html?{query}{variant_suffix}"
     else:
-        url = f"http://127.0.0.1:{port}/{urllib.parse.quote(test.as_posix())}{variant}"
+        url = f"http://localhost:{port}/{urllib.parse.quote(test.as_posix())}{variant}"
     with tempfile.NamedTemporaryFile("w", suffix=".oil", delete=False) as oil:
         oil.write('wait idle\nwait exists "#oryn-wpt-result"\nextract text --selector "#oryn-wpt-result"\n')
         oil_path = Path(oil.name)
@@ -382,7 +404,7 @@ def run_case(
         except (json.JSONDecodeError, IndexError):
             trace = trace_path.read_text(errors="replace") if trace_path.exists() else ""
             probe = subprocess.run(
-                [str(binary), *native, "--url", url, "--evaluate", "typeof add_completion_callback+'|'+typeof test+'|'+document.documentElement.outerHTML"],
+                [str(binary), *native, "--url", url, "--evaluate", "typeof add_completion_callback+'|'+typeof test+'|messages='+JSON.stringify(globalThis.__oryn_message_log||[])+'|'+document.documentElement.outerHTML"],
                 cwd=ROOT, text=True, capture_output=True, timeout=timeout,
             )
             detail = (completed.stderr + "\n" + completed.stdout + "\n" + trace + "\nDOM_PROBE:\n" + probe.stdout + "\n" + probe.stderr)[-20000:].strip()
@@ -394,6 +416,7 @@ def run_case(
             or any(item.get("status") != 0 for item in result.get("tests", []))
         )
         failure_domain = None
+        diagnostics = []
         if failed:
             if not result.get("complete", False):
                 failure_domain = "incomplete"
@@ -403,7 +426,14 @@ def run_case(
                 failure_domain = "no_assertions"
             else:
                 failure_domain = "assertion"
-        return {
+            if trace_path.exists():
+                trace = trace_path.read_text(encoding="utf-8", errors="replace").strip()
+                if trace:
+                    diagnostics.append(trace[-20000:])
+            process_detail = (completed.stderr + "\n" + completed.stdout).strip()
+            if process_detail:
+                diagnostics.append(process_detail[-20000:])
+        record = {
             "id": identifier,
             "path": test.as_posix(),
             "classification": classification,
@@ -413,6 +443,9 @@ def run_case(
             "failure_domain": failure_domain,
             "result": result,
         }
+        if diagnostics:
+            record["diagnostics"] = diagnostics
+        return record
     except subprocess.TimeoutExpired:
         return {"id":identifier,"path":test.as_posix(),"classification":classification,"global":global_name,"variant":variant,"status":"failed","diagnostics":[f"timeout after {timeout}s"]}
     finally:

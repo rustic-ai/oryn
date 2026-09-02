@@ -945,20 +945,188 @@ mod raw_v8 {
             document: NodeId,
             realm: RealmId,
         ) -> Result<(), HostError> {
-            let context = self
+            self.link_frame_realm(frame, Some(document), realm)
+        }
+
+        pub fn set_opaque_frame_realm(
+            &mut self,
+            frame: NodeId,
+            realm: RealmId,
+        ) -> Result<(), HostError> {
+            self.link_frame_realm(frame, None, realm)
+        }
+
+        fn link_frame_realm(
+            &mut self,
+            frame: NodeId,
+            document: Option<NodeId>,
+            realm: RealmId,
+        ) -> Result<(), HostError> {
+            let child_context = self
                 .contexts
                 .get(&realm)
                 .ok_or_else(|| HostError::Execution("frame realm is unavailable".into()))?
+                .clone();
+            let parent_context = self
+                .contexts
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("parent realm is unavailable".into()))?
                 .clone();
             let active = self
                 .binding_states
                 .get(&self.active_realm)
                 .cloned()
                 .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?;
-            v8::scope!(let scope, &mut self.isolate);
-            let context = v8::Local::new(scope, &context);
-            active.set_frame_document(frame, document);
-            active.set_frame_window(frame, v8::Global::new(scope, context.global(scope)));
+            let parent_origin = self
+                .realms
+                .get(self.active_realm)
+                .map(|descriptor| descriptor.origin.clone())
+                .ok_or_else(|| {
+                    HostError::Execution("parent realm descriptor is unavailable".into())
+                })?;
+            let child_origin = self
+                .realms
+                .get(realm)
+                .map(|descriptor| descriptor.origin.clone())
+                .ok_or_else(|| {
+                    HostError::Execution("frame realm descriptor is unavailable".into())
+                })?;
+            v8::scope!(let handle_scope, &mut self.isolate);
+            let parent_context_local = v8::Local::new(handle_scope, &parent_context);
+            let child_context_local = v8::Local::new(handle_scope, &child_context);
+            let parent_window =
+                v8::Global::new(handle_scope, parent_context_local.global(handle_scope));
+            let child_window =
+                v8::Global::new(handle_scope, child_context_local.global(handle_scope));
+            let parent_deliver = {
+                let parent_context = v8::Local::new(handle_scope, &parent_context);
+                let scope = &mut v8::ContextScope::new(handle_scope, parent_context);
+                let window = v8::Local::new(scope, &parent_window);
+                let key = v8::String::new(scope, "__oryn_deliver_message")
+                    .ok_or_else(|| HostError::Execution("allocate parent deliver key".into()))?;
+                let function = window
+                    .get(scope, key.into())
+                    .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+                    .ok_or_else(|| {
+                        HostError::Execution("parent message delivery is unavailable".into())
+                    })?;
+                v8::Global::new(scope, function)
+            };
+            let child_deliver = {
+                let child_context = v8::Local::new(handle_scope, &child_context);
+                let scope = &mut v8::ContextScope::new(handle_scope, child_context);
+                let window = v8::Local::new(scope, &child_window);
+                let key = v8::String::new(scope, "__oryn_deliver_message")
+                    .ok_or_else(|| HostError::Execution("allocate frame deliver key".into()))?;
+                let function = window
+                    .get(scope, key.into())
+                    .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+                    .ok_or_else(|| {
+                        HostError::Execution("frame message delivery is unavailable".into())
+                    })?;
+                v8::Global::new(scope, function)
+            };
+            let parent_opener = {
+                let parent_context = v8::Local::new(handle_scope, &parent_context);
+                let scope = &mut v8::ContextScope::new(handle_scope, parent_context);
+                let window = v8::Local::new(scope, &parent_window);
+                let key = v8::String::new(scope, "opener")
+                    .ok_or_else(|| HostError::Execution("allocate opener key".into()))?;
+                let value = window
+                    .get(scope, key.into())
+                    .unwrap_or_else(|| v8::undefined(scope).into());
+                v8::Global::new(scope, value)
+            };
+            let child_proxy = {
+                let parent_context = v8::Local::new(handle_scope, &parent_context);
+                let scope = &mut v8::ContextScope::new(handle_scope, parent_context);
+                let window = v8::Local::new(scope, &parent_window);
+                let factory_key =
+                    v8::String::new(scope, "__oryn_make_window_proxy").ok_or_else(|| {
+                        HostError::Execution("allocate frame proxy factory key".into())
+                    })?;
+                let factory = window
+                    .get(scope, factory_key.into())
+                    .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+                    .ok_or_else(|| {
+                        HostError::Execution("frame proxy factory is unavailable".into())
+                    })?;
+                let deliver = v8::Local::new(scope, &child_deliver);
+                let target_origin = v8::String::new(scope, &child_origin)
+                    .ok_or_else(|| HostError::Execution("allocate child origin".into()))?;
+                let source_origin = v8::String::new(scope, &parent_origin)
+                    .ok_or_else(|| HostError::Execution("allocate parent origin".into()))?;
+                let proxy = factory
+                    .call(
+                        scope,
+                        window.into(),
+                        &[deliver.into(), target_origin.into(), source_origin.into()],
+                    )
+                    .and_then(|value| value.to_object(scope))
+                    .ok_or_else(|| HostError::Execution("create child WindowProxy".into()))?;
+                v8::Global::new(scope, proxy)
+            };
+            let parent_proxy = {
+                let child_context = v8::Local::new(handle_scope, &child_context);
+                let scope = &mut v8::ContextScope::new(handle_scope, child_context);
+                let window = v8::Local::new(scope, &child_window);
+                let factory_key =
+                    v8::String::new(scope, "__oryn_make_window_proxy").ok_or_else(|| {
+                        HostError::Execution("allocate parent proxy factory key".into())
+                    })?;
+                let factory = window
+                    .get(scope, factory_key.into())
+                    .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+                    .ok_or_else(|| {
+                        HostError::Execution("parent proxy factory is unavailable".into())
+                    })?;
+                let deliver = v8::Local::new(scope, &parent_deliver);
+                let target_origin = v8::String::new(scope, &parent_origin)
+                    .ok_or_else(|| HostError::Execution("allocate parent origin".into()))?;
+                let source_origin = v8::String::new(scope, &child_origin)
+                    .ok_or_else(|| HostError::Execution("allocate child origin".into()))?;
+                let proxy = factory
+                    .call(
+                        scope,
+                        window.into(),
+                        &[deliver.into(), target_origin.into(), source_origin.into()],
+                    )
+                    .and_then(|value| value.to_object(scope))
+                    .ok_or_else(|| HostError::Execution("create parent WindowProxy".into()))?;
+                v8::Global::new(scope, proxy)
+            };
+            {
+                let parent_context = v8::Local::new(handle_scope, &parent_context);
+                let scope = &mut v8::ContextScope::new(handle_scope, parent_context);
+                let child_proxy = v8::Local::new(scope, &child_proxy);
+                let parent_proxy = v8::Local::new(scope, &parent_proxy);
+                let source_key = v8::String::new(scope, "__source")
+                    .ok_or_else(|| HostError::Execution("allocate child proxy source".into()))?;
+                child_proxy.set(scope, source_key.into(), parent_proxy.into());
+            }
+            {
+                let child_context = v8::Local::new(handle_scope, &child_context);
+                let scope = &mut v8::ContextScope::new(handle_scope, child_context);
+                let child_window = v8::Local::new(scope, &child_window);
+                let child_proxy = v8::Local::new(scope, &child_proxy);
+                let parent_proxy = v8::Local::new(scope, &parent_proxy);
+                let source_key = v8::String::new(scope, "__source")
+                    .ok_or_else(|| HostError::Execution("allocate parent proxy source".into()))?;
+                parent_proxy.set(scope, source_key.into(), child_proxy.into());
+                let opener_key = v8::String::new(scope, "opener")
+                    .ok_or_else(|| HostError::Execution("allocate parent opener".into()))?;
+                let opener = v8::Local::new(scope, &parent_opener);
+                parent_proxy.set(scope, opener_key.into(), opener);
+                for name in ["parent", "top"] {
+                    let key = v8::String::new(scope, name)
+                        .ok_or_else(|| HostError::Execution(format!("allocate frame {name}")))?;
+                    child_window.set(scope, key.into(), parent_proxy.into());
+                }
+            }
+            if let Some(document) = document {
+                active.set_frame_document(frame, document);
+            }
+            active.set_frame_window(frame, child_proxy);
             Ok(())
         }
 

@@ -190,6 +190,15 @@ fn script_record(dom: &DomRuntime, node: NodeId) -> Result<ScriptRecord, HostErr
     ))
 }
 
+fn resolve_script_record(mut record: ScriptRecord, base_url: Option<&Url>) -> ScriptRecord {
+    if let (Some(base_url), Some(source)) = (base_url, record.1.as_deref())
+        && let Ok(absolute) = base_url.join(source)
+    {
+        record.1 = Some(absolute.to_string());
+    }
+    record
+}
+
 fn run_script_record(
     host: &mut RawV8Host,
     live_dom: &SharedDomRuntime,
@@ -1063,13 +1072,16 @@ globalThis.__oryn_configure_context=(pageId,openerPageId)=>{__oryn_page_id=pageI
 globalThis.open=(url='')=>{if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return null;const target=url?new OrynURL(url,location.href).href:null;const response=contextCall({operation:'open_page',opener_page_id:__oryn_page_id,url:target});if(response.result==='page_opened'){__oryn_context_trace.push({kind:'page_created',detail:{page_id:response.page_id,opener_page_id:__oryn_page_id}});return __oryn_page_proxy(response.page_id)}if(response.result==='page_denied')__oryn_context_trace.push({kind:'capability_failure',detail:{capability:'popup.open',detail:response.reason}});return null};
 globalThis.closed=false;
 globalThis.close=()=>{if(closed||__oryn_page_id===null)return;globalThis.closed=true;__oryn_context_trace.push({kind:'page_closed',detail:{page_id:__oryn_page_id}})};
-const __oryn_global_listeners=new Map();const __oryn_websockets=new Set();let __oryn_context_event_id=0;
+const __oryn_global_listeners=new Map();const __oryn_websockets=new Set();const __oryn_message_log=[];const __oryn_record_message=value=>{if(__oryn_message_log.length===128)__oryn_message_log.shift();__oryn_message_log.push(value)};let __oryn_context_event_id=0;
 class SecurityPolicyViolationEvent extends Event {constructor(type,eventInitDict={}){super(type,{bubbles:true,cancelable:false});for(const [name,value] of Object.entries({documentURI:'',referrer:'',blockedURI:'',violatedDirective:'',effectiveDirective:'',originalPolicy:'',sourceFile:'',sample:'',disposition:'enforce',statusCode:0,lineNumber:0,columnNumber:0,...eventInitDict}))Object.defineProperty(this,name,{value,enumerable:true,writable:false,configurable:false})}}
 globalThis.SecurityPolicyViolationEvent=SecurityPolicyViolationEvent;
-globalThis.addEventListener=(type,callback)=>{const list=__oryn_global_listeners.get(String(type))||[];list.push(callback);__oryn_global_listeners.set(String(type),list)};
-globalThis.removeEventListener=(type,callback)=>__oryn_global_listeners.set(String(type),(__oryn_global_listeners.get(String(type))||[]).filter(item=>item!==callback));
+globalThis.addEventListener=(type,callback,options={})=>{type=String(type);if(typeof callback!=='function')return;const once=!!(options&&typeof options==='object'&&options.once);let listener=callback;if(once){listener=function(event){removeEventListener(type,listener);return callback.call(this,event)};listener.__oryn_original_listener=callback}const list=__oryn_global_listeners.get(type)||[];list.push(listener);__oryn_global_listeners.set(type,list)};
+globalThis.removeEventListener=(type,callback)=>__oryn_global_listeners.set(String(type),(__oryn_global_listeners.get(String(type))||[]).filter(item=>item!==callback&&item.__oryn_original_listener!==callback));
 globalThis.dispatchEvent=event=>{for(const callback of __oryn_global_listeners.get(event.type)||[])callback.call(globalThis,event);const handler=globalThis['on'+event.type];if(typeof handler==='function')handler.call(globalThis,event);return !event.defaultPrevented};
-globalThis.__oryn_poll_context=()=>{if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return;const response=contextCall({operation:'poll_events',page_id:__oryn_page_id,after_event_id:__oryn_context_event_id,max_events:32});if(response.result==='events')for(const record of response.events||[]){__oryn_context_event_id=Math.max(__oryn_context_event_id,record.event_id);const item=record.event;if(!item)continue;if(item.kind==='storage'){const change=item.change||{};const event=new Event('storage',{});event.key=change.key??null;event.oldValue=change.old_value??null;event.newValue=change.new_value??null;event.storageArea=change.area==='local'?localStorage:sessionStorage;event.url=location.href;dispatchEvent(event)}else if(item.kind==='message'){const event=new Event('message',{});event.data=item.data;event.origin=item.source_origin||'';event.source=__oryn_page_proxy(item.source_page_id);dispatchEvent(event)}else if(item.kind==='page_lifecycle'){const lifecycle=item.event||{};if(lifecycle.kind==='closed'){const proxy=__oryn_page_proxies.get(lifecycle.page_id);if(proxy)proxy.__closed=true}}else if(item.kind==='csp_violation'){const value=item.violation||{};const event=new SecurityPolicyViolationEvent('securitypolicyviolation',{documentURI:value.document_uri||'',referrer:value.referrer||'',blockedURI:value.blocked_uri||'',violatedDirective:value.effective_directive||'',effectiveDirective:value.effective_directive||'',originalPolicy:value.original_policy||'',sourceFile:value.source_file||'',sample:value.sample||'',disposition:value.disposition||'enforce',statusCode:value.status_code||0,lineNumber:value.line_number||0,columnNumber:value.column_number||0});document.dispatchEvent(event);dispatchEvent(event)}else if(item.kind==='csp_report'){__oryn_context_trace.push({kind:'csp_report',detail:{endpoint:item.endpoint||'',format:item.format||'',outcome:item.outcome||''}})}}for(const socket of [...__oryn_websockets])socket.__poll()};
+globalThis.__oryn_deliver_message=(data,targetOrigin='*',source=null,sourceOrigin='')=>{targetOrigin=String(targetOrigin);if(targetOrigin!=='*'&&targetOrigin!=='/'&&targetOrigin!==location.origin)return;__oryn_record_message({origin:String(sourceOrigin),data});const event=new Event('message',{});event.data=data;event.origin=String(sourceOrigin);event.source=source;queueMicrotask(()=>dispatchEvent(event))};
+globalThis.__oryn_make_window_proxy=(deliver,targetOrigin,sourceOrigin)=>{const proxy={__source:null,__closed:false,origin:String(targetOrigin),get closed(){return this.__closed},focus(){},close(){this.__closed=true},postMessage(data,requestedOrigin='*'){deliver(data,String(requestedOrigin),proxy.__source,String(sourceOrigin))}};return proxy};
+globalThis.postMessage=(data,targetOrigin='*')=>globalThis.__oryn_deliver_message(data,targetOrigin,globalThis,location.origin);
+globalThis.__oryn_poll_context=()=>{if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return;const response=contextCall({operation:'poll_events',page_id:__oryn_page_id,after_event_id:__oryn_context_event_id,max_events:32});if(response.result==='events')for(const record of response.events||[]){__oryn_context_event_id=Math.max(__oryn_context_event_id,record.event_id);const item=record.event;if(!item)continue;if(item.kind==='storage'){const change=item.change||{};const event=new Event('storage',{});event.key=change.key??null;event.oldValue=change.old_value??null;event.newValue=change.new_value??null;event.storageArea=change.area==='local'?localStorage:sessionStorage;event.url=location.href;dispatchEvent(event)}else if(item.kind==='message'){__oryn_record_message({origin:item.source_origin||'',data:item.data});__oryn_context_trace.push({kind:'opener_message',detail:{source_page_id:item.source_page_id,target_page_id:__oryn_page_id,origin:item.source_origin||''}});const event=new Event('message',{});event.data=item.data;event.origin=item.source_origin||'';event.source=__oryn_page_proxy(item.source_page_id);dispatchEvent(event)}else if(item.kind==='page_lifecycle'){const lifecycle=item.event||{};if(lifecycle.kind==='closed'){const proxy=__oryn_page_proxies.get(lifecycle.page_id);if(proxy)proxy.__closed=true}}else if(item.kind==='csp_violation'){const value=item.violation||{};const event=new SecurityPolicyViolationEvent('securitypolicyviolation',{documentURI:value.document_uri||'',referrer:value.referrer||'',blockedURI:value.blocked_uri||'',violatedDirective:value.effective_directive||'',effectiveDirective:value.effective_directive||'',originalPolicy:value.original_policy||'',sourceFile:value.source_file||'',sample:value.sample||'',disposition:value.disposition||'enforce',statusCode:value.status_code||0,lineNumber:value.line_number||0,columnNumber:value.column_number||0});document.dispatchEvent(event);dispatchEvent(event)}else if(item.kind==='csp_report'){__oryn_context_trace.push({kind:'csp_report',detail:{endpoint:item.endpoint||'',format:item.format||'',outcome:item.outcome||''}})}}for(const socket of [...__oryn_websockets])socket.__poll()};
 class OrynWebSocket {constructor(url,protocols=[]){this.url=new OrynURL(url,location.href).href;this.protocol='';this.binaryType='blob';this.readyState=0;this.__listeners=new Map();if(typeof protocols==='string')protocols=[protocols];const response=contextCall({operation:'web_socket_open',page_id:__oryn_page_id,url:this.url,protocols:[...protocols].map(String)});if(response.result!=='web_socket_opened')throw new Error('WebSocket open failed');this.__id=response.socket_id;this.protocol=response.protocol;__oryn_websockets.add(this);queueMicrotask(()=>{this.readyState=1;this.__event('open')})}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}send(data){const frame=typeof data==='string'?{kind:'text',value:data}:{kind:'binary',base64:bytesToBase64(bodyBytes(data))};const bytes=typeof data==='string'?new TextEncoder().encode(data).length:bodyBytes(data).length;contextCall({operation:'web_socket_send',page_id:__oryn_page_id,socket_id:this.__id,frame});__oryn_context_trace.push({kind:'web_socket_frame',detail:{socket_id:this.__id,direction:'outbound',frame_type:frame.kind,bytes,url:this.url}})}close(code=1000,reason=''){contextCall({operation:'web_socket_close',page_id:__oryn_page_id,socket_id:this.__id,code,reason:String(reason)});this.readyState=3;__oryn_websockets.delete(this);this.__event('close',{code,reason:String(reason),wasClean:true})}__poll(){if(this.readyState!==1)return;const response=contextCall({operation:'web_socket_poll',page_id:__oryn_page_id,socket_id:this.__id,max_frames:32});if(response.result!=='web_socket_events')return;for(const frame of response.frames||[]){let bytes=0;if(frame.kind==='text'){bytes=new TextEncoder().encode(frame.value).length;this.__event('message',{data:frame.value})}else if(frame.kind==='binary'){const value=base64ToBytes(frame.base64);bytes=value.length;this.__event('message',{data:this.binaryType==='arraybuffer'?value.buffer:new Blob([value])})}else if(frame.kind==='close'){this.readyState=3;__oryn_websockets.delete(this);this.__event('close',{code:frame.code??1005,reason:frame.reason||'',wasClean:true})}__oryn_context_trace.push({kind:'web_socket_frame',detail:{socket_id:this.__id,direction:'inbound',frame_type:frame.kind,bytes,url:this.url}})}}}
 Object.assign(OrynWebSocket,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});Object.assign(OrynWebSocket.prototype,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});globalThis.WebSocket=OrynWebSocket;
 const __oryn_workers=new Set();
@@ -1541,6 +1553,7 @@ impl RustExecutableDocument {
             scripts.sort_by_key(|script| script.6);
         }
         let mut node_realms = BTreeMap::new();
+        let mut initial_frame_realms = Vec::new();
         for (frame_index, (frame, source)) in frame_sources.into_iter().enumerate() {
             let Some(source) = source else { continue };
             let frame_url = base_url
@@ -1551,25 +1564,47 @@ impl RustExecutableDocument {
                 .as_ref()
                 .zip(frame_url.as_ref())
                 .is_some_and(|(parent, child)| parent.origin() == child.origin());
-            let Some(frame_html) = resources.get(&source).filter(|_| same_origin) else {
+            let Some(frame_html) = resources.get(&source) else {
                 diagnostics.push(oryn_common::v3::CapabilityDiagnostic {
                     capability: "html.frame.cross_origin".into(),
                     support: oryn_common::v3::SupportLevel::Unsupported,
                     alternatives: vec![oryn_common::v3::ExecutionDomain::Chromium],
                     handoff_lossy: true,
-                    detail: Some(format!("frame {source:?} is opaque in the native domain")),
+                    detail: Some(format!(
+                        "frame {source:?} could not be loaded by the parent"
+                    )),
                 });
                 continue;
             };
+            if !same_origin {
+                diagnostics.push(oryn_common::v3::CapabilityDiagnostic {
+                    capability: "html.frame.cross_origin".into(),
+                    support: oryn_common::v3::SupportLevel::Partial,
+                    alternatives: Vec::new(),
+                    handoff_lossy: false,
+                    detail: Some(format!(
+                        "frame {source:?} executes in an opaque realm; DOM access and semantic traversal are denied"
+                    )),
+                });
+            }
             let child = html::parse_streamed(frame_html, 4 * 1024);
-            let child_document = live_dom
-                .borrow_mut()
-                .import_subtree(&child.dom, child.document)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            live_dom
-                .borrow_mut()
-                .append_child(frame, child_document)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
+            let (frame_dom, child_document) = if same_origin {
+                let document = live_dom
+                    .borrow_mut()
+                    .import_subtree(&child.dom, child.document)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                live_dom
+                    .borrow_mut()
+                    .append_child(frame, document)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                (live_dom.clone(), document)
+            } else {
+                let document = child.document;
+                let runtime = child
+                    .into_runtime()
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                (Rc::new(RefCell::new(runtime)), document)
+            };
             let realm = host.create_realm_with_dom_root(
                 frame_url
                     .as_ref()
@@ -1577,15 +1612,21 @@ impl RustExecutableDocument {
                     .unwrap_or_else(|| "null".into()),
                 1,
                 Some(frame_index as u64 + 1),
-                live_dom.clone(),
+                frame_dom.clone(),
                 child_document,
             )?;
-            for node in subtree_nodes(&live_dom.borrow(), child_document)? {
-                node_realms.insert(node, realm);
+            if same_origin {
+                for node in subtree_nodes(&frame_dom.borrow(), child_document)? {
+                    node_realms.insert(node, realm);
+                }
             }
             host.activate_realm(realm)?;
             host.execute(RUST_RUNTIME_GLOBALS)?;
             host.set_module_sources(&resources);
+            #[cfg(unix)]
+            if let Some((page_id, _)) = context_identity {
+                host.execute(&format!("__oryn_configure_context({}, null)", page_id.0))?;
+            }
             if let Some(frame_url) = &frame_url {
                 let url = serde_json::to_string(frame_url.as_str())
                     .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -1595,22 +1636,21 @@ impl RustExecutableDocument {
                     "Object.assign(globalThis.location,new OrynURL({url}))"
                 ))?;
             }
-            #[cfg(unix)]
-            if let Some((page_id, _)) = context_identity {
-                host.execute(&format!("__oryn_configure_context({}, null)", page_id.0))?;
-            }
             let imported_scripts = {
-                let dom = live_dom.borrow();
+                let dom = frame_dom.borrow();
                 dom.query_selector_all(child_document, "script")
                     .map_err(|error| HostError::Execution(error.to_string()))?
                     .into_iter()
-                    .map(|script| script_record(&dom, script))
+                    .map(|script| {
+                        script_record(&dom, script)
+                            .map(|record| resolve_script_record(record, frame_url.as_ref()))
+                    })
                     .collect::<Result<Vec<_>, _>>()?
             };
             for script in &imported_scripts {
                 run_script_record(
                     &mut host,
-                    &live_dom,
+                    &frame_dom,
                     &mut resources,
                     script,
                     &mut diagnostics,
@@ -1621,7 +1661,12 @@ impl RustExecutableDocument {
             }
             host.set_current_script(None)?;
             host.activate_realm(top_realm)?;
-            host.set_frame_document(frame, child_document)?;
+            if same_origin {
+                host.set_frame_realm(frame, child_document, realm)?;
+            } else {
+                host.set_opaque_frame_realm(frame, realm)?;
+            }
+            initial_frame_realms.push(realm);
         }
         for script in &scripts {
             run_script_record(
@@ -1659,6 +1704,19 @@ impl RustExecutableDocument {
             #[cfg(unix)]
             context: context_handle,
         };
+        // Parser-discovered frame scripts are prepared before the remaining
+        // parent scripts, but their lifecycle fires only after the parent has
+        // had a chance to install message/load observers. Each child realm gets
+        // its own events and scheduler checkpoint before the top-level load
+        // barrier is released.
+        for realm in initial_frame_realms {
+            page.host.activate_realm(realm)?;
+            page.host.execute(
+                "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
+            )?;
+            page.checkpoint()?;
+        }
+        page.host.activate_realm(page.top_realm)?;
         // Dynamic external/module scripts inserted by parser-time JavaScript
         // are force-async but still participate in the document load barrier.
         page.drain_dynamic_frames()?;
@@ -2117,7 +2175,11 @@ impl RustExecutableDocument {
         self.host.drain_async_fetches(true)?;
         self.drain_dynamic_frames()?;
         self.drain_dynamic_scripts()?;
-        self.host.execute("void 0")?;
+        // Poll parent-owned context events at every page checkpoint. Popup
+        // messages and lifecycle changes can arrive after the script that
+        // initiated them has yielded; leaving polling to explicit JavaScript
+        // calls strands otherwise runnable promise continuations.
+        self.host.execute("__oryn_drain()")?;
         self.host.execute("__oryn_run_custom_reactions()")?;
         self.host.run_dom_observer_checkpoint()?;
         for rejection in self.host.take_unhandled_promise_rejections() {
@@ -2291,34 +2353,42 @@ impl RustExecutableDocument {
                         .join(&url)
                 })
                 .ok();
-            if self
+            let cross_origin = self
                 .base_url
                 .as_ref()
                 .zip(frame_url.as_ref())
-                .is_some_and(|(parent, child)| parent.origin() != child.origin())
-            {
+                .is_some_and(|(parent, child)| parent.origin() != child.origin());
+            if cross_origin {
                 self.diagnostics
                     .push(oryn_common::v3::CapabilityDiagnostic {
                         capability: "html.frame.cross_origin".into(),
-                        support: oryn_common::v3::SupportLevel::Unsupported,
-                        alternatives: vec![oryn_common::v3::ExecutionDomain::Chromium],
-                        handoff_lossy: true,
+                        support: oryn_common::v3::SupportLevel::Partial,
+                        alternatives: Vec::new(),
+                        handoff_lossy: false,
                         detail: Some(format!(
-                            "dynamic frame {url:?} is opaque in the native domain"
+                            "dynamic frame {url:?} executes in an opaque realm; DOM access and semantic traversal are denied"
                         )),
                     });
-                continue;
             }
             let parsed = html::parse(&source);
-            let child_document = self
-                .live_dom
-                .borrow_mut()
-                .import_subtree(&parsed.dom, parsed.document)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            self.live_dom
-                .borrow_mut()
-                .append_child(frame, child_document)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
+            let (frame_dom, child_document) = if cross_origin {
+                let document = parsed.document;
+                let runtime = parsed
+                    .into_runtime()
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                (Rc::new(RefCell::new(runtime)), document)
+            } else {
+                let document = self
+                    .live_dom
+                    .borrow_mut()
+                    .import_subtree(&parsed.dom, parsed.document)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                self.live_dom
+                    .borrow_mut()
+                    .append_child(frame, document)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                (self.live_dom.clone(), document)
+            };
             let realm = self.host.create_realm_with_dom_root(
                 frame_url
                     .as_ref()
@@ -2326,17 +2396,27 @@ impl RustExecutableDocument {
                     .unwrap_or_else(|| "null".into()),
                 1,
                 Some(u64::try_from(self.node_realms.len()).unwrap_or(u64::MAX) + 1),
-                self.live_dom.clone(),
+                frame_dom.clone(),
                 child_document,
             )?;
-            for node in subtree_nodes(&self.live_dom.borrow(), child_document)? {
-                self.node_realms.insert(node, realm);
+            if !cross_origin {
+                for node in subtree_nodes(&frame_dom.borrow(), child_document)? {
+                    self.node_realms.insert(node, realm);
+                }
             }
             self.host.activate_realm(realm)?;
             self.host.execute(RUST_RUNTIME_GLOBALS).map_err(|error| {
                 HostError::Execution(format!("dynamic frame runtime bootstrap: {error}"))
             })?;
             self.host.set_module_sources(&self.resources);
+            #[cfg(unix)]
+            if let Some((_, page_id, _)) = &self.context {
+                self.host
+                    .execute(&format!("__oryn_configure_context({}, null)", page_id.0))
+                    .map_err(|error| {
+                        HostError::Execution(format!("dynamic frame context: {error}"))
+                    })?;
+            }
             if let Some(frame_url) = &frame_url {
                 let encoded = serde_json::to_string(frame_url.as_str())
                     .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -2348,29 +2428,24 @@ impl RustExecutableDocument {
                         HostError::Execution(format!("dynamic frame location: {error}"))
                     })?;
             }
-            #[cfg(unix)]
-            if let Some((_, page_id, _)) = &self.context {
-                self.host
-                    .execute(&format!("__oryn_configure_context({}, null)", page_id.0))
-                    .map_err(|error| {
-                        HostError::Execution(format!("dynamic frame context: {error}"))
-                    })?;
-            }
             let child_scripts = {
-                let dom = self.live_dom.borrow();
+                let dom = frame_dom.borrow();
                 dom.query_selector_all(child_document, "script")
                     .map_err(|error| HostError::Execution(error.to_string()))?
                     .into_iter()
                     .map(|script| {
                         let record = dom.arena().get(script)?;
-                        Ok((
-                            script,
-                            record.attributes.get("src").cloned(),
-                            record.attributes.get("type").cloned(),
-                            dom.arena().text_content(script)?,
-                            false,
-                            record.attributes.contains_key("nomodule"),
-                            false,
+                        Ok(resolve_script_record(
+                            (
+                                script,
+                                record.attributes.get("src").cloned(),
+                                record.attributes.get("type").cloned(),
+                                dom.arena().text_content(script)?,
+                                false,
+                                record.attributes.contains_key("nomodule"),
+                                false,
+                            ),
+                            frame_url.as_ref(),
                         ))
                     })
                     .collect::<Result<Vec<ScriptRecord>, DomError>>()
@@ -2379,7 +2454,7 @@ impl RustExecutableDocument {
             for script in &child_scripts {
                 run_script_record(
                     &mut self.host,
-                    &self.live_dom,
+                    &frame_dom,
                     &mut self.resources,
                     script,
                     &mut self.diagnostics,
@@ -2388,11 +2463,17 @@ impl RustExecutableDocument {
                 )?;
                 self.host.refresh_named_window_properties()?;
             }
+            self.host.activate_realm(self.top_realm)?;
+            if cross_origin {
+                self.host.set_opaque_frame_realm(frame, realm)?;
+            } else {
+                self.host.set_frame_realm(frame, child_document, realm)?;
+            }
+            self.host.activate_realm(realm)?;
             self.host.execute(
                 "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
             ).map_err(|error| HostError::Execution(format!("dynamic frame lifecycle: {error}")))?;
             self.host.activate_realm(self.top_realm)?;
-            self.host.set_frame_realm(frame, child_document, realm)?;
             self.host
                 .execute_with_node(
                     frame,

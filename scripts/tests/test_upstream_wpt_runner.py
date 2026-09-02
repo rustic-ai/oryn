@@ -56,6 +56,16 @@ class UpstreamWptRunnerTests(unittest.TestCase):
         self.assertEqual(RUNNER.outcome(assertions, 2, True)["status"], "failed")
         self.assertEqual(RUNNER.outcome(assertions, 1, True)["status"], "passed")
 
+    def test_wptserve_tokens_are_substituted_for_html_and_scripts(self) -> None:
+        source = (
+            "http://{{host}}:{{ports[http][0]}}/same "
+            "http://{{hosts[alt][]}}:{{ports[http][1]}}/cross"
+        )
+        self.assertEqual(
+            RUNNER.substitute_wpt_tokens(source, "localhost", 8443),
+            "http://localhost:8443/same http://127.0.0.1:8443/cross",
+        )
+
     def test_html_variants_are_all_preserved(self) -> None:
         source = """
         <meta name=variant content=?1-1000>

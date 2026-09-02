@@ -86,14 +86,17 @@ IDBFactory key comparison, initial versionchange abort, request lifecycle,
 transaction-active scheduling, event-exception propagation, Blob/binary keys,
 persisted index metadata, cursor progression and unknown editing commands pass.
 Broader local-probe diagnostic shards remain red: the clean first-20 IndexedDB
-slice is 17/20, the broader first-100 slice is 85/100, and the non-EditContext
+slice is 18/20, the broader first-100 slice is 88/100, and the non-EditContext
 editing slice is 5/40. The IndexedDB improvement includes full factory-open,
 schema rename/abort, atomic read/write rollback, compound key paths,
 multi-entry indexes, unique cursors, an 11/11 live-cursor slice, connection
 close/versionchange ordering, failed-upgrade abort ordering and WTF-16 names.
-Generated MessageChannel transfer and detached-key rejection pass in a focused
-post-aggregate run. High-volume debug limits and several cross-realm,
-origin/partitioning, geometry and BFCache boundaries remain open. These
+Generated MessageChannel transfer, detached-key rejection, and the complete
+cross-origin iframe/window database-name isolation workflow now pass. Focused
+partitioned-storage basic and persistence workflows also pass through isolated
+cross-origin frame realms; the broader coverage stress case remains bounded by
+the generated-operation wall limit. The remaining failures are high-volume
+debug limits plus cross-realm, opaque-origin, geometry and BFCache boundaries. These
 diagnostics are not release evidence and this review does not claim conformance
 closure.
 
@@ -118,7 +121,7 @@ The dependency-ordered completion backlog is maintained in
 | F12 — untrusted content | **Mostly closed** | Semantic nodes carry `ContentTrust::PageAuthored`, inferred facts use heuristic provenance, and raw inspection is policy-audited without recording page content. Broader prompt-boundary evidence remains narrower than the proposal's full trust model. |
 | F13 — secret leakage | **Closed in software** | Secret sensitivity is stored independently on Rust DOM nodes, applies to text inputs, survives page-controlled attribute changes, and redacts observation and HTML extraction. |
 | F14 — generated WebIDL | **Partial; architecture closed, long-tail algorithms measured** | Deterministic generation, real prototypes, Rust callbacks, wrapper identity, brands, realms, origin and generation checks are authoritative in production. Cross-container Range operations, CharacterData/editing, generated Storage, Fetch/File/Streams/XHR/WebSocket, MessageChannel transfer and IndexedDB execute through Rust state and typed parent operations. Focused upstream regressions now cover atomic rollback, compound key paths, connection-close/versionchange ordering, failed-upgrade abort ordering, live cursor mutation and index-key re-entry, exact WTF-16 names, detached binary keys, and the bounded editing-command surface. The compatibility bootstrap is probe-only. Broader editing and cross-realm/origin platform behavior remain red, so API conformance is not closed. |
-| F15 — production-path testing | **Partial; exhaustive inventory is truthful but red** | Focused default, no-V8 and V8-host tests pass and the pinned upstream harness is fail-closed. All eight requested IndexedDB SharedWorker/ServiceWorker executions pass both the local V8 probe and a trusted, locally signed macOS App Sandbox worker with heap-sandbox metadata; a compact validator recomputes their `ef8a8d4` ledger. The new v2 inventory expands coverage to 4,022 exact executions and makes long runs parallel, checkpointed and fingerprint-resumable. Current diagnostics pass 17/20 in the clean IndexedDB slice, 85/100 in the broader IndexedDB slice, 11/11 in the discovered cursor slice, and 5/40 in the non-EditContext editing slice. A focused detached-key case passed after the 85/100 aggregate. The remaining red cases stay visible; no aggregate is published as passing. Full sandboxed v2 execution, four-profile equivalence, Linux artifacts, performance and release attestation remain open. |
+| F15 — production-path testing | **Partial; exhaustive inventory is truthful but red** | Focused default, no-V8 and V8-host tests pass and the pinned upstream harness is fail-closed. All eight requested IndexedDB SharedWorker/ServiceWorker executions pass both the local V8 probe and a trusted, locally signed macOS App Sandbox worker with heap-sandbox metadata; a compact validator recomputes their `ef8a8d4` ledger. The new v2 inventory expands coverage to 4,022 exact executions and makes long runs parallel, checkpointed and fingerprint-resumable. Current diagnostics pass 18/20 in the clean IndexedDB slice, 88/100 in the broader IndexedDB slice, 11/11 in the discovered cursor slice, and 5/40 in the non-EditContext editing slice. Cross-origin iframe/window isolation and detached binary keys pass in the current aggregate; focused partitioned basic and persistence workflows pass after the aggregate. The remaining red cases stay visible; no aggregate is published as passing. Full sandboxed v2 execution, four-profile equivalence, Linux artifacts, performance and release attestation remain open. |
 | F16 — Intent/API/MCP | **Closed in software; release evidence pending** | Agent contract v3 additively exposes semantic contract v6 and scoped/delta observation while accepting frozen v2 requests. Rust, OIL, worker protocol v8, Python and MCP use the same graph resolver/action engine. Upload, context-virtual clipboard and parent-owned secret-label behavior remain unchanged and values never enter argv, environment, OIL, JSON-RPC, traces, observations or worker initialization. |
 
 ### Current broader-gap status

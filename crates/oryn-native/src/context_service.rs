@@ -551,6 +551,7 @@ pub struct ParentContextService {
     next_http_stream_id: AtomicU64,
     http_streams: Mutex<BTreeMap<u64, Arc<HttpStreamEntry>>>,
     cancelled_http_requests: Mutex<BTreeSet<u64>>,
+    authorized_storage_origins: Mutex<BTreeSet<String>>,
     shutting_down: AtomicBool,
     trusted_in_process_runtime: bool,
 }
@@ -607,6 +608,10 @@ impl ParentContextService {
         source_page_id: PageId,
         network: Option<SharedNetworkBroker>,
     ) -> Self {
+        let authorized_storage_origins = context
+            .page_origin(source_page_id)
+            .into_iter()
+            .collect::<BTreeSet<_>>();
         Self {
             context,
             source_page_id,
@@ -616,6 +621,7 @@ impl ParentContextService {
             next_http_stream_id: AtomicU64::new(1),
             http_streams: Mutex::new(BTreeMap::new()),
             cancelled_http_requests: Mutex::new(BTreeSet::new()),
+            authorized_storage_origins: Mutex::new(authorized_storage_origins),
             shutting_down: AtomicBool::new(false),
             trusted_in_process_runtime: false,
         }
@@ -1065,6 +1071,7 @@ impl ParentContextService {
                     source_origin,
                     data,
                 });
+                self.context.wake_context_events(target_page_id);
                 Ok(ContextServiceResponse::MessageQueued)
             }
             ContextServiceRequest::PollEvents {
@@ -1842,7 +1849,6 @@ impl ParentContextService {
             RuntimeError::ContextService("page resource broker is unavailable".into())
         })?;
         let page_url = self.context.page_url(page_id)?;
-        let page_origin = self.context.page_origin(page_id)?;
         let mut url = self.context.resolve_page_url(page_id, requested_url)?;
         for redirect in 0..=10 {
             let decision = self.context.authorize_csp(
@@ -1864,11 +1870,6 @@ impl ParentContextService {
                 return Err(RuntimeError::ContextService(format!(
                     "{destination} blocked by Content-Security-Policy"
                 )));
-            }
-            if destination == "frame" && url.origin().ascii_serialization() != page_origin {
-                return Err(RuntimeError::ContextService(
-                    "cross-origin frame document is opaque".into(),
-                ));
             }
             let response = collect_operation_bounded_with_cancel(
                 &network,
@@ -1918,6 +1919,16 @@ impl ParentContextService {
                 .map(|(_, value)| value.as_str());
             let (source, _) =
                 oryn_net::decode_resource_text(&response.body, content_type, text_kind);
+            if destination == "frame" {
+                self.authorized_storage_origins
+                    .lock()
+                    .map_err(|_| {
+                        RuntimeError::ContextService(
+                            "authorized frame-origin registry is poisoned".into(),
+                        )
+                    })?
+                    .insert(url.origin().ascii_serialization());
+            }
             return Ok(ContextServiceResponse::PageResource {
                 url: url.to_string(),
                 source,
@@ -2195,6 +2206,19 @@ impl ParentContextService {
                 "SecurityError: sandboxed opaque origins cannot access storage".into(),
             ));
         }
+        let current_page_origin = self.context.page_origin(self.source_page_id)?;
+        let origin_is_authorized = |origin: &str| -> Result<bool, RuntimeError> {
+            Ok(origin == current_page_origin
+                || self
+                    .authorized_storage_origins
+                    .lock()
+                    .map_err(|_| {
+                        RuntimeError::ContextService(
+                            "authorized frame-origin registry is poisoned".into(),
+                        )
+                    })?
+                    .contains(origin))
+        };
         let (scope, area) = match request {
             StorageRequest::Get { area, scope, .. }
             | StorageRequest::Set { area, scope, .. }
@@ -2202,9 +2226,9 @@ impl ParentContextService {
             | StorageRequest::Clear { area, scope }
             | StorageRequest::Entries { area, scope } => (Some(scope), Some(area)),
             StorageRequest::IndexedDb { origin, .. } => {
-                if &self.context.page_origin(self.source_page_id)? != origin {
+                if !origin_is_authorized(origin)? {
                     return Err(RuntimeError::ContextService(
-                        "IndexedDB origin did not match the worker page".into(),
+                        "IndexedDB origin was not authorized for this page worker".into(),
                     ));
                 }
                 (None, None)
@@ -2212,7 +2236,7 @@ impl ParentContextService {
         };
         if let (Some(scope), Some(area)) = (scope, area) {
             if scope.top_level_page_id != self.source_page_id
-                || self.context.page_origin(self.source_page_id)? != scope.origin
+                || !origin_is_authorized(&scope.origin)?
             {
                 return Err(RuntimeError::ContextService(
                     "storage scope did not match the worker page".into(),
