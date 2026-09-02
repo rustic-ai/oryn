@@ -23,6 +23,21 @@ interface Event {
 interface CustomEvent : Event {
 };
 
+[Exposed=(Window,Worker)]
+interface MessagePort : EventTarget {
+  attribute EventListener? onmessage;
+  undefined postMessage(any message, optional sequence<object> transfer = []);
+  undefined start();
+  undefined close();
+};
+
+[Exposed=(Window,Worker)]
+interface MessageChannel {
+  constructor();
+  readonly attribute MessagePort port1;
+  readonly attribute MessagePort port2;
+};
+
 callback MutationCallback = undefined (sequence<MutationRecord> mutations, MutationObserver observer);
 
 dictionary MutationObserverInit {

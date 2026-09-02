@@ -127,14 +127,17 @@ rewrite those historical payloads or present them as a new validation run.
   intentionally not committed as passing release evidence. The clean first-20
   IndexedDB diagnostic now passes 17/20; its only remaining cases are two live
   BFCache workflows and the cross-origin iframe/window messaging workflow. A
-  broader first-100 IndexedDB run now passes 80/100 after adding atomic
+  broader first-100 IndexedDB run now passes 85/100 after adding atomic
   read/write transaction rollback, compound key paths, transaction-scoped
   upgrade restoration, and live cursor refresh/invalidation. The complete
   discovered cursor slice passes 11/11, including a 997-record iteration case.
-  A non-EditContext editing shard passes 5/40. The remaining failures identify
-  real connection/versionchange coordination, cursor task-boundary, UTF-16
-  name-preservation and editing-normalization work plus explicit geometry,
-  MessageChannel, cross-origin, opaque-origin and BFCache boundaries.
+  Cursor task-boundary, connection-close/versionchange, failed-upgrade ordering,
+  index-key re-entry, and exact WTF-16 index names now pass. A generated
+  MessageChannel transfer regression also passes after the aggregate and makes
+  detached binary IndexedDB keys fail with `DataError`. A non-EditContext
+  editing shard passes 5/40. The remaining first-100 failures are high-volume
+  debug-probe limits plus explicit geometry, cross-realm, cross-origin,
+  opaque-origin, partitioning and BFCache boundaries.
 - Generated IndexedDB now implements the browser key ordering used by
   `IDBFactory.cmp`, including dates, unsigned binary keys and recursive arrays,
   and exposes a real versionchange transaction during upgrade. Upgrade abort
@@ -154,7 +157,7 @@ rewrite those historical payloads or present them as a new validation run.
   WPT now passes the complete discovered 11-file cursor slice and the full
   `IDBFactory.open` file,
   delete-database version events, historical interface checks, index `getAll`
-  range enforcement and cursor source/class identity. The broader 80/100 shard
+  range enforcement and cursor source/class identity. The broader 85/100 shard
   remains red, so no aggregate closure is claimed. Generated
   Document editing now supplies `designMode`, safe command queries, and
   selection-backed insert-text/HTML, line/paragraph insertion, directional

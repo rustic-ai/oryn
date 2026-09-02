@@ -4,7 +4,7 @@
 //! typed context service, keeping filesystem access in the privileged parent.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -1037,6 +1037,16 @@ fn execute_idb(
             definition,
         } => {
             let store_data = store_mut(databases, origin, &database, &store)?;
+            if definition.unique {
+                let mut seen = BTreeSet::new();
+                for record in store_data.records.values() {
+                    for key in indexed_record_keys(&record.value, &definition) {
+                        if !seen.insert(encode_key(&key)?) {
+                            return Err(StorageError::Constraint);
+                        }
+                    }
+                }
+            }
             store_data
                 .indexes
                 .insert(definition.name.clone(), definition);
@@ -1362,6 +1372,20 @@ fn store_ref<'a>(
             database: database.to_string(),
             store: store.to_string(),
         })
+}
+
+fn indexed_record_keys(
+    value: &serde_json::Value,
+    definition: &IndexDefinition,
+) -> Vec<serde_json::Value> {
+    match json_value_at_key_path(value, &definition.key_path) {
+        Some(serde_json::Value::Array(values)) if definition.multi_entry => values
+            .into_iter()
+            .filter(|key| encode_key(key).is_ok())
+            .collect(),
+        Some(key) if encode_key(&key).is_ok() => vec![key],
+        _ => Vec::new(),
+    }
 }
 
 fn put_record(

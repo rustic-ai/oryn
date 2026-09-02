@@ -331,6 +331,8 @@ enum PlatformObjectRecord {
     Headers(HeadersRecord),
     AbortSignal(AbortSignalRecord),
     AbortController { signal_id: u64 },
+    MessagePort,
+    MessageChannel { port1_id: u64, port2_id: u64 },
     Request(RequestRecord),
     Response(ResponseRecord),
     XMLHttpRequest(XhrRecord),
@@ -439,7 +441,9 @@ enum IdbCompletionAction {
     Open {
         name: String,
     },
-    DeleteDatabase,
+    DeleteDatabase {
+        name: String,
+    },
     Value,
     Key,
     Values {
@@ -1285,6 +1289,60 @@ impl V8BindingState {
                 PendingPlatformOperation::IndexedDb { request_id, action },
                 Ok(PlatformHostResult::IndexedDb { response }),
             ) => {
+                let database_change = match &action {
+                    IdbCompletionAction::Open { name } if response.upgrade_needed => {
+                        Some((name.clone(), response.version))
+                    }
+                    IdbCompletionAction::DeleteDatabase { name } => Some((name.clone(), None)),
+                    _ => None,
+                };
+                if let Some((name, new_version)) = database_change {
+                    let open_connections = || {
+                        self.platform_objects
+                            .borrow()
+                            .iter()
+                            .filter_map(|(id, record)| match record {
+                                PlatformObjectRecord::IdbDatabase(database)
+                                    if database.name == name && !database.closed =>
+                                {
+                                    Some(*id)
+                                }
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    let blockers = open_connections();
+                    for blocker in blockers {
+                        let old_version = match &*platform_object(self, blocker)? {
+                            PlatformObjectRecord::IdbDatabase(database) => database.version,
+                            _ => continue,
+                        };
+                        let event = idb_version_change_event(scope, old_version, new_version)?;
+                        dispatch_platform_event(
+                            scope,
+                            self,
+                            blocker,
+                            "versionchange",
+                            Some(event),
+                        )?;
+                    }
+                    if !open_connections().is_empty() {
+                        let event = idb_version_change_event(
+                            scope,
+                            response.old_version.unwrap_or(0),
+                            new_version,
+                        )?;
+                        dispatch_platform_event(scope, self, request_id, "blocked", Some(event))?;
+                    }
+                    if !open_connections().is_empty() {
+                        if let PlatformObjectRecord::IdbRequest(request) =
+                            &mut *platform_object_mut(self, request_id)?
+                        {
+                            request.done = false;
+                        }
+                        return Ok(());
+                    }
+                }
                 let value = match action {
                     IdbCompletionAction::Open { name } => {
                         let definitions = response
@@ -1428,7 +1486,7 @@ impl V8BindingState {
                         }
                         database.into()
                     }
-                    IdbCompletionAction::DeleteDatabase => {
+                    IdbCompletionAction::DeleteDatabase { .. } => {
                         let event = idb_version_change_event(
                             scope,
                             response.old_version.unwrap_or(0),
@@ -1776,6 +1834,7 @@ impl V8BindingState {
                             });
                         }
                         dispatch_or_queue_idb_abort(scope, self, transaction_id)?;
+                        finalize_failed_idb_upgrade(scope, self, transaction_id)?;
                     }
                     finish_idb_request(self, request_id)?;
                 }
@@ -2675,9 +2734,18 @@ fn idb_key_from_value(
         return Ok(IdbKey::String(value.to_rust_string_lossy(scope)));
     }
     if let Ok(buffer) = v8::Local::<v8::ArrayBuffer>::try_from(value) {
+        if buffer.was_detached() {
+            return Err(data_error());
+        }
         return Ok(IdbKey::Binary(bytes_from_array_buffer(buffer)));
     }
     if let Ok(view) = v8::Local::<v8::ArrayBufferView>::try_from(value) {
+        if view
+            .buffer(scope)
+            .is_some_and(|buffer| buffer.was_detached())
+        {
+            return Err(data_error());
+        }
         let mut bytes = vec![0; view.byte_length()];
         view.copy_contents(&mut bytes);
         return Ok(IdbKey::Binary(bytes));
@@ -2837,6 +2905,44 @@ fn normalize_idb_cursor_records(
     } else {
         records
     }
+}
+
+fn idb_json_key_matches_query(query: Option<&serde_json::Value>, key: &serde_json::Value) -> bool {
+    let Some(range) = query.and_then(serde_json::Value::as_object) else {
+        return query.is_none_or(|query| compare_idb_json_keys(query, key).is_eq());
+    };
+    if range
+        .get("__oryn_key_range")
+        .and_then(|value| value.as_bool())
+        != Some(true)
+    {
+        return compare_idb_json_keys(query.expect("query exists"), key).is_eq();
+    }
+    if let Some(lower) = range.get("lower").filter(|value| !value.is_null()) {
+        let ordering = compare_idb_json_keys(key, lower);
+        if ordering.is_lt()
+            || (ordering.is_eq()
+                && range
+                    .get("lower_open")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false))
+        {
+            return false;
+        }
+    }
+    if let Some(upper) = range.get("upper").filter(|value| !value.is_null()) {
+        let ordering = compare_idb_json_keys(key, upper);
+        if ordering.is_gt()
+            || (ordering.is_eq()
+                && range
+                    .get("upper_open")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false))
+        {
+            return false;
+        }
+    }
+    true
 }
 
 const COMPOUND_KEY_PATH_PREFIX: &str = "__oryn_compound_key_path__:";
@@ -3379,6 +3485,50 @@ fn dispatch_or_queue_idb_abort(
     }
 }
 
+fn finalize_failed_idb_upgrade(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    transaction_id: u64,
+) -> Result<(), V8BindingError> {
+    let (database_id, request_id) = match &*platform_object(state, transaction_id)? {
+        PlatformObjectRecord::IdbTransaction(transaction) => {
+            let Some(request_id) = transaction.request_id else {
+                return Ok(());
+            };
+            (transaction.database_id, request_id)
+        }
+        _ => return Err(V8BindingError::Allocation("IDBTransaction record")),
+    };
+    let (name, old_version) = {
+        let mut record = platform_object_mut(state, database_id)?;
+        let PlatformObjectRecord::IdbDatabase(database) = &mut *record else {
+            return Err(V8BindingError::Allocation("IDBDatabase record"));
+        };
+        database.version = database.old_version;
+        database.object_stores = database.upgrade_base_object_stores.clone();
+        database.object_store_definitions = database.upgrade_base_definitions.clone();
+        database.upgrade_transaction_id = None;
+        database.closed = true;
+        (database.name.clone(), database.old_version)
+    };
+    let hidden = new_idb_request(state, None);
+    submit_idb(
+        scope,
+        state,
+        hidden,
+        IdbHostCommand::AbortUpgrade { name, old_version },
+        IdbCompletionAction::Unit,
+    )?;
+    if let PlatformObjectRecord::IdbRequest(request) = &mut *platform_object_mut(state, request_id)?
+    {
+        request.result = None;
+        request.error = Some("AbortError".into());
+        request.transaction_id = None;
+        request.done = true;
+    }
+    dispatch_platform_event(scope, state, request_id, "error", None)
+}
+
 fn install_trusted_types(
     scope: &mut v8::PinScope,
     context: v8::Local<v8::Context>,
@@ -3856,6 +4006,8 @@ fn is_platform_interface(interface: &str) -> bool {
             | "Headers"
             | "AbortSignal"
             | "AbortController"
+            | "MessagePort"
+            | "MessageChannel"
             | "ReadableStream"
             | "ReadableStreamDefaultReader"
             | "ReadableStreamDefaultController"
@@ -4341,6 +4493,16 @@ fn initialize_platform_constructor<'s>(
         );
         let id =
             register_platform_object(state, PlatformObjectRecord::AbortController { signal_id });
+        bind_platform_object(scope, state, id, args.this());
+        return Ok(true);
+    }
+    if name == "MessageChannel" {
+        let port1_id = register_platform_object(state, PlatformObjectRecord::MessagePort);
+        let port2_id = register_platform_object(state, PlatformObjectRecord::MessagePort);
+        let id = register_platform_object(
+            state,
+            PlatformObjectRecord::MessageChannel { port1_id, port2_id },
+        );
         bind_platform_object(scope, state, id, args.this());
         return Ok(true);
     }
@@ -7663,6 +7825,12 @@ fn get_platform_attribute<'s>(
         (PlatformObjectRecord::AbortController { signal_id }, "AbortController", "signal") => {
             Ok(new_platform_object(scope, state, "AbortSignal", *signal_id)?.into())
         }
+        (PlatformObjectRecord::MessageChannel { port1_id, .. }, "MessageChannel", "port1") => {
+            Ok(new_platform_object(scope, state, "MessagePort", *port1_id)?.into())
+        }
+        (PlatformObjectRecord::MessageChannel { port2_id, .. }, "MessageChannel", "port2") => {
+            Ok(new_platform_object(scope, state, "MessagePort", *port2_id)?.into())
+        }
         (PlatformObjectRecord::Request(request), "Request", "url") => {
             v8_string(scope, &request.url)
         }
@@ -8313,7 +8481,7 @@ fn set_platform_attribute(
             // exception untouched so the generated setter rethrows it.
             return Ok(());
         };
-        let new_name = new_name.to_rust_string_lossy(scope);
+        let new_name = rust_string_preserving_utf16(scope, new_name)?;
         let (store_id, old_name, deleted) = {
             let record = platform_object(state, id)?;
             let PlatformObjectRecord::IdbIndex(index) = &*record else {
@@ -8540,8 +8708,8 @@ fn call_platform_operation<'s>(
                 scope,
                 state,
                 request_id,
-                IdbHostCommand::DeleteDatabase { name },
-                IdbCompletionAction::DeleteDatabase,
+                IdbHostCommand::DeleteDatabase { name: name.clone() },
+                IdbCompletionAction::DeleteDatabase { name },
             )?;
             return Ok(Some(
                 new_platform_object(scope, state, "IDBOpenDBRequest", request_id)?.into(),
@@ -9649,14 +9817,14 @@ fn call_platform_operation<'s>(
                 IdbHostCommand::Delete {
                     database,
                     store,
-                    key: primary_key,
+                    key: primary_key.clone(),
                 }
             } else {
                 IdbHostCommand::Batch {
                     database,
                     writes: vec![IdbWrite {
                         store,
-                        key: Some(primary_key),
+                        key: Some(primary_key.clone()),
                         value: update_value.clone().unwrap_or(current_value.clone()),
                         add_only: false,
                     }],
@@ -9674,13 +9842,52 @@ fn call_platform_operation<'s>(
                     IdbCompletionAction::Key
                 },
             )?;
-            mark_idb_mutation(state, transaction_id);
+            let index_configuration = match &*platform_object(state, source_id)? {
+                PlatformObjectRecord::IdbIndex(index) => {
+                    Some((index.key_path.clone(), index.multi_entry))
+                }
+                _ => None,
+            };
             if member == "update"
-                && let PlatformObjectRecord::IdbCursor(cursor) =
-                    &mut *platform_object_mut(state, id)?
-                && let Some(record) = cursor.records.get_mut(cursor.index)
+                && let Some(update_value) = update_value
+                && let Some((index_key_path, multi_entry)) = index_configuration
             {
-                record.value = update_value.unwrap_or(current_value);
+                let mut index_keys = match idb_json_key_path(&update_value, &index_key_path) {
+                    Some(serde_json::Value::Array(values)) if multi_entry => values,
+                    Some(value) => vec![value],
+                    None => Vec::new(),
+                };
+                index_keys = index_keys
+                    .into_iter()
+                    .filter_map(|key| normalize_idb_json_key(&key))
+                    .collect();
+                let mut record = platform_object_mut(state, id)?;
+                let PlatformObjectRecord::IdbCursor(cursor) = &mut *record else {
+                    return Err(V8BindingError::Allocation("IDBCursor record"));
+                };
+                let query = cursor.query.as_ref();
+                let mut future = cursor.records.split_off(cursor.index.saturating_add(1));
+                future.extend(index_keys.into_iter().filter_map(|key| {
+                    idb_json_key_matches_query(query, &key).then(|| {
+                        crate::platform::IdbHostRecord {
+                            key,
+                            primary_key: primary_key.clone(),
+                            value: update_value.clone(),
+                        }
+                    })
+                }));
+                future.sort_by(|left, right| {
+                    compare_idb_json_keys(&left.key, &right.key)
+                        .then_with(|| compare_idb_json_keys(&left.primary_key, &right.primary_key))
+                });
+                future.dedup_by(|left, right| {
+                    compare_idb_json_keys(&left.key, &right.key).is_eq()
+                        && compare_idb_json_keys(&left.primary_key, &right.primary_key).is_eq()
+                });
+                if cursor.direction.starts_with("prev") {
+                    future.reverse();
+                }
+                cursor.records.extend(future);
             }
             return Ok(Some(
                 new_platform_object(scope, state, "IDBRequest", request_id)?.into(),
@@ -9767,6 +9974,21 @@ fn call_platform_operation<'s>(
             }
             return Ok(None);
         }
+        ("MessagePort", "postMessage") => {
+            let transfer = args.get(1);
+            if let Ok(transfer) = v8::Local::<v8::Array>::try_from(transfer) {
+                for index in 0..transfer.length() {
+                    let Some(value) = transfer.get_index(scope, index) else {
+                        continue;
+                    };
+                    if let Ok(buffer) = v8::Local::<v8::ArrayBuffer>::try_from(value) {
+                        let _ = buffer.detach(None);
+                    }
+                }
+            }
+            return Ok(None);
+        }
+        ("MessagePort", "start" | "close") => return Ok(None),
         ("AbortSignal", "throwIfAborted") => {
             let signal = platform_object(state, id)?;
             if let PlatformObjectRecord::AbortSignal(signal) = &*signal
@@ -14934,16 +15156,44 @@ fn required_string(
     args: &v8::FunctionCallbackArguments,
     index: i32,
 ) -> Result<String, V8BindingError> {
-    args.get(index)
+    let value = args
+        .get(index)
         .to_string(scope)
-        .map(|value| value.to_rust_string_lossy(scope))
-        .ok_or(V8BindingError::Allocation("string conversion"))
+        .ok_or(V8BindingError::Allocation("string conversion"))?;
+    rust_string_preserving_utf16(scope, value)
+}
+
+const WTF16_STRING_PREFIX: &str = "\u{f0000}oryn-wtf16:";
+
+fn rust_string_preserving_utf16(
+    scope: &mut v8::PinScope,
+    value: v8::Local<v8::String>,
+) -> Result<String, V8BindingError> {
+    let mut units = vec![0_u16; value.length()];
+    value.write_v2(scope, 0, &mut units, v8::WriteFlags::default());
+    if let Ok(value) = String::from_utf16(&units)
+        && !value.starts_with(WTF16_STRING_PREFIX)
+    {
+        return Ok(value);
+    }
+    serde_json::to_string(&units)
+        .map(|encoded| format!("{WTF16_STRING_PREFIX}{encoded}"))
+        .map_err(|_| V8BindingError::Allocation("WTF-16 string conversion"))
 }
 
 fn v8_string<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     value: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if let Some(encoded) = value.strip_prefix(WTF16_STRING_PREFIX)
+        && let Ok(units) = serde_json::from_str::<Vec<u16>>(encoded)
+    {
+        return Ok(
+            v8::String::new_from_two_byte(scope, &units, v8::NewStringType::Normal)
+                .ok_or(V8BindingError::Allocation("WTF-16 string"))?
+                .into(),
+        );
+    }
     Ok(v8::String::new(scope, value)
         .ok_or(V8BindingError::Allocation("string"))?
         .into())
