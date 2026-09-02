@@ -47,6 +47,19 @@ pub struct IdbWrite {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum IdbHostCommand {
+    Transaction {
+        token: String,
+        database: String,
+        inner: Box<IdbHostCommand>,
+    },
+    CommitTransaction {
+        token: String,
+        database: String,
+    },
+    AbortTransaction {
+        token: String,
+        database: String,
+    },
     ListDatabases,
     Open {
         name: String,
