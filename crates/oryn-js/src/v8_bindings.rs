@@ -15188,6 +15188,11 @@ fn set_attribute_value(
             dom.set_attribute(node, member, value)?;
             if interface == "HTMLIFrameElement" && matches!(member, "src" | "srcdoc") {
                 drop(dom);
+                state.prepared_frames.borrow_mut().remove(&node);
+                state
+                    .pending_dynamic_frames
+                    .borrow_mut()
+                    .retain(|pending| *pending != node);
                 prepare_dynamic_frame_subtree(state, node)?;
                 return Ok(());
             }
@@ -16241,6 +16246,21 @@ fn call_operation<'s>(
             };
             state.dom.borrow_mut().set_attribute(node, name, value)?;
             prepare_dynamic_script_subtree(scope, state, node)?;
+            if tag == "iframe"
+                && matches!(
+                    required_string(scope, args, 0)?
+                        .to_ascii_lowercase()
+                        .as_str(),
+                    "src" | "srcdoc"
+                )
+            {
+                state.prepared_frames.borrow_mut().remove(&node);
+                state
+                    .pending_dynamic_frames
+                    .borrow_mut()
+                    .retain(|pending| *pending != node);
+                prepare_dynamic_frame_subtree(state, node)?;
+            }
             Ok(None)
         }
         ("Element", "removeAttribute") => {
@@ -18277,6 +18297,35 @@ mod tests {
             script.run(scope).unwrap().to_rust_string_lossy(scope),
             "https://fixture.test/app|https://fixture.test/app|true|true|focus:blur"
         );
+    }
+
+    #[test]
+    fn repeated_iframe_srcdoc_assignment_requeues_the_frame_navigation() {
+        initialize_v8();
+        let parsed = html::parse("<body><iframe id='child'></iframe></body>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let child = dom.borrow().find_by_id("child").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+
+        for markup in ["<p>one</p>", "<p>two</p>"] {
+            let source = v8::String::new(
+                scope,
+                &format!(
+                    "document.getElementById('child').srcdoc={}",
+                    serde_json::to_string(markup).unwrap()
+                ),
+            )
+            .unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            assert_eq!(state.take_pending_dynamic_frames(), vec![child]);
+        }
     }
 
     #[test]
