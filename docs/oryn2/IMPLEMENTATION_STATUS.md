@@ -161,15 +161,18 @@ rewrite those historical payloads or present them as a new validation run.
   harness-completion failures.
   File selection now exposes real `File` objects through the parent-owned upload path, and the
   focused upload geometry case passes with generated `getClientRects`. A
-  comparable non-EditContext editing shard improves from 5/40 to 18/40 after
+  comparable non-EditContext editing shard improves from 5/40 to 24/40 after
   expanding declared HTML variants correctly. Focused deletion,
   contenteditable-boundary deletion, split-attribute cloning, moved-node undo,
   definition-list/list flattening, copy/paste across a non-editable boundary,
   End-key behavior, and open/closed shadow-root designMode isolation now pass;
   generated-binding tests cover formatting and selection preservation. The
-  broader shard remains red on computed-style clipboard materialization,
-  shadow-hosted text controls, hidden-control geometry, and timeout-heavy
-  harness cases, so general editing-engine conformance is not claimed.
+  CSS-variable clipboard materialization, parser-time viewport exposure,
+  Window named-element access, and block-boundary deletion around hidden form
+  controls now pass their exact upstream cases. The broader shard remains red
+  on one styled-inline clipboard lifecycle timeout, shadow-hosted text
+  controls, tentative head/HTML deletion, and forward/preformatted nested-block
+  variants, so general editing-engine conformance is not claimed.
 - Generated IndexedDB now implements the browser key ordering used by
   `IDBFactory.cmp`, including dates, unsigned binary keys and recursive arrays,
   and exposes a real versionchange transaction during upgrade. Upgrade abort
