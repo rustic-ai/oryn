@@ -8021,6 +8021,122 @@ fn editing_placeholder_caret(
     }
 }
 
+fn move_caret_to_following_editing_block(
+    state: &V8BindingState,
+    container: NodeId,
+    offset: u32,
+) -> Result<bool, V8BindingError> {
+    let Some(host) = editing_host(state)? else {
+        return Ok(false);
+    };
+    let (block, cleanup) = {
+        let dom = state.dom.borrow();
+        if matches!(dom.arena().get(container)?.kind, NodeKind::Element { .. }) {
+            let children = light_children(&dom, container)?;
+            if let Some(candidate) = children.get(offset as usize).copied()
+                && is_editing_block(&dom, candidate)
+            {
+                (Some(candidate), None)
+            } else {
+                let mut current = container;
+                let mut found = None;
+                while current != host {
+                    let Some(parent) = dom.parent(current)? else {
+                        break;
+                    };
+                    let siblings = light_children(&dom, parent)?;
+                    let Some(index) = siblings.iter().position(|node| *node == current) else {
+                        break;
+                    };
+                    let next = siblings
+                        .iter()
+                        .skip(index + 1)
+                        .copied()
+                        .find(|node| !is_ignored_editing_sibling(&dom, *node));
+                    if let Some(next) = next {
+                        if is_editing_block(&dom, next) {
+                            let cleanup =
+                                matches!(dom.arena().get(current)?.kind, NodeKind::Element { .. })
+                                    .then_some(current);
+                            found = Some((next, cleanup));
+                        }
+                        break;
+                    }
+                    current = parent;
+                }
+                found.map_or((None, None), |(block, cleanup)| (Some(block), cleanup))
+            }
+        } else {
+            let mut current = container;
+            let mut found = None;
+            while current != host {
+                let Some(parent) = dom.parent(current)? else {
+                    break;
+                };
+                let siblings = light_children(&dom, parent)?;
+                let Some(index) = siblings.iter().position(|node| *node == current) else {
+                    break;
+                };
+                let next = siblings
+                    .iter()
+                    .skip(index + 1)
+                    .copied()
+                    .find(|node| !is_ignored_editing_sibling(&dom, *node));
+                if let Some(next) = next {
+                    if is_editing_block(&dom, next) {
+                        let cleanup =
+                            matches!(dom.arena().get(current)?.kind, NodeKind::Element { .. })
+                                .then_some(current);
+                        found = Some((next, cleanup));
+                    }
+                    break;
+                }
+                current = parent;
+            }
+            found.map_or((None, None), |(block, cleanup)| (Some(block), cleanup))
+        }
+    };
+    let Some(block) = block else {
+        return Ok(false);
+    };
+    let cleanup_parent = if let Some(cleanup) = cleanup
+        && cleanup != host
+    {
+        let dom = state.dom.borrow();
+        if dom.arena().get(cleanup).is_ok() && node_is_placeholder_empty(&dom, cleanup)? {
+            dom.parent(cleanup)?.map(|parent| (parent, cleanup))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    if let Some((parent, cleanup)) = cleanup_parent {
+        state.dom.borrow_mut().remove_child(parent, cleanup)?;
+    }
+    let point = {
+        let dom = state.dom.borrow();
+        let first_text = traversal_nodes(&dom, block)?.into_iter().find(|candidate| {
+            matches!(
+                dom.arena().get(*candidate).map(|record| &record.kind),
+                Ok(NodeKind::Text { .. } | NodeKind::CDataSection { .. })
+            )
+        });
+        first_text.map_or(
+            BoundaryPoint {
+                container: block,
+                offset: 0,
+            },
+            |container| BoundaryPoint {
+                container,
+                offset: 0,
+            },
+        )
+    };
+    set_selection_boundaries(state, point, point)?;
+    Ok(true)
+}
+
 fn utf16_delete_span(data: &str, offset: u32, forward: bool) -> (u32, u32) {
     let units = data.encode_utf16().collect::<Vec<_>>();
     let offset = (offset as usize).min(units.len());
@@ -8555,6 +8671,16 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
             end.saturating_sub(start),
             "",
         )?;
+        if forward
+            && end == data.encode_utf16().count() as u32
+            && move_caret_to_following_editing_block(
+                state,
+                range.start_container,
+                range.start_offset,
+            )?
+        {
+            return Ok(());
+        }
         let point = BoundaryPoint {
             container: range.start_container,
             offset: start,
@@ -8612,6 +8738,11 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
             ) {
                 let container = range.start_container;
                 state.dom.borrow_mut().remove_child(container, adjacent)?;
+                if forward
+                    && move_caret_to_following_editing_block(state, container, range.start_offset)?
+                {
+                    return Ok(());
+                }
                 if light_children(&state.dom.borrow(), container)?.is_empty()
                     && is_editing_block(&state.dom.borrow(), container)
                 {
@@ -18608,6 +18739,56 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "<div id=\"child\">def<br>ghi</div>");
+    }
+
+    #[test]
+    fn forward_deletion_moves_caret_into_following_nested_block() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<main id='editor' contenteditable>abc<br><br><div id='child'>def<br>ghi</div></main>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor'),selection=document.getSelection();selection.collapse(editor,2);document.execCommand('forwardDelete');document.execCommand('insertText',false,'X');editor.innerHTML",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "abc<br><div id=\"child\">Xdef<br>ghi</div>");
+    }
+
+    #[test]
+    fn forward_deletion_removes_empty_inline_before_nested_block() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<main id='editor' contenteditable><b id='inline'><br></b><div id='child'>def<br>ghi</div></main>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor'),inline=document.getElementById('inline'),selection=document.getSelection();selection.collapse(inline,0);document.execCommand('forwardDelete');document.execCommand('insertText',false,'X');editor.innerHTML",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "<div id=\"child\">Xdef<br>ghi</div>");
     }
 
     #[test]
