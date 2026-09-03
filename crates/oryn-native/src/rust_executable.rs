@@ -1161,7 +1161,7 @@ globalThis.removeEventListener=(type,callback)=>__oryn_global_listeners.set(Stri
 globalThis.dispatchEvent=event=>{for(const callback of __oryn_global_listeners.get(event.type)||[])callback.call(globalThis,event);const handler=globalThis['on'+event.type];if(typeof handler==='function')handler.call(globalThis,event);return !event.defaultPrevented};
 globalThis.__oryn_deliver_message=(data,targetOrigin='*',source=null,sourceOrigin='')=>{targetOrigin=String(targetOrigin);if(targetOrigin!=='*'&&targetOrigin!=='/'&&targetOrigin!==location.origin)return;__oryn_record_message({origin:String(sourceOrigin),data});const event=new Event('message',{});event.data=data;event.origin=String(sourceOrigin);event.source=source;queueMicrotask(()=>dispatchEvent(event))};
 globalThis.__oryn_make_window_proxy=(deliver,targetOrigin,sourceOrigin,sameOriginTarget=null)=>{const facade={__source:null,__closed:false,origin:String(targetOrigin),get closed(){return this.__closed},focus(){},close(){this.__closed=true},postMessage(data,requestedOrigin='*'){deliver(data,String(requestedOrigin),proxy.__source,String(sourceOrigin))}};const proxy=sameOriginTarget?new Proxy(facade,{get(target,key,receiver){if(Reflect.has(target,key))return Reflect.get(target,key,receiver);return Reflect.get(sameOriginTarget,key,sameOriginTarget)},set(target,key,value,receiver){if(Reflect.has(target,key))return Reflect.set(target,key,value,receiver);return Reflect.set(sameOriginTarget,key,value,sameOriginTarget)},has(target,key){return Reflect.has(target,key)||Reflect.has(sameOriginTarget,key)}}):facade;return proxy};
-globalThis.__oryn_make_provisional_window_proxy=()=>{let target=null;const queued=[];const facade={__source:null,__closed:false,get closed(){return target?target.closed:this.__closed},get origin(){return target?target.origin:''},focus(){if(target)target.focus()},close(){this.__closed=true;if(target)target.close()},postMessage(data,requestedOrigin='*'){if(target)target.postMessage(data,requestedOrigin);else queued.push([data,String(requestedOrigin)])},__bind(committed){if(target)return;target=committed;this.__source=committed.__source;while(queued.length){const [data,origin]=queued.shift();target.postMessage(data,origin)}}};return new Proxy(facade,{get(object,key,receiver){if(Reflect.has(object,key))return Reflect.get(object,key,receiver);return target?Reflect.get(target,key,target):undefined},set(object,key,value,receiver){if(Reflect.has(object,key)||!target)return Reflect.set(object,key,value,receiver);return Reflect.set(target,key,value,target)},has(object,key){return Reflect.has(object,key)||(target&&Reflect.has(target,key))}})};
+globalThis.__oryn_make_provisional_window_proxy=()=>{let target=null;const queued=[];const facade={__source:null,__closed:false,get closed(){return target?target.closed:this.__closed},get origin(){return target?target.origin:''},focus(){if(target)target.focus()},close(){this.__closed=true;if(target)target.close()},postMessage(data,requestedOrigin='*'){if(target)target.postMessage(data,requestedOrigin);else queued.push([data,String(requestedOrigin)])},__bind(committed){target=committed;this.__closed=false;this.__source=committed.__source;while(queued.length){const [data,origin]=queued.shift();target.postMessage(data,origin)}}};return new Proxy(facade,{get(object,key,receiver){if(Reflect.has(object,key))return Reflect.get(object,key,receiver);return target?Reflect.get(target,key,target):undefined},set(object,key,value,receiver){if(Reflect.has(object,key)||!target)return Reflect.set(object,key,value,receiver);return Reflect.set(target,key,value,target)},has(object,key){return Reflect.has(object,key)||(target&&Reflect.has(target,key))}})};
 globalThis.postMessage=(data,targetOrigin='*')=>globalThis.__oryn_deliver_message(data,targetOrigin,globalThis,location.origin);
 globalThis.__oryn_poll_context=()=>{if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return;const response=contextCall({operation:'poll_events',page_id:__oryn_page_id,after_event_id:__oryn_context_event_id,max_events:32});if(response.result==='events')for(const record of response.events||[]){__oryn_context_event_id=Math.max(__oryn_context_event_id,record.event_id);const item=record.event;if(!item)continue;if(item.kind==='storage'){const change=item.change||{};const event=new Event('storage',{});event.key=change.key??null;event.oldValue=change.old_value??null;event.newValue=change.new_value??null;event.storageArea=change.area==='local'?localStorage:sessionStorage;event.url=location.href;dispatchEvent(event)}else if(item.kind==='message'){__oryn_record_message({origin:item.source_origin||'',data:item.data});__oryn_context_trace.push({kind:'opener_message',detail:{source_page_id:item.source_page_id,target_page_id:__oryn_page_id,origin:item.source_origin||''}});const event=new Event('message',{});event.data=item.data;event.origin=item.source_origin||'';event.source=__oryn_page_proxy(item.source_page_id);dispatchEvent(event)}else if(item.kind==='page_lifecycle'){const lifecycle=item.event||{};if(lifecycle.kind==='closed'){const proxy=__oryn_page_proxies.get(lifecycle.page_id);if(proxy)proxy.__closed=true}}else if(item.kind==='csp_violation'){const value=item.violation||{};const event=new SecurityPolicyViolationEvent('securitypolicyviolation',{documentURI:value.document_uri||'',referrer:value.referrer||'',blockedURI:value.blocked_uri||'',violatedDirective:value.effective_directive||'',effectiveDirective:value.effective_directive||'',originalPolicy:value.original_policy||'',sourceFile:value.source_file||'',sample:value.sample||'',disposition:value.disposition||'enforce',statusCode:value.status_code||0,lineNumber:value.line_number||0,columnNumber:value.column_number||0});document.dispatchEvent(event);dispatchEvent(event)}else if(item.kind==='csp_report'){__oryn_context_trace.push({kind:'csp_report',detail:{endpoint:item.endpoint||'',format:item.format||'',outcome:item.outcome||''}})}}for(const socket of [...__oryn_websockets])socket.__poll()};
 class OrynWebSocket {constructor(url,protocols=[]){this.url=new OrynURL(url,location.href).href;this.protocol='';this.binaryType='blob';this.readyState=0;this.__listeners=new Map();if(typeof protocols==='string')protocols=[protocols];const response=contextCall({operation:'web_socket_open',page_id:__oryn_page_id,url:this.url,protocols:[...protocols].map(String)});if(response.result!=='web_socket_opened')throw new Error('WebSocket open failed');this.__id=response.socket_id;this.protocol=response.protocol;__oryn_websockets.add(this);queueMicrotask(()=>{this.readyState=1;this.__event('open')})}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}send(data){const frame=typeof data==='string'?{kind:'text',value:data}:{kind:'binary',base64:bytesToBase64(bodyBytes(data))};const bytes=typeof data==='string'?new TextEncoder().encode(data).length:bodyBytes(data).length;contextCall({operation:'web_socket_send',page_id:__oryn_page_id,socket_id:this.__id,frame});__oryn_context_trace.push({kind:'web_socket_frame',detail:{socket_id:this.__id,direction:'outbound',frame_type:frame.kind,bytes,url:this.url}})}close(code=1000,reason=''){contextCall({operation:'web_socket_close',page_id:__oryn_page_id,socket_id:this.__id,code,reason:String(reason)});this.readyState=3;__oryn_websockets.delete(this);this.__event('close',{code,reason:String(reason),wasClean:true})}__poll(){if(this.readyState!==1)return;const response=contextCall({operation:'web_socket_poll',page_id:__oryn_page_id,socket_id:this.__id,max_frames:32});if(response.result!=='web_socket_events')return;for(const frame of response.frames||[]){let bytes=0;if(frame.kind==='text'){bytes=new TextEncoder().encode(frame.value).length;this.__event('message',{data:frame.value})}else if(frame.kind==='binary'){const value=base64ToBytes(frame.base64);bytes=value.length;this.__event('message',{data:this.binaryType==='arraybuffer'?value.buffer:new Blob([value])})}else if(frame.kind==='close'){this.readyState=3;__oryn_websockets.delete(this);this.__event('close',{code:frame.code??1005,reason:frame.reason||'',wasClean:true})}__oryn_context_trace.push({kind:'web_socket_frame',detail:{socket_id:this.__id,direction:'inbound',frame_type:frame.kind,bytes,url:this.url}})}}}
@@ -1237,7 +1237,7 @@ const __oryn_testdriver_keyboard=(target,value,pressed)=>{
     const selection=document.getSelection();
     __oryn_testdriver_clipboard.text=selection?selection.toString():'';
     __oryn_testdriver_clipboard.html=__oryn_testdriver_clipboard.text;
-    if(selection&&selection.rangeCount){try{const range=selection.getRangeAt(0),fragment=range.cloneContents(),container=document.createElement('div');container.appendChild(fragment);const sourceRoot=range.commonAncestorContainer?.nodeType===1?range.commonAncestorContainer:range.commonAncestorContainer?.parentElement;const source=sourceRoot?[...sourceRoot.querySelectorAll('*')]:[],clones=[...container.querySelectorAll('*')],properties=['color','background-color','font-family','font-size','font-style','font-weight','text-decoration','padding','margin','border'];for(let index=0;index<Math.min(source.length,clones.length);index++){const computed=getComputedStyle(source[index]),declarations=[];for(const property of properties){const resolved=computed.getPropertyValue(property);if(resolved&&resolved!=='normal'&&resolved!=='none'&&resolved!=='0px')declarations.push(`${property}: ${resolved}`)}if(declarations.length)clones[index].setAttribute('style',declarations.join('; ')+';')}__oryn_testdriver_clipboard.html=container.innerHTML}catch(_){}}
+    if(selection&&selection.rangeCount){try{const range=selection.getRangeAt(0),fragment=range.cloneContents(),container=document.createElement('div');container.appendChild(fragment);const sourceRoot=range.commonAncestorContainer?.nodeType===1?range.commonAncestorContainer:range.commonAncestorContainer?.parentElement;const source=sourceRoot?[...sourceRoot.querySelectorAll('*')]:[],clones=[...container.querySelectorAll('*')],properties=['color','background-color','font-family','font-size','font-style','font-weight','text-decoration','padding','margin','border'];for(let index=0;index<Math.min(source.length,clones.length);index++){const computed=getComputedStyle(source[index]),declarations=[];for(const property of properties){let resolved=computed.getPropertyValue(property);if(!resolved&&(property==='padding'||property==='margin')){const sides=['top','right','bottom','left'].map(side=>computed.getPropertyValue(`${property}-${side}`));if(sides[0]&&sides.every(value=>value===sides[0]))resolved=sides[0]}if(resolved&&resolved!=='normal'&&resolved!=='none'&&resolved!=='0px')declarations.push(`${property}: ${resolved}`)}if(declarations.length)clones[index].setAttribute('style',declarations.join('; ')+';')}__oryn_testdriver_clipboard.html=container.innerHTML}catch(_){}}
     const copy=new Event('copy',{bubbles:true,cancelable:true});
     copy.clipboardData=__oryn_testdriver_data_transfer();target.dispatchEvent(copy);return
   }
@@ -1845,6 +1845,7 @@ impl RustExecutableDocument {
                 ))?;
             }
             host.activate_realm(top_realm)?;
+            host.ensure_provisional_frame_window(frame)?;
             if same_origin {
                 host.set_frame_realm(frame, child_document, realm)?;
             } else {
@@ -2731,6 +2732,7 @@ impl RustExecutableDocument {
                 // script execution. Frame scripts are allowed to synchronously
                 // observe their parent relationship while booting.
                 self.host.activate_realm(self.top_realm)?;
+                self.host.ensure_provisional_frame_window(frame)?;
                 if cross_origin {
                     self.host.set_opaque_frame_realm(frame, realm)?;
                 } else {
@@ -3653,6 +3655,38 @@ mod tests {
             page.evaluate("document.querySelector('#result').textContent")
                 .unwrap(),
             "true|function"
+        );
+    }
+
+    #[test]
+    fn repeated_srcdoc_navigation_retargets_the_stable_window_proxy() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<output id=result>pending</output><script>
+            const frame=document.createElement('iframe');
+            let retained=null;
+            let loads=0;
+            frame.onload=()=>{
+              loads++;
+              if(loads===1){
+                retained=frame.contentWindow;
+                frame.srcdoc='<script>globalThis.marker="second"<\/script><p>new</p>';
+              }else{
+                document.querySelector('#result').textContent=
+                  String(frame.contentWindow===retained)+'|'+retained.marker+'|'+frame.contentDocument.querySelector('p').textContent;
+              }
+            };
+            frame.srcdoc='<script>globalThis.marker="first"<\/script><p>old</p>';
+            document.body.appendChild(frame);
+            </script>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("document.querySelector('#result').textContent")
+                .unwrap(),
+            "true|second|new"
         );
     }
 

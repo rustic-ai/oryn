@@ -550,6 +550,13 @@ def run_case(
     in_process_probe: bool,
     script_wall_ms: int | None,
 ) -> dict[str, object]:
+    def bounded_diagnostic(value: str, limit: int = 20_000) -> str:
+        value = value.strip()
+        if len(value) <= limit:
+            return value
+        head = limit // 5
+        return value[:head] + "\n...[diagnostic truncated]...\n" + value[-(limit - head) :]
+
     identifier = f"{test.as_posix()}|{global_name}|{variant}"
     if global_name not in {"window", "dedicatedworker", "sharedworker", "serviceworker"}:
         return {
@@ -620,7 +627,17 @@ def run_case(
                 [str(binary), *native, "--url", url, "--evaluate", "typeof add_completion_callback+'|'+typeof test+'|messages='+JSON.stringify(globalThis.__oryn_message_log||[])+'|'+document.documentElement.outerHTML"],
                 cwd=ROOT, text=True, capture_output=True, timeout=timeout,
             )
-            detail = (completed.stderr + "\n" + completed.stdout + "\n" + trace + "\nDOM_PROBE:\n" + probe.stdout + "\n" + probe.stderr)[-20000:].strip()
+            detail = bounded_diagnostic(
+                completed.stderr
+                + "\n"
+                + completed.stdout
+                + "\n"
+                + trace
+                + "\nDOM_PROBE:\n"
+                + probe.stdout
+                + "\n"
+                + probe.stderr
+            )
             return {"id":identifier,"path":test.as_posix(),"classification":classification,"global":global_name,"variant":variant,"status":"failed","diagnostics":[detail or "missing WPT completion payload"]}
         failed = (
             not result.get("complete", False)
@@ -645,7 +662,7 @@ def run_case(
                     diagnostics.append(trace[-20000:])
             process_detail = (completed.stderr + "\n" + completed.stdout).strip()
             if process_detail:
-                diagnostics.append(process_detail[-20000:])
+                diagnostics.append(bounded_diagnostic(process_detail))
         record = {
             "id": identifier,
             "path": test.as_posix(),
@@ -659,8 +676,29 @@ def run_case(
         if diagnostics:
             record["diagnostics"] = diagnostics
         return record
-    except subprocess.TimeoutExpired:
-        return {"id":identifier,"path":test.as_posix(),"classification":classification,"global":global_name,"variant":variant,"status":"failed","diagnostics":[f"timeout after {timeout}s"]}
+    except subprocess.TimeoutExpired as error:
+        diagnostics = [f"timeout after {timeout}s"]
+        partial = "\n".join(
+            value.decode(errors="replace") if isinstance(value, bytes) else value
+            for value in (error.stderr, error.stdout)
+            if value
+        ).strip()
+        if partial:
+            diagnostics.append(bounded_diagnostic(partial))
+        if trace_path.exists():
+            trace = trace_path.read_text(encoding="utf-8", errors="replace").strip()
+            if trace:
+                diagnostics.append(trace[-20000:])
+        return {
+            "id": identifier,
+            "path": test.as_posix(),
+            "classification": classification,
+            "global": global_name,
+            "variant": variant,
+            "status": "failed",
+            "failure_domain": "timeout",
+            "diagnostics": diagnostics,
+        }
     finally:
         oil_path.unlink(missing_ok=True)
         trace_path.unlink(missing_ok=True)

@@ -4093,6 +4093,7 @@ fn get_computed_style_callback(
     };
     let result = (|| -> Result<v8::Local<v8::Object>, V8BindingError> {
         let node = argument_node(scope, &state, args.get(0))?;
+        refresh_layout(&state)?;
         let key = node_key(node);
         let styles = state
             .layout
@@ -4152,6 +4153,10 @@ fn computed_style_get_property_value(
         return;
     };
     let property = property.to_rust_string_lossy(scope).to_ascii_lowercase();
+    if let Err(error) = refresh_layout(&state) {
+        throw_type_error(scope, &error.to_string());
+        return;
+    }
     let value = state
         .layout
         .borrow()
@@ -4174,15 +4179,7 @@ fn geometry_for_node(
     node: NodeId,
 ) -> Result<BindingGeometry, V8BindingError> {
     let key = node_key(node);
-    if let Some(provider) = state.layout_provider.borrow().as_ref() {
-        let layout = provider
-            .compute_layout()
-            .map_err(|member| V8BindingError::Unsupported {
-                interface: "Element".into(),
-                member,
-            })?;
-        *state.layout.borrow_mut() = layout;
-    }
+    refresh_layout(state)?;
     state
         .layout
         .borrow()
@@ -4193,6 +4190,19 @@ fn geometry_for_node(
             interface: "Element".into(),
             member: "geometry is unavailable after a synchronous layout flush".into(),
         })
+}
+
+fn refresh_layout(state: &V8BindingState) -> Result<(), V8BindingError> {
+    if let Some(provider) = state.layout_provider.borrow().as_ref() {
+        let layout = provider
+            .compute_layout()
+            .map_err(|member| V8BindingError::Unsupported {
+                interface: "Element".into(),
+                member,
+            })?;
+        *state.layout.borrow_mut() = layout;
+    }
+    Ok(())
 }
 
 fn dom_rect_object<'s>(
@@ -18271,6 +18281,43 @@ mod tests {
         let source = v8::String::new(
             scope,
             "const computed=getComputedStyle(document.getElementById('probe'));computed instanceof CSSStyleDeclaration&&computed.display==='block'&&computed.getPropertyValue('display')==='block'",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().boolean_value(scope));
+    }
+
+    #[test]
+    fn computed_style_flushes_the_live_layout_provider() {
+        struct TestLayoutProvider {
+            node: NodeId,
+        }
+
+        impl BindingLayoutProvider for TestLayoutProvider {
+            fn compute_layout(&self) -> Result<BindingLayout, String> {
+                Ok(BindingLayout {
+                    styles: BTreeMap::from([(
+                        node_key(self.node),
+                        BTreeMap::from([("font-size".to_string(), "18px".to_string())]),
+                    )]),
+                    geometry: BTreeMap::new(),
+                })
+            }
+        }
+
+        initialize_v8();
+        let parsed = html::parse("<span id='probe'>copy me</span>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let probe = dom.borrow().find_by_id("probe").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_layout_provider(Rc::new(TestLayoutProvider { node: probe }));
+        let source = v8::String::new(
+            scope,
+            "const computed=getComputedStyle(document.getElementById('probe'));computed['font-size']==='18px'&&computed.getPropertyValue('font-size')==='18px'",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
