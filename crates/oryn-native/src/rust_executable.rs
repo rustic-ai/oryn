@@ -1266,7 +1266,7 @@ const __oryn_testdriver_keyboard=(target,value,pressed)=>{
       if(keypress.defaultPrevented||unavailable())return;
     }
     const inputType=key==='Backspace'?'deleteContentBackward':key==='Delete'?'deleteContentForward':'insertText';
-    const before=new Event('beforeinput',{bubbles:true,cancelable:true});before.inputType=inputType;before.data=key.length===1?key:null;target.dispatchEvent(before);
+    const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,inputType,data:key.length===1?key:null});target.dispatchEvent(before);
     if(before.defaultPrevented||unavailable())return;
     const current=String(target.value||'');
     let start=Number(target.__oryn_selection_start??current.length),end=Number(target.__oryn_selection_end??start);

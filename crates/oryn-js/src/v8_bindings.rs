@@ -611,6 +611,7 @@ pub struct V8BindingState {
     next_mutation_observer_id: Cell<u64>,
     mutation_observers: RefCell<BTreeMap<u64, MutationObserverEntry>>,
     ranges: RefCell<BTreeMap<u64, RangeRecord>>,
+    static_ranges: RefCell<BTreeSet<u64>>,
     selection_range: Cell<Option<u64>>,
     selection_anchor: Cell<Option<BoundaryPoint>>,
     selection_focus: Cell<Option<BoundaryPoint>>,
@@ -2300,6 +2301,7 @@ pub fn install_generated_bindings_with_root_for_global(
         next_mutation_observer_id: Cell::new(1),
         mutation_observers: RefCell::new(BTreeMap::new()),
         ranges: RefCell::new(BTreeMap::new()),
+        static_ranges: RefCell::new(BTreeSet::new()),
         selection_range: Cell::new(None),
         selection_anchor: Cell::new(None),
         selection_focus: Cell::new(None),
@@ -5598,6 +5600,13 @@ fn generated_constructor<'s>(
             }
         }
         if name == "InputEvent" {
+            let input_type = init
+                .and_then(|init| {
+                    let key = v8::String::new(scope, "inputType")?;
+                    init.get(scope, key.into())?.to_string(scope)
+                })
+                .map(|value| value.to_rust_string_lossy(scope))
+                .unwrap_or_default();
             for property in ["data", "inputType", "isComposing", "dataTransfer"] {
                 let value = init
                     .and_then(|init| {
@@ -5620,7 +5629,8 @@ fn generated_constructor<'s>(
                     .get()
                     .and_then(|range_id| state.ranges.borrow().get(&range_id).cloned());
                 if let Some(range) = selected
-                    && let Ok(static_id) = register_live_range(&state, range)
+                    && let Ok(range) = editing_input_target_range(&state, range, &input_type)
+                    && let Ok(static_id) = register_static_range(&state, range)
                     && let Ok(range) = new_stateful_object(scope, &state, "StaticRange", static_id)
                 {
                     ranges.set_index(scope, 0, range.into());
@@ -5690,7 +5700,7 @@ fn generated_constructor<'s>(
             return;
         };
         let document = state.dom.borrow().document();
-        match register_live_range(
+        match register_static_range(
             &state,
             RangeRecord {
                 start_container: document,
@@ -7192,7 +7202,15 @@ fn adjacent_insertion_point(
 }
 
 fn synchronize_live_ranges(state: &V8BindingState) -> Result<(), V8BindingError> {
-    let ids = state.ranges.borrow().keys().copied().collect::<Vec<_>>();
+    let static_ranges = state.static_ranges.borrow();
+    let ids = state
+        .ranges
+        .borrow()
+        .keys()
+        .filter(|id| !static_ranges.contains(id))
+        .copied()
+        .collect::<Vec<_>>();
+    drop(static_ranges);
     let selection_id = state.selection_range.get();
     let selection_was_backward = selection_id.is_some_and(|id| {
         let ranges = state.ranges.borrow();
@@ -7253,6 +7271,15 @@ fn register_live_range(state: &V8BindingState, range: RangeRecord) -> Result<u64
         .create_live_range(live.start, live.end)?
         .0;
     state.ranges.borrow_mut().insert(id, range);
+    Ok(id)
+}
+
+fn register_static_range(
+    state: &V8BindingState,
+    range: RangeRecord,
+) -> Result<u64, V8BindingError> {
+    let id = register_live_range(state, range)?;
+    state.static_ranges.borrow_mut().insert(id);
     Ok(id)
 }
 
@@ -8240,6 +8267,83 @@ fn selection_ends_at_nested_block_start(
         )
     });
     Ok(first_text == Some(range.end_container))
+}
+
+fn editing_input_target_range(
+    state: &V8BindingState,
+    mut range: RangeRecord,
+    input_type: &str,
+) -> Result<RangeRecord, V8BindingError> {
+    if input_type != "deleteContentBackward" || range.end_offset != 0 {
+        return Ok(range);
+    }
+    let Some(host) = editing_host(state)? else {
+        return Ok(range);
+    };
+    let (parent, block_index, collapsed) = {
+        let dom = state.dom.borrow();
+        let block = nearest_editing_block(&dom, range.end_container, host)?;
+        if block == host {
+            return Ok(range);
+        }
+        let first_text = traversal_nodes(&dom, block)?.into_iter().find(|candidate| {
+            matches!(
+                dom.arena().get(*candidate).map(|record| &record.kind),
+                Ok(NodeKind::Text { .. } | NodeKind::CDataSection { .. })
+            )
+        });
+        if first_text != Some(range.end_container) {
+            return Ok(range);
+        }
+        let Some(parent) = dom.parent(block)? else {
+            return Ok(range);
+        };
+        let children = light_children(&dom, parent)?;
+        let Some(block_index) = children.iter().position(|candidate| *candidate == block) else {
+            return Ok(range);
+        };
+        let collapsed = compare_boundary_points(
+            &dom,
+            (range.start_container, range.start_offset),
+            (range.end_container, range.end_offset),
+        )? == 0;
+        (parent, block_index, collapsed)
+    };
+    range.end_container = parent;
+    range.end_offset = block_index as u32;
+    if !collapsed || block_index == 0 {
+        return Ok(range);
+    }
+    let preceding = light_children(&state.dom.borrow(), parent)?[block_index - 1];
+    if element_local_name(&state.dom.borrow(), preceding) == Some("br")
+        || (matches!(
+            state.dom.borrow().arena().get(preceding)?.kind,
+            NodeKind::Element { .. }
+        ) && node_is_placeholder_empty(&state.dom.borrow(), preceding)?)
+    {
+        range.start_container = parent;
+        range.start_offset = (block_index - 1) as u32;
+        return Ok(range);
+    }
+    let trailing_break = traversal_nodes(&state.dom.borrow(), preceding)?
+        .into_iter()
+        .rev()
+        .find(|candidate| element_local_name(&state.dom.borrow(), *candidate) == Some("br"));
+    if let Some(trailing_break) = trailing_break
+        && let Some(owner) = state.dom.borrow().parent(trailing_break)?
+    {
+        let children = light_children(&state.dom.borrow(), owner)?;
+        if let Some(index) = children
+            .iter()
+            .position(|candidate| *candidate == trailing_break)
+        {
+            range.start_container = owner;
+            range.start_offset = index as u32;
+            range.end_container = owner;
+            range.end_offset = (index + 1) as u32;
+        }
+    }
+    Ok(range)
 }
 
 fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(), V8BindingError> {
@@ -17160,7 +17264,7 @@ fn create_input_event_object<'s>(
         .get()
         .and_then(|range_id| state.ranges.borrow().get(&range_id).cloned());
     if let Some(range) = selected {
-        let static_id = register_live_range(state, range)?;
+        let static_id = register_static_range(state, range)?;
         let range = new_stateful_object(scope, state, "StaticRange", static_id)?;
         ranges.set_index(scope, 0, range.into());
     }
@@ -18118,6 +18222,29 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "true|oryn|false|false|false|false|false|");
+    }
+
+    #[test]
+    fn input_event_target_ranges_remain_static_across_editing_mutations() {
+        initialize_v8();
+        let parsed = html::parse("<main id='editor' contenteditable>abc</main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor'),text=editor.firstChild,selection=document.getSelection();selection.collapse(text,1);const target=new InputEvent('beforeinput',{inputType:'deleteContentBackward'}).getTargetRanges()[0];document.execCommand('delete');[editor.textContent,target.startContainer===text,target.startOffset,target.endOffset].join('|')",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "bc|true|1|1");
     }
 
     #[test]
