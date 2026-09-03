@@ -161,17 +161,19 @@ rewrite those historical payloads or present them as a new validation run.
   harness-completion failures.
   File selection now exposes real `File` objects through the parent-owned upload path, and the
   focused upload geometry case passes with generated `getClientRects`. A
-  comparable non-EditContext editing shard improves from 5/40 to 25/40 after
+  comparable non-EditContext editing shard improves from 5/40 to 26/40 after
   expanding declared HTML variants correctly. Focused deletion,
   contenteditable-boundary deletion, split-attribute cloning, moved-node undo,
   definition-list/list flattening, copy/paste across a non-editable boundary,
   End-key behavior, and open/closed shadow-root designMode isolation now pass;
   generated-binding tests cover formatting and selection preservation. The
-  CSS-variable clipboard materialization, parser-time viewport exposure,
-  Window named-element access, and block-boundary deletion around hidden form
-  controls now pass their exact upstream cases. The broader shard remains red
-  on one styled-inline clipboard lifecycle timeout, tentative head/HTML
-  deletion, and forward/preformatted nested-block variants. Generated
+  CSS-variable clipboard materialization, window-level `DOMContentLoaded`,
+  parser-time viewport exposure, Window named-element access, and
+  block-boundary deletion around hidden form controls now pass their exact
+  upstream cases. The WPT automation adapter preserves the constructable
+  `test_driver.click` shape used by the pinned legacy cases. The broader shard
+  remains red on tentative head/HTML deletion and forward/preformatted
+  nested-block variants. Generated
   input/textarea selection APIs plus composed-focus keyboard retargeting close
   the shadow-hosted text-control case, but general editing-engine conformance
   is not claimed.

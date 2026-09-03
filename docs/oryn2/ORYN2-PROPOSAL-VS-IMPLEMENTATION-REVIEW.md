@@ -88,19 +88,20 @@ persisted index metadata, cursor progression and unknown editing commands pass.
 Broader local-probe diagnostic shards remain red: the previously red BFCache
 open-connection and open-transaction cases now pass, and the replacement
 exact-tree first-100 slice now passes 100/100; the comparable
-non-EditContext editing slice improves from 5/40 to 25/40 but remains red. The
+non-EditContext editing slice improves from 5/40 to 26/40 but remains red. The
 runner now expands declared HTML variants rather than silently testing an empty
 query. Focused deletion (16 assertions), contenteditable-boundary,
 split-attribute, moved-node undo, definition-list/list flattening,
 non-editable-boundary paste, End-key, and open/closed shadow-root designMode
 cases pass, while generated-binding tests cover formatting and selection
-preservation. The remaining aggregate failures include computed-style
-styled-inline clipboard lifecycle, tentative head/HTML deletion and
-forward/preformatted nested-block coverage outside the agent-critical editing
-boundary. CSS-variable clipboard materialization, parser-time viewport and
-Window named-element behavior, block-boundary deletion around hidden form
-controls, and shadow-hosted text-control editing now pass their exact upstream
-cases.
+preservation. The remaining aggregate failures include tentative head/HTML
+deletion and forward/preformatted nested-block coverage outside the
+agent-critical editing boundary. CSS-variable clipboard materialization,
+window-level `DOMContentLoaded` delivery, parser-time viewport and Window
+named-element behavior, block-boundary deletion around hidden form controls,
+and shadow-hosted text-control editing now pass their exact upstream cases. The
+native WPT automation wrapper also preserves the constructable
+`test_driver.click` shape required by two pinned legacy editing tests.
 The IndexedDB improvement includes
 opaque-origin rejection, cross-realm branding, stable frame proxies, ordered
 blocked deletes, high-volume execution, generated key-range inclusion, full factory-open,
@@ -141,7 +142,7 @@ The dependency-ordered completion backlog is maintained in
 | F12 — untrusted content | **Mostly closed** | Semantic nodes carry `ContentTrust::PageAuthored`, inferred facts use heuristic provenance, and raw inspection is policy-audited without recording page content. Broader prompt-boundary evidence remains narrower than the proposal's full trust model. |
 | F13 — secret leakage | **Closed in software** | Secret sensitivity is stored independently on Rust DOM nodes, applies to text inputs, survives page-controlled attribute changes, and redacts observation and HTML extraction. |
 | F14 — generated WebIDL | **Partial; architecture closed, long-tail algorithms measured** | Deterministic generation, real prototypes, Rust callbacks, wrapper identity, brands, realms, origin and generation checks are authoritative in production. Cross-container Range operations, CharacterData/editing, generated Storage, Fetch/File/Streams/XHR/WebSocket, MessageChannel transfer and IndexedDB execute through Rust state and typed parent operations. Focused upstream regressions now cover atomic rollback, compound key paths, connection-close/versionchange ordering, failed-upgrade abort ordering, live cursor mutation and index-key re-entry, exact WTF-16 names, detached binary keys, and the bounded editing-command surface. The compatibility bootstrap is probe-only. Broader editing and cross-realm/origin platform behavior remain red, so API conformance is not closed. |
-| F15 — production-path testing | **Partial; exhaustive inventory is truthful but red** | Focused default, no-V8 and V8-host tests pass and the pinned upstream harness is fail-closed. All eight requested IndexedDB SharedWorker/ServiceWorker executions pass both the local V8 probe and a trusted, locally signed macOS App Sandbox worker with heap-sandbox metadata; a compact validator recomputes their `ef8a8d4` ledger. The new v2 inventory expands coverage to 4,022 exact executions and makes long runs parallel, checkpointed and fingerprint-resumable. The replacement exact-tree first-100 IndexedDB diagnostic passes 100/100, the discovered cursor slice passes 11/11, and the corrected comparable non-EditContext editing slice passes 25/40. BFCache open-connection and open-transaction lifecycle pass with exact suspended-realm restoration and persisted lifecycle events. Partition coverage completes its remote harness and passes all 31 reported assertions. Timer scheduling and non-blocking page-task draining close the final partitioned-basic and factory-delete harness cases. Cross-origin iframe/window isolation, opaque-origin rejection, cross-realm branding, high-volume multi-entry execution, secure upload geometry, and detached binary keys pass focused or aggregate coverage. Editing remains red outside the focused agent-critical command boundary. No exact signed release aggregate is published as passing. Full sandboxed v2 execution, four-profile equivalence, Linux artifacts, performance and release attestation remain open. |
+| F15 — production-path testing | **Partial; exhaustive inventory is truthful but red** | Focused default, no-V8 and V8-host tests pass and the pinned upstream harness is fail-closed. All eight requested IndexedDB SharedWorker/ServiceWorker executions pass both the local V8 probe and a trusted, locally signed macOS App Sandbox worker with heap-sandbox metadata; a compact validator recomputes their `ef8a8d4` ledger. The new v2 inventory expands coverage to 4,022 exact executions and makes long runs parallel, checkpointed and fingerprint-resumable. The replacement exact-tree first-100 IndexedDB diagnostic passes 100/100, the discovered cursor slice passes 11/11, and the corrected comparable non-EditContext editing slice passes 26/40. BFCache open-connection and open-transaction lifecycle pass with exact suspended-realm restoration and persisted lifecycle events. Partition coverage completes its remote harness and passes all 31 reported assertions. Timer scheduling and non-blocking page-task draining close the final partitioned-basic and factory-delete harness cases. Cross-origin iframe/window isolation, opaque-origin rejection, cross-realm branding, high-volume multi-entry execution, secure upload geometry, and detached binary keys pass focused or aggregate coverage. Editing remains red outside the focused agent-critical command boundary. No exact signed release aggregate is published as passing. Full sandboxed v2 execution, four-profile equivalence, Linux artifacts, performance and release attestation remain open. |
 | F16 — Intent/API/MCP | **Closed in software; release evidence pending** | Agent contract v3 additively exposes semantic contract v6 and scoped/delta observation while accepting frozen v2 requests. Rust, OIL, worker protocol v8, Python and MCP use the same graph resolver/action engine. Upload, context-virtual clipboard and parent-owned secret-label behavior remain unchanged and values never enter argv, environment, OIL, JSON-RPC, traces, observations or worker initialization. |
 
 ### Current broader-gap status

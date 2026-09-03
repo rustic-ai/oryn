@@ -138,6 +138,14 @@ class UpstreamWptRunnerTests(unittest.TestCase):
         )
         self.assertIn("display:block!important", RUNNER.COMPLETION)
 
+    def test_testdriver_click_wrapper_remains_constructable(self) -> None:
+        # Some pinned editing tests use the historically accepted
+        # `new test_driver.click(element)` spelling. An arrow-function wrapper
+        # rejects that call before it can reach the native automation bridge.
+        source = (ROOT / "scripts/run-upstream-wpt.py").read_text()
+        self.assertIn("window.test_driver.click = function(element)", source)
+        self.assertNotIn("window.test_driver.click = element =>", source)
+
     def test_html_applicability_excludes_crash_and_helper_pages(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
