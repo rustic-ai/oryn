@@ -243,7 +243,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             body = b"""'use strict';
 window.test_driver_internal.click = element => __oryn_testdriver_click(element);
 window.test_driver_internal.send_keys = (element, keys) => __oryn_testdriver_send_keys(element, keys);
-window.test_driver_internal.action_sequence = actions => __oryn_testdriver_actions(actions);
+window.test_driver_internal.action_sequence = actions => __oryn_testdriver_actions(actions, document.activeElement);
 """
             self._send_bytes(body, "application/javascript; charset=utf-8")
             return
@@ -504,10 +504,16 @@ def applicable_tests(checkout: Path) -> list[tuple[Path, str, str, str]]:
                 candidate = (len(Path(root).parts), classification)
                 if relative not in selected or candidate[0] > selected[relative][0]:
                     selected[relative] = candidate
-    return sorted(
-        ((path, value[1], "window", "") for path, value in selected.items()),
-        key=lambda item: item[0].as_posix(),
-    )
+    tests: list[tuple[Path, str, str, str]] = []
+    for path, value in selected.items():
+        source = checkout / path
+        variants = (
+            declared_html_variants(source.read_text(encoding="utf-8", errors="replace"))
+            if source.suffix in {".html", ".htm"}
+            else []
+        ) or [""]
+        tests.extend((path, value[1], "window", variant) for variant in variants)
+    return sorted(tests, key=lambda item: (item[0].as_posix(), item[3]))
 
 
 def inventoried_tests(checkout: Path, inventory_path: Path) -> list[tuple[Path, str, str, str]]:

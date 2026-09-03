@@ -110,6 +110,28 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             ["?editor=input", "?editor=textarea"],
         )
 
+    def test_discovered_html_tests_expand_declared_variants(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            test = root / "editing/variant.html"
+            test.parent.mkdir(parents=True)
+            test.write_text(
+                '<meta name="variant" content="?editor=input">\n'
+                '<meta name="variant" content="?editor=textarea">\n'
+                '<script src="/resources/testharness.js"></script>'
+            )
+            selected = [
+                (path.as_posix(), variant)
+                for path, _classification, _global, variant in RUNNER.applicable_tests(root)
+            ]
+            self.assertEqual(
+                selected,
+                [
+                    ("editing/variant.html", "?editor=input"),
+                    ("editing/variant.html", "?editor=textarea"),
+                ],
+            )
+
     def test_completion_channel_is_outside_hidden_testharness_body(self) -> None:
         self.assertIn(
             "document.documentElement.appendChild(output)", RUNNER.COMPLETION

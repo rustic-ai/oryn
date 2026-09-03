@@ -1494,7 +1494,12 @@ impl DomRuntime {
         let Some(last) = compounds.last() else {
             return Ok(false);
         };
-        if !matches_compound_selector(self.arena.get(node)?, last) {
+        let focused = last.strip_suffix(":focus");
+        if focused.is_some() && self.focused != Some(node) {
+            return Ok(false);
+        }
+        let last = focused.unwrap_or(last);
+        if !last.is_empty() && !matches_compound_selector(self.arena.get(node)?, last) {
             return Ok(false);
         }
         let mut ancestor = self.arena.get(node)?.parent;
@@ -1537,7 +1542,15 @@ impl DomRuntime {
                     output.push(' ');
                     output.push_str(key);
                     output.push_str("=\"");
-                    output.push_str(&escape_attribute(value));
+                    if key == "style"
+                        && !value.trim().is_empty()
+                        && !value.trim_end().ends_with(';')
+                    {
+                        output.push_str(&escape_attribute(value.trim_end()));
+                        output.push(';');
+                    } else {
+                        output.push_str(&escape_attribute(value));
+                    }
                     output.push('"');
                 }
                 output.push('>');

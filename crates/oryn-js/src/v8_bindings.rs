@@ -654,6 +654,7 @@ pub struct V8BindingState {
     default_paragraph_separator: RefCell<String>,
     undo_history: RefCell<UndoHistory>,
     pending_split_undo: Cell<Option<(NodeId, NodeId)>>,
+    pending_custom_upgrade: Cell<Option<(WrapperId, NodeId)>>,
     document_write_buffer: RefCell<String>,
     document_write_depth: Cell<u32>,
     pending_dynamic_scripts: RefCell<VecDeque<NodeId>>,
@@ -2336,6 +2337,7 @@ pub fn install_generated_bindings_with_root_for_global(
         default_paragraph_separator: RefCell::new("div".into()),
         undo_history: RefCell::new(UndoHistory::default()),
         pending_split_undo: Cell::new(None),
+        pending_custom_upgrade: Cell::new(None),
         document_write_buffer: RefCell::new(String::new()),
         document_write_depth: Cell::new(0),
         pending_dynamic_scripts: RefCell::new(VecDeque::new()),
@@ -2611,7 +2613,42 @@ pub fn install_generated_bindings_with_root_for_global(
     context
         .global(scope)
         .set(scope, name.into(), revoke_object_url.into());
+    let adopt_custom = v8::Function::new(scope, begin_custom_element_upgrade).ok_or(
+        V8BindingError::Allocation("custom-element upgrade initializer"),
+    )?;
+    let name = v8::String::new(scope, "__oryn_begin_custom_element_upgrade").ok_or(
+        V8BindingError::Allocation("custom-element upgrade initializer name"),
+    )?;
+    context
+        .global(scope)
+        .set(scope, name.into(), adopt_custom.into());
     Ok(state)
+}
+
+fn begin_custom_element_upgrade(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _return_value: v8::ReturnValue,
+) {
+    let result = (|| -> Result<(), V8BindingError> {
+        let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+            return Err(V8BindingError::Allocation("custom-element binding state"));
+        };
+        if args.get(0).is_null_or_undefined() {
+            state.pending_custom_upgrade.set(None);
+            return Ok(());
+        }
+        let existing = v8::Local::<v8::Object>::try_from(args.get(0))
+            .map_err(|_| V8BindingError::Allocation("existing custom-element wrapper"))?;
+        let wrapper = receiver_wrapper_id(scope, existing)
+            .ok_or(BindingError::UnknownWrapper(WrapperId(u64::MAX)))?;
+        let node = resolve_receiver(scope, &state, existing, "HTMLElement")?;
+        state.pending_custom_upgrade.set(Some((wrapper, node)));
+        Ok(())
+    })();
+    if let Err(error) = result {
+        throw_type_error(scope, &error.to_string());
+    }
 }
 
 pub fn publish_named_window_properties(
@@ -5747,12 +5784,56 @@ fn generated_constructor<'s>(
         );
         return;
     }
-    // Custom-element upgrade uses Reflect.construct(definition, [],
-    // definition) to execute the user constructor and then transfers its own
-    // initialized fields onto the existing Rust-backed element wrapper. Its
-    // `super()` reaches this generated constructor; the temporary shell never
-    // escapes and deliberately receives no Rust node identity.
+    // During custom-element upgrade `super()` reaches this constructor with a
+    // freshly allocated derived-class instance. Bind that instance to the
+    // existing Rust node before the rest of the user constructor runs. This is
+    // the construction-stack behavior required for private fields and makes
+    // subsequent DOM queries return the genuinely constructed object.
     if name == "HTMLElement" && args.is_construct_call() {
+        let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+            throw_type_error(scope, "generated binding state is unavailable");
+            return;
+        };
+        let Some((wrapper, node)) = state.pending_custom_upgrade.take() else {
+            return;
+        };
+        if args.this().internal_field_count() < 5 {
+            throw_type_error(scope, "custom-element instance has no DOM identity fields");
+            return;
+        }
+        args.this()
+            .set_internal_field(0, v8::BigInt::new_from_u64(scope, wrapper.0).into());
+        set_dom_wrapper_identity(
+            scope,
+            args.this(),
+            node,
+            state.realm,
+            state.document_generation,
+        );
+        let registry: RcWeak<RefCell<WrapperRegistry>> = Rc::downgrade(&state.wrappers);
+        let weak = v8::Weak::with_finalizer(
+            scope,
+            args.this(),
+            Box::new(move |_isolate| {
+                if let Some(registry) = registry.upgrade() {
+                    registry.borrow_mut().enqueue_weak_release(wrapper);
+                }
+            }),
+        );
+        let connected_root = state
+            .dom
+            .borrow()
+            .is_connected(node)
+            .ok()
+            .filter(|connected| *connected)
+            .map(|_| v8::Global::new(scope, args.this()));
+        state.objects.borrow_mut().insert(
+            wrapper,
+            WrapperObject {
+                handle: weak,
+                connected_root,
+            },
+        );
         return;
     }
     throw_type_error(scope, &format!("Illegal constructor: {name}"));
@@ -7224,8 +7305,12 @@ fn editing_host_for_node(
     document: NodeId,
 ) -> Result<Option<NodeId>, V8BindingError> {
     let mut host = None;
+    let mut crossed_shadow_boundary = false;
     while let Some(node) = current {
         let record = dom.arena().get(node)?;
+        if matches!(record.kind, NodeKind::ShadowRoot { .. }) {
+            crossed_shadow_boundary = true;
+        }
         if let Some(value) = record.attributes.get("contenteditable") {
             match value.to_ascii_lowercase().as_str() {
                 "false" => {
@@ -7240,7 +7325,10 @@ fn editing_host_for_node(
         }
         current = record.parent;
     }
-    if host.is_none() && design_mode {
+    // `designMode` makes the document editable, but does not leak that state
+    // into an attached shadow tree. A shadow tree must declare its own
+    // contenteditable host.
+    if host.is_none() && design_mode && !crossed_shadow_boundary {
         host = dom
             .query_selector_all(document, "body")?
             .first()
@@ -7987,16 +8075,23 @@ fn merge_adjacent_editing_block(
         if matches!(grand_tag.as_deref(), Some("li" | "dt" | "dd")) {
             state.dom.borrow_mut().remove_child(grand, parent)?;
         } else {
-            let replacement = if element_local_name(&state.dom.borrow(), block) == Some("li") {
-                block
+            let replacement_tag = if grand_tag.as_deref() == Some("dl") {
+                "dd"
             } else {
-                let item = state.dom.borrow_mut().create_element("li");
-                let children = light_children(&state.dom.borrow(), block)?;
-                for child in children {
-                    state.dom.borrow_mut().append_child(item, child)?;
-                }
-                item
+                "li"
             };
+            let replacement =
+                if element_local_name(&state.dom.borrow(), block) == Some(replacement_tag) {
+                    block
+                } else {
+                    // Flatten into the item type required by the containing list.
+                    let item = state.dom.borrow_mut().create_element(replacement_tag);
+                    let children = light_children(&state.dom.borrow(), block)?;
+                    for child in children {
+                        state.dom.borrow_mut().append_child(item, child)?;
+                    }
+                    item
+                };
             state
                 .dom
                 .borrow_mut()
@@ -15438,7 +15533,8 @@ fn call_operation<'s>(
                 };
                 return Ok(Some(v8_string(scope, &value)?));
             }
-            if !supported || !document_is_editable(state) {
+            let document_command = command == "selectall" && state.design_mode.get();
+            if !supported || (!document_is_editable(state) && !document_command) {
                 return Ok(Some(v8::Boolean::new(scope, false).into()));
             }
             let value = if args.get(2).is_undefined() {
@@ -15487,6 +15583,23 @@ fn call_operation<'s>(
                         .dom
                         .borrow()
                         .focused()
+                        .and_then(|focused| {
+                            let dom = state.dom.borrow();
+                            if let Ok(Some(host)) =
+                                editing_host_for_node(&dom, Some(focused), false, state.document)
+                            {
+                                return Some(host);
+                            }
+                            let mut current = Some(focused);
+                            while let Some(candidate) = current {
+                                let record = dom.arena().get(candidate).ok()?;
+                                if matches!(record.kind, NodeKind::ShadowRoot { .. }) {
+                                    return Some(candidate);
+                                }
+                                current = record.parent;
+                            }
+                            Some(focused)
+                        })
                         .or_else(|| {
                             state
                                 .dom
@@ -15569,7 +15682,12 @@ fn call_operation<'s>(
                         }
                         Ok(())
                     })?;
-                    if changed {
+                    // These commands are accepted for an editable selection
+                    // even when there is no resulting markup diff. The input
+                    // transaction is still observable.
+                    let accepted = changed
+                        || matches!(command.as_str(), "delete" | "forwarddelete" | "formatblock");
+                    if accepted {
                         let input_type = match command.as_str() {
                             "delete" => "deleteContentBackward",
                             "forwarddelete" => "deleteContentForward",
@@ -15600,7 +15718,7 @@ fn call_operation<'s>(
                             (command == "inserttext").then_some(value.as_str()),
                         )?;
                     }
-                    changed
+                    accepted
                 }
             };
             Ok(Some(v8::Boolean::new(scope, executed).into()))
@@ -17612,8 +17730,10 @@ mod tests {
             .unwrap()
             .run(scope)
             .unwrap();
-        state.drain_platform_completions(scope, 8).unwrap();
-        scope.perform_microtask_checkpoint();
+        for _ in 0..8 {
+            state.drain_platform_completions(scope, 8).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
         let source = v8::String::new(scope, "result").unwrap();
         let result = v8::Script::compile(scope, source, None)
             .unwrap()
@@ -17743,7 +17863,7 @@ mod tests {
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(
             scope,
-            "let result='';const request=indexedDB.open('abort-me',2);request.onupgradeneeded=e=>{result=(e instanceof Event)+'|'+(e instanceof IDBVersionChangeEvent)+'|'+e.target.transaction.mode+'|'+(e.target.transaction.db===e.target.result);e.target.transaction.onabort=event=>result+='|abort:'+event.target.db.version;e.target.transaction.abort()};request.onerror=e=>result+='|error:'+e.target.error.name+'|'+String(e.target.transaction)",
+            "globalThis.location={href:'https://example.test/',origin:'https://example.test'};let result='';const request=indexedDB.open('abort-me',2);request.onupgradeneeded=e=>{result=(e instanceof Event)+'|'+(e instanceof IDBVersionChangeEvent)+'|'+e.target.transaction.mode+'|'+(e.target.transaction.db===e.target.result);e.target.transaction.onabort=event=>result+='|abort:'+event.target.db.version;e.target.transaction.abort()};request.onerror=e=>result+='|error:'+e.target.error.name+'|'+String(e.target.transaction)",
         )
         .unwrap();
         v8::Script::compile(scope, source, None)
@@ -17751,7 +17871,9 @@ mod tests {
             .run(scope)
             .unwrap();
         state.drain_platform_completions(scope, 8).unwrap();
+        scope.perform_microtask_checkpoint();
         state.drain_platform_completions(scope, 8).unwrap();
+        scope.perform_microtask_checkpoint();
         let source = v8::String::new(scope, "result").unwrap();
         let result = v8::Script::compile(scope, source, None)
             .unwrap()
@@ -17777,15 +17899,17 @@ mod tests {
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(
             scope,
-            "let result='',db;const request=indexedDB.open('close-me',1);request.onupgradeneeded=e=>{db=e.target.result;db.createObjectStore('items');db.close();e.target.transaction.oncomplete=()=>result+='complete|'};request.onsuccess=()=>result+='success';request.onerror=e=>{result+='error:'+e.target.error.name;try{db.transaction('items')}catch(error){result+='|'+error.name}}",
+            "globalThis.location={href:'https://example.test/',origin:'https://example.test'};let result='',db;const request=indexedDB.open('close-me',1);request.onupgradeneeded=e=>{db=e.target.result;db.createObjectStore('items');db.close();e.target.transaction.oncomplete=()=>result+='complete|'};request.onsuccess=()=>result+='success';request.onerror=e=>{result+='error:'+e.target.error.name;try{db.transaction('items')}catch(error){result+='|'+error.name}}",
         )
         .unwrap();
         v8::Script::compile(scope, source, None)
             .unwrap()
             .run(scope)
             .unwrap();
-        state.drain_platform_completions(scope, 8).unwrap();
-        state.drain_platform_completions(scope, 8).unwrap();
+        for _ in 0..8 {
+            state.drain_platform_completions(scope, 8).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
         let source = v8::String::new(scope, "result").unwrap();
         let result = v8::Script::compile(scope, source, None)
             .unwrap()
