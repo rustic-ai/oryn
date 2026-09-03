@@ -728,7 +728,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(393237),
-        name: "MozBoxSizing",
+        name: "whiteSpace",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: false,
@@ -743,7 +743,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(393238),
-        name: "WebkitBoxSizing",
+        name: "MozBoxSizing",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: false,
@@ -758,7 +758,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(393239),
-        name: "zoom",
+        name: "WebkitBoxSizing",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: false,
@@ -773,6 +773,21 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(393240),
+        name: "zoom",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        constant_value: None,
+        type_name: Some("DOMString"),
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(393241),
         name: "getPropertyValue",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -787,7 +802,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(393241),
+        id: GeneratedMemberId(393242),
         name: "setProperty",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -802,7 +817,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(393242),
+        id: GeneratedMemberId(393243),
         name: "removeProperty",
         kind: GeneratedMemberKind::Operation,
         arity: 1,

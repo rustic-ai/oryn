@@ -145,6 +145,9 @@ class UpstreamWptRunnerTests(unittest.TestCase):
         source = (ROOT / "scripts/run-upstream-wpt.py").read_text()
         self.assertIn("window.test_driver.click = function(element)", source)
         self.assertNotIn("window.test_driver.click = element =>", source)
+        self.assertIn(
+            "testdriver:globalThis.__oryn_testdriver_log || []", RUNNER.COMPLETION
+        )
 
     def test_html_applicability_excludes_crash_and_helper_pages(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

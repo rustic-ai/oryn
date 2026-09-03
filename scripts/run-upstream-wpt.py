@@ -29,7 +29,7 @@ COMPLETION = r"""
 setup({output:false});
 globalThis.__oryn_wpt_results=[];
 function __oryn_publish_wpt(harness, complete) {
-  var value = {complete:!!complete,harness:harness && typeof harness.status === 'number' ? harness.status : 0,harnessMessage:harness && harness.message ? String(harness.message) : '',harnessStack:harness && harness.stack ? String(harness.stack) : '',tests:globalThis.__oryn_wpt_results};
+  var value = {complete:!!complete,harness:harness && typeof harness.status === 'number' ? harness.status : 0,harnessMessage:harness && harness.message ? String(harness.message) : '',harnessStack:harness && harness.stack ? String(harness.stack) : '',tests:globalThis.__oryn_wpt_results,testdriver:globalThis.__oryn_testdriver_log || []};
   var output = document.getElementById('oryn-wpt-result') || document.createElement('pre');
   output.id='oryn-wpt-result'; output.style.cssText='display:block!important;visibility:visible!important';
   output.textContent='__ORYN_WPT_DONE__'+JSON.stringify(value);

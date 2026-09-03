@@ -748,6 +748,7 @@ interface CSSStyleDeclaration {
   attribute DOMString marginRight;
   attribute DOMString maxHeight;
   attribute DOMString minHeight;
+  attribute DOMString whiteSpace;
   attribute DOMString MozBoxSizing;
   attribute DOMString WebkitBoxSizing;
   attribute DOMString zoom;

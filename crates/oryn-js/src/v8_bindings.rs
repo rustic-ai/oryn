@@ -8247,6 +8247,59 @@ fn is_preserved_editing_boundary(dom: &DomRuntime, node: NodeId) -> bool {
         .is_some_and(|value| value.eq_ignore_ascii_case("false"))
 }
 
+fn rightmost_text_with_trailing_newline(
+    dom: &DomRuntime,
+    node: NodeId,
+) -> Result<Option<(NodeId, u32)>, V8BindingError> {
+    let Some(text) = traversal_nodes(dom, node)?
+        .into_iter()
+        .rev()
+        .find(|candidate| {
+            matches!(
+                dom.arena().get(*candidate).map(|record| &record.kind),
+                Ok(NodeKind::Text { .. } | NodeKind::CDataSection { .. })
+            )
+        })
+    else {
+        return Ok(None);
+    };
+    let data = match &dom.arena().get(text)?.kind {
+        NodeKind::Text { data } | NodeKind::CDataSection { data } => data,
+        _ => return Ok(None),
+    };
+    Ok(data
+        .ends_with('\n')
+        .then(|| (text, data.encode_utf16().count() as u32)))
+}
+
+fn editing_context_preserves_newlines(
+    dom: &DomRuntime,
+    mut node: NodeId,
+    host: NodeId,
+) -> Result<bool, V8BindingError> {
+    loop {
+        let record = dom.arena().get(node)?;
+        let preserves = record
+            .attributes
+            .get("style")
+            .map(|style| inline_style_entries(style))
+            .and_then(|mut declarations| declarations.remove("white-space"))
+            .is_some_and(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "pre" | "pre-wrap" | "break-spaces"
+                )
+            });
+        if preserves || node == host {
+            return Ok(preserves);
+        }
+        let Some(parent) = record.parent else {
+            return Ok(false);
+        };
+        node = parent;
+    }
+}
+
 fn remove_line_before_nested_block(
     state: &V8BindingState,
     container: NodeId,
@@ -8276,6 +8329,30 @@ fn remove_line_before_nested_block(
     let Some(preceding) = preceding else {
         return Ok(false);
     };
+    let trailing_newline = {
+        let dom = state.dom.borrow();
+        if editing_context_preserves_newlines(&dom, preceding, host)? {
+            rightmost_text_with_trailing_newline(&dom, preceding)?
+        } else {
+            None
+        }
+    };
+    if let Some((trailing_text, length)) = trailing_newline {
+        state.dom.borrow_mut().replace_character_data(
+            trailing_text,
+            length.saturating_sub(1),
+            1,
+            "",
+        )?;
+        if matches!(
+            state.dom.borrow().arena().get(preceding)?.kind,
+            NodeKind::Element { .. }
+        ) && node_is_placeholder_empty(&state.dom.borrow(), preceding)?
+        {
+            state.dom.borrow_mut().remove_child(parent, preceding)?;
+        }
+        return Ok(true);
+    }
     if element_local_name(&state.dom.borrow(), preceding) == Some("br")
         || (matches!(
             state.dom.borrow().arena().get(preceding)?.kind,
@@ -8381,6 +8458,26 @@ fn editing_input_target_range(
     {
         range.start_container = parent;
         range.start_offset = (block_index - 1) as u32;
+        return Ok(range);
+    }
+    let trailing_newline = {
+        let dom = state.dom.borrow();
+        if editing_context_preserves_newlines(&dom, preceding, host)? {
+            rightmost_text_with_trailing_newline(&dom, preceding)?
+        } else {
+            None
+        }
+    };
+    if let Some((trailing_text, length)) = trailing_newline {
+        range.start_container = trailing_text;
+        range.start_offset = length.saturating_sub(1);
+        if matches!(
+            state.dom.borrow().arena().get(preceding)?.kind,
+            NodeKind::Element { .. }
+        ) {
+            range.end_container = preceding;
+            range.end_offset = editing_caret_end(&state.dom.borrow(), preceding)?;
+        }
         return Ok(range);
     }
     let trailing_break = traversal_nodes(&state.dom.borrow(), preceding)?
@@ -14658,6 +14755,7 @@ fn css_property_name(member: &str) -> &str {
         "marginRight" => "margin-right",
         "maxHeight" => "max-height",
         "minHeight" => "min-height",
+        "whiteSpace" => "white-space",
         "MozBoxSizing" => "-moz-box-sizing",
         "WebkitBoxSizing" => "-webkit-box-sizing",
         _ => member,
@@ -18429,6 +18527,87 @@ mod tests {
             result,
             "<div id=\"first\">First blockSecond block</div><span id=\"second\"><select style=\"visibility:hidden\"></select></span>"
         );
+    }
+
+    #[test]
+    fn backward_block_boundary_deletion_ignores_collapsible_whitespace() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<main id='editor' contenteditable><div id='first'>First block</div>\n<div id='second'>Second block<select style='visibility:hidden'></select></div></main>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor'),second=document.getElementById('second'),selection=document.getSelection();selection.collapse(second.firstChild,0);document.execCommand('delete');editor.innerHTML",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            result,
+            "<div id=\"first\">First blockSecond block</div><div id=\"second\"><select style=\"visibility:hidden\"></select></div>"
+        );
+    }
+
+    #[test]
+    fn backward_deletion_before_nested_block_removes_preformatted_empty_line() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<main id='editor' contenteditable>abc\n\n<div id='child'>def<br>ghi</div></main>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor'),child=document.getElementById('child'),preceding=editor.firstChild,selection=document.getSelection();editor.style.whiteSpace='pre';selection.collapse(child.firstChild,0);const target=new InputEvent('beforeinput',{inputType:'deleteContentBackward'}).getTargetRanges()[0];document.execCommand('delete');[editor.innerHTML,target.startContainer===preceding,target.startOffset,target.endContainer===editor,target.endOffset].join('|')",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            result,
+            "abc\n<div id=\"child\">def<br>ghi</div>|true|4|true|1"
+        );
+    }
+
+    #[test]
+    fn backward_deletion_removes_empty_inline_preformatted_boundary() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<main id='editor' contenteditable><b>\n</b><div id='child'>def<br>ghi</div></main>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor'),child=document.getElementById('child'),selection=document.getSelection();editor.style.whiteSpace='pre';selection.collapse(child.firstChild,0);document.execCommand('delete');editor.innerHTML",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "<div id=\"child\">def<br>ghi</div>");
     }
 
     #[test]
