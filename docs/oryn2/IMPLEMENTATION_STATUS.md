@@ -161,7 +161,7 @@ rewrite those historical payloads or present them as a new validation run.
   harness-completion failures.
   File selection now exposes real `File` objects through the parent-owned upload path, and the
   focused upload geometry case passes with generated `getClientRects`. A
-  comparable non-EditContext editing shard improves from 5/40 to 30/40 after
+  comparable non-EditContext editing shard improves from 5/40 to 32/40 after
   expanding declared HTML variants correctly. Focused deletion,
   contenteditable-boundary deletion, split-attribute cloning, moved-node undo,
   definition-list/list flattening, copy/paste across a non-editable boundary,
@@ -172,11 +172,13 @@ rewrite those historical payloads or present them as a new validation run.
   block-boundary deletion around hidden form controls now pass their exact
   upstream cases. The WPT automation adapter preserves the constructable
   `test_driver.click` shape used by the pinned legacy cases. The broader shard
-  remains red on tentative head/HTML deletion and keyboard `Delete`
-  target-range variants. Generated `CSSStyleDeclaration.whiteSpace` behavior
+  remains red only on eight tentative head/HTML deletion variants. Generated
+  `CSSStyleDeclaration.whiteSpace` behavior
   now routes through Rust and closes the backward preformatted nested-block
   variants. Forward command deletion now removes a final separator, preserves
   the nested block, and moves the caret to its first insertion point. Generated
+  immutable forward `beforeinput` target ranges close the keyboard `Delete`
+  paths, so all eight nested-block variants pass. Generated
   input/textarea selection APIs plus composed-focus keyboard retargeting close
   the shadow-hosted text-control case, but general editing-engine conformance
   is not claimed.

@@ -8525,12 +8525,87 @@ fn editing_input_target_range(
     mut range: RangeRecord,
     input_type: &str,
 ) -> Result<RangeRecord, V8BindingError> {
-    if input_type != "deleteContentBackward" || range.end_offset != 0 {
+    let backward = input_type == "deleteContentBackward";
+    let forward = input_type == "deleteContentForward";
+    if !backward && !forward {
         return Ok(range);
     }
     let Some(host) = editing_host(state)? else {
         return Ok(range);
     };
+    let collapsed = compare_boundary_points(
+        &state.dom.borrow(),
+        (range.start_container, range.start_offset),
+        (range.end_container, range.end_offset),
+    )? == 0;
+    if forward && collapsed {
+        let empty_inline = {
+            let dom = state.dom.borrow();
+            let mut current = dom.parent(range.start_container)?;
+            let mut found = None;
+            while let Some(candidate) = current {
+                if candidate == host || is_editing_block(&dom, candidate) {
+                    break;
+                }
+                if matches!(dom.arena().get(candidate)?.kind, NodeKind::Element { .. })
+                    && node_is_placeholder_empty(&dom, candidate)?
+                {
+                    found = Some(candidate);
+                }
+                current = dom.parent(candidate)?;
+            }
+            found
+        };
+        if let Some(empty_inline) = empty_inline
+            && let Some(parent) = state.dom.borrow().parent(empty_inline)?
+        {
+            let siblings = light_children(&state.dom.borrow(), parent)?;
+            if let Some(index) = siblings
+                .iter()
+                .position(|candidate| *candidate == empty_inline)
+            {
+                range.start_container = parent;
+                range.start_offset = index as u32;
+                range.end_container = parent;
+                range.end_offset = index as u32 + 1;
+                return Ok(range);
+            }
+        }
+        let kind = state
+            .dom
+            .borrow()
+            .arena()
+            .get(range.start_container)?
+            .kind
+            .clone();
+        if let NodeKind::Text { data } | NodeKind::CDataSection { data } = kind {
+            let (_, end) = utf16_delete_span(&data, range.start_offset, true);
+            range.end_offset = end;
+            return Ok(range);
+        }
+        if range.start_container != host
+            && node_is_placeholder_empty(&state.dom.borrow(), range.start_container)?
+            && let Some(parent) = state.dom.borrow().parent(range.start_container)?
+        {
+            let siblings = light_children(&state.dom.borrow(), parent)?;
+            if let Some(index) = siblings
+                .iter()
+                .position(|candidate| *candidate == range.start_container)
+            {
+                range.start_container = parent;
+                range.start_offset = index as u32;
+                range.end_container = parent;
+                range.end_offset = index as u32 + 1;
+                return Ok(range);
+            }
+        }
+        let length = boundary_length(&state.dom.borrow(), range.start_container)?;
+        range.end_offset = range.start_offset.saturating_add(1).min(length);
+        return Ok(range);
+    }
+    if range.end_offset != 0 {
+        return Ok(range);
+    }
     let (parent, block_index, collapsed) = {
         let dom = state.dom.borrow();
         let block = nearest_editing_block(&dom, range.end_container, host)?;
@@ -8562,6 +8637,9 @@ fn editing_input_target_range(
     };
     range.end_container = parent;
     range.end_offset = block_index as u32;
+    if forward {
+        return Ok(range);
+    }
     if !collapsed || block_index == 0 {
         return Ok(range);
     }
@@ -18633,6 +18711,31 @@ mod tests {
     }
 
     #[test]
+    fn forward_input_target_ranges_stop_before_following_nested_block() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<main id='editor' contenteditable>abc<br><br><div id='child'>def<br>ghi</div></main>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor'),child=document.getElementById('child'),selection=document.getSelection();selection.collapse(editor,2);const collapsed=new InputEvent('beforeinput',{inputType:'deleteContentForward'}).getTargetRanges()[0];selection.setBaseAndExtent(editor,2,child.firstChild,0);const selected=new InputEvent('beforeinput',{inputType:'deleteContentForward'}).getTargetRanges()[0];[collapsed.startContainer===editor,collapsed.startOffset,collapsed.endContainer===editor,collapsed.endOffset,selected.startContainer===editor,selected.startOffset,selected.endContainer===editor,selected.endOffset].join('|')",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "true|2|true|3|true|2|true|3");
+    }
+
+    #[test]
     fn block_boundary_deletion_preserves_adjacent_form_controls() {
         initialize_v8();
         let parsed = html::parse(
@@ -18770,7 +18873,7 @@ mod tests {
     fn forward_deletion_removes_empty_inline_before_nested_block() {
         initialize_v8();
         let parsed = html::parse(
-            "<main id='editor' contenteditable><b id='inline'><br></b><div id='child'>def<br>ghi</div></main>",
+            "<main id='editor' contenteditable><b id='inline'>\n</b><div id='child'>def<br>ghi</div></main>",
         );
         let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
         let mut isolate = v8::Isolate::new(Default::default());
@@ -18780,7 +18883,7 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "const editor=document.getElementById('editor'),inline=document.getElementById('inline'),selection=document.getSelection();selection.collapse(inline,0);document.execCommand('forwardDelete');document.execCommand('insertText',false,'X');editor.innerHTML",
+            "const editor=document.getElementById('editor'),inline=document.getElementById('inline'),selection=document.getSelection();editor.style.whiteSpace='pre';selection.collapse(inline.firstChild,0);const target=new InputEvent('beforeinput',{inputType:'deleteContentForward'}).getTargetRanges()[0];document.execCommand('forwardDelete');document.execCommand('insertText',false,'X');[editor.innerHTML,target.startContainer===editor,target.startOffset,target.endContainer===editor,target.endOffset].join('|')",
         )
         .unwrap();
         let result = v8::Script::compile(scope, source, None)
@@ -18788,7 +18891,7 @@ mod tests {
             .run(scope)
             .unwrap()
             .to_rust_string_lossy(scope);
-        assert_eq!(result, "<div id=\"child\">Xdef<br>ghi</div>");
+        assert_eq!(result, "<div id=\"child\">Xdef<br>ghi</div>|true|0|true|1");
     }
 
     #[test]
