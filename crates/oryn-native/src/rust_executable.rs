@@ -1734,7 +1734,9 @@ impl RustExecutableDocument {
         let mut node_realms = BTreeMap::new();
         let mut initial_frame_realms = Vec::new();
         for (frame_index, (frame, source)) in frame_sources.into_iter().enumerate() {
-            let Some(source) = source else { continue };
+            let Some(source) = source.filter(|source| !source.trim().is_empty()) else {
+                continue;
+            };
             let requested_url = base_url
                 .as_ref()
                 .and_then(|base| base.join(&source).ok())
@@ -1893,6 +1895,20 @@ impl RustExecutableDocument {
         }
         host.set_current_script(None)?;
         host.drain_async_fetches(true)?;
+        let parser_local_frames = {
+            let dom = live_dom.borrow();
+            dom.query_selector_all(dom.document(), "iframe")
+                .map_err(|error| HostError::Execution(error.to_string()))?
+                .into_iter()
+                .filter(|frame| {
+                    dom.attribute(*frame, "srcdoc")
+                        .is_ok_and(|value| value.is_some())
+                        || dom
+                            .attribute(*frame, "src")
+                            .is_ok_and(|value| value.is_none_or(|src| src.trim().is_empty()))
+                })
+                .collect::<Vec<_>>()
+        };
         let (dom, document) = live_dom.borrow().snapshot();
         let mut page = Self {
             document: ParsedDocument {
@@ -1915,6 +1931,11 @@ impl RustExecutableDocument {
             #[cfg(unix)]
             context: context_handle,
         };
+        for frame in parser_local_frames {
+            page.host.activate_realm(page.top_realm)?;
+            page.host.ensure_provisional_frame_window(frame)?;
+            page.host.schedule_dynamic_frame(frame)?;
+        }
         // Parser-discovered frame scripts are prepared before the remaining
         // parent scripts, but their lifecycle fires only after the parent has
         // had a chance to install message/load observers. Each child realm gets
@@ -3655,6 +3676,32 @@ mod tests {
             page.evaluate("document.querySelector('#result').textContent")
                 .unwrap(),
             "true|function"
+        );
+    }
+
+    #[test]
+    fn parser_srcdoc_iframe_enters_the_frame_scheduler() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<iframe id=frame srcdoc='<p id=inside>ready</p>'></iframe>
+            <output id=result>pending</output><script>
+            const frame=document.querySelector('#frame');
+            frame.addEventListener('load',()=>{
+              const child=frame.contentDocument;
+              const root=child.documentElement;
+              document.querySelector('#result').textContent=
+                child.querySelector('#inside').textContent+'|'+frame.contentWindow.origin+'|'+
+                String(root.ownerDocument===child)+'|'+String(root.getRootNode()===child);
+            });
+            </script>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("document.querySelector('#result').textContent")
+                .unwrap(),
+            "ready|https://frame.example.test|true|true"
         );
     }
 

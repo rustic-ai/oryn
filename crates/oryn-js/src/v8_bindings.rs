@@ -2106,6 +2106,12 @@ impl V8BindingState {
         self.pending_dynamic_frames.borrow_mut().drain(..).collect()
     }
 
+    pub fn schedule_dynamic_frame(&self, frame: NodeId) {
+        if self.prepared_frames.borrow_mut().insert(frame) {
+            self.pending_dynamic_frames.borrow_mut().push_back(frame);
+        }
+    }
+
     fn dynamic_script_candidates(&self, root: NodeId) -> Result<Vec<NodeId>, V8BindingError> {
         let candidates = {
             let dom = self.dom.borrow();
@@ -6740,8 +6746,10 @@ fn traversal_position(dom: &DomRuntime, node: NodeId) -> Result<usize, V8Binding
 }
 
 fn tree_root(dom: &DomRuntime, mut node: NodeId) -> Result<NodeId, V8BindingError> {
-    while !matches!(dom.arena().get(node)?.kind, NodeKind::ShadowRoot { .. })
-        && let Some(parent) = dom.parent(node)?
+    while !matches!(
+        dom.arena().get(node)?.kind,
+        NodeKind::Document | NodeKind::ShadowRoot { .. }
+    ) && let Some(parent) = dom.parent(node)?
     {
         node = parent;
     }
@@ -7749,12 +7757,14 @@ fn replace_selection_with_text(
         let end = nearest_editing_block(&dom, range.end_container, host).ok()?;
         (start != end).then_some((start, end))
     });
-    if compare_boundary_points(
+    let has_selection = compare_boundary_points(
         &state.dom.borrow(),
         (range.start_container, range.start_offset),
         (range.end_container, range.end_offset),
-    )? != 0
-    {
+    )? != 0;
+    let preserve_nested_caret =
+        has_selection && selection_ends_at_nested_block_start(state, &range)?;
+    if has_selection {
         range_contents(
             &mut state.dom.borrow_mut(),
             &range,
@@ -7791,8 +7801,16 @@ fn replace_selection_with_text(
         }
     }
     let mut point = BoundaryPoint {
-        container: range.start_container,
-        offset: range.start_offset,
+        container: if preserve_nested_caret {
+            range.end_container
+        } else {
+            range.start_container
+        },
+        offset: if preserve_nested_caret {
+            0
+        } else {
+            range.start_offset
+        },
     };
     if !replacement.is_empty() {
         let kind = state
@@ -8023,11 +8041,17 @@ fn merge_adjacent_editing_block(
             return Ok(false);
         };
         let sibling = if forward {
-            children.get(index + 1).copied()
+            children
+                .iter()
+                .skip(index + 1)
+                .copied()
+                .find(|candidate| !is_ignored_editing_sibling(&dom, *candidate))
         } else {
-            index
-                .checked_sub(1)
-                .and_then(|index| children.get(index).copied())
+            children[..index]
+                .iter()
+                .rev()
+                .copied()
+                .find(|candidate| !is_ignored_editing_sibling(&dom, *candidate))
         };
         (block, parent, sibling)
     };
@@ -8118,6 +8142,106 @@ fn merge_adjacent_editing_block(
     Ok(false)
 }
 
+fn is_ignored_editing_sibling(dom: &DomRuntime, node: NodeId) -> bool {
+    let Some(tag) = element_local_name(dom, node) else {
+        return false;
+    };
+    if matches!(tag, "meta" | "link" | "base" | "template") {
+        return true;
+    }
+    if !matches!(tag, "title" | "style" | "script") {
+        return false;
+    }
+    let display = dom
+        .arena()
+        .get(node)
+        .ok()
+        .and_then(|record| record.attributes.get("style"))
+        .map(|style| inline_style_entries(style))
+        .and_then(|mut declarations| declarations.remove("display"));
+    !display.is_some_and(|display| display.eq_ignore_ascii_case("block"))
+}
+
+fn remove_line_before_nested_block(
+    state: &V8BindingState,
+    container: NodeId,
+) -> Result<bool, V8BindingError> {
+    let Some(host) = editing_host(state)? else {
+        return Ok(false);
+    };
+    let block = nearest_editing_block(&state.dom.borrow(), container, host)?;
+    if block == host {
+        return Ok(false);
+    }
+    let (parent, preceding) = {
+        let dom = state.dom.borrow();
+        let Some(parent) = dom.parent(block)? else {
+            return Ok(false);
+        };
+        let children = light_children(&dom, parent)?;
+        let Some(index) = children.iter().position(|candidate| *candidate == block) else {
+            return Ok(false);
+        };
+        let preceding = index
+            .checked_sub(1)
+            .and_then(|index| children.get(index))
+            .copied();
+        (parent, preceding)
+    };
+    let Some(preceding) = preceding else {
+        return Ok(false);
+    };
+    if element_local_name(&state.dom.borrow(), preceding) == Some("br")
+        || (matches!(
+            state.dom.borrow().arena().get(preceding)?.kind,
+            NodeKind::Element { .. }
+        ) && node_is_placeholder_empty(&state.dom.borrow(), preceding)?)
+    {
+        state.dom.borrow_mut().remove_child(parent, preceding)?;
+        return Ok(true);
+    }
+    let trailing_break = traversal_nodes(&state.dom.borrow(), preceding)?
+        .into_iter()
+        .rev()
+        .find(|candidate| element_local_name(&state.dom.borrow(), *candidate) == Some("br"));
+    let trailing_break_owner = trailing_break
+        .map(|trailing_break| {
+            state
+                .dom
+                .borrow()
+                .parent(trailing_break)
+                .map(|owner| owner.map(|owner| (trailing_break, owner)))
+        })
+        .transpose()?
+        .flatten();
+    if let Some((trailing_break, owner)) = trailing_break_owner {
+        state.dom.borrow_mut().remove_child(owner, trailing_break)?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn selection_ends_at_nested_block_start(
+    state: &V8BindingState,
+    range: &RangeRecord,
+) -> Result<bool, V8BindingError> {
+    let Some(host) = editing_host(state)? else {
+        return Ok(false);
+    };
+    let dom = state.dom.borrow();
+    let block = nearest_editing_block(&dom, range.end_container, host)?;
+    if block == host || range.end_offset > 1 {
+        return Ok(false);
+    }
+    let first_text = traversal_nodes(&dom, block)?.into_iter().find(|candidate| {
+        matches!(
+            dom.arena().get(*candidate).map(|record| &record.kind),
+            Ok(NodeKind::Text { .. } | NodeKind::CDataSection { .. })
+        )
+    });
+    Ok(first_text == Some(range.end_container))
+}
+
 fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(), V8BindingError> {
     let Some(id) = state.selection_range.get() else {
         return Ok(());
@@ -8134,7 +8258,17 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
         (range.end_container, range.end_offset),
     )? != 0
     {
-        return replace_selection_with_text(state, "");
+        let preserve_nested_caret =
+            !forward && selection_ends_at_nested_block_start(state, &range)?;
+        replace_selection_with_text(state, "")?;
+        if preserve_nested_caret && state.dom.borrow().arena().get(range.end_container).is_ok() {
+            let point = BoundaryPoint {
+                container: range.end_container,
+                offset: 0,
+            };
+            set_selection_boundaries(state, point, point)?;
+        }
+        return Ok(());
     }
     let kind = state
         .dom
@@ -8146,6 +8280,14 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
     if let NodeKind::Text { data } | NodeKind::CDataSection { data } = kind {
         let (start, end) = utf16_delete_span(&data, range.start_offset, forward);
         if start == end {
+            if !forward && remove_line_before_nested_block(state, range.start_container)? {
+                let point = BoundaryPoint {
+                    container: range.start_container,
+                    offset: range.start_offset,
+                };
+                set_selection_boundaries(state, point, point)?;
+                return Ok(());
+            }
             return merge_adjacent_editing_block(state, range.start_container, forward).map(|_| ());
         }
         state.dom.borrow_mut().replace_character_data(
@@ -14519,6 +14661,14 @@ fn get_attribute_value<'s>(
     if interface == "Document" && member == "defaultView" {
         return Ok(scope.get_current_context().global(scope).into());
     }
+    if interface == "Document" && member == "location" {
+        let global = scope.get_current_context().global(scope);
+        let location =
+            v8::String::new(scope, "location").ok_or(V8BindingError::Allocation("location key"))?;
+        return global
+            .get(scope, location.into())
+            .ok_or(V8BindingError::Allocation("location object"));
+    }
     if interface == "Document" && matches!(member, "URL" | "baseURI") {
         let global = scope.get_current_context().global(scope);
         let location_key =
@@ -16821,9 +16971,7 @@ fn prepare_dynamic_frame_subtree(
         frames
     };
     for frame in frames {
-        if state.prepared_frames.borrow_mut().insert(frame) {
-            state.pending_dynamic_frames.borrow_mut().push_back(frame);
-        }
+        state.schedule_dynamic_frame(frame);
     }
     Ok(())
 }
@@ -18336,13 +18484,13 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "globalThis.location={href:'https://fixture.test/app'};const button=document.getElementById('go');let events='';button.onfocus=()=>events+='focus';button.onblur=()=>events+=':blur';button.focus();const focused=document.activeElement===button;button.scrollIntoView();button.blur();document.URL+'|'+document.baseURI+'|'+focused+'|'+(document.activeElement===null)+'|'+events",
+            "globalThis.location={href:'https://fixture.test/app'};const button=document.getElementById('go');let events='';button.onfocus=()=>events+='focus';button.onblur=()=>events+=':blur';button.focus();const focused=document.activeElement===button;button.scrollIntoView();button.blur();document.URL+'|'+document.baseURI+'|'+(document.location===location)+'|'+focused+'|'+(document.activeElement===null)+'|'+events",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
-            "https://fixture.test/app|https://fixture.test/app|true|true|focus:blur"
+            "https://fixture.test/app|https://fixture.test/app|true|true|true|focus:blur"
         );
     }
 

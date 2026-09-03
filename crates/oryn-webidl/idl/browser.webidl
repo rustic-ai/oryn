@@ -384,6 +384,7 @@ interface Document : Node {
   readonly attribute DOMImplementation implementation;
   readonly attribute DOMString URL;
   readonly attribute DOMString baseURI;
+  readonly attribute any location;
   attribute DOMString cookie;
   readonly attribute any defaultView;
   readonly attribute HTMLElement? documentElement;

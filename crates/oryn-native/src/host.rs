@@ -1018,6 +1018,14 @@ mod raw_v8 {
             Ok(())
         }
 
+        pub fn schedule_dynamic_frame(&mut self, frame: NodeId) -> Result<(), HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
+                .schedule_dynamic_frame(frame);
+            Ok(())
+        }
+
         fn link_frame_realm(
             &mut self,
             frame: NodeId,

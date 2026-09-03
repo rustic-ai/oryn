@@ -624,7 +624,18 @@ def run_case(
         except (json.JSONDecodeError, IndexError):
             trace = trace_path.read_text(errors="replace") if trace_path.exists() else ""
             probe = subprocess.run(
-                [str(binary), *native, "--url", url, "--evaluate", "typeof add_completion_callback+'|'+typeof test+'|messages='+JSON.stringify(globalThis.__oryn_message_log||[])+'|'+document.documentElement.outerHTML"],
+                [
+                    str(binary),
+                    *native,
+                    "--url",
+                    url,
+                    "--evaluate",
+                    "typeof add_completion_callback+'|'+typeof test"
+                    "+'|results='+JSON.stringify(globalThis.__oryn_wpt_results||[])"
+                    "+'|messages='+JSON.stringify(globalThis.__oryn_message_log||[])"
+                    "+'|frames='+JSON.stringify([...document.querySelectorAll('iframe')].map(frame=>{try{return {srcdoc:frame.srcdoc,document:frame.contentDocument?.documentElement?.outerHTML||null,origin:frame.contentWindow?.origin||null}}catch(error){return {error:String(error)}}}))"
+                    "+'|document='+document.documentElement.outerHTML",
+                ],
                 cwd=ROOT, text=True, capture_output=True, timeout=timeout,
             )
             detail = bounded_diagnostic(
