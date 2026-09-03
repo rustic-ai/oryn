@@ -1959,7 +1959,7 @@ impl RustExecutableDocument {
         for realm in initial_frame_realms {
             page.host.activate_realm(realm)?;
             page.host.execute(
-                "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
+                "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
             )?;
             // A frame's load task may schedule the zero-delay completion task
             // used by testharness and by application bootstraps. Run timers
@@ -1981,7 +1981,7 @@ impl RustExecutableDocument {
         page.host.drain_scheduled_timers(false)?;
         page.checkpoint()?;
         page.host.execute(
-            "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
+            "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
         )?;
         page.host.drain_scheduled_timers(false)?;
         page.checkpoint()?;
@@ -2813,7 +2813,7 @@ impl RustExecutableDocument {
                 self.host.activate_realm(self.top_realm)?;
                 self.host.activate_realm(realm)?;
                 self.host.execute(
-                "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
+                "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
             ).map_err(|error| HostError::Execution(format!("dynamic frame lifecycle: {error}")))?;
                 self.host.activate_realm(self.top_realm)?;
                 self.host
@@ -3404,13 +3404,13 @@ mod tests {
     #[test]
     fn lifecycle_events_run_after_parser_inserted_scripts() {
         let page = RustExecutableDocument::load(
-            "<output id=state>initial</output><script>document.addEventListener('DOMContentLoaded',()=>document.querySelector('#state').textContent+='|dom');addEventListener('load',()=>document.querySelector('#state').textContent+='|load')</script>",
+            "<output id=state>initial</output><script>document.addEventListener('DOMContentLoaded',()=>document.querySelector('#state').textContent+='|document-dom');addEventListener('DOMContentLoaded',()=>document.querySelector('#state').textContent+='|window-dom');addEventListener('load',()=>document.querySelector('#state').textContent+='|load')</script>",
         )
         .unwrap();
         let state = page.node_by_id("state").unwrap();
         assert_eq!(
             page.document.dom.text_content(state).unwrap(),
-            "initial|dom|load"
+            "initial|document-dom|window-dom|load"
         );
     }
 

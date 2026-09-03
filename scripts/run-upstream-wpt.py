@@ -241,9 +241,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             # filesystem or generic automation operation: these calls reach
             # generated DOM behavior and explicitly authorized upload payloads.
             body = b"""'use strict';
-window.test_driver_internal.click = element => __oryn_testdriver_click(element);
-window.test_driver_internal.send_keys = (element, keys) => __oryn_testdriver_send_keys(element, keys);
-window.test_driver_internal.action_sequence = actions => __oryn_testdriver_actions(actions, document.activeElement);
+window.__oryn_testdriver_log = [];
+const __oryn_testdriver_public_click = window.test_driver.click.bind(window.test_driver);
+window.test_driver.click = element => { __oryn_testdriver_log.push({operation:'public_click_start',target:element && (element.id || element.tagName)}); try { const result=__oryn_testdriver_public_click(element); Promise.resolve(result).then(()=>__oryn_testdriver_log.push({operation:'public_click_resolved'}),error=>__oryn_testdriver_log.push({operation:'public_click_rejected',error:String(error)})); return result; } catch(error) { __oryn_testdriver_log.push({operation:'public_click_threw',error:String(error)}); throw error; } };
+window.test_driver_internal.click = element => { __oryn_testdriver_log.push({operation:'click',target:element && (element.id || element.tagName)}); return __oryn_testdriver_click(element); };
+window.test_driver_internal.send_keys = (element, keys) => { __oryn_testdriver_log.push({operation:'send_keys',target:element && (element.id || element.tagName),keys:String(keys)}); return __oryn_testdriver_send_keys(element, keys); };
+window.test_driver_internal.action_sequence = actions => { __oryn_testdriver_log.push({operation:'actions',count:Array.isArray(actions)?actions.length:0}); return __oryn_testdriver_actions(actions, document.activeElement); };
 """
             self._send_bytes(body, "application/javascript; charset=utf-8")
             return
@@ -633,6 +636,7 @@ def run_case(
                     "typeof add_completion_callback+'|'+typeof test"
                     "+'|results='+JSON.stringify(globalThis.__oryn_wpt_results||[])"
                     "+'|messages='+JSON.stringify(globalThis.__oryn_message_log||[])"
+                    "+'|driver='+JSON.stringify(globalThis.__oryn_testdriver_log||[])"
                     "+'|frames='+JSON.stringify([...document.querySelectorAll('iframe')].map(frame=>{try{return {srcdoc:frame.srcdoc,document:frame.contentDocument?.documentElement?.outerHTML||null,origin:frame.contentWindow?.origin||null}}catch(error){return {error:String(error)}}}))"
                     "+'|document='+document.documentElement.outerHTML",
                 ],
