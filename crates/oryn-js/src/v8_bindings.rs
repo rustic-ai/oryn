@@ -617,6 +617,7 @@ pub struct V8BindingState {
     selection_focus: Cell<Option<BoundaryPoint>>,
     selection_revision: Cell<u64>,
     delivered_selection_revision: Cell<u64>,
+    text_control_selections: RefCell<BTreeMap<NodeId, (u32, u32, String)>>,
     selection_object: RefCell<Option<v8::Global<v8::Object>>>,
     implementation_object: RefCell<Option<v8::Global<v8::Object>>>,
     history: RefCell<Option<HistoryRecord>>,
@@ -2307,6 +2308,7 @@ pub fn install_generated_bindings_with_root_for_global(
         selection_focus: Cell::new(None),
         selection_revision: Cell::new(0),
         delivered_selection_revision: Cell::new(0),
+        text_control_selections: RefCell::new(BTreeMap::new()),
         selection_object: RefCell::new(None),
         implementation_object: RefCell::new(None),
         history: RefCell::new(None),
@@ -15235,6 +15237,30 @@ fn get_attribute_value<'s>(
                 .unwrap_or(""),
         )?,
         (
+            "HTMLInputElement" | "HTMLTextAreaElement",
+            "selectionStart" | "selectionEnd" | "selectionDirection",
+        ) => {
+            let length = dom
+                .value(node)?
+                .or_else(|| record.attributes.get("value").map(String::as_str))
+                .unwrap_or("")
+                .encode_utf16()
+                .count() as u32;
+            let mut selection = state
+                .text_control_selections
+                .borrow()
+                .get(&node)
+                .cloned()
+                .unwrap_or_else(|| (length, length, "none".into()));
+            selection.0 = selection.0.min(length);
+            selection.1 = selection.1.min(length).max(selection.0);
+            match member {
+                "selectionStart" => v8::Integer::new_from_unsigned(scope, selection.0).into(),
+                "selectionEnd" => v8::Integer::new_from_unsigned(scope, selection.1).into(),
+                _ => v8_string(scope, &selection.2)?,
+            }
+        }
+        (
             interface,
             "checked" | "defaultChecked" | "selected" | "defaultSelected" | "disabled" | "readOnly"
             | "required" | "multiple",
@@ -15478,10 +15504,54 @@ fn set_attribute_value(
             }
         }
         (interface, "value") if interface.starts_with("HTML") => {
-            dom.set_value(node, value, false)?
+            dom.set_value(node, value.clone(), false)?;
+            if matches!(interface, "HTMLInputElement" | "HTMLTextAreaElement") {
+                let length = value.encode_utf16().count() as u32;
+                state
+                    .text_control_selections
+                    .borrow_mut()
+                    .insert(node, (length, length, "none".into()));
+            }
         }
         (interface, "defaultValue") if interface.starts_with("HTML") => {
             dom.set_attribute(node, "value", value)?
+        }
+        (
+            "HTMLInputElement" | "HTMLTextAreaElement",
+            "selectionStart" | "selectionEnd" | "selectionDirection",
+        ) => {
+            let length = dom
+                .value(node)?
+                .or_else(|| dom.attribute(node, "value").ok().flatten())
+                .unwrap_or("")
+                .encode_utf16()
+                .count() as u32;
+            let mut selections = state.text_control_selections.borrow_mut();
+            let selection = selections
+                .entry(node)
+                .or_insert_with(|| (length, length, "none".into()));
+            match member {
+                "selectionStart" => {
+                    let start = value.parse::<u32>().unwrap_or(0).min(length);
+                    selection.0 = start;
+                    if selection.1 < start {
+                        selection.1 = start;
+                    }
+                }
+                "selectionEnd" => {
+                    let end = value.parse::<u32>().unwrap_or(0).min(length);
+                    selection.1 = end;
+                    if selection.0 > end {
+                        selection.0 = end;
+                    }
+                }
+                _ => {
+                    selection.2 = match value.as_str() {
+                        "forward" | "backward" => value,
+                        _ => "none".into(),
+                    };
+                }
+            }
         }
         (
             interface,
@@ -16877,18 +16947,48 @@ fn call_operation<'s>(
         }
         ("HTMLInputElement" | "HTMLTextAreaElement", "select") => {
             state.dom.borrow_mut().focus(Some(node))?;
-            let length = state
-                .dom
-                .borrow()
-                .value(node)?
-                .unwrap_or_default()
-                .encode_utf16()
-                .count() as u32;
+            let length = {
+                let dom = state.dom.borrow();
+                dom.value(node)?
+                    .or(dom.attribute(node, "value")?)
+                    .unwrap_or_default()
+                    .encode_utf16()
+                    .count() as u32
+            };
+            state
+                .text_control_selections
+                .borrow_mut()
+                .insert(node, (0, length, "none".into()));
             let wrapper = wrap_node(scope, state, node)?;
             let start = v8::Integer::new_from_unsigned(scope, 0);
             set_object_property(scope, wrapper, "__oryn_selection_start", start.into())?;
             let end = v8::Integer::new_from_unsigned(scope, length);
             set_object_property(scope, wrapper, "__oryn_selection_end", end.into())?;
+            Ok(None)
+        }
+        ("HTMLInputElement" | "HTMLTextAreaElement", "setSelectionRange") => {
+            let length = {
+                let dom = state.dom.borrow();
+                dom.value(node)?
+                    .or(dom.attribute(node, "value")?)
+                    .unwrap_or_default()
+                    .encode_utf16()
+                    .count() as u32
+            };
+            let mut start = args.get(0).uint32_value(scope).unwrap_or(0);
+            let end = args.get(1).uint32_value(scope).unwrap_or(0);
+            let end = end.min(length);
+            start = start.min(end);
+            let direction = args
+                .get(2)
+                .to_string(scope)
+                .map(|value| value.to_rust_string_lossy(scope))
+                .filter(|value| matches!(value.as_str(), "forward" | "backward"))
+                .unwrap_or_else(|| "none".into());
+            state
+                .text_control_selections
+                .borrow_mut()
+                .insert(node, (start, end, direction));
             Ok(None)
         }
         ("HTMLElement", "blur") => {
@@ -18329,6 +18429,29 @@ mod tests {
             result,
             "<div id=\"first\">First blockSecond block</div><span id=\"second\"><select style=\"visibility:hidden\"></select></span>"
         );
+    }
+
+    #[test]
+    fn generated_text_control_selection_apis_share_rust_state() {
+        initialize_v8();
+        let parsed = html::parse("<input id='control' value='text'>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const control=document.getElementById('control'),result=[control.selectionStart,control.selectionEnd,control.selectionDirection];control.setSelectionRange(1,3,'backward');result.push(control.selectionStart,control.selectionEnd,control.selectionDirection);control.selectionStart=4;result.push(control.selectionStart,control.selectionEnd);control.select();result.push(control.selectionStart,control.selectionEnd);result.join('|')",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "4|4|none|1|3|backward|4|4|0|4");
     }
 
     #[test]

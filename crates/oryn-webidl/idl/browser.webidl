@@ -311,7 +311,11 @@ interface HTMLInputElement : HTMLElement {
   attribute boolean disabled;
   attribute boolean readOnly;
   attribute boolean required;
+  attribute unsigned long? selectionStart;
+  attribute unsigned long? selectionEnd;
+  attribute DOMString? selectionDirection;
   undefined select();
+  undefined setSelectionRange(unsigned long start, unsigned long end, optional DOMString direction = "none");
 };
 
 [Exposed=Window]
@@ -322,7 +326,11 @@ interface HTMLTextAreaElement : HTMLElement {
   attribute boolean disabled;
   attribute boolean readOnly;
   attribute boolean required;
+  attribute unsigned long? selectionStart;
+  attribute unsigned long? selectionEnd;
+  attribute DOMString? selectionDirection;
   undefined select();
+  undefined setSelectionRange(unsigned long start, unsigned long end, optional DOMString direction = "none");
 };
 
 [Exposed=Window]
