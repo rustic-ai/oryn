@@ -7352,9 +7352,15 @@ fn editing_host_for_node(
     document: NodeId,
 ) -> Result<Option<NodeId>, V8BindingError> {
     let mut host = None;
+    let mut enclosing_document_element = None;
     let mut crossed_shadow_boundary = false;
     while let Some(node) = current {
         let record = dom.arena().get(node)?;
+        if enclosing_document_element.is_none()
+            && matches!(&record.kind, NodeKind::Element { name } if name.local.as_ref() == "html")
+        {
+            enclosing_document_element = Some(node);
+        }
         if matches!(record.kind, NodeKind::ShadowRoot { .. }) {
             crossed_shadow_boundary = true;
         }
@@ -7376,11 +7382,7 @@ fn editing_host_for_node(
     // into an attached shadow tree. A shadow tree must declare its own
     // contenteditable host.
     if host.is_none() && design_mode && !crossed_shadow_boundary {
-        host = dom
-            .query_selector_all(document, "body")?
-            .first()
-            .copied()
-            .or(Some(document));
+        host = enclosing_document_element.or(Some(document));
     }
     Ok(host)
 }
@@ -7919,6 +7921,30 @@ fn is_editing_block(dom: &DomRuntime, node: NodeId) -> bool {
     )
 }
 
+fn is_mergeable_editing_sibling(dom: &DomRuntime, node: NodeId) -> bool {
+    if is_editing_block(dom, node) {
+        return true;
+    }
+    matches!(
+        dom.arena().get(node).map(|record| &record.kind),
+        Ok(NodeKind::Element { .. })
+    ) && !matches!(
+        element_local_name(dom, node),
+        Some(
+            "html"
+                | "head"
+                | "body"
+                | "meta"
+                | "link"
+                | "base"
+                | "template"
+                | "title"
+                | "style"
+                | "script"
+        )
+    )
+}
+
 fn nearest_editing_block(
     dom: &DomRuntime,
     mut node: NodeId,
@@ -8164,6 +8190,197 @@ fn utf16_delete_span(data: &str, offset: u32, forward: bool) -> (u32, u32) {
     }
 }
 
+fn document_root_editing_unit(
+    dom: &DomRuntime,
+    mut node: NodeId,
+    host: NodeId,
+) -> Result<Option<NodeId>, V8BindingError> {
+    loop {
+        let tag = element_local_name(dom, node);
+        if is_editing_block(dom, node)
+            || tag == Some("body")
+            || matches!(tag, Some("title" | "style" | "script"))
+        {
+            return Ok(Some(node));
+        }
+        if node == host {
+            return Ok(None);
+        }
+        let Some(parent) = dom.parent(node)? else {
+            return Ok(None);
+        };
+        node = parent;
+    }
+}
+
+fn collect_document_root_editing_units(
+    dom: &DomRuntime,
+    node: NodeId,
+    units: &mut Vec<NodeId>,
+) -> Result<(), V8BindingError> {
+    let tag = element_local_name(dom, node);
+    if is_editing_block(dom, node) {
+        units.push(node);
+        return Ok(());
+    }
+    if matches!(tag, Some("title" | "style" | "script")) {
+        if !is_ignored_editing_sibling(dom, node) {
+            units.push(node);
+        }
+        return Ok(());
+    }
+    if tag == Some("body") {
+        let children = light_children(dom, node)?;
+        let contains_block = children.iter().any(|child| {
+            traversal_nodes(dom, *child).is_ok_and(|nodes| {
+                nodes
+                    .into_iter()
+                    .any(|candidate| is_editing_block(dom, candidate))
+            })
+        });
+        if !contains_block {
+            units.push(node);
+            return Ok(());
+        }
+    }
+    for child in light_children(dom, node)? {
+        collect_document_root_editing_units(dom, child, units)?;
+    }
+    Ok(())
+}
+
+fn has_ancestor_element_before(
+    dom: &DomRuntime,
+    mut node: NodeId,
+    tag: &str,
+    boundary: NodeId,
+) -> bool {
+    loop {
+        if element_local_name(dom, node) == Some(tag) {
+            return true;
+        }
+        if node == boundary {
+            return false;
+        }
+        let Ok(Some(parent)) = dom.parent(node) else {
+            return false;
+        };
+        node = parent;
+    }
+}
+
+fn merge_document_root_editing_boundary(
+    state: &V8BindingState,
+    container: NodeId,
+    host: NodeId,
+    forward: bool,
+) -> Result<bool, V8BindingError> {
+    if element_local_name(&state.dom.borrow(), host) != Some("html") {
+        return Ok(false);
+    }
+    let (current, adjacent) = {
+        let dom = state.dom.borrow();
+        let Some(current) = document_root_editing_unit(&dom, container, host)? else {
+            return Ok(false);
+        };
+        let mut units = Vec::new();
+        collect_document_root_editing_units(&dom, host, &mut units)?;
+        let Some(index) = units.iter().position(|candidate| *candidate == current) else {
+            return Ok(false);
+        };
+        let adjacent = if forward {
+            units.get(index + 1).copied()
+        } else {
+            index
+                .checked_sub(1)
+                .and_then(|index| units.get(index))
+                .copied()
+        };
+        (current, adjacent)
+    };
+    let Some(adjacent) = adjacent else {
+        return Ok(false);
+    };
+    let (left, right) = if forward {
+        (current, adjacent)
+    } else {
+        (adjacent, current)
+    };
+    {
+        let dom = state.dom.borrow();
+        if !matches!(element_local_name(&dom, left), Some("body")) && !is_editing_block(&dom, left)
+            || !matches!(element_local_name(&dom, right), Some("body"))
+                && !is_editing_block(&dom, right)
+        {
+            return Ok(false);
+        }
+    }
+
+    let destination = {
+        let dom = state.dom.borrow();
+        let left_in_body = has_ancestor_element_before(&dom, left, "body", host);
+        let right_in_body = has_ancestor_element_before(&dom, right, "body", host);
+        if right_in_body && !left_in_body {
+            right
+        } else {
+            left
+        }
+    };
+    let source = if destination == left { right } else { left };
+    let destination_was_empty = node_is_placeholder_empty(&state.dom.borrow(), destination)?;
+    let source_was_empty = node_is_placeholder_empty(&state.dom.borrow(), source)?;
+    let destination_children = light_children(&state.dom.borrow(), destination)?;
+    let source_children = light_children(&state.dom.borrow(), source)?;
+    let caret_offset = if destination == left {
+        editing_caret_end(&state.dom.borrow(), destination)?
+    } else {
+        source_children
+            .iter()
+            .filter(|child| !is_preserved_editing_boundary(&state.dom.borrow(), **child))
+            .count() as u32
+    };
+    let moving = source_children
+        .into_iter()
+        .filter(|child| !is_preserved_editing_boundary(&state.dom.borrow(), *child))
+        .collect::<Vec<_>>();
+    {
+        let mut dom = state.dom.borrow_mut();
+        if destination_was_empty {
+            for child in destination_children {
+                if element_local_name(&dom, child) == Some("br") {
+                    dom.remove_child(destination, child)?;
+                }
+            }
+        }
+        if destination == left {
+            for child in moving {
+                dom.append_child(destination, child)?;
+            }
+        } else {
+            let before = light_children(&dom, destination)?.first().copied();
+            for child in moving {
+                dom.insert_before(destination, child, before)?;
+            }
+        }
+        if (source_was_empty || light_children(&dom, source)?.is_empty())
+            && element_local_name(&dom, source) != Some("body")
+            && let Some(parent) = dom.parent(source)?
+        {
+            dom.remove_child(parent, source)?;
+        }
+    }
+    let point = if node_is_placeholder_empty(&state.dom.borrow(), destination)? {
+        editing_placeholder_caret(&state.dom.borrow(), destination)?
+    } else {
+        BoundaryPoint {
+            container: destination,
+            offset: caret_offset.min(boundary_length(&state.dom.borrow(), destination)?),
+        }
+    };
+    set_selection_boundaries(state, point, point)?;
+    Ok(true)
+}
+
 fn merge_adjacent_editing_block(
     state: &V8BindingState,
     container: NodeId,
@@ -8176,7 +8393,8 @@ fn merge_adjacent_editing_block(
         let dom = state.dom.borrow();
         let block = nearest_editing_block(&dom, container, host)?;
         if block == host {
-            return Ok(false);
+            drop(dom);
+            return merge_document_root_editing_boundary(state, container, host, forward);
         }
         let Some(parent) = dom.parent(block)? else {
             return Ok(false);
@@ -8221,6 +8439,7 @@ fn merge_adjacent_editing_block(
             state.dom.borrow().arena().get(sibling)?.kind,
             NodeKind::Element { .. }
         )
+        && is_mergeable_editing_sibling(&state.dom.borrow(), sibling)
     {
         let (destination, source) = if forward {
             (block, sibling)
@@ -8240,7 +8459,13 @@ fn merge_adjacent_editing_block(
         {
             let mut dom = state.dom.borrow_mut();
             for separator in ignored {
-                dom.remove_child(parent, separator)?;
+                if matches!(
+                    dom.arena().get(separator).map(|record| &record.kind),
+                    Ok(NodeKind::Text { data } | NodeKind::CDataSection { data })
+                        if data.trim().is_empty()
+                ) {
+                    dom.remove_child(parent, separator)?;
+                }
             }
             for child in moving {
                 dom.append_child(destination, child)?;
@@ -8310,7 +8535,7 @@ fn merge_adjacent_editing_block(
         set_selection_boundaries(state, point, point)?;
         return Ok(true);
     }
-    Ok(false)
+    merge_document_root_editing_boundary(state, container, host, forward)
 }
 
 fn is_ignored_editing_sibling(dom: &DomRuntime, node: NodeId) -> bool {
@@ -8473,13 +8698,32 @@ fn remove_line_before_nested_block(
         || (matches!(
             state.dom.borrow().arena().get(preceding)?.kind,
             NodeKind::Element { .. }
-        ) && node_is_placeholder_empty(&state.dom.borrow(), preceding)?)
+        ) && is_mergeable_editing_sibling(&state.dom.borrow(), preceding)
+            && node_is_placeholder_empty(&state.dom.borrow(), preceding)?)
     {
         state.dom.borrow_mut().remove_child(parent, preceding)?;
         return Ok(true);
     }
-    let trailing_break = traversal_nodes(&state.dom.borrow(), preceding)?
+    let preceding_can_own_editable_line = !matches!(
+        element_local_name(&state.dom.borrow(), preceding),
+        Some(
+            "html"
+                | "head"
+                | "body"
+                | "meta"
+                | "link"
+                | "base"
+                | "template"
+                | "title"
+                | "style"
+                | "script"
+        )
+    );
+    let trailing_break = preceding_can_own_editable_line
+        .then(|| traversal_nodes(&state.dom.borrow(), preceding))
+        .transpose()?
         .into_iter()
+        .flatten()
         .rev()
         .find(|candidate| element_local_name(&state.dom.borrow(), *candidate) == Some("br"));
     let trailing_break_owner = trailing_break
@@ -18789,6 +19033,84 @@ mod tests {
             result,
             "<div id=\"first\">First blockSecond block</div><div id=\"second\"><select style=\"visibility:hidden\"></select></div>"
         );
+    }
+
+    #[test]
+    fn block_merge_preserves_invisible_metadata_and_visible_nonblocks() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<main id='editor' contenteditable><div id='first'>abc</div><div id='second'>def</div></main>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor'),selection=document.getSelection();let second=document.getElementById('second');editor.insertBefore(document.createElement('meta'),second);const before=editor.innerHTML;selection.collapse(second.firstChild,0);const executed=document.execCommand('delete');const metadata=editor.innerHTML;editor.innerHTML='<div id=first>abc</div><style style=\"display:block\">x</style><div id=second>def</div>';const first=document.getElementById('first');selection.collapse(first.firstChild,3);document.execCommand('forwardDelete');const visible=editor.innerHTML,title=document.createElement('title');title.innerHTML='abc';title.setAttribute('style','display:block');document.head.appendChild(title);const styledTitle=title.outerHTML;title.removeAttribute('style');before+'|'+executed+'|'+metadata+'|'+visible+'|'+styledTitle+'|'+title.outerHTML",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            result,
+            "<div id=\"first\">abc</div><meta><div id=\"second\">def</div>|true|<div id=\"first\">abcdef</div><meta>|<div id=\"first\">abc</div><style style=\"display:block\">x</style><div id=\"second\">def</div>|<title style=\"display:block\">abc</title>|<title>abc</title>"
+        );
+    }
+
+    #[test]
+    fn document_root_block_merges_prefer_the_body_and_preserve_the_head() {
+        initialize_v8();
+        let parsed = html::parse("<title>fixture</title><body><br></body>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const root=document.documentElement,selection=document.getSelection();root.setAttribute('contenteditable','');const left=document.createElement('div');left.textContent='abc';document.body.innerHTML='<div id=right>def</div>';root.insertBefore(left,document.body);selection.collapse(document.getElementById('right').firstChild,0);document.execCommand('delete');const merged=root.innerHTML;root.removeAttribute('contenteditable');document.body.textContent='def';const keep=document.createElement('div');keep.id='keep';keep.textContent='abc';root.insertBefore(keep,document.body);document.designMode='on';selection.collapse(keep.firstChild,0);document.execCommand('delete');merged+'|'+root.innerHTML",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            result,
+            "<head><title>fixture</title></head><body><div id=\"right\">abcdef</div></body>|<head><title>fixture</title></head><div id=\"keep\">abc</div><body>def</body>"
+        );
+    }
+
+    #[test]
+    fn body_ancestor_search_stops_at_the_current_document_element() {
+        let parsed = html::parse("<body><iframe id='frame'></iframe></body>");
+        let mut dom = parsed.into_runtime().unwrap();
+        let frame = dom
+            .query_selector(dom.document(), "#frame")
+            .unwrap()
+            .unwrap();
+        let child_html = dom.create_element("html");
+        let child_body = dom.create_element("body");
+        let inside = dom.create_element("div");
+        let outside = dom.create_element("div");
+        dom.append_child(frame, child_html).unwrap();
+        dom.append_child(child_html, outside).unwrap();
+        dom.append_child(child_html, child_body).unwrap();
+        dom.append_child(child_body, inside).unwrap();
+        assert!(!has_ancestor_element_before(
+            &dom, outside, "body", child_html
+        ));
+        assert!(has_ancestor_element_before(
+            &dom, inside, "body", child_html
+        ));
     }
 
     #[test]

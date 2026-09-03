@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "project": "web-platform-tests/wpt",
+    "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+  },
+  "policy": "Exclude only the named internal assertion when the pinned source hash and source predicate both match. Preserve the raw WPT result.",
+  "defects": [
+    {
+      "id": "editing-head-title-attribute-typo",
+      "path": "editing/other/delete-in-child-of-head.tentative.html",
+      "source_sha256": "ce295c88867b4a687d228ff242d37f885bef86f1b79a0f85b53d44c9744bfb2a",
+      "variants": [
+        "?designMode=off&method=backspace",
+        "?designMode=off&method=forwarddelete",
+        "?designMode=on&method=backspace",
+        "?designMode=on&method=forwarddelete"
+      ],
+      "assertion_name_contains": "at boundary of <title> and <div> in <head> should not join them",
+      "source_predicates": [
+        "title.setAttribute(\"title\", \"display:block\")",
+        "title.removeAttribute(\"style\")"
+      ],
+      "reason": "The tentative test sets the title attribute, removes a different style attribute, then expects neither attribute. Preserving title=display:block is correct DOM behavior."
+    },
+    {
+      "id": "editing-html-numeric-xor-assert-true",
+      "path": "editing/other/delete-in-child-of-html.tentative.html",
+      "source_sha256": "3b7d6774177fef303486781ab7baa1a5ca209c76578f615c06aaf1cba8bb196b",
+      "variants": [
+        "?designMode=off&method=backspace",
+        "?designMode=off&method=forwarddelete",
+        "?designMode=on&method=backspace",
+        "?designMode=on&method=forwarddelete"
+      ],
+      "assertion_name_contains": "from <div> around invisible <head> element should not delete the <head>",
+      "source_predicates": [
+        "assert_true(\n    div1.isConnected ^ div2.isConnected,"
+      ],
+      "reason": "JavaScript bitwise XOR returns numeric 1, while testharness assert_true requires boolean true. The preceding DOM assertion passes and exactly one div remains connected."
+    }
+  ]
+}

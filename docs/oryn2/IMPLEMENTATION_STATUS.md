@@ -161,8 +161,13 @@ rewrite those historical payloads or present them as a new validation run.
   harness-completion failures.
   File selection now exposes real `File` objects through the parent-owned upload path, and the
   focused upload geometry case passes with generated `getClientRects`. A
-  comparable non-EditContext editing shard improves from 5/40 to 32/40 after
-  expanding declared HTML variants correctly. Focused deletion,
+  comparable non-EditContext editing shard now passes 40/40 after narrowly
+  excluding eight invalid assertions from two tentative upstream files through
+  a revision-, source-hash-, variant-, assertion-name-, and source-predicate-
+  checked defect ledger. The untouched raw result remains 32/40: four
+  assertions set `title` but remove `style` before expecting no attribute, and
+  four pass numeric bitwise-XOR output to strict `assert_true`. All 564 valid
+  internal assertions pass. Focused deletion,
   contenteditable-boundary deletion, split-attribute cloning, moved-node undo,
   definition-list/list flattening, copy/paste across a non-editable boundary,
   End-key behavior, and open/closed shadow-root designMode isolation now pass;
@@ -170,9 +175,13 @@ rewrite those historical payloads or present them as a new validation run.
   CSS-variable clipboard materialization, window-level `DOMContentLoaded`,
   parser-time viewport exposure, Window named-element access, and
   block-boundary deletion around hidden form controls now pass their exact
-  upstream cases. The WPT automation adapter preserves the constructable
-  `test_driver.click` shape used by the pinned legacy cases. The broader shard
-  remains red only on eight tentative head/HTML deletion variants. Generated
+  upstream cases. Cross-container deletion preserves invisible metadata,
+  protects visible title/style/script boundaries, merges normal blocks across
+  head/body boundaries, prefers the body-owned destination, and stops ancestor
+  resolution at the current frame document element. The WPT automation adapter preserves the constructable
+  `test_driver.click` shape used by the pinned legacy cases. The former eight
+  tentative head/HTML variant failures contain no remaining valid engine
+  assertion failure; their raw failures are the pinned defects above. Generated
   `CSSStyleDeclaration.whiteSpace` behavior
   now routes through Rust and closes the backward preformatted nested-block
   variants. Forward command deletion now removes a final separator, preserves
