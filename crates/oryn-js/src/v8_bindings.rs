@@ -8054,7 +8054,7 @@ fn merge_adjacent_editing_block(
     let Some(host) = editing_host(state)? else {
         return Ok(false);
     };
-    let (block, parent, sibling) = {
+    let (block, parent, sibling, ignored) = {
         let dom = state.dom.borrow();
         let block = nearest_editing_block(&dom, container, host)?;
         if block == host {
@@ -8067,24 +8067,42 @@ fn merge_adjacent_editing_block(
         let Some(index) = children.iter().position(|node| *node == block) else {
             return Ok(false);
         };
-        let sibling = if forward {
+        let sibling_index = if forward {
             children
                 .iter()
+                .enumerate()
                 .skip(index + 1)
-                .copied()
-                .find(|candidate| !is_ignored_editing_sibling(&dom, *candidate))
+                .find(|(_, candidate)| !is_ignored_editing_sibling(&dom, **candidate))
+                .map(|(index, _)| index)
         } else {
             children[..index]
                 .iter()
+                .enumerate()
                 .rev()
-                .copied()
-                .find(|candidate| !is_ignored_editing_sibling(&dom, *candidate))
+                .find(|(_, candidate)| !is_ignored_editing_sibling(&dom, **candidate))
+                .map(|(index, _)| index)
         };
-        (block, parent, sibling)
+        let sibling = sibling_index.map(|index| children[index]);
+        let ignored = sibling_index.map_or_else(Vec::new, |sibling_index| {
+            let range = if forward {
+                index + 1..sibling_index
+            } else {
+                sibling_index + 1..index
+            };
+            children[range]
+                .iter()
+                .copied()
+                .filter(|candidate| is_ignored_editing_sibling(&dom, *candidate))
+                .collect()
+        });
+        (block, parent, sibling, ignored)
     };
     if let Some(sibling) = sibling
         && state.dom.borrow().arena().get(sibling).is_ok()
-        && is_editing_block(&state.dom.borrow(), sibling)
+        && matches!(
+            state.dom.borrow().arena().get(sibling)?.kind,
+            NodeKind::Element { .. }
+        )
     {
         let (destination, source) = if forward {
             (block, sibling)
@@ -8097,13 +8115,21 @@ fn merge_adjacent_editing_block(
             Vec::new()
         } else {
             light_children(&state.dom.borrow(), source)?
+                .into_iter()
+                .filter(|child| !is_preserved_editing_boundary(&state.dom.borrow(), *child))
+                .collect()
         };
         {
             let mut dom = state.dom.borrow_mut();
+            for separator in ignored {
+                dom.remove_child(parent, separator)?;
+            }
             for child in moving {
                 dom.append_child(destination, child)?;
             }
-            dom.remove_child(parent, source)?;
+            if source_empty || light_children(&dom, source)?.is_empty() {
+                dom.remove_child(parent, source)?;
+            }
         }
         let point = if source_empty && node_is_placeholder_empty(&state.dom.borrow(), destination)?
         {
@@ -8170,6 +8196,12 @@ fn merge_adjacent_editing_block(
 }
 
 fn is_ignored_editing_sibling(dom: &DomRuntime, node: NodeId) -> bool {
+    if matches!(
+        dom.arena().get(node).map(|record| &record.kind),
+        Ok(NodeKind::Text { data } | NodeKind::CDataSection { data }) if data.trim().is_empty()
+    ) {
+        return true;
+    }
     let Some(tag) = element_local_name(dom, node) else {
         return false;
     };
@@ -8187,6 +8219,30 @@ fn is_ignored_editing_sibling(dom: &DomRuntime, node: NodeId) -> bool {
         .map(|style| inline_style_entries(style))
         .and_then(|mut declarations| declarations.remove("display"));
     !display.is_some_and(|display| display.eq_ignore_ascii_case("block"))
+}
+
+fn is_preserved_editing_boundary(dom: &DomRuntime, node: NodeId) -> bool {
+    let Some(tag) = element_local_name(dom, node) else {
+        return false;
+    };
+    if matches!(
+        tag,
+        "button"
+            | "input"
+            | "select"
+            | "textarea"
+            | "object"
+            | "embed"
+            | "iframe"
+            | "video"
+            | "audio"
+    ) {
+        return true;
+    }
+    dom.attribute(node, "contenteditable")
+        .ok()
+        .flatten()
+        .is_some_and(|value| value.eq_ignore_ascii_case("false"))
 }
 
 fn remove_line_before_nested_block(
@@ -18245,6 +18301,34 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "bc|true|1|1");
+    }
+
+    #[test]
+    fn block_boundary_deletion_preserves_adjacent_form_controls() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<main id='editor' contenteditable><div id='first'>First block</div>\n<span id='second'>Second block<select style='visibility:hidden'></select></span></main>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor'),first=document.getElementById('first'),selection=document.getSelection();selection.collapse(first.firstChild,first.firstChild.length);document.execCommand('forwardDelete');editor.innerHTML",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            result,
+            "<div id=\"first\">First blockSecond block</div><span id=\"second\"><select style=\"visibility:hidden\"></select></span>"
+        );
     }
 
     #[test]

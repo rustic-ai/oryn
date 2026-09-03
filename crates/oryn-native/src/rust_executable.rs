@@ -378,6 +378,7 @@ fn run_script_record(
             }
         }
     }
+    host.execute("__oryn_refresh_window_named_properties()")?;
     host.set_current_script(Some(*script))?;
     if let Some(src) = src
         && resource_entry(resources, src).is_none()
@@ -1073,8 +1074,21 @@ globalThis.ResizeObserver=OrynResizeObserver;globalThis.IntersectionObserver=Ory
 const __oryn_rect_key=rect=>[rect.x,rect.y,rect.width,rect.height].join(':');
 globalThis.__oryn_run_geometry_observers=()=>{for(const observer of __oryn_resize_observers){const entries=[];for(const target of observer.targets.keys())try{const rect=target.getBoundingClientRect(),key=__oryn_rect_key(rect);if(observer.targets.get(target)!==key){observer.targets.set(target,key);entries.push({target,contentRect:rect,borderBoxSize:[{inlineSize:rect.width,blockSize:rect.height}],contentBoxSize:[{inlineSize:rect.width,blockSize:rect.height}]})}}catch(_){}if(entries.length)observer.callback(entries,observer)}for(const observer of __oryn_intersection_observers){const entries=[];for(const target of observer.targets.keys())try{const rect=target.getBoundingClientRect(),viewport={x:0,y:0,width:innerWidth||0,height:innerHeight||0},width=Math.max(0,Math.min(rect.right,viewport.width)-Math.max(rect.left,0)),height=Math.max(0,Math.min(rect.bottom,viewport.height)-Math.max(rect.top,0)),area=rect.width*rect.height,ratio=area>0?(width*height)/area:0,key=__oryn_rect_key(rect)+':'+ratio;if(observer.targets.get(target)!==key){observer.targets.set(target,key);entries.push({target,boundingClientRect:rect,intersectionRect:{x:Math.max(rect.x,0),y:Math.max(rect.y,0),width,height},rootBounds:viewport,isIntersecting:ratio>0,intersectionRatio:ratio,time:Date.now()})}}catch(_){}if(entries.length)observer.callback(entries,observer)}};
 Object.defineProperty(globalThis,'location',{value:{href:'about:blank'},writable:true,enumerable:true,configurable:true});
-globalThis.__oryn_layout={styles:{},geometry:{},viewport:{},scroll:{},media:{}};
+globalThis.__oryn_layout={styles:{},geometry:{},viewport:{width:1280,height:720,device_pixel_ratio:1},scroll:{},media:{}};
+globalThis.innerWidth=1280;globalThis.innerHeight=720;
 globalThis.__oryn_install_layout=value=>{globalThis.__oryn_layout=value;globalThis.innerWidth=Number(value.viewport?.width||0);globalThis.innerHeight=Number(value.viewport?.height||0)};
+globalThis.__oryn_window_named_properties=new Set();
+globalThis.__oryn_refresh_window_named_properties=()=>{
+  const next=new Set();
+  for(const element of document.querySelectorAll('[id]')){
+    const name=String(element.id||'');if(!name)continue;
+    if(Object.prototype.hasOwnProperty.call(globalThis,name)&&!__oryn_window_named_properties.has(name))continue;
+    next.add(name);
+    Object.defineProperty(globalThis,name,{configurable:true,enumerable:true,get(){return document.getElementById(name)}});
+  }
+  for(const name of __oryn_window_named_properties)if(!next.has(name))delete globalThis[name];
+  globalThis.__oryn_window_named_properties=next;
+};
 globalThis.scrollX=globalThis.pageXOffset=0;globalThis.scrollY=globalThis.pageYOffset=0;
 globalThis.scrollTo=(x=0,y=0)=>{if(x&&typeof x==='object'){y=x.top??scrollY;x=x.left??scrollX}scrollX=pageXOffset=Number(x)||0;scrollY=pageYOffset=Number(y)||0};
 globalThis.scrollBy=(x=0,y=0)=>{if(x&&typeof x==='object'){y=x.top??0;x=x.left??0}scrollTo(scrollX+(Number(x)||0),scrollY+(Number(y)||0))};
@@ -1250,7 +1264,7 @@ const __oryn_testdriver_keyboard=(target,value,pressed)=>{
     target.dispatchEvent(before);
     if(!before.defaultPrevented){
       if(controlPaste){const current=String(target.value||'');let start=Number(target.__oryn_selection_start??current.length),end=Number(target.__oryn_selection_end??start);target.value=current.slice(0,start)+pasted+current.slice(end);target.__oryn_selection_start=target.__oryn_selection_end=start+pasted.length;target.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertFromPaste',data:pasted,dataTransfer:null}))}
-      else{const html=transfer.getData('text/html');globalThis.__oryn_pending_input_event={inputType:'insertFromPaste',data:null,dataTransfer:transfer};try{document.execCommand(html&&/<[a-z!/]/i.test(html)?'insertHTML':'insertText',false,html||pasted)}finally{delete globalThis.__oryn_pending_input_event}}
+      else{const html=transfer.getData('text/html');globalThis.__oryn_pending_input_event={inputType:'insertFromPaste',data:null,dataTransfer:transfer};try{document.execCommand(html&&/<[a-z!/]/i.test(html)?'insertHTML':'insertText',false,html||pasted);const selection=document.getSelection();let host=selection?.anchorNode;while(host&&!(host.nodeType===1&&host.isContentEditable))host=host.parentElement;for(const styled of host?.querySelectorAll?.('[style]')||[]){const value=styled.getAttribute('style');if(value&&!value.trimEnd().endsWith(';'))styled.setAttribute('style',value.trimEnd()+';')}}finally{delete globalThis.__oryn_pending_input_event}}
     }return
   }
   if(command&&key.toLowerCase()==='a'){
@@ -3225,6 +3239,24 @@ mod tests {
             .unwrap(),
             "7|12|7|12"
         );
+    }
+
+    #[test]
+    fn initial_viewport_is_available_to_parser_time_scripts() {
+        let mut page = RustExecutableDocument::load(
+            "<script>globalThis.parserViewport=innerWidth+'|'+innerHeight</script>",
+        )
+        .unwrap();
+        assert_eq!(page.evaluate("parserViewport").unwrap(), "1280|720");
+    }
+
+    #[test]
+    fn parser_time_scripts_resolve_html_id_named_window_properties() {
+        let mut page = RustExecutableDocument::load(
+            "<main id='namedElement'></main><script>globalThis.namedElementResolved=namedElement===document.getElementById('namedElement')</script>",
+        )
+        .unwrap();
+        assert_eq!(page.evaluate("namedElementResolved").unwrap(), "true");
     }
 
     #[test]

@@ -1542,15 +1542,7 @@ impl DomRuntime {
                     output.push(' ');
                     output.push_str(key);
                     output.push_str("=\"");
-                    if key == "style"
-                        && !value.trim().is_empty()
-                        && !value.trim_end().ends_with(';')
-                    {
-                        output.push_str(&escape_attribute(value.trim_end()));
-                        output.push(';');
-                    } else {
-                        output.push_str(&escape_attribute(value));
-                    }
+                    output.push_str(&escape_attribute(value));
                     output.push('"');
                 }
                 output.push('>');
@@ -1905,6 +1897,20 @@ mod tests {
         let row = dom.find_by_id("row").unwrap();
         assert_eq!(dom.node_name(row).unwrap(), "TR");
         assert_eq!(dom.arena().text_content(row).unwrap(), "cell");
+    }
+
+    #[test]
+    fn serialization_preserves_untouched_style_attribute_text() {
+        let parsed = html::parse("<select style='visibility:hidden'></select>");
+        let dom = parsed.into_runtime().unwrap();
+        let select = dom
+            .query_selector(dom.document(), "select")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            dom.serialize(select).unwrap(),
+            "<select style=\"visibility:hidden\"></select>"
+        );
     }
 
     #[test]
