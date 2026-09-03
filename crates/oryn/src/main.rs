@@ -396,6 +396,7 @@ async fn run_native(
             .or_else(|| restored_pages.first().map(|page| page.destination_page_id))
             .ok_or("checkpoint restored no pages")?;
         let page = context.activate_page(page_id)?;
+        import_uploads(&context, &session_options.uploads)?;
         (context, page)
     } else {
         let context = if session_options.record_network {
@@ -403,6 +404,10 @@ async fn run_native(
         } else {
             browser.new_context_with_options(options)
         };
+        // Uploads are imported before navigation. A page can consume only
+        // explicitly parent-authorized payloads while its scripts run; host
+        // paths never cross the worker boundary.
+        import_uploads(&context, &session_options.uploads)?;
         let page = context.new_page();
         if let Some(html_path) = html_path {
             let html = std::fs::read_to_string(html_path)?;
@@ -417,21 +422,6 @@ async fn run_native(
     };
     if let Some(descriptor) = session_options.secret_fd {
         oryn::secret_input::provision_context_from_fd(&context, descriptor)?;
-    }
-    for upload in &session_options.uploads {
-        let (label, path) = upload
-            .split_once('=')
-            .ok_or("--upload must use LABEL=PATH")?;
-        if label.is_empty() || path.is_empty() {
-            return Err("--upload requires non-empty LABEL and PATH".into());
-        }
-        let path = std::path::Path::new(path);
-        let bytes = std::fs::read(path)?;
-        let filename = path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("upload.bin");
-        context.import_upload_as(label, filename, "application/octet-stream", bytes);
     }
     if let Some(source) = evaluate {
         println!("{}", page.evaluate(source).await?);
@@ -519,6 +509,28 @@ async fn run_native(
         if !matches!(descriptor.status, oryn_native::PageStatus::Closed) {
             let _ = context.close_page(descriptor.page.page_id).await;
         }
+    }
+    Ok(())
+}
+
+fn import_uploads(
+    context: &oryn_native::BrowserContext,
+    uploads: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    for upload in uploads {
+        let (label, path) = upload
+            .split_once('=')
+            .ok_or("--upload must use LABEL=PATH")?;
+        if label.is_empty() || path.is_empty() {
+            return Err("--upload requires non-empty LABEL and PATH".into());
+        }
+        let path = std::path::Path::new(path);
+        let bytes = std::fs::read(path)?;
+        let filename = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("upload.bin");
+        context.import_upload_as(label, filename, "application/octet-stream", bytes);
     }
     Ok(())
 }

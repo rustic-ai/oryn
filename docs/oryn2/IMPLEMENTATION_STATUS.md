@@ -124,14 +124,18 @@ rewrite those historical payloads or present them as a new validation run.
   transitive `META: script` dependencies, supports bounded parallel execution,
   writes atomic checkpoints, and resumes only on an exact source, binary,
   runtime, inventory, and selection fingerprint. Initial diagnostic shards are
-  intentionally not committed as passing release evidence. The clean first-20
-  IndexedDB diagnostic now passes 18/20; its only remaining cases are two live
-  BFCache workflows. The previously failing cross-origin iframe/window origin-
+  intentionally not committed as passing release evidence. The two live
+  BFCache workflows that kept the clean first-20 diagnostic at 18/20 now pass
+  focused release execution and the replacement exact-tree first-100 run. The
+  previously failing cross-origin iframe/window origin-
   isolation case now passes through opaque frame realms, brokered popup
   messaging, origin-partitioned storage, and autonomous receiving-page wakeups.
-  A broader first-100 IndexedDB run now passes 88/100 after adding atomic
-  read/write transaction rollback, compound key paths, transaction-scoped
-  upgrade restoration, and live cursor refresh/invalidation. The complete
+  The latest exact-tree first-100 IndexedDB run passes 100/100 after adding
+  atomic read/write transaction rollback, compound key paths,
+  transaction-scoped upgrade restoration, live cursor refresh/invalidation,
+  opaque-origin rejection, cross-realm receiver branding, stable parser-time
+  frame proxies, ordered blocked deletes, generated `IDBKeyRange.includes`,
+  and bounded high-volume/multi-entry execution. The complete
   discovered cursor slice passes 11/11, including a 997-record iteration case.
   Cursor task-boundary, connection-close/versionchange, failed-upgrade ordering,
   index-key re-entry, and exact WTF-16 index names now pass. A generated
@@ -145,11 +149,24 @@ rewrite those historical payloads or present them as a new validation run.
   receive origin-aware parent/opener proxies before their lifecycle events,
   resolve child resources against the child URL, and remain opaque to parent
   DOM and semantic traversal. Focused partitioned-storage basic and persistence
-  workflows pass; the broader coverage stress case reaches the real generated-
-  operation wall limit and remains red. A non-EditContext
-  editing shard passes 5/40. The remaining first-100 failures are high-volume
-  debug-probe limits plus explicit geometry, cross-realm, cross-origin,
-  opaque-origin, partitioning-coverage and BFCache boundaries.
+  workflows pass. The broader coverage document now terminates its remote
+  enclosing testharness and passes all 31 reported assertions, including
+  ordered deletion and its stress loop. BFCache retains the suspended page
+  realm and live IndexedDB connection or transaction, dispatches persisted
+  `pagehide`/`pageshow`, restores the exact history entry, and rejects stale
+  cross-document state. Due timer tasks now preempt later deadlines, and page
+  task draining no longer sleeps until a future timer while parent context
+  messages are waiting. Those scheduler fixes close the final
+  `idb-partitioned-basic.sub.html` and `idbfactory_deleteDatabase.any.js`
+  harness-completion failures.
+  File selection now exposes real `File` objects through the parent-owned upload path, and the
+  focused upload geometry case passes with generated `getClientRects`. A
+  comparable non-EditContext editing shard improves from 5/40 to 15/40.
+  Focused deletion, contenteditable-boundary deletion, split-attribute cloning
+  and moved-node undo cases pass; generated-binding tests cover formatting
+  selection preservation. The broader shard remains red on long-tail
+  copy/paste styling, shadow/designMode, hidden-control geometry and harness
+  cases, so general editing-engine conformance is not claimed.
 - Generated IndexedDB now implements the browser key ordering used by
   `IDBFactory.cmp`, including dates, unsigned binary keys and recursive arrays,
   and exposes a real versionchange transaction during upgrade. Upgrade abort
@@ -169,8 +186,9 @@ rewrite those historical payloads or present them as a new validation run.
   WPT now passes the complete discovered 11-file cursor slice and the full
   `IDBFactory.open` file,
   delete-database version events, historical interface checks, index `getAll`
-  range enforcement and cursor source/class identity. The broader 88/100 shard
-  remains red, so no aggregate closure is claimed. Generated
+  range enforcement and cursor source/class identity. The exact-tree first-100
+  IndexedDB diagnostic now closes at 100/100; it remains local probe evidence,
+  not exact signed release attestation. Generated
   Document editing now supplies `designMode`, safe command queries, and
   selection-backed insert-text/HTML, line/paragraph insertion, directional
   deletion and select-all. Unsupported formatting commands report `false`

@@ -683,6 +683,7 @@ impl ContextStore for PersistentContextStore {
                 entries: self.local_entries(&scope.origin)?,
             }),
             StorageRequest::IndexedDb { origin, command } => {
+                let changes_storage = idb_command_changes_storage(&command);
                 let mut databases = self.load_idb(&origin)?;
                 let mut transactions = self.indexed_db_transactions.lock().map_err(|_| {
                     StorageError::Persistent("IndexedDB transaction lock poisoned".into())
@@ -694,7 +695,9 @@ impl ContextStore for PersistentContextStore {
                     command,
                     self.limits.indexed_db_bytes_per_origin,
                 )?;
-                self.save_idb(&origin, databases)?;
+                if changes_storage {
+                    self.save_idb(&origin, databases)?;
+                }
                 Ok(StorageResponse::IndexedDb { response })
             }
             request => {
@@ -911,6 +914,28 @@ fn execute_idb(
     command: IdbCommand,
     limit: usize,
 ) -> Result<IdbResponse, StorageError> {
+    // Quota is affected only by schema/data mutations. Re-serializing an
+    // origin's complete database after every get/count/cursor request made
+    // high-volume index scans quadratic even though reads cannot increase
+    // usage. Mutation commands still perform the exact post-operation check.
+    let changes_usage = idb_command_changes_storage(&command);
+    // A versionchange transaction already owns an exact pre-upgrade backup.
+    // Recomputing the complete origin size after every schema/write operation
+    // makes large upgrades quadratic. Defer their quota check to the atomic
+    // CommitUpgrade boundary, which can restore that backup on failure.
+    let upgrade_mutation = match &command {
+        IdbCommand::CreateObjectStore { database, .. }
+        | IdbCommand::DeleteObjectStore { database, .. }
+        | IdbCommand::CreateIndex { database, .. }
+        | IdbCommand::DeleteIndex { database, .. }
+        | IdbCommand::RenameIndex { database, .. }
+        | IdbCommand::Batch { database, .. }
+        | IdbCommand::Delete { database, .. }
+        | IdbCommand::Clear { database, .. } => databases
+            .get(&(origin.to_string(), database.clone()))
+            .is_some_and(|database| database.upgrade_backup.is_some()),
+        _ => false,
+    };
     let response = match command {
         IdbCommand::Transaction { .. }
         | IdbCommand::CommitTransaction { .. }
@@ -997,7 +1022,20 @@ fn execute_idb(
             IdbResponse::default()
         }
         IdbCommand::CommitUpgrade { name } => {
-            if let Some(database) = databases.get_mut(&(origin.to_string(), name)) {
+            let key = (origin.to_string(), name);
+            if indexed_db_origin_bytes(databases, origin)? > limit {
+                if let Some(backup) = databases
+                    .get_mut(&key)
+                    .and_then(|database| database.upgrade_backup.take())
+                {
+                    databases.insert(key, *backup);
+                }
+                return Err(StorageError::QuotaExceeded {
+                    origin: origin.to_string(),
+                    limit,
+                });
+            }
+            if let Some(database) = databases.get_mut(&key) {
                 database.upgrade_backup = None;
             }
             IdbResponse::default()
@@ -1086,14 +1124,14 @@ fn execute_idb(
             IdbResponse::default()
         }
         IdbCommand::Batch { database, writes } => {
-            let before = databases.clone();
+            let before = (!upgrade_mutation).then(|| databases.clone());
             let mut last_key = None;
             for write in writes {
                 let store_data = store_mut(databases, origin, &database, &write.store)?;
                 last_key = Some(put_record(store_data, write)?);
             }
-            if indexed_db_origin_bytes(databases, origin)? > limit {
-                *databases = before;
+            if !upgrade_mutation && indexed_db_origin_bytes(databases, origin)? > limit {
+                *databases = before.expect("non-upgrade batch captured rollback state");
                 return Err(StorageError::QuotaExceeded {
                     origin: origin.to_string(),
                     limit,
@@ -1231,13 +1269,37 @@ fn execute_idb(
             }
         }
     };
-    if indexed_db_origin_bytes(databases, origin)? > limit {
+    if changes_usage && !upgrade_mutation && indexed_db_origin_bytes(databases, origin)? > limit {
         return Err(StorageError::QuotaExceeded {
             origin: origin.to_string(),
             limit,
         });
     }
     Ok(response)
+}
+
+fn idb_command_changes_storage(command: &IdbCommand) -> bool {
+    match command {
+        IdbCommand::Transaction { inner, .. } => idb_command_changes_storage(inner),
+        IdbCommand::CommitTransaction { .. } | IdbCommand::AbortTransaction { .. } => true,
+        IdbCommand::Open { .. }
+        | IdbCommand::DeleteDatabase { .. }
+        | IdbCommand::AbortUpgrade { .. }
+        | IdbCommand::CommitUpgrade { .. }
+        | IdbCommand::CreateObjectStore { .. }
+        | IdbCommand::DeleteObjectStore { .. }
+        | IdbCommand::CreateIndex { .. }
+        | IdbCommand::DeleteIndex { .. }
+        | IdbCommand::RenameIndex { .. }
+        | IdbCommand::Batch { .. }
+        | IdbCommand::Delete { .. }
+        | IdbCommand::Clear { .. } => true,
+        IdbCommand::ListDatabases
+        | IdbCommand::Get { .. }
+        | IdbCommand::GetAll { .. }
+        | IdbCommand::Count { .. }
+        | IdbCommand::Cursor { .. } => false,
+    }
 }
 
 fn indexed_db_key_matches(query: &serde_json::Value, key: &serde_json::Value) -> bool {
@@ -1952,6 +2014,58 @@ mod tests {
             reopened,
             StorageResponse::IndexedDb { response }
                 if response.version == Some(1) && response.object_stores.is_empty()
+        ));
+    }
+
+    #[test]
+    fn indexed_db_large_upgrade_checks_quota_once_and_rolls_back_atomically() {
+        let store = SharedContextStore::memory(StorageLimits {
+            indexed_db_bytes_per_origin: 1_024,
+            ..StorageLimits::default()
+        });
+        let origin = "https://example.test".to_string();
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: origin.clone(),
+                command: IdbCommand::Open {
+                    name: "large-upgrade".into(),
+                    version: 1,
+                },
+            })
+            .unwrap();
+        for index in 0..100 {
+            store
+                .execute(StorageRequest::IndexedDb {
+                    origin: origin.clone(),
+                    command: IdbCommand::CreateObjectStore {
+                        database: "large-upgrade".into(),
+                        definition: ObjectStoreDefinition {
+                            name: format!("store-{index}"),
+                            key_path: None,
+                            auto_increment: false,
+                            indexes: Vec::new(),
+                        },
+                    },
+                })
+                .expect("schema mutation remains staged until upgrade commit");
+        }
+        assert!(matches!(
+            store.execute(StorageRequest::IndexedDb {
+                origin: origin.clone(),
+                command: IdbCommand::CommitUpgrade {
+                    name: "large-upgrade".into(),
+                },
+            }),
+            Err(StorageError::QuotaExceeded { .. })
+        ));
+        assert!(matches!(
+            store
+                .execute(StorageRequest::IndexedDb {
+                    origin,
+                    command: IdbCommand::ListDatabases,
+                })
+                .unwrap(),
+            StorageResponse::IndexedDb { response } if response.databases.is_empty()
         ));
     }
 

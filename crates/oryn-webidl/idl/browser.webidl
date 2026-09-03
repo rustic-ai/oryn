@@ -12,6 +12,7 @@ interface Event {
   readonly attribute EventTarget? currentTarget;
   readonly attribute boolean bubbles;
   readonly attribute boolean cancelable;
+  readonly attribute boolean isTrusted;
   readonly attribute boolean defaultPrevented;
   undefined initEvent(DOMString type, optional boolean bubbles = false, optional boolean cancelable = false);
   undefined preventDefault();
@@ -21,6 +22,25 @@ interface Event {
 
 [Exposed=Window]
 interface CustomEvent : Event {
+};
+
+dictionary InputEventInit {
+  boolean bubbles = true;
+  boolean cancelable = false;
+  DOMString? data = null;
+  DOMString inputType = "";
+  boolean isComposing = false;
+  any dataTransfer;
+};
+
+[Exposed=Window]
+interface InputEvent : Event {
+  constructor(DOMString type, optional InputEventInit eventInitDict);
+  readonly attribute DOMString? data;
+  readonly attribute DOMString inputType;
+  readonly attribute boolean isComposing;
+  readonly attribute any dataTransfer;
+  sequence<StaticRange> getTargetRanges();
 };
 
 [Exposed=(Window,Worker)]
@@ -47,13 +67,19 @@ dictionary MutationObserverInit {
   boolean subtree = false;
   boolean attributeOldValue = false;
   boolean characterDataOldValue = false;
+  sequence<DOMString> attributeFilter = [];
 };
 
 [Exposed=Window]
 interface MutationRecord {
   readonly attribute DOMString type;
   readonly attribute Node target;
+  readonly attribute sequence<Node> addedNodes;
+  readonly attribute sequence<Node> removedNodes;
+  readonly attribute Node? previousSibling;
+  readonly attribute Node? nextSibling;
   readonly attribute DOMString? attributeName;
+  readonly attribute DOMString? attributeNamespace;
   readonly attribute DOMString? oldValue;
 };
 
@@ -285,6 +311,7 @@ interface HTMLInputElement : HTMLElement {
   attribute boolean disabled;
   attribute boolean readOnly;
   attribute boolean required;
+  undefined select();
 };
 
 [Exposed=Window]
@@ -295,6 +322,7 @@ interface HTMLTextAreaElement : HTMLElement {
   attribute boolean disabled;
   attribute boolean readOnly;
   attribute boolean required;
+  undefined select();
 };
 
 [Exposed=Window]
@@ -344,6 +372,8 @@ interface HTMLAnchorElement : HTMLElement {
 [Exposed=Window]
 interface HTMLIFrameElement : HTMLElement {
   attribute DOMString src;
+  attribute DOMString srcdoc;
+  attribute DOMString sandbox;
   readonly attribute Document? contentDocument;
   readonly attribute any contentWindow;
 };
@@ -382,6 +412,8 @@ interface Document : Node {
   sequence<Element> getElementsByTagName(DOMString qualifiedName);
   sequence<Element> getElementsByClassName(DOMString classNames);
   sequence<Element> getElementsByName(DOMString elementName);
+  Element? elementFromPoint(double x, double y);
+  sequence<Element> elementsFromPoint(double x, double y);
   Range createRange();
   NodeIterator createNodeIterator(Node root, optional unsigned long whatToShow = 4294967295, optional NodeFilter? filter = null);
   TreeWalker createTreeWalker(Node root, optional unsigned long whatToShow = 4294967295, optional NodeFilter? filter = null);
@@ -408,6 +440,18 @@ interface AbstractRange {
   readonly attribute Node endContainer;
   readonly attribute unsigned long endOffset;
   readonly attribute boolean collapsed;
+};
+
+dictionary StaticRangeInit {
+  required Node startContainer;
+  required unsigned long startOffset;
+  required Node endContainer;
+  required unsigned long endOffset;
+};
+
+[Exposed=Window]
+interface StaticRange : AbstractRange {
+  constructor(StaticRangeInit init);
 };
 
 [Exposed=Window]
@@ -606,6 +650,7 @@ interface IDBKeyRange {
   readonly attribute any upper;
   readonly attribute boolean lowerOpen;
   readonly attribute boolean upperOpen;
+  boolean includes(any key);
 };
 
 [Exposed=(Window,Worker)]

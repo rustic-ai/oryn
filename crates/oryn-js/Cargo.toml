@@ -11,6 +11,7 @@ v8-host = ["dep:v8"]
 v8-sandbox = ["v8/v8_enable_sandbox"]
 
 [dependencies]
+base64 = "0.22"
 oryn-dom = { path = "../oryn-dom" }
 oryn-webidl = { path = "../oryn-webidl" }
 serde = { version = "1", features = ["derive"] }

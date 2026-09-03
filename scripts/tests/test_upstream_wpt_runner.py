@@ -66,6 +66,30 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             "http://localhost:8443/same http://127.0.0.1:8443/cross",
         )
 
+    def test_fs_path_tokens_resolve_only_inside_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "IndexedDB/file_support.any.js"
+            asset = root / "IndexedDB/resources/file_to_save.txt"
+            asset.parent.mkdir(parents=True)
+            asset.write_text("upload body")
+            source.write_text("{{fs_path(resources/file_to_save.txt)}}")
+            self.assertEqual(
+                RUNNER.substitute_wpt_tokens(
+                    source.read_text(), "localhost", 8443, root, source
+                ),
+                str(asset),
+            )
+            self.assertEqual(RUNNER.fs_path_assets(root, source), [asset])
+
+    def test_fs_path_token_cannot_escape_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "case.any.js"
+            source.write_text("{{fs_path(../outside.txt)}}")
+            with self.assertRaisesRegex(ValueError, "invalid WPT fs_path"):
+                RUNNER.fs_path_assets(root, source)
+
     def test_html_variants_are_all_preserved(self) -> None:
         source = """
         <meta name=variant content=?1-1000>
@@ -75,6 +99,38 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             INVENTORY.html_variants(source), ["?1-1000", "?1001-last"]
         )
         self.assertEqual(INVENTORY.html_variants("<title>no variants</title>"), [""])
+
+    def test_runner_expands_declared_html_variants(self) -> None:
+        source = """
+        <meta name=variant content=?editor=input>
+        <meta content='?editor=textarea' name='variant'>
+        """
+        self.assertEqual(
+            RUNNER.declared_html_variants(source),
+            ["?editor=input", "?editor=textarea"],
+        )
+
+    def test_completion_channel_is_outside_hidden_testharness_body(self) -> None:
+        self.assertIn(
+            "document.documentElement.appendChild(output)", RUNNER.COMPLETION
+        )
+        self.assertIn("display:block!important", RUNNER.COMPLETION)
+
+    def test_html_applicability_excludes_crash_and_helper_pages(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            test = root / "editing/event.html"
+            crash = root / "editing/crashtests/crash.html"
+            helper = root / "editing/resources/helper.html"
+            for path in (test, crash, helper):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('<script src="/resources/testharness.js"></script>')
+            plain = root / "editing/plain.html"
+            plain.write_text("<title>fixture only</title>")
+            self.assertTrue(RUNNER.is_testharness_html(test))
+            self.assertFalse(RUNNER.is_testharness_html(crash))
+            self.assertFalse(RUNNER.is_testharness_html(helper))
+            self.assertFalse(RUNNER.is_testharness_html(plain))
 
 
 if __name__ == "__main__":

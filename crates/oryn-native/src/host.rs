@@ -51,8 +51,8 @@ mod raw_v8 {
         collections::{BTreeMap, BTreeSet},
         rc::Rc,
         sync::{
-            Arc, Condvar, Mutex, Once,
-            atomic::{AtomicBool, AtomicU64, Ordering},
+            Arc, Mutex, Once,
+            atomic::{AtomicBool, Ordering},
             mpsc,
         },
         time::{Duration, Instant},
@@ -79,9 +79,9 @@ mod raw_v8 {
     use oryn_js::realm::{RealmDescriptor, RealmId, RealmRegistry};
     use oryn_js::scheduler::{PageScheduler, Task, TaskSource};
     use oryn_js::v8_bindings::{
-        BindingLayout, SharedDom, V8BindingState, deliver_mutation_observers,
-        install_generated_bindings, install_generated_bindings_with_root,
-        publish_named_window_properties, wrap_node,
+        BindingLayout, BindingLayoutProvider, SharedDom, V8BindingState,
+        deliver_mutation_observers, deliver_selection_change, install_generated_bindings,
+        install_generated_bindings_with_root, publish_named_window_properties, wrap_node,
     };
 
     static INITIALIZE_V8: Once = Once::new();
@@ -166,6 +166,7 @@ mod raw_v8 {
         binding_states: BTreeMap<RealmId, Rc<V8BindingState>>,
         trusted_types_config: Option<(oryn_js::trusted_types::TrustedTypesConfig, bool)>,
         execution_wall_limit: Duration,
+        isolate_entered: bool,
     }
 
     struct ExecutionDeadline {
@@ -237,8 +238,7 @@ mod raw_v8 {
         context: ContextState,
         sender: mpsc::Sender<PlatformHostCompletion>,
         receiver: Mutex<mpsc::Receiver<PlatformHostCompletion>>,
-        next_idb_ticket: AtomicU64,
-        idb_turn: Arc<(Mutex<u64>, Condvar)>,
+        idb_sender: mpsc::Sender<(HostOperationId, PlatformHostRequest)>,
         cancellable_http_starts: Arc<Mutex<BTreeSet<HostOperationId>>>,
     }
 
@@ -246,12 +246,31 @@ mod raw_v8 {
     impl ContextPlatformHost {
         fn new(context: ContextState) -> Self {
             let (sender, receiver) = mpsc::channel();
+            let (idb_sender, idb_receiver) = mpsc::channel();
+            let idb_context = context.clone();
+            let idb_completions = sender.clone();
+            std::thread::Builder::new()
+                .name("oryn-platform-indexeddb".into())
+                .spawn(move || {
+                    while let Ok((operation_id, request)) = idb_receiver.recv() {
+                        let result = execute_platform_request(&idb_context, operation_id, request);
+                        if idb_completions
+                            .send(PlatformHostCompletion {
+                                operation_id,
+                                result,
+                            })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                })
+                .expect("spawn ordered IndexedDB platform service");
             Self {
                 context,
                 sender,
                 receiver: Mutex::new(receiver),
-                next_idb_ticket: AtomicU64::new(0),
-                idb_turn: Arc::new((Mutex::new(0), Condvar::new())),
+                idb_sender,
                 cancellable_http_starts: Arc::new(Mutex::new(BTreeSet::new())),
             }
         }
@@ -264,11 +283,14 @@ mod raw_v8 {
             operation_id: HostOperationId,
             request: PlatformHostRequest,
         ) -> Result<(), String> {
+            if matches!(request, PlatformHostRequest::IndexedDb { .. }) {
+                return self
+                    .idb_sender
+                    .send((operation_id, request))
+                    .map_err(|_| "IndexedDB platform service is unavailable".to_string());
+            }
             let context = self.context.clone();
             let sender = self.sender.clone();
-            let idb_ticket = matches!(request, PlatformHostRequest::IndexedDb { .. })
-                .then(|| self.next_idb_ticket.fetch_add(1, Ordering::Relaxed));
-            let idb_turn = self.idb_turn.clone();
             let is_http_start = matches!(request, PlatformHostRequest::HttpStart { .. });
             let cancellable_http_starts = self.cancellable_http_starts.clone();
             if is_http_start {
@@ -280,17 +302,6 @@ mod raw_v8 {
             std::thread::Builder::new()
                 .name(format!("oryn-platform-{}", operation_id.0))
                 .spawn(move || {
-                    if let Some(ticket) = idb_ticket {
-                        let (turn, ready) = &*idb_turn;
-                        let mut current = turn
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        while *current != ticket {
-                            current = ready
-                                .wait(current)
-                                .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        }
-                    }
                     let result = execute_platform_request(&context, operation_id, request);
                     if is_http_start && let Ok(mut operations) = cancellable_http_starts.lock() {
                         operations.remove(&operation_id);
@@ -299,14 +310,6 @@ mod raw_v8 {
                         operation_id,
                         result,
                     });
-                    if idb_ticket.is_some() {
-                        let (turn, ready) = &*idb_turn;
-                        let mut current = turn
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        *current = current.saturating_add(1);
-                        ready.notify_all();
-                    }
                 })
                 .map(|_| ())
                 .map_err(|error| error.to_string())
@@ -704,6 +707,26 @@ mod raw_v8 {
             unsafe { self.isolate.exit() };
         }
 
+        /// Freeze an inactive history document. Page actors are thread-affine,
+        /// so a retained isolate is always resumed on its creating thread.
+        pub fn suspend_page_isolate(&mut self) {
+            if self.isolate_entered {
+                // SAFETY: callbacks and microtasks have reached a page
+                // checkpoint and this host is the current entered isolate.
+                unsafe { self.isolate.exit() };
+                self.isolate_entered = false;
+            }
+        }
+
+        pub fn resume_page_isolate(&mut self) {
+            if !self.isolate_entered {
+                // SAFETY: only one history document is resumed by the page
+                // actor at a time, on the thread that created the isolate.
+                unsafe { self.isolate.enter() };
+                self.isolate_entered = true;
+            }
+        }
+
         pub fn new() -> Self {
             Self::create(None, None, None, 256 * 1024 * 1024)
         }
@@ -849,6 +872,7 @@ mod raw_v8 {
                 binding_states: BTreeMap::new(),
                 trusted_types_config: None,
                 execution_wall_limit: Duration::from_millis(9_500),
+                isolate_entered: true,
             }
         }
 
@@ -956,6 +980,44 @@ mod raw_v8 {
             self.link_frame_realm(frame, None, realm)
         }
 
+        /// Install the stable WindowProxy that parser-inserted frames expose
+        /// immediately, before their navigation has produced a child realm.
+        /// Messages sent through it are queued by the bootstrap and delivered
+        /// when `link_frame_realm` binds the committed realm.
+        pub fn ensure_provisional_frame_window(&mut self, frame: NodeId) -> Result<(), HostError> {
+            let state = self
+                .binding_states
+                .get(&self.active_realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?;
+            if state.frame_window(frame).is_some() {
+                return Ok(());
+            }
+            let context = self
+                .contexts
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active realm context is unavailable".into()))?
+                .clone();
+            v8::scope!(let handle_scope, &mut self.isolate);
+            let context = v8::Local::new(handle_scope, &context);
+            let scope = &mut v8::ContextScope::new(handle_scope, context);
+            let global = context.global(scope);
+            let key = v8::String::new(scope, "__oryn_make_provisional_window_proxy")
+                .ok_or_else(|| HostError::Execution("allocate provisional proxy key".into()))?;
+            let factory = global
+                .get(scope, key.into())
+                .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+                .ok_or_else(|| {
+                    HostError::Execution("provisional proxy factory is unavailable".into())
+                })?;
+            let proxy = factory
+                .call(scope, global.into(), &[])
+                .and_then(|value| value.to_object(scope))
+                .ok_or_else(|| HostError::Execution("create provisional WindowProxy".into()))?;
+            state.set_frame_window(frame, v8::Global::new(scope, proxy));
+            Ok(())
+        }
+
         fn link_frame_realm(
             &mut self,
             frame: NodeId,
@@ -991,6 +1053,7 @@ mod raw_v8 {
                 .ok_or_else(|| {
                     HostError::Execution("frame realm descriptor is unavailable".into())
                 })?;
+            let same_origin = document.is_some() && parent_origin == child_origin;
             v8::scope!(let handle_scope, &mut self.isolate);
             let parent_context_local = v8::Local::new(handle_scope, &parent_context);
             let child_context_local = v8::Local::new(handle_scope, &child_context);
@@ -1056,11 +1119,21 @@ mod raw_v8 {
                     .ok_or_else(|| HostError::Execution("allocate child origin".into()))?;
                 let source_origin = v8::String::new(scope, &parent_origin)
                     .ok_or_else(|| HostError::Execution("allocate parent origin".into()))?;
+                let target: v8::Local<v8::Value> = if same_origin {
+                    v8::Local::new(scope, &child_window).into()
+                } else {
+                    v8::null(scope).into()
+                };
                 let proxy = factory
                     .call(
                         scope,
                         window.into(),
-                        &[deliver.into(), target_origin.into(), source_origin.into()],
+                        &[
+                            deliver.into(),
+                            target_origin.into(),
+                            source_origin.into(),
+                            target,
+                        ],
                     )
                     .and_then(|value| value.to_object(scope))
                     .ok_or_else(|| HostError::Execution("create child WindowProxy".into()))?;
@@ -1085,30 +1158,61 @@ mod raw_v8 {
                     .ok_or_else(|| HostError::Execution("allocate parent origin".into()))?;
                 let source_origin = v8::String::new(scope, &child_origin)
                     .ok_or_else(|| HostError::Execution("allocate child origin".into()))?;
+                let target: v8::Local<v8::Value> = if same_origin {
+                    v8::Local::new(scope, &parent_window).into()
+                } else {
+                    v8::null(scope).into()
+                };
                 let proxy = factory
                     .call(
                         scope,
                         window.into(),
-                        &[deliver.into(), target_origin.into(), source_origin.into()],
+                        &[
+                            deliver.into(),
+                            target_origin.into(),
+                            source_origin.into(),
+                            target,
+                        ],
                     )
                     .and_then(|value| value.to_object(scope))
                     .ok_or_else(|| HostError::Execution("create parent WindowProxy".into()))?;
                 v8::Global::new(scope, proxy)
             };
+            let public_child_proxy = if let Some(provisional) = active.frame_window(frame) {
+                let parent_context = v8::Local::new(handle_scope, &parent_context);
+                let scope = &mut v8::ContextScope::new(handle_scope, parent_context);
+                let provisional = v8::Local::new(scope, &provisional);
+                let bind_key = v8::String::new(scope, "__bind")
+                    .ok_or_else(|| HostError::Execution("allocate provisional bind key".into()))?;
+                let bind = provisional
+                    .get(scope, bind_key.into())
+                    .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+                    .ok_or_else(|| {
+                        HostError::Execution("provisional WindowProxy cannot bind".into())
+                    })?;
+                let committed = v8::Local::new(scope, &child_proxy);
+                bind.call(scope, provisional.into(), &[committed.into()])
+                    .ok_or_else(|| HostError::Execution("bind provisional WindowProxy".into()))?;
+                v8::Global::new(scope, provisional)
+            } else {
+                child_proxy.clone()
+            };
             {
                 let parent_context = v8::Local::new(handle_scope, &parent_context);
                 let scope = &mut v8::ContextScope::new(handle_scope, parent_context);
                 let child_proxy = v8::Local::new(scope, &child_proxy);
+                let public_child_proxy = v8::Local::new(scope, &public_child_proxy);
                 let parent_proxy = v8::Local::new(scope, &parent_proxy);
                 let source_key = v8::String::new(scope, "__source")
                     .ok_or_else(|| HostError::Execution("allocate child proxy source".into()))?;
                 child_proxy.set(scope, source_key.into(), parent_proxy.into());
+                public_child_proxy.set(scope, source_key.into(), parent_proxy.into());
             }
             {
                 let child_context = v8::Local::new(handle_scope, &child_context);
                 let scope = &mut v8::ContextScope::new(handle_scope, child_context);
                 let child_window = v8::Local::new(scope, &child_window);
-                let child_proxy = v8::Local::new(scope, &child_proxy);
+                let child_proxy = v8::Local::new(scope, &public_child_proxy);
                 let parent_proxy = v8::Local::new(scope, &parent_proxy);
                 let source_key = v8::String::new(scope, "__source")
                     .ok_or_else(|| HostError::Execution("allocate parent proxy source".into()))?;
@@ -1117,6 +1221,20 @@ mod raw_v8 {
                     .ok_or_else(|| HostError::Execution("allocate parent opener".into()))?;
                 let opener = v8::Local::new(scope, &parent_opener);
                 parent_proxy.set(scope, opener_key.into(), opener);
+                // A top-level browsing context is its own `parent` and `top`.
+                // These properties are part of the cross-origin WindowProxy
+                // surface too: testharness walks `self -> parent -> top`
+                // without being allowed to inspect the parent's DOM. Leaving
+                // them absent turns the second walk step into `undefined` and
+                // aborts every cross-origin child harness during bootstrap.
+                if !same_origin {
+                    for name in ["parent", "top"] {
+                        let key = v8::String::new(scope, name).ok_or_else(|| {
+                            HostError::Execution(format!("allocate parent proxy {name}"))
+                        })?;
+                        parent_proxy.set(scope, key.into(), parent_proxy.into());
+                    }
+                }
                 for name in ["parent", "top"] {
                     let key = v8::String::new(scope, name)
                         .ok_or_else(|| HostError::Execution(format!("allocate frame {name}")))?;
@@ -1126,7 +1244,7 @@ mod raw_v8 {
             if let Some(document) = document {
                 active.set_frame_document(frame, document);
             }
-            active.set_frame_window(frame, child_proxy);
+            active.set_frame_window(frame, public_child_proxy);
             Ok(())
         }
 
@@ -1154,6 +1272,13 @@ mod raw_v8 {
                 .get(&self.active_realm)
                 .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
                 .take_parser_input_commands())
+        }
+
+        pub fn take_history_traversal(&self) -> Result<Option<i64>, HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))
+                .map(|state| state.take_history_traversal())
         }
 
         pub fn configure_trusted_types(
@@ -1203,6 +1328,17 @@ mod raw_v8 {
                 .get(&self.active_realm)
                 .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
                 .set_layout(layout);
+            Ok(())
+        }
+
+        pub fn install_layout_provider(
+            &mut self,
+            provider: Rc<dyn BindingLayoutProvider>,
+        ) -> Result<(), HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
+                .set_layout_provider(provider);
             Ok(())
         }
 
@@ -1349,6 +1485,22 @@ mod raw_v8 {
                 };
                 let mutations = dom.borrow_mut().drain_mutations();
                 if mutations.is_empty() {
+                    let realms = self.binding_states.keys().copied().collect::<Vec<_>>();
+                    for realm in realms {
+                        let Some(state) = self.binding_states.get(&realm).cloned() else {
+                            continue;
+                        };
+                        let Some(context) = self.contexts.get(&realm).cloned() else {
+                            continue;
+                        };
+                        v8::scope!(let handle_scope, &mut self.isolate);
+                        let context = v8::Local::new(handle_scope, &context);
+                        let scope = &mut v8::ContextScope::new(handle_scope, context);
+                        delivered += usize::from(
+                            deliver_selection_change(scope, &state)
+                                .map_err(|error| HostError::Execution(error.to_string()))?,
+                        );
+                    }
                     return Ok(delivered);
                 }
                 let realms = self.binding_states.keys().copied().collect::<Vec<_>>();
@@ -1364,6 +1516,10 @@ mod raw_v8 {
                     let scope = &mut v8::ContextScope::new(handle_scope, context);
                     delivered += deliver_mutation_observers(scope, &state, &mutations)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
+                    delivered += usize::from(
+                        deliver_selection_change(scope, &state)
+                            .map_err(|error| HostError::Execution(error.to_string()))?,
+                    );
                     scope.perform_microtask_checkpoint();
                 }
                 if let Some(dom) = self.active_dom() {
@@ -1548,6 +1704,13 @@ mod raw_v8 {
         }
 
         fn drain_generated_platform_operations(&mut self, wait: bool) -> Result<usize, HostError> {
+            // A transaction keep-alive loop is legitimate browser activity:
+            // every success handler may enqueue the next request forever.
+            // Bound one scheduler checkpoint so that such a chain yields to
+            // other page tasks instead of being misreported as a wall-time
+            // violation. Operations that make no progress still wait until
+            // the normal execution deadline and fail closed.
+            const MAX_COMPLETIONS_PER_CHECKPOINT: usize = 1_024;
             let deadline = Instant::now() + self.execution_wall_limit;
             let mut delivered = 0;
             loop {
@@ -1579,6 +1742,9 @@ mod raw_v8 {
                 // chain cannot starve cancellation, transaction release, or
                 // other zero-delay work.
                 delivered += self.drain_scheduled_timers(false)?;
+                if delivered >= MAX_COMPLETIONS_PER_CHECKPOINT {
+                    break;
+                }
                 let pending = self
                     .binding_states
                     .values()
@@ -1592,7 +1758,13 @@ mod raw_v8 {
                     });
                 }
                 if pass == 0 {
-                    std::thread::sleep(Duration::from_millis(1));
+                    // Parent-service database operations are normally tiny.
+                    // A millisecond polling floor compounds into seconds for
+                    // large cursor/partition suites, even though the ordered
+                    // service has already made the next completion runnable.
+                    // Yield briefly without busy-spinning or delaying network
+                    // operations by an entire scheduler quantum.
+                    std::thread::sleep(Duration::from_micros(50));
                 }
             }
             Ok(delivered)
@@ -1602,6 +1774,15 @@ mod raw_v8 {
             self.isolate
                 .get_slot::<AsyncFetches>()
                 .is_some_and(|fetches| !fetches.pending.is_empty())
+        }
+
+        pub fn has_pending_page_work(&mut self) -> bool {
+            self.has_pending_async_fetches()
+                || self.next_timer_delay().is_some()
+                || self
+                    .binding_states
+                    .values()
+                    .any(|state| state.has_pending_platform_work())
         }
 
         /// Create another global realm in this page's isolate. DOM wrappers are
@@ -2054,10 +2235,16 @@ mod raw_v8 {
           };
           globalThis.postMessage = value => __oryn_worker_emit(cloneJson(value));
           globalThis.close = () => __oryn_worker_close();
+          const sharedPort = new WorkerEventTarget();
+          sharedPort.postMessage = value => __oryn_worker_emit(cloneJson(value));
+          sharedPort.start = () => {};
+          sharedPort.close = () => __oryn_worker_close();
           globalThis.__oryn_dispatch_message = encoded => {
             const event = new MessageEvent('message', { data: JSON.parse(encoded) });
-            dispatchEvent(event);
+            if (globalThis.__oryn_worker_global_name === 'SharedWorkerGlobalScope') sharedPort.dispatchEvent(event);
+            else dispatchEvent(event);
           };
+          globalThis.__oryn_connect_shared = () => dispatchEvent(new MessageEvent('connect', {ports:[sharedPort]}));
         })();
     "#;
 
@@ -2284,6 +2471,15 @@ mod raw_v8 {
                     script
                         .run(worker_scope)
                         .ok_or_else(|| "worker source execution failed".to_string())?;
+                }
+                if global_kind == WorkerGlobalKind::Shared {
+                    let connect = v8::String::new(worker_scope, "__oryn_connect_shared()")
+                        .ok_or_else(|| "shared-worker connect allocation failed".to_string())?;
+                    let connect = v8::Script::compile(worker_scope, connect, None)
+                        .ok_or_else(|| "shared-worker connect compilation failed".to_string())?;
+                    connect
+                        .run(worker_scope)
+                        .ok_or_else(|| "shared-worker connect dispatch failed".to_string())?;
                 }
                 worker_scope.perform_microtask_checkpoint();
                 Ok(())
@@ -3245,6 +3441,20 @@ mod raw_v8 {
             .0
             .insert(key.clone(), source);
         Some(key)
+    }
+
+    impl Drop for RawV8Host {
+        fn drop(&mut self) {
+            // `OwnedIsolate` requires itself to be current during destruction.
+            // A BFCache-retained host is deliberately exited while frozen, so
+            // re-enter it for the automatic field drop and restore the prior
+            // isolate when `OwnedIsolate` exits.
+            if !self.isolate_entered {
+                // SAFETY: the page actor drops hosts on their creating thread.
+                unsafe { self.isolate.enter() };
+                self.isolate_entered = true;
+            }
+        }
     }
 
     impl Default for RawV8Host {

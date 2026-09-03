@@ -110,6 +110,13 @@ impl<T> PageScheduler<T> {
     }
 
     pub fn next_timer_delay_ms(&self) -> Option<u64> {
+        // `advance_to` moves due timers into the ordinary task queue. Report
+        // those tasks as immediately runnable before considering a later
+        // timer; otherwise a caller can sleep until the next future deadline
+        // while an already-due callback is stranded behind it.
+        if !self.tasks.is_empty() {
+            return Some(0);
+        }
         self.timers
             .peek()
             .map(|timer| timer.0.due_ms.saturating_sub(self.now_ms))
@@ -265,6 +272,21 @@ mod tests {
             .ran_task
         {}
         assert_eq!(values, ["first", "second", "late"]);
+    }
+
+    #[test]
+    fn ready_timer_task_preempts_the_next_future_deadline() {
+        let mut scheduler = PageScheduler::default();
+        scheduler.set_timeout(Duration::from_millis(4), task("ready"));
+        scheduler.set_timeout(Duration::from_secs(10), task("future"));
+
+        scheduler.advance_to(4);
+
+        assert_eq!(scheduler.next_timer_delay_ms(), Some(0));
+        let mut values = Vec::new();
+        scheduler.run_checkpoint(|task| values.push(task.payload));
+        assert_eq!(values, ["ready"]);
+        assert_eq!(scheduler.next_timer_delay_ms(), Some(9_996));
     }
 
     #[test]

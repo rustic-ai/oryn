@@ -105,6 +105,17 @@ pub enum ContextServiceRequest {
     GetSecurityOrigin {
         page_id: PageId,
     },
+    GetRelatedPageOrigin {
+        source_page_id: PageId,
+        target_page_id: PageId,
+    },
+    /// Materialize one explicitly imported, parent-owned upload. This is a
+    /// consequential operation and succeeds only when the context policy has
+    /// already allowed file upload; no path or generic file operation exists.
+    MaterializeUpload {
+        page_id: PageId,
+        label: String,
+    },
     NavigatePage {
         page_id: PageId,
         url: String,
@@ -245,6 +256,12 @@ pub enum ContextServiceResponse {
     SecurityOrigin {
         serialized: String,
         opaque: bool,
+    },
+    UploadMaterialized {
+        filename: String,
+        media_type: String,
+        body_base64: String,
+        last_modified: u64,
     },
     NavigationQueued,
     NavigationAuthorized,
@@ -898,6 +915,39 @@ impl ParentContextService {
                 Ok(ContextServiceResponse::SecurityOrigin {
                     serialized: self.context.page_origin(page_id)?,
                     opaque: self.context.is_opaque_origin(page_id)?,
+                })
+            }
+            ContextServiceRequest::GetRelatedPageOrigin {
+                source_page_id,
+                target_page_id,
+            } => {
+                if source_page_id != self.source_page_id
+                    || !self
+                        .context
+                        .may_read_related_page_origin(source_page_id, target_page_id)
+                {
+                    return Err(RuntimeError::ContextService(
+                        "worker cannot read an unrelated page's security origin".into(),
+                    ));
+                }
+                Ok(ContextServiceResponse::SecurityOrigin {
+                    serialized: self.context.page_origin(target_page_id)?,
+                    opaque: self.context.is_opaque_origin(target_page_id)?,
+                })
+            }
+            ContextServiceRequest::MaterializeUpload { page_id, label } => {
+                if page_id != self.source_page_id {
+                    return Err(RuntimeError::ContextService(
+                        "worker cannot materialize an upload for another page".into(),
+                    ));
+                }
+                let file = self.context.materialize_upload_label(page_id, &label)?;
+                use base64::Engine as _;
+                Ok(ContextServiceResponse::UploadMaterialized {
+                    filename: file.filename,
+                    media_type: file.media_type,
+                    body_base64: base64::engine::general_purpose::STANDARD.encode(file.bytes),
+                    last_modified: 0,
                 })
             }
             ContextServiceRequest::NavigatePage { page_id, url } => {
@@ -2226,6 +2276,11 @@ impl ParentContextService {
             | StorageRequest::Clear { area, scope }
             | StorageRequest::Entries { area, scope } => (Some(scope), Some(area)),
             StorageRequest::IndexedDb { origin, .. } => {
+                if origin == "null" {
+                    return Err(RuntimeError::ContextService(
+                        "SecurityError: opaque origins cannot access IndexedDB".into(),
+                    ));
+                }
                 if !origin_is_authorized(origin)? {
                     return Err(RuntimeError::ContextService(
                         "IndexedDB origin was not authorized for this page worker".into(),

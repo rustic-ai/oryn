@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import collections
 import hashlib
 import html as html_module
 import http.server
+from html.parser import HTMLParser
 import json
 import os
 import re
@@ -24,12 +26,17 @@ EXPANDED_MANIFEST = ROOT / "benchmarks/conformance/runtime-api-style-semantics-v
 EXPANDED_INVENTORY = ROOT / "benchmarks/conformance/runtime-api-style-semantics-v1-inventory.json"
 COMPLETION = r"""
 <script>
+setup({output:false});
 globalThis.__oryn_wpt_results=[];
 function __oryn_publish_wpt(harness, complete) {
   var value = {complete:!!complete,harness:harness && typeof harness.status === 'number' ? harness.status : 0,harnessMessage:harness && harness.message ? String(harness.message) : '',harnessStack:harness && harness.stack ? String(harness.stack) : '',tests:globalThis.__oryn_wpt_results};
   var output = document.getElementById('oryn-wpt-result') || document.createElement('pre');
-  output.id='oryn-wpt-result'; output.textContent='__ORYN_WPT_DONE__'+JSON.stringify(value);
-  if (!output.parentNode) (document.body || document.documentElement).appendChild(output);
+  output.id='oryn-wpt-result'; output.style.cssText='display:block!important;visibility:visible!important';
+  output.textContent='__ORYN_WPT_DONE__'+JSON.stringify(value);
+  // `setup({output:false})` hides testharness' body. Keep the private result
+  // channel outside that hidden subtree so public OIL extraction can observe
+  // it without weakening Oryn's visible-text semantics.
+  if (output.parentNode !== document.documentElement) document.documentElement.appendChild(output);
 }
 add_result_callback(function(test) {
   globalThis.__oryn_wpt_results.push({name:String(test.name || ''),status:Number(test.status),message:String(test.message || '')});
@@ -73,11 +80,56 @@ def meta_script_paths(root: Path, source_path: Path, source_text: str) -> list[s
     return dependencies
 
 
+def fs_path_assets(root: Path, source_path: Path) -> list[Path]:
+    source = source_path.read_text(encoding="utf-8", errors="replace")
+    assets = []
+    for raw in re.findall(r"\{\{fs_path\(([^)]+)\)\}\}", source):
+        relative = raw.strip()
+        base = root if relative.startswith("/") else source_path.parent
+        candidate = (base / relative.lstrip("/")).resolve()
+        if root not in candidate.parents or not candidate.is_file():
+            raise ValueError(f"invalid WPT fs_path substitution: {raw}")
+        assets.append(candidate)
+    return assets
+
+
+class _HtmlVariantParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.variants: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "meta":
+            return
+        values = {name.lower(): value or "" for name, value in attrs}
+        if values.get("name", "").lower() == "variant":
+            self.variants.append(values.get("content", ""))
+
+
+def declared_html_variants(source: str) -> list[str]:
+    """Return WPT `<meta name=variant content=...>` values in source order.
+
+    The pinned inventory predates variant expansion for HTML tests and records
+    an empty sentinel for those files. Executing that sentinel can silently
+    turn a valid parametrized test into a different `null`-parameter test, so
+    the runner expands the immutable source declaration at execution time.
+    """
+    parser = _HtmlVariantParser()
+    parser.feed(source)
+    return parser.variants
+
+
 def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def substitute_wpt_tokens(body: str, request_host: str, port: int) -> str:
+def substitute_wpt_tokens(
+    body: str,
+    request_host: str,
+    port: int,
+    root: Path | None = None,
+    source_path: Path | None = None,
+) -> str:
     """Apply the deterministic wptserve substitutions used by this harness."""
     remote_host = "localhost" if request_host == "127.0.0.1" else "127.0.0.1"
     replacements = {
@@ -92,6 +144,17 @@ def substitute_wpt_tokens(body: str, request_host: str, port: int) -> str:
     }
     for token, value in replacements.items():
         body = body.replace(token, value)
+
+    def replace_fs_path(match: re.Match[str]) -> str:
+        relative = match.group(1).strip()
+        base = root if relative.startswith("/") or source_path is None else source_path.parent
+        candidate = (base / relative.lstrip("/")).resolve()
+        if root not in candidate.parents or not candidate.is_file():
+            raise ValueError(f"invalid WPT fs_path substitution: {relative}")
+        return str(candidate)
+
+    if root is not None:
+        body = re.sub(r"\{\{fs_path\(([^)]+)\)\}\}", replace_fs_path, body)
     return body
 
 
@@ -121,6 +184,8 @@ def outcome(assertions: list[dict[str, object]], expected_total: int, complete: 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     root: Path
+    dispatcher_condition = threading.Condition()
+    dispatcher_queues: dict[str, collections.deque[bytes]] = {}
 
     def translate_path(self, path: str) -> str:
         relative = urllib.parse.urlparse(path).path.lstrip("/")
@@ -132,6 +197,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         """Implement the deterministic subset of wptserve used by mapped tests."""
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/common/dispatcher/dispatcher.py":
+            query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            uuid = query.get("uuid", [""])[0]
+            if not uuid:
+                self.send_error(400, "dispatcher uuid is required")
+                return
+            length = int(self.headers.get("content-length", "0"))
+            if length > 16 * 1024 * 1024:
+                self.send_error(413)
+                return
+            body = self.rfile.read(length)
+            with self.dispatcher_condition:
+                self.dispatcher_queues.setdefault(uuid, collections.deque()).append(body)
+                self.dispatcher_condition.notify_all()
+            self._send_bytes(b"done", "text/plain; charset=utf-8")
+            return
         if parsed.path != "/xhr/resources/content.py":
             self.send_error(404)
             return
@@ -155,6 +236,82 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/resources/testdriver-vendor.js":
+            # Controlled native automation only. The page worker still has no
+            # filesystem or generic automation operation: these calls reach
+            # generated DOM behavior and explicitly authorized upload payloads.
+            body = b"""'use strict';
+window.test_driver_internal.click = element => __oryn_testdriver_click(element);
+window.test_driver_internal.send_keys = (element, keys) => __oryn_testdriver_send_keys(element, keys);
+window.test_driver_internal.action_sequence = actions => __oryn_testdriver_actions(actions);
+"""
+            self._send_bytes(body, "application/javascript; charset=utf-8")
+            return
+        if parsed.path == "/common/dispatcher/dispatcher.py":
+            query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            uuid = query.get("uuid", [""])[0]
+            if not uuid:
+                self.send_error(400, "dispatcher uuid is required")
+                return
+            if "show-headers" in query:
+                payload = json.dumps(
+                    {
+                        key.lower(): value
+                        for key, value in self.headers.items()
+                    },
+                    sort_keys=True,
+                ).encode()
+                with self.dispatcher_condition:
+                    self.dispatcher_queues.setdefault(uuid, collections.deque()).append(payload)
+                    self.dispatcher_condition.notify_all()
+                cache = "max-age=31536000" if "cacheable" in query else "no-store"
+                self.send_response(200)
+                self.send_header("content-type", "text/plain; charset=utf-8")
+                self.send_header("cache-control", cache)
+                self.send_header("content-length", "0")
+                self.end_headers()
+                return
+            with self.dispatcher_condition:
+                queue = self.dispatcher_queues.setdefault(uuid, collections.deque())
+                payload = queue.popleft() if queue else b"not ready"
+            self._send_bytes(payload, "text/plain; charset=utf-8")
+            return
+        if parsed.path.endswith(
+            "/html/browsers/browsing-the-web/remote-context-helper/resources/executor-window.py"
+        ):
+            query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            uuid = query.get("uuid", [""])[0]
+            if not uuid:
+                self.send_error(400, "executor uuid is required")
+                return
+            scripts = "\n".join(
+                f'<script src="{html_module.escape(script, quote=True)}"></script>'
+                for script in query.get("script", [])
+            )
+            request_headers = "\n".join(
+                "window.__requestHeaders.append("
+                + json.dumps(name.lower())
+                + ", "
+                + json.dumps(value)
+                + ");"
+                for name, value in self.headers.items()
+            )
+            start_on = query.get("startOn", [None])[0]
+            base_url = "http://" + self.headers.get("host", "localhost") + self.path
+            body = f"""<!doctype html>
+<base href="{html_module.escape(base_url, quote=True)}">
+<script src="/common/dispatcher/dispatcher.js"></script>
+<script src="./executor-common.js"></script>
+<script src="./executor-window.js"></script>
+{scripts}
+<body><script>
+window.__requestHeaders = new Headers();
+{request_headers}
+requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
+</script>""".encode()
+            status = int(query.get("status", ["200"])[0])
+            self._send_bytes(body, "text/html; charset=utf-8", status=status)
+            return
         if parsed.path.endswith(".sub.js"):
             source = Path(self.translate_path(self.path))
             if not source.is_file():
@@ -163,7 +320,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
             body = source.read_text(encoding="utf-8", errors="replace")
             body = substitute_wpt_tokens(
-                body, request_host, self.server.server_address[1]
+                body, request_host, self.server.server_address[1], self.root, source
             )
             encoded = body.encode()
             self.send_response(200)
@@ -241,6 +398,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 encoding="utf-8", errors="replace"
             )
             test_source = source_path.read_text(encoding="utf-8", errors="replace")
+            request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
+            test_source = substitute_wpt_tokens(
+                test_source,
+                request_host,
+                self.server.server_address[1],
+                self.root,
+                source_path,
+            )
             dependencies = [
                 (self.root / dependency.lstrip("/")).read_text(
                     encoding="utf-8", errors="replace"
@@ -265,7 +430,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if path.name.endswith((".sub.html", ".sub.htm")):
                 request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
                 body = substitute_wpt_tokens(
-                    body, request_host, self.server.server_address[1]
+                    body, request_host, self.server.server_address[1], self.root, path
                 )
             body = re.sub(
                 r"<script\b[^>]*\bsrc\s*=\s*(['\"]?)/resources/testharnessreport\.js\1[^>]*>\s*</script>",
@@ -293,8 +458,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
+    def _send_bytes(self, body: bytes, content_type: str, *, status: int = 200) -> None:
+        self.send_response(status)
+        self.send_header("content-type", content_type)
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def log_message(self, _format: str, *_args: object) -> None:
         pass
+
+
+def is_testharness_html(path: Path) -> bool:
+    """Return whether an HTML file is an independently runnable WPT test.
+
+    Sparse upstream caches do not include MANIFEST.json, so HTML applicability
+    must be derived from the page itself. Crash/manual fixtures and helper
+    documents are not testharness tests and must not become synthetic failures.
+    """
+    if "resources" in path.parts or "crashtests" in path.parts:
+        return False
+    source = path.read_text(encoding="utf-8", errors="replace").lower()
+    return "testharness.js" in source
 
 
 def applicable_tests(checkout: Path) -> list[tuple[Path, str, str, str]]:
@@ -311,7 +496,9 @@ def applicable_tests(checkout: Path) -> list[tuple[Path, str, str, str]]:
         for path in directory.rglob("*"):
             name = path.name
             if path.is_file() and (
-                name.endswith(".any.js") or name.endswith(".window.js") or path.suffix in {".html", ".htm"}
+                name.endswith(".any.js")
+                or name.endswith(".window.js")
+                or (path.suffix in {".html", ".htm"} and is_testharness_html(path))
             ) and not any(token in name for token in ["-ref.", ".manual."]):
                 relative = path.relative_to(checkout)
                 candidate = (len(Path(root).parts), classification)
@@ -334,14 +521,20 @@ def inventoried_tests(checkout: Path, inventory_path: Path) -> list[tuple[Path, 
         actual = __import__("hashlib").sha256(source.read_bytes()).hexdigest()
         if actual != record["sha256"]:
             raise SystemExit(f"WPT source digest mismatch: {record['path']}")
+        variants = record["variants"]
+        if variants == [""] and source.suffix in {".html", ".htm"}:
+            variants = declared_html_variants(
+                source.read_text(encoding="utf-8", errors="replace")
+            ) or variants
         for global_name in record["globals"]:
-            for variant in record["variants"]:
+            for variant in variants:
                 tests.append((Path(record["path"]), record["workstream"], global_name, variant))
     return tests
 
 
 def run_case(
     binary: Path,
+    checkout: Path,
     port: int,
     test: Path,
     classification: str,
@@ -383,6 +576,20 @@ def run_case(
             native.append("--in-process-probe")
         if script_wall_ms is not None:
             native.extend(["--script-wall-ms", str(script_wall_ms)])
+        try:
+            for asset in fs_path_assets(checkout, checkout / test):
+                native.extend(["--upload", f"{asset}={asset}"])
+        except ValueError as error:
+            return {
+                "id": identifier,
+                "path": test.as_posix(),
+                "classification": classification,
+                "global": global_name,
+                "variant": variant,
+                "status": "failed",
+                "failure_domain": "harness",
+                "diagnostics": [str(error)],
+            }
         completed = subprocess.run(
             [str(binary), "--file", str(oil_path), *native, "--url", url, "--trace-out", str(trace_path)],
             cwd=ROOT, text=True, capture_output=True, timeout=timeout,
@@ -467,6 +674,12 @@ def main() -> int:
     parser.add_argument("--max-tests", type=int)
     parser.add_argument("--filter", help="substring filter applied to upstream test paths")
     parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help="repeatable substring exclusion applied after --filter",
+    )
+    parser.add_argument(
         "--global",
         dest="global_filter",
         choices=["window", "dedicatedworker", "sharedworker", "serviceworker"],
@@ -535,6 +748,12 @@ def main() -> int:
     tests = inventoried_tests(args.checkout, args.inventory or EXPANDED_INVENTORY) if args.inventory else applicable_tests(args.checkout)
     if args.filter:
         tests = [item for item in tests if args.filter in item[0].as_posix()]
+    if args.exclude:
+        tests = [
+            item
+            for item in tests
+            if not any(pattern in item[0].as_posix() for pattern in args.exclude)
+        ]
     if args.global_filter:
         tests = [item for item in tests if item[2] == args.global_filter]
     tests = [item for index, item in enumerate(tests) if index % args.shard_count == args.shard_index]
@@ -550,6 +769,7 @@ def main() -> int:
     }
     selection = {
         "filter": args.filter,
+        "exclude": args.exclude,
         "global": args.global_filter,
         "shard_index": args.shard_index,
         "shard_count": args.shard_count,
@@ -621,6 +841,7 @@ def main() -> int:
                 executor.submit(
                     run_case,
                     binary,
+                    args.checkout.resolve(),
                     server.server_port,
                     test,
                     classification,

@@ -2329,6 +2329,7 @@ dependencies = [
 name = "oryn-js"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "markup5ever",
  "oryn-dom",
  "oryn-webidl",

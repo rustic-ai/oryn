@@ -12,6 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use oryn_dom::{
     BoundaryPoint, DomError, DomRuntime, LiveRange, LiveRangeId, Mutation, NodeId, NodeKind,
     ShadowMode,
@@ -25,9 +26,9 @@ use crate::{
         generated_member_by_id,
     },
     platform::{
-        HostOperationId, IdbHostCommand, IdbIndexDefinition, IdbObjectStoreDefinition, IdbWrite,
-        PlatformHost, PlatformHostCompletion, PlatformHostRequest, PlatformHostResult,
-        PlatformHttpRequest, PlatformWebSocketFrame,
+        HostOperationId, IdbHostCommand, IdbHostResponse, IdbIndexDefinition,
+        IdbObjectStoreDefinition, IdbWrite, PlatformHost, PlatformHostCompletion,
+        PlatformHostRequest, PlatformHostResult, PlatformHttpRequest, PlatformWebSocketFrame,
     },
     realm::RealmId,
     trusted_types::{TrustedKind, TrustedTypesConfig, TrustedTypesRegistry, TrustedValue},
@@ -92,6 +93,7 @@ struct EventRecord {
     current_target: Option<NodeId>,
     bubbles: bool,
     cancelable: bool,
+    is_trusted: bool,
     default_prevented: bool,
     propagation_stopped: bool,
     immediate_stopped: bool,
@@ -125,6 +127,50 @@ struct RangeRecord {
     start_offset: u32,
     end_container: NodeId,
     end_offset: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SelectionSnapshot {
+    anchor: Option<BoundaryPoint>,
+    focus: Option<BoundaryPoint>,
+}
+
+#[derive(Debug, Clone)]
+struct EditingNodeSnapshot {
+    node: NodeId,
+    children: Vec<NodeId>,
+    attributes: BTreeMap<String, String>,
+    kind: NodeKind,
+    value: Option<String>,
+    sensitive_value: bool,
+}
+
+#[derive(Debug, Clone)]
+struct EditingSnapshot {
+    host: NodeId,
+    nodes: Vec<EditingNodeSnapshot>,
+    selection: SelectionSnapshot,
+    serialized_bytes: usize,
+}
+
+#[derive(Debug, Clone)]
+struct UndoUnit {
+    before: EditingSnapshot,
+    after: EditingSnapshot,
+    command: String,
+    split_nodes: Option<(NodeId, NodeId)>,
+}
+
+#[derive(Debug, Default)]
+struct UndoHistory {
+    undo: VecDeque<UndoUnit>,
+    redo: VecDeque<UndoUnit>,
+    bytes: usize,
+}
+
+impl UndoHistory {
+    const MAX_UNITS: usize = 100;
+    const MAX_BYTES: usize = 8 * 1024 * 1024;
 }
 
 impl From<LiveRange> for RangeRecord {
@@ -191,6 +237,14 @@ struct FileRecord {
 
 struct FormDataRecord {
     entries: Vec<(String, v8::Global<v8::Value>)>,
+}
+
+#[derive(serde::Deserialize)]
+struct SelectedUploadFile {
+    filename: String,
+    media_type: String,
+    body_base64: String,
+    last_modified: i64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -435,8 +489,13 @@ enum DeferredPlatformTask {
         transaction_id: u64,
         commit: bool,
     },
+    CompleteBlockedIdb {
+        operation_id: HostOperationId,
+        response: IdbHostResponse,
+    },
 }
 
+#[derive(Clone)]
 enum IdbCompletionAction {
     Open {
         name: String,
@@ -527,6 +586,13 @@ pub struct BindingLayout {
     pub geometry: BTreeMap<u64, BindingGeometry>,
 }
 
+/// Synchronous style/layout flush used by geometry WebIDL operations. The
+/// implementation lives in the page orchestrator so generated bindings keep
+/// using the same Rust DOM and Stylo/Taffy/Parley pipeline as observations.
+pub trait BindingLayoutProvider {
+    fn compute_layout(&self) -> Result<BindingLayout, String>;
+}
+
 /// Per-context binding state. The DOM may be shared with the page orchestrator,
 /// but V8 handles and wrapper identities remain realm-local and thread-affine.
 pub struct V8BindingState {
@@ -548,9 +614,12 @@ pub struct V8BindingState {
     selection_range: Cell<Option<u64>>,
     selection_anchor: Cell<Option<BoundaryPoint>>,
     selection_focus: Cell<Option<BoundaryPoint>>,
+    selection_revision: Cell<u64>,
+    delivered_selection_revision: Cell<u64>,
     selection_object: RefCell<Option<v8::Global<v8::Object>>>,
     implementation_object: RefCell<Option<v8::Global<v8::Object>>>,
     history: RefCell<Option<HistoryRecord>>,
+    pending_history_traversal: Cell<Option<i64>>,
     storage_fallback: RefCell<[BTreeMap<String, String>; 2]>,
     next_platform_object_id: Cell<u64>,
     platform_objects: RefCell<BTreeMap<u64, PlatformObjectRecord>>,
@@ -559,6 +628,7 @@ pub struct V8BindingState {
     next_platform_operation_id: Cell<u64>,
     pending_platform_operations: RefCell<BTreeMap<HostOperationId, PendingPlatformOperation>>,
     queued_idb_operations: RefCell<VecDeque<QueuedIdbOperation>>,
+    blocked_idb_completions: RefCell<VecDeque<(u64, IdbCompletionAction, IdbHostResponse)>>,
     deferred_platform_tasks: RefCell<VecDeque<DeferredPlatformTask>>,
     cancelled_platform_operations: RefCell<BTreeSet<HostOperationId>>,
     platform_listeners: RefCell<PlatformListenerMap>,
@@ -571,6 +641,7 @@ pub struct V8BindingState {
     next_traversal_id: Cell<u64>,
     traversals: RefCell<BTreeMap<u64, TraversalRecord>>,
     layout: RefCell<BindingLayout>,
+    layout_provider: RefCell<Option<Rc<dyn BindingLayoutProvider>>>,
     frame_roots: RefCell<BTreeMap<NodeId, NodeId>>,
     frame_windows: RefCell<BTreeMap<NodeId, v8::Global<v8::Object>>>,
     template_contents: RefCell<BTreeMap<NodeId, NodeId>>,
@@ -580,6 +651,9 @@ pub struct V8BindingState {
     document_open: Cell<bool>,
     design_mode: Cell<bool>,
     style_with_css: Cell<bool>,
+    default_paragraph_separator: RefCell<String>,
+    undo_history: RefCell<UndoHistory>,
+    pending_split_undo: Cell<Option<(NodeId, NodeId)>>,
     document_write_buffer: RefCell<String>,
     document_write_depth: Cell<u32>,
     pending_dynamic_scripts: RefCell<VecDeque<NodeId>>,
@@ -595,9 +669,18 @@ pub struct V8BindingState {
 #[derive(Default)]
 struct BindingStateRegistry {
     realms: RefCell<BTreeMap<RealmId, RcWeak<V8BindingState>>>,
+    instances: RefCell<BTreeMap<u64, RcWeak<V8BindingState>>>,
 }
 
 impl V8BindingState {
+    /// Take a cross-document history traversal that could not be satisfied by
+    /// the realm-local same-document history list. The page orchestrator owns
+    /// top-level session history and performs the actual BFCache restore or
+    /// navigation after the current JavaScript task reaches a checkpoint.
+    pub fn take_history_traversal(&self) -> Option<i64> {
+        self.pending_history_traversal.take()
+    }
+
     pub fn set_platform_host(&self, host: Rc<dyn PlatformHost>) {
         *self.platform_host.borrow_mut() = Some(host);
     }
@@ -611,6 +694,11 @@ impl V8BindingState {
     ) -> Result<usize, V8BindingError> {
         self.finish_platform_task_checkpoint()?;
         self.expire_xhr_timeouts(scope)?;
+        // Only tasks already queued when this page task began may run in this
+        // drain. A completion can queue transaction completion/open-success,
+        // but those are distinct tasks and must not overtake the microtask
+        // checkpoint following the current event (notably upgradeneeded).
+        let deferred_budget = self.deferred_platform_tasks.borrow().len();
         let completions = self
             .platform_host
             .borrow()
@@ -621,7 +709,8 @@ impl V8BindingState {
             self.handle_platform_completion(scope, completion)?;
             self.flush_queued_idb_operations()?;
         }
-        while count < limit {
+        let mut deferred_processed = 0;
+        while count < limit && deferred_processed < deferred_budget {
             let Some(task) = self.deferred_platform_tasks.borrow_mut().pop_front() else {
                 break;
             };
@@ -713,8 +802,21 @@ impl V8BindingState {
                         },
                     )?;
                 }
+                DeferredPlatformTask::CompleteBlockedIdb {
+                    operation_id,
+                    response,
+                } => {
+                    self.handle_platform_completion(
+                        scope,
+                        PlatformHostCompletion {
+                            operation_id,
+                            result: Ok(PlatformHostResult::IndexedDb { response }),
+                        },
+                    )?;
+                }
             }
             count += 1;
+            deferred_processed += 1;
         }
         self.expire_xhr_timeouts(scope)?;
         Ok(count)
@@ -1340,6 +1442,16 @@ impl V8BindingState {
                         {
                             request.done = false;
                         }
+                        // A blocked database change is dormant browser state,
+                        // not runnable platform work. Wake it only when a
+                        // connection closes; polling it here would spin the
+                        // page scheduler and incorrectly hold the load/idle
+                        // barriers open.
+                        self.blocked_idb_completions.borrow_mut().push_back((
+                            request_id,
+                            action.clone(),
+                            response.clone(),
+                        ));
                         return Ok(());
                     }
                 }
@@ -1946,12 +2058,20 @@ impl V8BindingState {
         *self.layout.borrow_mut() = layout;
     }
 
+    pub fn set_layout_provider(&self, provider: Rc<dyn BindingLayoutProvider>) {
+        *self.layout_provider.borrow_mut() = Some(provider);
+    }
+
     pub fn set_frame_document(&self, frame: NodeId, document: NodeId) {
         self.frame_roots.borrow_mut().insert(frame, document);
     }
 
     pub fn set_frame_window(&self, frame: NodeId, window: v8::Global<v8::Object>) {
         self.frame_windows.borrow_mut().insert(frame, window);
+    }
+
+    pub fn frame_window(&self, frame: NodeId) -> Option<v8::Global<v8::Object>> {
+        self.frame_windows.borrow().get(&frame).cloned()
     }
 
     pub fn set_current_script(&self, script: Option<NodeId>) {
@@ -2176,9 +2296,12 @@ pub fn install_generated_bindings_with_root_for_global(
         selection_range: Cell::new(None),
         selection_anchor: Cell::new(None),
         selection_focus: Cell::new(None),
+        selection_revision: Cell::new(0),
+        delivered_selection_revision: Cell::new(0),
         selection_object: RefCell::new(None),
         implementation_object: RefCell::new(None),
         history: RefCell::new(None),
+        pending_history_traversal: Cell::new(None),
         storage_fallback: RefCell::new([BTreeMap::new(), BTreeMap::new()]),
         next_platform_object_id: Cell::new(1),
         platform_objects: RefCell::new(BTreeMap::new()),
@@ -2187,6 +2310,7 @@ pub fn install_generated_bindings_with_root_for_global(
         next_platform_operation_id: Cell::new(1),
         pending_platform_operations: RefCell::new(BTreeMap::new()),
         queued_idb_operations: RefCell::new(VecDeque::new()),
+        blocked_idb_completions: RefCell::new(VecDeque::new()),
         deferred_platform_tasks: RefCell::new(VecDeque::new()),
         cancelled_platform_operations: RefCell::new(BTreeSet::new()),
         platform_listeners: RefCell::new(BTreeMap::new()),
@@ -2199,6 +2323,7 @@ pub fn install_generated_bindings_with_root_for_global(
         next_traversal_id: Cell::new(1),
         traversals: RefCell::new(BTreeMap::new()),
         layout: RefCell::new(BindingLayout::default()),
+        layout_provider: RefCell::new(None),
         frame_roots: RefCell::new(BTreeMap::new()),
         frame_windows: RefCell::new(BTreeMap::new()),
         template_contents: RefCell::new(BTreeMap::new()),
@@ -2208,6 +2333,9 @@ pub fn install_generated_bindings_with_root_for_global(
         document_open: Cell::new(false),
         design_mode: Cell::new(false),
         style_with_css: Cell::new(false),
+        default_paragraph_separator: RefCell::new("div".into()),
+        undo_history: RefCell::new(UndoHistory::default()),
+        pending_split_undo: Cell::new(None),
         document_write_buffer: RefCell::new(String::new()),
         document_write_depth: Cell::new(0),
         pending_dynamic_scripts: RefCell::new(VecDeque::new()),
@@ -2232,6 +2360,12 @@ pub fn install_generated_bindings_with_root_for_global(
         .realms
         .borrow_mut()
         .insert(realm, Rc::downgrade(&state));
+    scope
+        .get_slot::<BindingStateRegistry>()
+        .expect("binding-state registry was installed")
+        .instances
+        .borrow_mut()
+        .insert(state.instance_id, Rc::downgrade(&state));
 
     let mut templates = BTreeMap::<&'static str, v8::Global<v8::FunctionTemplate>>::new();
     let mut remaining = GENERATED_INTERFACES.iter().enumerate().collect::<Vec<_>>();
@@ -2710,10 +2844,21 @@ fn idb_key_from_value(
     scope: &mut v8::PinScope,
     value: v8::Local<v8::Value>,
 ) -> Result<IdbKey, V8BindingError> {
+    idb_key_from_value_inner(scope, value, 0)
+}
+
+fn idb_key_from_value_inner(
+    scope: &mut v8::PinScope,
+    value: v8::Local<v8::Value>,
+    depth: u8,
+) -> Result<IdbKey, V8BindingError> {
     let data_error = || V8BindingError::Unsupported {
         interface: "IndexedDB".into(),
         member: "DataError".into(),
     };
+    if depth >= 64 {
+        return Err(data_error());
+    }
     if value.is_number() {
         let value = value.number_value(scope).ok_or_else(data_error)?;
         return value
@@ -2754,7 +2899,7 @@ fn idb_key_from_value(
         let mut keys = Vec::with_capacity(array.length() as usize);
         for index in 0..array.length() {
             let item = array.get_index(scope, index).ok_or_else(data_error)?;
-            keys.push(idb_key_from_value(scope, item)?);
+            keys.push(idb_key_from_value_inner(scope, item, depth + 1)?);
         }
         return Ok(IdbKey::Array(keys));
     }
@@ -3274,6 +3419,12 @@ fn json_bytes(value: Option<&serde_json::Value>) -> Vec<u8> {
 
 fn current_platform_origin(scope: &mut v8::PinScope) -> String {
     let global = scope.get_current_context().global(scope);
+    if v8::String::new(scope, "__oryn_opaque_origin")
+        .and_then(|key| global.get(scope, key.into()))
+        .is_some_and(|value| value.boolean_value(scope))
+    {
+        return "null".into();
+    }
     let location = v8::String::new(scope, "location")
         .and_then(|key| global.get(scope, key.into()))
         .and_then(|value| value.to_object(scope));
@@ -3313,6 +3464,13 @@ fn submit_idb(
     command: IdbHostCommand,
     action: IdbCompletionAction,
 ) -> Result<(), V8BindingError> {
+    let origin = current_platform_origin(scope);
+    if origin == "null" {
+        return Err(V8BindingError::Unsupported {
+            interface: "IDBFactory".into(),
+            member: "SecurityError".into(),
+        });
+    }
     let transaction_id = match &*platform_object(state, request_id)? {
         PlatformObjectRecord::IdbRequest(request) => request.transaction_id,
         _ => None,
@@ -3338,10 +3496,7 @@ fn submit_idb(
     } else {
         command
     };
-    let request = PlatformHostRequest::IndexedDb {
-        origin: current_platform_origin(scope),
-        command,
-    };
+    let request = PlatformHostRequest::IndexedDb { origin, command };
     let pending = PendingPlatformOperation::IndexedDb { request_id, action };
     if state.pending_platform_operations.borrow().len() >= 32 {
         let mut queue = state.queued_idb_operations.borrow_mut();
@@ -3434,14 +3589,27 @@ fn queue_idb_transaction_completion(
                 transaction.request_id,
                 transaction.database_id,
                 transaction.mode == "versionchange",
+                transaction.mode == "readonly",
             ))
         }
     };
-    let Some((request_id, database_id, versionchange)) = completion else {
+    let Some((request_id, database_id, versionchange, readonly)) = completion else {
         return Ok(());
     };
     let mut tasks = state.deferred_platform_tasks.borrow_mut();
-    if versionchange {
+    if readonly {
+        // A read-only transaction has no parent-owned write snapshot to
+        // commit. Complete it as the next database task instead of consuming
+        // a scarce host-operation slot. Transactions for independent database
+        // connections are not ordered behind the realm's unrelated request
+        // backlog; putting this completion at the front prevents a completed
+        // cursor transaction from being stranded by bulk work in other
+        // databases.
+        tasks.push_front(DeferredPlatformTask::Event {
+            target_id: transaction_id,
+            event_type: "complete",
+        });
+    } else if versionchange {
         tasks.push_back(DeferredPlatformTask::Event {
             target_id: transaction_id,
             event_type: "complete",
@@ -3962,6 +4130,32 @@ fn computed_style_get_property_value(
 
 fn node_key(node: NodeId) -> u64 {
     (u64::from(node.generation) << 32) | u64::from(node.slot)
+}
+
+fn geometry_for_node(
+    state: &V8BindingState,
+    node: NodeId,
+) -> Result<BindingGeometry, V8BindingError> {
+    let key = node_key(node);
+    if let Some(provider) = state.layout_provider.borrow().as_ref() {
+        let layout = provider
+            .compute_layout()
+            .map_err(|member| V8BindingError::Unsupported {
+                interface: "Element".into(),
+                member,
+            })?;
+        *state.layout.borrow_mut() = layout;
+    }
+    state
+        .layout
+        .borrow()
+        .geometry
+        .get(&key)
+        .cloned()
+        .ok_or_else(|| V8BindingError::Unsupported {
+            interface: "Element".into(),
+            member: "geometry is unavailable after a synchronous layout flush".into(),
+        })
 }
 
 fn dom_rect_object<'s>(
@@ -4535,6 +4729,37 @@ fn initialize_platform_constructor<'s>(
                 if matches!(kind.as_str(), "checkbox" | "radio")
                     && dom.attribute(control, "checked")?.is_none()
                 {
+                    continue;
+                }
+                if kind == "file" {
+                    let selected = dom
+                        .attribute(control, "data-oryn-upload-files")?
+                        .and_then(|encoded| {
+                            serde_json::from_str::<Vec<SelectedUploadFile>>(encoded).ok()
+                        })
+                        .unwrap_or_default();
+                    drop(dom);
+                    for file in selected {
+                        let Ok(bytes) = BASE64.decode(&file.body_base64) else {
+                            continue;
+                        };
+                        let file_id = register_platform_object(
+                            state,
+                            PlatformObjectRecord::Blob(BlobRecord {
+                                bytes,
+                                media_type: normalize_media_type(file.media_type),
+                                file: Some(FileRecord {
+                                    name: file.filename,
+                                    last_modified: file.last_modified,
+                                }),
+                            }),
+                        );
+                        let value = new_platform_object(scope, state, "File", file_id)?;
+                        entries.push((
+                            field_name.clone(),
+                            v8::Global::new(scope, v8::Local::<v8::Value>::from(value)),
+                        ));
+                    }
                     continue;
                 }
                 let value = dom.attribute(control, "value")?.unwrap_or("").to_owned();
@@ -5253,7 +5478,10 @@ fn generated_constructor<'s>(
             }
         }
     }
-    if matches!(name, "Event" | "CustomEvent" | "IDBVersionChangeEvent") && args.is_construct_call()
+    if matches!(
+        name,
+        "Event" | "CustomEvent" | "InputEvent" | "IDBVersionChangeEvent"
+    ) && args.is_construct_call()
     {
         let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
             throw_type_error(scope, "generated binding state is unavailable");
@@ -5286,6 +5514,7 @@ fn generated_constructor<'s>(
                 current_target: None,
                 bubbles,
                 cancelable,
+                is_trusted: false,
                 default_prevented: false,
                 propagation_stopped: false,
                 immediate_stopped: false,
@@ -5313,6 +5542,38 @@ fn generated_constructor<'s>(
                 let value = v8::Boolean::new(scope, composed);
                 args.this()
                     .create_data_property(scope, key.into(), value.into());
+            }
+        }
+        if name == "InputEvent" {
+            for property in ["data", "inputType", "isComposing", "dataTransfer"] {
+                let value = init
+                    .and_then(|init| {
+                        let key = v8::String::new(scope, property)?;
+                        init.get(scope, key.into())
+                    })
+                    .unwrap_or_else(|| match property {
+                        "data" | "dataTransfer" => v8::null(scope).into(),
+                        "isComposing" => v8::Boolean::new(scope, false).into(),
+                        _ => v8_string(scope, "").unwrap_or_else(|_| v8::undefined(scope).into()),
+                    });
+                if let Some(key) = v8::String::new(scope, &format!("__oryn_{property}")) {
+                    args.this().create_data_property(scope, key.into(), value);
+                }
+            }
+            if let Some(key) = v8::String::new(scope, "__oryn_target_ranges") {
+                let ranges = v8::Array::new(scope, 0);
+                let selected = state
+                    .selection_range
+                    .get()
+                    .and_then(|range_id| state.ranges.borrow().get(&range_id).cloned());
+                if let Some(range) = selected
+                    && let Ok(static_id) = register_live_range(&state, range)
+                    && let Ok(range) = new_stateful_object(scope, &state, "StaticRange", static_id)
+                {
+                    ranges.set_index(scope, 0, range.into());
+                }
+                args.this()
+                    .create_data_property(scope, key.into(), ranges.into());
             }
         }
         if name == "IDBVersionChangeEvent" {
@@ -5393,6 +5654,48 @@ fn generated_constructor<'s>(
         }
         return;
     }
+    if name == "StaticRange" && args.is_construct_call() {
+        let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+            throw_type_error(scope, "generated binding state is unavailable");
+            return;
+        };
+        let Some(init) = args.get(0).to_object(scope) else {
+            throw_type_error(scope, "StaticRange requires an init dictionary");
+            return;
+        };
+        let boundary = |scope: &mut v8::PinScope, node_name: &str, offset_name: &str| {
+            let node_key = v8::String::new(scope, node_name)?;
+            let node = init.get(scope, node_key.into())?;
+            let container = argument_node(scope, &state, node).ok()?;
+            let offset_key = v8::String::new(scope, offset_name)?;
+            let offset = init.get(scope, offset_key.into())?.uint32_value(scope)?;
+            Some(BoundaryPoint { container, offset })
+        };
+        let Some(start) = boundary(scope, "startContainer", "startOffset") else {
+            throw_type_error(scope, "StaticRange has an invalid start boundary");
+            return;
+        };
+        let Some(end) = boundary(scope, "endContainer", "endOffset") else {
+            throw_type_error(scope, "StaticRange has an invalid end boundary");
+            return;
+        };
+        match register_live_range(
+            &state,
+            RangeRecord {
+                start_container: start.container,
+                start_offset: start.offset,
+                end_container: end.container,
+                end_offset: end.offset,
+            },
+        ) {
+            Ok(id) => {
+                args.this()
+                    .set_internal_field(0, v8::Number::new(scope, id as f64).into());
+            }
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if name == "Document" && args.is_construct_call() {
         let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
             throw_type_error(scope, "generated binding state is unavailable");
@@ -5467,6 +5770,27 @@ fn binding_state_for_receiver(
     {
         return Some(state);
     }
+    // Stateful and platform wrappers can legally be used with a method
+    // obtained from another same-origin realm. Their creation context is not
+    // an adequate owner lookup once the method's iframe is detached. Embed a
+    // stable binding-state identity in every generated non-node wrapper and
+    // resolve behavior from the receiver, as Web IDL requires.
+    if receiver.internal_field_count() >= 2
+        && receiver
+            .get_internal_field(scope, 0)
+            .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+            .is_some_and(|value| value.is_number())
+        && let Some(instance_id) = receiver
+            .get_internal_field(scope, 1)
+            .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+            .and_then(exact_u64)
+        && let Some(state) = scope
+            .get_slot::<BindingStateRegistry>()
+            .and_then(|registry| registry.instances.borrow().get(&instance_id).cloned())
+            .and_then(|state| state.upgrade())
+    {
+        return Some(state);
+    }
     receiver
         .get_creation_context(scope)
         .and_then(|context| context.get_slot::<V8BindingState>())
@@ -5499,6 +5823,16 @@ fn generated_attribute_getter(
             Ok(value) => return_value.set(value),
             Err(error) => throw_type_error(scope, &error.to_string()),
         }
+        return;
+    }
+    if interface == "InputEvent" {
+        let key = v8::String::new(scope, &format!("__oryn_{member}"))
+            .expect("static InputEvent backing key");
+        let value = args
+            .this()
+            .get(scope, key.into())
+            .unwrap_or_else(|| v8::undefined(scope).into());
+        return_value.set(value);
         return;
     }
     if matches!(
@@ -5673,6 +6007,16 @@ fn generated_operation<'s>(
         }
         return;
     }
+    if interface == "InputEvent" && member == "getTargetRanges" {
+        let key = v8::String::new(scope, "__oryn_target_ranges")
+            .expect("static InputEvent target-ranges key");
+        let value = args
+            .this()
+            .get(scope, key.into())
+            .unwrap_or_else(|| v8::Array::new(scope, 0).into());
+        return_value.set(value);
+        return;
+    }
     if is_platform_interface(interface) {
         match call_platform_operation(scope, &state, args.this(), interface, member, &args) {
             Ok(Some(value)) => return_value.set(value),
@@ -5700,6 +6044,7 @@ fn generated_operation<'s>(
     if matches!(
         interface,
         "Range"
+            | "StaticRange"
             | "Selection"
             | "NodeIterator"
             | "TreeWalker"
@@ -6096,6 +6441,7 @@ fn new_stateful_object<'s>(
         .new_instance(scope)
         .ok_or(V8BindingError::Allocation("stateful interface object"))?;
     object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
+    object.set_internal_field(1, v8::BigInt::new_from_u64(scope, state.instance_id).into());
     Ok(object)
 }
 
@@ -6396,26 +6742,11 @@ fn utf16_slice(value: &str, start: u32, end: u32) -> String {
     String::from_utf16_lossy(&units[start..end])
 }
 
-fn utf16_without_range(value: &str, start: u32, end: u32) -> String {
-    let units = value.encode_utf16().collect::<Vec<_>>();
-    let start = (start as usize).min(units.len());
-    let end = (end as usize).clamp(start, units.len());
-    let mut retained = Vec::with_capacity(units.len() - (end - start));
-    retained.extend_from_slice(&units[..start]);
-    retained.extend_from_slice(&units[end..]);
-    String::from_utf16_lossy(&retained)
-}
-
-fn utf16_replace(value: &str, start: u32, count: u32, replacement: &str) -> String {
-    let units = value.encode_utf16().collect::<Vec<_>>();
-    let start = (start as usize).min(units.len());
-    let end = start.saturating_add(count as usize).min(units.len());
-    let mut output =
-        Vec::with_capacity(units.len() - (end - start) + replacement.encode_utf16().count());
-    output.extend_from_slice(&units[..start]);
-    output.extend(replacement.encode_utf16());
-    output.extend_from_slice(&units[end..]);
-    String::from_utf16_lossy(&output)
+fn html_attribute_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
 }
 
 fn create_character_data_like(
@@ -6462,8 +6793,12 @@ fn range_contents(
                     dom.append_child(fragment, selected)?;
                 }
                 if mode != RangeContentsMode::Clone {
-                    let retained = utf16_without_range(data, range.start_offset, range.end_offset);
-                    dom.set_text(container, retained)?;
+                    dom.replace_character_data(
+                        container,
+                        range.start_offset,
+                        range.end_offset.saturating_sub(range.start_offset),
+                        "",
+                    )?;
                 }
             }
             _ => {
@@ -6549,7 +6884,12 @@ fn range_process_node(
             Some(create_character_data_like(dom, &kind, selected)?)
         };
         if mode != RangeContentsMode::Clone {
-            dom.set_text(node, utf16_without_range(data, start_offset, end_offset))?;
+            dom.replace_character_data(
+                node,
+                start_offset,
+                end_offset.saturating_sub(start_offset),
+                "",
+            )?;
         }
         return Ok(output);
     }
@@ -6822,6 +7162,7 @@ fn set_selection_boundaries(
     anchor: BoundaryPoint,
     focus: BoundaryPoint,
 ) -> Result<u64, V8BindingError> {
+    let previous = (state.selection_anchor.get(), state.selection_focus.get());
     validate_boundary_offset(&state.dom.borrow(), anchor.container, anchor.offset)?;
     validate_boundary_offset(&state.dom.borrow(), focus.container, focus.offset)?;
     let (start, end) = if tree_root(&state.dom.borrow(), anchor.container)?
@@ -6856,47 +7197,435 @@ fn set_selection_boundaries(
     state.selection_range.set(Some(id));
     state.selection_anchor.set(Some(anchor));
     state.selection_focus.set(Some(focus));
+    if previous != (Some(anchor), Some(focus)) {
+        state
+            .selection_revision
+            .set(state.selection_revision.get().saturating_add(1));
+    }
     Ok(id)
 }
 
 fn clear_selection(state: &V8BindingState) {
+    let changed = state.selection_anchor.get().is_some() || state.selection_focus.get().is_some();
     state.selection_range.set(None);
     state.selection_anchor.set(None);
     state.selection_focus.set(None);
+    if changed {
+        state
+            .selection_revision
+            .set(state.selection_revision.get().saturating_add(1));
+    }
+}
+
+fn editing_host_for_node(
+    dom: &DomRuntime,
+    mut current: Option<NodeId>,
+    design_mode: bool,
+    document: NodeId,
+) -> Result<Option<NodeId>, V8BindingError> {
+    let mut host = None;
+    while let Some(node) = current {
+        let record = dom.arena().get(node)?;
+        if let Some(value) = record.attributes.get("contenteditable") {
+            match value.to_ascii_lowercase().as_str() {
+                "false" => {
+                    if host.is_none() {
+                        return Ok(None);
+                    }
+                    break;
+                }
+                "" | "true" | "plaintext-only" => host = Some(node),
+                _ => {}
+            }
+        }
+        current = record.parent;
+    }
+    if host.is_none() && design_mode {
+        host = dom
+            .query_selector_all(document, "body")?
+            .first()
+            .copied()
+            .or(Some(document));
+    }
+    Ok(host)
+}
+
+fn editing_host(state: &V8BindingState) -> Result<Option<NodeId>, V8BindingError> {
+    let dom = state.dom.borrow();
+    if let (Some(anchor), Some(focus)) = (state.selection_anchor.get(), state.selection_focus.get())
+    {
+        let anchor_host = editing_host_for_node(
+            &dom,
+            Some(anchor.container),
+            state.design_mode.get(),
+            state.document,
+        )?;
+        let focus_host = editing_host_for_node(
+            &dom,
+            Some(focus.container),
+            state.design_mode.get(),
+            state.document,
+        )?;
+        return Ok((anchor_host == focus_host).then_some(anchor_host).flatten());
+    }
+    editing_host_for_node(&dom, dom.focused(), state.design_mode.get(), state.document)
+}
+
+fn host_is_plaintext_only(dom: &DomRuntime, host: NodeId) -> bool {
+    dom.arena()
+        .get(host)
+        .ok()
+        .and_then(|record| record.attributes.get("contenteditable"))
+        .is_some_and(|value| value.eq_ignore_ascii_case("plaintext-only"))
+}
+
+fn selection_snapshot(state: &V8BindingState) -> SelectionSnapshot {
+    SelectionSnapshot {
+        anchor: state.selection_anchor.get(),
+        focus: state.selection_focus.get(),
+    }
+}
+
+fn capture_editing_snapshot(
+    state: &V8BindingState,
+    host: NodeId,
+) -> Result<EditingSnapshot, V8BindingError> {
+    let mut dom = state.dom.borrow_mut();
+    let ids = dom.arena().descendants_inclusive(host)?;
+    let serialized_bytes = dom.serialize(host)?.len();
+    let mut nodes = Vec::with_capacity(ids.len());
+    for node in ids {
+        dom.retain_native(node)?;
+        let record = dom.arena().get(node)?.clone();
+        nodes.push(EditingNodeSnapshot {
+            node,
+            children: record.children,
+            attributes: record.attributes,
+            kind: record.kind,
+            value: record.value,
+            sensitive_value: record.sensitive_value,
+        });
+    }
+    Ok(EditingSnapshot {
+        host,
+        nodes,
+        selection: selection_snapshot(state),
+        serialized_bytes,
+    })
+}
+
+fn release_editing_snapshot(
+    dom: &mut DomRuntime,
+    snapshot: &EditingSnapshot,
+) -> Result<(), V8BindingError> {
+    for node in snapshot.nodes.iter().rev() {
+        dom.release_native(node.node)?;
+    }
+    Ok(())
+}
+
+fn restore_editing_snapshot(
+    state: &V8BindingState,
+    snapshot: &EditingSnapshot,
+) -> Result<(), V8BindingError> {
+    {
+        let mut dom = state.dom.borrow_mut();
+        dom.arena().get(snapshot.host)?;
+        // First detach the current topology. Snapshot leases keep every node
+        // needed by undo alive while the original parentage is reconstructed.
+        for record in snapshot.nodes.iter().rev() {
+            if dom.arena().get(record.node).is_err() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "Document".into(),
+                    member: "undo node no longer belongs to this document".into(),
+                });
+            }
+            for child in dom.children(record.node)?.to_vec() {
+                dom.remove_child(record.node, child)?;
+            }
+        }
+        for record in &snapshot.nodes {
+            let current_attributes = dom.arena().get(record.node)?.attributes.clone();
+            for name in current_attributes.keys() {
+                if !record.attributes.contains_key(name) {
+                    dom.remove_attribute(record.node, name)?;
+                }
+            }
+            for (name, value) in &record.attributes {
+                if current_attributes.get(name) != Some(value) {
+                    dom.set_attribute(record.node, name.clone(), value.clone())?;
+                }
+            }
+            match &record.kind {
+                NodeKind::Text { data }
+                | NodeKind::CDataSection { data }
+                | NodeKind::ProcessingInstruction { data, .. }
+                | NodeKind::Comment { data } => dom.set_text(record.node, data.clone())?,
+                _ => {}
+            }
+            if let Some(value) = &record.value {
+                dom.set_value(record.node, value.clone(), record.sensitive_value)?;
+            }
+        }
+        for record in &snapshot.nodes {
+            for child in &record.children {
+                dom.append_child(record.node, *child)?;
+            }
+        }
+    }
+    match (snapshot.selection.anchor, snapshot.selection.focus) {
+        (Some(anchor), Some(focus)) => {
+            set_selection_boundaries(state, anchor, focus)?;
+        }
+        _ => clear_selection(state),
+    }
+    Ok(())
+}
+
+fn push_undo_unit(state: &V8BindingState, unit: UndoUnit) -> Result<(), V8BindingError> {
+    let mut history = state.undo_history.borrow_mut();
+    let mut dom = state.dom.borrow_mut();
+    while let Some(stale) = history.redo.pop_front() {
+        release_editing_snapshot(&mut dom, &stale.before)?;
+        release_editing_snapshot(&mut dom, &stale.after)?;
+    }
+    let coalesces = history.undo.back().is_some_and(|previous| {
+        previous.command == unit.command
+            && matches!(
+                unit.command.as_str(),
+                "inserttext" | "delete" | "forwarddelete"
+            )
+            && previous.after.host == unit.before.host
+            && previous.after.selection == unit.before.selection
+    });
+    if coalesces {
+        let mut previous = history.undo.pop_back().expect("coalescing unit exists");
+        history.bytes = history
+            .bytes
+            .saturating_sub(previous.after.serialized_bytes);
+        release_editing_snapshot(&mut dom, &previous.after)?;
+        release_editing_snapshot(&mut dom, &unit.before)?;
+        history.bytes = history.bytes.saturating_add(unit.after.serialized_bytes);
+        previous.after = unit.after;
+        history.undo.push_back(previous);
+    } else {
+        history.bytes = history
+            .bytes
+            .saturating_add(unit.before.serialized_bytes + unit.after.serialized_bytes);
+        history.undo.push_back(unit);
+    }
+    while history.undo.len() > UndoHistory::MAX_UNITS || history.bytes > UndoHistory::MAX_BYTES {
+        let Some(stale) = history.undo.pop_front() else {
+            break;
+        };
+        history.bytes = history
+            .bytes
+            .saturating_sub(stale.before.serialized_bytes + stale.after.serialized_bytes);
+        release_editing_snapshot(&mut dom, &stale.before)?;
+        release_editing_snapshot(&mut dom, &stale.after)?;
+    }
+    Ok(())
+}
+
+fn run_edit_transaction<F>(
+    state: &V8BindingState,
+    command: &str,
+    mutate: F,
+) -> Result<bool, V8BindingError>
+where
+    F: FnOnce(&V8BindingState) -> Result<(), V8BindingError>,
+{
+    state.pending_split_undo.set(None);
+    let Some(host) = editing_host(state)? else {
+        return Ok(false);
+    };
+    let before = capture_editing_snapshot(state, host)?;
+    let before_markup = state.dom.borrow().serialize(host)?;
+    if let Err(error) = mutate(state) {
+        restore_editing_snapshot(state, &before)?;
+        release_editing_snapshot(&mut state.dom.borrow_mut(), &before)?;
+        return Err(error);
+    }
+    synchronize_live_ranges(state)?;
+    let after_markup = state.dom.borrow().serialize(host)?;
+    let after_selection = selection_snapshot(state);
+    let changed = before_markup != after_markup || before.selection != after_selection;
+    if !changed {
+        release_editing_snapshot(&mut state.dom.borrow_mut(), &before)?;
+        return Ok(false);
+    }
+    let after = capture_editing_snapshot(state, host)?;
+    push_undo_unit(
+        state,
+        UndoUnit {
+            before,
+            after,
+            command: command.into(),
+            split_nodes: state.pending_split_undo.take(),
+        },
+    )?;
+    Ok(true)
+}
+
+fn undo_paragraph_split(
+    state: &V8BindingState,
+    left: NodeId,
+    right: NodeId,
+    selection: SelectionSnapshot,
+) -> Result<(), V8BindingError> {
+    let mut dom = state.dom.borrow_mut();
+    dom.arena().get(left)?;
+    dom.arena().get(right)?;
+
+    // Script is allowed to move either half between the edit and its undo.
+    // Preserve the left node's current location/identity and fold the right
+    // half's content into it, even when one half was nested in the other.
+    if dom.parent(left)? == Some(right) {
+        dom.remove_child(right, left)?;
+    }
+    if dom.parent(right)? == Some(left) {
+        dom.remove_child(left, right)?;
+    }
+    let right_children = light_children(&dom, right)?;
+    for child in right_children {
+        if child != left {
+            dom.append_child(left, child)?;
+        }
+    }
+    if let Some(parent) = dom.parent(right)? {
+        dom.remove_child(parent, right)?;
+    }
+    drop(dom);
+    match (selection.anchor, selection.focus) {
+        (Some(anchor), Some(focus)) => {
+            set_selection_boundaries(state, anchor, focus)?;
+        }
+        _ => clear_selection(state),
+    }
+    Ok(())
+}
+
+fn undo_edit(state: &V8BindingState, redo: bool) -> Result<bool, V8BindingError> {
+    let unit = {
+        let mut history = state.undo_history.borrow_mut();
+        if redo {
+            history.redo.pop_back()
+        } else {
+            history.undo.pop_back()
+        }
+    };
+    let Some(unit) = unit else {
+        return Ok(false);
+    };
+    let result = if !redo {
+        unit.split_nodes
+            .map(|(left, right)| undo_paragraph_split(state, left, right, unit.before.selection))
+            .unwrap_or_else(|| restore_editing_snapshot(state, &unit.before))
+    } else {
+        restore_editing_snapshot(state, &unit.after)
+    };
+    if let Err(error) = result {
+        release_editing_snapshot(&mut state.dom.borrow_mut(), &unit.before)?;
+        release_editing_snapshot(&mut state.dom.borrow_mut(), &unit.after)?;
+        return Err(error);
+    }
+    let mut history = state.undo_history.borrow_mut();
+    if redo {
+        history.undo.push_back(unit);
+    } else {
+        history.redo.push_back(unit);
+    }
+    Ok(true)
 }
 
 fn edit_command_supported(command: &str) -> bool {
     matches!(
         command,
-        "delete"
+        "backcolor"
+            | "bold"
+            | "createlink"
+            | "defaultparagraphseparator"
+            | "delete"
+            | "fontname"
+            | "fontsize"
+            | "forecolor"
             | "forwarddelete"
+            | "formatblock"
+            | "hilitecolor"
+            | "indent"
             | "inserthtml"
+            | "inserthorizontalrule"
+            | "insertimage"
             | "insertlinebreak"
+            | "insertorderedlist"
             | "insertparagraph"
             | "inserttext"
+            | "insertunorderedlist"
+            | "italic"
+            | "justifycenter"
+            | "justifyfull"
+            | "justifyleft"
+            | "justifyright"
+            | "outdent"
+            | "redo"
+            | "removeformat"
             | "selectall"
+            | "strikethrough"
             | "stylewithcss"
+            | "subscript"
+            | "superscript"
+            | "underline"
+            | "undo"
+            | "unlink"
     )
 }
 
-fn document_is_editable(state: &V8BindingState) -> bool {
-    if state.design_mode.get() {
-        return true;
-    }
+fn selection_format_value(state: &V8BindingState, command: &str) -> Option<String> {
     let dom = state.dom.borrow();
-    let mut current = dom
-        .focused()
-        .or_else(|| state.selection_anchor.get().map(|point| point.container));
+    let mut current = state.selection_anchor.get().map(|point| point.container);
     while let Some(node) = current {
-        let Ok(record) = dom.arena().get(node) else {
-            return false;
+        let record = dom.arena().get(node).ok()?;
+        let tag = element_local_name(&dom, node);
+        let semantic = match command {
+            "bold" => matches!(tag, Some("b" | "strong")),
+            "italic" => matches!(tag, Some("i" | "em")),
+            "underline" => tag == Some("u"),
+            "strikethrough" => matches!(tag, Some("s" | "strike")),
+            "subscript" => tag == Some("sub"),
+            "superscript" => tag == Some("sup"),
+            "createlink" | "unlink" => tag == Some("a"),
+            _ => false,
         };
-        if let Some(value) = record.attributes.get("contenteditable") {
-            return !value.eq_ignore_ascii_case("false");
+        if semantic {
+            return Some(
+                record
+                    .attributes
+                    .get("href")
+                    .cloned()
+                    .unwrap_or_else(|| "true".into()),
+            );
+        }
+        let style = inline_style_entries(record.attributes.get("style").map_or("", String::as_str));
+        let property = match command {
+            "bold" => Some("font-weight"),
+            "italic" => Some("font-style"),
+            "underline" | "strikethrough" => Some("text-decoration"),
+            "fontname" => Some("font-family"),
+            "fontsize" => Some("font-size"),
+            "forecolor" => Some("color"),
+            "backcolor" | "hilitecolor" => Some("background-color"),
+            _ => None,
+        };
+        if let Some(value) = property.and_then(|property| style.get(property)).cloned() {
+            return Some(value);
         }
         current = record.parent;
     }
-    false
+    None
+}
+
+fn document_is_editable(state: &V8BindingState) -> bool {
+    editing_host(state).is_ok_and(|host| host.is_some())
 }
 
 fn replace_selection_with_text(
@@ -6916,6 +7645,12 @@ fn replace_selection_with_text(
         .get(&id)
         .cloned()
         .ok_or(V8BindingError::Allocation("Range record"))?;
+    let affected_blocks = editing_host(state)?.and_then(|host| {
+        let dom = state.dom.borrow();
+        let start = nearest_editing_block(&dom, range.start_container, host).ok()?;
+        let end = nearest_editing_block(&dom, range.end_container, host).ok()?;
+        (start != end).then_some((start, end))
+    });
     if compare_boundary_points(
         &state.dom.borrow(),
         (range.start_container, range.start_offset),
@@ -6927,6 +7662,35 @@ fn replace_selection_with_text(
             &range,
             RangeContentsMode::Delete,
         )?;
+        if let Some((start_block, end_block)) = affected_blocks
+            && state.dom.borrow().arena().get(start_block).is_ok()
+            && state.dom.borrow().arena().get(end_block).is_ok()
+            && state.dom.borrow().parent(start_block)? == state.dom.borrow().parent(end_block)?
+        {
+            let end_children = light_children(&state.dom.borrow(), end_block)?;
+            if node_is_placeholder_empty(&state.dom.borrow(), end_block)? {
+                let parent = state
+                    .dom
+                    .borrow()
+                    .parent(end_block)?
+                    .ok_or(V8BindingError::Allocation("editing block parent"))?;
+                state.dom.borrow_mut().remove_child(parent, end_block)?;
+            } else {
+                for child in end_children {
+                    state.dom.borrow_mut().append_child(start_block, child)?;
+                }
+                let parent = state
+                    .dom
+                    .borrow()
+                    .parent(end_block)?
+                    .ok_or(V8BindingError::Allocation("editing block parent"))?;
+                state.dom.borrow_mut().remove_child(parent, end_block)?;
+            }
+            if light_children(&state.dom.borrow(), start_block)?.is_empty() {
+                let br = state.dom.borrow_mut().create_element("br");
+                state.dom.borrow_mut().append_child(start_block, br)?;
+            }
+        }
     }
     let mut point = BoundaryPoint {
         container: range.start_container,
@@ -6942,8 +7706,13 @@ fn replace_selection_with_text(
             .clone();
         match kind {
             NodeKind::Text { data } | NodeKind::CDataSection { data } => {
-                let updated = utf16_replace(&data, point.offset, 0, replacement);
-                state.dom.borrow_mut().set_text(point.container, updated)?;
+                let _ = data;
+                state.dom.borrow_mut().replace_character_data(
+                    point.container,
+                    point.offset,
+                    0,
+                    replacement,
+                )?;
                 point.offset = point
                     .offset
                     .saturating_add(replacement.encode_utf16().count() as u32);
@@ -6963,6 +7732,285 @@ fn replace_selection_with_text(
     }
     set_selection_boundaries(state, point, point)?;
     Ok(())
+}
+
+fn element_local_name(dom: &DomRuntime, node: NodeId) -> Option<&str> {
+    match &dom.arena().get(node).ok()?.kind {
+        NodeKind::Element { name } => Some(name.local.as_ref()),
+        _ => None,
+    }
+}
+
+fn is_editing_block(dom: &DomRuntime, node: NodeId) -> bool {
+    matches!(
+        element_local_name(dom, node),
+        Some(
+            "address"
+                | "article"
+                | "aside"
+                | "blockquote"
+                | "dd"
+                | "div"
+                | "dt"
+                | "figcaption"
+                | "figure"
+                | "footer"
+                | "h1"
+                | "h2"
+                | "h3"
+                | "h4"
+                | "h5"
+                | "h6"
+                | "header"
+                | "li"
+                | "main"
+                | "nav"
+                | "ol"
+                | "p"
+                | "pre"
+                | "section"
+                | "ul"
+        )
+    )
+}
+
+fn nearest_editing_block(
+    dom: &DomRuntime,
+    mut node: NodeId,
+    host: NodeId,
+) -> Result<NodeId, V8BindingError> {
+    loop {
+        if node == host || is_editing_block(dom, node) {
+            return Ok(node);
+        }
+        node = dom.parent(node)?.unwrap_or(host);
+    }
+}
+
+fn node_is_visually_empty(dom: &DomRuntime, node: NodeId) -> Result<bool, V8BindingError> {
+    for candidate in traversal_nodes(dom, node)? {
+        match &dom.arena().get(candidate)?.kind {
+            NodeKind::Text { data } | NodeKind::CDataSection { data }
+                if !data.trim().is_empty() =>
+            {
+                return Ok(false);
+            }
+            NodeKind::Element { name }
+                if candidate != node
+                    && matches!(
+                        name.local.as_ref(),
+                        "audio"
+                            | "canvas"
+                            | "embed"
+                            | "iframe"
+                            | "img"
+                            | "input"
+                            | "object"
+                            | "select"
+                            | "textarea"
+                            | "video"
+                    ) =>
+            {
+                return Ok(false);
+            }
+            _ => {}
+        }
+    }
+    Ok(true)
+}
+
+fn node_is_placeholder_empty(dom: &DomRuntime, node: NodeId) -> Result<bool, V8BindingError> {
+    if !node_is_visually_empty(dom, node)? {
+        return Ok(false);
+    }
+    let breaks = traversal_nodes(dom, node)?
+        .into_iter()
+        .filter(|candidate| element_local_name(dom, *candidate) == Some("br"))
+        .count();
+    Ok(breaks <= 1)
+}
+
+fn editing_caret_end(dom: &DomRuntime, node: NodeId) -> Result<u32, V8BindingError> {
+    let children = light_children(dom, node)?;
+    Ok(
+        if children
+            .last()
+            .is_some_and(|child| element_local_name(dom, *child) == Some("br"))
+        {
+            children.len().saturating_sub(1) as u32
+        } else {
+            children.len() as u32
+        },
+    )
+}
+
+fn editing_placeholder_caret(
+    dom: &DomRuntime,
+    mut node: NodeId,
+) -> Result<BoundaryPoint, V8BindingError> {
+    loop {
+        let children = light_children(dom, node)?;
+        let Some(first) = children.first().copied() else {
+            return Ok(BoundaryPoint {
+                container: node,
+                offset: 0,
+            });
+        };
+        if element_local_name(dom, first) == Some("br") {
+            return Ok(BoundaryPoint {
+                container: node,
+                offset: 0,
+            });
+        }
+        if children.len() == 1
+            && matches!(dom.arena().get(first)?.kind, NodeKind::Element { .. })
+            && node_is_placeholder_empty(dom, first)?
+        {
+            node = first;
+            continue;
+        }
+        return Ok(BoundaryPoint {
+            container: node,
+            offset: editing_caret_end(dom, node)?,
+        });
+    }
+}
+
+fn utf16_delete_span(data: &str, offset: u32, forward: bool) -> (u32, u32) {
+    let units = data.encode_utf16().collect::<Vec<_>>();
+    let offset = (offset as usize).min(units.len());
+    if forward {
+        if offset == units.len() {
+            return (offset as u32, offset as u32);
+        }
+        let width = usize::from(
+            (0xD800..=0xDBFF).contains(&units[offset])
+                && units
+                    .get(offset + 1)
+                    .is_some_and(|unit| (0xDC00..=0xDFFF).contains(unit)),
+        ) + 1;
+        (offset as u32, (offset + width).min(units.len()) as u32)
+    } else {
+        if offset == 0 {
+            return (0, 0);
+        }
+        let width = usize::from(
+            (0xDC00..=0xDFFF).contains(&units[offset - 1])
+                && offset >= 2
+                && (0xD800..=0xDBFF).contains(&units[offset - 2]),
+        ) + 1;
+        ((offset - width) as u32, offset as u32)
+    }
+}
+
+fn merge_adjacent_editing_block(
+    state: &V8BindingState,
+    container: NodeId,
+    forward: bool,
+) -> Result<bool, V8BindingError> {
+    let Some(host) = editing_host(state)? else {
+        return Ok(false);
+    };
+    let (block, parent, sibling) = {
+        let dom = state.dom.borrow();
+        let block = nearest_editing_block(&dom, container, host)?;
+        if block == host {
+            return Ok(false);
+        }
+        let Some(parent) = dom.parent(block)? else {
+            return Ok(false);
+        };
+        let children = light_children(&dom, parent)?;
+        let Some(index) = children.iter().position(|node| *node == block) else {
+            return Ok(false);
+        };
+        let sibling = if forward {
+            children.get(index + 1).copied()
+        } else {
+            index
+                .checked_sub(1)
+                .and_then(|index| children.get(index).copied())
+        };
+        (block, parent, sibling)
+    };
+    if let Some(sibling) = sibling
+        && state.dom.borrow().arena().get(sibling).is_ok()
+        && is_editing_block(&state.dom.borrow(), sibling)
+    {
+        let (destination, source) = if forward {
+            (block, sibling)
+        } else {
+            (sibling, block)
+        };
+        let caret_offset = editing_caret_end(&state.dom.borrow(), destination)?;
+        let source_empty = node_is_placeholder_empty(&state.dom.borrow(), source)?;
+        let moving = if source_empty {
+            Vec::new()
+        } else {
+            light_children(&state.dom.borrow(), source)?
+        };
+        {
+            let mut dom = state.dom.borrow_mut();
+            for child in moving {
+                dom.append_child(destination, child)?;
+            }
+            dom.remove_child(parent, source)?;
+        }
+        let point = if source_empty && node_is_placeholder_empty(&state.dom.borrow(), destination)?
+        {
+            editing_placeholder_caret(&state.dom.borrow(), destination)?
+        } else {
+            BoundaryPoint {
+                container: destination,
+                offset: caret_offset,
+            }
+        };
+        set_selection_boundaries(state, point, point)?;
+        return Ok(true);
+    }
+
+    // An empty final nested list/list-item collapses back into its containing
+    // editable item rather than leaving an unreachable empty sub-list.
+    if node_is_placeholder_empty(&state.dom.borrow(), block)?
+        && matches!(
+            element_local_name(&state.dom.borrow(), block),
+            Some("li" | "dt" | "dd")
+        )
+        && matches!(
+            element_local_name(&state.dom.borrow(), parent),
+            Some("ul" | "ol" | "dl")
+        )
+        && parent != host
+    {
+        let grand = state.dom.borrow().parent(parent)?.unwrap_or(host);
+        let grand_tag = element_local_name(&state.dom.borrow(), grand).map(str::to_string);
+        if matches!(grand_tag.as_deref(), Some("li" | "dt" | "dd")) {
+            state.dom.borrow_mut().remove_child(grand, parent)?;
+        } else {
+            let replacement = if element_local_name(&state.dom.borrow(), block) == Some("li") {
+                block
+            } else {
+                let item = state.dom.borrow_mut().create_element("li");
+                let children = light_children(&state.dom.borrow(), block)?;
+                for child in children {
+                    state.dom.borrow_mut().append_child(item, child)?;
+                }
+                item
+            };
+            state
+                .dom
+                .borrow_mut()
+                .insert_before(grand, replacement, Some(parent))?;
+            state.dom.borrow_mut().remove_child(grand, parent)?;
+        }
+        let point = BoundaryPoint {
+            container: grand,
+            offset: editing_caret_end(&state.dom.borrow(), grand)?,
+        };
+        set_selection_boundaries(state, point, point)?;
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(), V8BindingError> {
@@ -6991,18 +8039,15 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
         .kind
         .clone();
     if let NodeKind::Text { data } | NodeKind::CDataSection { data } = kind {
-        let length = data.encode_utf16().count() as u32;
-        let (start, end) = if forward {
-            (
-                range.start_offset,
-                range.start_offset.saturating_add(1).min(length),
-            )
-        } else {
-            (range.start_offset.saturating_sub(1), range.start_offset)
-        };
-        state.dom.borrow_mut().set_text(
+        let (start, end) = utf16_delete_span(&data, range.start_offset, forward);
+        if start == end {
+            return merge_adjacent_editing_block(state, range.start_container, forward).map(|_| ());
+        }
+        state.dom.borrow_mut().replace_character_data(
             range.start_container,
-            utf16_without_range(&data, start, end),
+            start,
+            end.saturating_sub(start),
+            "",
         )?;
         let point = BoundaryPoint {
             container: range.start_container,
@@ -7010,6 +8055,11 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
         };
         set_selection_boundaries(state, point, point)?;
     } else {
+        if node_is_placeholder_empty(&state.dom.borrow(), range.start_container)?
+            && merge_adjacent_editing_block(state, range.start_container, forward)?
+        {
+            return Ok(());
+        }
         let adjacent = {
             let dom = state.dom.borrow();
             let children = dom.arena().get(range.start_container)?.children.clone();
@@ -7032,10 +8082,12 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
                 } else {
                     (length.saturating_sub(1), length)
                 };
-                state
-                    .dom
-                    .borrow_mut()
-                    .set_text(adjacent, utf16_without_range(&data, start, end))?;
+                state.dom.borrow_mut().replace_character_data(
+                    adjacent,
+                    start,
+                    end.saturating_sub(start),
+                    "",
+                )?;
                 let point = if forward {
                     BoundaryPoint {
                         container: range.start_container,
@@ -7048,7 +8100,68 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
                     }
                 };
                 set_selection_boundaries(state, point, point)?;
+            } else if matches!(
+                element_local_name(&state.dom.borrow(), adjacent),
+                Some("br")
+            ) {
+                let container = range.start_container;
+                state.dom.borrow_mut().remove_child(container, adjacent)?;
+                if light_children(&state.dom.borrow(), container)?.is_empty()
+                    && is_editing_block(&state.dom.borrow(), container)
+                {
+                    let br = state.dom.borrow_mut().create_element("br");
+                    state.dom.borrow_mut().append_child(container, br)?;
+                }
+                let point = BoundaryPoint {
+                    container,
+                    offset: (if forward {
+                        range.start_offset
+                    } else {
+                        range.start_offset.saturating_sub(1)
+                    })
+                    .min(boundary_length(&state.dom.borrow(), container)?),
+                };
+                set_selection_boundaries(state, point, point)?;
+            } else {
+                let trailing_break = (!forward)
+                    .then(|| {
+                        light_children(&state.dom.borrow(), range.start_container)
+                            .ok()?
+                            .get(range.start_offset as usize)
+                            .copied()
+                    })
+                    .flatten()
+                    .filter(|node| element_local_name(&state.dom.borrow(), *node) == Some("br"));
+                if let Some(trailing_break) = trailing_break {
+                    state
+                        .dom
+                        .borrow_mut()
+                        .remove_child(range.start_container, trailing_break)?;
+                    let preceding = light_children(&state.dom.borrow(), range.start_container)?
+                        .get(range.start_offset.saturating_sub(1) as usize)
+                        .copied();
+                    let point = if let Some(preceding) = preceding {
+                        if node_is_placeholder_empty(&state.dom.borrow(), preceding)? {
+                            editing_placeholder_caret(&state.dom.borrow(), preceding)?
+                        } else {
+                            BoundaryPoint {
+                                container: preceding,
+                                offset: editing_caret_end(&state.dom.borrow(), preceding)?,
+                            }
+                        }
+                    } else {
+                        BoundaryPoint {
+                            container: range.start_container,
+                            offset: range.start_offset.saturating_sub(1),
+                        }
+                    };
+                    set_selection_boundaries(state, point, point)?;
+                } else {
+                    merge_adjacent_editing_block(state, adjacent, forward)?;
+                }
             }
+        } else {
+            merge_adjacent_editing_block(state, range.start_container, forward)?;
         }
     }
     Ok(())
@@ -7067,7 +8180,15 @@ fn replace_selection_with_html(state: &V8BindingState, markup: &str) -> Result<(
         .cloned()
         .ok_or(V8BindingError::Allocation("Range record"))?;
     let parsed = oryn_dom::html::parse_fragment(markup, "div");
-    let children = parsed.dom.get(parsed.document)?.children.clone();
+    let document_children = parsed.dom.get(parsed.document)?.children.clone();
+    let children = document_children
+        .first()
+        .and_then(|root| parsed.dom.get(*root).ok())
+        .filter(|root| {
+            matches!(&root.kind, NodeKind::Element { name } if name.local.as_ref() == "html")
+        })
+        .map(|root| root.children.clone())
+        .unwrap_or(document_children);
     let mut point = BoundaryPoint {
         container: range.start_container,
         offset: range.start_offset,
@@ -7083,6 +8204,441 @@ fn replace_selection_with_html(state: &V8BindingState, markup: &str) -> Result<(
         let (container, offset) = relative_boundary(&state.dom.borrow(), imported, true)?;
         point = BoundaryPoint { container, offset };
     }
+    set_selection_boundaries(state, point, point)?;
+    Ok(())
+}
+
+fn insert_editing_element(
+    state: &V8BindingState,
+    tag: &str,
+    attributes: &[(&str, &str)],
+) -> Result<NodeId, V8BindingError> {
+    let id = state
+        .selection_range
+        .get()
+        .ok_or(V8BindingError::Allocation("selection range"))?;
+    let range = state
+        .ranges
+        .borrow()
+        .get(&id)
+        .cloned()
+        .ok_or(V8BindingError::Allocation("Range record"))?;
+    let marker_id = register_live_range(
+        state,
+        RangeRecord {
+            start_container: range.start_container,
+            start_offset: range.start_offset,
+            end_container: range.start_container,
+            end_offset: range.start_offset,
+        },
+    )?;
+    let fragment = range_contents(
+        &mut state.dom.borrow_mut(),
+        &range,
+        RangeContentsMode::Extract,
+    )?;
+    synchronize_live_ranges(state)?;
+    let insertion = state
+        .ranges
+        .borrow()
+        .get(&marker_id)
+        .cloned()
+        .ok_or(V8BindingError::Allocation("Range record"))?;
+    state.ranges.borrow_mut().remove(&marker_id);
+    state
+        .dom
+        .borrow_mut()
+        .drop_live_range(LiveRangeId(marker_id))?;
+    let element = state.dom.borrow_mut().create_element(tag);
+    for (name, value) in attributes {
+        state
+            .dom
+            .borrow_mut()
+            .set_attribute(element, *name, *value)?;
+    }
+    let fragment_children = state.dom.borrow().children(fragment)?.to_vec();
+    for child in fragment_children {
+        state.dom.borrow_mut().append_child(element, child)?;
+    }
+    insert_at_boundary(
+        &mut state.dom.borrow_mut(),
+        insertion.start_container,
+        insertion.start_offset,
+        element,
+    )?;
+    let end = light_children(&state.dom.borrow(), element)?.len() as u32;
+    set_selection_boundaries(
+        state,
+        BoundaryPoint {
+            container: element,
+            offset: 0,
+        },
+        BoundaryPoint {
+            container: element,
+            offset: end,
+        },
+    )?;
+    Ok(element)
+}
+
+fn apply_inline_format(
+    state: &V8BindingState,
+    command: &str,
+    value: &str,
+) -> Result<(), V8BindingError> {
+    let css = state.style_with_css.get();
+    let (tag, attribute) = match command {
+        "bold" if css => ("span", Some(("style", "font-weight: bold"))),
+        "bold" => ("b", None),
+        "italic" if css => ("span", Some(("style", "font-style: italic"))),
+        "italic" => ("i", None),
+        "underline" if css => ("span", Some(("style", "text-decoration: underline"))),
+        "underline" => ("u", None),
+        "strikethrough" if css => ("span", Some(("style", "text-decoration: line-through"))),
+        "strikethrough" => ("strike", None),
+        "subscript" => ("sub", None),
+        "superscript" => ("sup", None),
+        "createlink" => ("a", Some(("href", value))),
+        "fontname" => ("span", Some(("style", value))),
+        "fontsize" => ("span", Some(("style", value))),
+        "forecolor" => ("span", Some(("style", value))),
+        "backcolor" | "hilitecolor" => ("span", Some(("style", value))),
+        _ => ("span", None),
+    };
+    let owned;
+    let attributes = match command {
+        "fontname" => {
+            owned = format!("font-family: {value}");
+            vec![("style", owned.as_str())]
+        }
+        "fontsize" => {
+            let size = match value {
+                "1" => "x-small",
+                "2" => "small",
+                "3" => "medium",
+                "4" => "large",
+                "5" => "x-large",
+                "6" => "xx-large",
+                "7" => "xxx-large",
+                other => other,
+            };
+            owned = format!("font-size: {size}");
+            vec![("style", owned.as_str())]
+        }
+        "forecolor" => {
+            owned = format!("color: {value}");
+            vec![("style", owned.as_str())]
+        }
+        "backcolor" | "hilitecolor" => {
+            owned = format!("background-color: {value}");
+            vec![("style", owned.as_str())]
+        }
+        _ => attribute.into_iter().collect(),
+    };
+    insert_editing_element(state, tag, &attributes)?;
+    Ok(())
+}
+
+fn unwrap_element(dom: &mut DomRuntime, node: NodeId) -> Result<(), V8BindingError> {
+    let parent = dom.parent(node)?.ok_or(V8BindingError::Unsupported {
+        interface: "Document".into(),
+        member: "cannot unwrap a root".into(),
+    })?;
+    let reference = light_children(dom, parent)?
+        .iter()
+        .position(|candidate| *candidate == node)
+        .and_then(|index| light_children(dom, parent).ok()?.get(index + 1).copied());
+    for child in light_children(dom, node)? {
+        dom.insert_before(parent, child, reference)?;
+    }
+    dom.remove_child(parent, node)?;
+    Ok(())
+}
+
+fn remove_selection_format(state: &V8BindingState) -> Result<(), V8BindingError> {
+    let Some(host) = editing_host(state)? else {
+        return Ok(());
+    };
+    let selected = state
+        .selection_range
+        .get()
+        .and_then(|id| state.ranges.borrow().get(&id).cloned());
+    let Some(range) = selected else {
+        return Ok(());
+    };
+    let removable = traversal_nodes(&state.dom.borrow(), host)?
+        .into_iter()
+        .filter(|node| {
+            let dom = state.dom.borrow();
+            let Ok(before) = relative_boundary(&dom, *node, false) else {
+                return false;
+            };
+            let Ok(after) = relative_boundary(&dom, *node, true) else {
+                return false;
+            };
+            let intersects =
+                compare_boundary_points(&dom, (range.end_container, range.end_offset), before)
+                    .is_ok_and(|ordering| ordering > 0)
+                    && compare_boundary_points(
+                        &dom,
+                        (range.start_container, range.start_offset),
+                        after,
+                    )
+                    .is_ok_and(|ordering| ordering < 0);
+            intersects
+                && matches!(
+                    element_local_name(&dom, *node),
+                    Some(
+                        "a" | "b"
+                            | "font"
+                            | "i"
+                            | "s"
+                            | "span"
+                            | "strike"
+                            | "strong"
+                            | "sub"
+                            | "sup"
+                            | "u"
+                    )
+                )
+        })
+        .collect::<Vec<_>>();
+    for node in removable.into_iter().rev() {
+        if state.dom.borrow().arena().get(node).is_ok() {
+            unwrap_element(&mut state.dom.borrow_mut(), node)?;
+        }
+    }
+    synchronize_live_ranges(state)
+}
+
+fn apply_block_command(
+    state: &V8BindingState,
+    command: &str,
+    value: &str,
+) -> Result<(), V8BindingError> {
+    let Some(anchor) = state.selection_anchor.get() else {
+        return Ok(());
+    };
+    let Some(host) = editing_host(state)? else {
+        return Ok(());
+    };
+    let block = nearest_editing_block(&state.dom.borrow(), anchor.container, host)?;
+    match command {
+        "justifyleft" | "justifycenter" | "justifyright" | "justifyfull" => {
+            let value = match command {
+                "justifyleft" => "left",
+                "justifycenter" => "center",
+                "justifyright" => "right",
+                _ => "justify",
+            };
+            set_inline_style_property(&mut state.dom.borrow_mut(), block, "text-align", value)?;
+        }
+        "indent" => {
+            set_inline_style_property(&mut state.dom.borrow_mut(), block, "margin-left", "40px")?;
+        }
+        "outdent" => {
+            set_inline_style_property(&mut state.dom.borrow_mut(), block, "margin-left", "")?;
+        }
+        "insertorderedlist" | "insertunorderedlist" => {
+            let list = if command == "insertorderedlist" {
+                "ol"
+            } else {
+                "ul"
+            };
+            let list_node = insert_editing_element(state, list, &[])?;
+            let children = light_children(&state.dom.borrow(), list_node)?;
+            if !children
+                .iter()
+                .all(|child| element_local_name(&state.dom.borrow(), *child) == Some("li"))
+            {
+                let item = state.dom.borrow_mut().create_element("li");
+                for child in children {
+                    state.dom.borrow_mut().append_child(item, child)?;
+                }
+                state.dom.borrow_mut().append_child(list_node, item)?;
+            }
+        }
+        "formatblock" => {
+            let tag = value.trim_matches(|character| character == '<' || character == '>');
+            let allowed = matches!(
+                tag.to_ascii_lowercase().as_str(),
+                "address"
+                    | "article"
+                    | "blockquote"
+                    | "dd"
+                    | "div"
+                    | "dt"
+                    | "h1"
+                    | "h2"
+                    | "h3"
+                    | "h4"
+                    | "h5"
+                    | "h6"
+                    | "p"
+                    | "pre"
+            );
+            if allowed {
+                insert_editing_element(state, &tag.to_ascii_lowercase(), &[])?;
+            }
+        }
+        "defaultparagraphseparator" => {
+            let separator = value.to_ascii_lowercase();
+            if matches!(separator.as_str(), "div" | "p" | "br") {
+                *state.default_paragraph_separator.borrow_mut() = separator;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn clone_editing_element(dom: &mut DomRuntime, source: NodeId) -> Result<NodeId, V8BindingError> {
+    let tag = element_local_name(dom, source)
+        .ok_or(V8BindingError::Allocation("editing element name"))?
+        .to_string();
+    let attributes = dom.arena().get(source)?.attributes.clone();
+    let clone = dom.create_element(&tag);
+    for (name, value) in attributes {
+        // Splitting must not duplicate document-unique identifiers.
+        if name != "id" {
+            dom.set_attribute(clone, name, value)?;
+        }
+    }
+    Ok(clone)
+}
+
+fn insert_after_node(
+    dom: &mut DomRuntime,
+    parent: NodeId,
+    anchor: NodeId,
+    node: NodeId,
+) -> Result<(), V8BindingError> {
+    let children = light_children(dom, parent)?;
+    let index = children
+        .iter()
+        .position(|candidate| *candidate == anchor)
+        .ok_or(V8BindingError::Allocation("editing insertion anchor"))?;
+    dom.insert_before(parent, node, children.get(index + 1).copied())?;
+    Ok(())
+}
+
+fn split_editing_paragraph(state: &V8BindingState) -> Result<(), V8BindingError> {
+    let Some(host) = editing_host(state)? else {
+        return Ok(());
+    };
+    let Some(range_id) = state.selection_range.get() else {
+        return Ok(());
+    };
+    let range = state
+        .ranges
+        .borrow()
+        .get(&range_id)
+        .cloned()
+        .ok_or(V8BindingError::Allocation("selection range"))?;
+    if compare_boundary_points(
+        &state.dom.borrow(),
+        (range.start_container, range.start_offset),
+        (range.end_container, range.end_offset),
+    )? != 0
+    {
+        replace_selection_with_text(state, "")?;
+    }
+    synchronize_live_ranges(state)?;
+    let range = state
+        .ranges
+        .borrow()
+        .get(&range_id)
+        .cloned()
+        .ok_or(V8BindingError::Allocation("selection range"))?;
+    let block = nearest_editing_block(&state.dom.borrow(), range.start_container, host)?;
+    if block == host || *state.default_paragraph_separator.borrow() == "br" {
+        return replace_selection_with_html(state, "<br>");
+    }
+
+    let mut dom = state.dom.borrow_mut();
+    let mut right = match dom.arena().get(range.start_container)?.kind.clone() {
+        NodeKind::Text { data } | NodeKind::CDataSection { data } => {
+            let units = data.encode_utf16().collect::<Vec<_>>();
+            let offset = (range.start_offset as usize).min(units.len());
+            let left = String::from_utf16_lossy(&units[..offset]);
+            let right_data = String::from_utf16_lossy(&units[offset..]);
+            dom.set_text(range.start_container, left)?;
+            let right = dom.create_text(right_data);
+            let parent = dom
+                .parent(range.start_container)?
+                .ok_or(V8BindingError::Allocation("editing text parent"))?;
+            insert_after_node(&mut dom, parent, range.start_container, right)?;
+            right
+        }
+        _ => {
+            let children = light_children(&dom, range.start_container)?;
+            if let Some(child) = children.get(range.start_offset as usize).copied() {
+                child
+            } else {
+                let br = dom.create_element("br");
+                dom.append_child(range.start_container, br)?;
+                br
+            }
+        }
+    };
+
+    loop {
+        let parent = dom
+            .parent(right)?
+            .ok_or(V8BindingError::Allocation("editing split parent"))?;
+        if parent == block {
+            break;
+        }
+        let clone = clone_editing_element(&mut dom, parent)?;
+        let siblings = light_children(&dom, parent)?;
+        let index = siblings
+            .iter()
+            .position(|candidate| *candidate == right)
+            .ok_or(V8BindingError::Allocation("editing split child"))?;
+        for child in siblings[index..].iter().copied() {
+            dom.append_child(clone, child)?;
+        }
+        let grand = dom
+            .parent(parent)?
+            .ok_or(V8BindingError::Allocation("editing split ancestor"))?;
+        insert_after_node(&mut dom, grand, parent, clone)?;
+        right = clone;
+    }
+
+    let new_block = clone_editing_element(&mut dom, block)?;
+    let siblings = light_children(&dom, block)?;
+    let index = siblings
+        .iter()
+        .position(|candidate| *candidate == right)
+        .unwrap_or(siblings.len());
+    for child in siblings[index..].iter().copied() {
+        dom.append_child(new_block, child)?;
+    }
+    if dom.children(new_block)?.is_empty() {
+        let br = dom.create_element("br");
+        dom.append_child(new_block, br)?;
+    }
+    let parent = dom
+        .parent(block)?
+        .ok_or(V8BindingError::Allocation("editing block parent"))?;
+    insert_after_node(&mut dom, parent, block, new_block)?;
+    state.pending_split_undo.set(Some((block, new_block)));
+    drop(dom);
+    let caret = traversal_nodes(&state.dom.borrow(), new_block)?
+        .into_iter()
+        .find(|node| {
+            state.dom.borrow().arena().get(*node).is_ok_and(|record| {
+                matches!(
+                    record.kind,
+                    NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+                )
+            })
+        })
+        .unwrap_or(new_block);
+    let point = BoundaryPoint {
+        container: caret,
+        offset: 0,
+    };
     set_selection_boundaries(state, point, point)?;
     Ok(())
 }
@@ -7315,6 +8871,8 @@ fn call_history_operation<'s>(
                         &[("oldURL", old_url), ("newURL", new_url)],
                     )?;
                 }
+            } else {
+                state.pending_history_traversal.set(Some(delta));
             }
         }
         _ => {
@@ -7591,10 +9149,13 @@ fn get_stateful_attribute<'s>(
             }),
         };
     }
-    if matches!(interface, "AbstractRange" | "Range" | "Selection") {
+    if matches!(
+        interface,
+        "AbstractRange" | "Range" | "StaticRange" | "Selection"
+    ) {
         synchronize_live_ranges(state)?;
     }
-    if matches!(interface, "AbstractRange" | "Range") {
+    if matches!(interface, "AbstractRange" | "Range" | "StaticRange") {
         let id = stateful_id(scope, object)?;
         let ranges = state.ranges.borrow();
         let range = ranges
@@ -8593,6 +10154,45 @@ fn set_platform_attribute(
     Ok(())
 }
 
+fn queue_ready_blocked_idb_completions(state: &V8BindingState) -> Result<(), V8BindingError> {
+    let mut blocked = std::mem::take(&mut *state.blocked_idb_completions.borrow_mut());
+    let mut remaining = VecDeque::new();
+    while let Some((request_id, action, response)) = blocked.pop_front() {
+        let name = match &action {
+            IdbCompletionAction::Open { name } | IdbCompletionAction::DeleteDatabase { name } => {
+                name
+            }
+            _ => {
+                remaining.push_back((request_id, action, response));
+                continue;
+            }
+        };
+        let still_blocked = state.platform_objects.borrow().values().any(|record| {
+            matches!(record, PlatformObjectRecord::IdbDatabase(database) if database.name == *name && !database.closed)
+        });
+        if still_blocked {
+            remaining.push_back((request_id, action, response));
+            continue;
+        }
+        let operation_id = HostOperationId(state.next_platform_operation_id.get());
+        state
+            .next_platform_operation_id
+            .set(operation_id.0.saturating_add(1));
+        state.pending_platform_operations.borrow_mut().insert(
+            operation_id,
+            PendingPlatformOperation::IndexedDb { request_id, action },
+        );
+        state.deferred_platform_tasks.borrow_mut().push_back(
+            DeferredPlatformTask::CompleteBlockedIdb {
+                operation_id,
+                response,
+            },
+        );
+    }
+    *state.blocked_idb_completions.borrow_mut() = remaining;
+    Ok(())
+}
+
 fn call_platform_operation<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
@@ -8735,6 +10335,11 @@ fn call_platform_operation<'s>(
             let resolver = v8::PromiseResolver::new(scope)
                 .ok_or(V8BindingError::Allocation("IDBFactory.databases resolver"))?;
             let promise = resolver.get_promise(scope);
+            if current_platform_origin(scope) == "null" {
+                let exception = dom_exception_value(scope, "SecurityError")?;
+                resolver.reject(scope, exception);
+                return Ok(Some(promise.into()));
+            }
             submit_platform_operation(
                 state,
                 PlatformHostRequest::IndexedDb {
@@ -8746,6 +10351,24 @@ fn call_platform_operation<'s>(
                 },
             )?;
             return Ok(Some(promise.into()));
+        }
+        ("IDBKeyRange", "includes") => {
+            let key = idb_key_from_value(scope, args.get(0))?;
+            let record = platform_object(state, id)?;
+            let PlatformObjectRecord::IdbKeyRange(range) = &*record else {
+                return Err(V8BindingError::Allocation("IDBKeyRange record"));
+            };
+            let after_lower = range.lower.as_ref().is_none_or(|lower| {
+                let ordering = compare_idb_json_keys(&idb_key_to_json(key.clone()), lower);
+                ordering.is_gt() || (ordering.is_eq() && !range.lower_open)
+            });
+            let before_upper = range.upper.as_ref().is_none_or(|upper| {
+                let ordering = compare_idb_json_keys(&idb_key_to_json(key.clone()), upper);
+                ordering.is_lt() || (ordering.is_eq() && !range.upper_open)
+            });
+            return Ok(Some(
+                v8::Boolean::new(scope, after_lower && before_upper).into(),
+            ));
         }
         ("IDBDatabase", "createObjectStore") => {
             let name = required_string(scope, args, 0)?;
@@ -8781,16 +10404,6 @@ fn call_platform_operation<'s>(
                 .transpose()?;
             let auto_increment = option_value(scope, options, "autoIncrement")
                 .is_some_and(|value| value.boolean_value(scope));
-            if auto_increment
-                && key_path
-                    .as_deref()
-                    .is_some_and(|path| path.starts_with(COMPOUND_KEY_PATH_PREFIX))
-            {
-                return Err(V8BindingError::Unsupported {
-                    interface: "IDBDatabase".into(),
-                    member: "InvalidAccessError".into(),
-                });
-            }
             if key_path
                 .as_deref()
                 .is_some_and(|path| !valid_idb_key_path(path))
@@ -8804,6 +10417,16 @@ fn call_platform_operation<'s>(
                 return Err(V8BindingError::Unsupported {
                     interface: "IDBDatabase".into(),
                     member: "ConstraintError".into(),
+                });
+            }
+            if auto_increment
+                && key_path.as_deref().is_some_and(|path| {
+                    path.is_empty() || path.starts_with(COMPOUND_KEY_PATH_PREFIX)
+                })
+            {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBDatabase".into(),
+                    member: "InvalidAccessError".into(),
                 });
             }
             let store_id = register_platform_object(
@@ -8981,11 +10604,14 @@ fn call_platform_operation<'s>(
             ));
         }
         ("IDBDatabase", "close") => {
-            let mut record = platform_object_mut(state, id)?;
-            let PlatformObjectRecord::IdbDatabase(database) = &mut *record else {
-                return Err(V8BindingError::Allocation("IDBDatabase record"));
-            };
-            database.closed = true;
+            {
+                let mut record = platform_object_mut(state, id)?;
+                let PlatformObjectRecord::IdbDatabase(database) = &mut *record else {
+                    return Err(V8BindingError::Allocation("IDBDatabase record"));
+                };
+                database.closed = true;
+            }
+            queue_ready_blocked_idb_completions(state)?;
             return Ok(None);
         }
         ("IDBTransaction", "objectStore") => {
@@ -12535,6 +14161,10 @@ fn mutation_record_array<'s>(
         set_object_property(scope, object, "addedNodes", added_value)?;
         let removed_value = node_array(scope, state, &removed_nodes)?;
         set_object_property(scope, object, "removedNodes", removed_value)?;
+        let null = v8::null(scope).into();
+        set_object_property(scope, object, "previousSibling", null)?;
+        set_object_property(scope, object, "nextSibling", null)?;
+        set_object_property(scope, object, "attributeNamespace", null)?;
         array.set_index(scope, index as u32, object.into());
     }
     Ok(array)
@@ -12588,6 +14218,24 @@ pub fn deliver_mutation_observers(
         delivered += 1;
     }
     Ok(delivered)
+}
+
+/// Deliver the coalesced Selection API notification for one realm. Selection
+/// setters only advance a revision; the page checkpoint invokes this after
+/// mutation observers so repeated boundary adjustments in one edit publish a
+/// single document event.
+pub fn deliver_selection_change(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+) -> Result<bool, V8BindingError> {
+    let revision = state.selection_revision.get();
+    if revision == state.delivered_selection_revision.get() {
+        return Ok(false);
+    }
+    let event = create_event_object(scope, state, "selectionchange", false, false)?;
+    dispatch_event(scope, state, state.document, event)?;
+    state.delivered_selection_revision.set(revision);
+    Ok(true)
 }
 
 fn css_property_name(member: &str) -> &str {
@@ -13184,9 +14832,11 @@ fn get_attribute_value<'s>(
             };
             v8::Boolean::new(scope, record.attributes.contains_key(attribute)).into()
         }
-        (interface, "type" | "name" | "action" | "method" | "href" | "target" | "src")
-            if interface.starts_with("HTML") =>
-        {
+        (
+            interface,
+            "type" | "name" | "action" | "method" | "href" | "target" | "src" | "srcdoc"
+            | "sandbox",
+        ) if interface.starts_with("HTML") => {
             let fallback = match member {
                 "method" => "get",
                 "type" if interface == "HTMLButtonElement" => "submit",
@@ -13239,12 +14889,21 @@ fn get_attribute_value<'s>(
         )?,
         ("HTMLElement", "isContentEditable") => {
             let mut current = Some(node);
-            let mut editable = false;
+            let mut editable = state.design_mode.get();
             while let Some(candidate) = current {
                 let candidate_record = dom.arena().get(candidate)?;
                 if let Some(value) = candidate_record.attributes.get("contenteditable") {
-                    editable = !value.eq_ignore_ascii_case("false");
-                    break;
+                    match value.to_ascii_lowercase().as_str() {
+                        "false" => {
+                            editable = false;
+                            break;
+                        }
+                        "" | "true" | "plaintext-only" => {
+                            editable = true;
+                            break;
+                        }
+                        _ => {}
+                    }
                 }
                 current = candidate_record.parent;
             }
@@ -13426,11 +15085,13 @@ fn set_attribute_value(
                 dom.remove_attribute(node, attribute)?;
             }
         }
-        (interface, "type" | "name" | "action" | "method" | "href" | "target" | "src")
-            if interface.starts_with("HTML") =>
-        {
+        (
+            interface,
+            "type" | "name" | "action" | "method" | "href" | "target" | "src" | "srcdoc"
+            | "sandbox",
+        ) if interface.starts_with("HTML") => {
             dom.set_attribute(node, member, value)?;
-            if interface == "HTMLIFrameElement" && member == "src" {
+            if interface == "HTMLIFrameElement" && matches!(member, "src" | "srcdoc") {
                 drop(dom);
                 prepare_dynamic_frame_subtree(state, node)?;
                 return Ok(());
@@ -13571,7 +15232,7 @@ fn call_operation<'s>(
             state
                 .dom
                 .borrow_mut()
-                .set_text(node, utf16_replace(&current, offset, count, &replacement))?;
+                .replace_character_data(node, offset, count, replacement)?;
             Ok(None)
         }
         ("Text", "splitText") => {
@@ -13741,28 +15402,41 @@ fn call_operation<'s>(
                 return Ok(Some(v8::Boolean::new(scope, supported).into()));
             }
             if member == "queryCommandEnabled" {
+                let history_enabled = match command.as_str() {
+                    "undo" => !state.undo_history.borrow().undo.is_empty(),
+                    "redo" => !state.undo_history.borrow().redo.is_empty(),
+                    _ => true,
+                };
                 return Ok(Some(
-                    v8::Boolean::new(scope, supported && document_is_editable(state)).into(),
+                    v8::Boolean::new(
+                        scope,
+                        supported && history_enabled && document_is_editable(state),
+                    )
+                    .into(),
                 ));
             }
             if member == "queryCommandIndeterm" {
                 return Ok(Some(v8::Boolean::new(scope, false).into()));
             }
             if member == "queryCommandState" {
-                let active = command == "stylewithcss" && state.style_with_css.get();
+                let active = if command == "stylewithcss" {
+                    state.style_with_css.get()
+                } else {
+                    selection_format_value(state, &command).is_some()
+                };
                 return Ok(Some(v8::Boolean::new(scope, active).into()));
             }
             if member == "queryCommandValue" {
                 let value = if command == "stylewithcss" {
                     if state.style_with_css.get() {
-                        "true"
+                        "true".into()
                     } else {
-                        "false"
+                        "false".into()
                     }
                 } else {
-                    ""
+                    selection_format_value(state, &command).unwrap_or_default()
                 };
-                return Ok(Some(v8_string(scope, value)?));
+                return Ok(Some(v8_string(scope, &value)?));
             }
             if !supported || !document_is_editable(state) {
                 return Ok(Some(v8::Boolean::new(scope, false).into()));
@@ -13772,6 +15446,37 @@ fn call_operation<'s>(
             } else {
                 args.get(2).to_rust_string_lossy(scope)
             };
+            let plaintext = editing_host(state)?
+                .is_some_and(|host| host_is_plaintext_only(&state.dom.borrow(), host));
+            let formatting = matches!(
+                command.as_str(),
+                "backcolor"
+                    | "bold"
+                    | "createlink"
+                    | "fontname"
+                    | "fontsize"
+                    | "forecolor"
+                    | "formatblock"
+                    | "hilitecolor"
+                    | "indent"
+                    | "insertorderedlist"
+                    | "insertunorderedlist"
+                    | "italic"
+                    | "justifycenter"
+                    | "justifyfull"
+                    | "justifyleft"
+                    | "justifyright"
+                    | "outdent"
+                    | "removeformat"
+                    | "strikethrough"
+                    | "subscript"
+                    | "superscript"
+                    | "underline"
+                    | "unlink"
+            );
+            if plaintext && formatting {
+                return Ok(Some(v8::Boolean::new(scope, false).into()));
+            }
             let executed = match command.as_str() {
                 "stylewithcss" => {
                     state.style_with_css.set(value.eq_ignore_ascii_case("true"));
@@ -13805,27 +15510,98 @@ fn call_operation<'s>(
                     )?;
                     true
                 }
-                "inserttext" => {
-                    replace_selection_with_text(state, &value)?;
+                "undo" | "redo" => {
+                    let changed = undo_edit(state, command == "redo")?;
+                    if changed {
+                        dispatch_editing_input(
+                            scope,
+                            state,
+                            if command == "redo" {
+                                "historyRedo"
+                            } else {
+                                "historyUndo"
+                            },
+                            None,
+                        )?;
+                    }
                     true
                 }
-                "inserthtml" => {
-                    replace_selection_with_html(state, &value)?;
-                    true
+                _ => {
+                    let changed = run_edit_transaction(state, &command, |state| {
+                        match command.as_str() {
+                            "inserttext" => replace_selection_with_text(state, &value)?,
+                            "inserthtml" if plaintext => {
+                                let parsed = oryn_dom::html::parse_fragment(&value, "div");
+                                let text = parsed.dom.text_content(parsed.document)?;
+                                replace_selection_with_text(state, &text)?;
+                            }
+                            "inserthtml" => replace_selection_with_html(state, &value)?,
+                            "insertlinebreak" => replace_selection_with_html(state, "<br>")?,
+                            "insertparagraph" => split_editing_paragraph(state)?,
+                            "inserthorizontalrule" => replace_selection_with_html(state, "<hr>")?,
+                            "insertimage" => {
+                                replace_selection_with_html(
+                                    state,
+                                    &format!("<img src=\"{}\">", html_attribute_escape(&value)),
+                                )?;
+                            }
+                            "delete" => delete_selection_direction(state, false)?,
+                            "forwarddelete" => delete_selection_direction(state, true)?,
+                            "bold" | "italic" | "underline" | "strikethrough" | "subscript"
+                            | "superscript" | "fontname" | "fontsize" | "forecolor"
+                            | "backcolor" | "hilitecolor" | "createlink" => {
+                                apply_inline_format(state, &command, &value)?;
+                            }
+                            "removeformat" | "unlink" => remove_selection_format(state)?,
+                            "formatblock"
+                            | "defaultparagraphseparator"
+                            | "indent"
+                            | "outdent"
+                            | "insertorderedlist"
+                            | "insertunorderedlist"
+                            | "justifyleft"
+                            | "justifycenter"
+                            | "justifyright"
+                            | "justifyfull" => {
+                                apply_block_command(state, &command, &value)?;
+                            }
+                            _ => {}
+                        }
+                        Ok(())
+                    })?;
+                    if changed {
+                        let input_type = match command.as_str() {
+                            "delete" => "deleteContentBackward",
+                            "forwarddelete" => "deleteContentForward",
+                            "inserttext" => "insertText",
+                            "inserthtml" => "insertFromPaste",
+                            "insertlinebreak" => "insertLineBreak",
+                            "insertparagraph" => "insertParagraph",
+                            "bold" => "formatBold",
+                            "italic" => "formatItalic",
+                            "underline" => "formatUnderline",
+                            "strikethrough" => "formatStrikeThrough",
+                            "justifycenter" => "formatJustifyCenter",
+                            "justifyfull" => "formatJustifyFull",
+                            "justifyleft" => "formatJustifyLeft",
+                            "justifyright" => "formatJustifyRight",
+                            "indent" => "formatIndent",
+                            "outdent" => "formatOutdent",
+                            "removeformat" => "formatRemove",
+                            "insertorderedlist" => "insertOrderedList",
+                            "insertunorderedlist" => "insertUnorderedList",
+                            _ if formatting => "formatSetBlockTextDirection",
+                            _ => "insertReplacementText",
+                        };
+                        dispatch_editing_input(
+                            scope,
+                            state,
+                            input_type,
+                            (command == "inserttext").then_some(value.as_str()),
+                        )?;
+                    }
+                    changed
                 }
-                "insertlinebreak" | "insertparagraph" => {
-                    replace_selection_with_text(state, "\n")?;
-                    true
-                }
-                "delete" => {
-                    delete_selection_direction(state, false)?;
-                    true
-                }
-                "forwarddelete" => {
-                    delete_selection_direction(state, true)?;
-                    true
-                }
-                _ => false,
             };
             Ok(Some(v8::Boolean::new(scope, executed).into()))
         }
@@ -14167,8 +15943,6 @@ fn call_operation<'s>(
             Ok(Some(wrap_node(scope, state, clone)?.into()))
         }
         ("Node", "append") => {
-            let text = required_string(scope, args, 0)?;
-            let child = state.dom.borrow_mut().create_text(text);
             let owner = if matches!(
                 state.dom.borrow().arena().get(node)?.kind,
                 NodeKind::Document
@@ -14182,8 +15956,33 @@ fn call_operation<'s>(
                     .copied()
                     .unwrap_or_else(|| state.dom.borrow().document())
             };
-            state.node_documents.borrow_mut().insert(child, owner);
-            state.dom.borrow_mut().append_child(node, child)?;
+            for index in 0..args.length() {
+                let value = args.get(index);
+                let child = if value.is_object() {
+                    optional_argument_node(scope, state, value)?.unwrap_or_else(|| {
+                        state
+                            .dom
+                            .borrow_mut()
+                            .create_text(value.to_rust_string_lossy(scope))
+                    })
+                } else {
+                    state
+                        .dom
+                        .borrow_mut()
+                        .create_text(value.to_rust_string_lossy(scope))
+                };
+                let fragment_children = {
+                    let dom = state.dom.borrow();
+                    matches!(dom.arena().get(child)?.kind, NodeKind::DocumentFragment)
+                        .then(|| dom.arena().get(child).map(|record| record.children.clone()))
+                        .transpose()?
+                };
+                for inserted in fragment_children.unwrap_or_else(|| vec![child]) {
+                    state.node_documents.borrow_mut().insert(inserted, owner);
+                    state.dom.borrow_mut().append_child(node, inserted)?;
+                    prepare_dynamic_script_subtree(scope, state, inserted)?;
+                }
+            }
             Ok(None)
         }
         ("Node", "before" | "after") => {
@@ -14391,6 +16190,74 @@ fn call_operation<'s>(
                 .query_selector_all(node, &format!("[name=\"{name}\"]"))?;
             node_array(scope, state, &found).map(Some)
         }
+        ("Document", "elementFromPoint" | "elementsFromPoint") => {
+            let x = args.get(0).number_value(scope).unwrap_or(f64::NAN);
+            let y = args.get(1).number_value(scope).unwrap_or(f64::NAN);
+            if !x.is_finite() || !y.is_finite() {
+                return if member == "elementFromPoint" {
+                    Ok(Some(v8::null(scope).into()))
+                } else {
+                    node_array(scope, state, &[]).map(Some)
+                };
+            }
+            if let Some(provider) = state.layout_provider.borrow().as_ref() {
+                let layout =
+                    provider
+                        .compute_layout()
+                        .map_err(|detail| V8BindingError::Unsupported {
+                            interface: "Document".into(),
+                            member: detail,
+                        })?;
+                *state.layout.borrow_mut() = layout;
+            }
+            let dom = state.dom.borrow();
+            let layout = state.layout.borrow();
+            let body = dom.query_selector(node, "body")?;
+            let mut hits = dom
+                .arena()
+                .iter()
+                .filter_map(|(candidate, record)| {
+                    if !matches!(record.kind, NodeKind::Element { .. }) {
+                        return None;
+                    }
+                    if let Some(body) = body {
+                        let mut ancestor = Some(candidate);
+                        let mut in_body = false;
+                        while let Some(current) = ancestor {
+                            if current == body {
+                                in_body = true;
+                                break;
+                            }
+                            ancestor = dom.arena().get(current).ok().and_then(|item| item.parent);
+                        }
+                        if !in_body {
+                            return None;
+                        }
+                    }
+                    match layout.geometry.get(&node_key(candidate)) {
+                        Some(BindingGeometry::Available(rect))
+                            if x >= rect.x
+                                && y >= rect.y
+                                && x <= rect.x + rect.width
+                                && y <= rect.y + rect.height =>
+                        {
+                            Some(candidate)
+                        }
+                        _ => None,
+                    }
+                })
+                .collect::<Vec<_>>();
+            // Later document-order elements paint above their ancestors for
+            // the non-overlapping layout subset supported by native Oryn.
+            hits.reverse();
+            drop(layout);
+            drop(dom);
+            if member == "elementFromPoint" {
+                optional_node(scope, state, hits.first().copied()).map(Some)
+            } else {
+                node_array(scope, state, &hits).map(Some)
+            }
+        }
         ("Element", "remove") => {
             state.dom.borrow_mut().remove(node)?;
             Ok(None)
@@ -14412,45 +16279,28 @@ fn call_operation<'s>(
             Ok(Some(v8::null(scope).into()))
         }
         ("Element", "getBoundingClientRect") => {
-            let layout = state.layout.borrow();
-            let rect = match layout.geometry.get(&node_key(node)) {
-                Some(BindingGeometry::Available(rect)) => *rect,
-                Some(BindingGeometry::Hidden) => BindingRect::default(),
-                Some(BindingGeometry::Unsupported(detail)) => {
+            let rect = match geometry_for_node(state, node)? {
+                BindingGeometry::Available(rect) => rect,
+                BindingGeometry::Hidden => BindingRect::default(),
+                BindingGeometry::Unsupported(detail) => {
                     return Err(V8BindingError::Unsupported {
                         interface: "Element".into(),
                         member: format!("getBoundingClientRect: {detail}"),
-                    });
-                }
-                None => {
-                    return Err(V8BindingError::Unsupported {
-                        interface: "Element".into(),
-                        member:
-                            "getBoundingClientRect: geometry is not available at this checkpoint"
-                                .into(),
                     });
                 }
             };
             Ok(Some(dom_rect_object(scope, rect)?.into()))
         }
         ("Element", "getClientRects") => {
-            let layout = state.layout.borrow();
-            let values = match layout.geometry.get(&node_key(node)) {
-                Some(BindingGeometry::Available(rect)) => {
-                    vec![dom_rect_object(scope, *rect)?.into()]
+            let values = match geometry_for_node(state, node)? {
+                BindingGeometry::Available(rect) => {
+                    vec![dom_rect_object(scope, rect)?.into()]
                 }
-                Some(BindingGeometry::Hidden) => Vec::new(),
-                Some(BindingGeometry::Unsupported(detail)) => {
+                BindingGeometry::Hidden => Vec::new(),
+                BindingGeometry::Unsupported(detail) => {
                     return Err(V8BindingError::Unsupported {
                         interface: "Element".into(),
                         member: format!("getClientRects: {detail}"),
-                    });
-                }
-                None => {
-                    return Err(V8BindingError::Unsupported {
-                        interface: "Element".into(),
-                        member: "getClientRects: geometry is not available at this checkpoint"
-                            .into(),
                     });
                 }
             };
@@ -14535,6 +16385,52 @@ fn call_operation<'s>(
                 let event = create_event_object(scope, state, "focus", false, false)?;
                 dispatch_event(scope, state, node, event)?;
             }
+            // A focused editing host has a usable caret even before script
+            // explicitly creates a Selection. This is observable by keyboard
+            // input and is required for deterministic testdriver actions.
+            if state.selection_range.get().is_none() && document_is_editable(state) {
+                let caret_container = {
+                    let dom = state.dom.borrow();
+                    traversal_nodes(&dom, node)?
+                        .into_iter()
+                        .find(|candidate| {
+                            dom.arena().get(*candidate).is_ok_and(|record| {
+                                matches!(
+                                    record.kind,
+                                    NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+                                ) && editing_host_for_node(
+                                    &dom,
+                                    Some(*candidate),
+                                    state.design_mode.get(),
+                                    state.document,
+                                )
+                                .is_ok_and(|host| host == Some(node))
+                            })
+                        })
+                        .unwrap_or(node)
+                };
+                let point = BoundaryPoint {
+                    container: caret_container,
+                    offset: 0,
+                };
+                set_selection_boundaries(state, point, point)?;
+            }
+            Ok(None)
+        }
+        ("HTMLInputElement" | "HTMLTextAreaElement", "select") => {
+            state.dom.borrow_mut().focus(Some(node))?;
+            let length = state
+                .dom
+                .borrow()
+                .value(node)?
+                .unwrap_or_default()
+                .encode_utf16()
+                .count() as u32;
+            let wrapper = wrap_node(scope, state, node)?;
+            let start = v8::Integer::new_from_unsigned(scope, 0);
+            set_object_property(scope, wrapper, "__oryn_selection_start", start.into())?;
+            let end = v8::Integer::new_from_unsigned(scope, length);
+            set_object_property(scope, wrapper, "__oryn_selection_end", end.into())?;
             Ok(None)
         }
         ("HTMLElement", "blur") => {
@@ -14775,14 +16671,6 @@ fn prepare_dynamic_frame_subtree(
         }
         frames.extend(dom.query_selector_all(root, "iframe")?);
         frames
-            .into_iter()
-            .filter(|frame| {
-                dom.attribute(*frame, "src")
-                    .ok()
-                    .flatten()
-                    .is_some_and(|src| !src.trim().is_empty())
-            })
-            .collect::<Vec<_>>()
     };
     for frame in frames {
         if state.prepared_frames.borrow_mut().insert(frame) {
@@ -14913,6 +16801,7 @@ fn create_event_object<'s>(
             current_target: None,
             bubbles,
             cancelable,
+            is_trusted: false,
             default_prevented: false,
             propagation_stopped: false,
             immediate_stopped: false,
@@ -14920,6 +16809,96 @@ fn create_event_object<'s>(
     );
     object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
     Ok(object)
+}
+
+fn create_input_event_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    event_type: &str,
+    input_type: &str,
+    data: Option<&str>,
+    cancelable: bool,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let template = state
+        .instance_templates
+        .borrow()
+        .get("InputEvent")
+        .cloned()
+        .ok_or(V8BindingError::MissingInterface("InputEvent"))?;
+    let object = v8::Local::new(scope, &template)
+        .new_instance(scope)
+        .ok_or(V8BindingError::Allocation("InputEvent object"))?;
+    let id = state.next_event_id.get();
+    state.next_event_id.set(id.saturating_add(1));
+    state.events.borrow_mut().insert(
+        id,
+        EventRecord {
+            event_type: event_type.into(),
+            target: None,
+            current_target: None,
+            bubbles: true,
+            cancelable,
+            is_trusted: true,
+            default_prevented: false,
+            propagation_stopped: false,
+            immediate_stopped: false,
+        },
+    );
+    object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
+    let input_type_value = v8_string(scope, input_type)?;
+    set_object_property(scope, object, "__oryn_inputType", input_type_value)?;
+    let data = match data {
+        Some(data) => v8_string(scope, data)?,
+        None => v8::null(scope).into(),
+    };
+    set_object_property(scope, object, "__oryn_data", data)?;
+    set_object_property(
+        scope,
+        object,
+        "__oryn_isComposing",
+        v8::Boolean::new(scope, false).into(),
+    )?;
+    let ranges = v8::Array::new(scope, 0);
+    let selected = state
+        .selection_range
+        .get()
+        .and_then(|range_id| state.ranges.borrow().get(&range_id).cloned());
+    if let Some(range) = selected {
+        let static_id = register_live_range(state, range)?;
+        let range = new_stateful_object(scope, state, "StaticRange", static_id)?;
+        ranges.set_index(scope, 0, range.into());
+    }
+    set_object_property(scope, object, "__oryn_target_ranges", ranges.into())?;
+    Ok(object)
+}
+
+fn dispatch_editing_input(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    input_type: &str,
+    data: Option<&str>,
+) -> Result<(), V8BindingError> {
+    let target = editing_host(state)?
+        .or_else(|| state.dom.borrow().focused())
+        .unwrap_or(state.document);
+    let event = create_input_event_object(scope, state, "input", input_type, data, false)?;
+    if let Ok(context) = global_property(scope, "__oryn_pending_input_event")
+        && let Some(context) = context.to_object(scope)
+    {
+        for property in ["data", "dataTransfer", "inputType"] {
+            let Some(key) = v8::String::new(scope, property) else {
+                continue;
+            };
+            if let Some(value) = context.get(scope, key.into()) {
+                let target_name = format!("__oryn_{property}");
+                if let Some(target_key) = v8::String::new(scope, &target_name) {
+                    event.create_data_property(scope, target_key.into(), value);
+                }
+            }
+        }
+    }
+    dispatch_event(scope, state, target, event)?;
+    Ok(())
 }
 
 fn get_event_attribute<'s>(
@@ -14941,6 +16920,7 @@ fn get_event_attribute<'s>(
         "currentTarget" => optional_node(scope, state, event.current_target),
         "bubbles" => Ok(v8::Boolean::new(scope, event.bubbles).into()),
         "cancelable" => Ok(v8::Boolean::new(scope, event.cancelable).into()),
+        "isTrusted" => Ok(v8::Boolean::new(scope, event.is_trusted).into()),
         "defaultPrevented" => Ok(v8::Boolean::new(scope, event.default_prevented).into()),
         _ => Ok(v8::undefined(scope).into()),
     }
@@ -15655,7 +17635,7 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "let missing='',invalid='';try{indexedDB.cmp()}catch(e){missing=e.name}try{indexedDB.cmp(null,null)}catch(e){invalid=e.name}[indexedDB.cmp([1],new Uint8Array([1])),indexedDB.cmp(new Uint8Array([255]),new Uint8Array([0])),indexedDB.cmp('a',new Date(0)),indexedDB.cmp(new Date(0),0),missing,invalid].join('|')",
+            "let missing='',invalid='',cyclic='';try{indexedDB.cmp()}catch(e){missing=e.name}try{indexedDB.cmp(null,null)}catch(e){invalid=e.name}const cycle=[];cycle.push(cycle);try{indexedDB.cmp(cycle,cycle)}catch(e){cyclic=e.name}[indexedDB.cmp([1],new Uint8Array([1])),indexedDB.cmp(new Uint8Array([255]),new Uint8Array([0])),indexedDB.cmp('a',new Date(0)),indexedDB.cmp(new Date(0),0),missing,invalid,cyclic].join('|')",
         )
         .unwrap();
         let value = v8::Script::compile(scope, source, None)
@@ -15663,7 +17643,7 @@ mod tests {
             .run(scope)
             .unwrap()
             .to_rust_string_lossy(scope);
-        assert_eq!(value, "1|1|1|1|TypeError|DataError");
+        assert_eq!(value, "1|1|1|1|TypeError|DataError|DataError");
     }
 
     #[test]
@@ -15695,6 +17675,35 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "app:3");
+    }
+
+    #[test]
+    fn opaque_origin_databases_rejects_instead_of_throwing() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "globalThis.__oryn_opaque_origin=true;let synchronous='none',asynchronous='pending';try{indexedDB.databases().catch(error=>asynchronous=error.name)}catch(error){synchronous=error.name}",
+        )
+        .unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        scope.perform_microtask_checkpoint();
+        let source = v8::String::new(scope, "synchronous+'|'+asynchronous").unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "none|SecurityError");
     }
 
     #[test]
@@ -15807,6 +17816,57 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "true|oryn|false|false|false|false|false|");
+    }
+
+    #[test]
+    fn generated_editing_transactions_preserve_selection_and_support_undo_redo() {
+        initialize_v8();
+        let parsed = html::parse("<main id='editor' contenteditable>abc</main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor'),text=editor.firstChild,selection=document.getSelection(),events=[];editor.addEventListener('input',event=>events.push(event.inputType+':'+event.isTrusted));selection.setBaseAndExtent(text,1,text,2);const bold=document.execCommand('bold');const selected=selection.toString();const formatted=editor.innerHTML;const undone=document.execCommand('undo');const plain=editor.innerHTML;const redone=document.execCommand('redo');[bold,formatted,selected,undone,plain,redone,editor.innerHTML,events.join(',')].join('|')",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            result,
+            "true|a<b>b</b>c|b|true|abc|true|a<b>b</b>c|formatBold:true,historyUndo:true,historyRedo:true"
+        );
+    }
+
+    #[test]
+    fn generated_select_all_delete_crosses_noneditable_boundaries() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<main id='editor' contenteditable><div id='locked' contenteditable='false'>x</div><p id='copy'>text</p></main>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const editor=document.getElementById('editor'),locked=document.getElementById('locked'),copy=document.getElementById('copy');editor.focus();const selected=document.execCommand('selectAll'),selection=document.getSelection(),enabled=document.queryCommandEnabled('delete');const points=selection.anchorNode.nodeName+':'+selection.anchorOffset+'-'+selection.focusNode.nodeName+':'+selection.focusOffset;const deleted=document.execCommand('delete');[selected,enabled,points,deleted,editor.innerHTML,locked.isConnected,copy.isConnected].join('|')",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "true|true|MAIN:0-MAIN:2|true||false|false");
     }
 
     #[test]

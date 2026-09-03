@@ -11,7 +11,9 @@ use oryn_dom::{
     DomError, DomRuntime, Mutation, MutationCursor, NodeId, NodeKind, SharedDomRuntime, html,
 };
 use oryn_js::realm::RealmId;
-use oryn_js::v8_bindings::ParserInputCommand;
+use oryn_js::v8_bindings::{
+    BindingGeometry, BindingLayout, BindingLayoutProvider, BindingRect, ParserInputCommand,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -20,6 +22,76 @@ use crate::{
     network::SharedNetworkBroker,
 };
 use url::Url;
+
+struct LiveLayoutProvider {
+    dom: SharedDomRuntime,
+    viewport: oryn_common::v4::ViewportState,
+}
+
+impl BindingLayoutProvider for LiveLayoutProvider {
+    fn compute_layout(&self) -> Result<BindingLayout, String> {
+        let (dom, document) = self.dom.borrow().snapshot();
+        let parsed = ParsedDocument {
+            dom,
+            document,
+            errors: Vec::new(),
+            quirks_mode: html5ever::interface::QuirksMode::NoQuirks,
+            events: Vec::new(),
+        };
+        let input = crate::runtime::layout_input(
+            &parsed,
+            self.viewport,
+            oryn_common::v4::ScrollState::default(),
+            oryn_common::v4::PreferredColorScheme::Light,
+            oryn_common::v4::ReducedMotion::NoPreference,
+            &[],
+        );
+        let output = oryn_layout::StyleEngine::default()
+            .compute(&input, &oryn_layout::LayoutLimits::default())
+            .map_err(|error| format!("synchronous layout flush failed: {error}"))?;
+        Ok(binding_layout_from_output(&output))
+    }
+}
+
+fn binding_layout_from_output(output: &oryn_layout::LayoutOutput) -> BindingLayout {
+    let geometry = output
+        .geometry
+        .iter()
+        .map(|(node, value)| {
+            use oryn_common::v4::GeometryAvailability;
+            let value = match value.availability {
+                GeometryAvailability::Available => value.box_model.as_ref().map_or_else(
+                    || {
+                        BindingGeometry::Unsupported(
+                            "layout reported available geometry without a box".into(),
+                        )
+                    },
+                    |model| {
+                        let rect = model.border_box;
+                        BindingGeometry::Available(BindingRect {
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: rect.height,
+                        })
+                    },
+                ),
+                GeometryAvailability::Hidden => BindingGeometry::Hidden,
+                GeometryAvailability::Unsupported => BindingGeometry::Unsupported(
+                    value
+                        .diagnostic
+                        .clone()
+                        .unwrap_or_else(|| "geometry is unsupported".into()),
+                ),
+            };
+            (*node, value)
+        })
+        .collect();
+    BindingLayout {
+        styles: output.computed_styles.clone(),
+        geometry,
+    }
+}
 
 fn resource_entry<'a>(
     resources: &'a BTreeMap<String, String>,
@@ -363,11 +435,12 @@ fn parser_checkpoint(
     diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
 ) -> Result<(), HostError> {
     host.execute("void 0")?;
-    // Parser-blocking scripts may enqueue Fetch/XHR work. Dispatch accepted
-    // operations now, while their promise completions remain asynchronous;
-    // this preserves script-before-later-markup ordering without draining the
-    // entire page task queue.
-    host.drain_async_fetches(false)?;
+    // The platform host receives Fetch/XHR/IndexedDB submissions immediately,
+    // but their completions are page tasks, not parser microtasks. Polling
+    // completions here can resume an `await` before html5ever has consumed the
+    // markup after this parser-blocking script (and, for example, before
+    // `document.body` exists). Completion tasks are drained only after parsing
+    // resumes or at the document load barrier.
     host.execute("__oryn_run_custom_reactions()")?;
     host.run_dom_observer_checkpoint()?;
     for rejection in host.take_unhandled_promise_rejections() {
@@ -773,6 +846,13 @@ fn parse_live_document(
                     }
                 }
             }
+            if let html::ParserEvent::FrameDiscovered { node, .. } = &event {
+                // Browsers expose a stable WindowProxy as soon as the iframe
+                // element is inserted. The child navigation may still be in
+                // flight, but following parser-blocking scripts can already
+                // retain the proxy and post messages through it.
+                host.ensure_provisional_frame_window(*node)?;
+            }
             if let html::ParserEvent::ScriptReady { node, scheduling } = &event {
                 let record = script_record(&live_dom.borrow(), *node)?;
                 let asynchronous = live_dom
@@ -1045,7 +1125,8 @@ class OrynURL {
   static revokeObjectURL(url){__oryn_blob_url_revoke(String(url))}
 }
 globalThis.URL=OrynURL;globalThis.URLSearchParams=OrynURLSearchParams;
-Object.defineProperty(globalThis,'location',{value:new OrynURL(location.href),writable:true,enumerable:true,configurable:true});
+const __oryn_location=new OrynURL(location.href);
+Object.defineProperty(globalThis,'location',{get(){return __oryn_location},set(value){__oryn_location.href=String(value)},enumerable:true,configurable:true});
 Object.defineProperty(location,'assign',{configurable:true,enumerable:true,writable:true,value(url){this.href=new OrynURL(url,this.href).href}});
 const __oryn_history_clone=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value));
 class OrynHistory {
@@ -1067,7 +1148,7 @@ const contextCall=request=>JSON.parse(globalThis.__oryn_context_call(JSON.string
 Object.defineProperty(Document.prototype,'cookie',{configurable:true,enumerable:true,get(){if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return '';const response=contextCall({operation:'get_document_cookie',page_id:__oryn_page_id});return response.result==='document_cookie'?response.value:''},set(value){if(typeof globalThis.__oryn_context_call==='function'&&__oryn_page_id!==null)contextCall({operation:'set_document_cookie',page_id:__oryn_page_id,value:String(value)})}});
 Object.defineProperty(Document.prototype,'title',{configurable:true,enumerable:true,get(){const node=this.querySelector('title');return node?node.textContent:''},set(value){let node=this.querySelector('title');if(!node){node=this.createElement('title');const parent=this.querySelector('head')||this.documentElement;parent.appendChild(node)}node.textContent=String(value)}});
 const __oryn_page_proxies=new Map();
-const __oryn_page_proxy=pageId=>{if(pageId==null)return null;if(__oryn_page_proxies.has(pageId))return __oryn_page_proxies.get(pageId);const proxy={__orynPageId:pageId,__closed:false,get closed(){return this.__closed},focus(){contextCall({operation:'activate_page',source_page_id:__oryn_page_id,target_page_id:pageId})},close(){contextCall({operation:'close_page',source_page_id:__oryn_page_id,target_page_id:pageId});this.__closed=true},postMessage(data,targetOrigin='*'){contextCall({operation:'post_message',source_page_id:__oryn_page_id,target_page_id:pageId,target_origin:String(targetOrigin),data})}};__oryn_page_proxies.set(pageId,proxy);return proxy};
+const __oryn_page_proxy=pageId=>{if(pageId==null)return null;if(__oryn_page_proxies.has(pageId))return __oryn_page_proxies.get(pageId);const proxy={__orynPageId:pageId,__closed:false,get closed(){return this.__closed},get origin(){const response=contextCall({operation:'get_related_page_origin',source_page_id:__oryn_page_id,target_page_id:pageId});return response.result==='security_origin'?response.serialized:''},focus(){contextCall({operation:'activate_page',source_page_id:__oryn_page_id,target_page_id:pageId})},close(){contextCall({operation:'close_page',source_page_id:__oryn_page_id,target_page_id:pageId});this.__closed=true},postMessage(data,targetOrigin='*'){contextCall({operation:'post_message',source_page_id:__oryn_page_id,target_page_id:pageId,target_origin:String(targetOrigin),data})}};__oryn_page_proxies.set(pageId,proxy);return proxy};
 globalThis.__oryn_configure_context=(pageId,openerPageId)=>{__oryn_page_id=pageId;globalThis.opener=__oryn_page_proxy(openerPageId);if(typeof globalThis.__oryn_context_call==='function'){const response=contextCall({operation:'get_security_origin',page_id:pageId});if(response.result==='security_origin'){location.origin=response.serialized;globalThis.__oryn_opaque_origin=!!response.opaque}}};
 globalThis.open=(url='')=>{if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return null;const target=url?new OrynURL(url,location.href).href:null;const response=contextCall({operation:'open_page',opener_page_id:__oryn_page_id,url:target});if(response.result==='page_opened'){__oryn_context_trace.push({kind:'page_created',detail:{page_id:response.page_id,opener_page_id:__oryn_page_id}});return __oryn_page_proxy(response.page_id)}if(response.result==='page_denied')__oryn_context_trace.push({kind:'capability_failure',detail:{capability:'popup.open',detail:response.reason}});return null};
 globalThis.closed=false;
@@ -1079,15 +1160,17 @@ globalThis.addEventListener=(type,callback,options={})=>{type=String(type);if(ty
 globalThis.removeEventListener=(type,callback)=>__oryn_global_listeners.set(String(type),(__oryn_global_listeners.get(String(type))||[]).filter(item=>item!==callback&&item.__oryn_original_listener!==callback));
 globalThis.dispatchEvent=event=>{for(const callback of __oryn_global_listeners.get(event.type)||[])callback.call(globalThis,event);const handler=globalThis['on'+event.type];if(typeof handler==='function')handler.call(globalThis,event);return !event.defaultPrevented};
 globalThis.__oryn_deliver_message=(data,targetOrigin='*',source=null,sourceOrigin='')=>{targetOrigin=String(targetOrigin);if(targetOrigin!=='*'&&targetOrigin!=='/'&&targetOrigin!==location.origin)return;__oryn_record_message({origin:String(sourceOrigin),data});const event=new Event('message',{});event.data=data;event.origin=String(sourceOrigin);event.source=source;queueMicrotask(()=>dispatchEvent(event))};
-globalThis.__oryn_make_window_proxy=(deliver,targetOrigin,sourceOrigin)=>{const proxy={__source:null,__closed:false,origin:String(targetOrigin),get closed(){return this.__closed},focus(){},close(){this.__closed=true},postMessage(data,requestedOrigin='*'){deliver(data,String(requestedOrigin),proxy.__source,String(sourceOrigin))}};return proxy};
+globalThis.__oryn_make_window_proxy=(deliver,targetOrigin,sourceOrigin,sameOriginTarget=null)=>{const facade={__source:null,__closed:false,origin:String(targetOrigin),get closed(){return this.__closed},focus(){},close(){this.__closed=true},postMessage(data,requestedOrigin='*'){deliver(data,String(requestedOrigin),proxy.__source,String(sourceOrigin))}};const proxy=sameOriginTarget?new Proxy(facade,{get(target,key,receiver){if(Reflect.has(target,key))return Reflect.get(target,key,receiver);return Reflect.get(sameOriginTarget,key,sameOriginTarget)},set(target,key,value,receiver){if(Reflect.has(target,key))return Reflect.set(target,key,value,receiver);return Reflect.set(sameOriginTarget,key,value,sameOriginTarget)},has(target,key){return Reflect.has(target,key)||Reflect.has(sameOriginTarget,key)}}):facade;return proxy};
+globalThis.__oryn_make_provisional_window_proxy=()=>{let target=null;const queued=[];const facade={__source:null,__closed:false,get closed(){return target?target.closed:this.__closed},get origin(){return target?target.origin:''},focus(){if(target)target.focus()},close(){this.__closed=true;if(target)target.close()},postMessage(data,requestedOrigin='*'){if(target)target.postMessage(data,requestedOrigin);else queued.push([data,String(requestedOrigin)])},__bind(committed){if(target)return;target=committed;this.__source=committed.__source;while(queued.length){const [data,origin]=queued.shift();target.postMessage(data,origin)}}};return new Proxy(facade,{get(object,key,receiver){if(Reflect.has(object,key))return Reflect.get(object,key,receiver);return target?Reflect.get(target,key,target):undefined},set(object,key,value,receiver){if(Reflect.has(object,key)||!target)return Reflect.set(object,key,value,receiver);return Reflect.set(target,key,value,target)},has(object,key){return Reflect.has(object,key)||(target&&Reflect.has(target,key))}})};
 globalThis.postMessage=(data,targetOrigin='*')=>globalThis.__oryn_deliver_message(data,targetOrigin,globalThis,location.origin);
 globalThis.__oryn_poll_context=()=>{if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return;const response=contextCall({operation:'poll_events',page_id:__oryn_page_id,after_event_id:__oryn_context_event_id,max_events:32});if(response.result==='events')for(const record of response.events||[]){__oryn_context_event_id=Math.max(__oryn_context_event_id,record.event_id);const item=record.event;if(!item)continue;if(item.kind==='storage'){const change=item.change||{};const event=new Event('storage',{});event.key=change.key??null;event.oldValue=change.old_value??null;event.newValue=change.new_value??null;event.storageArea=change.area==='local'?localStorage:sessionStorage;event.url=location.href;dispatchEvent(event)}else if(item.kind==='message'){__oryn_record_message({origin:item.source_origin||'',data:item.data});__oryn_context_trace.push({kind:'opener_message',detail:{source_page_id:item.source_page_id,target_page_id:__oryn_page_id,origin:item.source_origin||''}});const event=new Event('message',{});event.data=item.data;event.origin=item.source_origin||'';event.source=__oryn_page_proxy(item.source_page_id);dispatchEvent(event)}else if(item.kind==='page_lifecycle'){const lifecycle=item.event||{};if(lifecycle.kind==='closed'){const proxy=__oryn_page_proxies.get(lifecycle.page_id);if(proxy)proxy.__closed=true}}else if(item.kind==='csp_violation'){const value=item.violation||{};const event=new SecurityPolicyViolationEvent('securitypolicyviolation',{documentURI:value.document_uri||'',referrer:value.referrer||'',blockedURI:value.blocked_uri||'',violatedDirective:value.effective_directive||'',effectiveDirective:value.effective_directive||'',originalPolicy:value.original_policy||'',sourceFile:value.source_file||'',sample:value.sample||'',disposition:value.disposition||'enforce',statusCode:value.status_code||0,lineNumber:value.line_number||0,columnNumber:value.column_number||0});document.dispatchEvent(event);dispatchEvent(event)}else if(item.kind==='csp_report'){__oryn_context_trace.push({kind:'csp_report',detail:{endpoint:item.endpoint||'',format:item.format||'',outcome:item.outcome||''}})}}for(const socket of [...__oryn_websockets])socket.__poll()};
 class OrynWebSocket {constructor(url,protocols=[]){this.url=new OrynURL(url,location.href).href;this.protocol='';this.binaryType='blob';this.readyState=0;this.__listeners=new Map();if(typeof protocols==='string')protocols=[protocols];const response=contextCall({operation:'web_socket_open',page_id:__oryn_page_id,url:this.url,protocols:[...protocols].map(String)});if(response.result!=='web_socket_opened')throw new Error('WebSocket open failed');this.__id=response.socket_id;this.protocol=response.protocol;__oryn_websockets.add(this);queueMicrotask(()=>{this.readyState=1;this.__event('open')})}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}send(data){const frame=typeof data==='string'?{kind:'text',value:data}:{kind:'binary',base64:bytesToBase64(bodyBytes(data))};const bytes=typeof data==='string'?new TextEncoder().encode(data).length:bodyBytes(data).length;contextCall({operation:'web_socket_send',page_id:__oryn_page_id,socket_id:this.__id,frame});__oryn_context_trace.push({kind:'web_socket_frame',detail:{socket_id:this.__id,direction:'outbound',frame_type:frame.kind,bytes,url:this.url}})}close(code=1000,reason=''){contextCall({operation:'web_socket_close',page_id:__oryn_page_id,socket_id:this.__id,code,reason:String(reason)});this.readyState=3;__oryn_websockets.delete(this);this.__event('close',{code,reason:String(reason),wasClean:true})}__poll(){if(this.readyState!==1)return;const response=contextCall({operation:'web_socket_poll',page_id:__oryn_page_id,socket_id:this.__id,max_frames:32});if(response.result!=='web_socket_events')return;for(const frame of response.frames||[]){let bytes=0;if(frame.kind==='text'){bytes=new TextEncoder().encode(frame.value).length;this.__event('message',{data:frame.value})}else if(frame.kind==='binary'){const value=base64ToBytes(frame.base64);bytes=value.length;this.__event('message',{data:this.binaryType==='arraybuffer'?value.buffer:new Blob([value])})}else if(frame.kind==='close'){this.readyState=3;__oryn_websockets.delete(this);this.__event('close',{code:frame.code??1005,reason:frame.reason||'',wasClean:true})}__oryn_context_trace.push({kind:'web_socket_frame',detail:{socket_id:this.__id,direction:'inbound',frame_type:frame.kind,bytes,url:this.url}})}}}
 Object.assign(OrynWebSocket,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});Object.assign(OrynWebSocket.prototype,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});globalThis.WebSocket=OrynWebSocket;
 const __oryn_workers=new Set();
 const __oryn_worker_clone=value=>{const encoded=JSON.stringify(value);if(encoded===undefined){const error=new TypeError('dedicated-worker messages must be structured-cloneable JSON values');error.name='DataCloneError';throw error}return encoded};
-class OrynWorker {constructor(url,options={}){this.onmessage=null;this.onerror=null;this.__listeners=new Map();this.__closed=false;this.__global=String(options.orynGlobal||'dedicatedworker');const target=new OrynURL(url,location.href).href;const response=contextCall({operation:'load_worker_script',page_id:__oryn_page_id,url:target,module:String(options.type||'classic')==='module'});if(response.result!=='worker_script')throw new Error('Worker script load failed');try{this.__id=__oryn_worker_create(response.source,response.url,!!response.module,this.__global);__oryn_workers.add(this);queueMicrotask(()=>this.__poll())}catch(error){this.__closed=true;queueMicrotask(()=>this.__event('error',{error,message:String(error)}))}}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}__poll(){if(this.__closed||!this.__id)return;for(const encoded of JSON.parse(__oryn_worker_take(this.__id))){this.__event('message',{data:JSON.parse(encoded)})}}postMessage(data){if(this.__closed||!this.__id)return;__oryn_worker_post(this.__id,__oryn_worker_clone(data));this.__poll()}terminate(){if(this.__id)__oryn_worker_terminate(this.__id);this.__closed=true;this.__id=0;__oryn_workers.delete(this)}}
-class OrynMessagePort {constructor(worker){this.__worker=worker;this.onmessage=null;this.__listeners=new Map();worker.addEventListener('message',event=>this.__event('message',{data:event.data}))}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}postMessage(value){this.__worker.postMessage(value)}start(){}close(){this.__worker.terminate()}}
+class OrynWorker {constructor(url,options={}){this.onmessage=null;this.onerror=null;this.__listeners=new Map();this.__closed=false;this.__global=String(options.orynGlobal||'dedicatedworker');const rawTarget=String(url),target=rawTarget.startsWith('data:')?rawTarget:new OrynURL(rawTarget,location.href).href;const opaquePrefix=`globalThis.indexedDB={open(){const error=new Error('opaque origins cannot access IndexedDB');error.name='SecurityError';throw error},deleteDatabase(){const error=new Error('opaque origins cannot access IndexedDB');error.name='SecurityError';throw error},databases(){const error=new Error('opaque origins cannot access IndexedDB');error.name='SecurityError';return Promise.reject(error)}};`;
+const response=target.startsWith('data:,')?{result:'worker_script',source:opaquePrefix+decodeURIComponent(target.slice(6)),url:target,module:false}:contextCall({operation:'load_worker_script',page_id:__oryn_page_id,url:target,module:String(options.type||'classic')==='module'});if(response.result!=='worker_script')throw new Error('Worker script load failed');try{this.__id=__oryn_worker_create(response.source,response.url,!!response.module,this.__global);__oryn_workers.add(this);queueMicrotask(()=>this.__poll())}catch(error){this.__closed=true;queueMicrotask(()=>this.__event('error',{error,message:String(error)}))}}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}__poll(){if(this.__closed||!this.__id)return;for(const encoded of JSON.parse(__oryn_worker_take(this.__id))){this.__event('message',{data:JSON.parse(encoded),source:null})}}postMessage(data){if(this.__closed||!this.__id)return;__oryn_worker_post(this.__id,__oryn_worker_clone(data));queueMicrotask(()=>this.__poll())}terminate(){if(this.__id)__oryn_worker_terminate(this.__id);this.__closed=true;this.__id=0;__oryn_workers.delete(this)}}
+class OrynMessagePort {constructor(worker){this.__worker=worker;this.__onmessage=null;this.__listeners=new Map();this.__queue=[];this.__started=false;worker.addEventListener('message',event=>this.__enqueue(event.data))}get onmessage(){return this.__onmessage}set onmessage(callback){this.__onmessage=typeof callback==='function'?callback:null;if(this.__onmessage)this.start()}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=type==='message'?this.__onmessage:this['on'+type];if(typeof handler==='function')handler.call(this,event)}__enqueue(data){this.__queue.push(data);this.__flush()}__flush(){if(!this.__started)return;while(this.__queue.length)this.__event('message',{data:this.__queue.shift(),source:null})}postMessage(value){this.__worker.postMessage(value)}start(){this.__started=true;this.__flush()}close(){this.__queue.length=0;this.__worker.terminate()}}
 class OrynSharedWorker {constructor(url,options={}){this.__worker=new OrynWorker(url,{...options,orynGlobal:'sharedworker'});this.port=new OrynMessagePort(this.__worker);this.onerror=null;this.__worker.addEventListener('error',event=>{if(typeof this.onerror==='function')this.onerror(event)})}}
 class OrynServiceWorker {constructor(url,options={}){this.__worker=new OrynWorker(url,{...options,orynGlobal:'serviceworker'});this.state='activated';this.onmessage=null;this.__listeners=new Map();this.__worker.addEventListener('message',event=>this.__event('message',{data:event.data}))}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}postMessage(value){this.__worker.postMessage(value)}}
 globalThis.Worker=OrynWorker;globalThis.SharedWorker=OrynSharedWorker;globalThis.ServiceWorker=OrynServiceWorker;
@@ -1135,7 +1218,82 @@ globalThis.Headers=OrynHeaders;
 globalThis.Response=OrynResponse;
 class OrynRequest {constructor(input,init={}){this.url=new OrynURL(input&&input.url?input.url:String(input),location.href).href;this.method=String(init.method||'GET').toUpperCase();this.headers=new OrynHeaders(init.headers||[]);this.body=init.body??null;this.signal=init.signal||new OrynAbortSignal();this.credentials=init.credentials||'same-origin'}}
 globalThis.Request=OrynRequest;
-const __orynInputFiles=node=>{const encoded=node.getAttribute('data-oryn-upload-files');if(!encoded)return [];try{return JSON.parse(encoded).map(file=>new OrynFile([base64ToBytes(file.body_base64)],file.filename,{type:file.media_type,lastModified:file.last_modified}))}catch(_){return []}};
+const __orynInputFiles=node=>{const encoded=node.getAttribute('data-oryn-upload-files');if(!encoded)return [];try{return JSON.parse(encoded).map(file=>new File([base64ToBytes(file.body_base64)],file.filename,{type:file.media_type,lastModified:file.last_modified}))}catch(_){return []}};
+const __oryn_testdriver_text_node=node=>{if(!node)return null;if(node.nodeType===3)return node;let fallback=null;for(const child of node.childNodes||[]){const found=__oryn_testdriver_text_node(child);if(found&&!fallback)fallback=found;if(found&&String(found.data||'').trim())return found}return fallback};
+const __oryn_testdriver_key_name=value=>({"\uE003":'Backspace',"\uE004":'Tab',"\uE007":'Enter',"\uE008":'Shift',"\uE009":'Control',"\uE00A":'Alt',"\uE010":'End',"\uE011":'Home',"\uE017":'Delete',"\uE03D":'Meta'}[value]||value);
+const __oryn_testdriver_clipboard={text:'',html:''};
+const __oryn_testdriver_data_transfer=()=>({getData(type){return type==='text/html'?__oryn_testdriver_clipboard.html:__oryn_testdriver_clipboard.text},setData(type,value){if(type==='text/html')__oryn_testdriver_clipboard.html=String(value);else __oryn_testdriver_clipboard.text=String(value)},types:['text/plain','text/html']});
+const __oryn_testdriver_keyboard=(target,value,pressed)=>{
+  const key=__oryn_testdriver_key_name(String(value));
+  const event=new Event(pressed?'keydown':'keyup',{bubbles:true,cancelable:true});
+  event.key=key;event.code=key.length===1?'Key'+key.toUpperCase():key;
+  target.dispatchEvent(event);
+  const modifiers=globalThis.__oryn_testdriver_modifiers||(globalThis.__oryn_testdriver_modifiers=new Set());
+  if(!pressed){modifiers.delete(key);return}
+  if(event.defaultPrevented)return;
+  if(key==='Control'||key==='Meta'||key==='Shift'||key==='Alt'){modifiers.add(key);return}
+  const command=modifiers.has('Control')||modifiers.has('Meta');
+  if(command&&key.toLowerCase()==='c'){
+    const selection=document.getSelection();
+    __oryn_testdriver_clipboard.text=selection?selection.toString():'';
+    __oryn_testdriver_clipboard.html=__oryn_testdriver_clipboard.text;
+    const copy=new Event('copy',{bubbles:true,cancelable:true});
+    copy.clipboardData=__oryn_testdriver_data_transfer();target.dispatchEvent(copy);return
+  }
+  if(command&&key.toLowerCase()==='v'){
+    const tag=String(target.tagName||'').toLowerCase();
+    const controlPaste=tag==='textarea'||tag==='input';
+    const transfer=__oryn_testdriver_data_transfer();
+    const pasted=transfer.getData('text/plain');
+    const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,inputType:'insertFromPaste',data:controlPaste?pasted:null,dataTransfer:controlPaste?null:transfer});
+    target.dispatchEvent(before);
+    if(!before.defaultPrevented){
+      if(controlPaste){const current=String(target.value||'');let start=Number(target.__oryn_selection_start??current.length),end=Number(target.__oryn_selection_end??start);target.value=current.slice(0,start)+pasted+current.slice(end);target.__oryn_selection_start=target.__oryn_selection_end=start+pasted.length;target.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertFromPaste',data:pasted,dataTransfer:null}))}
+      else{globalThis.__oryn_pending_input_event={inputType:'insertFromPaste',data:null,dataTransfer:transfer};try{document.execCommand('insertText',false,pasted)}finally{delete globalThis.__oryn_pending_input_event}}
+    }return
+  }
+  const tag=String(target.tagName||'').toLowerCase();
+  const textControl=tag==='textarea'||(tag==='input'&&!['button','checkbox','file','radio','reset','submit'].includes(String(target.type||'').toLowerCase()));
+  if(textControl&&(key==='Backspace'||key==='Delete'||key.length===1)){
+    const unavailable=()=>target.hidden||target.getAttribute?.('aria-hidden')==='true'||getComputedStyle(target).display==='none'||getComputedStyle(target).visibility==='hidden';
+    if(unavailable())return;
+    if(key.length===1){
+      const keypress=new Event('keypress',{bubbles:true,cancelable:true});keypress.key=key;keypress.code=event.code;target.dispatchEvent(keypress);
+      if(keypress.defaultPrevented||unavailable())return;
+    }
+    const inputType=key==='Backspace'?'deleteContentBackward':key==='Delete'?'deleteContentForward':'insertText';
+    const before=new Event('beforeinput',{bubbles:true,cancelable:true});before.inputType=inputType;before.data=key.length===1?key:null;target.dispatchEvent(before);
+    if(before.defaultPrevented||unavailable())return;
+    const current=String(target.value||'');
+    let start=Number(target.__oryn_selection_start??current.length),end=Number(target.__oryn_selection_end??start);
+    start=Math.max(0,Math.min(current.length,start));end=Math.max(start,Math.min(current.length,end));
+    let replacement='';
+    if(key==='Backspace'&&start===end&&start>0)start--;else if(key==='Delete'&&start===end&&end<current.length)end++;else if(key.length===1)replacement=key;
+    target.value=current.slice(0,start)+replacement+current.slice(end);
+    target.__oryn_selection_start=target.__oryn_selection_end=start+replacement.length;
+    const input=new Event('input',{bubbles:true});input.inputType=inputType;input.data=replacement||null;target.dispatchEvent(input);return
+  }
+  if(key==='Enter'){
+    const lineBreak=modifiers.has('Shift'),inputType=lineBreak?'insertLineBreak':'insertParagraph';
+    const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,inputType});target.dispatchEvent(before);
+    if(!before.defaultPrevented)document.execCommand(lineBreak?'insertLineBreak':'insertParagraph')
+  }
+  else if(key==='Backspace'||key==='Delete'){
+    const inputType=key==='Backspace'?'deleteContentBackward':'deleteContentForward';
+    const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,inputType});target.dispatchEvent(before);
+    if(!before.defaultPrevented)document.execCommand(key==='Backspace'?'delete':'forwardDelete')
+  }
+  else if(key==='Home'||key==='End'){
+    const text=__oryn_testdriver_text_node(target);if(text){const selection=document.getSelection();selection.collapse(text,key==='Home'?0:text.data.length)}
+  }else if(key.length===1){
+    const keypress=new Event('keypress',{bubbles:true,cancelable:true});keypress.key=key;keypress.code=event.code;target.dispatchEvent(keypress);if(keypress.defaultPrevented)return;
+    const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,inputType:'insertText',data:key});target.dispatchEvent(before);
+    if(!before.defaultPrevented)document.execCommand('insertText',false,key)
+  }
+};
+globalThis.__oryn_testdriver_send_keys=async(target,keys)=>{if(!target)throw new TypeError('testdriver target is required');target.focus?.();keys=String(keys);if(String(target.tagName).toLowerCase()==='input'&&String(target.type).toLowerCase()==='file'){const response=contextCall({operation:'materialize_upload',page_id:__oryn_page_id,label:keys});if(response.result!=='upload_materialized')throw new Error('parent did not authorize the selected upload');target.setAttribute('data-oryn-upload-files',JSON.stringify([{filename:response.filename,media_type:response.media_type,body_base64:response.body_base64,last_modified:response.last_modified}]));target.value=response.filename;target.dispatchEvent(new Event('input',{bubbles:true}));target.dispatchEvent(new Event('change',{bubbles:true}));return}for(const key of [...keys]){__oryn_testdriver_keyboard(target,key,true);__oryn_testdriver_keyboard(target,key,false)}};
+globalThis.__oryn_testdriver_click=async target=>{if(!target)throw new TypeError('testdriver target is required');target.focus?.();target.dispatchEvent(new Event('pointerdown',{bubbles:true,cancelable:true}));target.dispatchEvent(new Event('mousedown',{bubbles:true,cancelable:true}));target.dispatchEvent(new Event('pointerup',{bubbles:true,cancelable:true}));target.dispatchEvent(new Event('mouseup',{bubbles:true,cancelable:true}));target.click?.()};
+globalThis.__oryn_testdriver_actions=async sources=>{let pointerTarget=null,pointerClicks=0;const modifiers=globalThis.__oryn_testdriver_modifiers||(globalThis.__oryn_testdriver_modifiers=new Set());const lists=(sources||[]).map(source=>source.actions||[]);const ticks=Math.max(0,...lists.map(actions=>actions.length));for(let tick=0;tick<ticks;tick++)for(let index=0;index<sources.length;index++){const source=sources[index],action=lists[index][tick];if(!action||action.type==='pause')continue;if(action.type==='pointerMove'){pointerTarget=action.origin&&typeof action.origin==='object'?action.origin:document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement;continue}if(action.type==='pointerDown'){pointerTarget?.focus?.();pointerTarget?.dispatchEvent(new Event('pointerdown',{bubbles:true,cancelable:true}));pointerTarget?.dispatchEvent(new Event('mousedown',{bubbles:true,cancelable:true}));continue}if(action.type==='pointerUp'){pointerTarget?.dispatchEvent(new Event('pointerup',{bubbles:true,cancelable:true}));pointerTarget?.dispatchEvent(new Event('mouseup',{bubbles:true,cancelable:true}));pointerTarget?.click?.();pointerClicks++;if(pointerClicks===2){const text=__oryn_testdriver_text_node(pointerTarget);if(text){const selection=document.getSelection();selection.setBaseAndExtent(text,0,text,text.data.length)}}continue}const target=document.activeElement||document.body;if(action.type==='keyDown')__oryn_testdriver_keyboard(target,action.value,true);else if(action.type==='keyUp'){const key=__oryn_testdriver_key_name(String(action.value));__oryn_testdriver_keyboard(target,action.value,false);modifiers.delete(key)}}};
 if(globalThis.HTMLInputElement)Object.defineProperty(HTMLInputElement.prototype,'files',{configurable:true,get(){return __orynInputFiles(this)}});
 class OrynFormData {constructor(form){this.items=[];if(form)for(const node of [...form.querySelectorAll('input'),...form.querySelectorAll('textarea'),...form.querySelectorAll('select')]){const name=node.getAttribute('name');if(!name||node.disabled)continue;const type=(node.getAttribute('type')||'').toLowerCase();if((type==='checkbox'||type==='radio')&&!node.checked)continue;if(type==='file'){for(const file of __orynInputFiles(node))this.append(name,file);continue}this.append(name,node.value)}}append(name,value,filename){if(filename!==undefined&&value instanceof OrynBlob)value=new OrynFile([value.__bytes],filename,{type:value.type});this.items.push([String(name),value instanceof OrynBlob?value:String(value)])}set(name,value,filename){this.delete(name);this.append(name,value,filename)}get(name){const item=this.items.find(item=>item[0]===String(name));return item?item[1]:null}getAll(name){return this.items.filter(item=>item[0]===String(name)).map(item=>item[1])}has(name){return this.items.some(item=>item[0]===String(name))}delete(name){this.items=this.items.filter(item=>item[0]!==String(name))}entries(){return this.items[Symbol.iterator]()}keys(){return this.items.map(item=>item[0])[Symbol.iterator]()}values(){return this.items.map(item=>item[1])[Symbol.iterator]()}[Symbol.iterator](){return this.entries()}}
 globalThis.FormData=OrynFormData;
@@ -1162,6 +1320,17 @@ OrynIDBObjectStore.prototype.openKeyCursor=function(query,direction='next'){cons
 OrynIDBIndex.prototype.getAllKeys=function(query,count){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query:query??null,reverse:false});request.__success(response.records.slice(0,count??response.records.length).map(record=>__oryn_clone_decode(record.primary_key)))}catch(error){request.__failure(error)}return request};
 OrynIDBIndex.prototype.getKey=function(query){const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query,reverse:false});request.__success(__oryn_clone_decode(response.records[0]?.primary_key))}catch(error){request.__failure(error)}return request};
 OrynIDBIndex.prototype.openKeyCursor=function(query,direction='next'){const request=this.store.__cursor(query,direction,this.name);const success=request.__success.bind(request);request.__success=value=>{if(value)value.value=undefined;success(value)};return request};
+// Materialize an index snapshot once per script-visible index object. Besides
+// matching IndexedDB's transaction snapshot semantics, this prevents large
+// multiEntry lookup loops from crossing the typed parent boundary once per
+// key. Mutating transactions create fresh object/index wrappers, so snapshots
+// cannot leak across transaction boundaries.
+OrynIDBIndex.prototype.__records=function(query){if(!this.__oryn_records)this.__oryn_records=__oryn_idb_call({command:'cursor',database:this.store.transaction.db.name,store:this.store.name,index:this.name,query:null,reverse:false}).records;const matches=record=>query===undefined||query===null||(query&&query.__oryn_key_range?query.includes(__oryn_clone_decode(record.key)):indexedDB.cmp(__oryn_clone_decode(record.key),query)===0);return this.__oryn_records.filter(matches)};
+OrynIDBIndex.prototype.get=function(query){const request=new OrynIDBRequest();try{request.__success(__oryn_clone_decode(this.__records(query)[0]?.value))}catch(error){request.__failure(error)}return request};
+OrynIDBIndex.prototype.getKey=function(query){const request=new OrynIDBRequest();try{request.__success(__oryn_clone_decode(this.__records(query)[0]?.primary_key))}catch(error){request.__failure(error)}return request};
+OrynIDBIndex.prototype.getAll=function(query,count){const request=new OrynIDBRequest();try{const records=this.__records(query);request.__success(records.slice(0,count??records.length).map(record=>__oryn_clone_decode(record.value)))}catch(error){request.__failure(error)}return request};
+OrynIDBIndex.prototype.getAllKeys=function(query,count){const request=new OrynIDBRequest();try{const records=this.__records(query);request.__success(records.slice(0,count??records.length).map(record=>__oryn_clone_decode(record.primary_key)))}catch(error){request.__failure(error)}return request};
+OrynIDBIndex.prototype.count=function(query){const request=new OrynIDBRequest();try{request.__success(this.__records(query).length)}catch(error){request.__failure(error)}return request};
 globalThis.IDBRequest=OrynIDBRequest;globalThis.IDBOpenDBRequest=OrynIDBRequest;globalThis.IDBCursor=OrynIDBCursor;globalThis.IDBIndex=OrynIDBIndex;globalThis.IDBObjectStore=OrynIDBObjectStore;globalThis.IDBTransaction=OrynIDBTransaction;globalThis.IDBDatabase=OrynIDBDatabase;
 indexedDB.cmp=(left,right)=>{if(typeof left==='number'&&typeof right==='number')return Math.sign(left-right);if(typeof left==='string'&&typeof right==='string')return left<right?-1:left>right?1:0;const a=JSON.stringify(left),b=JSON.stringify(right);return a<b?-1:a>b?1:0};
 indexedDB.open=(name,version=0)=>{const request=new OrynIDBRequest();try{const response=__oryn_idb_call({command:'open',name:String(name),version:Number(version)||0});const db=new OrynIDBDatabase(name,response.version,response.object_stores),transaction=new OrynIDBTransaction(db,response.object_stores,'versionchange');request.transaction=transaction;queueMicrotask(()=>{request.result=db;if(response.upgrade_needed)request.__fire('upgradeneeded',{oldVersion:response.old_version,newVersion:response.version});request.__fire('success')})}catch(error){request.__failure(error)}return request};
@@ -1467,6 +1636,10 @@ impl RustExecutableDocument {
             host.set_execution_wall_limit(Duration::from_millis(limit));
         }
         host.install_dom(live_dom.clone(), 1)?;
+        host.install_layout_provider(Rc::new(LiveLayoutProvider {
+            dom: live_dom.clone(),
+            viewport: oryn_common::v4::ViewportState::default(),
+        }))?;
         if let Some(config) = resources.get("oryn:trusted-types") {
             let config = serde_json::from_str(config).map_err(|error| {
                 HostError::Execution(format!("invalid Trusted Types policy snapshot: {error}"))
@@ -1556,17 +1729,38 @@ impl RustExecutableDocument {
         let mut initial_frame_realms = Vec::new();
         for (frame_index, (frame, source)) in frame_sources.into_iter().enumerate() {
             let Some(source) = source else { continue };
-            let frame_url = base_url
+            let requested_url = base_url
                 .as_ref()
                 .and_then(|base| base.join(&source).ok())
                 .or_else(|| Url::parse(&source).ok());
-            let same_origin = base_url
-                .as_ref()
-                .zip(frame_url.as_ref())
-                .is_some_and(|(parent, child)| parent.origin() == child.origin());
-            let Some(frame_html) = resources.get(&source) else {
+            let mut loaded_frame = resources
+                .get(&source)
+                .cloned()
+                .map(|body| (requested_url.clone(), body));
+            #[cfg(unix)]
+            if loaded_frame.is_none()
+                && let Some((client, page_id, _)) = &context_handle
+            {
+                loaded_frame = match client.request(
+                    crate::context_service::ContextServiceRequest::LoadPageResource {
+                        page_id: *page_id,
+                        url: source.clone(),
+                        destination: "frame".into(),
+                    },
+                ) {
+                    Ok(crate::context_service::ContextServiceResponse::PageResource {
+                        url,
+                        source: body,
+                        destination,
+                    }) if destination == "frame" => {
+                        Some((Url::parse(&url).ok().or(requested_url.clone()), body))
+                    }
+                    _ => None,
+                };
+            }
+            let Some((frame_url, frame_html)) = loaded_frame else {
                 diagnostics.push(oryn_common::v3::CapabilityDiagnostic {
-                    capability: "html.frame.cross_origin".into(),
+                    capability: "html.frame.load".into(),
                     support: oryn_common::v3::SupportLevel::Unsupported,
                     alternatives: vec![oryn_common::v3::ExecutionDomain::Chromium],
                     handoff_lossy: true,
@@ -1576,6 +1770,10 @@ impl RustExecutableDocument {
                 });
                 continue;
             };
+            let same_origin = base_url
+                .as_ref()
+                .zip(frame_url.as_ref())
+                .is_some_and(|(parent, child)| parent.origin() == child.origin());
             if !same_origin {
                 diagnostics.push(oryn_common::v3::CapabilityDiagnostic {
                     capability: "html.frame.cross_origin".into(),
@@ -1587,7 +1785,7 @@ impl RustExecutableDocument {
                     )),
                 });
             }
-            let child = html::parse_streamed(frame_html, 4 * 1024);
+            let child = html::parse_streamed(&frame_html, 4 * 1024);
             let (frame_dom, child_document) = if same_origin {
                 let document = live_dom
                     .borrow_mut()
@@ -1622,6 +1820,10 @@ impl RustExecutableDocument {
             }
             host.activate_realm(realm)?;
             host.execute(RUST_RUNTIME_GLOBALS)?;
+            host.install_layout_provider(Rc::new(LiveLayoutProvider {
+                dom: frame_dom.clone(),
+                viewport: oryn_common::v4::ViewportState::default(),
+            }))?;
             host.set_module_sources(&resources);
             #[cfg(unix)]
             if let Some((page_id, _)) = context_identity {
@@ -1636,6 +1838,13 @@ impl RustExecutableDocument {
                     "Object.assign(globalThis.location,new OrynURL({url}))"
                 ))?;
             }
+            host.activate_realm(top_realm)?;
+            if same_origin {
+                host.set_frame_realm(frame, child_document, realm)?;
+            } else {
+                host.set_opaque_frame_realm(frame, realm)?;
+            }
+            host.activate_realm(realm)?;
             let imported_scripts = {
                 let dom = frame_dom.borrow();
                 dom.query_selector_all(child_document, "script")
@@ -1661,11 +1870,6 @@ impl RustExecutableDocument {
             }
             host.set_current_script(None)?;
             host.activate_realm(top_realm)?;
-            if same_origin {
-                host.set_frame_realm(frame, child_document, realm)?;
-            } else {
-                host.set_opaque_frame_realm(frame, realm)?;
-            }
             initial_frame_realms.push(realm);
         }
         for script in &scripts {
@@ -1714,6 +1918,12 @@ impl RustExecutableDocument {
             page.host.execute(
                 "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
             )?;
+            // A frame's load task may schedule the zero-delay completion task
+            // used by testharness and by application bootstraps. Run timers
+            // that are due now while the child realm is active; otherwise the
+            // top realm can reach its own load barrier with the child remote
+            // context permanently awaiting completion.
+            page.host.drain_scheduled_timers(false)?;
             page.checkpoint()?;
         }
         page.host.activate_realm(page.top_realm)?;
@@ -1780,6 +1990,42 @@ impl RustExecutableDocument {
         self.host.evaluate_string("location.href")
     }
 
+    pub fn set_committed_location(&mut self, url: &str) -> Result<(), HostError> {
+        let url =
+            serde_json::to_string(url).map_err(|error| HostError::Execution(error.to_string()))?;
+        self.host
+            .execute(&format!("Object.assign(location,new URL({url}))"))
+    }
+
+    pub fn take_history_traversal(&self) -> Result<Option<i64>, HostError> {
+        self.host.take_history_traversal()
+    }
+
+    pub fn dispatch_page_transition(
+        &mut self,
+        event_type: &str,
+        persisted: bool,
+    ) -> Result<(), HostError> {
+        let event_type = serde_json::to_string(event_type)
+            .map_err(|error| HostError::Execution(error.to_string()))?;
+        self.host.execute(&format!(
+            "{{const event=new Event({event_type});Object.defineProperty(event,'persisted',{{value:{persisted},enumerable:true}});dispatchEvent(event)}}"
+        ))?;
+        self.checkpoint()
+    }
+
+    pub fn suspend_for_back_forward_cache(&mut self) {
+        self.host.suspend_page_isolate();
+    }
+
+    pub fn resume_from_back_forward_cache(&mut self) {
+        self.host.resume_page_isolate();
+    }
+
+    pub fn has_pending_page_work(&mut self) -> bool {
+        self.host.has_pending_page_work()
+    }
+
     pub fn storage_snapshot(&mut self) -> Result<(String, String), HostError> {
         Ok((
             self.host
@@ -1804,7 +2050,12 @@ impl RustExecutableDocument {
     }
 
     pub fn drain_tasks(&mut self) -> Result<(), HostError> {
-        self.host.drain_scheduled_timers(true)?;
+        // A page task must never sleep until a future timer deadline. The page
+        // actor owns waiting and continues servicing parent-owned context
+        // events while timers remain scheduled. Blocking here can strand a
+        // popup `postMessage` behind the test/application timeout which is
+        // supposed to guard that very workflow.
+        self.host.drain_scheduled_timers(false)?;
         self.host.execute("__oryn_poll_context()")?;
         self.checkpoint()
     }
@@ -2102,48 +2353,8 @@ impl RustExecutableDocument {
         output: &oryn_layout::LayoutOutput,
         viewport: oryn_common::v4::ViewportState,
     ) -> Result<(), HostError> {
-        let geometry = output
-            .geometry
-            .iter()
-            .map(|(node, value)| {
-                use oryn_common::v4::GeometryAvailability;
-                let value = match value.availability {
-                    GeometryAvailability::Available => value.box_model.as_ref().map_or_else(
-                        || {
-                            oryn_js::v8_bindings::BindingGeometry::Unsupported(
-                                "layout reported available geometry without a box".into(),
-                            )
-                        },
-                        |model| {
-                            let rect = model.border_box;
-                            oryn_js::v8_bindings::BindingGeometry::Available(
-                                oryn_js::v8_bindings::BindingRect {
-                                    x: rect.x,
-                                    y: rect.y,
-                                    width: rect.width,
-                                    height: rect.height,
-                                },
-                            )
-                        },
-                    ),
-                    GeometryAvailability::Hidden => oryn_js::v8_bindings::BindingGeometry::Hidden,
-                    GeometryAvailability::Unsupported => {
-                        oryn_js::v8_bindings::BindingGeometry::Unsupported(
-                            value
-                                .diagnostic
-                                .clone()
-                                .unwrap_or_else(|| "geometry is unsupported".into()),
-                        )
-                    }
-                };
-                (*node, value)
-            })
-            .collect();
         self.host
-            .install_layout(oryn_js::v8_bindings::BindingLayout {
-                styles: output.computed_styles.clone(),
-                geometry,
-            })?;
+            .install_layout(binding_layout_from_output(output))?;
         self.host.execute(&format!(
             "globalThis.innerWidth={};globalThis.innerHeight={}",
             viewport.width, viewport.height
@@ -2175,6 +2386,11 @@ impl RustExecutableDocument {
         self.host.drain_async_fetches(true)?;
         self.drain_dynamic_frames()?;
         self.drain_dynamic_scripts()?;
+        // Frame/script load callbacks may enqueue Fetch or IndexedDB work
+        // after the first platform drain. Complete that newly created turn in
+        // the same checkpoint; otherwise it remains pending until an unrelated
+        // command happens to tick the page again.
+        self.host.drain_async_fetches(true)?;
         // Poll parent-owned context events at every page checkpoint. Popup
         // messages and lifecycle changes can arrive after the script that
         // initiated them has yielded; leaving polling to explicit JavaScript
@@ -2287,79 +2503,124 @@ impl RustExecutableDocument {
     }
 
     fn drain_dynamic_frames(&mut self) -> Result<(), HostError> {
-        for frame in self.host.take_pending_dynamic_frames()? {
-            let requested = self
-                .live_dom
-                .borrow()
-                .attribute(frame, "src")
-                .map_err(|error| HostError::Execution(error.to_string()))?
-                .map(str::to_owned)
-                .filter(|value| !value.trim().is_empty());
-            let Some(requested) = requested else { continue };
-            #[cfg(unix)]
-            let fetched = if let Some((client, page_id, _)) = &self.context {
-                match client.request(
-                    crate::context_service::ContextServiceRequest::LoadPageResource {
-                        page_id: *page_id,
-                        url: requested.clone(),
-                        destination: "frame".into(),
-                    },
-                ) {
-                    Ok(crate::context_service::ContextServiceResponse::PageResource {
-                        url,
-                        source,
-                        destination,
-                    }) if destination == "frame" => Some((url, source)),
-                    Ok(_) => {
-                        return Err(HostError::Execution(
-                            "parent returned an invalid dynamic-frame response".into(),
-                        ));
-                    }
-                    Err(error) => {
-                        self.diagnostics
-                            .push(script_diagnostic(HostError::Execution(format!(
-                                "dynamic frame {requested:?} failed: {error}"
-                            ))));
-                        None
-                    }
+        // A frame load handler can append another frame (the WPT opaque-origin
+        // sequence does exactly this from a Promise continuation). Drain to a
+        // fixed point in the same page task so its successor does not depend
+        // on an unrelated future command ticking the page.
+        for _ in 0..1024 {
+            let pending = self.host.take_pending_dynamic_frames()?;
+            if pending.is_empty() {
+                return Ok(());
+            }
+            for frame in pending {
+                let (requested, mut srcdoc, opaque_sandbox) = {
+                    let dom = self.live_dom.borrow();
+                    let requested = dom
+                        .attribute(frame, "src")
+                        .map_err(|error| HostError::Execution(error.to_string()))?
+                        .map(str::to_owned)
+                        .filter(|value| !value.trim().is_empty());
+                    let srcdoc = dom
+                        .attribute(frame, "srcdoc")
+                        .map_err(|error| HostError::Execution(error.to_string()))?
+                        .map(str::to_owned);
+                    let sandbox = dom
+                        .attribute(frame, "sandbox")
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    let opaque_sandbox = sandbox.is_some_and(|tokens| {
+                        !tokens
+                            .split_ascii_whitespace()
+                            .any(|token| token.eq_ignore_ascii_case("allow-same-origin"))
+                    });
+                    (requested, srcdoc, opaque_sandbox)
+                };
+                if requested.is_none() && srcdoc.is_none() {
+                    // An iframe without src creates an inherited-origin
+                    // about:blank document and a fully usable child realm.
+                    srcdoc = Some(String::new());
                 }
-            } else {
-                self.resources.get(&requested).cloned().map(|source| {
-                    let url = self
-                        .base_url
-                        .as_ref()
-                        .and_then(|base| base.join(&requested).ok())
-                        .map_or_else(|| requested.clone(), |url| url.to_string());
-                    (url, source)
-                })
-            };
-            #[cfg(not(unix))]
-            let fetched = self.resources.get(&requested).cloned().map(|source| {
-                let url = self
+                #[cfg(unix)]
+                let fetched = if let Some(source) = srcdoc.clone() {
+                    Some(("about:srcdoc".to_owned(), source))
+                } else if let (Some(requested), Some((client, page_id, _))) =
+                    (requested.as_ref(), &self.context)
+                {
+                    match client.request(
+                        crate::context_service::ContextServiceRequest::LoadPageResource {
+                            page_id: *page_id,
+                            url: requested.clone(),
+                            destination: "frame".into(),
+                        },
+                    ) {
+                        Ok(crate::context_service::ContextServiceResponse::PageResource {
+                            url,
+                            source,
+                            destination,
+                        }) if destination == "frame" => Some((url, source)),
+                        Ok(_) => {
+                            return Err(HostError::Execution(
+                                "parent returned an invalid dynamic-frame response".into(),
+                            ));
+                        }
+                        Err(error) => {
+                            self.diagnostics
+                                .push(script_diagnostic(HostError::Execution(format!(
+                                    "dynamic frame {requested:?} failed: {error}"
+                                ))));
+                            None
+                        }
+                    }
+                } else if let Some(requested) = requested.as_ref() {
+                    self.resources.get(requested).cloned().map(|source| {
+                        let url = self
+                            .base_url
+                            .as_ref()
+                            .and_then(|base| base.join(requested).ok())
+                            .map_or_else(|| requested.clone(), |url| url.to_string());
+                        (url, source)
+                    })
+                } else {
+                    None
+                };
+                #[cfg(not(unix))]
+                let fetched = if let Some(source) = srcdoc.clone() {
+                    Some(("about:srcdoc".to_owned(), source))
+                } else if let Some(requested) = requested.as_ref() {
+                    self.resources.get(requested).cloned().map(|source| {
+                        let url = self
+                            .base_url
+                            .as_ref()
+                            .and_then(|base| base.join(requested).ok())
+                            .map_or_else(|| requested.clone(), |url| url.to_string());
+                        (url, source)
+                    })
+                } else {
+                    None
+                };
+                let Some((url, source)) = fetched else {
+                    continue;
+                };
+                let is_srcdoc = srcdoc.is_some();
+                let frame_url = if is_srcdoc {
+                    self.base_url.clone()
+                } else {
+                    Url::parse(&url)
+                        .or_else(|_| {
+                            self.base_url
+                                .as_ref()
+                                .ok_or(url::ParseError::RelativeUrlWithoutBase)?
+                                .join(&url)
+                        })
+                        .ok()
+                };
+                let network_cross_origin = self
                     .base_url
                     .as_ref()
-                    .and_then(|base| base.join(&requested).ok())
-                    .map_or_else(|| requested.clone(), |url| url.to_string());
-                (url, source)
-            });
-            let Some((url, source)) = fetched else {
-                continue;
-            };
-            let frame_url = Url::parse(&url)
-                .or_else(|_| {
-                    self.base_url
-                        .as_ref()
-                        .ok_or(url::ParseError::RelativeUrlWithoutBase)?
-                        .join(&url)
-                })
-                .ok();
-            let cross_origin = self
-                .base_url
-                .as_ref()
-                .zip(frame_url.as_ref())
-                .is_some_and(|(parent, child)| parent.origin() != child.origin());
-            if cross_origin {
-                self.diagnostics
+                    .zip(frame_url.as_ref())
+                    .is_some_and(|(parent, child)| parent.origin() != child.origin());
+                let cross_origin = opaque_sandbox || network_cross_origin;
+                if cross_origin {
+                    self.diagnostics
                     .push(oryn_common::v3::CapabilityDiagnostic {
                         capability: "html.frame.cross_origin".into(),
                         support: oryn_common::v3::SupportLevel::Partial,
@@ -2369,122 +2630,162 @@ impl RustExecutableDocument {
                             "dynamic frame {url:?} executes in an opaque realm; DOM access and semantic traversal are denied"
                         )),
                     });
-            }
-            let parsed = html::parse(&source);
-            let (frame_dom, child_document) = if cross_origin {
-                let document = parsed.document;
-                let runtime = parsed
-                    .into_runtime()
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                (Rc::new(RefCell::new(runtime)), document)
-            } else {
-                let document = self
-                    .live_dom
-                    .borrow_mut()
-                    .import_subtree(&parsed.dom, parsed.document)
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                self.live_dom
-                    .borrow_mut()
-                    .append_child(frame, document)
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                (self.live_dom.clone(), document)
-            };
-            let realm = self.host.create_realm_with_dom_root(
-                frame_url
-                    .as_ref()
-                    .map(|url| url.origin().ascii_serialization())
-                    .unwrap_or_else(|| "null".into()),
-                1,
-                Some(u64::try_from(self.node_realms.len()).unwrap_or(u64::MAX) + 1),
-                frame_dom.clone(),
-                child_document,
-            )?;
-            if !cross_origin {
-                for node in subtree_nodes(&frame_dom.borrow(), child_document)? {
-                    self.node_realms.insert(node, realm);
                 }
-            }
-            self.host.activate_realm(realm)?;
-            self.host.execute(RUST_RUNTIME_GLOBALS).map_err(|error| {
-                HostError::Execution(format!("dynamic frame runtime bootstrap: {error}"))
-            })?;
-            self.host.set_module_sources(&self.resources);
-            #[cfg(unix)]
-            if let Some((_, page_id, _)) = &self.context {
-                self.host
-                    .execute(&format!("__oryn_configure_context({}, null)", page_id.0))
-                    .map_err(|error| {
-                        HostError::Execution(format!("dynamic frame context: {error}"))
-                    })?;
-            }
-            if let Some(frame_url) = &frame_url {
-                let encoded = serde_json::to_string(frame_url.as_str())
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                self.host
-                    .execute(&format!(
-                        "Object.assign(globalThis.location,new OrynURL({encoded}))"
-                    ))
-                    .map_err(|error| {
-                        HostError::Execution(format!("dynamic frame location: {error}"))
-                    })?;
-            }
-            let child_scripts = {
-                let dom = frame_dom.borrow();
-                dom.query_selector_all(child_document, "script")
-                    .map_err(|error| HostError::Execution(error.to_string()))?
-                    .into_iter()
-                    .map(|script| {
-                        let record = dom.arena().get(script)?;
-                        Ok(resolve_script_record(
-                            (
-                                script,
-                                record.attributes.get("src").cloned(),
-                                record.attributes.get("type").cloned(),
-                                dom.arena().text_content(script)?,
-                                false,
-                                record.attributes.contains_key("nomodule"),
-                                false,
-                            ),
-                            frame_url.as_ref(),
-                        ))
-                    })
-                    .collect::<Result<Vec<ScriptRecord>, DomError>>()
-                    .map_err(|error| HostError::Execution(error.to_string()))?
-            };
-            for script in &child_scripts {
-                run_script_record(
-                    &mut self.host,
-                    &frame_dom,
-                    &mut self.resources,
-                    script,
-                    &mut self.diagnostics,
-                    #[cfg(unix)]
-                    self.context.as_ref(),
+                let parsed = html::parse_streamed(&source, 4 * 1024);
+                let (frame_dom, child_document) = if cross_origin {
+                    let document = parsed.document;
+                    let runtime = parsed
+                        .into_runtime()
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    (Rc::new(RefCell::new(runtime)), document)
+                } else {
+                    let document = self
+                        .live_dom
+                        .borrow_mut()
+                        .import_subtree(&parsed.dom, parsed.document)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    self.live_dom
+                        .borrow_mut()
+                        .append_child(frame, document)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    (self.live_dom.clone(), document)
+                };
+                let realm = self.host.create_realm_with_dom_root(
+                    frame_url
+                        .as_ref()
+                        .filter(|_| !opaque_sandbox)
+                        .map(|url| url.origin().ascii_serialization())
+                        .unwrap_or_else(|| "null".into()),
+                    1,
+                    Some(u64::try_from(self.node_realms.len()).unwrap_or(u64::MAX) + 1),
+                    frame_dom.clone(),
+                    child_document,
                 )?;
-                self.host.refresh_named_window_properties()?;
-            }
-            self.host.activate_realm(self.top_realm)?;
-            if cross_origin {
-                self.host.set_opaque_frame_realm(frame, realm)?;
-            } else {
-                self.host.set_frame_realm(frame, child_document, realm)?;
-            }
-            self.host.activate_realm(realm)?;
-            self.host.execute(
+                if !cross_origin {
+                    for node in subtree_nodes(&frame_dom.borrow(), child_document)? {
+                        self.node_realms.insert(node, realm);
+                    }
+                }
+                self.host.activate_realm(realm)?;
+                self.host.execute(RUST_RUNTIME_GLOBALS).map_err(|error| {
+                    HostError::Execution(format!("dynamic frame runtime bootstrap: {error}"))
+                })?;
+                self.host
+                    .install_layout_provider(Rc::new(LiveLayoutProvider {
+                        dom: frame_dom.clone(),
+                        viewport: oryn_common::v4::ViewportState::default(),
+                    }))?;
+                self.host.set_module_sources(&self.resources);
+                #[cfg(unix)]
+                if let Some((_, page_id, _)) = &self.context {
+                    self.host
+                        .execute(&format!("__oryn_configure_context({}, null)", page_id.0))
+                        .map_err(|error| {
+                            HostError::Execution(format!("dynamic frame context: {error}"))
+                        })?;
+                }
+                if let Some(frame_url) = &frame_url {
+                    let committed_url = if is_srcdoc {
+                        "about:srcdoc"
+                    } else {
+                        frame_url.as_str()
+                    };
+                    let encoded = serde_json::to_string(committed_url)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    self.host
+                        .execute(&format!(
+                            "Object.assign(globalThis.location,new OrynURL({encoded}))"
+                        ))
+                        .map_err(|error| {
+                            HostError::Execution(format!("dynamic frame location: {error}"))
+                        })?;
+                }
+                if opaque_sandbox {
+                    self.host
+                        .execute("location.origin='null';globalThis.__oryn_opaque_origin=true")
+                        .map_err(|error| {
+                            HostError::Execution(format!("dynamic frame opaque origin: {error}"))
+                        })?;
+                } else if is_srcdoc
+                    && let Some(frame_origin) = frame_url
+                        .as_ref()
+                        .map(|url| url.origin().ascii_serialization())
+                {
+                    let frame_origin = serde_json::to_string(&frame_origin)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    self.host
+                        .execute(&format!(
+                            "location.origin={frame_origin};globalThis.__oryn_opaque_origin=false"
+                        ))
+                        .map_err(|error| {
+                            HostError::Execution(format!("dynamic srcdoc origin: {error}"))
+                        })?;
+                }
+                // Establish parent/top and the frame's contentWindow before child
+                // script execution. Frame scripts are allowed to synchronously
+                // observe their parent relationship while booting.
+                self.host.activate_realm(self.top_realm)?;
+                if cross_origin {
+                    self.host.set_opaque_frame_realm(frame, realm)?;
+                } else {
+                    self.host.set_frame_realm(frame, child_document, realm)?;
+                }
+                self.host.activate_realm(realm)?;
+                let child_scripts = {
+                    let dom = frame_dom.borrow();
+                    dom.query_selector_all(child_document, "script")
+                        .map_err(|error| HostError::Execution(error.to_string()))?
+                        .into_iter()
+                        .map(|script| {
+                            let record = dom.arena().get(script)?;
+                            Ok(resolve_script_record(
+                                (
+                                    script,
+                                    record.attributes.get("src").cloned(),
+                                    record.attributes.get("type").cloned(),
+                                    dom.arena().text_content(script)?,
+                                    false,
+                                    record.attributes.contains_key("nomodule"),
+                                    false,
+                                ),
+                                frame_url.as_ref(),
+                            ))
+                        })
+                        .collect::<Result<Vec<ScriptRecord>, DomError>>()
+                        .map_err(|error| HostError::Execution(error.to_string()))?
+                };
+                for script in &child_scripts {
+                    run_script_record(
+                        &mut self.host,
+                        &frame_dom,
+                        &mut self.resources,
+                        script,
+                        &mut self.diagnostics,
+                        #[cfg(unix)]
+                        self.context.as_ref(),
+                    )?;
+                    self.host.refresh_named_window_properties()?;
+                }
+                self.host.activate_realm(self.top_realm)?;
+                self.host.activate_realm(realm)?;
+                self.host.execute(
                 "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
             ).map_err(|error| HostError::Execution(format!("dynamic frame lifecycle: {error}")))?;
-            self.host.activate_realm(self.top_realm)?;
-            self.host
-                .execute_with_node(
-                    frame,
-                    "__oryn_dynamic_frame",
-                    "__oryn_dynamic_frame.dispatchEvent(new Event('load'))",
-                )
-                .map_err(|error| {
-                    HostError::Execution(format!("dynamic frame element load: {error}"))
-                })?;
+                self.host.activate_realm(self.top_realm)?;
+                self.host
+                    .execute_with_node(
+                        frame,
+                        "__oryn_dynamic_frame",
+                        "__oryn_dynamic_frame.dispatchEvent(new Event('load'))",
+                    )
+                    .map_err(|error| {
+                        HostError::Execution(format!("dynamic frame element load: {error}"))
+                    })?;
+            }
         }
-        Ok(())
+        Err(HostError::LimitExceeded {
+            resource: "dynamic frame preparation queue".into(),
+        })
     }
 
     fn finish_dynamic_script(
@@ -3116,6 +3417,20 @@ mod tests {
     }
 
     #[test]
+    fn window_location_assignment_uses_the_navigation_setter() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<p>remote executor</p>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://example.test/start.html").unwrap()),
+        )
+        .unwrap();
+        page.evaluate("window.location='/next.html'")
+            .expect("window.location assignment");
+        assert_eq!(page.location().unwrap(), "https://example.test/next.html");
+    }
+
+    #[test]
     fn location_assign_resolves_against_the_committed_url() {
         let mut page = RustExecutableDocument::load_with_environment(
             "<button type=button id=go onclick=\"location.assign('/oauth/callback?code=ready')\">Continue</button>",
@@ -3311,6 +3626,155 @@ mod tests {
             page.evaluate("String(document.querySelector('x-state').hasAttribute('ready'))")
                 .unwrap(),
             "true"
+        );
+    }
+
+    #[test]
+    fn source_less_dynamic_iframe_fires_load_with_same_origin_window() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<output id=result>pending</output><script>
+            const frame=document.createElement('iframe');
+            frame.onload=()=>document.querySelector('#result').textContent=
+              String(frame.contentDocument!==null)+'|'+typeof frame.contentWindow.IDBIndex;
+            document.body.appendChild(frame);
+            </script>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("document.querySelector('#result').textContent")
+                .unwrap(),
+            "true|function"
+        );
+    }
+
+    #[test]
+    fn parser_iframe_exposes_stable_window_proxy_before_child_commit() {
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "https://child.example.test/frame".into(),
+            r#"<script>onmessage=event=>parent.postMessage('reply:'+event.data,'*')</script>"#
+                .into(),
+        );
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<iframe id=frame src="https://child.example.test/frame"></iframe><output id=result>pending</output><script>
+            const frame=document.querySelector('#frame');
+            const retained=frame.contentWindow;
+            addEventListener('message',event=>{
+              document.querySelector('#result').textContent=
+                String(event.source===retained)+'|'+String(frame.contentWindow===retained)+'|'+retained.origin+'|'+event.data;
+            });
+            retained.postMessage('early','*');
+            </script>"#,
+            &resources,
+            None,
+            Some(Url::parse("https://parent.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .unwrap(),
+            "true|true|https://child.example.test|reply:early"
+        );
+    }
+
+    #[test]
+    fn srcdoc_window_proxies_preserve_message_source_for_same_and_opaque_origins() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<output id=result>pending</output><script>
+            const child='<script>onmessage=()=>parent.postMessage(location.origin,"*")<\/script>';
+            const load=sandbox=>new Promise(resolve=>{
+              const frame=document.createElement('iframe');
+              if(sandbox) frame.sandbox='allow-scripts';
+              frame.srcdoc=child;
+              frame.onload=()=>{
+                const listener=event=>{
+                  if(event.source===frame.contentWindow){
+                    removeEventListener('message',listener);
+                    resolve(event.data);
+                  }
+                };
+                addEventListener('message',listener);
+                frame.contentWindow.postMessage({},'*');
+              };
+              document.documentElement.appendChild(frame);
+            });
+            Promise.all([load(false),load(true)]).then(values=>{
+              document.querySelector('#result').textContent=values.join('|');
+            });
+            </script>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("document.querySelector('#result').textContent")
+                .unwrap(),
+            "https://frame.example.test|null"
+        );
+    }
+
+    #[test]
+    fn cross_origin_frame_receives_global_load_and_can_complete_remote_protocol() {
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "https://remote.example.test/child.html".into(),
+            "<!doctype html><script>addEventListener('load',()=>parent.postMessage({type:'complete',status:0},'*'))</script>".into(),
+        );
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<!doctype html><iframe src='https://remote.example.test/child.html'></iframe><script>globalThis.remoteStatus='waiting';addEventListener('message',event=>{if(event.data&&event.data.type==='complete')remoteStatus='complete:'+event.data.status})</script>",
+            &resources,
+            None,
+            Url::parse("https://parent.example.test/").ok(),
+        )
+        .expect("load cross-origin frame fixture");
+        assert_eq!(
+            page.evaluate("remoteStatus").expect("read remote status"),
+            "complete:0"
+        );
+    }
+
+    #[test]
+    fn data_url_workers_report_opaque_indexed_db_security_errors() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<output id=result>pending</output><script>
+            const source=`
+              const handler=reply=>{let result='none';try{indexedDB.open('blocked')}catch(error){result=error.name}reply({result})};
+              addEventListener('message',()=>handler(postMessage));
+              addEventListener('connect',event=>handler(value=>event.ports[0].postMessage(value)));
+            `;
+            const url='data:,'+encodeURIComponent(source);
+            const output=document.querySelector('#result');
+            output.textContent='script';
+            const dedicated=new Worker(url);
+            output.textContent=`dedicated:${dedicated.__closed}`;
+            const shared=new SharedWorker(url,'opaque');
+            output.textContent=`created:${dedicated.__closed}|${shared.__worker.__closed}`;
+            const values=[];
+            const done=value=>{values.push(value.result);if(values.length===2)output.textContent=values.join('|')};
+            const failed=event=>output.textContent='error:'+event.message;
+            dedicated.onerror=failed;
+            shared.onerror=failed;
+            dedicated.onmessage=event=>done(event.data);
+            shared.port.onmessage=event=>done(event.data);
+            dedicated.postMessage({});
+            shared.port.postMessage({});
+            </script>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        let value = page
+            .evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+            .unwrap();
+        assert_eq!(
+            value, "SecurityError|SecurityError",
+            "{:?}",
+            page.diagnostics
         );
     }
 }

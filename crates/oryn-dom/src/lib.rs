@@ -979,6 +979,43 @@ impl DomRuntime {
 
     pub fn set_text(&mut self, node: NodeId, value: impl Into<String>) -> Result<(), DomError> {
         let value = value.into();
+        let old_length = match &self.arena.get(node)?.kind {
+            NodeKind::Text { data }
+            | NodeKind::CDataSection { data }
+            | NodeKind::ProcessingInstruction { data, .. }
+            | NodeKind::Comment { data } => utf16_len(data),
+            _ => return Err(DomError::StaleNode(node)),
+        };
+        self.replace_character_data(node, 0, old_length, value)
+    }
+
+    /// Replace a UTF-16 range in a character-data node and update every live
+    /// Range using the DOM replace-data boundary rules.  Editing, Selection,
+    /// and script-visible CharacterData all share this operation so a caret is
+    /// never merely clamped after an insertion or deletion.
+    pub fn replace_character_data(
+        &mut self,
+        node: NodeId,
+        offset: u32,
+        count: u32,
+        replacement: impl Into<String>,
+    ) -> Result<(), DomError> {
+        let replacement = replacement.into();
+        let old_value = match &self.arena.get(node)?.kind {
+            NodeKind::Text { data }
+            | NodeKind::CDataSection { data }
+            | NodeKind::ProcessingInstruction { data, .. }
+            | NodeKind::Comment { data } => data.clone(),
+            _ => return Err(DomError::StaleNode(node)),
+        };
+        let mut units = old_value.encode_utf16().collect::<Vec<_>>();
+        let start = (offset as usize).min(units.len());
+        let end = start.saturating_add(count as usize).min(units.len());
+        let inserted = replacement.encode_utf16().collect::<Vec<_>>();
+        let inserted_length = inserted.len() as u32;
+        let removed_length = (end - start) as u32;
+        units.splice(start..end, inserted);
+        let value = String::from_utf16_lossy(&units);
         let data = match &mut self.arena.get_mut(node)?.kind {
             NodeKind::Text { data }
             | NodeKind::CDataSection { data }
@@ -986,14 +1023,21 @@ impl DomRuntime {
             | NodeKind::Comment { data } => data,
             _ => return Err(DomError::StaleNode(node)),
         };
-        let old_value = std::mem::replace(data, value.clone());
-        let new_length = utf16_len(&value);
+        *data = value.clone();
+        let removed_end = offset.saturating_add(removed_length);
         for range in self.ranges.values_mut() {
-            if range.start.container == node {
-                range.start.offset = range.start.offset.min(new_length);
-            }
-            if range.end.container == node {
-                range.end.offset = range.end.offset.min(new_length);
+            for boundary in [&mut range.start, &mut range.end] {
+                if boundary.container != node || boundary.offset <= offset {
+                    continue;
+                }
+                if boundary.offset <= removed_end {
+                    boundary.offset = offset.saturating_add(inserted_length);
+                } else {
+                    boundary.offset = boundary
+                        .offset
+                        .saturating_sub(removed_length)
+                        .saturating_add(inserted_length);
+                }
             }
         }
         self.mutations.push(Mutation::CharacterData {
@@ -1405,6 +1449,44 @@ impl DomRuntime {
     }
 
     fn matches_selector_chain(&self, node: NodeId, selector: &str) -> Result<bool, DomError> {
+        if let Some((left, combinator, right)) = split_last_selector_combinator(selector) {
+            if !self.matches_selector_chain(node, right)? {
+                return Ok(false);
+            }
+            let record = self.arena.get(node)?;
+            return match combinator {
+                '>' => record
+                    .parent
+                    .map(|parent| self.matches_selector_chain(parent, left))
+                    .transpose()
+                    .map(|value| value.unwrap_or(false)),
+                '+' | '~' => {
+                    let Some(parent) = record.parent else {
+                        return Ok(false);
+                    };
+                    let siblings = &self.arena.get(parent)?.children;
+                    let Some(index) = siblings.iter().position(|candidate| *candidate == node)
+                    else {
+                        return Ok(false);
+                    };
+                    let matching = siblings[..index]
+                        .iter()
+                        .rev()
+                        .filter(|candidate| {
+                            self.arena
+                                .get(**candidate)
+                                .is_ok_and(|record| matches!(record.kind, NodeKind::Element { .. }))
+                        })
+                        .take(if combinator == '+' { 1 } else { usize::MAX })
+                        .any(|candidate| {
+                            self.matches_selector_chain(*candidate, left)
+                                .unwrap_or(false)
+                        });
+                    Ok(matching)
+                }
+                _ => Ok(false),
+            };
+        }
         let compounds = selector
             .split_ascii_whitespace()
             .filter(|part| !part.is_empty() && *part != ">")
@@ -1563,6 +1645,40 @@ impl DomRuntime {
 
 fn utf16_len(value: &str) -> u32 {
     value.encode_utf16().count().try_into().unwrap_or(u32::MAX)
+}
+
+/// Returns the last explicit combinator outside attribute selectors and
+/// functional pseudo classes. Descendant whitespace remains handled by the
+/// existing ancestor walk below, while explicit child/sibling relationships
+/// must retain their exact topology.
+fn split_last_selector_combinator(selector: &str) -> Option<(&str, char, &str)> {
+    let mut bracket_depth = 0_u32;
+    let mut paren_depth = 0_u32;
+    let mut quote = None;
+    let mut candidate = None;
+    for (index, character) in selector.char_indices() {
+        if let Some(active) = quote {
+            if character == active {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '\'' | '"' => quote = Some(character),
+            '[' => bracket_depth = bracket_depth.saturating_add(1),
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            '(' => paren_depth = paren_depth.saturating_add(1),
+            ')' => paren_depth = paren_depth.saturating_sub(1),
+            '>' | '+' | '~' if bracket_depth == 0 && paren_depth == 0 => {
+                candidate = Some((index, character));
+            }
+            _ => {}
+        }
+    }
+    let (index, combinator) = candidate?;
+    let left = selector[..index].trim();
+    let right = selector[index + combinator.len_utf8()..].trim();
+    (!left.is_empty() && !right.is_empty()).then_some((left, combinator, right))
 }
 
 fn matches_compound_selector(node: &Node, selector: &str) -> bool {
@@ -1845,5 +1961,54 @@ mod tests {
             .unwrap();
         assert_eq!(dom.live_range(range).unwrap().start.offset, 2);
         dom.drop_live_range(range).unwrap();
+    }
+
+    #[test]
+    fn character_data_replacement_preserves_live_range_boundaries() {
+        let mut dom = DomRuntime::new();
+        let text = dom.create_text("abcdef");
+        dom.append_child(dom.document(), text).unwrap();
+        let before = dom
+            .create_live_range(
+                BoundaryPoint {
+                    container: text,
+                    offset: 1,
+                },
+                BoundaryPoint {
+                    container: text,
+                    offset: 1,
+                },
+            )
+            .unwrap();
+        let inside = dom
+            .create_live_range(
+                BoundaryPoint {
+                    container: text,
+                    offset: 3,
+                },
+                BoundaryPoint {
+                    container: text,
+                    offset: 3,
+                },
+            )
+            .unwrap();
+        let after = dom
+            .create_live_range(
+                BoundaryPoint {
+                    container: text,
+                    offset: 6,
+                },
+                BoundaryPoint {
+                    container: text,
+                    offset: 6,
+                },
+            )
+            .unwrap();
+
+        dom.replace_character_data(text, 2, 3, "XY").unwrap();
+        assert_eq!(dom.arena().text_content(text).unwrap(), "abXYf");
+        assert_eq!(dom.live_range(before).unwrap().start.offset, 1);
+        assert_eq!(dom.live_range(inside).unwrap().start.offset, 4);
+        assert_eq!(dom.live_range(after).unwrap().start.offset, 5);
     }
 }

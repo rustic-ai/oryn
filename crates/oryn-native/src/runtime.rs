@@ -1865,6 +1865,27 @@ impl BrowserContext {
             .map_err(|error| RuntimeError::Upload(error.to_string()))
     }
 
+    pub(crate) fn materialize_upload_label(
+        &self,
+        page_id: PageId,
+        label: &str,
+    ) -> Result<crate::upload::UploadFile, RuntimeError> {
+        self.require_policy(
+            PolicyRequest {
+                action: ConsequentialAction::FileUpload,
+                source_origin: self.page_origin(page_id)?,
+                target_origin: None,
+                detail: Some("materialize one explicitly imported upload".into()),
+            },
+            None,
+        )?;
+        let handle = self.upload_handle(label)?;
+        self.inner
+            .uploads
+            .materialize(handle)
+            .map_err(|error| RuntimeError::Upload(error.to_string()))
+    }
+
     pub fn revoke_upload(&self, handle: crate::upload::UploadHandle) -> bool {
         self.inner.uploads.revoke(handle)
     }
@@ -2861,6 +2882,17 @@ impl BrowserContext {
                 .is_some_and(|page| page.page.opener_page_id == Some(source))
     }
 
+    pub(crate) fn may_read_related_page_origin(&self, source: PageId, target: PageId) -> bool {
+        if source == target {
+            return true;
+        }
+        let pages = self.pages();
+        let source_page = pages.iter().find(|page| page.page.page_id == source);
+        let target_page = pages.iter().find(|page| page.page.page_id == target);
+        source_page.is_some_and(|page| page.page.opener_page_id == Some(target))
+            || target_page.is_some_and(|page| page.page.opener_page_id == Some(source))
+    }
+
     #[cfg(unix)]
     pub(crate) fn commit_page_url(&self, page_id: PageId, url: String) -> Result<(), RuntimeError> {
         let mut pages = self.inner.group.pages.lock().expect("page group lock");
@@ -3042,7 +3074,32 @@ impl BrowserContext {
                 #[cfg(all(unix, feature = "v8-host"))]
                 context_client,
             );
-            while let Some(command) = receiver.blocking_recv() {
+            let scheduler = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .ok();
+            loop {
+                let command = if state.has_pending_page_work() {
+                    let delay = if state.has_runnable_page_work() {
+                        Duration::ZERO
+                    } else {
+                        Duration::from_millis(5)
+                    };
+                    scheduler.as_ref().and_then(|runtime| {
+                        runtime.block_on(async {
+                            tokio::select! {
+                                biased;
+                                command = receiver.recv() => command,
+                                _ = tokio::time::sleep(delay) => {
+                                    Some(PageCommand::PollContextEvents)
+                                }
+                            }
+                        })
+                    })
+                } else {
+                    receiver.blocking_recv()
+                };
+                let Some(command) = command else { break };
                 match command {
                     PageCommand::LoadHtml { url, html, reply } => {
                         state.trace.push(
@@ -3076,7 +3133,7 @@ impl BrowserContext {
                             &html,
                             None,
                             None,
-                            true,
+                            HistoryUpdate::Push,
                             &BTreeMap::new(),
                             #[cfg(feature = "v8-host")]
                             Vec::new(),
@@ -3106,7 +3163,16 @@ impl BrowserContext {
                         let _ = reply.send(state.evaluate(&source));
                     }
                     PageCommand::PollContextEvents => {
-                        let _ = state.evaluate("__oryn_drain(false);''");
+                        if let Err(error) = state.evaluate("__oryn_drain(false);''") {
+                            state.trace.push(
+                                Revision(state.revision),
+                                None,
+                                TraceEventKind::ScriptDiagnostic {
+                                    capability: "scheduler.page_task".into(),
+                                    detail: error.to_string(),
+                                },
+                            );
+                        }
                     }
                     PageCommand::Capabilities { reply } => {
                         let _ = reply.send(state.capabilities());
@@ -4673,6 +4739,8 @@ struct PageState {
     semantic_graph: crate::semantic::SemanticGraph,
     #[cfg(feature = "v8-host")]
     executable: Option<crate::executable::RustExecutableDocument>,
+    #[cfg(feature = "v8-host")]
+    back_forward_cache: BTreeMap<usize, BackForwardCacheEntry>,
     semantic_deltas: BTreeMap<u64, crate::semantic::SemanticGraphChanges>,
     semantic_v6_deltas: BTreeMap<u64, oryn_common::v6::SemanticGraphChanges>,
     semantic_delta_bytes: usize,
@@ -4697,6 +4765,20 @@ struct PageState {
     last_challenge: ChallengeAssessment,
     csp: crate::csp::CspPolicySet,
     referrer_policy: crate::referrer::ReferrerPolicy,
+}
+
+#[cfg(feature = "v8-host")]
+struct BackForwardCacheEntry {
+    url: String,
+    document_generation: u64,
+    style_revision: u64,
+    layout_revision: u64,
+    scroll_state: ScrollState,
+    lifecycle: Vec<LifecycleState>,
+    document: ParsedDocument,
+    semantic_graph: crate::semantic::SemanticGraph,
+    executable: crate::executable::RustExecutableDocument,
+    layout: Option<oryn_layout::LayoutOutput>,
 }
 
 #[cfg(feature = "v8-host")]
@@ -4750,6 +4832,8 @@ impl PageState {
             semantic_graph: crate::semantic::SemanticGraph::new(page_id, document_generation),
             #[cfg(feature = "v8-host")]
             executable: None,
+            #[cfg(feature = "v8-host")]
+            back_forward_cache: BTreeMap::new(),
             semantic_deltas: BTreeMap::new(),
             semantic_v6_deltas: BTreeMap::new(),
             semantic_delta_bytes: 0,
@@ -4794,6 +4878,119 @@ impl PageState {
         self.last_challenge = assessment;
     }
 
+    #[cfg(feature = "v8-host")]
+    fn suspend_current_document(&mut self) -> Result<(), RuntimeError> {
+        let Some(index) = self.history_index else {
+            return Ok(());
+        };
+        let Some(executable) = self.executable.as_mut() else {
+            return Ok(());
+        };
+        executable
+            .dispatch_page_transition("pagehide", true)
+            .map_err(map_host_error)?;
+        self.sync_executable_semantics();
+        let Some(executable) = self.executable.take() else {
+            return Ok(());
+        };
+        let mut executable = executable;
+        executable.suspend_for_back_forward_cache();
+        let Some(document) = self.document.take() else {
+            self.executable = Some(executable);
+            return Ok(());
+        };
+        self.back_forward_cache.insert(
+            index,
+            BackForwardCacheEntry {
+                url: self.url.clone(),
+                document_generation: self.document_generation,
+                style_revision: self.style_revision,
+                layout_revision: self.layout_revision,
+                scroll_state: self.scroll_state,
+                lifecycle: self.lifecycle.clone(),
+                document,
+                semantic_graph: self.semantic_graph.clone(),
+                executable,
+                layout: self.layout.take(),
+            },
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn restore_cached_document(
+        &mut self,
+        index: usize,
+        requested_url: String,
+    ) -> Result<Option<NavigationResult>, RuntimeError> {
+        if !self.back_forward_cache.contains_key(&index) {
+            return Ok(None);
+        }
+        self.suspend_current_document()?;
+        let mut cached = self
+            .back_forward_cache
+            .remove(&index)
+            .ok_or(RuntimeError::HistoryBoundary)?;
+        cached.executable.resume_from_back_forward_cache();
+        // The navigation request mutates the incumbent Location before the
+        // parent commits the replacement document. A BFCache entry retains
+        // that incumbent realm, so restore its committed session-history URL
+        // before pageshow and before its executor resumes polling.
+        cached
+            .executable
+            .set_committed_location(&cached.url)
+            .map_err(map_host_error)?;
+        cached
+            .executable
+            .dispatch_page_transition("pageshow", true)
+            .map_err(map_host_error)?;
+        self.url = cached.url;
+        self.document_generation = cached.document_generation;
+        self.style_revision = cached.style_revision;
+        self.layout_revision = cached.layout_revision;
+        self.scroll_state = cached.scroll_state;
+        self.lifecycle = cached.lifecycle;
+        self.document = Some(cached.document);
+        self.semantic_graph = cached.semantic_graph;
+        self.executable = Some(cached.executable);
+        self.layout = cached.layout;
+        self.history_index = Some(index);
+        self.revision = self.revision.saturating_add(1);
+        self.network_quiet_since = Some(Instant::now());
+        self.sync_executable_semantics();
+        self.refresh_layout()?;
+        #[cfg(unix)]
+        if let Some(client) = &self.context_client {
+            client.request(crate::context_service::ContextServiceRequest::CommitPage {
+                page_id: self.page_id,
+                url: self.url.clone(),
+            })?;
+        }
+        self.record_snapshot();
+        self.trace.push(
+            Revision(self.revision),
+            None,
+            TraceEventKind::NavigationCommitted {
+                url: self.url.clone(),
+            },
+        );
+        Ok(Some(NavigationResult {
+            page_id: self.page_id,
+            requested_url,
+            final_url: self.url.clone(),
+            title: self
+                .document
+                .as_ref()
+                .map(document_title)
+                .unwrap_or_default(),
+            status: 200,
+            document_generation: self.document_generation,
+            revision: Revision(self.revision),
+            lifecycle: vec![LifecycleState::Commit],
+            challenge: self.last_challenge.clone(),
+        }))
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn load_document(
         &mut self,
@@ -4801,12 +4998,16 @@ impl PageState {
         html: &str,
         parsed: Option<ParsedDocument>,
         live_source: Option<Box<dyn Iterator<Item = Result<String, crate::host::HostError>>>>,
-        push_history: bool,
+        history_update: HistoryUpdate,
         resources: &BTreeMap<String, String>,
         #[cfg(feature = "v8-host")] web_fonts: Vec<oryn_layout::WebFont>,
     ) -> Result<(), RuntimeError> {
         #[cfg(not(feature = "v8-host"))]
         let _ = (resources, live_source);
+        #[cfg(feature = "v8-host")]
+        if !matches!(history_update, HistoryUpdate::Reload) {
+            self.suspend_current_document()?;
+        }
         self.document_generation += 1;
         self.revision += 1;
         self.lifecycle.clear();
@@ -5015,7 +5216,7 @@ impl PageState {
         }
         #[cfg(feature = "v8-host")]
         self.refresh_layout()?;
-        if push_history {
+        if matches!(history_update, HistoryUpdate::Push) {
             if let Some(index) = self.history_index {
                 self.history.truncate(index + 1);
             }
@@ -5122,7 +5323,7 @@ impl PageState {
                 "<!doctype html>",
                 None,
                 None,
-                matches!(history_update, HistoryUpdate::Push),
+                history_update,
                 &BTreeMap::new(),
                 #[cfg(feature = "v8-host")]
                 Vec::new(),
@@ -5347,7 +5548,7 @@ impl PageState {
                 "",
                 None,
                 Some(Box::new(source)),
-                matches!(history_update, HistoryUpdate::Push),
+                history_update,
                 &BTreeMap::new(),
                 Vec::new(),
             )?;
@@ -5445,7 +5646,7 @@ impl PageState {
                 &html,
                 None,
                 None,
-                matches!(history_update, HistoryUpdate::Push),
+                history_update,
                 &resources,
             )?;
         }
@@ -6381,6 +6582,10 @@ impl PageState {
             return Err(RuntimeError::HistoryBoundary);
         }
         let requested = self.history[next as usize].clone();
+        #[cfg(feature = "v8-host")]
+        if let Some(result) = self.restore_cached_document(next as usize, requested.clone())? {
+            return Ok(result);
+        }
         let result = self.navigate(requested, HistoryUpdate::Preserve)?;
         self.history_index = Some(next as usize);
         Ok(result)
@@ -6391,6 +6596,37 @@ impl PageState {
             return Err(RuntimeError::HistoryBoundary);
         }
         self.navigate(self.url.clone(), HistoryUpdate::Reload)
+    }
+
+    fn has_pending_page_work(&mut self) -> bool {
+        #[cfg(feature = "v8-host")]
+        {
+            // A V8 realm can have promise continuations queued after the host
+            // operation which made them runnable has left the typed pending
+            // tables. V8 does not expose a reliable "microtask queue empty"
+            // predicate, so an installed realm remains scheduler-driven. This
+            // is the browser event-loop contract: otherwise long-lived remote
+            // executors can strand the continuation which starts their next
+            // poll immediately after a Fetch completion.
+            self.executable.is_some()
+        }
+        #[cfg(not(feature = "v8-host"))]
+        {
+            false
+        }
+    }
+
+    fn has_runnable_page_work(&mut self) -> bool {
+        #[cfg(feature = "v8-host")]
+        {
+            self.executable
+                .as_mut()
+                .is_some_and(|executable| executable.has_pending_page_work())
+        }
+        #[cfg(not(feature = "v8-host"))]
+        {
+            false
+        }
     }
 
     fn wait_for(&mut self, predicate: &WaitPredicate) -> Result<(), RuntimeError> {
@@ -6423,9 +6659,9 @@ impl PageState {
                     .map_err(map_host_error)?
             };
             self.sync_executable_semantics();
-            self.refresh_layout()?;
             let after = self.semantic_graph.semantic_revision();
             if before != after {
+                self.refresh_layout()?;
                 self.revision += 1;
                 self.record_snapshot();
                 self.trace.push(
@@ -6549,7 +6785,7 @@ impl PageState {
         #[cfg(feature = "v8-host")]
         {
             let before = self.semantic_graph.semantic_revision();
-            let (value, console_entries, context_entries) = {
+            let (value, console_entries, context_entries, location, history_traversal) = {
                 let executable = self
                     .executable
                     .as_mut()
@@ -6559,6 +6795,10 @@ impl PageState {
                     value,
                     executable.take_console_entries().unwrap_or_default(),
                     executable.take_context_trace_entries().unwrap_or_default(),
+                    executable.location().ok(),
+                    executable
+                        .take_history_traversal()
+                        .map_err(map_host_error)?,
                 )
             };
             self.sync_executable_semantics();
@@ -6576,6 +6816,18 @@ impl PageState {
                 if let Some(kind) = context_trace_kind(entry) {
                     self.trace.push(Revision(self.revision), None, kind);
                 }
+            }
+            if let Some(delta) = history_traversal {
+                let delta = isize::try_from(delta).map_err(|_| RuntimeError::HistoryBoundary)?;
+                self.traverse_history(delta)?;
+                return Ok(value);
+            }
+            if let Some(location) = location
+                && location != self.url
+                && Url::parse(&location).ok() != Url::parse(&self.url).ok()
+            {
+                self.navigate(location, HistoryUpdate::Push)?;
+                return Ok(value);
             }
             self.refresh_layout()?;
             let after = self.semantic_graph.semantic_revision();
@@ -8031,7 +8283,13 @@ impl PageState {
         if node.attributes.contains_key("disabled") {
             return Err(RuntimeError::Disabled);
         }
-        let (console_entries, context_entries, pending_navigation, diagnostics) = {
+        let (
+            console_entries,
+            context_entries,
+            pending_navigation,
+            pending_history_traversal,
+            diagnostics,
+        ) = {
             let executable = self
                 .executable
                 .as_mut()
@@ -8052,6 +8310,9 @@ impl PageState {
                 executable.take_console_entries().unwrap_or_default(),
                 executable.take_context_trace_entries().unwrap_or_default(),
                 pending_navigation,
+                executable
+                    .take_history_traversal()
+                    .map_err(map_host_error)?,
                 executable
                     .diagnostics
                     .iter()
@@ -8185,6 +8446,14 @@ impl PageState {
                 result.delta = None;
                 result.effects.push(Effect::Navigation { url: location });
             }
+        } else if let Some(delta) = pending_history_traversal {
+            let delta = isize::try_from(delta).map_err(|_| RuntimeError::HistoryBoundary)?;
+            let navigation = self.traverse_history(delta)?;
+            result.revision_after = navigation.revision;
+            result.delta = None;
+            result.effects.push(Effect::Navigation {
+                url: navigation.final_url,
+            });
         }
         Ok(result)
     }
@@ -8351,7 +8620,7 @@ fn supported_capability(capability: &str, detail: &str) -> CapabilityDiagnostic 
 }
 
 #[cfg(feature = "v8-host")]
-fn layout_input(
+pub(crate) fn layout_input(
     document: &ParsedDocument,
     viewport: ViewportState,
     scroll: ScrollState,
@@ -9516,6 +9785,43 @@ mod tests {
         page.wait_for(WaitPredicate::Lifecycle(LifecycleState::NetworkIdle))
             .await
             .expect("wait for blank document quiet period");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn back_forward_cache_restores_the_realm_and_persisted_lifecycle() {
+        let page = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context()
+            .new_page();
+        page.load_html(
+            "https://history.test/one",
+            "<!doctype html><script>window.marker=41;window.transitions=[];addEventListener('pagehide',e=>transitions.push('hide:'+e.persisted));addEventListener('pageshow',e=>transitions.push('show:'+e.persisted))</script>",
+        )
+        .await
+        .expect("load first document");
+        page.load_html(
+            "https://history.test/two",
+            "<!doctype html><script>window.second=true</script>",
+        )
+        .await
+        .expect("load second document");
+
+        assert_eq!(
+            page.evaluate("history.back();'queued'")
+                .await
+                .expect("request history traversal"),
+            "queued"
+        );
+        assert_eq!(
+            page.evaluate("marker+'|'+transitions.join(',')")
+                .await
+                .expect("inspect restored realm"),
+            "41|hide:true,show:true"
+        );
+        assert_eq!(
+            page.evaluate("location.href").await.expect("restored URL"),
+            "https://history.test/one"
+        );
     }
 
     #[cfg(unix)]
@@ -10751,10 +11057,10 @@ mod tests {
             .expect("load popup");
         assert_eq!(
             opener
-                .evaluate("child.focus();String(child.closed)")
+                .evaluate("child.focus();child.origin+'|'+String(child.closed)")
                 .await
                 .expect("focus popup through opener proxy"),
-            "false"
+            "https://app.example.test|false"
         );
         assert_eq!(
             context.active_page().expect("focused popup").page_id(),
@@ -11843,6 +12149,121 @@ mod tests {
             response,
             StorageResponse::Value { value: Some(value) } if value == "shipping"
         ));
+    }
+
+    #[cfg(all(feature = "v8-host", feature = "in-process-probe"))]
+    #[tokio::test]
+    async fn detached_frame_index_method_runs_against_the_receivers_realm() {
+        let context = Browser::in_process_probe().new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://frame.example.test/cross-realm",
+            r#"<!doctype html><output id=result>pending</output><script>
+            const frame=document.createElement('iframe');
+            frame.onload=()=>{
+              try {
+                result.textContent='load';
+                const method=frame.contentWindow.IDBIndex.prototype.get;
+                frame.remove();
+                const open=indexedDB.open('cross-realm-probe',1);
+                open.onupgradeneeded=()=>{
+                  const store=open.result.createObjectStore('store');
+                  store.createIndex('index','indexedKey');
+                  store.add({indexedKey:1000},1000);
+                };
+                open.onsuccess=()=>{
+                  try {
+                    const index=open.result.transaction('store').objectStore('store').index('index');
+                    const request=method.call(index,1000);
+                    request.onsuccess=()=>result.textContent=String(request.result.indexedKey);
+                    request.onerror=()=>result.textContent='request:'+request.error?.name;
+                  } catch (error) { result.textContent='success-throw:'+error; }
+                };
+                open.onerror=()=>result.textContent='open:'+open.error?.name;
+              } catch (error) { result.textContent='load-throw:'+error; }
+            };
+            document.body.append(frame);
+            </script>"#,
+        )
+        .await
+        .expect("load cross-realm probe");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("probe result"),
+            "1000"
+        );
+    }
+
+    #[cfg(all(feature = "v8-host", feature = "in-process-probe"))]
+    #[tokio::test]
+    async fn opaque_frame_indexed_db_throws_security_error_and_can_reply() {
+        let page = Browser::in_process_probe().new_context().new_page();
+        page.load_html(
+            "https://frame.example.test/opaque-idb",
+            r#"<output id=result>pending</output><script>
+            const frame=document.createElement('iframe');
+            frame.sandbox='allow-scripts';
+            frame.srcdoc='<script>onmessage=()=>{let value="none";try{indexedDB.open("blocked")}catch(error){value=error.name}parent.postMessage([location.origin,String(globalThis.__oryn_opaque_origin),value].join("|"),"*")}<\/script>';
+            frame.onload=()=>{
+              addEventListener('message',event=>{
+                if(event.source===frame.contentWindow) result.textContent=event.data;
+              });
+              frame.contentWindow.postMessage({},'*');
+            };
+            document.documentElement.appendChild(frame);
+            </script>"#,
+        )
+        .await
+        .expect("load opaque IndexedDB probe");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("opaque IndexedDB result"),
+            "null|true|SecurityError"
+        );
+    }
+
+    #[cfg(all(feature = "v8-host", feature = "in-process-probe"))]
+    #[tokio::test]
+    async fn opaque_origin_indexed_db_window_and_worker_matrix_completes() {
+        let page = Browser::in_process_probe().new_context().new_page();
+        page.load_html(
+            "https://frame.example.test/opaque-matrix",
+            r#"<output id=result>pending</output><script>
+            const code=`const handler=reply=>{try{indexedDB.deleteDatabase('opaque-matrix')}catch{}let result='none';try{indexedDB.open('opaque-matrix')}catch(error){result=error.name}reply({result})};`;
+            const child='<script>'+code+'onmessage=()=>handler(value=>parent.postMessage(value,"*"))<\/script>';
+            const load=sandbox=>new Promise(resolve=>{
+              const frame=document.createElement('iframe');
+              if(sandbox)frame.sandbox='allow-scripts';
+              frame.srcdoc=child;
+              frame.onload=()=>{
+                const listener=event=>{if(event.source===frame.contentWindow){removeEventListener('message',listener);resolve(event.data.result)}};
+                addEventListener('message',listener);frame.contentWindow.postMessage({},'*');
+              };
+              document.documentElement.append(frame);
+            });
+            const workerSource=code+`addEventListener('message',()=>handler(postMessage));addEventListener('connect',event=>handler(value=>event.ports[0].postMessage(value)));`;
+            const url='data:,'+encodeURIComponent(workerSource);
+            const dedicated=new Worker(url),shared=new SharedWorker(url,'opaque-matrix');
+            const from=(target,send)=>new Promise(resolve=>{target.onmessage=event=>resolve(event.data.result);send()});
+            const values=['pending','pending','pending','pending'];
+            const record=(index,promise)=>promise.then(value=>{
+              values[index]=value;document.querySelector('#result').textContent=values.join('|');
+            });
+            record(0,load(false));record(1,load(true));
+            record(2,from(dedicated,()=>dedicated.postMessage({})));
+            record(3,from(shared.port,()=>shared.port.postMessage({})));
+            </script>"#,
+        )
+        .await
+        .expect("load opaque-origin matrix");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+                .await
+                .expect("opaque-origin matrix result"),
+            "none|SecurityError|SecurityError|SecurityError"
+        );
     }
 
     #[tokio::test]
