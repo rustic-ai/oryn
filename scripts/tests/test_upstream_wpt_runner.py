@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import tempfile
 import unittest
 from pathlib import Path
@@ -185,6 +186,21 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             "add_completion_callback", 1
         )[0]
         self.assertNotIn("__oryn_publish_wpt", result_callback)
+
+    def test_worker_result_element_is_created_only_after_completion(self) -> None:
+        source = inspect.getsource(RUNNER.Handler.do_GET)
+        worker_runner = source.split(
+            'if parsed.path == "/__oryn_worker_runner.html":', 1
+        )[1].split('if parsed.path == "/__oryn_worker_bootstrap.js":', 1)[0]
+        self.assertIn("document.createElement('pre')", worker_runner)
+        self.assertNotIn('<pre id="oryn-wpt-result"></pre>', worker_runner)
+
+    def test_worker_bootstrap_signals_end_of_imported_test_source(self) -> None:
+        source = inspect.getsource(RUNNER.Handler.do_GET)
+        worker_bootstrap = source.split(
+            'if parsed.path == "/__oryn_worker_bootstrap.js":', 1
+        )[1].split('if path.name.endswith(".sub.js")', 1)[0]
+        self.assertIn('+ "\\n;done();\\n"', worker_bootstrap)
 
     def test_editing_prefilter_shares_the_final_data_dependent_script(self) -> None:
         source = (

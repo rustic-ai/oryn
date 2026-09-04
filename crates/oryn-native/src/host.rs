@@ -2300,7 +2300,8 @@ mod raw_v8 {
             if (globalThis.__oryn_worker_global_name === 'SharedWorkerGlobalScope') sharedPort.dispatchEvent(event);
             else dispatchEvent(event);
           };
-          globalThis.__oryn_connect_shared = () => dispatchEvent(new MessageEvent('connect', {ports:[sharedPort]}));
+          globalThis.__oryn_connect_shared = () => dispatchEvent(new MessageEvent('connect', {ports:[sharedPort],source:sharedPort}));
+          globalThis.__oryn_install_service = () => dispatchEvent(new Event('install'));
         })();
     "#;
 
@@ -2536,6 +2537,14 @@ mod raw_v8 {
                     connect
                         .run(worker_scope)
                         .ok_or_else(|| "shared-worker connect dispatch failed".to_string())?;
+                } else if global_kind == WorkerGlobalKind::Service {
+                    let install = v8::String::new(worker_scope, "__oryn_install_service()")
+                        .ok_or_else(|| "service-worker install allocation failed".to_string())?;
+                    let install = v8::Script::compile(worker_scope, install, None)
+                        .ok_or_else(|| "service-worker install compilation failed".to_string())?;
+                    install
+                        .run(worker_scope)
+                        .ok_or_else(|| "service-worker install dispatch failed".to_string())?;
                 }
                 worker_scope.perform_microtask_checkpoint();
                 Ok(())

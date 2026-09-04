@@ -552,11 +552,15 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                 return
             body = (
                 "<!doctype html><meta charset=utf-8><title>Oryn worker WPT</title>"
-                '<pre id="oryn-wpt-result"></pre><script>'
+                "<script>"
+                "const publish=value=>{const output=document.createElement('pre');"
+                "output.id='oryn-wpt-result';"
+                "output.textContent='__ORYN_WPT_DONE__'+JSON.stringify(value);"
+                "document.body.appendChild(output)};"
                 f"const worker={constructor};"
                 "if(worker.start)worker.start();"
-                "worker.onmessage=event=>{if(event.data&&event.data.__oryn_wpt){document.getElementById('oryn-wpt-result').textContent='__ORYN_WPT_DONE__'+JSON.stringify(event.data.value)}};"
-                "worker.onerror=event=>{document.getElementById('oryn-wpt-result').textContent='__ORYN_WPT_DONE__'+JSON.stringify({complete:true,harness:1,tests:[{name:'worker bootstrap',status:1,message:String(event.message||'worker error')}]})};"
+                "worker.onmessage=event=>{if(event.data&&event.data.__oryn_wpt)publish(event.data.value)};"
+                "worker.onerror=event=>publish({complete:true,harness:1,tests:[{name:'worker bootstrap',status:1,message:String(event.message||'worker error')}]});"
                 "</script>"
             ).encode()
             self.send_response(200); self.send_header("content-type", "text/html; charset=utf-8")
@@ -595,6 +599,12 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                 + "\n".join(dependencies)
                 + "\n"
                 + test_source
+                # The upstream `.any.js` worker wrapper calls `done()` after
+                # importing the test file. WorkerTestEnvironment has no load
+                # event and deliberately waits for this explicit end-of-file
+                # signal, so concatenating the sources without it leaves even
+                # fully synchronous tests pending forever.
+                + "\n;done();\n"
             ).encode()
             self.send_response(200); self.send_header("content-type", "text/javascript; charset=utf-8")
             self.send_header("content-length", str(len(body))); self.end_headers(); self.wfile.write(body)
@@ -693,6 +703,7 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
         # handler logic; only the TCP destination is private.
         headers["Host"] = self.headers.get("Host", f"localhost:{self.server.server_address[1]}")
         connection = http.client.HTTPConnection("127.0.0.1", self.official_wpt_port, timeout=30)
+        response_started = False
         try:
             connection.request(self.command, self.path, body=body, headers=headers)
             response = connection.getresponse()
@@ -735,6 +746,7 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                     self.public_https_port,
                 ).encode("utf-8")
             self.send_response(response.status, response.reason)
+            response_started = True
             for name, value in response.getheaders():
                 if name.lower() in {"connection", "content-length", "transfer-encoding"}:
                     continue
@@ -748,7 +760,12 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             if include_body and self.command != "HEAD":
                 self.wfile.write(response_body)
         except (OSError, http.client.HTTPException) as error:
-            self.send_error(502, f"wptserve proxy failure: {error}")
+            # Aborted navigations and timed-out tests routinely close their
+            # loopback connection while the upstream response is in flight.
+            # Once headers have started, attempting to append an HTTP 502
+            # corrupts the response and produces a second BrokenPipeError.
+            if not response_started:
+                self.send_error(502, f"wptserve proxy failure: {error}")
         finally:
             connection.close()
 
