@@ -1332,16 +1332,25 @@ mod raw_v8 {
                 .map(|state| state.take_pending_dynamic_scripts())
         }
 
-        pub fn take_all_pending_dynamic_frames(&self) -> Result<Vec<(RealmId, NodeId)>, HostError> {
-            let active_dom = self
-                .binding_states
-                .get(&self.active_realm)
-                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))
-                .map(|state| state.dom())?;
+        pub fn take_all_pending_dynamic_scripts(
+            &self,
+        ) -> Result<Vec<(RealmId, NodeId)>, HostError> {
             Ok(self
                 .binding_states
                 .iter()
-                .filter(|(_, state)| Rc::ptr_eq(&state.dom(), &active_dom))
+                .flat_map(|(realm, state)| {
+                    state
+                        .take_pending_dynamic_scripts()
+                        .into_iter()
+                        .map(|script| (*realm, script))
+                })
+                .collect())
+        }
+
+        pub fn take_all_pending_dynamic_frames(&self) -> Result<Vec<(RealmId, NodeId)>, HostError> {
+            Ok(self
+                .binding_states
+                .iter()
                 .flat_map(|(realm, state)| {
                     state
                         .take_pending_dynamic_frames()
@@ -1354,15 +1363,9 @@ mod raw_v8 {
         pub fn take_pending_default_actions(
             &self,
         ) -> Result<Vec<(RealmId, PendingDefaultAction)>, HostError> {
-            let active_dom = self
-                .binding_states
-                .get(&self.active_realm)
-                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))
-                .map(|state| state.dom())?;
             Ok(self
                 .binding_states
                 .iter()
-                .filter(|(_, state)| Rc::ptr_eq(&state.dom(), &active_dom))
                 .flat_map(|(realm, state)| {
                     state
                         .take_pending_default_actions()
@@ -2823,6 +2826,16 @@ mod raw_v8 {
         use crate::context_service::WebSocketFrame;
         match request {
             PlatformHostRequest::HttpStart { request } => {
+                let credentials = match request.credentials.as_str() {
+                    "include" => true,
+                    "omit" => false,
+                    _ => request
+                        .initiator_url
+                        .as_deref()
+                        .and_then(|source| url::Url::parse(source).ok())
+                        .zip(url::Url::parse(&request.url).ok())
+                        .is_some_and(|(source, target)| source.origin() == target.origin()),
+                };
                 match state
                     .client
                     .request(ContextServiceRequest::HttpStreamStart {
@@ -2833,7 +2846,10 @@ mod raw_v8 {
                             url: request.url.clone(),
                             headers: request.headers,
                             body_base64: BASE64.encode(request.body),
-                            credentials: request.credentials != "omit",
+                            credentials,
+                            credentials_mode: Some(request.credentials),
+                            initiator_url: request.initiator_url,
+                            referrer_policy: request.referrer_policy,
                         },
                     })
                     .map_err(|error| error.to_string())?
@@ -3026,6 +3042,9 @@ mod raw_v8 {
                     headers: request.headers,
                     body_base64: BASE64.encode(request.body),
                     credentials: request.credentials,
+                    credentials_mode: None,
+                    initiator_url: None,
+                    referrer_policy: None,
                 },
             })
             .map_err(|error| error.to_string())?;

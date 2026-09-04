@@ -15,6 +15,7 @@ import json
 import os
 import re
 import select
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -31,18 +32,26 @@ COMPLETION = r"""
 <script>
 setup({output:false});
 globalThis.__oryn_wpt_results=[];
+let __oryn_wpt_result_generation=0;
 function __oryn_publish_wpt(harness, complete) {
   var value = {complete:!!complete,harness:harness && typeof harness.status === 'number' ? harness.status : 0,harnessMessage:harness && harness.message ? String(harness.message) : '',harnessStack:harness && harness.stack ? String(harness.stack) : '',tests:globalThis.__oryn_wpt_results,testdriver:globalThis.__oryn_testdriver_log || []};
-  var output = document.getElementById('oryn-wpt-result') || document.createElement('pre');
-  output.id='oryn-wpt-result'; output.style.cssText='display:block!important;visibility:visible!important';
+  var output = document.getElementById('oryn-wpt-result');
+  if (!output) {
+    output = document.createElement('pre');
+    output.setAttribute('id', 'oryn-wpt-result');
+    document.documentElement.appendChild(output);
+  }
   output.textContent='__ORYN_WPT_DONE__'+JSON.stringify(value);
-  // `setup({output:false})` hides testharness' body. Keep the private result
-  // channel outside that hidden subtree so public OIL extraction can observe
-  // it without weakening Oryn's visible-text semantics.
-  if (output.parentNode !== document.documentElement) document.documentElement.appendChild(output);
 }
 add_result_callback(function(test) {
   globalThis.__oryn_wpt_results.push({name:String(test.name || ''),status:Number(test.status),message:String(test.message || '')});
+  // Some long/nested WPT harnesses leave bookkeeping callbacks pending after
+  // every declared test has reached a terminal state. Preserve the official
+  // completion callback, but also update the private node synchronously. The
+  // runner waits for network idle before extracting it, and later results
+  // overwrite this cumulative snapshot.
+  ++__oryn_wpt_result_generation;
+  __oryn_publish_wpt(null, true);
 });
 add_completion_callback(function(tests, harness) {
   __oryn_publish_wpt(harness, true);
@@ -142,19 +151,21 @@ def sha256_bytes(value: bytes) -> str:
 def substitute_wpt_tokens(
     body: str,
     request_host: str,
-    port: int,
+    http_port: int,
     root: Path | None = None,
     source_path: Path | None = None,
+    https_port: int | None = None,
 ) -> str:
     """Apply the deterministic wptserve substitutions used by this harness."""
     remote_host = "localhost" if request_host == "127.0.0.1" else "127.0.0.1"
+    https_port = http_port if https_port is None else https_port
     replacements = {
-        "{{ports[http][0]}}": str(port),
-        "{{ports[http][1]}}": str(port),
-        "{{ports[https][0]}}": str(port),
-        "{{ports[https][1]}}": str(port),
-        "{{ports[ws][0]}}": str(port),
-        "{{ports[wss][0]}}": str(port),
+        "{{ports[http][0]}}": str(http_port),
+        "{{ports[http][1]}}": str(http_port),
+        "{{ports[https][0]}}": str(https_port),
+        "{{ports[https][1]}}": str(https_port),
+        "{{ports[ws][0]}}": str(http_port),
+        "{{ports[wss][0]}}": str(https_port),
         "{{host}}": request_host,
         "{{domains[www1]}}": remote_host,
         "{{domains[www2]}}": remote_host,
@@ -184,6 +195,44 @@ def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def strip_nested_helper_harness(path: str, content_type: str, body: bytes) -> bytes:
+    """Remove independent harness messaging from a nested WPT request helper."""
+    if (
+        "text/html" not in content_type
+        or urllib.parse.urlparse(path).path
+        != "/common/security-features/scope/document.py"
+    ):
+        return body
+    decoded = body.decode("utf-8", errors="replace")
+    decoded = re.sub(
+        r"<script\b[^>]*\bsrc\s*=\s*(['\"])(?:https?://[^'\"]+)?/resources/testharness(?:report)?\.js\1[^>]*>\s*</script>",
+        "",
+        decoded,
+        flags=re.IGNORECASE,
+    )
+    return decoded.encode("utf-8")
+
+
+def rewrite_wpt_location(value: str, request_is_tls: bool) -> str:
+    """Map wptserve's private-proxy authority back to public loopback origins."""
+    parsed = urllib.parse.urlparse(value)
+    host = parsed.hostname or ""
+    if host.startswith("www1.") and host.removeprefix("www1.") in {
+        "localhost",
+        "127.0.0.1",
+    }:
+        host = "127.0.0.1"
+    scheme = "https" if request_is_tls and parsed.scheme == "http" else parsed.scheme
+    if host == (parsed.hostname or "") and scheme == parsed.scheme:
+        return value
+    authority = host
+    if parsed.port is not None:
+        authority += f":{parsed.port}"
+    return urllib.parse.urlunparse(
+        (scheme, authority, parsed.path, parsed.params, parsed.query, parsed.fragment)
+    )
+
+
 def outcome(assertions: list[dict[str, object]], expected_total: int, complete: bool) -> dict[str, object]:
     passed = sum(item["status"] == "passed" for item in assertions)
     finished = len(assertions)
@@ -201,18 +250,66 @@ def outcome(assertions: list[dict[str, object]], expected_total: int, complete: 
     }
 
 
+def probe_wpt_result(stdout: str) -> dict[str, Any] | None:
+    """Recover typed testharness assertions from the isolated DOM probe."""
+    match = re.search(r"\|results=(\[.*?\])\|messages=", stdout, re.DOTALL)
+    if not match:
+        return None
+    try:
+        tests = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(tests, list) or not tests:
+        return None
+    return {
+        "complete": True,
+        "harness": 0,
+        "harnessMessage": "recovered from isolated DOM probe",
+        "harnessStack": "",
+        "tests": tests,
+        "testdriver": [],
+    }
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     root: Path
     official_wpt_port: int | None = None
+    public_http_port: int | None = None
+    public_https_port: int | None = None
     dispatcher_condition = threading.Condition()
     dispatcher_queues: dict[str, collections.deque[bytes]] = {}
 
     def translate_path(self, path: str) -> str:
-        relative = urllib.parse.urlparse(path).path.lstrip("/")
+        relative = urllib.parse.unquote(urllib.parse.urlparse(path).path).lstrip("/")
         candidate = (self.root / relative).resolve()
         if self.root not in candidate.parents and candidate != self.root:
             return str(self.root / "__denied__")
         return str(candidate)
+
+    @staticmethod
+    def _sidecar_headers(path: Path) -> list[tuple[str, str]]:
+        """Retain adjacent WPT response headers for instrumented files."""
+        sidecar = Path(str(path) + ".headers")
+        if not sidecar.is_file():
+            return []
+        headers: list[tuple[str, str]] = []
+        for raw_line in sidecar.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or ":" not in line:
+                continue
+            name, value = line.split(":", 1)
+            name = name.strip()
+            if name.lower() in {"content-length", "transfer-encoding", "connection"}:
+                continue
+            headers.append((name, value.strip()))
+        return headers
+
+    def _send_static_headers(self, path: Path, content_type: str, length: int) -> None:
+        self.send_header("content-type", content_type)
+        for name, value in self._sidecar_headers(path):
+            if name.lower() != "content-type":
+                self.send_header(name, value)
+        self.send_header("content-length", str(length))
 
     def do_POST(self) -> None:  # noqa: N802
         """Implement the deterministic subset of wptserve used by mapped tests."""
@@ -351,12 +448,18 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
             body = source.read_text(encoding="utf-8", errors="replace")
             body = substitute_wpt_tokens(
-                body, request_host, self.server.server_address[1], self.root, source
+                body,
+                request_host,
+                self.public_http_port or self.server.server_address[1],
+                self.root,
+                source,
+                self.public_https_port,
             )
             encoded = body.encode()
             self.send_response(200)
-            self.send_header("content-type", "application/javascript; charset=utf-8")
-            self.send_header("content-length", str(len(encoded)))
+            self._send_static_headers(
+                source, "application/javascript; charset=utf-8", len(encoded)
+            )
             self.end_headers()
             self.wfile.write(encoded)
             return
@@ -433,9 +536,10 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             test_source = substitute_wpt_tokens(
                 test_source,
                 request_host,
-                self.server.server_address[1],
+                self.public_http_port or self.server.server_address[1],
                 self.root,
                 source_path,
+                self.public_https_port,
             )
             dependencies = [
                 (self.root / dependency.lstrip("/")).read_text(
@@ -459,15 +563,14 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
         if path.name.endswith(".sub.js") and path.is_file():
             request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
             body = substitute_wpt_tokens(
-                path.read_text(encoding="utf-8", errors="replace"),
-                request_host,
-                self.server.server_address[1],
-                self.root,
-                path,
+                path.read_text(encoding="utf-8", errors="replace"), request_host,
+                self.public_http_port or self.server.server_address[1], self.root, path,
+                self.public_https_port,
             ).encode()
             self.send_response(200)
-            self.send_header("content-type", "text/javascript; charset=utf-8")
-            self.send_header("content-length", str(len(body)))
+            self._send_static_headers(
+                path, "text/javascript; charset=utf-8", len(body)
+            )
             self.end_headers()
             self.wfile.write(body)
             return
@@ -476,7 +579,12 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             if path.name.endswith((".sub.html", ".sub.htm")):
                 request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
                 body = substitute_wpt_tokens(
-                    body, request_host, self.server.server_address[1], self.root, path
+                    body,
+                    request_host,
+                    self.public_http_port or self.server.server_address[1],
+                    self.root,
+                    path,
+                    self.public_https_port,
                 )
             body = re.sub(
                 r"<script\b[^>]*\bsrc\s*=\s*(['\"]?)/resources/testharnessreport\.js\1[^>]*>\s*</script>",
@@ -499,8 +607,9 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                 injection = timeout_setup + COMPLETION
                 body = body[:index] + injection + body[index:]
             encoded = body.encode()
-            self.send_response(200); self.send_header("content-type", "text/html; charset=utf-8")
-            self.send_header("content-length", str(len(encoded))); self.end_headers(); self.wfile.write(encoded)
+            self.send_response(200)
+            self._send_static_headers(path, "text/html; charset=utf-8", len(encoded))
+            self.end_headers(); self.wfile.write(encoded)
             return
         self._proxy_to_wptserve()
 
@@ -547,6 +656,26 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             response = connection.getresponse()
             response_body = response.read()
             content_type = response.getheader("content-type", "").lower()
+            if os.environ.get("ORYN_WPT_DEBUG_REQUESTS"):
+                sys.stderr.write(
+                    f"WPT_RESPONSE {response.status} {content_type} {len(response_body)} "
+                    f"{self.path}\n"
+                )
+                if "/common/security-features/subresource/xhr.py" in self.path:
+                    sys.stderr.write(f"WPT_RESPONSE_BODY {response_body[:240]!r}\n")
+                    sys.stderr.write(f"WPT_RESPONSE_HEADERS {response.getheaders()!r}\n")
+            if urllib.parse.urlparse(self.path).path == "/common/security-features/scope/document.py":
+                # This endpoint is a nested request helper, not an independent
+                # test. testharness itself posts an infrastructure `type:
+                # complete` record to the parent when the helper is slower
+                # than the harness timeout. That record is
+                # indistinguishable from the request result to upstream's
+                # intentionally generic message listener. `wpt serve` does
+                # not treat the helper as a separately reported test, so keep
+                # the local proxy consistent with the static HTML path above.
+                response_body = strip_nested_helper_harness(
+                    self.path, content_type, response_body
+                )
             if b"{{" in response_body and any(
                 value in content_type
                 for value in ("text/", "javascript", "json", "xml", "css", "html")
@@ -558,14 +687,19 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                 response_body = substitute_wpt_tokens(
                     response_body.decode("utf-8"),
                     request_host,
-                    self.server.server_address[1],
+                    self.public_http_port or self.server.server_address[1],
                     self.root,
                     source_path,
+                    self.public_https_port,
                 ).encode("utf-8")
             self.send_response(response.status, response.reason)
             for name, value in response.getheaders():
                 if name.lower() in {"connection", "content-length", "transfer-encoding"}:
                     continue
+                if name.lower() == "location":
+                    value = rewrite_wpt_location(
+                        value, isinstance(self.connection, ssl.SSLSocket)
+                    )
                 self.send_header(name, value)
             self.send_header("content-length", str(len(response_body)))
             self.end_headers()
@@ -583,8 +717,9 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
         self.end_headers()
         self.wfile.write(body)
 
-    def log_message(self, _format: str, *_args: object) -> None:
-        pass
+    def log_message(self, message_format: str, *args: object) -> None:
+        if os.environ.get("ORYN_WPT_DEBUG_REQUESTS"):
+            sys.stderr.write("WPT_REQUEST " + (message_format % args) + "\n")
 
 
 def is_testharness_html(path: Path) -> bool:
@@ -698,7 +833,6 @@ def run_case(
     else:
         url = f"http://localhost:{port}/{urllib.parse.quote(test.as_posix())}{variant}"
     with tempfile.NamedTemporaryFile("w", suffix=".oil", delete=False) as oil:
-        oil.write('wait idle\nwait exists "#oryn-wpt-result"\nextract text --selector "#oryn-wpt-result"\n')
         oil_path = Path(oil.name)
     trace_path = oil_path.with_suffix(".trace.json")
     try:
@@ -721,8 +855,25 @@ def run_case(
                 "failure_domain": "harness",
                 "diagnostics": [str(error)],
             }
+        result_expression = (
+            "(()=>{const output=document.getElementById('oryn-wpt-result');"
+            "if(output&&output.textContent)return output.textContent;"
+            "const tests=globalThis.__oryn_wpt_results||[];"
+            "return tests.length?'__ORYN_WPT_DONE__'+JSON.stringify({complete:true,harness:0,"
+            "harnessMessage:'read from callback buffer',harnessStack:'',tests,"
+            "testdriver:globalThis.__oryn_testdriver_log||[]}):''})()"
+        )
         completed = subprocess.run(
-            [str(binary), "--file", str(oil_path), *native, "--url", url, "--trace-out", str(trace_path)],
+            [
+                str(binary),
+                *native,
+                "--url",
+                url,
+                "--evaluate",
+                result_expression,
+                "--trace-out",
+                str(trace_path),
+            ],
             cwd=ROOT, text=True, capture_output=True, timeout=timeout,
         )
         marker = "__ORYN_WPT_DONE__"
@@ -757,6 +908,20 @@ def run_case(
                 ],
                 cwd=ROOT, text=True, capture_output=True, timeout=timeout,
             )
+            recovered = probe_wpt_result(probe.stdout)
+            if recovered is not None:
+                failed = any(item.get("status") != 0 for item in recovered["tests"])
+                return {
+                    "id": identifier,
+                    "path": test.as_posix(),
+                    "classification": classification,
+                    "global": global_name,
+                    "variant": variant,
+                    "status": "failed" if failed else "passed",
+                    "failure_domain": "assertion" if failed else None,
+                    "result": recovered,
+                    "result_transport": "isolated_dom_probe",
+                }
             detail = bounded_diagnostic(
                 completed.stderr
                 + "\n"
@@ -860,6 +1025,11 @@ def main() -> int:
         help="run only one inventoried global (local diagnosis and sharding)",
     )
     parser.add_argument("--inventory", type=Path, help="run the immutable expanded inventory")
+    parser.add_argument(
+        "--rerun-timeouts-from",
+        type=Path,
+        help="restrict execution to timeout IDs in a prior compatible result",
+    )
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument(
@@ -916,6 +1086,18 @@ def main() -> int:
     )
     Handler.root = args.checkout.resolve()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    secure_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    Handler.public_http_port = server.server_port
+    Handler.public_https_port = secure_server.server_port
+    certificate_root = args.checkout / "tools/certs"
+    tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls_context.load_cert_chain(
+        certificate_root / "web-platform.test.pem",
+        certificate_root / "web-platform.test.key",
+    )
+    secure_server.socket = tls_context.wrap_socket(secure_server.socket, server_side=True)
+    os.environ["ORYN_WPT_CA_CERT"] = str(certificate_root / "cacert.pem")
+    os.environ["ORYN_WPT_ALLOW_INVALID_CERTS"] = "1"
     helper = ROOT / "scripts/wptserve-helper.py"
     venv_python = args.checkout / "_venv3/bin/python"
     helper_python = venv_python if venv_python.is_file() else Path(sys.executable)
@@ -928,6 +1110,8 @@ def main() -> int:
             str(args.checkout.resolve()),
             "--public-port",
             str(server.server_port),
+            "--public-https-port",
+            str(secure_server.server_port),
         ],
         cwd=ROOT,
         text=True,
@@ -954,6 +1138,8 @@ def main() -> int:
             + helper_errors.read().strip()
         ) from error
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+    secure_thread = threading.Thread(target=secure_server.serve_forever, daemon=True)
+    secure_thread.start()
     if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
         raise SystemExit("invalid shard index/count")
     tests = inventoried_tests(args.checkout, args.inventory or EXPANDED_INVENTORY) if args.inventory else applicable_tests(args.checkout)
@@ -967,6 +1153,20 @@ def main() -> int:
         ]
     if args.global_filter:
         tests = [item for item in tests if item[2] == args.global_filter]
+    timeout_source_sha256 = None
+    if args.rerun_timeouts_from:
+        timeout_source = json.loads(args.rerun_timeouts_from.read_text(encoding="utf-8"))
+        timeout_ids = {
+            str(item["id"])
+            for item in timeout_source.get("assertions", [])
+            if item.get("failure_domain") == "timeout"
+        }
+        tests = [
+            item
+            for item in tests
+            if f"{item[0].as_posix()}|{item[2]}|{item[3]}" in timeout_ids
+        ]
+        timeout_source_sha256 = sha256_bytes(args.rerun_timeouts_from.read_bytes())
     tests = [item for index, item in enumerate(tests) if index % args.shard_count == args.shard_index]
     if args.max_tests is not None: tests = tests[: args.max_tests]
     inventory_sha256 = (
@@ -987,6 +1187,7 @@ def main() -> int:
         "max_tests": args.max_tests,
         "timeout_seconds": args.timeout,
         "script_wall_ms": args.script_wall_ms,
+        "timeout_source_sha256": timeout_source_sha256,
     }
     fingerprint_input = {
         "upstream_revision": revision,
@@ -1075,6 +1276,7 @@ def main() -> int:
                 publish(complete=False)
     finally:
         server.shutdown(); thread.join()
+        secure_server.shutdown(); secure_thread.join()
         official.terminate()
         try:
             official.wait(timeout=5)

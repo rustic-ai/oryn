@@ -46,6 +46,9 @@ pub const MAX_CONTEXT_FRAME_BYTES: usize = 24 * 1024 * 1024;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum ContextServiceRequest {
+    GetReferrerPolicy {
+        page_id: PageId,
+    },
     HttpStreamStart {
         page_id: PageId,
         request: HttpStreamRequest,
@@ -159,11 +162,19 @@ pub enum ContextServiceRequest {
         url: String,
         module: bool,
         nonce: Option<String>,
+        #[serde(default)]
+        initiator_url: Option<String>,
+        #[serde(default)]
+        referrer_policy: Option<String>,
     },
     LoadPageResource {
         page_id: PageId,
         url: String,
         destination: String,
+        #[serde(default)]
+        initiator_url: Option<String>,
+        #[serde(default)]
+        referrer_policy: Option<String>,
     },
     AuthorizeInlineScript {
         page_id: PageId,
@@ -210,6 +221,12 @@ pub struct HttpStreamRequest {
     pub body_base64: String,
     #[serde(default = "default_http_credentials")]
     pub credentials: bool,
+    #[serde(default)]
+    pub credentials_mode: Option<String>,
+    #[serde(default)]
+    pub initiator_url: Option<String>,
+    #[serde(default)]
+    pub referrer_policy: Option<String>,
 }
 
 const fn default_http_credentials() -> bool {
@@ -219,6 +236,9 @@ const fn default_http_credentials() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case")]
 pub enum ContextServiceResponse {
+    ReferrerPolicy {
+        value: String,
+    },
     HttpStreamStarted {
         stream_id: u64,
         request_id: u64,
@@ -285,6 +305,10 @@ pub enum ContextServiceResponse {
         url: String,
         source: String,
         destination: String,
+        #[serde(default)]
+        document_referrer: String,
+        #[serde(default)]
+        referrer_policy: String,
     },
     WebSocketOpened {
         socket_id: u64,
@@ -681,6 +705,12 @@ impl ParentContextService {
             ));
         }
         match request {
+            ContextServiceRequest::GetReferrerPolicy { page_id } => {
+                self.validate_socket_owner(page_id)?;
+                Ok(ContextServiceResponse::ReferrerPolicy {
+                    value: self.context.page_referrer_policy(page_id)?.as_str().into(),
+                })
+            }
             ContextServiceRequest::HttpStreamStart { page_id, request } => {
                 self.start_http_stream(page_id, request)
             }
@@ -1152,12 +1182,29 @@ impl ParentContextService {
                 url,
                 module,
                 nonce,
-            } => self.load_page_script(page_id, &url, module, nonce.as_deref()),
+                initiator_url,
+                referrer_policy,
+            } => self.load_page_script(
+                page_id,
+                &url,
+                module,
+                nonce.as_deref(),
+                initiator_url.as_deref(),
+                referrer_policy.as_deref(),
+            ),
             ContextServiceRequest::LoadPageResource {
                 page_id,
                 url,
                 destination,
-            } => self.load_page_resource(page_id, &url, &destination),
+                initiator_url,
+                referrer_policy,
+            } => self.load_page_resource(
+                page_id,
+                &url,
+                &destination,
+                initiator_url.as_deref(),
+                referrer_policy.as_deref(),
+            ),
             ContextServiceRequest::AuthorizeInlineScript {
                 page_id,
                 source,
@@ -1223,148 +1270,168 @@ impl ParentContextService {
         let network = self.network.clone().ok_or_else(|| {
             RuntimeError::ContextService("HTTP streaming broker is unavailable".into())
         })?;
-        let source_origin = self.context.page_origin(page_id)?;
+        let page_url = self.context.page_url(page_id)?;
+        let source_url = request.initiator_url.as_deref().unwrap_or(&page_url);
+        let source =
+            Url::parse(source_url).map_err(|error| RuntimeError::Network(error.to_string()))?;
+        let source_origin = source.origin().ascii_serialization();
         let mut target =
             Url::parse(&request.url).map_err(|error| RuntimeError::Network(error.to_string()))?;
-        if let Some(upgraded) = self.context.upgrade_csp_url(page_id, &target)? {
-            target = upgraded;
-        }
-        let csp = self.context.authorize_csp(
-            page_id,
-            &crate::csp::CspRequest {
-                destination: crate::csp::CspDestination::Connect,
-                url: target.to_string(),
-                nonce: None,
-                inline_source: None,
-                parser_inserted: false,
-                initiated_by_trusted_script: false,
-            },
-        )?;
-        if !csp.violations.is_empty() {
-            self.context
-                .handle_csp_violations(page_id, csp.violations.clone())?;
-        }
-        if !csp.allowed {
-            return Err(RuntimeError::ContextService(
-                "request blocked by Content-Security-Policy connect-src".into(),
-            ));
-        }
-        enforce_mixed_content(&self.context.page_url(page_id)?, &target)?;
-        let cross_origin = target.origin().ascii_serialization() != source_origin;
-        let mut headers = sanitize_worker_headers(request.headers);
-        headers.push(("origin".into(), source_origin.clone()));
-        let source_url = self.context.page_url(page_id)?;
-        if let Ok(source) = Url::parse(&source_url)
-            && let Some(referrer) = self
-                .context
-                .page_referrer_policy(page_id)?
-                .header(&source, &target)
-        {
-            headers.push(("referer".into(), referrer));
-        }
-        if cross_origin && cors_preflight_required(&request.method, &headers) {
-            let requested_headers = cors_non_safelisted_headers(&headers);
-            let mut preflight_headers = vec![
-                ("origin".into(), source_origin.clone()),
-                (
-                    "access-control-request-method".into(),
-                    request.method.to_uppercase(),
-                ),
-            ];
-            if !requested_headers.is_empty() {
-                preflight_headers.push((
-                    "access-control-request-headers".into(),
-                    requested_headers.join(", "),
+        let base_headers = sanitize_worker_headers(request.headers);
+        let method = request.method;
+        let credentials_mode = request.credentials_mode.clone();
+        let public_request_id = request.request_id;
+        let referrer_policy = request
+            .referrer_policy
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map_or(
+                self.context.page_referrer_policy(page_id)?,
+                crate::referrer::ReferrerPolicy::parse_list,
+            );
+        let mut redirects = 0_u8;
+        let (operation, response_status, response_headers, content_length) = loop {
+            if let Some(upgraded) = self.context.upgrade_csp_url(page_id, &target)? {
+                target = upgraded;
+            }
+            let csp = self.context.authorize_csp(
+                page_id,
+                &crate::csp::CspRequest {
+                    destination: crate::csp::CspDestination::Connect,
+                    url: target.to_string(),
+                    nonce: None,
+                    inline_source: None,
+                    parser_inserted: false,
+                    initiated_by_trusted_script: false,
+                },
+            )?;
+            if !csp.violations.is_empty() {
+                self.context
+                    .handle_csp_violations(page_id, csp.violations.clone())?;
+            }
+            if !csp.allowed {
+                return Err(RuntimeError::ContextService(
+                    "request blocked by Content-Security-Policy connect-src".into(),
                 ));
             }
-            let preflight = collect_operation_bounded_with_cancel(
-                &network,
-                NetworkRequest {
-                    request_id: request.request_id ^ (1_u64 << 63),
-                    method: "OPTIONS".into(),
-                    url: request.url.clone(),
-                    headers: preflight_headers,
-                    body: Vec::new(),
-                    credentials: false,
+            enforce_mixed_content(source_url, &target)?;
+            let cross_origin = target.origin().ascii_serialization() != source_origin;
+            let credentials = match credentials_mode.as_deref() {
+                Some("include") => true,
+                Some("omit") => false,
+                Some("same-origin") => !cross_origin,
+                _ => request.credentials,
+            };
+            let mut headers = base_headers.clone();
+            headers.push(("origin".into(), source_origin.clone()));
+            if let Some(referrer) = referrer_policy.header(&source, &target) {
+                headers.push(("referer".into(), referrer));
+            }
+            if cross_origin && cors_preflight_required(&method, &headers) {
+                let requested_headers = cors_non_safelisted_headers(&headers);
+                let mut preflight_headers = vec![
+                    ("origin".into(), source_origin.clone()),
+                    (
+                        "access-control-request-method".into(),
+                        method.to_uppercase(),
+                    ),
+                ];
+                if !requested_headers.is_empty() {
+                    preflight_headers.push((
+                        "access-control-request-headers".into(),
+                        requested_headers.join(", "),
+                    ));
+                }
+                let preflight = collect_operation_bounded_with_cancel(
+                    &network,
+                    NetworkRequest {
+                        request_id: self.next_http_stream_id.fetch_add(1, Ordering::Relaxed)
+                            | (1_u64 << 63),
+                        method: "OPTIONS".into(),
+                        url: target.to_string(),
+                        headers: preflight_headers,
+                        body: Vec::new(),
+                        credentials: false,
+                        security: crate::cookies::CookieRequestContext {
+                            credentials: crate::cookies::CookieCredentials::Omit,
+                            kind: crate::cookies::CookieRequestKind::Fetch,
+                            initiator_url: Some(source_origin.clone()),
+                            top_level_url: Some(self.context.page_url(page_id)?),
+                            ..Default::default()
+                        },
+                        resolved_addrs: Vec::new(),
+                    },
+                    Duration::from_secs(10),
+                    64 * 1024,
+                    &self.shutting_down,
+                )
+                .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                enforce_cors_preflight(&source_origin, &method, &requested_headers, &preflight)?;
+            }
+            let operation_request_id = if target.as_str() == request.url {
+                public_request_id
+            } else {
+                self.next_http_stream_id.fetch_add(1, Ordering::Relaxed) | (1_u64 << 62)
+            };
+            let mut operation = network
+                .start_operation(NetworkRequest {
+                    request_id: operation_request_id,
+                    method: method.clone(),
+                    url: target.to_string(),
+                    headers,
+                    body: body.clone(),
+                    credentials,
                     security: crate::cookies::CookieRequestContext {
-                        credentials: crate::cookies::CookieCredentials::Omit,
+                        credentials: if credentials {
+                            crate::cookies::CookieCredentials::Include
+                        } else {
+                            crate::cookies::CookieCredentials::Omit
+                        },
                         kind: crate::cookies::CookieRequestKind::Fetch,
                         initiator_url: Some(source_origin.clone()),
                         top_level_url: Some(self.context.page_url(page_id)?),
                         ..Default::default()
                     },
                     resolved_addrs: Vec::new(),
-                },
-                Duration::from_secs(10),
-                64 * 1024,
-                &self.shutting_down,
-            )
-            .map_err(|error| RuntimeError::Network(error.to_string()))?;
-            enforce_cors_preflight(
-                &source_origin,
-                &request.method,
-                &requested_headers,
-                &preflight,
-            )?;
-        }
-        let mut operation = network
-            .start_operation(NetworkRequest {
-                request_id: request.request_id,
-                method: request.method,
-                url: request.url,
-                headers,
-                body,
-                credentials: request.credentials,
-                security: crate::cookies::CookieRequestContext {
-                    credentials: if request.credentials {
-                        crate::cookies::CookieCredentials::Include
-                    } else {
-                        crate::cookies::CookieCredentials::Omit
-                    },
-                    kind: crate::cookies::CookieRequestKind::Fetch,
-                    initiator_url: Some(source_origin.clone()),
-                    top_level_url: Some(self.context.page_url(page_id)?),
-                    ..Default::default()
-                },
-                resolved_addrs: Vec::new(),
-            })
-            .map_err(|error| RuntimeError::Network(error.to_string()))?;
-        if self
-            .cancelled_http_requests
-            .lock()
-            .map_err(|_| RuntimeError::ContextService("HTTP cancellation lock poisoned".into()))?
-            .remove(&operation.request_id)
-        {
-            let _ = network.cancel_operation(operation.request_id);
-            return Err(RuntimeError::Network("HTTP request cancelled".into()));
-        }
-        let header_event =
-            match receive_network_event(&mut operation.events, Duration::from_secs(30)) {
-                Ok(event) => event,
-                Err(error) => {
-                    let _ = network.cancel_operation(operation.request_id);
-                    return Err(error);
-                }
-            };
-        if self
-            .cancelled_http_requests
-            .lock()
-            .map_err(|_| RuntimeError::ContextService("HTTP cancellation lock poisoned".into()))?
-            .remove(&operation.request_id)
-        {
-            let _ = network.cancel_operation(operation.request_id);
-            return Err(RuntimeError::Network("HTTP request cancelled".into()));
-        }
-        let (response_request_id, response_status, response_headers, content_length) =
-            match header_event {
+                })
+                .map_err(|error| RuntimeError::Network(error.to_string()))?;
+            if self
+                .cancelled_http_requests
+                .lock()
+                .map_err(|_| {
+                    RuntimeError::ContextService("HTTP cancellation lock poisoned".into())
+                })?
+                .remove(&public_request_id)
+            {
+                let _ = network.cancel_operation(operation.request_id);
+                return Err(RuntimeError::Network("HTTP request cancelled".into()));
+            }
+            let header_event =
+                match receive_network_event(&mut operation.events, Duration::from_secs(30)) {
+                    Ok(event) => event,
+                    Err(error) => {
+                        let _ = network.cancel_operation(operation.request_id);
+                        return Err(error);
+                    }
+                };
+            if self
+                .cancelled_http_requests
+                .lock()
+                .map_err(|_| {
+                    RuntimeError::ContextService("HTTP cancellation lock poisoned".into())
+                })?
+                .remove(&operation.request_id)
+            {
+                let _ = network.cancel_operation(operation.request_id);
+                return Err(RuntimeError::Network("HTTP request cancelled".into()));
+            }
+            let (response_status, response_headers, content_length) = match header_event {
                 Some(NetworkEvent::Headers {
                     request_id,
                     status,
                     headers,
                     content_length,
-                }) if request_id == operation.request_id => {
-                    (request_id, status, headers, content_length)
-                }
+                }) if request_id == operation.request_id => (status, headers, content_length),
                 Some(NetworkEvent::Failed { request_id, error })
                     if request_id == operation.request_id =>
                 {
@@ -1383,15 +1450,36 @@ impl ParentContextService {
                     ));
                 }
             };
-        if cross_origin
-            && !cors_headers_allowed(&source_origin, request.credentials, &response_headers)
-        {
-            let _ = network.cancel_operation(operation.request_id);
-            return Err(RuntimeError::ContextService(format!(
-                "cross-origin response denied by CORS: initiator={source_origin}, response={}",
-                target.origin().ascii_serialization()
-            )));
-        }
+            if (300..400).contains(&response_status) {
+                if redirects >= 10 {
+                    let _ = network.cancel_operation(operation.request_id);
+                    return Err(RuntimeError::Network("HTTP redirect limit exceeded".into()));
+                }
+                let location = response_headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+                    .map(|(_, value)| value)
+                    .ok_or_else(|| {
+                        RuntimeError::Network("HTTP redirect omitted Location".into())
+                    })?;
+                let next = target
+                    .join(location)
+                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                let _ = network.cancel_operation(operation.request_id);
+                target = next;
+                redirects = redirects.saturating_add(1);
+                continue;
+            }
+            if cross_origin && !cors_headers_allowed(&source_origin, credentials, &response_headers)
+            {
+                let _ = network.cancel_operation(operation.request_id);
+                return Err(RuntimeError::ContextService(format!(
+                    "cross-origin response denied by CORS: initiator={source_origin}, response={}",
+                    target.origin().ascii_serialization()
+                )));
+            }
+            break (operation, response_status, response_headers, content_length);
+        };
         if content_length.is_some_and(|length| length > 16 * 1024 * 1024) {
             let _ = network.cancel_operation(operation.request_id);
             return Err(RuntimeError::WorkerLimitExceeded {
@@ -1414,7 +1502,7 @@ impl ParentContextService {
             stream_id,
             Arc::new(HttpStreamEntry {
                 page_id,
-                request_id: operation.request_id,
+                request_id: public_request_id,
                 state: Mutex::new(HttpStreamState {
                     operation,
                     current: bytes::Bytes::new(),
@@ -1426,7 +1514,7 @@ impl ParentContextService {
         );
         Ok(ContextServiceResponse::HttpStreamStarted {
             stream_id,
-            request_id: response_request_id,
+            request_id: public_request_id,
             status: response_status,
             headers: sanitize_parent_response_headers(response_headers),
             total_bytes,
@@ -1760,13 +1848,27 @@ impl ParentContextService {
         requested_url: &str,
         module: bool,
         nonce: Option<&str>,
+        initiator_url: Option<&str>,
+        referrer_policy: Option<&str>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
         self.validate_socket_owner(page_id)?;
         let network = self.network.clone().ok_or_else(|| {
             RuntimeError::ContextService("script resource broker is unavailable".into())
         })?;
-        let source_origin = self.context.page_origin(page_id)?;
-        let mut url = self.context.resolve_page_url(page_id, requested_url)?;
+        let page_url = self.context.page_url(page_id)?;
+        let source_url = initiator_url.unwrap_or(&page_url);
+        let source =
+            Url::parse(source_url).map_err(|error| RuntimeError::Network(error.to_string()))?;
+        let source_origin = source.origin().ascii_serialization();
+        let policy = referrer_policy
+            .filter(|value| !value.trim().is_empty())
+            .map_or(self.context.page_referrer_policy(page_id)?, |value| {
+                crate::referrer::ReferrerPolicy::parse_list(value)
+            });
+        let mut url = source
+            .join(requested_url)
+            .or_else(|_| Url::parse(requested_url))
+            .map_err(|error| RuntimeError::Network(error.to_string()))?;
         for redirect in 0..=10 {
             let decision = self.context.authorize_csp(
                 page_id,
@@ -1788,22 +1890,26 @@ impl ParentContextService {
                     "dynamic script blocked by Content-Security-Policy script-src".into(),
                 ));
             }
+            let mut headers = vec![(
+                "accept".into(),
+                "text/javascript,application/javascript,*/*;q=0.1".into(),
+            )];
+            if let Some(referrer) = policy.header(&source, &url) {
+                headers.push(("referer".into(), referrer));
+            }
             let response = collect_operation_bounded_with_cancel(
                 &network,
                 NetworkRequest {
                     request_id: self.next_http_stream_id.fetch_add(1, Ordering::Relaxed),
                     method: "GET".into(),
                     url: url.to_string(),
-                    headers: vec![(
-                        "accept".into(),
-                        "text/javascript,application/javascript,*/*;q=0.1".into(),
-                    )],
+                    headers,
                     body: Vec::new(),
                     credentials: true,
                     security: crate::cookies::CookieRequestContext {
                         kind: crate::cookies::CookieRequestKind::Script,
-                        initiator_url: Some(self.context.page_url(page_id)?),
-                        top_level_url: Some(self.context.page_url(page_id)?),
+                        initiator_url: Some(source_url.into()),
+                        top_level_url: Some(page_url.clone()),
                         ..Default::default()
                     },
                     resolved_addrs: Vec::new(),
@@ -1874,6 +1980,8 @@ impl ParentContextService {
         page_id: PageId,
         requested_url: &str,
         destination: &str,
+        initiator_url: Option<&str>,
+        referrer_policy: Option<&str>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
         self.validate_socket_owner(page_id)?;
         let (csp_destination, cookie_kind, accept, text_kind) = match destination {
@@ -1899,7 +2007,18 @@ impl ParentContextService {
             RuntimeError::ContextService("page resource broker is unavailable".into())
         })?;
         let page_url = self.context.page_url(page_id)?;
-        let mut url = self.context.resolve_page_url(page_id, requested_url)?;
+        let source_url = initiator_url.unwrap_or(&page_url);
+        let source =
+            Url::parse(source_url).map_err(|error| RuntimeError::Network(error.to_string()))?;
+        let policy = referrer_policy
+            .filter(|value| !value.trim().is_empty())
+            .map_or(self.context.page_referrer_policy(page_id)?, |value| {
+                crate::referrer::ReferrerPolicy::parse_list(value)
+            });
+        let mut url = source
+            .join(requested_url)
+            .or_else(|_| Url::parse(requested_url))
+            .map_err(|error| RuntimeError::Network(error.to_string()))?;
         for redirect in 0..=10 {
             let decision = self.context.authorize_csp(
                 page_id,
@@ -1921,18 +2040,22 @@ impl ParentContextService {
                     "{destination} blocked by Content-Security-Policy"
                 )));
             }
+            let mut request_headers = vec![("accept".into(), accept.into())];
+            if let Some(referrer) = policy.header(&source, &url) {
+                request_headers.push(("referer".into(), referrer));
+            }
             let response = collect_operation_bounded_with_cancel(
                 &network,
                 NetworkRequest {
                     request_id: self.next_http_stream_id.fetch_add(1, Ordering::Relaxed),
                     method: "GET".into(),
                     url: url.to_string(),
-                    headers: vec![("accept".into(), accept.into())],
+                    headers: request_headers,
                     body: Vec::new(),
                     credentials: true,
                     security: crate::cookies::CookieRequestContext {
                         kind: cookie_kind,
-                        initiator_url: Some(page_url.clone()),
+                        initiator_url: Some(source_url.to_owned()),
                         top_level_url: Some(page_url.clone()),
                         ..Default::default()
                     },
@@ -1969,6 +2092,21 @@ impl ParentContextService {
                 .map(|(_, value)| value.as_str());
             let (source, _) =
                 oryn_net::decode_resource_text(&response.body, content_type, text_kind);
+            let document_referrer = policy
+                .header(
+                    &source_url.parse().map_err(|error| {
+                        RuntimeError::Network(format!("invalid page-resource initiator: {error}"))
+                    })?,
+                    &url,
+                )
+                .unwrap_or_default();
+            let response_policy = response
+                .headers
+                .iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case("referrer-policy"))
+                .map(|(_, value)| crate::referrer::ReferrerPolicy::parse_list(value))
+                .next_back()
+                .unwrap_or_default();
             if destination == "frame" {
                 self.authorized_storage_origins
                     .lock()
@@ -1983,6 +2121,8 @@ impl ParentContextService {
                 url: url.to_string(),
                 source,
                 destination: destination.into(),
+                document_referrer,
+                referrer_policy: response_policy.as_str().into(),
             });
         }
         Err(RuntimeError::Network(format!(

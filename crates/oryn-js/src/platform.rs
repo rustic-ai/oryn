@@ -16,6 +16,10 @@ pub struct PlatformHttpRequest {
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
     pub credentials: String,
+    #[serde(default)]
+    pub initiator_url: Option<String>,
+    #[serde(default)]
+    pub referrer_policy: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

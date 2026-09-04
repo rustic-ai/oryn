@@ -86,6 +86,30 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             "ws://127.0.0.1:8443/socket",
         )
 
+    def test_wptserve_uses_distinct_http_and_https_ports(self) -> None:
+        source = (
+            "http://{{host}}:{{ports[http][0]}}/plain "
+            "https://{{host}}:{{ports[https][0]}}/secure"
+        )
+        self.assertEqual(
+            RUNNER.substitute_wpt_tokens(source, "localhost", 8000, https_port=8443),
+            "http://localhost:8000/plain https://localhost:8443/secure",
+        )
+
+    def test_proxied_redirects_preserve_public_tls_and_alt_origin(self) -> None:
+        self.assertEqual(
+            RUNNER.rewrite_wpt_location("http://localhost:8443/resource", True),
+            "https://localhost:8443/resource",
+        )
+        self.assertEqual(
+            RUNNER.rewrite_wpt_location("http://www1.localhost:8000/resource", False),
+            "http://127.0.0.1:8000/resource",
+        )
+        self.assertEqual(
+            RUNNER.rewrite_wpt_location("http://www1.127.0.0.1:8000/resource", False),
+            "http://127.0.0.1:8000/resource",
+        )
+
     def test_fs_path_tokens_resolve_only_inside_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -156,7 +180,63 @@ class UpstreamWptRunnerTests(unittest.TestCase):
         self.assertIn(
             "document.documentElement.appendChild(output)", RUNNER.COMPLETION
         )
-        self.assertIn("display:block!important", RUNNER.COMPLETION)
+        self.assertIn("output.setAttribute('id', 'oryn-wpt-result')", RUNNER.COMPLETION)
+
+    def test_dom_probe_recovers_typed_assertions(self) -> None:
+        stdout = (
+            'function|function|results=[{"name":"one","status":0,"message":""}]'
+            '|messages=[]|driver=[]|document=<html></html>'
+        )
+        result = RUNNER.probe_wpt_result(stdout)
+        self.assertIsNotNone(result)
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["tests"][0]["name"], "one")
+        self.assertIsNone(RUNNER.probe_wpt_result("results=[]|messages=[]"))
+
+    def test_server_path_decodes_percent_encoded_wpt_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            handler = object.__new__(RUNNER.Handler)
+            handler.root = Path(directory).resolve()
+            self.assertEqual(
+                Path(handler.translate_path("/referrer-policy/4K%2B1/case.html")),
+                handler.root / "referrer-policy/4K+1/case.html",
+            )
+
+    def test_instrumented_static_files_retain_wpt_sidecar_headers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            test = Path(directory) / "case.html"
+            test.write_text("<title>case</title>")
+            Path(str(test) + ".headers").write_text(
+                "Access-Control-Allow-Origin: *\n"
+                "Referrer-Policy: no-referrer\n"
+                "Content-Length: 999\n"
+            )
+            self.assertEqual(
+                RUNNER.Handler._sidecar_headers(test),
+                [
+                    ("Access-Control-Allow-Origin", "*"),
+                    ("Referrer-Policy", "no-referrer"),
+                ],
+            )
+
+    def test_nested_security_helper_does_not_report_as_an_independent_test(self) -> None:
+        body = (
+            b'<script src="/resources/testharness.js"></script>'
+            b'<script src="http://localhost:8000/resources/testharnessreport.js"></script>'
+            b'<script>parent.postMessage({sourceContextUrl:location.href}, "*")</script>'
+        )
+        stripped = RUNNER.strip_nested_helper_harness(
+            "/common/security-features/scope/document.py?policyDeliveries=[]",
+            "text/html; charset=utf-8",
+            body,
+        )
+        self.assertNotIn(b"testharness.js", stripped)
+        self.assertNotIn(b"testharnessreport.js", stripped)
+        self.assertIn(b"sourceContextUrl", stripped)
+        self.assertEqual(
+            RUNNER.strip_nested_helper_harness("/ordinary.html", "text/html", body),
+            body,
+        )
 
     def test_testdriver_click_wrapper_remains_constructable(self) -> None:
         # Some pinned editing tests use the historically accepted

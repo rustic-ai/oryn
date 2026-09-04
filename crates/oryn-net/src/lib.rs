@@ -137,10 +137,28 @@ impl RustlsTransport {
             .no_brotli()
             .no_deflate()
             .no_zstd();
+        if let Some(certificate_path) = std::env::var_os("ORYN_WPT_CA_CERT") {
+            let certificate_bytes = std::fs::read(&certificate_path).map_err(|error| {
+                TransportError::Failed(format!("read WPT CA certificate: {error}"))
+            })?;
+            let certificate =
+                reqwest::Certificate::from_pem(&certificate_bytes).map_err(|error| {
+                    TransportError::Failed(format!("parse WPT CA certificate: {error}"))
+                })?;
+            builder = builder.add_root_certificate(certificate);
+        }
+        if std::env::var_os("ORYN_WPT_CA_CERT").is_some()
+            && std::env::var("ORYN_WPT_ALLOW_INVALID_CERTS").as_deref() == Ok("1")
+        {
+            // This is used only by the pinned loopback WPT harness, whose
+            // immutable certificate names web-platform.test while the local
+            // policy deliberately exposes localhost/127.0.0.1 origins.
+            builder = builder.danger_accept_invalid_certs(true);
+        }
         if self.force_http2_prior_knowledge {
             builder = builder.http2_prior_knowledge();
         }
-        if !request.resolved_addrs.is_empty() {
+        if !request.resolved_addrs.is_empty() && host.parse::<std::net::IpAddr>().is_err() {
             builder = builder.resolve_to_addrs(&host, &request.resolved_addrs);
         }
         let client = builder

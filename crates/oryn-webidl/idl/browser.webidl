@@ -24,6 +24,17 @@ interface Event {
 interface CustomEvent : Event {
 };
 
+dictionary MouseEventInit {
+  boolean bubbles = false;
+  boolean cancelable = false;
+  any view;
+};
+
+[Exposed=Window]
+interface MouseEvent : Event {
+  constructor(DOMString type, optional MouseEventInit eventInitDict);
+};
+
 dictionary InputEventInit {
   boolean bubbles = true;
   boolean cancelable = false;
@@ -393,6 +404,7 @@ interface Document : Node {
   readonly attribute DOMImplementation implementation;
   readonly attribute DOMString URL;
   readonly attribute DOMString baseURI;
+  readonly attribute DOMString referrer;
   readonly attribute any location;
   attribute DOMString cookie;
   readonly attribute any defaultView;

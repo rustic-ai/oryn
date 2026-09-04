@@ -5640,7 +5640,7 @@ fn generated_constructor<'s>(
     }
     if matches!(
         name,
-        "Event" | "CustomEvent" | "InputEvent" | "IDBVersionChangeEvent"
+        "Event" | "CustomEvent" | "MouseEvent" | "InputEvent" | "IDBVersionChangeEvent"
     ) && args.is_construct_call()
     {
         let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
@@ -9729,6 +9729,15 @@ fn location_href(scope: &mut v8::PinScope) -> Result<String, V8BindingError> {
         .ok_or(V8BindingError::Allocation("location href"))
 }
 
+fn request_initiator_url(scope: &mut v8::PinScope) -> Option<String> {
+    global_property(scope, "__oryn_request_initiator_url")
+        .ok()
+        .and_then(|value| value.to_string(scope))
+        .map(|value| value.to_rust_string_lossy(scope))
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| location_href(scope).ok())
+}
+
 fn set_location_href(scope: &mut v8::PinScope, href: &str) -> Result<(), V8BindingError> {
     let location = global_property(scope, "location")?
         .to_object(scope)
@@ -10918,13 +10927,21 @@ fn response_value_from_bytes<'s>(
     let value = match member {
         "text" => v8_string(scope, &String::from_utf8_lossy(&bytes))?,
         "json" => {
-            let text = v8_string(scope, &String::from_utf8_lossy(&bytes))?;
+            let decoded = String::from_utf8_lossy(&bytes);
+            let text = v8_string(scope, &decoded)?;
             v8::json::parse(
                 scope,
                 v8::Local::<v8::String>::try_from(text)
                     .map_err(|_| V8BindingError::Allocation("Response JSON"))?,
             )
-            .ok_or(V8BindingError::Allocation("Response JSON parse"))?
+            .ok_or_else(|| V8BindingError::Unsupported {
+                interface: "Response".into(),
+                member: format!(
+                    "JSON parse failed for {} bytes beginning {:?}",
+                    bytes.len(),
+                    decoded.chars().take(120).collect::<String>()
+                ),
+            })?
         }
         "arrayBuffer" => array_buffer_from_bytes(scope, &bytes).into(),
         "blob" => {
@@ -11031,6 +11048,12 @@ fn platform_fetch_callback(
             headers: headers.entries.clone(),
             body,
             credentials,
+            initiator_url: request_initiator_url(scope),
+            referrer_policy: global_property(scope, "__oryn_referrer_policy")
+                .ok()
+                .and_then(|value| value.to_string(scope))
+                .map(|value| value.to_rust_string_lossy(scope))
+                .filter(|value| !value.trim().is_empty()),
         };
         let resolver =
             v8::PromiseResolver::new(scope).ok_or(V8BindingError::Allocation("fetch promise"))?;
@@ -12898,6 +12921,12 @@ fn call_platform_operation<'s>(
                         } else {
                             "same-origin".into()
                         },
+                        initiator_url: request_initiator_url(scope),
+                        referrer_policy: global_property(scope, "__oryn_referrer_policy")
+                            .ok()
+                            .and_then(|value| value.to_string(scope))
+                            .map(|value| value.to_rust_string_lossy(scope))
+                            .filter(|value| !value.trim().is_empty()),
                     },
                     xhr.timeout,
                 )
@@ -15632,6 +15661,15 @@ fn get_attribute_value<'s>(
             .get(scope, href_key.into())
             .ok_or(V8BindingError::Allocation("location href"));
     }
+    if interface == "Document" && member == "referrer" {
+        let global = scope.get_current_context().global(scope);
+        let key = v8::String::new(scope, "__oryn_document_referrer")
+            .ok_or(V8BindingError::Allocation("document referrer key"))?;
+        return Ok(global
+            .get(scope, key.into())
+            .filter(|value| value.is_string())
+            .unwrap_or_else(|| v8::String::empty(scope).into()));
+    }
     if interface == "Document" && member == "currentScript" {
         return optional_node(scope, state, state.current_script.get());
     }
@@ -16602,6 +16640,27 @@ fn call_operation<'s>(
             let event = v8::Local::<v8::Object>::try_from(args.get(0))
                 .map_err(|_| V8BindingError::Allocation("event object"))?;
             let accepted = dispatch_event(scope, state, node, event)?;
+            let type_key =
+                v8::String::new(scope, "type").ok_or(V8BindingError::Allocation("Event.type"))?;
+            let event_type = event
+                .get(scope, type_key.into())
+                .map(|value| value.to_rust_string_lossy(scope))
+                .unwrap_or_default();
+            if accepted && event_type.eq_ignore_ascii_case("click") {
+                let is_navigable = state.dom.borrow().arena().get(node).is_ok_and(|record| {
+                    matches!(
+                        &record.kind,
+                        NodeKind::Element { name }
+                            if matches!(name.local.as_ref(), "a" | "area")
+                    )
+                });
+                if is_navigable {
+                    state
+                        .pending_default_actions
+                        .borrow_mut()
+                        .push_back(PendingDefaultAction::Click(node));
+                }
+            }
             Ok(Some(v8::Boolean::new(scope, accepted).into()))
         }
         ("Document", "createElement") => {
@@ -17834,7 +17893,29 @@ fn call_operation<'s>(
             }
             Ok(None)
         }
-        ("Element", "scrollIntoView") => Ok(None),
+        ("Element", "scrollIntoView") => {
+            let targets = {
+                let dom = state.dom.borrow();
+                let mut targets = Vec::new();
+                let mut current = dom.arena().get(node).ok().and_then(|record| record.parent);
+                while let Some(candidate) = current {
+                    targets.push(candidate);
+                    current = dom
+                        .arena()
+                        .get(candidate)
+                        .ok()
+                        .and_then(|record| record.parent);
+                }
+                targets
+            };
+            for target in targets {
+                let scroll = create_event_object(scope, state, "scroll", false, false)?;
+                dispatch_event(scope, state, target, scroll)?;
+                let scrollend = create_event_object(scope, state, "scrollend", false, false)?;
+                dispatch_event(scope, state, target, scrollend)?;
+            }
+            Ok(None)
+        }
         ("HTMLCanvasElement", "getContext") => {
             let context_id = required_string(scope, args, 0)?;
             if context_id != "2d" {
@@ -17849,6 +17930,17 @@ fn call_operation<'s>(
             Ok(Some(context.into()))
         }
         ("HTMLElement", "click") => {
+            let disabled = state.dom.borrow().arena().get(node).is_ok_and(|record| {
+                matches!(
+                    &record.kind,
+                    NodeKind::Element { name }
+                        if matches!(name.local.as_ref(), "button" | "input" | "select" | "textarea" | "option" | "optgroup" | "fieldset")
+                            && record.attributes.contains_key("disabled")
+                )
+            });
+            if disabled {
+                return Ok(None);
+            }
             let event = create_event_object(scope, state, "click", true, true)?;
             if dispatch_event(scope, state, node, event)? {
                 state

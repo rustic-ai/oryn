@@ -10,6 +10,7 @@ import signal
 import socket
 import sys
 import threading
+import uuid
 from pathlib import Path
 
 
@@ -25,6 +26,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkout", type=Path, required=True)
     parser.add_argument("--public-port", type=int, required=True)
+    parser.add_argument("--public-https-port", type=int, required=True)
     args = parser.parse_args()
     checkout = args.checkout.resolve()
     sys.path.insert(0, str(checkout / "tools/wptserve"))
@@ -32,6 +34,7 @@ def main() -> int:
     try:
         import wptserve
         from wptserve.config import ConfigBuilder
+        from wptserve.stash import StashServer
     except ModuleNotFoundError as error:
         raise SystemExit(
             "pinned wptserve dependencies are missing; run "
@@ -42,41 +45,42 @@ def main() -> int:
     internal_port = free_loopback_port()
     stopped = threading.Event()
 
-    with ConfigBuilder(
-        logger,
-        browser_host="localhost",
-        alternate_hosts={"alt": "127.0.0.1"},
-        subdomains={"www1", "www2"},
-        ports={"http": [args.public_port]},
-        check_subdomains=False,
-        doc_root=str(checkout),
-        bind_address="127.0.0.1",
-    ) as config:
-        server = wptserve.WebTestHttpd(
-            host="127.0.0.1",
-            port=internal_port,
-            use_ssl=False,
-            certificate=None,
+    with StashServer(None, authkey=uuid.uuid4().hex):
+        with ConfigBuilder(
+            logger,
+            browser_host="localhost",
+            alternate_hosts={"alt": "127.0.0.1"},
+            subdomains={"www1", "www2"},
+            ports={"http": [args.public_port], "https": [args.public_https_port]},
+            check_subdomains=False,
             doc_root=str(checkout),
-            rewrites=[
-                (
-                    "GET",
-                    "/resources/WebIDLParser.js",
-                    "/resources/webidl2/lib/webidl2.js",
-                )
-            ],
-            config=config,
-        )
+            bind_address="127.0.0.1",
+        ) as config:
+            server = wptserve.WebTestHttpd(
+                host="127.0.0.1",
+                port=internal_port,
+                use_ssl=False,
+                certificate=None,
+                doc_root=str(checkout),
+                rewrites=[
+                    (
+                        "GET",
+                        "/resources/WebIDLParser.js",
+                        "/resources/webidl2/lib/webidl2.js",
+                    )
+                ],
+                config=config,
+            )
 
-        def stop(_signum: int, _frame: object) -> None:
-            stopped.set()
+            def stop(_signum: int, _frame: object) -> None:
+                stopped.set()
 
-        signal.signal(signal.SIGTERM, stop)
-        signal.signal(signal.SIGINT, stop)
-        server.start()
-        print(json.dumps({"port": internal_port}), flush=True)
-        stopped.wait()
-        server.stop()
+            signal.signal(signal.SIGTERM, stop)
+            signal.signal(signal.SIGINT, stop)
+            server.start()
+            print(json.dumps({"port": internal_port}), flush=True)
+            stopped.wait()
+            server.stop()
     return 0
 
 

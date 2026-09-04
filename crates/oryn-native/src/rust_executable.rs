@@ -167,6 +167,7 @@ fn preload_module_graph(
                 let sender = sender.clone();
                 let client = client.clone();
                 let dependency_alias = dependency.clone();
+                let initiator_url = parent.clone();
                 std::thread::spawn(move || {
                     let result = client
                         .request(crate::context_service::ContextServiceRequest::LoadScript {
@@ -174,6 +175,8 @@ fn preload_module_graph(
                             url: canonical,
                             module: true,
                             nonce: None,
+                            initiator_url: Some(initiator_url),
+                            referrer_policy: None,
                         })
                         .map_err(|error| error.to_string())
                         .and_then(|response| match response {
@@ -345,11 +348,30 @@ fn run_script_record(
         let authorization = if let Some(src) = src
             && resource_entry(resources, src).is_none()
         {
+            let initiator_url = host
+                .evaluate_string("globalThis.__oryn_request_initiator_url")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| host.evaluate_string("location.href").ok());
+            let referrer_policy = live_dom
+                .borrow()
+                .attribute(*script, "referrerpolicy")
+                .ok()
+                .flatten()
+                .map(str::to_owned)
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| {
+                    host.evaluate_string("globalThis.__oryn_referrer_policy")
+                        .ok()
+                        .filter(|value| !value.trim().is_empty())
+                });
             client.request(crate::context_service::ContextServiceRequest::LoadScript {
                 page_id: *page_id,
                 url: src.clone(),
                 module: script_type.as_deref() == Some("module"),
                 nonce,
+                initiator_url,
+                referrer_policy,
             })
         } else if src.is_none() {
             client.request(
@@ -539,6 +561,8 @@ impl ParserResourceScheduler {
                     url: requested_url,
                     module,
                     nonce,
+                    initiator_url: None,
+                    referrer_policy: None,
                 })
                 .map_err(|error| error.to_string())
                 .and_then(|response| match response {
@@ -590,6 +614,8 @@ impl ParserResourceScheduler {
                         page_id,
                         url: request_url,
                         destination: "frame".into(),
+                        initiator_url: None,
+                        referrer_policy: None,
                     },
                 )
                 .map_err(|error| error.to_string())
@@ -598,6 +624,7 @@ impl ParserResourceScheduler {
                         url,
                         source,
                         destination,
+                        ..
                     } if destination == "frame" => Ok((url, source)),
                     _ => Err("parent returned an invalid frame response".into()),
                 });
@@ -642,6 +669,8 @@ fn load_parser_stylesheet(
                 page_id,
                 url: requested_url.into(),
                 destination: "stylesheet".into(),
+                initiator_url: None,
+                referrer_policy: None,
             },
         )
         .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -649,6 +678,7 @@ fn load_parser_stylesheet(
         url,
         source,
         destination,
+        ..
     } = response
     else {
         return Err(HostError::Execution(
@@ -839,6 +869,11 @@ fn parse_live_document(
                     )),
                     _ => None,
                 };
+                if let html::ParserEvent::MetaReferrer { content } = &event {
+                    let policy = serde_json::to_string(content)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    host.execute(&format!("globalThis.__oryn_referrer_policy={policy}"))?;
+                }
                 if let Some(response) = response {
                     match response {
                         Ok(crate::context_service::ContextServiceResponse::DocumentSecurityInstalled) => {}
@@ -1115,6 +1150,9 @@ class OrynStorage {
 }
 if(globalThis.Storage&&globalThis.Storage.prototype)Object.setPrototypeOf(OrynStorage.prototype,globalThis.Storage.prototype);
 globalThis.__oryn_page_id=null;
+globalThis.__oryn_document_referrer='';
+globalThis.__oryn_referrer_policy='';
+globalThis.__oryn_request_initiator_url='';
 if(!globalThis.localStorage)globalThis.localStorage=new OrynStorage('local');
 if(!globalThis.sessionStorage)globalThis.sessionStorage=new OrynStorage('session');
 if(!globalThis.__oryn_restore_storage)globalThis.__oryn_restore_storage=(localItems,sessionItems)=>{
@@ -1138,8 +1176,10 @@ class OrynURLSearchParams {
   toString(){return this.items.map(([key,value])=>encodeURIComponent(key)+'='+encodeURIComponent(value)).join('&')}
 }
 class OrynURL {
-  constructor(input,base){input=String(input);if(base&&!/^[a-z][a-z0-9+.-]*:/i.test(input)){const parent=new OrynURL(base);const root=parent.host?parent.origin:parent.protocol;if(input.startsWith('#'))input=root+parent.pathname+parent.search+input;else if(input.startsWith('?'))input=root+parent.pathname+input;else input=input.startsWith('/')?root+input:root+parent.pathname.replace(/[^/]*$/,'')+input}const match=input.match(/^([a-z][a-z0-9+.-]*:)(?:\/\/([^/?#]*))?([^?#]*)(\?[^#]*)?(#.*)?$/i);if(!match)throw new TypeError('Invalid URL');this.protocol=match[1];this.hasAuthority=input.startsWith(this.protocol+'//');this.host=match[2]||'';this.hostname=this.host.split(':')[0];this.port=this.host.slice(this.hostname.length+1);this.pathname=match[3]||'/';this.search=match[4]||'';this.hash=match[5]||'';this.origin=this.host?this.protocol+'//'+this.host:'null';this.searchParams=new OrynURLSearchParams(this.search)}
-  get href(){const query=this.searchParams.toString();return (this.host?this.origin:(this.hasAuthority?this.protocol+'//':this.protocol))+this.pathname+(query?'?'+query:'')+this.hash}
+  constructor(input,base){input=String(input);if(base&&!/^[a-z][a-z0-9+.-]*:/i.test(input)){const parent=new OrynURL(base);const root=parent.host?parent.origin:parent.protocol;if(input.startsWith('#'))input=root+parent.pathname+parent.search+input;else if(input.startsWith('?'))input=root+parent.pathname+input;else input=input.startsWith('/')?root+input:root+parent.pathname.replace(/[^/]*$/,'')+input}const match=input.match(/^([a-z][a-z0-9+.-]*:)(?:\/\/([^/?#]*))?([^?#]*)(\?[^#]*)?(#.*)?$/i);if(!match)throw new TypeError('Invalid URL');this.protocol=match[1];this.hasAuthority=input.startsWith(this.protocol+'//');this.host=match[2]||'';this.hostname=this.host.split(':')[0];this.port=this.host.slice(this.hostname.length+1);this.pathname=match[3]||'/';this._search=match[4]||'';this.hash=match[5]||'';this.origin=this.host?this.protocol+'//'+this.host:'null';this.searchParams=new OrynURLSearchParams(this._search)}
+  get search(){const query=this.searchParams?this.searchParams.toString():this._search.replace(/^\?/,'');return query?'?'+query:''}
+  set search(value){this._search=String(value||'');if(this.searchParams)this.searchParams=new OrynURLSearchParams(this._search)}
+  get href(){const query=this.searchParams.toString();const path=this.pathname||(this.host?'/':'');return (this.host?this.origin:(this.hasAuthority?this.protocol+'//':this.protocol))+path+(query?'?'+query:'')+this.hash}
   set href(value){Object.assign(this,new OrynURL(value,this.href))}
   toString(){return this.href}
   toJSON(){return this.href}
@@ -1181,7 +1221,27 @@ globalThis.SecurityPolicyViolationEvent=SecurityPolicyViolationEvent;
 globalThis.addEventListener=(type,callback,options={})=>{type=String(type);if(typeof callback!=='function')return;const once=!!(options&&typeof options==='object'&&options.once);let listener=callback;if(once){listener=function(event){removeEventListener(type,listener);return callback.call(this,event)};listener.__oryn_original_listener=callback}const list=__oryn_global_listeners.get(type)||[];list.push(listener);__oryn_global_listeners.set(type,list)};
 globalThis.removeEventListener=(type,callback)=>__oryn_global_listeners.set(String(type),(__oryn_global_listeners.get(String(type))||[]).filter(item=>item!==callback&&item.__oryn_original_listener!==callback));
 globalThis.dispatchEvent=event=>{for(const callback of __oryn_global_listeners.get(event.type)||[])callback.call(globalThis,event);const handler=globalThis['on'+event.type];if(typeof handler==='function')handler.call(globalThis,event);return !event.defaultPrevented};
-globalThis.__oryn_deliver_message=(data,targetOrigin='*',source=null,sourceOrigin='')=>{targetOrigin=String(targetOrigin);if(targetOrigin!=='*'&&targetOrigin!=='/'&&targetOrigin!==location.origin)return;__oryn_record_message({origin:String(sourceOrigin),data});const event=new Event('message',{});event.data=data;event.origin=String(sourceOrigin);event.source=source;queueMicrotask(()=>dispatchEvent(event))};
+globalThis.__oryn_structured_clone=(value,seen=new Map())=>{
+  if(value===null||typeof value==='undefined'||typeof value==='string'||typeof value==='number'||typeof value==='boolean'||typeof value==='bigint')return value;
+  if(typeof value==='symbol'||typeof value==='function'){const error=new Error('value is not structured-cloneable');error.name='DataCloneError';throw error}
+  if(seen.has(value))return seen.get(value);
+  const tag=Object.prototype.toString.call(value);
+  if(tag==='[object Date]')return new Date(value.getTime());
+  if(tag==='[object RegExp]')return new RegExp(value.source,value.flags);
+  if(tag==='[object ArrayBuffer]')return value.slice(0);
+  if(typeof ArrayBuffer!=='undefined'&&ArrayBuffer.isView(value)){
+    const buffer=value.buffer.slice(value.byteOffset,value.byteOffset+value.byteLength);
+    return tag==='[object DataView]'?new DataView(buffer):new globalThis[value.constructor.name](buffer);
+  }
+  if(tag==='[object Map]'){const result=new Map();seen.set(value,result);for(const [key,item] of value)result.set(__oryn_structured_clone(key,seen),__oryn_structured_clone(item,seen));return result}
+  if(tag==='[object Set]'){const result=new Set();seen.set(value,result);for(const item of value)result.add(__oryn_structured_clone(item,seen));return result}
+  if(typeof Blob!=='undefined'&&(tag==='[object Blob]'||tag==='[object File]'))return tag==='[object File]'?new File([value.bytes||new Uint8Array()],value.name,{type:value.type,lastModified:value.lastModified}):new Blob([value.bytes||new Uint8Array()],{type:value.type});
+  if(Array.isArray(value)){const result=[];seen.set(value,result);for(const item of value)result.push(__oryn_structured_clone(item,seen));return result}
+  if(tag==='[object Object]'){const result={};seen.set(value,result);for(const key of Object.keys(value))result[key]=__oryn_structured_clone(value[key],seen);return result}
+  const error=new Error('value is not structured-cloneable');error.name='DataCloneError';throw error;
+};
+globalThis.structuredClone=value=>__oryn_structured_clone(value);
+globalThis.__oryn_deliver_message=(data,targetOrigin='*',source=null,sourceOrigin='')=>{targetOrigin=String(targetOrigin);if(targetOrigin!=='*'&&targetOrigin!=='/'&&targetOrigin!==location.origin)return;const cloned=__oryn_structured_clone(data);__oryn_record_message({origin:String(sourceOrigin),data:cloned});const event=new Event('message',{});event.data=cloned;event.origin=String(sourceOrigin);event.source=source;queueMicrotask(()=>dispatchEvent(event))};
 globalThis.__oryn_make_window_proxy=(deliver,targetOrigin,sourceOrigin,sameOriginTarget=null)=>{const facade={__source:null,__closed:false,origin:String(targetOrigin),get closed(){return this.__closed},focus(){},close(){this.__closed=true},postMessage(data,requestedOrigin='*'){deliver(data,String(requestedOrigin),proxy.__source,String(sourceOrigin))}};const proxy=sameOriginTarget?new Proxy(facade,{get(target,key,receiver){if(Reflect.has(target,key))return Reflect.get(target,key,receiver);return Reflect.get(sameOriginTarget,key,sameOriginTarget)},set(target,key,value,receiver){if(Reflect.has(target,key))return Reflect.set(target,key,value,receiver);return Reflect.set(sameOriginTarget,key,value,sameOriginTarget)},has(target,key){return Reflect.has(target,key)||Reflect.has(sameOriginTarget,key)}}):facade;return proxy};
 globalThis.__oryn_make_provisional_window_proxy=()=>{let target=null;const queued=[];const facade={__source:null,__closed:false,get closed(){return target?target.closed:this.__closed},get origin(){return target?target.origin:''},focus(){if(target)target.focus()},close(){this.__closed=true;if(target)target.close()},postMessage(data,requestedOrigin='*'){if(target)target.postMessage(data,requestedOrigin);else queued.push([data,String(requestedOrigin)])},__bind(committed){target=committed;this.__closed=false;this.__source=committed.__source;while(queued.length){const [data,origin]=queued.shift();target.postMessage(data,origin)}}};return new Proxy(facade,{get(object,key,receiver){if(Reflect.has(object,key))return Reflect.get(object,key,receiver);return target?Reflect.get(target,key,target):undefined},set(object,key,value,receiver){if(Reflect.has(object,key)||!target)return Reflect.set(object,key,value,receiver);return Reflect.set(target,key,value,target)},has(object,key){return Reflect.has(object,key)||(target&&Reflect.has(target,key))}})};
 globalThis.postMessage=(data,targetOrigin='*')=>globalThis.__oryn_deliver_message(data,targetOrigin,globalThis,location.origin);
@@ -1193,7 +1253,7 @@ const __oryn_worker_clone=value=>{const encoded=JSON.stringify(value);if(encoded
 class OrynWorker {constructor(url,options={}){this.onmessage=null;this.onerror=null;this.__listeners=new Map();this.__closed=false;this.__global=String(options.orynGlobal||'dedicatedworker');const rawTarget=String(url),target=rawTarget.startsWith('data:')?rawTarget:new OrynURL(rawTarget,location.href).href;const opaquePrefix=`globalThis.indexedDB={open(){const error=new Error('opaque origins cannot access IndexedDB');error.name='SecurityError';throw error},deleteDatabase(){const error=new Error('opaque origins cannot access IndexedDB');error.name='SecurityError';throw error},databases(){const error=new Error('opaque origins cannot access IndexedDB');error.name='SecurityError';return Promise.reject(error)}};`;
 const response=target.startsWith('data:,')?{result:'worker_script',source:opaquePrefix+decodeURIComponent(target.slice(6)),url:target,module:false}:contextCall({operation:'load_worker_script',page_id:__oryn_page_id,url:target,module:String(options.type||'classic')==='module'});if(response.result!=='worker_script')throw new Error('Worker script load failed');try{this.__id=__oryn_worker_create(response.source,response.url,!!response.module,this.__global);__oryn_workers.add(this);queueMicrotask(()=>this.__poll())}catch(error){this.__closed=true;queueMicrotask(()=>this.__event('error',{error,message:String(error)}))}}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}__poll(){if(this.__closed||!this.__id)return;for(const encoded of JSON.parse(__oryn_worker_take(this.__id))){this.__event('message',{data:JSON.parse(encoded),source:null})}}postMessage(data){if(this.__closed||!this.__id)return;__oryn_worker_post(this.__id,__oryn_worker_clone(data));queueMicrotask(()=>this.__poll())}terminate(){if(this.__id)__oryn_worker_terminate(this.__id);this.__closed=true;this.__id=0;__oryn_workers.delete(this)}}
 class OrynMessagePort {constructor(worker){this.__worker=worker;this.__onmessage=null;this.__listeners=new Map();this.__queue=[];this.__started=false;worker.addEventListener('message',event=>this.__enqueue(event.data))}get onmessage(){return this.__onmessage}set onmessage(callback){this.__onmessage=typeof callback==='function'?callback:null;if(this.__onmessage)this.start()}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=type==='message'?this.__onmessage:this['on'+type];if(typeof handler==='function')handler.call(this,event)}__enqueue(data){this.__queue.push(data);this.__flush()}__flush(){if(!this.__started)return;while(this.__queue.length)this.__event('message',{data:this.__queue.shift(),source:null})}postMessage(value){this.__worker.postMessage(value)}start(){this.__started=true;this.__flush()}close(){this.__queue.length=0;this.__worker.terminate()}}
-class OrynSharedWorker {constructor(url,options={}){this.__worker=new OrynWorker(url,{...options,orynGlobal:'sharedworker'});this.port=new OrynMessagePort(this.__worker);this.onerror=null;this.__worker.addEventListener('error',event=>{if(typeof this.onerror==='function')this.onerror(event)})}}
+class OrynSharedWorker {constructor(url,options={}){this.__listeners=new Map();this.__worker=new OrynWorker(url,{...options,orynGlobal:'sharedworker'});this.port=new OrynMessagePort(this.__worker);this.onerror=null;this.__worker.addEventListener('error',event=>this.__event('error',event))}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,event){for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}}
 class OrynServiceWorker {constructor(url,options={}){this.__worker=new OrynWorker(url,{...options,orynGlobal:'serviceworker'});this.state='activated';this.onmessage=null;this.__listeners=new Map();this.__worker.addEventListener('message',event=>this.__event('message',{data:event.data}))}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}postMessage(value){this.__worker.postMessage(value)}}
 globalThis.Worker=OrynWorker;globalThis.SharedWorker=OrynSharedWorker;globalThis.ServiceWorker=OrynServiceWorker;
 const __oryn_service_worker_container={controller:null,onmessage:null,__listeners:new Map(),addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)},register(url,options={}){const worker=new OrynServiceWorker(url,options);this.controller=worker;worker.addEventListener('message',event=>{for(const callback of this.__listeners.get('message')||[])callback.call(this,event);if(typeof this.onmessage==='function')this.onmessage(event)});return Promise.resolve({installing:null,waiting:null,active:worker,scope:new OrynURL('.',location.href).href,unregister(){worker.__worker.terminate();return Promise.resolve(true)}})},get ready(){return Promise.resolve({active:this.controller})}};
@@ -1777,12 +1837,15 @@ impl RustExecutableDocument {
                         page_id: *page_id,
                         url: source.clone(),
                         destination: "frame".into(),
+                        initiator_url: base_url.as_ref().map(url::Url::to_string),
+                        referrer_policy: None,
                     },
                 ) {
                     Ok(crate::context_service::ContextServiceResponse::PageResource {
                         url,
                         source: body,
                         destination,
+                        ..
                     }) if destination == "frame" => {
                         Some((Url::parse(&url).ok().or(requested_url.clone()), body))
                     }
@@ -1817,6 +1880,16 @@ impl RustExecutableDocument {
                 });
             }
             let child = html::parse_streamed(&frame_html, 4 * 1024);
+            let child_referrer_policy = child
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    html::ParserEvent::MetaReferrer { content } => Some(content.as_str()),
+                    _ => None,
+                })
+                .next_back()
+                .map(crate::referrer::ReferrerPolicy::parse_list)
+                .unwrap_or_default();
             let (frame_dom, child_document) = if same_origin {
                 let document = live_dom
                     .borrow_mut()
@@ -1869,6 +1942,14 @@ impl RustExecutableDocument {
                     "Object.assign(globalThis.location,new OrynURL({url}))"
                 ))?;
             }
+            let referrer = serde_json::to_string(base_url.as_ref().map_or("", url::Url::as_str))
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            host.execute(&format!("globalThis.__oryn_document_referrer={referrer}"))?;
+            host.execute(&format!(
+                "globalThis.__oryn_referrer_policy={}",
+                serde_json::to_string(child_referrer_policy.as_str())
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+            ))?;
             host.activate_realm(top_realm)?;
             host.ensure_provisional_frame_window(frame)?;
             if same_origin {
@@ -2502,7 +2583,7 @@ impl RustExecutableDocument {
         // preparation loop so recursive insertion is deterministic and cannot
         // monopolize the page worker indefinitely.
         for _ in 0..1024 {
-            let pending = self.host.take_pending_dynamic_scripts()?;
+            let pending = self.host.take_all_pending_dynamic_scripts()?;
             if pending.is_empty() {
                 return Ok(());
             }
@@ -2510,9 +2591,13 @@ impl RustExecutableDocument {
             let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
             #[cfg(unix)]
             let mut scheduled = 0usize;
-            for script in pending {
+            for (realm, script) in pending {
+                self.host.activate_realm(realm)?;
+                let active_dom = self.host.active_dom().ok_or_else(|| {
+                    HostError::Execution("dynamic-script realm DOM is unavailable".into())
+                })?;
                 let (script_type, src, nonce, inline) = {
-                    let dom = self.live_dom.borrow();
+                    let dom = active_dom.borrow();
                     let script_type = dom
                         .attribute(script, "type")
                         .map_err(|error| HostError::Execution(error.to_string()))?
@@ -2543,6 +2628,25 @@ impl RustExecutableDocument {
                     let page_id = *page_id;
                     let src = src.to_owned();
                     let nonce = nonce.clone();
+                    let initiator_url = self
+                        .host
+                        .evaluate_string("globalThis.__oryn_request_initiator_url")
+                        .ok()
+                        .filter(|value| !value.trim().is_empty())
+                        .or_else(|| self.host.evaluate_string("location.href").ok());
+                    let referrer_policy = active_dom
+                        .borrow()
+                        .attribute(script, "referrerpolicy")
+                        .ok()
+                        .flatten()
+                        .map(str::to_owned)
+                        .filter(|value| !value.trim().is_empty())
+                        .or_else(|| {
+                            self.host
+                                .evaluate_string("globalThis.__oryn_referrer_policy")
+                                .ok()
+                                .filter(|value| !value.trim().is_empty())
+                        });
                     scheduled = scheduled.saturating_add(1);
                     std::thread::spawn(move || {
                         let result = client
@@ -2551,6 +2655,8 @@ impl RustExecutableDocument {
                                 url: src,
                                 module,
                                 nonce,
+                                initiator_url,
+                                referrer_policy,
                             })
                             .map_err(|error| HostError::Execution(error.to_string()))
                             .and_then(|response| match response {
@@ -2563,7 +2669,7 @@ impl RustExecutableDocument {
                                     "parent returned an invalid dynamic-script response".into(),
                                 )),
                             });
-                        let _ = sender.send((script, module, result));
+                        let _ = sender.send((realm, script, module, result));
                     });
                     continue;
                 }
@@ -2577,9 +2683,10 @@ impl RustExecutableDocument {
             }
             #[cfg(unix)]
             for _ in 0..scheduled {
-                let (script, module, loaded) = completion_receiver.recv().map_err(|_| {
+                let (realm, script, module, loaded) = completion_receiver.recv().map_err(|_| {
                     HostError::Execution("dynamic-script scheduler disconnected".into())
                 })?;
+                self.host.activate_realm(realm)?;
                 self.finish_dynamic_script(script, module, loaded)?;
             }
         }
@@ -2600,8 +2707,35 @@ impl RustExecutableDocument {
             }
             for (parent_realm, frame) in pending {
                 self.host.activate_realm(parent_realm)?;
-                let (requested, mut srcdoc, opaque_sandbox) = {
-                    let dom = self.live_dom.borrow();
+                let parent_dom = self.host.active_dom().ok_or_else(|| {
+                    HostError::Execution("dynamic-frame realm DOM is unavailable".into())
+                })?;
+                let parent_url = self
+                    .host
+                    .evaluate_string("location.href")
+                    .ok()
+                    .and_then(|value| Url::parse(&value).ok())
+                    .or_else(|| self.base_url.clone());
+                let mut parent_policy = self
+                    .host
+                    .evaluate_string("globalThis.__oryn_referrer_policy")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty());
+                #[cfg(unix)]
+                if parent_policy.is_none()
+                    && let Some((client, page_id, _)) = &self.context
+                    && let Ok(crate::context_service::ContextServiceResponse::ReferrerPolicy {
+                        value,
+                    }) = client.request(
+                        crate::context_service::ContextServiceRequest::GetReferrerPolicy {
+                            page_id: *page_id,
+                        },
+                    )
+                {
+                    parent_policy = Some(value);
+                }
+                let (requested, mut srcdoc, opaque_sandbox, element_referrer_policy) = {
+                    let dom = parent_dom.borrow();
                     let requested = dom
                         .attribute(frame, "src")
                         .map_err(|error| HostError::Execution(error.to_string()))?
@@ -2619,8 +2753,14 @@ impl RustExecutableDocument {
                             .split_ascii_whitespace()
                             .any(|token| token.eq_ignore_ascii_case("allow-same-origin"))
                     });
-                    (requested, srcdoc, opaque_sandbox)
+                    let element_referrer_policy = dom
+                        .attribute(frame, "referrerpolicy")
+                        .map_err(|error| HostError::Execution(error.to_string()))?
+                        .map(str::to_owned)
+                        .filter(|value| !value.trim().is_empty());
+                    (requested, srcdoc, opaque_sandbox, element_referrer_policy)
                 };
+                let request_referrer_policy = element_referrer_policy.or(parent_policy.clone());
                 if requested.is_none() && srcdoc.is_none() {
                     // An iframe without src creates an inherited-origin
                     // about:blank document and a fully usable child realm.
@@ -2628,22 +2768,39 @@ impl RustExecutableDocument {
                 }
                 #[cfg(unix)]
                 let fetched = if let Some(source) = srcdoc.clone() {
-                    Some(("about:srcdoc".to_owned(), source))
+                    Some((
+                        "about:srcdoc".to_owned(),
+                        source,
+                        parent_url.as_ref().map_or_else(String::new, Url::to_string),
+                        parent_policy
+                            .clone()
+                            .unwrap_or_else(|| "strict-origin-when-cross-origin".into()),
+                    ))
                 } else if let (Some(requested), Some((client, page_id, _))) =
                     (requested.as_ref(), &self.context)
                 {
+                    let requested = parent_url
+                        .as_ref()
+                        .and_then(|base| base.join(requested).ok())
+                        .map_or_else(|| requested.clone(), |url| url.to_string());
                     match client.request(
                         crate::context_service::ContextServiceRequest::LoadPageResource {
                             page_id: *page_id,
                             url: requested.clone(),
                             destination: "frame".into(),
+                            initiator_url: parent_url.as_ref().map(Url::to_string),
+                            referrer_policy: request_referrer_policy,
                         },
                     ) {
                         Ok(crate::context_service::ContextServiceResponse::PageResource {
                             url,
                             source,
                             destination,
-                        }) if destination == "frame" => Some((url, source)),
+                            document_referrer,
+                            referrer_policy,
+                        }) if destination == "frame" => {
+                            Some((url, source, document_referrer, referrer_policy))
+                        }
                         Ok(_) => {
                             return Err(HostError::Execution(
                                 "parent returned an invalid dynamic-frame response".into(),
@@ -2659,49 +2816,64 @@ impl RustExecutableDocument {
                     }
                 } else if let Some(requested) = requested.as_ref() {
                     self.resources.get(requested).cloned().map(|source| {
-                        let url = self
-                            .base_url
+                        let url = parent_url
                             .as_ref()
                             .and_then(|base| base.join(requested).ok())
                             .map_or_else(|| requested.clone(), |url| url.to_string());
-                        (url, source)
+                        (
+                            url,
+                            source,
+                            parent_url.as_ref().map_or_else(String::new, Url::to_string),
+                            "strict-origin-when-cross-origin".into(),
+                        )
                     })
                 } else {
                     None
                 };
                 #[cfg(not(unix))]
                 let fetched = if let Some(source) = srcdoc.clone() {
-                    Some(("about:srcdoc".to_owned(), source))
+                    Some((
+                        "about:srcdoc".to_owned(),
+                        source,
+                        parent_url.as_ref().map_or_else(String::new, Url::to_string),
+                        parent_policy
+                            .clone()
+                            .unwrap_or_else(|| "strict-origin-when-cross-origin".into()),
+                    ))
                 } else if let Some(requested) = requested.as_ref() {
                     self.resources.get(requested).cloned().map(|source| {
-                        let url = self
-                            .base_url
+                        let url = parent_url
                             .as_ref()
                             .and_then(|base| base.join(requested).ok())
                             .map_or_else(|| requested.clone(), |url| url.to_string());
-                        (url, source)
+                        (
+                            url,
+                            source,
+                            parent_url.as_ref().map_or_else(String::new, Url::to_string),
+                            "strict-origin-when-cross-origin".into(),
+                        )
                     })
                 } else {
                     None
                 };
-                let Some((url, source)) = fetched else {
+                let Some((url, source, document_referrer, mut child_referrer_policy)) = fetched
+                else {
                     continue;
                 };
                 let is_srcdoc = srcdoc.is_some();
                 let frame_url = if is_srcdoc {
-                    self.base_url.clone()
+                    parent_url.clone()
                 } else {
                     Url::parse(&url)
                         .or_else(|_| {
-                            self.base_url
+                            parent_url
                                 .as_ref()
                                 .ok_or(url::ParseError::RelativeUrlWithoutBase)?
                                 .join(&url)
                         })
                         .ok()
                 };
-                let network_cross_origin = self
-                    .base_url
+                let network_cross_origin = parent_url
                     .as_ref()
                     .zip(frame_url.as_ref())
                     .is_some_and(|(parent, child)| parent.origin() != child.origin());
@@ -2719,6 +2891,19 @@ impl RustExecutableDocument {
                     });
                 }
                 let parsed = html::parse_streamed(&source, 4 * 1024);
+                if let Some(content) = parsed
+                    .events
+                    .iter()
+                    .filter_map(|event| match event {
+                        html::ParserEvent::MetaReferrer { content } => Some(content.as_str()),
+                        _ => None,
+                    })
+                    .next_back()
+                {
+                    child_referrer_policy = crate::referrer::ReferrerPolicy::parse_list(content)
+                        .as_str()
+                        .into();
+                }
                 let (frame_dom, child_document) = if cross_origin {
                     let document = parsed.document;
                     let runtime = parsed
@@ -2726,16 +2911,15 @@ impl RustExecutableDocument {
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                     (Rc::new(RefCell::new(runtime)), document)
                 } else {
-                    let document = self
-                        .live_dom
+                    let document = parent_dom
                         .borrow_mut()
                         .import_subtree(&parsed.dom, parsed.document)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
-                    self.live_dom
+                    parent_dom
                         .borrow_mut()
                         .append_child(frame, document)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
-                    (self.live_dom.clone(), document)
+                    (parent_dom.clone(), document)
                 };
                 let realm = self.host.create_realm_with_dom_root(
                     frame_url
@@ -2748,7 +2932,7 @@ impl RustExecutableDocument {
                     frame_dom.clone(),
                     child_document,
                 )?;
-                if !cross_origin {
+                if !cross_origin && Rc::ptr_eq(&parent_dom, &self.live_dom) {
                     for node in subtree_nodes(&frame_dom.borrow(), child_document)? {
                         self.node_realms.insert(node, realm);
                     }
@@ -2787,6 +2971,22 @@ impl RustExecutableDocument {
                             HostError::Execution(format!("dynamic frame location: {error}"))
                         })?;
                 }
+                let referrer = serde_json::to_string(&document_referrer)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                self.host
+                    .execute(&format!("globalThis.__oryn_document_referrer={referrer}"))?;
+                let child_referrer_policy = serde_json::to_string(&child_referrer_policy)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                self.host.execute(&format!(
+                    "globalThis.__oryn_referrer_policy={child_referrer_policy}"
+                ))?;
+                let request_initiator = serde_json::to_string(
+                    &frame_url.as_ref().map_or_else(String::new, Url::to_string),
+                )
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+                self.host.execute(&format!(
+                    "globalThis.__oryn_request_initiator_url={request_initiator}"
+                ))?;
                 if opaque_sandbox {
                     self.host
                         .execute("location.origin='null';globalThis.__oryn_opaque_origin=true")
@@ -2949,12 +3149,25 @@ impl RustExecutableDocument {
 
         #[cfg(unix)]
         if let Some((client, page_id, _)) = &self.context {
+            let initiator_url = self
+                .host
+                .evaluate_string("globalThis.__oryn_request_initiator_url")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| self.host.evaluate_string("location.href").ok());
+            let referrer_policy = self
+                .host
+                .evaluate_string("globalThis.__oryn_referrer_policy")
+                .ok()
+                .filter(|value| !value.trim().is_empty());
             let response = client
                 .request(crate::context_service::ContextServiceRequest::LoadScript {
                     page_id: *page_id,
                     url: src.to_owned(),
                     module,
                     nonce: nonce.map(str::to_owned),
+                    initiator_url,
+                    referrer_policy,
                 })
                 .map_err(|error| HostError::Execution(error.to_string()))?;
             let crate::context_service::ContextServiceResponse::ScriptSource {
@@ -3039,31 +3252,13 @@ impl RustExecutableDocument {
         submits_form: bool,
         source_realm: oryn_js::realm::RealmId,
     ) -> Result<(), HostError> {
-        let source_document = {
-            let dom = self.live_dom.borrow();
-            let mut candidate = Some(target);
-            let mut document = None;
-            while let Some(node) = candidate {
-                let record = dom
-                    .arena()
-                    .get(node)
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                if matches!(record.kind, NodeKind::Document) {
-                    document = Some(node);
-                    break;
-                }
-                candidate = record.parent;
-            }
-            document.unwrap_or_else(|| dom.document())
-        };
-        let source_realm = self
-            .node_realms
-            .get(&source_document)
-            .copied()
-            .unwrap_or(source_realm);
         self.host.activate_realm(source_realm)?;
-        let (href, target_name) = {
-            let dom = self.live_dom.borrow();
+        let source_dom = self.host.active_dom().ok_or_else(|| {
+            HostError::Execution("default-action realm DOM is unavailable".into())
+        })?;
+        self.host.activate_realm(source_realm)?;
+        let (href, target_name, navigation_referrer_policy) = {
+            let dom = source_dom.borrow();
             let mut candidate = Some(target);
             let mut result = None;
             while let Some(node) = candidate {
@@ -3079,6 +3274,21 @@ impl RustExecutableDocument {
                         result = Some((
                             href.clone(),
                             record.attributes.get("target").cloned().unwrap_or_default(),
+                            record
+                                .attributes
+                                .get("referrerpolicy")
+                                .cloned()
+                                .or_else(|| {
+                                    record
+                                        .attributes
+                                        .get("rel")
+                                        .is_some_and(|value| {
+                                            value.split_ascii_whitespace().any(|token| {
+                                                token.eq_ignore_ascii_case("noreferrer")
+                                            })
+                                        })
+                                        .then(|| "no-referrer".into())
+                                }),
                         ));
                         break;
                     }
@@ -3088,6 +3298,7 @@ impl RustExecutableDocument {
                         result = Some((
                             record.attributes.get("action").cloned().unwrap_or_default(),
                             record.attributes.get("target").cloned().unwrap_or_default(),
+                            None,
                         ));
                         break;
                     }
@@ -3100,7 +3311,11 @@ impl RustExecutableDocument {
             result
         };
         let resolved = self
-            .base_url
+            .host
+            .evaluate_string("location.href")
+            .ok()
+            .and_then(|value| Url::parse(&value).ok())
+            .or_else(|| self.base_url.clone())
             .as_ref()
             .and_then(|base| base.join(&href).ok())
             .or_else(|| Url::parse(&href).ok())
@@ -3143,7 +3358,7 @@ impl RustExecutableDocument {
             )
         {
             let target_frame = {
-                let dom = self.live_dom.borrow();
+                let dom = source_dom.borrow();
                 dom.arena().iter().find_map(|(frame, record)| {
                     let is_iframe = matches!(
                         &record.kind,
@@ -3160,29 +3375,17 @@ impl RustExecutableDocument {
                 })
             };
             if let Some(frame) = target_frame {
-                let frame_owner_realm = {
-                    let dom = self.live_dom.borrow();
-                    let mut candidate = dom.arena().get(frame).ok().and_then(|node| node.parent);
-                    let mut document = None;
-                    while let Some(node) = candidate {
-                        let Ok(record) = dom.arena().get(node) else {
-                            break;
-                        };
-                        if matches!(record.kind, NodeKind::Document) {
-                            document = Some(node);
-                            break;
-                        }
-                        candidate = record.parent;
-                    }
-                    document
-                        .and_then(|document| self.node_realms.get(&document).copied())
-                        .unwrap_or(source_realm)
-                };
-                self.live_dom
+                source_dom
                     .borrow_mut()
                     .set_attribute(frame, "src", &resolved)
                     .map_err(|error| HostError::Execution(error.to_string()))?;
-                self.host.activate_realm(frame_owner_realm)?;
+                if let Some(policy) = navigation_referrer_policy {
+                    source_dom
+                        .borrow_mut()
+                        .set_attribute(frame, "referrerpolicy", &policy)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                }
+                self.host.activate_realm(source_realm)?;
                 self.host.reschedule_dynamic_frame(frame)?;
                 return Ok(());
             }
@@ -3869,7 +4072,7 @@ mod tests {
     fn nested_named_frame_navigation_reports_through_its_owner_realm() {
         let resources = BTreeMap::from([
             (
-                "https://frame.example.test/source".into(),
+                "https://source.example.test/source".into(),
                 r#"<script>
                 addEventListener('message',event=>{
                   if(event.data==='start'){
@@ -3914,6 +4117,66 @@ mod tests {
             .evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
             .unwrap();
         assert_eq!(actual, "https://frame.example.test/source|complete");
+    }
+
+    #[test]
+    fn concurrent_nested_frame_messages_are_cloned_and_attributed_to_the_direct_source() {
+        let resources = BTreeMap::from([
+            (
+                "https://source.example.test/source".into(),
+                r#"<script>
+                addEventListener('message',event=>{
+                  if(!event.data || event.data.kind!=='start') return;
+                  const target=document.createElement('iframe');
+                  target.name=event.data.name;
+                  document.body.appendChild(target);
+                  addEventListener('message',result=>{
+                    if(result.source===target.contentWindow)
+                      parent.postMessage({sourceContextUrl:location.toString(),value:result.data,index:event.data.index},'*');
+                  });
+                  const link=document.createElement('a');
+                  link.href='https://target.example.test/result?index='+event.data.index;link.target=event.data.name;
+                  document.body.appendChild(link);link.click();
+                });
+                </script>"#
+                    .into(),
+            ),
+            (
+                "https://target.example.test/result?index=0".into(),
+                "<script>const value={index:0,nested:{ok:true},referrer:document.referrer};parent.postMessage(value,'*');value.nested.ok=false</script>".into(),
+            ),
+            (
+                "https://target.example.test/result?index=1".into(),
+                "<script>const value={index:1,nested:{ok:true},referrer:document.referrer};parent.postMessage(value,'*');value.nested.ok=false</script>".into(),
+            ),
+        ]);
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<output id=result></output><script>
+            const sources=[];const received=[];
+            addEventListener('message',event=>{
+              const sourceIndex=sources.findIndex(frame=>event.source===frame.contentWindow);
+              received.push({sourceIndex,data:event.data});
+              if(received.length===2)
+                document.querySelector('#result').textContent=JSON.stringify(received.sort((a,b)=>a.data.index-b.data.index));
+            });
+            for(let index=0;index<2;index++){
+              const source=document.createElement('iframe');sources.push(source);
+              source.onload=()=>source.contentWindow.postMessage({kind:'start',index,name:'result-'+index},'*');
+              source.src='https://source.example.test/source';document.body.appendChild(source);
+            }
+            </script>"#,
+            &resources,
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        let actual = page
+            .evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+            .unwrap();
+        assert_eq!(
+            actual,
+            r#"[{"sourceIndex":0,"data":{"sourceContextUrl":"https://source.example.test/source","value":{"index":0,"nested":{"ok":true},"referrer":"https://source.example.test/source"},"index":0}},{"sourceIndex":1,"data":{"sourceContextUrl":"https://source.example.test/source","value":{"index":1,"nested":{"ok":true},"referrer":"https://source.example.test/source"},"index":1}}]"#
+        );
     }
 
     #[test]
