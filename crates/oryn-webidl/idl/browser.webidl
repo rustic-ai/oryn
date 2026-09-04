@@ -61,15 +61,22 @@ interface URL {
 
 [Exposed=(Window,Worker)]
 interface Event {
+  const unsigned short NONE = 0;
+  const unsigned short CAPTURING_PHASE = 1;
+  const unsigned short AT_TARGET = 2;
+  const unsigned short BUBBLING_PHASE = 3;
   constructor(DOMString type, optional EventInit eventInitDict);
   readonly attribute DOMString type;
   readonly attribute EventTarget? target;
+  readonly attribute EventTarget? srcElement;
   readonly attribute EventTarget? currentTarget;
+  readonly attribute unsigned short eventPhase;
   readonly attribute boolean bubbles;
   readonly attribute boolean cancelable;
-  readonly attribute boolean isTrusted;
+  [LegacyUnforgeable] readonly attribute boolean isTrusted;
   readonly attribute boolean defaultPrevented;
   attribute boolean returnValue;
+  readonly attribute double timeStamp;
   sequence<EventTarget> composedPath();
   undefined initEvent(DOMString type, optional boolean bubbles = false, optional boolean cancelable = false);
   undefined preventDefault();

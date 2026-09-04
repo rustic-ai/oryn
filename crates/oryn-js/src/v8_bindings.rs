@@ -121,6 +121,7 @@ struct PlatformEventListener {
     capture: bool,
     once: bool,
     passive: bool,
+    signal_id: Option<u64>,
 }
 
 type PlatformListenerMap = BTreeMap<(u64, String), Vec<PlatformEventListener>>;
@@ -2398,21 +2399,23 @@ fn dom_exception_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     name: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+    if let Some(constructor_key) = v8::String::new(scope, "DOMException")
+        && let Some(constructor) = global.get(scope, constructor_key.into())
+        && let Ok(constructor) = v8::Local::<v8::Function>::try_from(constructor)
+    {
+        let message = v8_string(scope, name)?;
+        let exception_name = v8_string(scope, name)?;
+        if let Some(object) = constructor.new_instance(scope, &[message, exception_name]) {
+            return Ok(object.into());
+        }
+    }
     let object = v8::Object::new(scope);
     let name_value = v8_string(scope, name)?;
     set_object_property(scope, object, "name", name_value)?;
     let message = v8_string(scope, name)?;
     set_object_property(scope, object, "message", message)?;
-    let context = scope.get_current_context();
-    let global = context.global(scope);
-    if let Some(constructor_key) = v8::String::new(scope, "DOMException")
-        && let Some(constructor) = global.get(scope, constructor_key.into())
-        && let Ok(constructor) = v8::Local::<v8::Object>::try_from(constructor)
-        && let Some(prototype_key) = v8::String::new(scope, "prototype")
-        && let Some(prototype) = constructor.get(scope, prototype_key.into())
-    {
-        object.set_prototype(scope, prototype);
-    }
     Ok(object.into())
 }
 
@@ -3346,8 +3349,8 @@ fn idb_key_range_static(
         let first = idb_key_from_value(scope, args.get(0)).map(idb_key_to_json)?;
         let (lower, upper, lower_open, upper_open) = match mode {
             0 => (Some(first.clone()), Some(first), false, false),
-            1 => (Some(first), None, args.get(1).boolean_value(scope), false),
-            2 => (None, Some(first), false, args.get(1).boolean_value(scope)),
+            1 => (Some(first), None, args.get(1).boolean_value(scope), true),
+            2 => (None, Some(first), true, args.get(1).boolean_value(scope)),
             _ => {
                 let second = idb_key_from_value(scope, args.get(1)).map(idb_key_to_json)?;
                 (
@@ -6360,6 +6363,10 @@ fn generated_constructor<'s>(
         "Event" | "CustomEvent" | "MouseEvent" | "InputEvent" | "IDBVersionChangeEvent"
     ) && args.is_construct_call()
     {
+        if args.length() == 0 {
+            throw_type_error(scope, "Event constructor requires a type");
+            return;
+        }
         let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
             throw_type_error(scope, "generated binding state is unavailable");
             return;
@@ -7130,7 +7137,42 @@ fn call_platform_event_target<'s>(
                 .is_some_and(|value| value.boolean_value(scope));
             let passive = option_value(scope, options, "passive")
                 .is_some_and(|value| value.boolean_value(scope));
-            if !callback.is_null_or_undefined() && (callback.is_function() || callback.is_object())
+            let signal = option_value(scope, options, "signal");
+            if signal.is_some_and(|signal| signal.is_null()) {
+                return Err(V8BindingError::Unsupported {
+                    interface: "EventTarget".into(),
+                    member: "TypeError: signal must be an AbortSignal".into(),
+                });
+            }
+            let signal_id = signal
+                .filter(|signal| !signal.is_undefined())
+                .map(|signal| {
+                    let object = signal.to_object(scope).ok_or(V8BindingError::Unsupported {
+                        interface: "EventTarget".into(),
+                        member: "TypeError: signal must be an AbortSignal".into(),
+                    })?;
+                    let signal_id = stateful_id(scope, object)?;
+                    if !matches!(
+                        &*platform_object(state, signal_id)?,
+                        PlatformObjectRecord::AbortSignal(_)
+                    ) {
+                        return Err(V8BindingError::Unsupported {
+                            interface: "EventTarget".into(),
+                            member: "TypeError: signal must be an AbortSignal".into(),
+                        });
+                    }
+                    Ok(signal_id)
+                })
+                .transpose()?;
+            let signal_aborted = signal_id.is_some_and(|signal_id| {
+                matches!(
+                    &*platform_object(state, signal_id).expect("validated AbortSignal"),
+                    PlatformObjectRecord::AbortSignal(signal) if signal.aborted
+                )
+            });
+            if !callback.is_null_or_undefined()
+                && (callback.is_function() || callback.is_object())
+                && !signal_aborted
             {
                 let mut listeners = state.platform_listeners.borrow_mut();
                 let listeners = listeners.entry((id, event_type)).or_default();
@@ -7143,6 +7185,7 @@ fn call_platform_event_target<'s>(
                         capture,
                         once,
                         passive,
+                        signal_id,
                     });
                 }
             }
@@ -7372,6 +7415,14 @@ fn dispatch_platform_event_capturing(
     let receiver = target.map_or_else(|| v8::undefined(scope).into(), Into::into);
     let mut threw = false;
     for listener in callbacks {
+        if listener.signal_id.is_some_and(|signal_id| {
+            matches!(
+                &*platform_object(state, signal_id).expect("validated AbortSignal listener"),
+                PlatformObjectRecord::AbortSignal(signal) if signal.aborted
+            )
+        }) {
+            continue;
+        }
         if listener.once
             && let Some(listeners) = state
                 .platform_listeners
@@ -12399,6 +12450,9 @@ fn abort_signal_with_reason(
         }
     }
     for signal_id in order {
+        for listeners in state.platform_listeners.borrow_mut().values_mut() {
+            listeners.retain(|listener| listener.signal_id != Some(signal_id));
+        }
         let operations = state
             .pending_platform_operations
             .borrow()
@@ -12684,6 +12738,12 @@ fn call_platform_operation<'s>(
             return Ok(Some(promise.into()));
         }
         ("IDBKeyRange", "includes") => {
+            if args.length() == 0 {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBKeyRange".into(),
+                    member: "TypeError: key is required".into(),
+                });
+            }
             let key = idb_key_from_value(scope, args.get(0))?;
             let record = platform_object(state, id)?;
             let PlatformObjectRecord::IdbKeyRange(range) = &*record else {
@@ -20189,17 +20249,20 @@ fn get_event_attribute<'s>(
     match member {
         "type" => v8_string(scope, &event.event_type),
         "target" => optional_event_target(scope, state, event.target, event.platform_target),
+        "srcElement" => optional_event_target(scope, state, event.target, event.platform_target),
         "currentTarget" => optional_event_target(
             scope,
             state,
             event.current_target,
             event.platform_current_target,
         ),
+        "eventPhase" => Ok(v8::Integer::new_from_unsigned(scope, 0).into()),
         "bubbles" => Ok(v8::Boolean::new(scope, event.bubbles).into()),
         "cancelable" => Ok(v8::Boolean::new(scope, event.cancelable).into()),
         "isTrusted" => Ok(v8::Boolean::new(scope, event.is_trusted).into()),
         "defaultPrevented" => Ok(v8::Boolean::new(scope, event.default_prevented).into()),
         "returnValue" => Ok(v8::Boolean::new(scope, !event.default_prevented).into()),
+        "timeStamp" => Ok(v8::Number::new(scope, 1.0).into()),
         _ => Ok(v8::undefined(scope).into()),
     }
 }
@@ -20528,37 +20591,11 @@ fn throw_binding_error(scope: &mut v8::PinScope, error: &V8BindingError) {
         throw_type_error(scope, &error.to_string());
         return;
     }
-    let Some(message) = v8::String::new(scope, &error.to_string()) else {
-        return;
-    };
-    let exception = v8::Exception::error(scope, message);
-    if let Ok(object) = v8::Local::<v8::Object>::try_from(exception)
-        && let (Some(name_key), Some(name)) = (
-            v8::String::new(scope, "name"),
-            v8::String::new(scope, member),
-        )
-    {
-        object.create_data_property(scope, name_key.into(), name.into());
-        let code = dom_exception_code(member);
-        if let Some(code_key) = v8::String::new(scope, "code") {
-            object.create_data_property(
-                scope,
-                code_key.into(),
-                v8::Integer::new(scope, code).into(),
-            );
-        }
-        let context = scope.get_current_context();
-        let global = context.global(scope);
-        if let Some(constructor_key) = v8::String::new(scope, "DOMException")
-            && let Some(constructor) = global.get(scope, constructor_key.into())
-            && let Ok(constructor) = v8::Local::<v8::Object>::try_from(constructor)
-            && let Some(prototype_key) = v8::String::new(scope, "prototype")
-            && let Some(prototype) = constructor.get(scope, prototype_key.into())
-        {
-            object.set_prototype(scope, prototype);
-        }
+    if let Ok(exception) = dom_exception_value(scope, member) {
+        scope.throw_exception(exception);
+    } else {
+        throw_type_error(scope, &error.to_string());
     }
-    scope.throw_exception(exception);
 }
 
 fn dom_exception_code(name: &str) -> i32 {
