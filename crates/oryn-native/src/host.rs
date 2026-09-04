@@ -2274,6 +2274,14 @@ mod raw_v8 {
             constructor(type, init = {}) { this.type = String(type); this.defaultPrevented = false; Object.assign(this, init); }
             preventDefault() { this.defaultPrevented = true; }
           };
+          class WorkerMessageEvent extends WorkerEvent {
+            constructor(type, init = {}) {
+              super(type, init);
+              for (const [name, value] of Object.entries({data:null, origin:'', lastEventId:'', source:null, ports:[], ...init})) {
+                if (!(name in this)) Object.defineProperty(this, name, {value, enumerable:true, configurable:true});
+              }
+            }
+          }
           const WorkerEventTarget = globalThis.EventTarget || class WorkerEventTarget {
             addEventListener(type, callback) {
               const key = String(type), list = this.__listeners?.get(key) || [];
@@ -2304,7 +2312,7 @@ mod raw_v8 {
           };
           globalThis.self = globalThis;
           globalThis.Event = WorkerEvent;
-          globalThis.MessageEvent = WorkerEvent;
+          globalThis.MessageEvent = WorkerMessageEvent;
           globalThis.EventTarget = WorkerEventTarget;
           globalThis.queueMicrotask = callback => Promise.resolve().then(callback);
           globalThis.setTimeout = (callback, delay = 0, ...args) => __oryn_timer_schedule(callback, delay, false, args);
@@ -3796,6 +3804,26 @@ mod tests {
             assert_eq!(payload["tag"], format!("[object {expected}]"));
             assert_eq!(payload["matches"], true);
         }
+    }
+
+    #[test]
+    fn shared_worker_connect_event_exposes_its_message_port() {
+        let mut host = RawV8Host::new();
+        let source = serde_json::to_string(
+            "addEventListener('connect',event=>event.ports[0].postMessage({ports:event.ports.length,source:event.source===event.ports[0]}))",
+        )
+        .unwrap();
+        let id = host
+            .evaluate_string(&format!(
+                "__oryn_worker_create({source},'https://example.test/worker.js',false,'sharedworker')"
+            ))
+            .unwrap();
+        let messages = host
+            .evaluate_string(&format!("__oryn_worker_take({id})"))
+            .unwrap();
+        let messages: Vec<String> = serde_json::from_str(&messages).unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&messages[0]).unwrap();
+        assert_eq!(payload, serde_json::json!({"ports": 1, "source": true}));
     }
 
     #[test]

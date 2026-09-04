@@ -4226,6 +4226,15 @@ fn submit_idb(
         PlatformObjectRecord::IdbRequest(request) => request.transaction_id,
         _ => None,
     };
+    // A request success event makes its transaction active for the whole
+    // event task, including the microtask checkpoint. `finish_idb_request`
+    // may already have staged the auto-commit task before a promise
+    // continuation issues the next request. That staged task has not run yet,
+    // so extending the transaction must revoke it. Explicit `commit()` is
+    // intentionally irreversible and is therefore excluded here.
+    if let Some(transaction_id) = transaction_id {
+        revoke_staged_idb_auto_commit(state, transaction_id)?;
+    }
     let command = if let Some(transaction_id) = transaction_id {
         let transaction = platform_object(state, transaction_id)?;
         let PlatformObjectRecord::IdbTransaction(transaction) = &*transaction else {
@@ -4266,6 +4275,42 @@ fn submit_idb(
             &mut *platform_object_mut(state, transaction_id)?
     {
         transaction.pending_requests = transaction.pending_requests.saturating_add(1);
+    }
+    Ok(())
+}
+
+fn revoke_staged_idb_auto_commit(
+    state: &V8BindingState,
+    transaction_id: u64,
+) -> Result<(), V8BindingError> {
+    let revoke = matches!(
+        &*platform_object(state, transaction_id)?,
+        PlatformObjectRecord::IdbTransaction(transaction)
+            if transaction.completion_queued && !transaction.explicit_commit
+    );
+    if !revoke {
+        return Ok(());
+    }
+    state.deferred_platform_tasks.borrow_mut().retain(|task| {
+        !matches!(
+            task,
+            DeferredPlatformTask::Event {
+                target_id,
+                event_type: "complete",
+            } if *target_id == transaction_id
+        ) && !matches!(
+            task,
+            DeferredPlatformTask::FinalizeIdbTransaction {
+                transaction_id: queued_id,
+                commit: true,
+            } if *queued_id == transaction_id
+        )
+    });
+    if let PlatformObjectRecord::IdbTransaction(transaction) =
+        &mut *platform_object_mut(state, transaction_id)?
+    {
+        transaction.completion_requested = false;
+        transaction.completion_queued = false;
     }
     Ok(())
 }
@@ -13638,6 +13683,7 @@ fn call_platform_operation<'s>(
                 }
             }
             if mutation_revision == idb_transaction_mutation_revision(state, transaction_id) {
+                revoke_staged_idb_auto_commit(state, transaction_id)?;
                 let next_index = {
                     let record = platform_object(state, id)?;
                     let PlatformObjectRecord::IdbCursor(cursor) = &*record else {

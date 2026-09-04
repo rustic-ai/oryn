@@ -2907,6 +2907,9 @@ mod tests {
                             headers: Vec::new(),
                             body_base64: String::new(),
                             credentials: false,
+                            credentials_mode: None,
+                            initiator_url: None,
+                            referrer_policy: None,
                         },
                     })
                 })
@@ -2950,6 +2953,9 @@ mod tests {
                             headers: Vec::new(),
                             body_base64: String::new(),
                             credentials: false,
+                            credentials_mode: None,
+                            initiator_url: None,
+                            referrer_policy: None,
                         },
                     })
                     .unwrap(),
@@ -2982,6 +2988,8 @@ mod tests {
                 url: "/slow.js".into(),
                 module: false,
                 nonce: None,
+                initiator_url: None,
+                referrer_policy: None,
             })
         });
         std::thread::sleep(Duration::from_millis(10));
@@ -3017,6 +3025,9 @@ mod tests {
                     headers: Vec::new(),
                     body_base64: String::new(),
                     credentials: true,
+                    credentials_mode: None,
+                    initiator_url: None,
+                    referrer_policy: None,
                 },
             })
             .expect("accept response headers");
@@ -3064,6 +3075,9 @@ mod tests {
                     ],
                     body_base64: String::new(),
                     credentials: true,
+                    credentials_mode: None,
+                    initiator_url: None,
+                    referrer_policy: None,
                 },
             })
             .expect("start stream");

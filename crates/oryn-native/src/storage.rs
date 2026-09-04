@@ -1311,7 +1311,13 @@ fn indexed_db_key_matches(query: &serde_json::Value, key: &serde_json::Value) ->
             .and_then(|value| value.as_bool())
             == Some(true)
     }) else {
-        return query == key;
+        // JSON preserves whether a number was encoded as an integer or a
+        // floating-point literal, while IndexedDB has one numeric key domain.
+        // Compare keys by the IndexedDB ordering algorithm so `1` and `1.0`
+        // address the same index entry.
+        return encode_key(query).is_ok()
+            && encode_key(key).is_ok()
+            && compare_indexed_db_keys(query, key).is_eq();
     };
     let lower_matches = range
         .get("lower")
@@ -2431,6 +2437,10 @@ mod tests {
             ))
             .unwrap()
         );
+        assert!(indexed_db_key_matches(
+            &serde_json::json!(1),
+            &serde_json::Value::Number(serde_json::Number::from_f64(1.0).unwrap())
+        ));
         let range = serde_json::json!({
             "__oryn_key_range": true,
             "lower": 2,
