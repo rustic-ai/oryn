@@ -1332,11 +1332,23 @@ mod raw_v8 {
                 .map(|state| state.take_pending_dynamic_scripts())
         }
 
-        pub fn take_pending_dynamic_frames(&self) -> Result<Vec<NodeId>, HostError> {
-            self.binding_states
+        pub fn take_all_pending_dynamic_frames(&self) -> Result<Vec<(RealmId, NodeId)>, HostError> {
+            let active_dom = self
+                .binding_states
                 .get(&self.active_realm)
                 .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))
-                .map(|state| state.take_pending_dynamic_frames())
+                .map(|state| state.dom())?;
+            Ok(self
+                .binding_states
+                .iter()
+                .filter(|(_, state)| Rc::ptr_eq(&state.dom(), &active_dom))
+                .flat_map(|(realm, state)| {
+                    state
+                        .take_pending_dynamic_frames()
+                        .into_iter()
+                        .map(|frame| (*realm, frame))
+                })
+                .collect())
         }
 
         pub fn take_pending_default_actions(

@@ -2594,12 +2594,12 @@ impl RustExecutableDocument {
         // fixed point in the same page task so its successor does not depend
         // on an unrelated future command ticking the page.
         for _ in 0..1024 {
-            let pending = self.host.take_pending_dynamic_frames()?;
+            let pending = self.host.take_all_pending_dynamic_frames()?;
             if pending.is_empty() {
                 return Ok(());
             }
-            for frame in pending {
-                let parent_realm = self.host.active_realm();
+            for (parent_realm, frame) in pending {
+                self.host.activate_realm(parent_realm)?;
                 let (requested, mut srcdoc, opaque_sandbox) = {
                     let dom = self.live_dom.borrow();
                     let requested = dom
