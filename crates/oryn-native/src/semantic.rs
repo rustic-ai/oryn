@@ -1635,28 +1635,46 @@ pub(crate) fn accessibility_for_node(dom: &DomArena, id: NodeId) -> Option<(Stri
 
 fn host_label(dom: &DomArena, id: NodeId) -> Option<(String, NodeId)> {
     let node = dom.get(id).ok()?;
-    if let Some(control_id) = node.attributes.get("id")
-        && let Some((label_id, text)) = dom.iter().find_map(|(candidate, label)| {
-            matches!(&label.kind, NodeKind::Element { name } if name.local.as_ref() == "label")
-                .then_some(())
-                .filter(|_| label.attributes.get("for") == Some(control_id))
-                .filter(|_| tree_scope(dom, candidate) == tree_scope(dom, id))
-                .and_then(|_| {
-                    dom.text_content(candidate)
-                        .ok()
-                        .map(|text| (candidate, text))
-                })
-        })
-    {
-        let text = normalize_text(&text);
-        if !text.is_empty() {
-            return Some((text, label_id));
+    if let Some(control_id) = node.attributes.get("id") {
+        let labels = dom
+            .iter()
+            .filter(|(candidate, label)| {
+                matches!(&label.kind, NodeKind::Element { name } if name.local.as_ref() == "label")
+                    && label.attributes.get("for") == Some(control_id)
+                    && tree_scope(dom, *candidate) == tree_scope(dom, id)
+            })
+            .filter_map(|(candidate, _)| {
+                let text = normalize_text(&accessible_text_content_excluding(
+                    dom,
+                    candidate,
+                    true,
+                    Some(id),
+                ));
+                (!text.is_empty()).then_some((candidate, text))
+            })
+            .collect::<Vec<_>>();
+        if let Some((first, _)) = labels.first() {
+            return Some((
+                labels
+                    .iter()
+                    .map(|(_, text)| text.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                *first,
+            ));
         }
     }
     dom.ancestors(id).ok()?.into_iter().find_map(|ancestor| {
         let ancestor_node = dom.get(ancestor).ok()?;
         matches!(&ancestor_node.kind, NodeKind::Element { name } if name.local.as_ref() == "label")
-            .then(|| normalize_text(&dom.text_content(ancestor).unwrap_or_default()))
+            .then(|| {
+                normalize_text(&accessible_text_content_excluding(
+                    dom,
+                    ancestor,
+                    true,
+                    Some(id),
+                ))
+            })
             .filter(|text| !text.is_empty())
             .map(|text| (text, ancestor))
     })
@@ -1765,6 +1783,18 @@ fn host_language_name(
 /// name-from-content, and includes host-language alternatives such as image
 /// `alt` text that raw DOM textContent omits.
 fn accessible_text_content(dom: &DomArena, id: NodeId, include_hidden_root: bool) -> String {
+    accessible_text_content_excluding(dom, id, include_hidden_root, None)
+}
+
+fn accessible_text_content_excluding(
+    dom: &DomArena,
+    id: NodeId,
+    include_hidden_root: bool,
+    excluded: Option<NodeId>,
+) -> String {
+    if Some(id) == excluded {
+        return String::new();
+    }
     let Ok(node) = dom.get(id) else {
         return String::new();
     };
@@ -1797,13 +1827,181 @@ fn accessible_text_content(dom: &DomArena, id: NodeId, include_hidden_root: bool
                 }
             })
         }
-        _ => node
+        NodeKind::Element { name } if name.local.as_ref() == "input" => {
+            let role = computed_role(name.local.as_ref(), &node.attributes);
+            if matches!(role.as_str(), "slider" | "spinbutton") {
+                node.attributes
+                    .get("aria-valuetext")
+                    .or_else(|| node.attributes.get("aria-valuenow"))
+                    .cloned()
+                    .or_else(|| node.value.clone())
+                    .or_else(|| node.attributes.get("value").cloned())
+                    .unwrap_or_default()
+            } else {
+                node.value
+                    .clone()
+                    .or_else(|| node.attributes.get("value").cloned())
+                    .unwrap_or_default()
+            }
+        }
+        NodeKind::Element { name } if name.local.as_ref() == "select" => node
             .children
             .iter()
-            .map(|child| accessible_text_content(dom, *child, false))
-            .filter(|value| !value.is_empty())
-            .collect::<String>(),
+            .filter_map(|child| dom.get(*child).ok().map(|node| (*child, node)))
+            .find(|(_, option)| {
+                option.attributes.contains_key("selected")
+                    || option
+                        .attributes
+                        .get("aria-selected")
+                        .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+            })
+            .or_else(|| {
+                node.children
+                    .iter()
+                    .filter_map(|child| dom.get(*child).ok().map(|node| (*child, node)))
+                    .find(|(_, option)| {
+                        matches!(&option.kind, NodeKind::Element { name } if name.local.as_ref() == "option")
+                    })
+            })
+            .map(|(option, _)| {
+                accessible_text_content_excluding(dom, option, false, excluded)
+            })
+            .unwrap_or_default(),
+        NodeKind::Element { name }
+            if matches!(
+                computed_role(name.local.as_ref(), &node.attributes).as_str(),
+                "listbox" | "combobox"
+            ) =>
+        {
+            descendants(dom, id)
+                .into_iter()
+                .filter_map(|candidate| dom.get(candidate).ok().map(|node| (candidate, node)))
+                .find(|(_, option)| {
+                    matches!(&option.kind, NodeKind::Element { name }
+                        if computed_role(name.local.as_ref(), &option.attributes) == "option")
+                        && option
+                            .attributes
+                            .get("aria-selected")
+                            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+                })
+                .map(|(option, _)| {
+                    accessible_text_content_excluding(dom, option, false, excluded)
+                })
+                .unwrap_or_else(|| {
+                    node.children
+                        .iter()
+                        .map(|child| {
+                            accessible_text_content_excluding(dom, *child, false, excluded)
+                        })
+                        .filter(|value| !value.is_empty())
+                        .collect::<String>()
+                })
+        }
+        NodeKind::Element { name }
+            if matches!(
+                computed_role(name.local.as_ref(), &node.attributes).as_str(),
+                "slider" | "spinbutton"
+            ) =>
+        {
+            node.attributes
+                .get("aria-valuetext")
+                .or_else(|| node.attributes.get("aria-valuenow"))
+                .cloned()
+                .unwrap_or_default()
+        }
+        _ => {
+            let mut value = node
+                .children
+                .iter()
+                .filter(|child| aria_owner(dom, **child).is_none())
+                .map(|child| {
+                    accessible_text_content_excluding(
+                        dom,
+                        *child,
+                        include_hidden_root && accessibility_hidden(node),
+                        excluded,
+                    )
+                })
+                .filter(|value| !value.is_empty())
+                .collect::<String>();
+            if let Some(owned) = node.attributes.get("aria-owns") {
+                for idref in owned.split_whitespace() {
+                    let Some(owned_id) = find_element_by_id_scoped(dom, id, idref) else {
+                        continue;
+                    };
+                    if owned_id == id {
+                        continue;
+                    }
+                    if aria_owner(dom, owned_id) != Some(id) {
+                        continue;
+                    }
+                    let owned_text = accessible_text_content_excluding(
+                        dom,
+                        owned_id,
+                        true,
+                        excluded,
+                    );
+                    if !owned_text.is_empty() {
+                        if !value.is_empty() {
+                            value.push(' ');
+                        }
+                        value.push_str(&owned_text);
+                    }
+                }
+            }
+            value
+        }
     }
+}
+
+fn aria_owner(dom: &DomArena, target: NodeId) -> Option<NodeId> {
+    if !aria_owned_target_is_exposable(dom, target) {
+        return None;
+    }
+    let target_id = dom.get(target).ok()?.attributes.get("id")?;
+    dom.iter()
+        .find(|(_, node)| {
+            node.attributes
+                .get("aria-owns")
+                .is_some_and(|owned| owned.split_whitespace().any(|id| id == target_id))
+        })
+        .map(|(id, _)| id)
+        .filter(|owner| !is_hidden(dom, *owner))
+}
+
+/// ARIA ownership reparents a target in the accessibility tree, so an
+/// `aria-hidden` state inherited only from the target's DOM ancestors does not
+/// exclude it after reparenting. HTML/CSS tree exclusion still applies through
+/// the original ancestry, and `aria-hidden` on the target itself remains
+/// authoritative.
+fn aria_owned_target_is_exposable(dom: &DomArena, target: NodeId) -> bool {
+    let Ok(target_node) = dom.get(target) else {
+        return false;
+    };
+    if accessibility_hidden(target_node) {
+        return false;
+    }
+    dom.ancestors(target)
+        .unwrap_or_default()
+        .into_iter()
+        .all(|id| {
+            dom.get(id).is_ok_and(|node| {
+                if node.attributes.contains_key("hidden") {
+                    return false;
+                }
+                !node.attributes.get("style").is_some_and(|style| {
+                    style.split(';').any(|declaration| {
+                        declaration.split_once(':').is_some_and(|(name, value)| {
+                            let name = name.trim().to_ascii_lowercase();
+                            let value = value.trim().to_ascii_lowercase();
+                            (name == "display" && value == "none")
+                                || (name == "visibility"
+                                    && matches!(value.as_str(), "hidden" | "collapse"))
+                        })
+                    })
+                })
+            })
+        })
 }
 
 fn accessibility_hidden(node: &crate::dom::Node) -> bool {
@@ -1865,7 +2063,20 @@ fn name_from_content(local_name: &str, role: &str) -> bool {
 }
 
 fn normalize_text(value: &str) -> String {
-    value.split_whitespace().collect::<Vec<_>>().join(" ")
+    let mut output = String::with_capacity(value.len());
+    let mut pending_space = false;
+    for character in value.chars() {
+        if matches!(character, ' ' | '\t' | '\n' | '\r' | '\u{000c}') {
+            pending_space = !output.is_empty();
+        } else {
+            if pending_space {
+                output.push(' ');
+                pending_space = false;
+            }
+            output.push(character);
+        }
+    }
+    output
 }
 
 fn find_element_by_id_scoped(dom: &DomArena, source: NodeId, value: &str) -> Option<NodeId> {
@@ -1909,10 +2120,9 @@ fn referenced_text(
             .get(id)
             .ok()
             .and_then(|node| node.attributes.get("aria-label"))
-            .map_or_else(
-                || normalize_text(&accessible_text_content(dom, id, true)),
-                |label| normalize_text(label),
-            );
+            .map(|label| normalize_text(label))
+            .or_else(|| host_label(dom, id).map(|(label, _)| label))
+            .unwrap_or_else(|| normalize_text(&accessible_text_content(dom, id, true)));
         if !text.is_empty() {
             values.push(text);
             references.push(semantic_ref_for(id, page_id, document_generation));
@@ -2419,14 +2629,25 @@ fn computed_role(
         roles
             .split_whitespace()
             .map(str::to_ascii_lowercase)
-            .find(|role| supported_aria_role(role))
+            .find(|role| {
+                supported_aria_role(role)
+                    && (!matches!(role.as_str(), "form" | "region")
+                        || attributes.contains_key("aria-label")
+                        || attributes.contains_key("aria-labelledby"))
+            })
     }) {
         let presentation_conflict = matches!(role.as_str(), "none" | "presentation")
             && (matches!(local_name, "button" | "input" | "select" | "textarea")
                 || (local_name == "a" && attributes.contains_key("href"))
-                || attributes.contains_key("tabindex"));
+                || attributes.contains_key("tabindex")
+                || attributes.keys().any(|name| is_global_aria_attribute(name)));
         if !presentation_conflict {
-            return role;
+            return match role.as_str() {
+                "img" | "image" => "image".into(),
+                "directory" => "list".into(),
+                "presentation" => "none".into(),
+                _ => role,
+            };
         }
     }
     match local_name {
@@ -2453,13 +2674,13 @@ fn computed_role(
         "select" => "combobox",
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => "heading",
         "output" => "status",
-        "img" if attributes.get("alt").is_some_and(String::is_empty) => "presentation",
-        "img" => "img",
+        "img" if attributes.get("alt").is_some_and(String::is_empty) => "none",
+        "img" => "image",
         "nav" => "navigation",
         "main" => "main",
         "aside" => "complementary",
-        "header" => "header",
-        "footer" => "footer",
+        "header" => "banner",
+        "footer" => "contentinfo",
         "form"
             if attributes.contains_key("aria-label")
                 || attributes.contains_key("aria-labelledby") =>
@@ -2483,6 +2704,18 @@ fn computed_role(
         "search" => "search",
         "details" => "group",
         "datalist" => "listbox",
+        "blockquote" => "blockquote",
+        "caption" => "caption",
+        "code" => "code",
+        "del" => "deletion",
+        "em" => "emphasis",
+        "ins" => "insertion",
+        "p" => "paragraph",
+        "strong" => "strong",
+        "sub" => "subscript",
+        "sup" => "superscript",
+        "time" => "time",
+        "div" | "span" => "generic",
         "section"
             if attributes.contains_key("aria-label")
                 || attributes.contains_key("aria-labelledby") =>
@@ -2494,6 +2727,36 @@ fn computed_role(
     .into()
 }
 
+fn is_global_aria_attribute(name: &str) -> bool {
+    matches!(
+        name,
+        "aria-atomic"
+            | "aria-braillelabel"
+            | "aria-brailleroledescription"
+            | "aria-busy"
+            | "aria-controls"
+            | "aria-current"
+            | "aria-describedby"
+            | "aria-description"
+            | "aria-details"
+            | "aria-disabled"
+            | "aria-dropeffect"
+            | "aria-errormessage"
+            | "aria-flowto"
+            | "aria-grabbed"
+            | "aria-haspopup"
+            | "aria-hidden"
+            | "aria-invalid"
+            | "aria-keyshortcuts"
+            | "aria-label"
+            | "aria-labelledby"
+            | "aria-live"
+            | "aria-owns"
+            | "aria-relevant"
+            | "aria-roledescription"
+    )
+}
+
 fn supported_aria_role(role: &str) -> bool {
     matches!(
         role,
@@ -2503,16 +2766,21 @@ fn supported_aria_role(role: &str) -> bool {
             | "article"
             | "banner"
             | "button"
+            | "blockquote"
+            | "caption"
             | "cell"
             | "checkbox"
             | "columnheader"
             | "combobox"
             | "complementary"
             | "contentinfo"
+            | "code"
+            | "deletion"
             | "definition"
             | "dialog"
             | "directory"
             | "document"
+            | "emphasis"
             | "feed"
             | "figure"
             | "form"
@@ -2522,6 +2790,8 @@ fn supported_aria_role(role: &str) -> bool {
             | "group"
             | "heading"
             | "img"
+            | "image"
+            | "insertion"
             | "link"
             | "list"
             | "listbox"
@@ -2540,6 +2810,7 @@ fn supported_aria_role(role: &str) -> bool {
             | "none"
             | "note"
             | "option"
+            | "paragraph"
             | "presentation"
             | "progressbar"
             | "radio"
@@ -2551,10 +2822,15 @@ fn supported_aria_role(role: &str) -> bool {
             | "scrollbar"
             | "search"
             | "searchbox"
+            | "sectionfooter"
+            | "sectionheader"
             | "separator"
             | "slider"
             | "spinbutton"
             | "status"
+            | "strong"
+            | "subscript"
+            | "suggestion"
             | "switch"
             | "tab"
             | "table"
@@ -2563,11 +2839,13 @@ fn supported_aria_role(role: &str) -> bool {
             | "term"
             | "textbox"
             | "timer"
+            | "time"
             | "toolbar"
             | "tooltip"
             | "tree"
             | "treegrid"
             | "treeitem"
+            | "superscript"
     )
 }
 
