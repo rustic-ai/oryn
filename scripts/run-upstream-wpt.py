@@ -74,6 +74,33 @@ add_result_callback(function(test) {
 add_completion_callback(function(tests, harness) { __oryn_publish_wpt(harness, true); });
 """
 
+EDITING_SUBSET_BOOTSTRAP = r"""
+<script>
+// The upstream editing pages perform expensive setup for every browserTests
+// entry before subsetTest discards assertions outside the selected variant.
+// Preselect entries whose assertion intervals intersect the immutable query,
+// while preserving the original global subset-test indices.
+(function(){
+  const match=/(?:^\?|&)(\d+)-(\d+|last)(?:&|$)/.exec(location.search);
+  if(!match||!Array.isArray(globalThis.browserTests))return;
+  const first=Number(match[1]),last=match[2]==='last'?Infinity:Number(match[2]);
+  let cursor=0,firstSelected=0,found=false,selected=[];
+  for(const entry of browserTests){
+    const count=(entry[1]||[]).length+2+6*Object.keys(entry[4]||{}).length;
+    const low=cursor+1,high=cursor+count;
+    if(high>=first&&low<=last){if(!found){firstSelected=cursor;found=true}selected.push(entry)}
+    cursor=high;
+  }
+  browserTests=selected;
+  let current=firstSelected;
+  globalThis.subsetTest=function(testFunc,...args){
+    ++current;
+    return current>=first&&current<=last?testFunc(...args):null;
+  };
+})();
+</script>
+"""
+
 
 # Mirror the stable path aliases installed by `wpt serve`. Tests intentionally
 # use the historical WebIDL parser URL while the pinned source tree stores the
@@ -606,6 +633,15 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             if harness >= 0:
                 injection = timeout_setup + COMPLETION
                 body = body[:index] + injection + body[index:]
+            relative_path = path.relative_to(self.root).as_posix()
+            if relative_path.startswith("editing/run/"):
+                final_script = body.rfind("<script>")
+                if final_script >= 0:
+                    body = (
+                        body[:final_script]
+                        + EDITING_SUBSET_BOOTSTRAP
+                        + body[final_script:]
+                    )
             encoded = body.encode()
             self.send_response(200)
             self._send_static_headers(path, "text/html; charset=utf-8", len(encoded))
@@ -802,6 +838,7 @@ def run_case(
     timeout: int,
     in_process_probe: bool,
     script_wall_ms: int | None,
+    _partitioned: bool = False,
 ) -> dict[str, object]:
     def bounded_diagnostic(value: str, limit: int = 20_000) -> str:
         value = value.strip()
@@ -821,6 +858,94 @@ def run_case(
             "status": "failed",
             "diagnostics": [f"WPT global {global_name!r} is not yet installed by the native harness"],
         }
+    # The upstream editing corpus declares thousand-test query variants. A
+    # single monolithic V8 task prevents scheduler checkpoints and can exceed
+    # the per-script safety wall even though every individual assertion is
+    # bounded. Execute those immutable numeric ranges as fresh 100-test
+    # subranges, then fold their official testharness results back into the
+    # original inventory cell. This changes neither source nor assertions and
+    # records the partitioning explicitly in the result transport.
+    large_variant = re.fullmatch(r"\?(\d+)-(\d+|last)", variant)
+    if (
+        not _partitioned
+        and large_variant
+        and test.as_posix().startswith("editing/run/")
+    ):
+        start = int(large_variant.group(1))
+        end = (
+            int(large_variant.group(2))
+            if large_variant.group(2) != "last"
+            else start + 999
+        )
+        if end - start + 1 > 100:
+            parts = []
+            for part_start in range(start, end + 1, 100):
+                part_end = min(part_start + 99, end)
+                part = run_case(
+                        binary,
+                        checkout,
+                        port,
+                        test,
+                        classification,
+                        global_name,
+                        f"?{part_start}-{part_end}",
+                        timeout,
+                        in_process_probe,
+                        script_wall_ms,
+                        True,
+                    )
+                if (
+                    large_variant.group(2) == "last"
+                    and not (part.get("result") or {}).get("tests")
+                ):
+                    break
+                parts.append(part)
+            tests = [
+                assertion
+                for part in parts
+                for assertion in (part.get("result") or {}).get("tests", [])
+            ]
+            passed = bool(tests) and all(part.get("status") == "passed" for part in parts)
+            result = {
+                "complete": all(
+                    (part.get("result") or {}).get("complete", False) for part in parts
+                ),
+                "harness": 0,
+                "harnessMessage": "",
+                "harnessStack": "",
+                "tests": tests,
+                "testdriver": [],
+            }
+            record: dict[str, object] = {
+                "id": identifier,
+                "path": test.as_posix(),
+                "classification": classification,
+                "global": global_name,
+                "variant": variant,
+                "status": "passed" if passed else "failed",
+                "failure_domain": None
+                if passed
+                else next(
+                    (
+                        part.get("failure_domain", "partition")
+                        for part in parts
+                        if part.get("status") != "passed"
+                    ),
+                    "partition",
+                ),
+                "result": result,
+                "result_transport": "partitioned_testharness_range_v1",
+                "partitions": [part["variant"] for part in parts],
+            }
+            diagnostics = [
+                f"{part['variant']}: {diagnostic}"
+                for part in parts
+                if part.get("status") != "passed"
+                for diagnostic in part.get("diagnostics", [])
+            ]
+            if diagnostics:
+                record["diagnostics"] = diagnostics
+            return record
     if global_name in {"dedicatedworker", "sharedworker", "serviceworker"}:
         query = urllib.parse.urlencode(
             {"source": test.as_posix(), "variant": variant, "global": global_name}
@@ -1011,6 +1136,10 @@ def main() -> int:
         help="exact WPT variant query to execute after source variant expansion",
     )
     parser.add_argument(
+        "--variant-override",
+        help="diagnostic query override; deduplicates the selected path/global pairs",
+    )
+    parser.add_argument(
         "--exclude",
         action="append",
         default=[],
@@ -1145,6 +1274,14 @@ def main() -> int:
         tests = [item for item in tests if args.filter in item[0].as_posix()]
     if args.variant_filter is not None:
         tests = [item for item in tests if item[3] == args.variant_filter]
+    if args.variant_override is not None:
+        selected = {}
+        for path, classification, global_name, _variant in tests:
+            selected.setdefault(
+                (path, global_name),
+                (path, classification, global_name, args.variant_override),
+            )
+        tests = list(selected.values())
     if args.exclude:
         tests = [
             item
@@ -1181,6 +1318,7 @@ def main() -> int:
     selection = {
         "filter": args.filter,
         "variant_filter": args.variant_filter,
+        "variant_override": args.variant_override,
         "exclude": args.exclude,
         "global": args.global_filter,
         "shard_index": args.shard_index,

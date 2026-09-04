@@ -7859,11 +7859,38 @@ fn capture_editing_snapshot(
 ) -> Result<EditingSnapshot, V8BindingError> {
     let mut dom = state.dom.borrow_mut();
     let ids = dom.arena().descendants_inclusive(host)?;
-    let serialized_bytes = dom.serialize(host)?.len();
+    let mut serialized_bytes = 0usize;
     let mut nodes = Vec::with_capacity(ids.len());
     for node in ids {
         dom.retain_native(node)?;
         let record = dom.arena().get(node)?.clone();
+        serialized_bytes = serialized_bytes
+            .saturating_add(std::mem::size_of::<EditingNodeSnapshot>())
+            .saturating_add(
+                record
+                    .attributes
+                    .iter()
+                    .map(|(name, value)| name.len().saturating_add(value.len()))
+                    .sum::<usize>(),
+            )
+            .saturating_add(match &record.kind {
+                NodeKind::Text { data }
+                | NodeKind::CDataSection { data }
+                | NodeKind::Comment { data } => data.len(),
+                NodeKind::ProcessingInstruction { target, data } => {
+                    target.len().saturating_add(data.len())
+                }
+                NodeKind::DocumentType {
+                    name,
+                    public_id,
+                    system_id,
+                } => name
+                    .len()
+                    .saturating_add(public_id.len())
+                    .saturating_add(system_id.len()),
+                NodeKind::Attribute { name, value, .. } => name.len().saturating_add(value.len()),
+                _ => 0,
+            });
         nodes.push(EditingNodeSnapshot {
             node,
             children: record.children,
@@ -8007,16 +8034,16 @@ where
         return Ok(false);
     };
     let before = capture_editing_snapshot(state, host)?;
-    let before_markup = state.dom.borrow().serialize(host)?;
+    let before_mutation = state.dom.borrow().mutation_cursor();
     if let Err(error) = mutate(state) {
         restore_editing_snapshot(state, &before)?;
         release_editing_snapshot(&mut state.dom.borrow_mut(), &before)?;
         return Err(error);
     }
     synchronize_live_ranges(state)?;
-    let after_markup = state.dom.borrow().serialize(host)?;
+    let after_mutation = state.dom.borrow().mutation_cursor();
     let after_selection = selection_snapshot(state);
-    let changed = before_markup != after_markup || before.selection != after_selection;
+    let changed = before_mutation != after_mutation || before.selection != after_selection;
     if !changed {
         release_editing_snapshot(&mut state.dom.borrow_mut(), &before)?;
         return Ok(false);
