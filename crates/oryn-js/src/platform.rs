@@ -164,6 +164,8 @@ pub struct IdbHostResponse {
     pub object_store_definitions: Vec<IdbObjectStoreDefinition>,
     pub key: Option<serde_json::Value>,
     pub value: Option<serde_json::Value>,
+    #[serde(default)]
+    pub value_present: bool,
     pub values: Vec<serde_json::Value>,
     pub records: Vec<IdbHostRecord>,
     pub count: Option<u64>,

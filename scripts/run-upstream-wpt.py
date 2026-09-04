@@ -834,6 +834,8 @@ def run_case(
         url = f"http://localhost:{port}/{urllib.parse.quote(test.as_posix())}{variant}"
     with tempfile.NamedTemporaryFile("w", suffix=".oil", delete=False) as oil:
         oil_path = Path(oil.name)
+        oil.write('wait exists "#oryn-wpt-result"\n')
+        oil.write('extract text --selector "#oryn-wpt-result"\n')
     trace_path = oil_path.with_suffix(".trace.json")
     try:
         native = ["native", "--allow-loopback"]
@@ -855,22 +857,14 @@ def run_case(
                 "failure_domain": "harness",
                 "diagnostics": [str(error)],
             }
-        result_expression = (
-            "(()=>{const output=document.getElementById('oryn-wpt-result');"
-            "if(output&&output.textContent)return output.textContent;"
-            "const tests=globalThis.__oryn_wpt_results||[];"
-            "return tests.length?'__ORYN_WPT_DONE__'+JSON.stringify({complete:true,harness:0,"
-            "harnessMessage:'read from callback buffer',harnessStack:'',tests,"
-            "testdriver:globalThis.__oryn_testdriver_log||[]}):''})()"
-        )
         completed = subprocess.run(
             [
                 str(binary),
+                "--file",
+                str(oil_path),
                 *native,
                 "--url",
                 url,
-                "--evaluate",
-                result_expression,
                 "--trace-out",
                 str(trace_path),
             ],
@@ -1013,6 +1007,10 @@ def main() -> int:
     parser.add_argument("--max-tests", type=int)
     parser.add_argument("--filter", help="substring filter applied to upstream test paths")
     parser.add_argument(
+        "--variant-filter",
+        help="exact WPT variant query to execute after source variant expansion",
+    )
+    parser.add_argument(
         "--exclude",
         action="append",
         default=[],
@@ -1145,6 +1143,8 @@ def main() -> int:
     tests = inventoried_tests(args.checkout, args.inventory or EXPANDED_INVENTORY) if args.inventory else applicable_tests(args.checkout)
     if args.filter:
         tests = [item for item in tests if args.filter in item[0].as_posix()]
+    if args.variant_filter is not None:
+        tests = [item for item in tests if item[3] == args.variant_filter]
     if args.exclude:
         tests = [
             item
@@ -1180,6 +1180,7 @@ def main() -> int:
     }
     selection = {
         "filter": args.filter,
+        "variant_filter": args.variant_filter,
         "exclude": args.exclude,
         "global": args.global_filter,
         "shard_index": args.shard_index,

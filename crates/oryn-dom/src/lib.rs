@@ -1031,7 +1031,7 @@ impl DomRuntime {
                     continue;
                 }
                 if boundary.offset <= removed_end {
-                    boundary.offset = offset.saturating_add(inserted_length);
+                    boundary.offset = offset;
                 } else {
                     boundary.offset = boundary
                         .offset
@@ -1215,8 +1215,19 @@ impl DomRuntime {
     ) -> Result<(), DomError> {
         self.arena.get(parent)?;
         self.arena.get(removed)?;
-        let descendants = self.arena.descendants_inclusive(removed)?;
-        let descendant_set = descendants.into_iter().collect::<BTreeSet<_>>();
+        // Shadow-tree boundary points belong to a different tree and remain
+        // anchored there when the host (or one of its light-tree ancestors)
+        // is removed. Walk only the removed light subtree for Range migration.
+        let mut descendant_set = BTreeSet::new();
+        let mut pending = vec![removed];
+        while let Some(candidate) = pending.pop() {
+            let record = self.arena.get(candidate)?;
+            if matches!(record.kind, NodeKind::ShadowRoot { .. }) {
+                continue;
+            }
+            descendant_set.insert(candidate);
+            pending.extend(record.children.iter().copied());
+        }
         let mut root_changes = Vec::new();
         for range in self.ranges.values_mut() {
             for boundary in [&mut range.start, &mut range.end] {
@@ -1958,7 +1969,7 @@ mod tests {
             )
             .unwrap();
         dom.set_text(nested, "x").unwrap();
-        assert_eq!(dom.live_range(range).unwrap().start.offset, 1);
+        assert_eq!(dom.live_range(range).unwrap().start.offset, 0);
 
         dom.remove_child(container, removed).unwrap();
         assert_eq!(
@@ -2027,7 +2038,7 @@ mod tests {
         dom.replace_character_data(text, 2, 3, "XY").unwrap();
         assert_eq!(dom.arena().text_content(text).unwrap(), "abXYf");
         assert_eq!(dom.live_range(before).unwrap().start.offset, 1);
-        assert_eq!(dom.live_range(inside).unwrap().start.offset, 4);
+        assert_eq!(dom.live_range(inside).unwrap().start.offset, 2);
         assert_eq!(dom.live_range(after).unwrap().start.offset, 5);
     }
 }

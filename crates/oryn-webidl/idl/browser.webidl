@@ -228,6 +228,9 @@ interface Element : Node {
   undefined insertAdjacentHTML(DOMString where, DOMString html);
   DOMRect getBoundingClientRect();
   sequence<DOMRect> getClientRects();
+  attribute double scrollLeft;
+  attribute double scrollTop;
+  undefined scrollTo(optional double x = 0, optional double y = 0);
   undefined scrollIntoView(optional boolean alignToTop = true);
   undefined remove();
 };
@@ -256,6 +259,7 @@ interface SVGAElement : SVGElement {
 
 [Exposed=Window]
 interface DOMRect {
+  constructor(optional double x = 0, optional double y = 0, optional double width = 0, optional double height = 0);
   readonly attribute double x;
   readonly attribute double y;
   readonly attribute double width;
@@ -264,6 +268,39 @@ interface DOMRect {
   readonly attribute double right;
   readonly attribute double bottom;
   readonly attribute double left;
+};
+
+[Exposed=(Window,Worker)]
+interface DOMRectReadOnly {
+  constructor(optional double x = 0, optional double y = 0, optional double width = 0, optional double height = 0);
+};
+
+[Exposed=(Window,Worker)]
+interface DOMPoint {
+  constructor(optional double x = 0, optional double y = 0, optional double z = 0, optional double w = 1);
+};
+
+[Exposed=(Window,Worker)]
+interface DOMPointReadOnly {
+  constructor(optional double x = 0, optional double y = 0, optional double z = 0, optional double w = 1);
+};
+
+[Exposed=(Window,Worker)]
+interface DOMMatrix {
+  constructor(optional any init = null);
+};
+
+[Exposed=(Window,Worker)]
+interface DOMMatrixReadOnly {
+  constructor(optional any init = null);
+};
+
+[Exposed=(Window,Worker)]
+interface ImageData {
+  constructor(unsigned long sw, unsigned long sh);
+  readonly attribute unsigned long width;
+  readonly attribute unsigned long height;
+  readonly attribute Uint8ClampedArray data;
 };
 
 [Exposed=Window]
@@ -278,7 +315,7 @@ interface DOMTokenList {
 [Exposed=Window]
 interface HTMLElement : Element {
   attribute DOMString innerText;
-  readonly attribute CSSStyleDeclaration style;
+  [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
   readonly attribute any dataset;
   attribute EventListener? onclick;
   attribute EventListener? oninput;
@@ -309,6 +346,17 @@ interface HTMLMediaElement : HTMLElement {
 [Exposed=Window]
 interface HTMLCanvasElement : HTMLElement {
   any getContext(DOMString contextId);
+};
+
+[Exposed=Window]
+interface HTMLImageElement : HTMLElement {
+  attribute DOMString src;
+  attribute DOMString crossOrigin;
+  attribute DOMString referrerPolicy;
+  readonly attribute unsigned long naturalWidth;
+  readonly attribute unsigned long naturalHeight;
+  readonly attribute unsigned long clientWidth;
+  readonly attribute unsigned long clientHeight;
 };
 
 [Exposed=Window]
@@ -411,6 +459,7 @@ interface Document : Node {
   readonly attribute HTMLElement? documentElement;
   readonly attribute HTMLElement? head;
   readonly attribute HTMLElement? body;
+  readonly attribute Element? scrollingElement;
   readonly attribute Node? doctype;
   readonly attribute HTMLElement? activeElement;
   readonly attribute HTMLElement? currentScript;

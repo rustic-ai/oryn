@@ -239,6 +239,13 @@ struct BlobRecord {
 }
 
 #[derive(Debug, Clone)]
+struct DecodedImage {
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
 struct FileRecord {
     name: String,
     last_modified: i64,
@@ -449,6 +456,13 @@ enum PendingPlatformOperation {
     XhrRead {
         xhr_id: u64,
     },
+    ImageStart {
+        node: NodeId,
+    },
+    ImageRead {
+        node: NodeId,
+        bytes: Vec<u8>,
+    },
     WebSocketOpen {
         websocket_id: u64,
     },
@@ -479,6 +493,11 @@ enum DeferredPlatformTask {
     Event {
         target_id: u64,
         event_type: &'static str,
+    },
+    DomEvent {
+        target: NodeId,
+        event_type: &'static str,
+        bubbles: bool,
     },
     FinalizeIdbOpen {
         request_id: u64,
@@ -688,6 +707,10 @@ pub struct V8BindingState {
     trusted_policies: RefCell<BTreeMap<u64, TrustedPolicyCallbacks>>,
     trusted_values: RefCell<BTreeMap<u64, TrustedValue>>,
     next_trusted_id: Cell<u64>,
+    image_sources: RefCell<BTreeMap<NodeId, String>>,
+    decoded_images: RefCell<BTreeMap<NodeId, DecodedImage>>,
+    canvas_images: RefCell<BTreeMap<NodeId, DecodedImage>>,
+    scroll_offsets: RefCell<BTreeMap<NodeId, (f64, f64)>>,
 }
 
 #[derive(Default)]
@@ -750,6 +773,14 @@ impl V8BindingState {
                         transaction.active = false;
                     }
                     dispatch_platform_event(scope, self, target_id, event_type, None)?;
+                }
+                DeferredPlatformTask::DomEvent {
+                    target,
+                    event_type,
+                    bubbles,
+                } => {
+                    let event = create_event_object(scope, self, event_type, bubbles, false)?;
+                    dispatch_event(scope, self, target, event)?;
                 }
                 DeferredPlatformTask::FinalizeIdbOpen {
                     request_id,
@@ -1268,6 +1299,62 @@ impl V8BindingState {
                 }
             }
             (
+                PendingPlatformOperation::ImageStart { node },
+                Ok(PlatformHostResult::HttpStarted { stream_id, .. }),
+            ) => {
+                submit_platform_operation(
+                    self,
+                    PlatformHostRequest::HttpRead {
+                        stream_id,
+                        max_bytes: 64 * 1024,
+                    },
+                    PendingPlatformOperation::ImageRead {
+                        node,
+                        bytes: Vec::new(),
+                    },
+                )?;
+            }
+            (
+                PendingPlatformOperation::ImageRead { node, mut bytes },
+                Ok(PlatformHostResult::HttpChunk {
+                    stream_id,
+                    bytes: chunk,
+                    done,
+                }),
+            ) => {
+                bytes.extend_from_slice(&chunk);
+                if done {
+                    match image::load_from_memory(&bytes) {
+                        Ok(image) => {
+                            let rgba = image.to_rgba8();
+                            self.decoded_images.borrow_mut().insert(
+                                node,
+                                DecodedImage {
+                                    width: rgba.width(),
+                                    height: rgba.height(),
+                                    rgba: rgba.into_raw(),
+                                },
+                            );
+                            let event = create_event_object(scope, self, "load", false, false)?;
+                            dispatch_event(scope, self, node, event)?;
+                        }
+                        Err(_) => {
+                            let event = create_event_object(scope, self, "error", false, false)?;
+                            dispatch_event(scope, self, node, event)?;
+                        }
+                    }
+                } else {
+                    submit_platform_operation(
+                        self,
+                        PlatformHostRequest::HttpRead {
+                            stream_id,
+                            max_bytes: 64 * 1024,
+                        },
+                        PendingPlatformOperation::ImageRead { node, bytes },
+                    )?;
+                }
+            }
+            (
                 PendingPlatformOperation::WebSocketOpen { websocket_id },
                 Ok(PlatformHostResult::WebSocketOpened {
                     socket_id,
@@ -1653,13 +1740,22 @@ impl V8BindingState {
                         return Ok(());
                     }
                     IdbCompletionAction::Unit => v8::undefined(scope).into(),
-                    IdbCompletionAction::Value => response
-                        .value
-                        .as_ref()
-                        .or_else(|| response.records.first().map(|record| &record.value))
-                        .map(|value| idb_json_to_value(scope, self, value))
-                        .transpose()?
-                        .unwrap_or_else(|| v8::undefined(scope).into()),
+                    IdbCompletionAction::Value => {
+                        if response.value_present {
+                            idb_json_to_value(
+                                scope,
+                                self,
+                                response.value.as_ref().unwrap_or(&serde_json::Value::Null),
+                            )?
+                        } else {
+                            response
+                                .records
+                                .first()
+                                .map(|record| idb_json_to_value(scope, self, &record.value))
+                                .transpose()?
+                                .unwrap_or_else(|| v8::undefined(scope).into())
+                        }
+                    }
                     IdbCompletionAction::Key => response
                         .key
                         .as_ref()
@@ -1882,6 +1978,13 @@ impl V8BindingState {
                 v8::Local::new(scope, resolver).reject(scope, exception);
             }
             (pending, Err(error)) => {
+                if let PendingPlatformOperation::ImageStart { node }
+                | PendingPlatformOperation::ImageRead { node, .. } = &pending
+                {
+                    let event = create_event_object(scope, self, "error", false, false)?;
+                    dispatch_event(scope, self, *node, event)?;
+                    return Ok(());
+                }
                 if let PendingPlatformOperation::XhrStart { xhr_id }
                 | PendingPlatformOperation::XhrRead { xhr_id } = &pending
                 {
@@ -2399,6 +2502,10 @@ pub fn install_generated_bindings_with_root_for_global(
         trusted_policies: RefCell::new(BTreeMap::new()),
         trusted_values: RefCell::new(BTreeMap::new()),
         next_trusted_id: Cell::new(1),
+        image_sources: RefCell::new(BTreeMap::new()),
+        decoded_images: RefCell::new(BTreeMap::new()),
+        canvas_images: RefCell::new(BTreeMap::new()),
+        scroll_offsets: RefCell::new(BTreeMap::new()),
     });
     context.set_slot(state.clone());
     if scope.get_slot::<BindingStateRegistry>().is_none() {
@@ -3248,7 +3355,7 @@ fn idb_value_to_json_inner(
         });
     }
     if value.is_undefined() {
-        return Ok(serde_json::Value::Null);
+        return Ok(serde_json::json!({"__oryn_clone_type":"undefined"}));
     }
     if value.is_null() {
         return Ok(serde_json::Value::Null);
@@ -3257,14 +3364,18 @@ fn idb_value_to_json_inner(
         return Ok(serde_json::Value::Bool(value.boolean_value(scope)));
     }
     if value.is_number() {
-        return value
-            .number_value(scope)
-            .and_then(serde_json::Number::from_f64)
-            .map(serde_json::Value::Number)
-            .ok_or(V8BindingError::Unsupported {
-                interface: "IndexedDB".into(),
-                member: "DataCloneError".into(),
-            });
+        let number = value.number_value(scope).unwrap_or(f64::NAN);
+        if let Some(number) = serde_json::Number::from_f64(number) {
+            return Ok(serde_json::Value::Number(number));
+        }
+        let kind = if number.is_nan() {
+            "nan"
+        } else if number.is_sign_negative() {
+            "negative_infinity"
+        } else {
+            "positive_infinity"
+        };
+        return Ok(serde_json::json!({"__oryn_clone_type":"number","value":kind}));
     }
     if value.is_string() {
         return Ok(serde_json::Value::String(value.to_rust_string_lossy(scope)));
@@ -3330,6 +3441,47 @@ fn idb_value_to_json_inner(
             .map(serde_json::Value::Array);
     }
     if let Some(object) = value.to_object(scope) {
+        let constructor_name = option_value(scope, object.into(), "constructor")
+            .and_then(|constructor| option_value(scope, constructor, "name"))
+            .map(|name| name.to_rust_string_lossy(scope));
+        if constructor_name.as_deref().is_some_and(|name| {
+            matches!(
+                name,
+                "DOMMatrix"
+                    | "DOMMatrixReadOnly"
+                    | "DOMPoint"
+                    | "DOMPointReadOnly"
+                    | "DOMRect"
+                    | "DOMRectReadOnly"
+                    | "ImageData"
+            )
+        }) {
+            let names = object
+                .get_own_property_names(scope, v8::GetPropertyNamesArgs::default())
+                .ok_or(V8BindingError::Unsupported {
+                    interface: "IndexedDB".into(),
+                    member: "DataCloneError".into(),
+                })?;
+            let mut properties = serde_json::Map::new();
+            for index in 0..names.length() {
+                let key = names
+                    .get_index(scope, index)
+                    .ok_or(V8BindingError::Allocation("platform clone property name"))?;
+                let name = key.to_rust_string_lossy(scope);
+                let child = object
+                    .get(scope, key)
+                    .ok_or(V8BindingError::Allocation("platform clone property"))?;
+                properties.insert(
+                    name,
+                    idb_value_to_json_inner(scope, state, child, depth + 1)?,
+                );
+            }
+            return Ok(serde_json::json!({
+                "__oryn_clone_type":"serializable_platform",
+                "name":constructor_name,
+                "properties":properties,
+            }));
+        }
         let names = object
             .get_own_property_names(scope, v8::GetPropertyNamesArgs::default())
             .ok_or(V8BindingError::Unsupported {
@@ -3363,6 +3515,101 @@ fn idb_json_to_value<'s>(
     state: &V8BindingState,
     value: &serde_json::Value,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if value
+        .get("__oryn_clone_type")
+        .and_then(serde_json::Value::as_str)
+        == Some("number")
+    {
+        let number = match value.get("value").and_then(serde_json::Value::as_str) {
+            Some("nan") => f64::NAN,
+            Some("negative_infinity") => f64::NEG_INFINITY,
+            Some("positive_infinity") => f64::INFINITY,
+            _ => return Err(V8BindingError::Allocation("structured-clone number")),
+        };
+        return Ok(v8::Number::new(scope, number).into());
+    }
+    if value
+        .get("__oryn_clone_type")
+        .and_then(serde_json::Value::as_str)
+        == Some("undefined")
+    {
+        return Ok(v8::undefined(scope).into());
+    }
+    if value
+        .get("__oryn_clone_type")
+        .and_then(serde_json::Value::as_str)
+        == Some("serializable_platform")
+    {
+        let name = value
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .ok_or(V8BindingError::Allocation("platform clone interface"))?;
+        let constructor = scope
+            .get_current_context()
+            .global(scope)
+            .get(
+                scope,
+                v8::String::new(scope, name)
+                    .ok_or(V8BindingError::Allocation(
+                        "platform clone constructor name",
+                    ))?
+                    .into(),
+            )
+            .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+            .ok_or(V8BindingError::Allocation("platform clone constructor"))?;
+        let properties = value
+            .get("properties")
+            .and_then(serde_json::Value::as_object);
+        let arguments = if name == "ImageData" {
+            vec![
+                v8::Integer::new_from_unsigned(
+                    scope,
+                    properties
+                        .and_then(|properties| properties.get("width"))
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32,
+                )
+                .into(),
+                v8::Integer::new_from_unsigned(
+                    scope,
+                    properties
+                        .and_then(|properties| properties.get("height"))
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32,
+                )
+                .into(),
+            ]
+        } else {
+            Vec::new()
+        };
+        let object = constructor
+            .new_instance(scope, &arguments)
+            .ok_or(V8BindingError::Allocation("platform clone instance"))?;
+        if let Some(properties) = properties {
+            for (name, value) in properties {
+                if name == "data" {
+                    let decoded = idb_json_to_value(scope, state, value)?;
+                    let Some(target) = option_value(scope, object.into(), "data")
+                        .and_then(|value| value.to_object(scope))
+                    else {
+                        continue;
+                    };
+                    let Some(source) = decoded.to_object(scope) else {
+                        continue;
+                    };
+                    let length = option_value(scope, source.into(), "length")
+                        .and_then(|value| value.uint32_value(scope))
+                        .unwrap_or(0);
+                    for index in 0..length {
+                        if let Some(value) = source.get_index(scope, index) {
+                            target.set_index(scope, index, value);
+                        }
+                    }
+                }
+            }
+        }
+        return Ok(object.into());
+    }
     if value
         .get("__oryn_clone_type")
         .and_then(serde_json::Value::as_str)
@@ -5772,6 +6019,76 @@ fn generated_constructor<'s>(
         }
         return;
     }
+    if matches!(
+        name,
+        "DOMMatrix"
+            | "DOMMatrixReadOnly"
+            | "DOMPoint"
+            | "DOMPointReadOnly"
+            | "DOMRect"
+            | "DOMRectReadOnly"
+            | "ImageData"
+    ) && args.is_construct_call()
+    {
+        let numeric = |scope: &mut v8::PinScope<'s, '_>, index: i32, fallback: f64| {
+            args.get(index).number_value(scope).unwrap_or(fallback)
+        };
+        let properties: Vec<(&str, v8::Local<v8::Value>)> = match name {
+            "DOMRect" | "DOMRectReadOnly" => {
+                let x = numeric(scope, 0, 0.0);
+                let y = numeric(scope, 1, 0.0);
+                let width = numeric(scope, 2, 0.0);
+                let height = numeric(scope, 3, 0.0);
+                vec![
+                    ("x", v8::Number::new(scope, x).into()),
+                    ("y", v8::Number::new(scope, y).into()),
+                    ("width", v8::Number::new(scope, width).into()),
+                    ("height", v8::Number::new(scope, height).into()),
+                    ("top", v8::Number::new(scope, y.min(y + height)).into()),
+                    ("right", v8::Number::new(scope, x.max(x + width)).into()),
+                    ("bottom", v8::Number::new(scope, y.max(y + height)).into()),
+                    ("left", v8::Number::new(scope, x.min(x + width)).into()),
+                ]
+            }
+            "DOMPoint" | "DOMPointReadOnly" => {
+                let x = numeric(scope, 0, 0.0);
+                let y = numeric(scope, 1, 0.0);
+                let z = numeric(scope, 2, 0.0);
+                let w = numeric(scope, 3, 1.0);
+                vec![
+                    ("x", v8::Number::new(scope, x).into()),
+                    ("y", v8::Number::new(scope, y).into()),
+                    ("z", v8::Number::new(scope, z).into()),
+                    ("w", v8::Number::new(scope, w).into()),
+                ]
+            }
+            "ImageData" => {
+                let width = args.get(0).uint32_value(scope).unwrap_or(0);
+                let height = args.get(1).uint32_value(scope).unwrap_or(0);
+                let length = width as usize * height as usize * 4;
+                let buffer = array_buffer_from_bytes(scope, &vec![0; length]);
+                let Some(data) = v8::Uint8ClampedArray::new(scope, buffer, 0, length) else {
+                    throw_type_error(scope, "ImageData allocation failed");
+                    return;
+                };
+                vec![
+                    ("width", v8::Integer::new_from_unsigned(scope, width).into()),
+                    (
+                        "height",
+                        v8::Integer::new_from_unsigned(scope, height).into(),
+                    ),
+                    ("data", data.into()),
+                ]
+            }
+            _ => Vec::new(),
+        };
+        for (property, value) in properties {
+            if let Some(key) = v8::String::new(scope, property) {
+                args.this().create_data_property(scope, key.into(), value);
+            }
+        }
+        return;
+    }
     if name == "MutationObserver" && args.is_construct_call() {
         let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
             throw_type_error(scope, "generated binding state is unavailable");
@@ -5805,7 +6122,7 @@ fn generated_constructor<'s>(
             return;
         };
         let document = state.dom.borrow().document();
-        match register_static_range(
+        match register_live_range(
             &state,
             RangeRecord {
                 start_container: document,
@@ -5847,7 +6164,7 @@ fn generated_constructor<'s>(
             throw_type_error(scope, "StaticRange has an invalid end boundary");
             return;
         };
-        match register_live_range(
+        match register_static_range(
             &state,
             RangeRecord {
                 start_container: start.container,
@@ -7383,7 +7700,17 @@ fn register_static_range(
     state: &V8BindingState,
     range: RangeRecord,
 ) -> Result<u64, V8BindingError> {
-    let id = register_live_range(state, range)?;
+    // StaticRange is a frozen boundary record, not a live range. Allocate its
+    // collision-free identifier through DomRuntime, then immediately release
+    // the native live-range roots so later DOM mutations cannot move it.
+    let live = LiveRange::from(&range);
+    let id = state
+        .dom
+        .borrow_mut()
+        .create_live_range(live.start, live.end)?
+        .0;
+    state.dom.borrow_mut().drop_live_range(LiveRangeId(id))?;
+    state.ranges.borrow_mut().insert(id, range);
     state.static_ranges.borrow_mut().insert(id);
     Ok(id)
 }
@@ -13974,6 +14301,15 @@ fn call_stateful_operation<'s>(
             "setStart" | "setEnd" => {
                 let node = argument_node(scope, state, args.get(0))?;
                 let offset = args.get(1).uint32_value(scope).unwrap_or(0);
+                if matches!(
+                    state.dom.borrow().arena().get(node)?.kind,
+                    NodeKind::DocumentType { .. }
+                ) {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Range".into(),
+                        member: "InvalidNodeTypeError".into(),
+                    });
+                }
                 if offset > boundary_length(&state.dom.borrow(), node)? {
                     return Err(V8BindingError::Unsupported {
                         interface: "Range".into(),
@@ -14028,9 +14364,31 @@ fn call_stateful_operation<'s>(
                 if member.starts_with("setStart") {
                     range.start_container = container;
                     range.start_offset = offset;
+                    if tree_root(&state.dom.borrow(), range.start_container)?
+                        != tree_root(&state.dom.borrow(), range.end_container)?
+                        || compare_boundary_points(
+                            &state.dom.borrow(),
+                            (range.start_container, range.start_offset),
+                            (range.end_container, range.end_offset),
+                        )? > 0
+                    {
+                        range.end_container = container;
+                        range.end_offset = offset;
+                    }
                 } else {
                     range.end_container = container;
                     range.end_offset = offset;
+                    if tree_root(&state.dom.borrow(), range.start_container)?
+                        != tree_root(&state.dom.borrow(), range.end_container)?
+                        || compare_boundary_points(
+                            &state.dom.borrow(),
+                            (range.start_container, range.start_offset),
+                            (range.end_container, range.end_offset),
+                        )? > 0
+                    {
+                        range.start_container = container;
+                        range.start_offset = offset;
+                    }
                 }
                 drop(ranges);
                 persist_live_range(state, id)?;
@@ -14055,6 +14413,17 @@ fn call_stateful_operation<'s>(
             }
             "selectNode" | "selectNodeContents" => {
                 let node = argument_node(scope, state, args.get(0))?;
+                if member == "selectNodeContents"
+                    && matches!(
+                        state.dom.borrow().arena().get(node)?.kind,
+                        NodeKind::DocumentType { .. }
+                    )
+                {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Range".into(),
+                        member: "InvalidNodeTypeError".into(),
+                    });
+                }
                 let (container, start, end) = if member == "selectNode" {
                     let (container, start) = relative_boundary(&state.dom.borrow(), node, false)?;
                     (container, start, start.saturating_add(1))
@@ -14076,7 +14445,20 @@ fn call_stateful_operation<'s>(
                 return Ok(None);
             }
             "compareBoundaryPoints" => {
-                let how = args.get(0).uint32_value(scope).unwrap_or(u32::MAX);
+                // Web IDL declares `how` as unsigned short. Apply ToUint16
+                // before validating the four Range constants.
+                let raw_how = args.get(0).number_value(scope).unwrap_or(0.0);
+                let how = if raw_how.is_finite() {
+                    (raw_how.trunc() as i64).rem_euclid(1 << 16) as u32
+                } else {
+                    0
+                };
+                if how > 3 {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Range".into(),
+                        member: "NotSupportedError".into(),
+                    });
+                }
                 let other_id = stateful_id(
                     scope,
                     v8::Local::<v8::Object>::try_from(args.get(1))
@@ -14114,12 +14496,7 @@ fn call_stateful_operation<'s>(
                         (range.start_container, range.start_offset),
                         (other.end_container, other.end_offset),
                     ),
-                    _ => {
-                        return Err(V8BindingError::Unsupported {
-                            interface: "Range".into(),
-                            member: "NotSupportedError".into(),
-                        });
-                    }
+                    _ => unreachable!("Range constant validated above"),
                 };
                 let ordering = compare_boundary_points(&state.dom.borrow(), left, right)?;
                 return Ok(Some(v8::Integer::new(scope, ordering).into()));
@@ -14258,7 +14635,6 @@ fn call_stateful_operation<'s>(
                     .cloned()
                     .ok_or(V8BindingError::Allocation("Range record"))?;
                 let dom = state.dom.borrow();
-                validate_boundary_offset(&dom, node, offset)?;
                 if tree_root(&dom, node)? != tree_root(&dom, range.start_container)? {
                     if member == "isPointInRange" {
                         return Ok(Some(v8::Boolean::new(scope, false).into()));
@@ -14268,13 +14644,23 @@ fn call_stateful_operation<'s>(
                         member: "WrongDocumentError".into(),
                     });
                 }
-                let point_position = traversal_position(&dom, node)?;
-                let start_position = traversal_position(&dom, range.start_container)?;
-                let end_position = traversal_position(&dom, range.end_container)?;
-                let before_start = point_position < start_position
-                    || (point_position == start_position && offset < range.start_offset);
-                let after_end = point_position > end_position
-                    || (point_position == end_position && offset > range.end_offset);
+                if matches!(dom.arena().get(node)?.kind, NodeKind::DocumentType { .. }) {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Range".into(),
+                        member: "InvalidNodeTypeError".into(),
+                    });
+                }
+                validate_boundary_offset(&dom, node, offset)?;
+                let before_start = compare_boundary_points(
+                    &dom,
+                    (node, offset),
+                    (range.start_container, range.start_offset),
+                )? < 0;
+                let after_end = compare_boundary_points(
+                    &dom,
+                    (node, offset),
+                    (range.end_container, range.end_offset),
+                )? > 0;
                 if member == "isPointInRange" {
                     return Ok(Some(
                         v8::Boolean::new(scope, !before_start && !after_end).into(),
@@ -14298,16 +14684,29 @@ fn call_stateful_operation<'s>(
                     .cloned()
                     .ok_or(V8BindingError::Allocation("Range record"))?;
                 let dom = state.dom.borrow();
-                let intersects = if range.start_container == range.end_container {
-                    direct_child_offset(&dom, range.start_container, node)?.is_some_and(|offset| {
-                        offset >= range.start_offset && offset < range.end_offset
-                    }) || node == range.start_container
-                } else {
-                    let position = traversal_position(&dom, node)?;
-                    let start = traversal_position(&dom, range.start_container)?;
-                    let end = traversal_position(&dom, range.end_container)?;
-                    position >= start && position <= end
-                };
+                let intersects =
+                    if tree_root(&dom, node)? != tree_root(&dom, range.start_container)? {
+                        false
+                    } else if let Some(parent) = dom.parent(node)? {
+                        let index = dom
+                            .children(parent)?
+                            .iter()
+                            .position(|candidate| *candidate == node)
+                            .ok_or(DomError::NotAChild(node, parent))?
+                            as u32;
+                        compare_boundary_points(
+                            &dom,
+                            (parent, index),
+                            (range.end_container, range.end_offset),
+                        )? < 0
+                            && compare_boundary_points(
+                                &dom,
+                                (parent, index.saturating_add(1)),
+                                (range.start_container, range.start_offset),
+                            )? > 0
+                    } else {
+                        true
+                    };
                 return Ok(Some(v8::Boolean::new(scope, intersects).into()));
             }
             "toString" => {
@@ -14794,6 +15193,7 @@ fn validate_interface_node(
         "HTMLFormElement" => Some("form"),
         "HTMLAnchorElement" => Some("a"),
         "HTMLCanvasElement" => Some("canvas"),
+        "HTMLImageElement" => Some("img"),
         _ => None,
     };
     if let Some(expected_tag) = expected_tag {
@@ -14839,6 +15239,7 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "template" => "HTMLTemplateElement",
             "audio" | "video" => "HTMLMediaElement",
             "canvas" => "HTMLCanvasElement",
+            "img" => "HTMLImageElement",
             "input" => "HTMLInputElement",
             "textarea" => "HTMLTextAreaElement",
             "select" => "HTMLSelectElement",
@@ -15684,6 +16085,22 @@ fn get_attribute_value<'s>(
         let options = state.dom.borrow().query_selector_all(node, "option")?;
         return node_array(scope, state, &options);
     }
+    if interface == "HTMLImageElement"
+        && matches!(
+            member,
+            "naturalWidth" | "naturalHeight" | "clientWidth" | "clientHeight"
+        )
+    {
+        let image = state.decoded_images.borrow();
+        let value = image.get(&node).map_or(0, |image| {
+            if matches!(member, "naturalWidth" | "clientWidth") {
+                image.width
+            } else {
+                image.height
+            }
+        });
+        return Ok(v8::Integer::new_from_unsigned(scope, value).into());
+    }
     if interface == "HTMLIFrameElement" && member == "contentDocument" {
         let document = state.frame_roots.borrow().get(&node).copied();
         return optional_node(scope, state, document);
@@ -15817,6 +16234,10 @@ fn get_attribute_value<'s>(
     }
     if interface == "Document" && matches!(member, "head" | "body") {
         let element = state.dom.borrow().query_selector(node, member)?;
+        return optional_node(scope, state, element);
+    }
+    if interface == "Document" && member == "scrollingElement" {
+        let element = state.dom.borrow().query_selector(node, "html")?;
         return optional_node(scope, state, element);
     }
     if interface == "Document" && member == "doctype" {
@@ -15982,6 +16403,23 @@ fn get_attribute_value<'s>(
             scope,
             record.attributes.get("class").map_or("", String::as_str),
         )?,
+        ("Element", "scrollLeft" | "scrollTop") => {
+            let offset = state
+                .scroll_offsets
+                .borrow()
+                .get(&node)
+                .copied()
+                .unwrap_or_default();
+            v8::Number::new(
+                scope,
+                if member == "scrollLeft" {
+                    offset.0
+                } else {
+                    offset.1
+                },
+            )
+            .into()
+        }
         ("DOMTokenList", "value") => v8_string(
             scope,
             record.attributes.get("class").map_or("", String::as_str),
@@ -16101,8 +16539,13 @@ fn get_attribute_value<'s>(
         (
             interface,
             "type" | "name" | "action" | "method" | "href" | "target" | "src" | "srcdoc"
-            | "sandbox",
+            | "sandbox" | "crossOrigin" | "referrerPolicy",
         ) if interface.starts_with("HTML") => {
+            let attribute = match member {
+                "crossOrigin" => "crossorigin",
+                "referrerPolicy" => "referrerpolicy",
+                _ => member,
+            };
             let fallback = match member {
                 "method" => "get",
                 "type" if interface == "HTMLButtonElement" => "submit",
@@ -16113,7 +16556,7 @@ fn get_attribute_value<'s>(
                 scope,
                 record
                     .attributes
-                    .get(member)
+                    .get(attribute)
                     .map_or(fallback, String::as_str),
             )?
         }
@@ -16287,6 +16730,16 @@ fn set_attribute_value(
         }
         ("Element", "id") => dom.set_attribute(node, "id", value)?,
         ("Element", "className") => dom.set_attribute(node, "class", value)?,
+        ("Element", "scrollLeft" | "scrollTop") => {
+            let numeric = value.parse::<f64>().unwrap_or(0.0).max(0.0);
+            let mut offsets = state.scroll_offsets.borrow_mut();
+            let offset = offsets.entry(node).or_default();
+            if member == "scrollLeft" {
+                offset.0 = numeric;
+            } else {
+                offset.1 = numeric;
+            }
+        }
         ("DOMTokenList", "value") => dom.set_attribute(node, "class", value)?,
         ("CSSStyleDeclaration", "cssText") => dom.set_attribute(node, "style", value)?,
         ("CSSStyleDeclaration", member) => {
@@ -16398,9 +16851,14 @@ fn set_attribute_value(
         (
             interface,
             "type" | "name" | "action" | "method" | "href" | "target" | "src" | "srcdoc"
-            | "sandbox",
+            | "sandbox" | "crossOrigin" | "referrerPolicy",
         ) if interface.starts_with("HTML") => {
-            dom.set_attribute(node, member, value)?;
+            let attribute = match member {
+                "crossOrigin" => "crossorigin",
+                "referrerPolicy" => "referrerpolicy",
+                _ => member,
+            };
+            dom.set_attribute(node, attribute, value)?;
             if interface == "HTMLIFrameElement" && matches!(member, "src" | "srcdoc") {
                 drop(dom);
                 state.prepared_frames.borrow_mut().remove(&node);
@@ -16409,6 +16867,13 @@ fn set_attribute_value(
                     .borrow_mut()
                     .retain(|pending| *pending != node);
                 prepare_dynamic_frame_subtree(state, node)?;
+                return Ok(());
+            }
+            if interface == "HTMLImageElement"
+                && matches!(member, "src" | "crossOrigin" | "referrerPolicy")
+            {
+                drop(dom);
+                prepare_dynamic_image_subtree(scope, state, node)?;
                 return Ok(());
             }
         }
@@ -16570,6 +17035,16 @@ fn call_operation<'s>(
             }
             let head = utf16_slice(&data, 0, offset);
             let tail = utf16_slice(&data, offset, length);
+            let live_range_records = {
+                let static_ranges = state.static_ranges.borrow();
+                state
+                    .ranges
+                    .borrow()
+                    .iter()
+                    .filter(|(id, _)| !static_ranges.contains(id))
+                    .map(|(id, range)| (*id, range.clone()))
+                    .collect::<Vec<_>>()
+            };
             let created = {
                 let mut dom = state.dom.borrow_mut();
                 dom.set_text(node, head)?;
@@ -16586,8 +17061,39 @@ fn call_operation<'s>(
                         .ok_or(DomError::StaleNode(node))?;
                     dom.insert_before(parent, created, siblings.get(index + 1).copied())?;
                 }
+                for (id, original) in &live_range_records {
+                    let mut current = dom.live_range(LiveRangeId(*id))?;
+                    if original.start_container == node {
+                        current.start = if original.start_offset > offset {
+                            BoundaryPoint {
+                                container: created,
+                                offset: original.start_offset - offset,
+                            }
+                        } else {
+                            BoundaryPoint {
+                                container: node,
+                                offset: original.start_offset,
+                            }
+                        };
+                    }
+                    if original.end_container == node {
+                        current.end = if original.end_offset > offset {
+                            BoundaryPoint {
+                                container: created,
+                                offset: original.end_offset - offset,
+                            }
+                        } else {
+                            BoundaryPoint {
+                                container: node,
+                                offset: original.end_offset,
+                            }
+                        };
+                    }
+                    dom.set_live_range(LiveRangeId(*id), current.start, current.end)?;
+                }
                 created
             };
+            synchronize_live_ranges(state)?;
             Ok(Some(wrap_node(scope, state, created)?.into()))
         }
         ("EventTarget", "addEventListener") => {
@@ -17207,6 +17713,7 @@ fn call_operation<'s>(
         }
         (_, "appendChild") => {
             let child = argument_node(scope, state, args.get(0))?;
+            validate_tree_insertion(&state.dom.borrow(), node, child)?;
             let fragment_children = {
                 let dom = state.dom.borrow();
                 matches!(dom.arena().get(child)?.kind, NodeKind::DocumentFragment)
@@ -17227,6 +17734,7 @@ fn call_operation<'s>(
         (_, "insertBefore") => {
             let child = argument_node(scope, state, args.get(0))?;
             let reference = optional_argument_node(scope, state, args.get(1))?;
+            validate_tree_insertion(&state.dom.borrow(), node, child)?;
             let fragment_children = {
                 let dom = state.dom.borrow();
                 matches!(dom.arena().get(child)?.kind, NodeKind::DocumentFragment)
@@ -17258,6 +17766,7 @@ fn call_operation<'s>(
         (_, "replaceChild") => {
             let replacement = argument_node(scope, state, args.get(0))?;
             let child = argument_node(scope, state, args.get(1))?;
+            validate_tree_insertion(&state.dom.borrow(), node, replacement)?;
             let fragment_children = {
                 let dom = state.dom.borrow();
                 matches!(
@@ -17893,13 +18402,59 @@ fn call_operation<'s>(
             }
             Ok(None)
         }
+        ("Element", "scrollTo") => {
+            let requested_x = args.get(0).number_value(scope).unwrap_or(0.0).max(0.0);
+            let requested_y = args.get(1).number_value(scope).unwrap_or(0.0).max(0.0);
+            let (max_x, max_y) = scroll_extent(state, node);
+            let next = (
+                if max_x > 0.0 {
+                    requested_x.min(max_x)
+                } else {
+                    requested_x
+                },
+                if max_y > 0.0 {
+                    requested_y.min(max_y)
+                } else {
+                    requested_y
+                },
+            );
+            let changed = state.scroll_offsets.borrow().get(&node).copied() != Some(next);
+            state.scroll_offsets.borrow_mut().insert(node, next);
+            if changed {
+                queue_scroll_events(state, node)?;
+            }
+            Ok(None)
+        }
         ("Element", "scrollIntoView") => {
+            let options = args.get(0).to_object(scope);
+            let alignment = |name: &str| -> Option<String> {
+                let options = options.as_ref()?;
+                let key = v8::String::new(scope, name)?;
+                options
+                    .get(scope, key.into())?
+                    .to_string(scope)
+                    .map(|value| value.to_rust_string_lossy(scope))
+            };
+            let inline = alignment("inline").unwrap_or_else(|| "nearest".into());
+            let block = alignment("block").unwrap_or_else(|| "start".into());
             let targets = {
                 let dom = state.dom.borrow();
-                let mut targets = Vec::new();
+                let mut targets = if dom
+                    .node_name(node)
+                    .is_ok_and(|name| name.eq_ignore_ascii_case("html"))
+                {
+                    vec![node]
+                } else {
+                    Vec::new()
+                };
                 let mut current = dom.arena().get(node).ok().and_then(|record| record.parent);
                 while let Some(candidate) = current {
-                    targets.push(candidate);
+                    if matches!(
+                        dom.arena().get(candidate).map(|record| &record.kind),
+                        Ok(NodeKind::Element { .. })
+                    ) {
+                        targets.push(candidate);
+                    }
                     current = dom
                         .arena()
                         .get(candidate)
@@ -17908,11 +18463,40 @@ fn call_operation<'s>(
                 }
                 targets
             };
-            for target in targets {
-                let scroll = create_event_object(scope, state, "scroll", false, false)?;
-                dispatch_event(scope, state, target, scroll)?;
-                let scrollend = create_event_object(scope, state, "scrollend", false, false)?;
-                dispatch_event(scope, state, target, scrollend)?;
+            let targets = targets
+                .into_iter()
+                .map(|target| (target, scroll_extent(state, target)))
+                .collect::<Vec<_>>();
+            let has_nested_scroller = targets.iter().any(|(target, extent)| {
+                *extent != (0.0, 0.0)
+                    && !state
+                        .dom
+                        .borrow()
+                        .node_name(*target)
+                        .is_ok_and(|name| name.eq_ignore_ascii_case("html"))
+            });
+            for (target, extent) in targets {
+                if extent == (0.0, 0.0) {
+                    continue;
+                }
+                if has_nested_scroller
+                    && state
+                        .dom
+                        .borrow()
+                        .node_name(target)
+                        .is_ok_and(|name| name.eq_ignore_ascii_case("html"))
+                {
+                    continue;
+                }
+                let next = (
+                    if inline == "start" { 0.0 } else { extent.0 },
+                    if block == "start" { 0.0 } else { extent.1 },
+                );
+                let changed = state.scroll_offsets.borrow().get(&target).copied() != Some(next);
+                state.scroll_offsets.borrow_mut().insert(target, next);
+                if changed {
+                    queue_scroll_events(state, target)?;
+                }
             }
             Ok(None)
         }
@@ -17925,6 +18509,24 @@ fn call_operation<'s>(
             for name in ["beginPath", "arc", "fill", "fillRect", "clearRect"] {
                 let function = v8::Function::new(scope, canvas_noop)
                     .ok_or(V8BindingError::Allocation("canvas no-op function"))?;
+                set_object_property(scope, context, name, function.into())?;
+            }
+            for (name, function) in [
+                (
+                    "drawImage",
+                    v8::Function::builder(canvas_draw_image)
+                        .data(v8::BigInt::new_from_u64(scope, node_key(node)).into())
+                        .build(scope)
+                        .ok_or(V8BindingError::Allocation("canvas drawImage"))?,
+                ),
+                (
+                    "getImageData",
+                    v8::Function::builder(canvas_get_image_data)
+                        .data(v8::BigInt::new_from_u64(scope, node_key(node)).into())
+                        .build(scope)
+                        .ok_or(V8BindingError::Allocation("canvas getImageData"))?,
+                ),
+            ] {
                 set_object_property(scope, context, name, function.into())?;
             }
             Ok(Some(context.into()))
@@ -18007,6 +18609,178 @@ fn canvas_noop(
     _args: v8::FunctionCallbackArguments,
     _return_value: v8::ReturnValue,
 ) {
+}
+
+fn inline_px(dom: &DomRuntime, node: NodeId, property: &str) -> Option<f64> {
+    let style = dom.attribute(node, "style").ok().flatten()?;
+    let value = inline_style_entries(style).remove(property)?;
+    value
+        .trim()
+        .strip_suffix("px")
+        .unwrap_or(value.trim())
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite() && *value >= 0.0)
+}
+
+fn scroll_extent(state: &V8BindingState, node: NodeId) -> (f64, f64) {
+    let _ = refresh_layout(state);
+    let dom = state.dom.borrow();
+    let layout = state.layout.borrow();
+    let geometry = |candidate| match layout.geometry.get(&node_key(candidate)) {
+        Some(BindingGeometry::Available(rect)) => Some((rect.width, rect.height)),
+        _ => None,
+    };
+    let is_root = dom
+        .node_name(node)
+        .is_ok_and(|name| name.eq_ignore_ascii_case("html"));
+    if is_root {
+        let root_size = geometry(node).or_else(|| {
+            Some((
+                inline_px(&dom, node, "width")?,
+                inline_px(&dom, node, "height")?,
+            ))
+        });
+        if let Some((width, height)) = root_size {
+            return ((width - 1280.0).max(0.0), (height - 720.0).max(0.0));
+        }
+    }
+    let Some((width, height)) = geometry(node).or_else(|| {
+        Some((
+            inline_px(&dom, node, "width")?,
+            inline_px(&dom, node, "height")?,
+        ))
+    }) else {
+        return (0.0, 0.0);
+    };
+    dom.children(node)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|child| {
+            geometry(*child).or_else(|| {
+                Some((
+                    inline_px(&dom, *child, "width")?,
+                    inline_px(&dom, *child, "height")?,
+                ))
+            })
+        })
+        .fold((0.0, 0.0), |extent, child| {
+            (
+                extent.0.max((child.0 - width).max(0.0)),
+                extent.1.max((child.1 - height).max(0.0)),
+            )
+        })
+}
+
+fn queue_scroll_events(state: &Rc<V8BindingState>, element: NodeId) -> Result<(), V8BindingError> {
+    let is_root = state
+        .dom
+        .borrow()
+        .node_name(element)
+        .is_ok_and(|name| name.eq_ignore_ascii_case("html"));
+    let target = if is_root { state.document } else { element };
+    state.deferred_platform_tasks.borrow_mut().extend([
+        DeferredPlatformTask::DomEvent {
+            target,
+            event_type: "scroll",
+            bubbles: is_root,
+        },
+        DeferredPlatformTask::DomEvent {
+            target,
+            event_type: "scrollend",
+            bubbles: is_root,
+        },
+    ]);
+    Ok(())
+}
+
+fn node_from_key(key: u64) -> NodeId {
+    NodeId {
+        slot: key as u32,
+        generation: (key >> 32) as u32,
+    }
+}
+
+fn canvas_draw_image(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _return_value: v8::ReturnValue,
+) {
+    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+        throw_type_error(scope, "generated binding state is unavailable");
+        return;
+    };
+    let result = (|| -> Result<(), V8BindingError> {
+        let canvas = exact_u64(args.data())
+            .map(node_from_key)
+            .ok_or(V8BindingError::Allocation("canvas identity"))?;
+        let image = argument_node(scope, &state, args.get(0))?;
+        let decoded = state
+            .decoded_images
+            .borrow()
+            .get(&image)
+            .cloned()
+            .ok_or_else(|| V8BindingError::Unsupported {
+                interface: "CanvasRenderingContext2D".into(),
+                member: "drawImage source has not completed decoding".into(),
+            })?;
+        state.canvas_images.borrow_mut().insert(canvas, decoded);
+        Ok(())
+    })();
+    if let Err(error) = result {
+        throw_binding_error(scope, &error);
+    }
+}
+
+fn canvas_get_image_data(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+        throw_type_error(scope, "generated binding state is unavailable");
+        return;
+    };
+    let result = (|| -> Result<v8::Local<v8::Object>, V8BindingError> {
+        let canvas = exact_u64(args.data())
+            .map(node_from_key)
+            .ok_or(V8BindingError::Allocation("canvas identity"))?;
+        let image = state
+            .canvas_images
+            .borrow()
+            .get(&canvas)
+            .cloned()
+            .unwrap_or_else(|| DecodedImage {
+                width: args.get(2).uint32_value(scope).unwrap_or(0),
+                height: args.get(3).uint32_value(scope).unwrap_or(0),
+                rgba: Vec::new(),
+            });
+        let expected = image.width as usize * image.height as usize * 4;
+        let mut rgba = image.rgba;
+        rgba.resize(expected, 0);
+        let buffer = array_buffer_from_bytes(scope, &rgba);
+        let data = v8::Uint8ClampedArray::new(scope, buffer, 0, rgba.len())
+            .ok_or(V8BindingError::Allocation("ImageData pixels"))?;
+        let result = v8::Object::new(scope);
+        set_object_property(scope, result, "data", data.into())?;
+        set_object_property(
+            scope,
+            result,
+            "width",
+            v8::Integer::new_from_unsigned(scope, image.width).into(),
+        )?;
+        set_object_property(
+            scope,
+            result,
+            "height",
+            v8::Integer::new_from_unsigned(scope, image.height).into(),
+        )?;
+        Ok(result)
+    })();
+    match result {
+        Ok(value) => return_value.set(value.into()),
+        Err(error) => throw_binding_error(scope, &error),
+    }
 }
 
 fn trusted_string(
@@ -18109,6 +18883,7 @@ fn prepare_dynamic_script_subtree(
     root: NodeId,
 ) -> Result<(), V8BindingError> {
     prepare_dynamic_frame_subtree(state, root)?;
+    prepare_dynamic_image_subtree(scope, state, root)?;
     for script in state.dynamic_script_candidates(root)? {
         if state.prepared_scripts.borrow().contains(&script) {
             continue;
@@ -18149,6 +18924,98 @@ fn prepare_dynamic_script_subtree(
             .run(scope)
             .ok_or(V8BindingError::Allocation("dynamic script result"))?;
         scope.perform_microtask_checkpoint();
+    }
+    Ok(())
+}
+
+fn prepare_dynamic_image_subtree(
+    scope: &mut v8::PinScope<'_, '_>,
+    state: &Rc<V8BindingState>,
+    root: NodeId,
+) -> Result<(), V8BindingError> {
+    let images = {
+        let dom = state.dom.borrow();
+        if !dom.is_connected(root)? {
+            return Ok(());
+        }
+        let mut images = Vec::new();
+        if dom
+            .node_name(root)
+            .is_ok_and(|name| name.eq_ignore_ascii_case("img"))
+        {
+            images.push(root);
+        }
+        images.extend(dom.query_selector_all(root, "img")?);
+        images
+    };
+    for node in images {
+        let (source, cross_origin, referrer_policy) = {
+            let dom = state.dom.borrow();
+            (
+                dom.attribute(node, "src")?.map(str::to_owned),
+                dom.attribute(node, "crossorigin")?.map(str::to_owned),
+                dom.attribute(node, "referrerpolicy")?.map(str::to_owned),
+            )
+        };
+        let Some(source) = source.filter(|value| !value.trim().is_empty()) else {
+            continue;
+        };
+        if state
+            .image_sources
+            .borrow()
+            .get(&node)
+            .is_some_and(|prepared| prepared == &source)
+        {
+            continue;
+        }
+        let initiator_url = request_initiator_url(scope);
+        let resolved = Url::parse(&source)
+            .or_else(|_| {
+                initiator_url
+                    .as_deref()
+                    .ok_or(url::ParseError::RelativeUrlWithoutBase)
+                    .and_then(Url::parse)
+                    .and_then(|base| base.join(&source))
+            })
+            .map_err(|_| V8BindingError::Unsupported {
+                interface: "HTMLImageElement".into(),
+                member: format!("invalid image URL {source:?}"),
+            })?;
+        state
+            .image_sources
+            .borrow_mut()
+            .insert(node, source.clone());
+        state.decoded_images.borrow_mut().remove(&node);
+        let credentials = match cross_origin.as_deref().map(str::trim) {
+            Some(value) if value.eq_ignore_ascii_case("use-credentials") => "include",
+            Some(_) => "same-origin",
+            None => "include",
+        };
+        let request = PlatformHttpRequest {
+            method: "GET".into(),
+            url: resolved.to_string(),
+            headers: vec![(
+                "accept".into(),
+                "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.5".into(),
+            )],
+            body: Vec::new(),
+            credentials: credentials.into(),
+            initiator_url,
+            referrer_policy: referrer_policy
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| {
+                    global_property(scope, "__oryn_referrer_policy")
+                        .ok()
+                        .and_then(|value| value.to_string(scope))
+                        .map(|value| value.to_rust_string_lossy(scope))
+                        .filter(|value| !value.trim().is_empty())
+                }),
+        };
+        submit_platform_operation(
+            state,
+            PlatformHostRequest::HttpStart { request },
+            PendingPlatformOperation::ImageStart { node },
+        )?;
     }
     Ok(())
 }
@@ -18259,6 +19126,26 @@ fn form_is_valid(dom: &DomRuntime, form: NodeId) -> Result<bool, DomError> {
         }
     }
     Ok(true)
+}
+
+fn validate_tree_insertion(
+    dom: &DomRuntime,
+    parent: NodeId,
+    child: NodeId,
+) -> Result<(), V8BindingError> {
+    if child == parent || dom.arena().ancestors(parent)?.contains(&child) {
+        return Err(V8BindingError::Unsupported {
+            interface: "Node".into(),
+            member: "HierarchyRequestError".into(),
+        });
+    }
+    if matches!(dom.arena().get(child)?.kind, NodeKind::Document) {
+        return Err(V8BindingError::Unsupported {
+            interface: "Node".into(),
+            member: "HierarchyRequestError".into(),
+        });
+    }
+    Ok(())
 }
 
 fn event_id(

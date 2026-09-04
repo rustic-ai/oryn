@@ -7,11 +7,12 @@ description = "V8 realm and generated binding boundary for Oryn"
 
 [features]
 default = []
-v8-host = ["dep:v8"]
+v8-host = ["dep:image", "dep:v8"]
 v8-sandbox = ["v8/v8_enable_sandbox"]
 
 [dependencies]
 base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["bmp", "png", "jpeg", "gif", "webp"], optional = true }
 oryn-dom = { path = "../oryn-dom" }
 oryn-webidl = { path = "../oryn-webidl" }
 serde = { version = "1", features = ["derive"] }

@@ -24,6 +24,8 @@ use crate::{
 };
 use url::Url;
 
+const DOCUMENT_LIFECYCLE_SCRIPT: &str = "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));if(document.body&&typeof document.body.onload==='function'){globalThis.onload=document.body.onload;}dispatchEvent(new Event('load'))";
+
 struct LiveLayoutProvider {
     dom: SharedDomRuntime,
     viewport: oryn_common::v4::ViewportState,
@@ -1078,9 +1080,8 @@ for(const name of ['Blob','File','FormData','Headers','AbortSignal','AbortContro
 // legacy numeric codes browser-compatible while the throwing algorithms stay
 // in generated Rust callbacks.
 const __oryn_dom_exception_codes={IndexSizeError:1,HierarchyRequestError:3,WrongDocumentError:4,InvalidCharacterError:5,NoModificationAllowedError:7,NotFoundError:8,NotSupportedError:9,InUseAttributeError:10,InvalidStateError:11,SyntaxError:12,InvalidModificationError:13,NamespaceError:14,InvalidAccessError:15,TypeMismatchError:17,SecurityError:18,NetworkError:19,AbortError:20,URLMismatchError:21,QuotaExceededError:22,TimeoutError:23,InvalidNodeTypeError:24,DataCloneError:25};
-class OrynDOMException extends Error{constructor(message='',name='Error'){super(String(message));this.name=String(name)}get code(){return __oryn_dom_exception_codes[this.name]||0}}
-for(const [name,code] of Object.entries(__oryn_dom_exception_codes)){Object.defineProperty(OrynDOMException,name.toUpperCase().replace(/ERROR$/,'_ERR'),{value:code,enumerable:true});Object.defineProperty(OrynDOMException.prototype,name.toUpperCase().replace(/ERROR$/,'_ERR'),{value:code,enumerable:true})}
-globalThis.DOMException=OrynDOMException;
+globalThis.DOMException=class DOMException extends Error{constructor(message='',name='Error'){super(String(message));this.name=String(name)}get code(){return __oryn_dom_exception_codes[this.name]||0}};
+for(const [name,code] of Object.entries(__oryn_dom_exception_codes)){Object.defineProperty(DOMException,name.toUpperCase().replace(/ERROR$/,'_ERR'),{value:code,enumerable:true});Object.defineProperty(DOMException.prototype,name.toUpperCase().replace(/ERROR$/,'_ERR'),{value:code,enumerable:true})}
 globalThis.getSelection=()=>document.getSelection();
 const __oryn_time_origin=Date.now();
 globalThis.performance={timeOrigin:__oryn_time_origin,now:()=>Date.now()-__oryn_time_origin,toJSON(){return {timeOrigin:this.timeOrigin}}};
@@ -2047,9 +2048,7 @@ impl RustExecutableDocument {
         // barrier is released.
         for realm in initial_frame_realms {
             page.host.activate_realm(realm)?;
-            page.host.execute(
-                "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
-            )?;
+            page.host.execute(DOCUMENT_LIFECYCLE_SCRIPT)?;
             // A frame's load task may schedule the zero-delay completion task
             // used by testharness and by application bootstraps. Run timers
             // that are due now while the child realm is active; otherwise the
@@ -2069,9 +2068,7 @@ impl RustExecutableDocument {
         // pulled forward merely because navigation reached the load barrier.
         page.host.drain_scheduled_timers(false)?;
         page.checkpoint()?;
-        page.host.execute(
-            "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
-        )?;
+        page.host.execute(DOCUMENT_LIFECYCLE_SCRIPT)?;
         page.host.drain_scheduled_timers(false)?;
         page.checkpoint()?;
         Ok(page)
@@ -3056,9 +3053,11 @@ impl RustExecutableDocument {
                 }
                 self.host.activate_realm(parent_realm)?;
                 self.host.activate_realm(realm)?;
-                self.host.execute(
-                "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
-            ).map_err(|error| HostError::Execution(format!("dynamic frame lifecycle: {error}")))?;
+                self.host
+                    .execute(DOCUMENT_LIFECYCLE_SCRIPT)
+                    .map_err(|error| {
+                        HostError::Execution(format!("dynamic frame lifecycle: {error}"))
+                    })?;
                 self.host.activate_realm(parent_realm)?;
                 self.host
                     .execute_with_node(

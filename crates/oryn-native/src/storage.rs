@@ -239,6 +239,9 @@ pub struct IdbResponse {
     pub object_store_definitions: Vec<ObjectStoreDefinition>,
     pub key: Option<serde_json::Value>,
     pub value: Option<serde_json::Value>,
+    /// Distinguishes a stored JSON null from an absent record across serde,
+    /// where `Option<Value>` otherwise maps both states to JSON null.
+    pub value_present: bool,
     pub values: Vec<serde_json::Value>,
     pub records: Vec<IdbRecord>,
     pub count: Option<u64>,
@@ -1149,11 +1152,10 @@ fn execute_idb(
         } => {
             let store_data = store_ref(databases, origin, &database, &store)?;
             let encoded = encode_key(&key)?;
+            let stored = store_data.records.get(&encoded);
             IdbResponse {
-                value: store_data
-                    .records
-                    .get(&encoded)
-                    .map(|record| record.value.clone()),
+                value: stored.map(|record| record.value.clone()),
+                value_present: stored.is_some(),
                 ..IdbResponse::default()
             }
         }
