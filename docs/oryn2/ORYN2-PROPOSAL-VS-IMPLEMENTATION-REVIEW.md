@@ -2,8 +2,8 @@
 
 **Original assessment date:** 2026-08-28
 **Original assessed source:** `0b7a38b` (`refactor: replace phase labels with capability names`)
-**Current status update:** 2026-09-03
-**Current committed source:** `20784f6` (`fix: close document-root editing conformance`)
+**Current status update:** 2026-09-04
+**Current committed source:** `964c426` (`Correct worker conformance execution and lifecycle`)
 **Working-tree state at assessment:** clean
 
 **Proposal:** *Oryn2 Product Proposal & Technical Architecture v0.2*  
@@ -20,14 +20,14 @@ v1 product described by the proposal is complete.
 > **Reading note:** Sections 1–7 preserve the forensic assessment of source
 > `0b7a38b`. They are historical findings and should not be read as a fresh
 > description of current production code. This status section records the
-> verified disposition through signed commit `20784f6`; later remediation notes retain additional
+> verified disposition through signed commit `964c426`; later remediation notes retain additional
 > implementation detail. A finding is closed only when its software defect is
 > absent. Release evidence is tracked separately and must bind to the exact
 > source and packaged artifacts being claimed.
 
 ## Current HEAD status
 
-Through signed checkpoint `20784f6`, Oryn has completed important parts of the
+Through signed checkpoint `964c426`, Oryn has completed important parts of the
 proposal-v1 architecture: Rust owns
 the live DOM, generated V8 bindings execute Rust behavior for the migrated
 interfaces, the parent owns network and security policy, and the production
@@ -73,11 +73,11 @@ oracle. Grid values cross the Stylo/Taffy compatibility boundary. Sandboxed
 full and genuinely
 reduced-ICU lite V8 profiles plus callback-bearing startup snapshots are now
 built and verified on macOS ARM64; Linux profile artifacts and cross-platform
-attestation remain. The eight requested pinned IndexedDB worker variants pass
-in the local V8 probe and through a locally signed, trusted production worker
-(four SharedWorker and four ServiceWorker). A compact recomputable ledger binds
-those runs to signed source commit `ef8a8d4`; the broader pinned Range/API
-inventory remains outstanding. The additive locked v2 inventory corrects the
+attestation remain. Corrected focused execution passes the eight requested
+pinned IndexedDB worker variants (four SharedWorker and four ServiceWorker),
+but the historical compact ledger observed an eager result placeholder and is
+superseded pending regeneration through the trusted production worker. The
+additive locked v2 inventory corrects the
 earlier omission of HTML-declared variants: it contains the same 3,184 pinned
 files but 4,022 executions rather than 3,462. Its runner now resolves WPT META
 dependencies, executes with bounded concurrency, checkpoints atomically and
@@ -154,7 +154,7 @@ The dependency-ordered completion backlog is maintained in
 | F12 — untrusted content | **Mostly closed** | Semantic nodes carry `ContentTrust::PageAuthored`, inferred facts use heuristic provenance, and raw inspection is policy-audited without recording page content. Broader prompt-boundary evidence remains narrower than the proposal's full trust model. |
 | F13 — secret leakage | **Closed in software** | Secret sensitivity is stored independently on Rust DOM nodes, applies to text inputs, survives page-controlled attribute changes, and redacts observation and HTML extraction. |
 | F14 — generated WebIDL | **Partial; architecture closed, long-tail algorithms measured** | Deterministic generation, real prototypes, Rust callbacks, wrapper identity, brands, realms, origin and generation checks are authoritative in production. Cross-container Range operations, CharacterData/editing, generated Storage, Fetch/File/Streams/XHR/WebSocket, MessageChannel transfer and IndexedDB execute through Rust state and typed parent operations. Focused upstream regressions now cover atomic rollback, compound key paths, connection-close/versionchange ordering, failed-upgrade abort ordering, live cursor mutation and index-key re-entry, exact WTF-16 names, detached binary keys, and the bounded editing-command surface. The compatibility bootstrap is probe-only. The comparable editing/other slice passes after assertion-level upstream-defect accounting; exhaustive cross-realm/origin and long-tail API inventory execution remains open, so API conformance is not closed. |
-| F15 — production-path testing | **Partial; focused editing and IndexedDB slices pass, exhaustive inventory remains open** | Focused default, no-V8 and V8-host tests pass and the pinned upstream harness is fail-closed. All eight requested IndexedDB SharedWorker/ServiceWorker executions pass both the local V8 probe and a trusted, locally signed macOS App Sandbox worker with heap-sandbox metadata; a compact validator recomputes their `ef8a8d4` ledger. The new v2 inventory expands coverage to 4,022 exact executions and makes long runs parallel, checkpointed and fingerprint-resumable. The replacement exact-tree first-100 IndexedDB diagnostic passes 100/100, the discovered cursor slice passes 11/11, and the comparable non-EditContext editing slice passes 40/40 conformant cases and 564/564 valid internal assertions. Its untouched raw result is 32/40 solely because eight assertion-level defects in two tentative WPT files are retained and narrowly excluded by a pinned source ledger. BFCache open-connection and open-transaction lifecycle pass with exact suspended-realm restoration and persisted lifecycle events. Partition coverage completes its remote harness and passes all 31 reported assertions. Timer scheduling and non-blocking page-task draining close the final partitioned-basic and factory-delete harness cases. Cross-origin iframe/window isolation, opaque-origin rejection, cross-realm branding, high-volume multi-entry execution, secure upload geometry, and detached binary keys pass focused or aggregate coverage. No exact signed release aggregate is published as passing. Full sandboxed v2 execution, four-profile equivalence, Linux artifacts, performance and release attestation remain open. |
+| F15 — production-path testing | **Partial; exact complete diagnostic measured, conformance open** | The v2 inventory contains 4,022 exact executions and the pinned runner is parallel, checkpointed and fingerprint-bound. Completion is accepted only from testharness' official callback; raw URL variants and editing assertion intervals are preserved. The complete `2763959` in-process run passes 1,607/4,022 (generated-WebIDL 1,543/3,407, semantic/accessibility 16/51, Stylo 48/564). It records 1,741 assertion failures, 284 harness failures, 66 timeouts and 324 unclassified results. That run exposed a premature worker-result placeholder, so its worker subset is not authoritative. Corrected `964c426` focused runs produce real results for 265 DedicatedWorker variants (26 pass) and pass all eight required SharedWorker/ServiceWorker IndexedDB variants. The historical eight-cell signed ledger must be regenerated because its transport was invalid, even though the corrected outcome remains 8/8. No exact signed release aggregate is published as passing. Full production-worker execution, four-profile equivalence, Linux artifacts, performance and release attestation remain open. |
 | F16 — Intent/API/MCP | **Closed in software; release evidence pending** | Agent contract v3 additively exposes semantic contract v6 and scoped/delta observation while accepting frozen v2 requests. Rust, OIL, worker protocol v8, Python and MCP use the same graph resolver/action engine. Upload, context-virtual clipboard and parent-owned secret-label behavior remain unchanged and values never enter argv, environment, OIL, JSON-RPC, traces, observations or worker initialization. |
 
 ### Current broader-gap status
@@ -209,24 +209,28 @@ The dependency-ordered completion backlog is maintained in
 
 ### Evidence and release status
 
-Commit `20784f6` is not release-attested as one bundle:
+Commit `964c426` is not release-attested as one bundle:
 
 - No `runtime-completion-v1` compact result exists. Its validator must recompute
   every required assertion from the pinned raw ledger before publication.
-- The pinned WPT harness and focused Range, IndexedDB and editing slices run. A
-  first complete current-source **in-process diagnostic** executed all 4,022
-  required variants and passed 446. After the server, CSSOM and semantic bridge
-  changes, the corrected complete diagnostic passes 468: generated-WebIDL
-  405/3,407, semantic/accessibility 16/51, and Stylo 47/564. It records 2,409
-  assertion results, 568 timeouts, 355 harness failures and 222 unclassified
-  terminations. This is a discovery baseline, not production-worker evidence.
+- The pinned WPT harness and focused Range, IndexedDB and editing slices run.
+  The latest complete **in-process diagnostic**, from `2763959`, executes all
+  4,022 required variants and passes 1,607: generated-WebIDL 1,543/3,407,
+  semantic/accessibility 16/51, and Stylo 48/564. It records 1,741 assertion
+  failures, 284 harness failures, 66 timeouts and 324 unclassified outcomes.
+  Its worker subset used a premature result placeholder and is therefore
+  diagnostic only. Corrected `964c426` focused runs report 26/265
+  DedicatedWorker and 8/8 SharedWorker/ServiceWorker passes with real
+  testharness completion payloads. This is still discovery evidence, not
+  production-worker attestation.
   The root-relative `WebIDLParser.js` alias and missing pinned `storage` subtree
   discovered by the run are corrected. The controlled public loopback server
   now proxies non-Oryn routes to pinned upstream `wptserve` for dynamic Python
   handlers, sidecar headers, redirects and substitutions. A focused history
   rerun remains 9/20, while an IndexedDB dynamic-handler case changes from a
-  timeout to a deterministic harness result. A complete corrected rerun is
-  still required before the original failure-domain counts can be replaced.
+  timeout to a deterministic harness result. A complete `964c426` production-
+  worker rerun is still required before an authoritative aggregate can be
+  published.
 - The official prebuilt macOS ARM64 rusty_v8 archive does not provide the
   required sandbox/pointer-compression variant. A reproducible custom archive
   is therefore required.
@@ -255,10 +259,12 @@ The current honest product statement is therefore:
 
 ### Remaining gaps and completion order
 
-1. **Triage and close the required upstream inventory.** The corrected complete
-   diagnostic is 468/4,022. Dynamic response handling now uses pinned upstream
-   `wptserve` and reduces timeouts from 1,001 to 568. Fix shared DOM/CSSOM,
-   referrer/navigation and generated worker-global prerequisites
+1. **Triage and close the required upstream inventory.** The latest complete
+   diagnostic is 1,607/4,022, with 1,741 assertion failures, 284 harness
+   failures, 66 timeouts and 324 unclassified outcomes. Its worker subset
+   predates the corrected completion boundary; focused current runs pass
+   26/265 DedicatedWorker and 8/8 SharedWorker/ServiceWorker variants. Fix
+   shared DOM/CSSOM, referrer/navigation and generated worker-global prerequisites
    before working individual assertions. Any newly exposed algorithm defect
    becomes software work; deferred, excluded and informational cases remain
    distinct.

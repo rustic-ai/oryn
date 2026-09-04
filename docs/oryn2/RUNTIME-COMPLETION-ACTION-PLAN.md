@@ -1,8 +1,8 @@
 # Oryn2 runtime completion action plan
 
 **Created:** 2026-08-31
-**Current committed baseline:** `20784f6` (`fix: close document-root editing conformance`)
-**Status reconciled:** 2026-09-03
+**Current committed baseline:** `964c426` (`Correct worker conformance execution and lifecycle`)
+**Status reconciled:** 2026-09-04
 **Scope:** remaining work required to close the proposal-v1 runtime and produce
 one exact-artifact implementation attestation
 
@@ -20,7 +20,7 @@ of a completed production cutover.
 | Generated WebIDL and compatibility APIs | Implemented in software for the declared interface inventory | Generated V8 templates and prototypes are deterministic and executable. Rust owns wrapper identity, brands, realm/origin/document-generation checks and the supported DOM, editing, navigation, Fetch/File/Streams/XHR/WebSocket and IndexedDB algorithms. Network and database work crosses only typed, asynchronous parent-host operations. Production restores the generated interface namespace after bootstrap; handwritten compatibility implementations remain available only to the explicit in-process probe. | Run every mapped API inventory entry and the broader upstream conformance set. Long-tail algorithms outside the declared inventory remain capability-scoped rather than inferred from focused regressions. |
 | Stylo cascade | Implemented in software | Production resolves an immutable Rust style snapshot through native Stylo `ComputedValues`, including origins, inheritance, custom properties and supported values. Taffy and Parley remain the box/text consumers; the prior handwritten cascade is test-only. | Pass and publish the mapped CSSOM/native-versus-Chromium differential corpus, including the supported grid bridge and explicit long-tail layout boundaries. |
 | V8 sandbox, ICU and startup snapshots | Partial | Production features require `v8_enable_sandbox`; runtime initialization is fail-closed. Exact macOS ARM64 full and external-data lite archives build from pinned source. Lite embeds a physically reduced 2.2 MiB root/en/en-US ICU package. A versioned callback table and content-addressed snapshot are supplied to both snapshot creation and runtime isolates, with hashes in schema-v3 manifests. Heap-sandbox, locale, Segmenter and snapshot-load checks pass. | Build Linux x86_64 full/lite, regenerate the full macOS schema-v3 bundle, then attest all four exact profile artifacts. |
-| Upstream conformance | Partial | A pinned sparse WPT cache exists outside Git. The native harness supports applicable `.any.js`, `.window.js` and testharness HTML cases through controlled loopback and records assertion-level outcomes and failure traces. Four SharedWorker and four ServiceWorker IndexedDB variants pass through a signed production worker and have a compact recomputable ledger. The replacement exact-tree first-100 IndexedDB diagnostic passes 100/100. BFCache open-connection and open-transaction lifecycle retain and restore the suspended realm with persisted lifecycle events. Partition coverage completes the remote harness and passes all 31 reported assertions. Due timer tasks preempt future deadlines and non-blocking page-task draining keeps popup messages live. Opaque-origin rejection, cross-realm branding, high-volume/multi-entry execution, stable frame proxies, atomic rollback, compound keys, connection/versionchange ordering, failed-upgrade ordering, exact WTF-16 names, detached binary keys, cross-origin iframe/window database isolation, and the complete 11-file cursor slice pass. The comparable editing/other slice closes at 40/40 conformant cases and 564/564 valid internal assertions; eight invalid tentative assertions remain visible in raw output and are excluded only through a hash-checked defect ledger. The corrected complete 4,022-variant in-process diagnostic passes 468: generated-WebIDL 405/3,407, semantics 16/51 and Stylo 47/564. Pinned `wptserve` reduces timeouts from 1,001 to 568 and exposes 2,409 assertion failures, 355 harness failures and 222 unclassified terminations. | Close shared CSSOM/DOM, referrer/navigation and worker-global prerequisites before individual long-tail assertions. Rerun through the production worker and keep raw, deferred, excluded and informational results separate. |
+| Upstream conformance | Partial | The pinned runner now publishes results only from the official testharness completion callback, preserves raw URL query variants, and waits for worker completion rather than an empty placeholder. The complete `2763959` in-process diagnostic executes all 4,022 required variants and passes 1,607: generated-WebIDL 1,543/3,407, semantics 16/51 and Stylo 48/564. Its failures are 1,741 assertion, 284 harness, 66 timeout and 324 unclassified outcomes. Because that run predates the worker completion correction, its 273 worker-global failures are diagnostic, not an authoritative worker total. On `964c426`, corrected focused execution produces real assertions for all 265 DedicatedWorker variants (26 pass) and passes the four SharedWorker plus four ServiceWorker IndexedDB variants. The earlier compact eight-cell worker ledger used the premature placeholder and is superseded pending regenerated evidence, even though the corrected eight-cell outcome is also 8/8. | Close the measured DOM/editing, IndexedDB, history/referrer, CSS/Stylo and accessibility differences. Recompute all 4,022 variants through the production worker and publish only a validator-derived exact-binary ledger. |
 | Product and release validation | Not started for this cutover | Focused Rust/V8 tests pass and historical product evidence remains available for its original commits. | Rerun framework/OAuth, MiniWoB, churn, replay, scanner, Python, MCP, platform security and benchmarks against one clean release candidate; privately sign and re-attest only after deterministic completion. |
 
 ## 2. Remaining implementation list
@@ -239,13 +239,13 @@ release status be marked complete.
 
 ## 4. Immediate next actions
 
-1. ~~Use the completed 446/4,022 diagnostic to replace SimpleHTTP response
-   approximations with pinned upstream `wptserve`.~~ Implemented for dynamic
-   handlers, sidecar headers, redirects and substitutions. The corrected full
-   diagnostic is 468/4,022 and reduces timeouts from 1,001 to 568.
-   Named-frame default navigation and nested owner-realm scheduling now pass
-   focused engine regressions; the representative referrer case reaches an
-   assertion but still lacks upstream `sourceContextUrl` attribution.
+1. ~~Replace SimpleHTTP response approximations and partial-completion races.~~
+   Pinned `wptserve` now supplies dynamic handlers, sidecar headers, redirects
+   and substitutions. URL variants retain their raw query spelling, editing
+   shards publish exact assertion intervals, and window/worker runners publish
+   only official completion results. The latest complete diagnostic is
+   1,607/4,022; worker-global totals are being recomputed after correcting the
+   upstream wrapper's explicit `done()` and worker lifecycle delivery.
 2. Close shared DOM/CSSOM prerequisites and generated worker-global exposure,
    then rerun the Stylo slice before addressing property-by-property failures.
    Constructable stylesheets, live `CSSRuleList`, indexed rule mutation and

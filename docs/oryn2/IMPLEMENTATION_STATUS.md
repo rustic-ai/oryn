@@ -2,7 +2,7 @@
 
 > **Current status: proposal-v1 architecture implemented; exhaustive conformance
 > and exact-artifact attestation remain open.** The committed runtime baseline is
-> `20784f6`. Production uses streaming navigation and correlated asynchronous
+> `964c426`. Production uses streaming navigation and correlated asynchronous
 > resources, a shared Rust-owned `DomRuntime`, a persistent incremental semantic
 > graph, generated Rust/V8 interfaces for the declared API inventory, and native
 > Stylo computed values. Focused IndexedDB and editing diagnostics close at
@@ -246,12 +246,16 @@ rewrite those historical payloads or present them as a new validation run.
   Python handlers, sidecar headers, redirects and substitutions no longer rely
   on SimpleHTTP approximations. A 20-case history rerun remains 9/20, proving
   that slice is an engine/lifecycle backlog; an IndexedDB dynamic-handler case
-  now terminates deterministically rather than timing out. The corrected full
-  diagnostic is 468/4,022: generated-WebIDL 405/3,407,
-  semantic/accessibility 16/51 and Stylo 47/564. Timeouts fall from 1,001 to
-  568; assertion outcomes rise from 2,081 to 2,409 as previously missing server
-  behavior reaches real checks. Harness failures are 355 and unclassified
-  terminations 222. This remains dirty-tree in-process diagnostic evidence.
+  now terminates deterministically rather than timing out. The complete
+  `2763959` diagnostic is 1,607/4,022: generated-WebIDL 1,543/3,407,
+  semantic/accessibility 16/51 and Stylo 48/564. It records 1,741 assertion
+  failures, 284 harness failures, 66 timeouts and 324 unclassified outcomes.
+  That run predates the corrected worker completion boundary, so its 273
+  worker-global failures are diagnostic rather than an authoritative worker
+  total. Corrected `964c426` focused runs produce real results for all 265
+  DedicatedWorker variants (26 pass) and pass all four SharedWorker plus all
+  four ServiceWorker IndexedDB variants. The historical compact worker ledger
+  is superseded pending regeneration because it observed an eager placeholder.
 - Generated click/form default actions now cross a typed binding-to-page queue,
   named iframe targets resolve through the Rust frame registry, and dynamic
   nested frames retain their owning realm through navigation and page-wide
