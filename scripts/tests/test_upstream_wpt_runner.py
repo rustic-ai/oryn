@@ -77,11 +77,13 @@ class UpstreamWptRunnerTests(unittest.TestCase):
     def test_wptserve_tokens_are_substituted_for_html_and_scripts(self) -> None:
         source = (
             "http://{{host}}:{{ports[http][0]}}/same "
-            "http://{{hosts[alt][]}}:{{ports[http][1]}}/cross"
+            "http://{{hosts[alt][]}}:{{ports[http][1]}}/cross "
+            "ws://{{domains[www1]}}:{{ports[ws][0]}}/socket"
         )
         self.assertEqual(
             RUNNER.substitute_wpt_tokens(source, "localhost", 8443),
-            "http://localhost:8443/same http://127.0.0.1:8443/cross",
+            "http://localhost:8443/same http://127.0.0.1:8443/cross "
+            "ws://127.0.0.1:8443/socket",
         )
 
     def test_fs_path_tokens_resolve_only_inside_checkout(self) -> None:

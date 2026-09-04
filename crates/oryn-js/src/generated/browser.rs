@@ -3498,7 +3498,7 @@ pub const H_T_M_L_FORM_ELEMENT_MEMBERS: &[GeneratedMember] = &[
 pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         id: GeneratedMemberId(1769472),
-        name: "src",
+        name: "name",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: false,
@@ -3513,7 +3513,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(1769473),
-        name: "srcdoc",
+        name: "src",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: false,
@@ -3528,7 +3528,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(1769474),
-        name: "sandbox",
+        name: "srcdoc",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: false,
@@ -3543,6 +3543,21 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(1769475),
+        name: "sandbox",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        constant_value: None,
+        type_name: Some("DOMString"),
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(1769476),
         name: "contentDocument",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -3557,7 +3572,7 @@ pub const H_T_M_L_I_FRAME_ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1769476),
+        id: GeneratedMemberId(1769477),
         name: "contentWindow",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,

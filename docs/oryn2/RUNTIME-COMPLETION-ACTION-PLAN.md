@@ -243,6 +243,9 @@ release status be marked complete.
    approximations with pinned upstream `wptserve`.~~ Implemented for dynamic
    handlers, sidecar headers, redirects and substitutions. The corrected full
    diagnostic is 468/4,022 and reduces timeouts from 1,001 to 568.
+   Named-frame default navigation and nested owner-realm scheduling now pass
+   focused engine regressions; the representative referrer case reaches an
+   assertion but still lacks upstream `sourceContextUrl` attribution.
 2. Close shared DOM/CSSOM prerequisites and generated worker-global exposure,
    then rerun the Stylo slice before addressing property-by-property failures.
    Constructable stylesheets, live `CSSRuleList`, indexed rule mutation and

@@ -153,7 +153,10 @@ def substitute_wpt_tokens(
         "{{ports[http][1]}}": str(port),
         "{{ports[https][0]}}": str(port),
         "{{ports[https][1]}}": str(port),
+        "{{ports[ws][0]}}": str(port),
+        "{{ports[wss][0]}}": str(port),
         "{{host}}": request_host,
+        "{{domains[www1]}}": remote_host,
         "{{domains[www2]}}": remote_host,
         "{{hosts[alt][]}}": remote_host,
         "{{hosts[alt][www2]}}": remote_host,
@@ -453,6 +456,21 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             self.send_header("content-length", str(len(body))); self.end_headers(); self.wfile.write(body)
             return
         path = Path(self.translate_path(self.path))
+        if path.name.endswith(".sub.js") and path.is_file():
+            request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
+            body = substitute_wpt_tokens(
+                path.read_text(encoding="utf-8", errors="replace"),
+                request_host,
+                self.server.server_address[1],
+                self.root,
+                path,
+            ).encode()
+            self.send_response(200)
+            self.send_header("content-type", "text/javascript; charset=utf-8")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path.suffix in {".html", ".htm"} and path.is_file():
             body = path.read_text(encoding="utf-8", errors="replace")
             if path.name.endswith((".sub.html", ".sub.htm")):
@@ -528,6 +546,22 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             connection.request(self.command, self.path, body=body, headers=headers)
             response = connection.getresponse()
             response_body = response.read()
+            content_type = response.getheader("content-type", "").lower()
+            if b"{{" in response_body and any(
+                value in content_type
+                for value in ("text/", "javascript", "json", "xml", "css", "html")
+            ):
+                request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
+                source_path = self.root / urllib.parse.unquote(
+                    self.path.split("?", 1)[0]
+                ).lstrip("/")
+                response_body = substitute_wpt_tokens(
+                    response_body.decode("utf-8"),
+                    request_host,
+                    self.server.server_address[1],
+                    self.root,
+                    source_path,
+                ).encode("utf-8")
             self.send_response(response.status, response.reason)
             for name, value in response.getheaders():
                 if name.lower() in {"connection", "content-length", "transfer-encoding"}:

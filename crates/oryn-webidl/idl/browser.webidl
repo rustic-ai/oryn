@@ -379,6 +379,7 @@ interface HTMLAnchorElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLIFrameElement : HTMLElement {
+  attribute DOMString name;
   attribute DOMString src;
   attribute DOMString srcdoc;
   attribute DOMString sandbox;

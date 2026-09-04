@@ -2333,7 +2333,7 @@ impl RustExecutableDocument {
             default_accepted = submit_accepted?;
         }
         if default_accepted && matches!(action, SemanticAction::Click | SemanticAction::Submit) {
-            self.apply_default_navigation(target, action, submits_form)?;
+            self.apply_default_navigation(target, action, submits_form, action_realm)?;
         }
         self.checkpoint()
     }
@@ -2434,32 +2434,67 @@ impl RustExecutableDocument {
     }
 
     fn checkpoint(&mut self) -> Result<(), HostError> {
-        self.host.drain_async_fetches(true)?;
-        self.drain_dynamic_frames()?;
-        self.drain_dynamic_scripts()?;
-        // Frame/script load callbacks may enqueue Fetch or IndexedDB work
-        // after the first platform drain. Complete that newly created turn in
-        // the same checkpoint; otherwise it remains pending until an unrelated
-        // command happens to tick the page again.
-        self.host.drain_async_fetches(true)?;
-        // Poll parent-owned context events at every page checkpoint. Popup
-        // messages and lifecycle changes can arrive after the script that
-        // initiated them has yielded; leaving polling to explicit JavaScript
-        // calls strands otherwise runnable promise continuations.
-        self.host.execute("__oryn_drain()")?;
-        self.host.execute("__oryn_run_custom_reactions()")?;
-        self.host.run_dom_observer_checkpoint()?;
+        // Message delivery, promise jobs, default actions, and dynamic frame
+        // loads can enqueue work in a different realm of the same page isolate.
+        // Run a bounded page-wide fixed point instead of relying on an
+        // unrelated future command to tick that realm.
+        for _ in 0..8 {
+            self.host.drain_async_fetches(true)?;
+            self.drain_default_actions()?;
+            self.drain_dynamic_frames()?;
+            self.drain_dynamic_scripts()?;
+            self.host.drain_async_fetches(true)?;
+            for realm in self.host.realm_ids() {
+                self.host.activate_realm(realm)?;
+                self.host.execute("__oryn_drain()")?;
+                self.host.execute("__oryn_run_custom_reactions()")?;
+                self.host.run_dom_observer_checkpoint()?;
+                for rejection in self.host.take_unhandled_promise_rejections() {
+                    self.diagnostics
+                        .push(script_diagnostic(HostError::Execution(format!(
+                            "unhandled promise rejection: {rejection}"
+                        ))));
+                }
+                self.host.process_binding_releases()?;
+            }
+        }
+        self.host.activate_realm(self.top_realm)?;
         for rejection in self.host.take_unhandled_promise_rejections() {
             self.diagnostics
                 .push(script_diagnostic(HostError::Execution(format!(
                     "unhandled promise rejection: {rejection}"
                 ))));
         }
-        self.host.process_binding_releases()?;
         let (dom, document) = self.live_dom.borrow().snapshot();
         self.document.dom = dom;
         self.document.document = document;
         Ok(())
+    }
+
+    fn drain_default_actions(&mut self) -> Result<(), HostError> {
+        use oryn_js::v8_bindings::PendingDefaultAction;
+
+        self.host.activate_realm(self.top_realm)?;
+        for _ in 0..1024 {
+            let pending = self.host.take_pending_default_actions()?;
+            if pending.is_empty() {
+                return Ok(());
+            }
+            for (realm, action) in pending {
+                self.host.activate_realm(realm)?;
+                match action {
+                    PendingDefaultAction::Click(node) => {
+                        self.apply_default_navigation(node, SemanticAction::Click, false, realm)?;
+                    }
+                    PendingDefaultAction::Submit(node) => {
+                        self.apply_default_navigation(node, SemanticAction::Submit, true, realm)?;
+                    }
+                }
+            }
+        }
+        Err(HostError::LimitExceeded {
+            resource: "default-action queue".into(),
+        })
     }
 
     fn drain_dynamic_scripts(&mut self) -> Result<(), HostError> {
@@ -2564,6 +2599,7 @@ impl RustExecutableDocument {
                 return Ok(());
             }
             for frame in pending {
+                let parent_realm = self.host.active_realm();
                 let (requested, mut srcdoc, opaque_sandbox) = {
                     let dom = self.live_dom.borrow();
                     let requested = dom
@@ -2775,7 +2811,7 @@ impl RustExecutableDocument {
                 // Establish parent/top and the frame's contentWindow before child
                 // script execution. Frame scripts are allowed to synchronously
                 // observe their parent relationship while booting.
-                self.host.activate_realm(self.top_realm)?;
+                self.host.activate_realm(parent_realm)?;
                 self.host.ensure_provisional_frame_window(frame)?;
                 if cross_origin {
                     self.host.set_opaque_frame_realm(frame, realm)?;
@@ -2818,12 +2854,12 @@ impl RustExecutableDocument {
                     )?;
                     self.host.refresh_named_window_properties()?;
                 }
-                self.host.activate_realm(self.top_realm)?;
+                self.host.activate_realm(parent_realm)?;
                 self.host.activate_realm(realm)?;
                 self.host.execute(
                 "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('load'))",
             ).map_err(|error| HostError::Execution(format!("dynamic frame lifecycle: {error}")))?;
-                self.host.activate_realm(self.top_realm)?;
+                self.host.activate_realm(parent_realm)?;
                 self.host
                     .execute_with_node(
                         frame,
@@ -3001,7 +3037,31 @@ impl RustExecutableDocument {
         target: NodeId,
         action: SemanticAction,
         submits_form: bool,
+        source_realm: oryn_js::realm::RealmId,
     ) -> Result<(), HostError> {
+        let source_document = {
+            let dom = self.live_dom.borrow();
+            let mut candidate = Some(target);
+            let mut document = None;
+            while let Some(node) = candidate {
+                let record = dom
+                    .arena()
+                    .get(node)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                if matches!(record.kind, NodeKind::Document) {
+                    document = Some(node);
+                    break;
+                }
+                candidate = record.parent;
+            }
+            document.unwrap_or_else(|| dom.document())
+        };
+        let source_realm = self
+            .node_realms
+            .get(&source_document)
+            .copied()
+            .unwrap_or(source_realm);
+        self.host.activate_realm(source_realm)?;
         let (href, target_name) = {
             let dom = self.live_dom.borrow();
             let mut candidate = Some(target);
@@ -3076,8 +3136,60 @@ impl RustExecutableDocument {
             }
             return Ok(());
         }
+        if !target_name.is_empty()
+            && !matches!(
+                target_name.to_ascii_lowercase().as_str(),
+                "_self" | "_parent" | "_top"
+            )
+        {
+            let target_frame = {
+                let dom = self.live_dom.borrow();
+                dom.arena().iter().find_map(|(frame, record)| {
+                    let is_iframe = matches!(
+                        &record.kind,
+                        NodeKind::Element { name } if name.local.as_ref() == "iframe"
+                    );
+                    (is_iframe
+                        && dom.is_connected(frame).unwrap_or(false)
+                        && record
+                            .attributes
+                            .get("name")
+                            .or_else(|| record.attributes.get("id"))
+                            .is_some_and(|name| name == &target_name))
+                    .then_some(frame)
+                })
+            };
+            if let Some(frame) = target_frame {
+                let frame_owner_realm = {
+                    let dom = self.live_dom.borrow();
+                    let mut candidate = dom.arena().get(frame).ok().and_then(|node| node.parent);
+                    let mut document = None;
+                    while let Some(node) = candidate {
+                        let Ok(record) = dom.arena().get(node) else {
+                            break;
+                        };
+                        if matches!(record.kind, NodeKind::Document) {
+                            document = Some(node);
+                            break;
+                        }
+                        candidate = record.parent;
+                    }
+                    document
+                        .and_then(|document| self.node_realms.get(&document).copied())
+                        .unwrap_or(source_realm)
+                };
+                self.live_dom
+                    .borrow_mut()
+                    .set_attribute(frame, "src", &resolved)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                self.host.activate_realm(frame_owner_realm)?;
+                self.host.reschedule_dynamic_frame(frame)?;
+                return Ok(());
+            }
+        }
         let resolved = serde_json::to_string(&resolved)
             .map_err(|error| HostError::Execution(error.to_string()))?;
+        self.host.activate_realm(source_realm)?;
         self.host.execute(&format!("location.href={resolved}"))
     }
 }
@@ -3718,6 +3830,90 @@ mod tests {
                 .unwrap(),
             "true|function"
         );
+    }
+
+    #[test]
+    fn generated_click_default_action_navigates_a_named_iframe() {
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "https://frame.example.test/result".into(),
+            "<script>parent.postMessage('navigated','*')</script>".into(),
+        );
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<iframe name=result_frame></iframe><output id=result>pending</output>
+            <script>
+            addEventListener('message',event=>{
+              if(event.source===document.querySelector('iframe').contentWindow)
+                document.querySelector('#result').textContent=event.data;
+            });
+            const link=document.createElement('a');
+            link.href='/result';
+            link.target='result_frame';
+            document.body.appendChild(link);
+            link.click();
+            </script>"#,
+            &resources,
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("document.querySelector('#result').textContent")
+                .unwrap(),
+            "navigated"
+        );
+        assert_eq!(page.location().unwrap(), "https://frame.example.test/root");
+    }
+
+    #[test]
+    fn nested_named_frame_navigation_reports_through_its_owner_realm() {
+        let resources = BTreeMap::from([
+            (
+                "https://frame.example.test/source".into(),
+                r#"<script>
+                addEventListener('message',event=>{
+                  if(event.data==='start'){
+                    const target=document.createElement('iframe');
+                    target.name='result_frame';
+                    document.body.appendChild(target);
+                    addEventListener('message',result=>{
+                      if(result.source===target.contentWindow)
+                        parent.postMessage({sourceContextUrl:location.toString(),value:result.data},'*');
+                    });
+                    const link=document.createElement('a');
+                    link.href='/result';link.target='result_frame';
+                    document.body.appendChild(link);link.click();
+                  }
+                });
+                </script>"#
+                    .into(),
+            ),
+            (
+                "https://frame.example.test/result".into(),
+                "<script>parent.postMessage('complete','*')</script>".into(),
+            ),
+        ]);
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<output id=result>pending</output>
+            <script>
+            const source=document.createElement('iframe');
+            addEventListener('message',event=>{
+              if(event.source===source.contentWindow)
+                document.querySelector('#result').textContent=event.data.sourceContextUrl+'|'+event.data.value;
+            });
+            source.onload=()=>source.contentWindow.postMessage('start','*');
+            source.src='https://frame.example.test/source';
+            document.body.appendChild(source);
+            </script>"#,
+            &resources,
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        let actual = page
+            .evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
+            .unwrap();
+        assert_eq!(actual, "https://frame.example.test/source|complete");
     }
 
     #[test]

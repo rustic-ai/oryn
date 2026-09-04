@@ -252,6 +252,14 @@ rewrite those historical payloads or present them as a new validation run.
   568; assertion outcomes rise from 2,081 to 2,409 as previously missing server
   behavior reaches real checks. Harness failures are 355 and unclassified
   terminations 222. This remains dirty-tree in-process diagnostic evidence.
+- Generated click/form default actions now cross a typed binding-to-page queue,
+  named iframe targets resolve through the Rust frame registry, and dynamic
+  nested frames retain their owning realm through navigation and page-wide
+  scheduler checkpoints. Focused top-level and nested named-frame regressions
+  pass. The representative referrer-policy case now reaches a deterministic
+  assertion instead of its former timeout, but its upstream result still loses
+  `sourceContextUrl`; referrer-result attribution and the full 4,022-case
+  recomputation therefore remain open.
 - Generated CSSOM now includes a Rust-backed constructable `CSSStyleSheet`, a
   live same-object `CSSRuleList`, indexed insert/delete and
   synchronous/asynchronous replacement. Its generated-binding tests pass, and

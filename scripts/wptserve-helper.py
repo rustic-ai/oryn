@@ -46,6 +46,7 @@ def main() -> int:
         logger,
         browser_host="localhost",
         alternate_hosts={"alt": "127.0.0.1"},
+        subdomains={"www1", "www2"},
         ports={"http": [args.public_port]},
         check_subdomains=False,
         doc_root=str(checkout),

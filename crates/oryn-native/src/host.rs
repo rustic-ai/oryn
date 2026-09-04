@@ -79,7 +79,7 @@ mod raw_v8 {
     use oryn_js::realm::{RealmDescriptor, RealmId, RealmRegistry};
     use oryn_js::scheduler::{PageScheduler, Task, TaskSource};
     use oryn_js::v8_bindings::{
-        BindingLayout, BindingLayoutProvider, SharedDom, V8BindingState,
+        BindingLayout, BindingLayoutProvider, PendingDefaultAction, SharedDom, V8BindingState,
         deliver_mutation_observers, deliver_selection_change, install_generated_bindings,
         install_generated_bindings_with_root, publish_named_window_properties, wrap_node,
     };
@@ -1026,6 +1026,14 @@ mod raw_v8 {
             Ok(())
         }
 
+        pub fn reschedule_dynamic_frame(&mut self, frame: NodeId) -> Result<(), HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
+                .reschedule_dynamic_frame(frame);
+            Ok(())
+        }
+
         fn link_frame_realm(
             &mut self,
             frame: NodeId,
@@ -1329,6 +1337,27 @@ mod raw_v8 {
                 .get(&self.active_realm)
                 .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))
                 .map(|state| state.take_pending_dynamic_frames())
+        }
+
+        pub fn take_pending_default_actions(
+            &self,
+        ) -> Result<Vec<(RealmId, PendingDefaultAction)>, HostError> {
+            let active_dom = self
+                .binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))
+                .map(|state| state.dom())?;
+            Ok(self
+                .binding_states
+                .iter()
+                .filter(|(_, state)| Rc::ptr_eq(&state.dom(), &active_dom))
+                .flat_map(|(realm, state)| {
+                    state
+                        .take_pending_default_actions()
+                        .into_iter()
+                        .map(|action| (*realm, action))
+                })
+                .collect())
         }
 
         pub fn install_layout(&mut self, layout: BindingLayout) -> Result<(), HostError> {
@@ -1874,6 +1903,10 @@ mod raw_v8 {
 
         pub fn active_realm(&self) -> RealmId {
             self.active_realm
+        }
+
+        pub fn realm_ids(&self) -> Vec<RealmId> {
+            self.binding_states.keys().copied().collect()
         }
 
         pub fn realm_descriptor(&self, realm: RealmId) -> Option<&RealmDescriptor> {

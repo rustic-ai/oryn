@@ -63,6 +63,15 @@ pub enum ParserInputCommand {
     Close,
 }
 
+/// A browser default action accepted by generated event dispatch and waiting
+/// for the page orchestrator to perform navigation at the next scheduler
+/// checkpoint. Bindings never perform network or page-group work directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingDefaultAction {
+    Click(NodeId),
+    Submit(NodeId),
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum V8BindingError {
     #[error("generated interface {0} is unavailable")]
@@ -674,6 +683,7 @@ pub struct V8BindingState {
     prepared_scripts: RefCell<BTreeSet<NodeId>>,
     pending_dynamic_frames: RefCell<VecDeque<NodeId>>,
     prepared_frames: RefCell<BTreeSet<NodeId>>,
+    pending_default_actions: RefCell<VecDeque<PendingDefaultAction>>,
     trusted_registry: RefCell<TrustedTypesRegistry>,
     trusted_policies: RefCell<BTreeMap<u64, TrustedPolicyCallbacks>>,
     trusted_values: RefCell<BTreeMap<u64, TrustedValue>>,
@@ -2119,10 +2129,25 @@ impl V8BindingState {
         self.pending_dynamic_frames.borrow_mut().drain(..).collect()
     }
 
+    pub fn take_pending_default_actions(&self) -> Vec<PendingDefaultAction> {
+        self.pending_default_actions
+            .borrow_mut()
+            .drain(..)
+            .collect()
+    }
+
     pub fn schedule_dynamic_frame(&self, frame: NodeId) {
         if self.prepared_frames.borrow_mut().insert(frame) {
             self.pending_dynamic_frames.borrow_mut().push_back(frame);
         }
+    }
+
+    pub fn reschedule_dynamic_frame(&self, frame: NodeId) {
+        self.prepared_frames.borrow_mut().remove(&frame);
+        self.pending_dynamic_frames
+            .borrow_mut()
+            .retain(|pending| *pending != frame);
+        self.schedule_dynamic_frame(frame);
     }
 
     fn dynamic_script_candidates(&self, root: NodeId) -> Result<Vec<NodeId>, V8BindingError> {
@@ -2366,6 +2391,7 @@ pub fn install_generated_bindings_with_root_for_global(
         prepared_scripts: RefCell::new(BTreeSet::new()),
         pending_dynamic_frames: RefCell::new(VecDeque::new()),
         prepared_frames: RefCell::new(BTreeSet::new()),
+        pending_default_actions: RefCell::new(VecDeque::new()),
         trusted_registry: RefCell::new(TrustedTypesRegistry::new(TrustedTypesConfig {
             allow_any_policy: true,
             ..TrustedTypesConfig::default()
@@ -17824,7 +17850,12 @@ fn call_operation<'s>(
         }
         ("HTMLElement", "click") => {
             let event = create_event_object(scope, state, "click", true, true)?;
-            dispatch_event(scope, state, node, event)?;
+            if dispatch_event(scope, state, node, event)? {
+                state
+                    .pending_default_actions
+                    .borrow_mut()
+                    .push_back(PendingDefaultAction::Click(node));
+            }
             Ok(None)
         }
         ("HTMLFormElement", "checkValidity" | "reportValidity") => {
@@ -17832,8 +17863,18 @@ fn call_operation<'s>(
             Ok(Some(v8::Boolean::new(scope, valid).into()))
         }
         ("HTMLFormElement", "requestSubmit" | "submit") => {
-            let event = create_event_object(scope, state, "submit", true, true)?;
-            dispatch_event(scope, state, node, event)?;
+            let accepted = if member == "requestSubmit" {
+                let event = create_event_object(scope, state, "submit", true, true)?;
+                dispatch_event(scope, state, node, event)?
+            } else {
+                true
+            };
+            if accepted {
+                state
+                    .pending_default_actions
+                    .borrow_mut()
+                    .push_back(PendingDefaultAction::Submit(node));
+            }
             Ok(None)
         }
         ("HTMLFormElement", "reset") => {
