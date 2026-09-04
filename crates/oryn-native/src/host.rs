@@ -2327,6 +2327,8 @@ mod raw_v8 {
           Object.defineProperty(globalThis, Symbol.toStringTag, {value:globalThis.__oryn_worker_global_name});
           globalThis.onmessage = null;
           globalThis.onerror = null;
+          globalThis.onconnect = null;
+          globalThis.oninstall = null;
           globalThis.addEventListener = (type, callback) => {
             const key = String(type), list = listeners.get(key) || [];
             list.push(callback); listeners.set(key, list);
