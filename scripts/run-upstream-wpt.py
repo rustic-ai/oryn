@@ -45,13 +45,9 @@ function __oryn_publish_wpt(harness, complete) {
 }
 add_result_callback(function(test) {
   globalThis.__oryn_wpt_results.push({name:String(test.name || ''),status:Number(test.status),message:String(test.message || '')});
-  // Some long/nested WPT harnesses leave bookkeeping callbacks pending after
-  // every declared test has reached a terminal state. Preserve the official
-  // completion callback, but also update the private node synchronously. The
-  // runner waits for network idle before extracting it, and later results
-  // overwrite this cumulative snapshot.
+  // Keep partial assertions private. Publishing them as complete allows the
+  // OIL observer to race a script which is still registering later tests.
   ++__oryn_wpt_result_generation;
-  __oryn_publish_wpt(null, true);
 });
 add_completion_callback(function(tests, harness) {
   __oryn_publish_wpt(harness, true);
@@ -66,23 +62,22 @@ function __oryn_publish_wpt(harness, complete) {
 }
 add_result_callback(function(test) {
   self.__oryn_wpt_results.push({name:String(test.name || ''),status:Number(test.status),message:String(test.message || '')});
-  const generation=++__oryn_wpt_result_generation;
-  queueMicrotask(function(){
-    if(generation===__oryn_wpt_result_generation)__oryn_publish_wpt(null, true);
-  });
+  ++__oryn_wpt_result_generation;
 });
 add_completion_callback(function(tests, harness) { __oryn_publish_wpt(harness, true); });
 """
 
 EDITING_SUBSET_BOOTSTRAP = r"""
-<script>
 // The upstream editing pages perform expensive setup for every browserTests
 // entry before subsetTest discards assertions outside the selected variant.
 // Preselect entries whose assertion intervals intersect the immutable query,
 // while preserving the original global subset-test indices.
 (function(){
   const match=/(?:^\?|&)(\d+)-(\d+|last)(?:&|$)/.exec(location.search);
-  if(!match||!Array.isArray(globalThis.browserTests))return;
+  // Use the classic-script global binding directly. In a multi-context V8
+  // realm, the WindowProxy property view can lag the script's global lexical
+  // environment until the current parser task completes.
+  if(!match||typeof browserTests==='undefined'||!Array.isArray(browserTests))return;
   const first=Number(match[1]),last=match[2]==='last'?Infinity:Number(match[2]);
   let cursor=0,firstSelected=0,found=false,selected=[];
   for(const entry of browserTests){
@@ -98,8 +93,26 @@ EDITING_SUBSET_BOOTSTRAP = r"""
     return current>=first&&current<=last?testFunc(...args):null;
   };
 })();
-</script>
 """
+
+
+def inject_editing_subset_bootstrap(body: str, relative_path: str) -> str:
+    """Install the editing prefilter at its data-dependent script boundary.
+
+    Oryn intentionally schedules parser-blocking external scripts through the
+    page scheduler. A separate injected inline script can therefore execute
+    before the preceding external data script has published ``browserTests``.
+    The upstream page's final inline script already depends on that data, so
+    inject at the start of that same script rather than creating a competing
+    parser task.
+    """
+    if not relative_path.startswith("editing/run/"):
+        return body
+    final_script = body.rfind("<script>")
+    if final_script < 0:
+        return body
+    insertion = final_script + len("<script>")
+    return body[:insertion] + EDITING_SUBSET_BOOTSTRAP + body[insertion:]
 
 
 # Mirror the stable path aliases installed by `wpt serve`. Tests intentionally
@@ -634,14 +647,7 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                 injection = timeout_setup + COMPLETION
                 body = body[:index] + injection + body[index:]
             relative_path = path.relative_to(self.root).as_posix()
-            if relative_path.startswith("editing/run/"):
-                final_script = body.rfind("<script>")
-                if final_script >= 0:
-                    body = (
-                        body[:final_script]
-                        + EDITING_SUBSET_BOOTSTRAP
-                        + body[final_script:]
-                    )
+            body = inject_editing_subset_bootstrap(body, relative_path)
             encoded = body.encode()
             self.send_response(200)
             self._send_static_headers(path, "text/html; charset=utf-8", len(encoded))

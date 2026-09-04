@@ -181,6 +181,28 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             "document.documentElement.appendChild(output)", RUNNER.COMPLETION
         )
         self.assertIn("output.setAttribute('id', 'oryn-wpt-result')", RUNNER.COMPLETION)
+        result_callback = RUNNER.COMPLETION.split("add_result_callback", 1)[1].split(
+            "add_completion_callback", 1
+        )[0]
+        self.assertNotIn("__oryn_publish_wpt", result_callback)
+
+    def test_editing_prefilter_shares_the_final_data_dependent_script(self) -> None:
+        source = (
+            '<script src="../data/justifycenter.js"></script>'
+            '<script>"use strict"; browserTests.forEach(runConformanceTest);</script>'
+        )
+        instrumented = RUNNER.inject_editing_subset_bootstrap(
+            source, "editing/run/justifycenter.html"
+        )
+        self.assertEqual(instrumented.count("<script>"), 1)
+        self.assertLess(
+            instrumented.index("Preselect entries"),
+            instrumented.index('"use strict"'),
+        )
+        self.assertEqual(
+            RUNNER.inject_editing_subset_bootstrap(source, "dom/ranges.html"),
+            source,
+        )
 
     def test_dom_probe_recovers_typed_assertions(self) -> None:
         stdout = (
