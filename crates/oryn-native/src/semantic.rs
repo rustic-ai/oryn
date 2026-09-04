@@ -1623,6 +1623,16 @@ fn accessible_semantics(
     }
 }
 
+pub(crate) fn accessibility_for_node(dom: &DomArena, id: NodeId) -> Option<(String, String)> {
+    let node = dom.get(id).ok()?;
+    let NodeKind::Element { name } = &node.kind else {
+        return None;
+    };
+    let role = computed_role(name.local.as_ref(), &node.attributes);
+    let accessible = accessible_semantics(dom, id, name.local.as_ref(), &role, PageId(1), 1);
+    Some((role, accessible.name))
+}
+
 fn host_label(dom: &DomArena, id: NodeId) -> Option<(String, NodeId)> {
     let node = dom.get(id).ok()?;
     if let Some(control_id) = node.attributes.get("id")
@@ -1659,6 +1669,18 @@ fn host_language_name(
     role: &str,
 ) -> Option<(String, String)> {
     let node = dom.get(id).ok()?;
+    if matches!(role, "dialog" | "alertdialog")
+        && let Some(heading) = node.children.iter().find(|child| {
+            dom.get(**child).is_ok_and(|child| {
+                matches!(&child.kind, NodeKind::Element { name } if matches!(name.local.as_ref(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6"))
+            })
+        })
+    {
+        let value = normalize_text(&accessible_text_content(dom, *heading, true));
+        if !value.is_empty() {
+            return Some((value, "heading".into()));
+        }
+    }
     let attribute = match local_name {
         "img" | "area" => Some(("alt", "alt")),
         "input"
@@ -1682,13 +1704,11 @@ fn host_language_name(
         _ => None,
     };
     if let Some((attribute, source)) = attribute
-        && let Some(value) = node
-            .attributes
-            .get(attribute)
-            .map(|value| normalize_text(value))
-            .filter(|value| !value.is_empty())
+        && let Some(value) = node.attributes.get(attribute)
     {
-        return Some((value, source.into()));
+        // An explicitly empty host-language alternative is authoritative and
+        // must suppress lower-priority title/placeholder fallbacks.
+        return Some((normalize_text(value), source.into()));
     }
     if local_name == "input"
         && node
@@ -1748,12 +1768,7 @@ fn accessible_text_content(dom: &DomArena, id: NodeId, include_hidden_root: bool
     let Ok(node) = dom.get(id) else {
         return String::new();
     };
-    if !include_hidden_root
-        && node
-            .attributes
-            .get("aria-hidden")
-            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-    {
+    if !include_hidden_root && accessibility_hidden(node) {
         return String::new();
     }
     match &node.kind {
@@ -1787,9 +1802,29 @@ fn accessible_text_content(dom: &DomArena, id: NodeId, include_hidden_root: bool
             .iter()
             .map(|child| accessible_text_content(dom, *child, false))
             .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join(" "),
+            .collect::<String>(),
     }
+}
+
+fn accessibility_hidden(node: &crate::dom::Node) -> bool {
+    if node.attributes.contains_key("hidden")
+        || node
+            .attributes
+            .get("aria-hidden")
+            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+    {
+        return true;
+    }
+    node.attributes.get("style").is_some_and(|style| {
+        style.split(';').any(|declaration| {
+            declaration.split_once(':').is_some_and(|(name, value)| {
+                let name = name.trim().to_ascii_lowercase();
+                let value = value.trim().to_ascii_lowercase();
+                (name == "display" && value == "none")
+                    || (name == "visibility" && matches!(value.as_str(), "hidden" | "collapse"))
+            })
+        })
+    })
 }
 
 fn name_from_content(local_name: &str, role: &str) -> bool {
@@ -3114,6 +3149,34 @@ mod tests {
         assert_eq!(by_name("refs").name, "Account settings");
         assert_eq!(by_name("conflict").role, "button");
         assert_eq!(by_name("fallback").role, "button");
+    }
+
+    #[test]
+    fn accessible_name_honors_hidden_content_empty_alt_and_inline_boundaries() {
+        let document = crate::html::parse(
+            r#"
+            <button id=hidden><span hidden>skip</span><span>keep</span></button>
+            <span id=joined role=button>button<span></span>label</span>
+            <img id=empty-alt alt="" title="must not win">
+            <div id=dialog role=alertdialog><h2>Dialog heading</h2><p>Body copy</p></div>
+            "#,
+        );
+        let named = |id: &str| {
+            let node = document
+                .dom
+                .iter()
+                .find(|(_, node)| node.attributes.get("id").is_some_and(|value| value == id))
+                .map(|(node, _)| node)
+                .expect("fixture id");
+            accessibility_for_node(&document.dom, node).expect("accessibility projection")
+        };
+        assert_eq!(named("hidden"), ("button".into(), "keep".into()));
+        assert_eq!(named("joined"), ("button".into(), "buttonlabel".into()));
+        assert_eq!(named("empty-alt"), ("presentation".into(), String::new()));
+        assert_eq!(
+            named("dialog"),
+            ("alertdialog".into(), "Dialog heading".into())
+        );
     }
 
     #[test]

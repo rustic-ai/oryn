@@ -12,7 +12,8 @@ use oryn_dom::{
 };
 use oryn_js::realm::RealmId;
 use oryn_js::v8_bindings::{
-    BindingGeometry, BindingLayout, BindingLayoutProvider, BindingRect, ParserInputCommand,
+    BindingAccessibility, BindingGeometry, BindingLayout, BindingLayoutProvider, BindingRect,
+    ParserInputCommand,
 };
 use serde::{Deserialize, Serialize};
 
@@ -50,6 +51,13 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             .compute(&input, &oryn_layout::LayoutLimits::default())
             .map_err(|error| format!("synchronous layout flush failed: {error}"))?;
         Ok(binding_layout_from_output(&output))
+    }
+
+    fn compute_accessibility(&self, node: NodeId) -> Result<BindingAccessibility, String> {
+        let dom = self.dom.borrow();
+        let (role, name) = crate::semantic::accessibility_for_node(dom.arena(), node)
+            .ok_or_else(|| "target has no accessible semantic projection".to_string())?;
+        Ok(BindingAccessibility { role, name })
     }
 }
 

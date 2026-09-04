@@ -586,11 +586,21 @@ pub struct BindingLayout {
     pub geometry: BTreeMap<u64, BindingGeometry>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct BindingAccessibility {
+    pub role: String,
+    pub name: String,
+}
+
 /// Synchronous style/layout flush used by geometry WebIDL operations. The
 /// implementation lives in the page orchestrator so generated bindings keep
 /// using the same Rust DOM and Stylo/Taffy/Parley pipeline as observations.
 pub trait BindingLayoutProvider {
     fn compute_layout(&self) -> Result<BindingLayout, String>;
+
+    fn compute_accessibility(&self, _node: NodeId) -> Result<BindingAccessibility, String> {
+        Err("accessible semantics provider is unavailable".into())
+    }
 }
 
 /// Per-context binding state. The DOM may be shared with the page orchestrator,
@@ -647,6 +657,7 @@ pub struct V8BindingState {
     frame_roots: RefCell<BTreeMap<NodeId, NodeId>>,
     frame_windows: RefCell<BTreeMap<NodeId, v8::Global<v8::Object>>>,
     template_contents: RefCell<BTreeMap<NodeId, NodeId>>,
+    stylesheet_rule_lists: RefCell<BTreeMap<NodeId, v8::Global<v8::Array>>>,
     current_script: Cell<Option<NodeId>>,
     parser_input_active: Cell<bool>,
     parser_input_commands: RefCell<VecDeque<ParserInputCommand>>,
@@ -2338,6 +2349,7 @@ pub fn install_generated_bindings_with_root_for_global(
         frame_roots: RefCell::new(BTreeMap::new()),
         frame_windows: RefCell::new(BTreeMap::new()),
         template_contents: RefCell::new(BTreeMap::new()),
+        stylesheet_rule_lists: RefCell::new(BTreeMap::new()),
         current_script: Cell::new(None),
         parser_input_active: Cell::new(false),
         parser_input_commands: RefCell::new(VecDeque::new()),
@@ -2604,6 +2616,14 @@ pub fn install_generated_bindings_with_root_for_global(
     context
         .global(scope)
         .set(scope, name.into(), get_computed_style.into());
+    let get_accessibility = v8::Function::new(scope, get_computed_accessibility_callback).ok_or(
+        V8BindingError::Allocation("computed accessibility function"),
+    )?;
+    let name = v8::String::new(scope, "__oryn_computed_accessibility")
+        .ok_or(V8BindingError::Allocation("computed accessibility name"))?;
+    context
+        .global(scope)
+        .set(scope, name.into(), get_accessibility.into());
     install_trusted_types(scope, context)?;
     let fetch = v8::Function::new(scope, platform_fetch_callback)
         .ok_or(V8BindingError::Allocation("fetch function"))?;
@@ -4145,6 +4165,43 @@ fn get_computed_style_callback(
     }
 }
 
+fn get_computed_accessibility_callback(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+        throw_type_error(scope, "generated binding state is unavailable");
+        return;
+    };
+    let result = (|| -> Result<v8::Local<v8::Object>, V8BindingError> {
+        let node = argument_node(scope, &state, args.get(0))?;
+        let accessibility = state
+            .layout_provider
+            .borrow()
+            .as_ref()
+            .ok_or_else(|| V8BindingError::Unsupported {
+                interface: "Accessibility".into(),
+                member: "semantic provider is unavailable".into(),
+            })?
+            .compute_accessibility(node)
+            .map_err(|member| V8BindingError::Unsupported {
+                interface: "Accessibility".into(),
+                member,
+            })?;
+        let object = v8::Object::new(scope);
+        let role = v8_string(scope, &accessibility.role)?;
+        set_object_property(scope, object, "role", role)?;
+        let name = v8_string(scope, &accessibility.name)?;
+        set_object_property(scope, object, "name", name)?;
+        Ok(object)
+    })();
+    match result {
+        Ok(value) => return_value.set(value.into()),
+        Err(error) => throw_binding_error(scope, &error),
+    }
+}
+
 fn computed_style_get_property_value(
     scope: &mut v8::PinScope,
     args: v8::FunctionCallbackArguments,
@@ -4733,6 +4790,26 @@ fn initialize_platform_constructor<'s>(
 ) -> Result<bool, V8BindingError> {
     if !args.is_construct_call() {
         return Ok(false);
+    }
+    if name == "CSSStyleSheet" {
+        let node = state.dom.borrow_mut().create_element("style");
+        let wrapper = state.wrappers.borrow_mut().get_or_create(
+            &mut state.dom.borrow_mut(),
+            state.realm,
+            state.document_generation,
+            node,
+            InterfaceBrand::Node,
+        )?;
+        args.this()
+            .set_internal_field(0, v8::BigInt::new_from_u64(scope, wrapper.0).into());
+        set_dom_wrapper_identity(
+            scope,
+            args.this(),
+            node,
+            state.realm,
+            state.document_generation,
+        );
+        return Ok(true);
     }
     if name == "AbortController" {
         let signal_id = register_platform_object(
@@ -15224,6 +15301,109 @@ fn inline_style_entries(style: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// Split a stylesheet into complete top-level rules without interpreting
+/// selector or declaration contents. Stylo remains the parser of record when
+/// layout is flushed; this scanner only provides the CSSOM rule-list boundary
+/// and therefore must preserve strings, comments, and nested at-rule blocks.
+fn stylesheet_rule_texts(source: &str) -> Vec<String> {
+    let bytes = source.as_bytes();
+    let mut rules = Vec::new();
+    let mut start = 0;
+    let mut depth = 0_u32;
+    let mut quote = None;
+    let mut escaped = false;
+    let mut comment = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if comment {
+            if byte == b'*' && bytes.get(index + 1) == Some(&b'/') {
+                comment = false;
+                index += 2;
+                continue;
+            }
+            index += 1;
+            continue;
+        }
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == delimiter {
+                quote = None;
+            }
+            index += 1;
+            continue;
+        }
+        if byte == b'/' && bytes.get(index + 1) == Some(&b'*') {
+            comment = true;
+            index += 2;
+            continue;
+        }
+        match byte {
+            b'\'' | b'"' => quote = Some(byte),
+            b'{' => depth = depth.saturating_add(1),
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    let rule = source[start..=index].trim();
+                    if !rule.is_empty() {
+                        rules.push(rule.to_string());
+                    }
+                    start = index + 1;
+                }
+            }
+            b';' if depth == 0 => {
+                let rule = source[start..=index].trim();
+                if !rule.is_empty() {
+                    rules.push(rule.to_string());
+                }
+                start = index + 1;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    rules
+}
+
+fn css_rule_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    css_text: &str,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let rule = v8::Object::new(scope);
+    let serialized = v8_string(scope, css_text)?;
+    set_object_property(scope, rule, "cssText", serialized)?;
+    if let Some((selector, declarations)) = css_text.split_once('{') {
+        let declarations = declarations
+            .rsplit_once('}')
+            .map_or(declarations, |item| item.0);
+        let selector = v8_string(scope, selector.trim())?;
+        set_object_property(scope, rule, "selectorText", selector)?;
+        let style = v8::Object::new(scope);
+        for (name, value) in inline_style_entries(declarations) {
+            let value = v8_string(scope, &value)?;
+            set_object_property(scope, style, &name, value)?;
+        }
+        set_object_property(scope, rule, "style", style.into())?;
+    }
+    Ok(rule)
+}
+
+fn css_rule_list_item(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    let index = args.get(0).uint32_value(scope).unwrap_or(0);
+    let value = args.this().get_index(scope, index);
+    return_value.set(match value {
+        Some(value) if !value.is_undefined() => value,
+        _ => v8::null(scope).into(),
+    });
+}
+
 fn set_inline_style_property(
     dom: &mut DomRuntime,
     node: NodeId,
@@ -15370,6 +15550,36 @@ fn get_attribute_value<'s>(
     if interface == "Document" && member == "styleSheets" {
         let styles = state.dom.borrow().query_selector_all(node, "style")?;
         return associated_node_array(scope, state, &styles, "CSSStyleSheet");
+    }
+    if interface == "CSSStyleSheet" && member == "cssRules" {
+        let source = state.dom.borrow().arena().text_content(node)?;
+        let rule_texts = stylesheet_rule_texts(&source);
+        let rules = if let Some(rules) = state.stylesheet_rule_lists.borrow().get(&node) {
+            v8::Local::new(scope, rules)
+        } else {
+            let rules = v8::Array::new(scope, 0);
+            let item = v8::Function::builder(css_rule_list_item)
+                .build(scope)
+                .ok_or(V8BindingError::Allocation("CSSRuleList.item"))?;
+            set_object_property(scope, rules.into(), "item", item.into())?;
+            state
+                .stylesheet_rule_lists
+                .borrow_mut()
+                .insert(node, v8::Global::new(scope, rules));
+            rules
+        };
+        let length = v8::String::new(scope, "length")
+            .ok_or(V8BindingError::Allocation("CSSRuleList.length"))?;
+        rules.set(
+            scope,
+            length.into(),
+            v8::Integer::new_from_unsigned(scope, rule_texts.len() as u32).into(),
+        );
+        for (index, css_text) in rule_texts.into_iter().enumerate() {
+            let rule = css_rule_object(scope, &css_text)?;
+            rules.set_index(scope, index as u32, rule.into());
+        }
+        return Ok(rules.into());
     }
     if interface == "Document" && member == "defaultView" {
         return Ok(scope.get_current_context().global(scope).into());
@@ -16209,7 +16419,7 @@ fn call_operation<'s>(
     node: NodeId,
     interface: &str,
     member: &str,
-    args: &v8::FunctionCallbackArguments,
+    args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     match (interface, member) {
         ("CharacterData", "substringData") => {
@@ -17414,16 +17624,64 @@ fn call_operation<'s>(
         ("CSSStyleSheet", "insertRule") => {
             let rule = required_string(scope, args, 0)?;
             let current = state.dom.borrow().arena().text_content(node)?;
-            let index = current.matches('}').count();
-            let combined = if current.trim().is_empty() {
-                rule
+            let mut rules = stylesheet_rule_texts(&current);
+            let index = if args.length() > 1 {
+                args.get(1).uint32_value(scope).unwrap_or(0) as usize
             } else {
-                format!("{current}\n{rule}")
+                0
             };
-            state.dom.borrow_mut().set_text_content(node, combined)?;
+            if index > rules.len() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "CSSStyleSheet".into(),
+                    member: "insertRule index exceeds cssRules length".into(),
+                });
+            }
+            rules.insert(index, rule);
+            state
+                .dom
+                .borrow_mut()
+                .set_text_content(node, rules.join("\n"))?;
             Ok(Some(
                 v8::Integer::new_from_unsigned(scope, index as u32).into(),
             ))
+        }
+        ("CSSStyleSheet", "deleteRule") => {
+            let index = args.get(0).uint32_value(scope).unwrap_or(0) as usize;
+            let current = state.dom.borrow().arena().text_content(node)?;
+            let mut rules = stylesheet_rule_texts(&current);
+            if index >= rules.len() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "CSSStyleSheet".into(),
+                    member: "deleteRule index exceeds cssRules length".into(),
+                });
+            }
+            rules.remove(index);
+            state
+                .dom
+                .borrow_mut()
+                .set_text_content(node, rules.join("\n"))?;
+            Ok(None)
+        }
+        ("CSSStyleSheet", "replaceSync") | ("CSSStyleSheet", "replace") => {
+            let source = required_string(scope, args, 0)?;
+            // Parse the complete rule list before mutating so malformed input
+            // cannot leave a partially replaced stylesheet.
+            let rules = stylesheet_rule_texts(&source);
+            if !source.trim().is_empty() && rules.is_empty() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "CSSStyleSheet".into(),
+                    member: "replacement contains no complete CSS rule".into(),
+                });
+            }
+            state
+                .dom
+                .borrow_mut()
+                .set_text_content(node, rules.join("\n"))?;
+            if member == "replace" {
+                let receiver = args.this();
+                return Ok(Some(resolved_promise(scope, receiver.into())?.into()));
+            }
+            Ok(None)
         }
         ("CSSStyleDeclaration", "getPropertyValue") => {
             let property = required_string(scope, args, 0)?.to_ascii_lowercase();
@@ -19570,6 +19828,15 @@ mod tests {
                     geometry: BTreeMap::new(),
                 })
             }
+
+            fn compute_accessibility(&self, node: NodeId) -> Result<BindingAccessibility, String> {
+                (node == self.node)
+                    .then(|| BindingAccessibility {
+                        role: "button".into(),
+                        name: "Copy me".into(),
+                    })
+                    .ok_or_else(|| "unknown node".into())
+            }
         }
 
         initialize_v8();
@@ -19584,7 +19851,7 @@ mod tests {
         state.set_layout_provider(Rc::new(TestLayoutProvider { node: probe }));
         let source = v8::String::new(
             scope,
-            "const computed=getComputedStyle(document.getElementById('probe'));computed['font-size']==='18px'&&computed.getPropertyValue('font-size')==='18px'",
+            "const target=document.getElementById('probe'),computed=getComputedStyle(target),accessible=__oryn_computed_accessibility(target);computed['font-size']==='18px'&&computed.getPropertyValue('font-size')==='18px'&&accessible.role==='button'&&accessible.name==='Copy me'",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
@@ -19927,6 +20194,42 @@ mod tests {
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
             "true||he?|!YYo|4|YY|true"
+        );
+    }
+
+    #[test]
+    fn stylesheet_rule_scanner_preserves_nested_blocks_strings_and_comments() {
+        assert_eq!(
+            stylesheet_rule_texts(
+                "/* lead */ @media screen { .a { content: '}'; } } @layer base; b { color: red }"
+            ),
+            [
+                "/* lead */ @media screen { .a { content: '}'; } }",
+                "@layer base;",
+                "b { color: red }",
+            ]
+        );
+    }
+
+    #[test]
+    fn generated_constructable_stylesheet_owns_rust_backed_rule_state() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const sheet=new CSSStyleSheet(),rules=sheet.cssRules;sheet.replaceSync('a { color: red }');const inserted=sheet.insertRule('b { color: blue }',1);const before=[rules===sheet.cssRules,sheet.cssRules.length,sheet.cssRules[0].cssText,sheet.cssRules[1].style.color,sheet.cssRules.item(1).cssText,inserted].join('|');sheet.deleteRule(0);before+'|'+sheet.cssRules.length+'|'+sheet.cssRules[0].cssText+'|'+String(sheet.cssRules.item(1))",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "true|2|a { color: red }|blue|b { color: blue }|1|1|b { color: blue }|null"
         );
     }
 

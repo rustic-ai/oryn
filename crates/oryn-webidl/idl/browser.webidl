@@ -722,7 +722,12 @@ interface IDBObjectStore {
 
 [Exposed=Window]
 interface CSSStyleSheet {
+  constructor();
+  readonly attribute sequence<any> cssRules;
   unsigned long insertRule(DOMString rule, optional unsigned long index = 0);
+  undefined deleteRule(unsigned long index);
+  undefined replaceSync(DOMString text);
+  Promise<CSSStyleSheet> replace(DOMString text);
 };
 
 [Exposed=Window]

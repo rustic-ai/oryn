@@ -42,6 +42,24 @@ class UpstreamWptRunnerTests(unittest.TestCase):
                 ],
             )
 
+    def test_meta_scripts_apply_wpt_server_rewrites(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "IndexedDB/idlharness.any.js"
+            parser = root / "resources/webidl2/lib/webidl2.js"
+            source.parent.mkdir(parents=True)
+            parser.parent.mkdir(parents=True)
+            source.write_text("// META: script=/resources/WebIDLParser.js\n")
+            parser.write_text("globalThis.WebIDL2 = {};\n")
+            self.assertEqual(
+                RUNNER.meta_script_paths(root, source, source.read_text()),
+                ["/resources/webidl2/lib/webidl2.js"],
+            )
+            self.assertEqual(
+                RUNNER.wpt_server_path("/resources/WebIDLParser.js"),
+                "/resources/webidl2/lib/webidl2.js",
+            )
+
     def test_meta_script_cannot_escape_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -148,6 +166,9 @@ class UpstreamWptRunnerTests(unittest.TestCase):
         self.assertIn(
             "testdriver:globalThis.__oryn_testdriver_log || []", RUNNER.COMPLETION
         )
+        self.assertIn("test_driver_internal.get_computed_label", source)
+        self.assertIn("__oryn_computed_accessibility(element).name", source)
+        self.assertIn("test_driver_internal.get_computed_role", source)
 
     def test_html_applicability_excludes_crash_and_helper_pages(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

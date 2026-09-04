@@ -2,8 +2,8 @@
 
 **Original assessment date:** 2026-08-28
 **Original assessed source:** `0b7a38b` (`refactor: replace phase labels with capability names`)
-**Current status update:** 2026-08-31
-**Current committed source:** `0bbe18f` (`feat: complete semantic runtime and V8 profiles`)
+**Current status update:** 2026-09-03
+**Current committed source:** `20784f6` (`fix: close document-root editing conformance`)
 **Working-tree state at assessment:** clean
 
 **Proposal:** *Oryn2 Product Proposal & Technical Architecture v0.2*  
@@ -20,14 +20,14 @@ v1 product described by the proposal is complete.
 > **Reading note:** Sections 1–7 preserve the forensic assessment of source
 > `0b7a38b`. They are historical findings and should not be read as a fresh
 > description of current production code. This status section records the
-> verified disposition at signed commit `0bbe18f`; later remediation notes retain additional
+> verified disposition through signed commit `20784f6`; later remediation notes retain additional
 > implementation detail. A finding is closed only when its software defect is
 > absent. Release evidence is tracked separately and must bind to the exact
 > source and packaged artifacts being claimed.
 
 ## Current HEAD status
 
-Through signed checkpoint `21588f5`, Oryn has completed important parts of the
+Through signed checkpoint `20784f6`, Oryn has completed important parts of the
 proposal-v1 architecture: Rust owns
 the live DOM, generated V8 bindings execute Rust behavior for the migrated
 interfaces, the parent owns network and security policy, and the production
@@ -136,7 +136,7 @@ closure.
 The dependency-ordered completion backlog is maintained in
 [`RUNTIME-COMPLETION-ACTION-PLAN.md`](RUNTIME-COMPLETION-ACTION-PLAN.md).
 
-### Finding disposition at `0bbe18f`
+### Finding disposition through `20784f6`
 
 | Finding | Status | Current disposition |
 |---|---|---|
@@ -209,12 +209,24 @@ The dependency-ordered completion backlog is maintained in
 
 ### Evidence and release status
 
-Commit `0bbe18f` is not release-attested as one bundle:
+Commit `20784f6` is not release-attested as one bundle:
 
 - No `runtime-completion-v1` compact result exists. Its validator must recompute
   every required assertion from the pinned raw ledger before publication.
-- The current pinned WPT harness reaches the upstream checkout, but the first
-  Range case times out; this is a blocking engine/harness result, not a pass.
+- The pinned WPT harness and focused Range, IndexedDB and editing slices run. A
+  first complete current-source **in-process diagnostic** executed all 4,022
+  required variants and passed 446. After the server, CSSOM and semantic bridge
+  changes, the corrected complete diagnostic passes 468: generated-WebIDL
+  405/3,407, semantic/accessibility 16/51, and Stylo 47/564. It records 2,409
+  assertion results, 568 timeouts, 355 harness failures and 222 unclassified
+  terminations. This is a discovery baseline, not production-worker evidence.
+  The root-relative `WebIDLParser.js` alias and missing pinned `storage` subtree
+  discovered by the run are corrected. The controlled public loopback server
+  now proxies non-Oryn routes to pinned upstream `wptserve` for dynamic Python
+  handlers, sidecar headers, redirects and substitutions. A focused history
+  rerun remains 9/20, while an IndexedDB dynamic-handler case changes from a
+  timeout to a deterministic harness result. A complete corrected rerun is
+  still required before the original failure-domain counts can be replaced.
 - The official prebuilt macOS ARM64 rusty_v8 archive does not provide the
   required sandbox/pointer-compression variant. A reproducible custom archive
   is therefore required.
@@ -232,9 +244,9 @@ Commit `0bbe18f` is not release-attested as one bundle:
 The current honest product statement is therefore:
 
 > **The proposal-v1 foundation is substantially implemented, but the runtime
-> completion cutover remains open. The principal remaining software work is
-> completion of generated WebIDL algorithms and semantic/accessibility
-> conformance breadth. The native Stylo computed-value cutover is complete in
+> completion cutover remains open. The principal remaining work is exhaustive
+> generated-API, semantic/accessibility and Stylo conformance rather than a
+> known replacement of the production architecture. The native Stylo computed-value cutover is complete in
 > software. Reproducible macOS ARM64 full/lite V8, reduced-ICU and startup-
 > snapshot tooling now exists; Linux x86_64 artifacts and four-profile
 > equivalence remain. Upstream conformance,
@@ -243,43 +255,56 @@ The current honest product statement is therefore:
 
 ### Remaining gaps and completion order
 
-1. **Generated WebIDL/API conformance.** The architectural cutover is now
-   implemented for the declared inventory: DOM/editing/navigation,
-   Fetch/File/Streams/XHR/WebSocket and IndexedDB are generated/Rust-backed and
-   use typed asynchronous parent services. Apply the remaining cross-API
-   referrer cases and pass the complete mapped API inventory, especially
-   long-tail editing and IndexedDB connection/version-change/transaction
-   scheduling, before treating upstream conformance as closed.
-2. **Stylo conformance publication.** The native `ComputedValues` cutover is
-   implemented. Pass and publish the frozen CSSOM and native-versus-Chromium
-   differential set against the production worker, including the supported
-   grid bridge and explicit long-tail capability boundaries.
-3. **Semantic and accessibility equivalence.** Exercise the contract-v6 graph
+1. **Triage and close the required upstream inventory.** The corrected complete
+   diagnostic is 468/4,022. Dynamic response handling now uses pinned upstream
+   `wptserve` and reduces timeouts from 1,001 to 568. Fix shared DOM/CSSOM,
+   referrer/navigation and generated worker-global prerequisites
+   before working individual assertions. Any newly exposed algorithm defect
+   becomes software work; deferred, excluded and informational cases remain
+   distinct.
+2. **Semantic and accessibility equivalence.** Exercise the contract-v6 graph
    against its full-projector oracle across randomized mutations, frameworks,
-   navigation, frames, shadow DOM and replay; run the pinned ARIA/Accessible
-   Name mappings and require zero false reference preservation.
-4. **Upstream harness closure.** The production-worker ledger for the four
-   SharedWorker and four ServiceWorker IndexedDB variants is published.
-   Diagnose the broader Range/API inventory, then run every required
-   `runtime-completion-v1` WPT/ARIA mapping. Keep deferred, excluded and
-   informational cases visibly separate.
-5. **Linux and profile equivalence.** Build sandboxed full/lite Linux x86_64
-   artifacts in CayVM, verify namespaces/Landlock/seccomp and compare them with
-   the macOS ARM64 full/lite manifests. Refuse mismatched ICU, snapshot,
-   external-reference or unsandboxed artifacts.
-6. **Deterministic release validation.** Against one clean candidate, rerun
-   framework/OAuth, MiniWoB 24/24, churn, replay, scanner, Python, MCP, platform
-   security and the startup/RSS/parser/semantic/concurrency benchmarks. Meet the
-   250 ms cold-start goal or record an explicit reviewed exception.
-7. **Exact-artifact attestation.** Privately sign the exact macOS bundle,
-   validate the packaged bytes, publish a recomputable `runtime-completion-v1`
-   result, and only then rerun the 96-cell Azure/Qwen panel under the cumulative
-   $100 ceiling.
+   navigation, frames, shadow DOM and replay; run all pinned ARIA/Accessible
+   Name mappings and require zero false reference preservation. The native WPT
+   testdriver bridge now invokes the graph's Rust accessible-name/role
+   implementation and improves the exact mapped slice from 0/51 to 16/51;
+   remaining failures are concrete algorithm vectors rather than a missing
+   browser-driver hook.
+3. **Stylo conformance publication.** Pass and publish the frozen CSSOM and
+   native-versus-Chromium differential set against the production worker,
+   including the supported grid bridge and explicit long-tail capability
+   boundaries. The first remediation slice makes constructable stylesheets and
+   live rule lists Rust-backed and improves its 30 exact upstream cases from
+   0/30 to 4/30; CSS namespaces, broader rule interfaces, adopted stylesheets
+   and the remaining computed-value assertions stay open.
+4. **Linux and four-profile equivalence.** Build sandboxed full/lite Linux
+   x86_64 artifacts in CayVM, verify namespaces/Landlock/seccomp, and compare
+   them with the macOS ARM64 full/lite manifests. Refuse mismatched ICU,
+   snapshot, external-reference or unsandboxed artifacts.
+5. **Deterministic exact-candidate validation.** Freeze one clean candidate and
+   rerun framework/OAuth, MiniWoB 24/24, churn, replay, scanner, Python, MCP,
+   macOS/Linux security and startup/RSS/parser/semantic/concurrency benchmarks.
+   Meet the 250 ms cold-start goal or record an explicit reviewed exception.
+6. **Recomputable implementation evidence.** Produce a complete
+   `runtime-completion-v1` assertion ledger bound to the exact source, parent,
+   worker, profiles, fixtures and toolchain. Validators, not supplied aggregate
+   status, must determine the result.
+7. **Private release attestation and model re-attestation.** Privately sign the
+   exact macOS bundle, validate its packaged bytes, then rerun the 96-cell
+   Azure/Qwen panel. Carry the recorded `$7.996254` cumulative hosted spend
+   forward under the original `$100` ceiling.
 
-### Remediation incorporated through signed commit `0bbe18f`
+The following are no longer open architectural tasks at `20784f6`: streaming
+navigation, the shared html5ever/V8 `DomRuntime`, the incremental semantic
+graph, generated ownership of the declared Fetch/File/Streams/XHR/WebSocket and
+IndexedDB surfaces, the Stylo computed-value production cutover, the focused
+IndexedDB 100/100 and cursor 11/11 slices, and the corrected editing 40/40
+slice. Their remaining work is broader conformance and exact-artifact evidence.
+
+### Remediation incorporated through signed commit `20784f6`
 
 The following changes are implemented in source and have focused local
-verification. They are represented by signed commit `0bbe18f`, but not yet by
+verification. They are represented in source through signed commit `20784f6`, but not yet by
 an exact packaged-artifact gate result:
 
 - Generated V8 geometry bindings preserve `Available`, `Hidden`, and
@@ -356,7 +381,7 @@ structure/accessibility tests, and worker-protocol serialization. They improve
 the software disposition of F4, F7, F8, F9, F10, and F16, but do not
 change the release-attestation status above.
 
-The verification record incorporated into `0bbe18f` includes the serialized
+The last documented focused verification record includes the serialized
 `oryn-native` V8-sandbox production-topology suite, including the 218-test
 core-lite profile run; strict workspace
 all-feature Clippy with warnings denied using the content-addressed macOS ARM64
@@ -1102,13 +1127,14 @@ security foundations, decide the remaining architectural divergences explicitly,
 finish the public and semantic product contracts, broaden representative
 compatibility, secure Linux, and then re-attest one exact release candidate.
 
-The 2026-08-29 runtime work closed the central JavaScript-owned DOM and wrapper
-identity defects, but later review found that it did not close the complete
-transport, parser scheduling, semantic, generated-interface, cascade or runtime
-profile architecture. It does not retroactively alter the audit evidence above.
-Current proposal-v1 completion is tracked by `runtime-completion-v1`; no passing
-result exists yet. Platform signing, sandbox execution, performance and model
-evidence remain downstream release attestations.
+Subsequent work through `20784f6` closed the production transport, parser,
+incremental-semantic, generated-interface and native Stylo cutovers described by
+that historical assessment. Focused API slices do not establish exhaustive
+conformance. Current proposal-v1 completion is tracked by
+`runtime-completion-v1`; no complete exact-artifact result exists yet. The
+remaining current register is the one near the top of this document. Linux
+profiles, platform security, performance, private signing and model evidence
+remain downstream validation and release attestations.
 
 ### 2026-08-29 F2 remediation update
 
@@ -1136,5 +1162,6 @@ historical schema-v3/v4 records:
 
 Controlled causal and challenge evidence is reproducible locally. F2 evidence
 closure remains pending until the expanded churn suite and corrected 96-cell
-panel run against the final signed release candidate. That future run starts
-with `$6.362286` already spent and remains bounded by the original `$100` cap.
+panel run against the final signed release candidate. The next run must carry
+forward the currently recorded `$7.996254` cumulative spend and remains bounded
+by the original `$100` cap.

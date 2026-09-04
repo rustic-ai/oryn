@@ -1,16 +1,17 @@
 # Oryn2 implementation status
 
-> **Current status: runtime-completion cutover in progress; exact-artifact
-> attestation pending on macOS and Linux.** The committed runtime baseline is
-> `cade369`. The current working tree additionally deepens the pinned
-> IndexedDB and editing release-validation surface while retaining the remaining
-> script/style/module/frame resource scheduler and protocol-v4/v8/v10 transport contracts,
-> streaming navigation foundations, an incremental semantic graph, expanded
-> generated WebIDL behavior, referrer and IndexedDB work, V8 profile tooling and
-> pinned upstream-conformance infrastructure. It is not yet a release candidate:
-> exact transport attestation, full semantic reprojection, incomplete generated API
-> algorithms, the handwritten CSS cascade, unattested V8/ICU/snapshot artifacts
-> and failing upstream cases remain. Historical evidence stays bound to the
+> **Current status: proposal-v1 architecture implemented; exhaustive conformance
+> and exact-artifact attestation remain open.** The committed runtime baseline is
+> `20784f6`. Production uses streaming navigation and correlated asynchronous
+> resources, a shared Rust-owned `DomRuntime`, a persistent incremental semantic
+> graph, generated Rust/V8 interfaces for the declared API inventory, and native
+> Stylo computed values. Focused IndexedDB and editing diagnostics close at
+> 100/100 and corrected 40/40 respectively. This is not yet a release candidate:
+> closure of the complete 4,022-variant upstream inventory,
+> semantic/accessibility and Stylo
+> differential evidence, Linux full/lite artifacts, four-profile equivalence,
+> exact security/performance validation and private release/model attestation
+> remain. Historical evidence stays bound to the
 > commits and binaries that produced it. See
 > `ORYN2-PROPOSAL-VS-IMPLEMENTATION-REVIEW.md` and
 > `RUNTIME-COMPLETION-ACTION-PLAN.md`.
@@ -220,10 +221,11 @@ rewrite those historical payloads or present them as a new validation run.
 - The style service is now persistently fingerprinted as
   `stylo-stylesheets-selectors-0.20+oryn-cascade-v3`. Stylo parses complete
   stylesheets, media rules, selectors and declarations and supplies selector
-  matching and specificity; Oryn retains the bounded winner/inheritance/value
-  projection into Taffy/Parley. Computed visibility is published back into the
-  persistent semantic graph. Full Stylo computed-value/cascade traversal is
-  still a runtime-completion item and is not claimed here.
+  matching, specificity and native computed-value resolution. Those computed
+  values feed Taffy/Parley and publish visibility back into the persistent
+  semantic graph. The production cutover is complete; mapped CSSOM and
+  Chromium-differential conformance remains required before the style gate can
+  close.
 - Production V8 features require the heap sandbox and release builds fail closed
   when profile inputs are absent. A reproducible macOS ARM64 `core-full` archive
   is now built from exact `rusty_v8` 150.4.0 source and git-linked dependencies.
@@ -235,8 +237,38 @@ rewrite those historical payloads or present them as a new validation run.
   snapshot, and the exact lite snapshot/worker pass locale and snapshot-load
   regressions. Linux archives and four-profile release attestation remain.
 - `runtime-completion-v1` freezes the upstream blocking scope and provides
-  cache, harness, schema and validation tooling. Its first Range smoke currently
-  times out, so no passing completion evidence exists.
+  cache, harness, schema and validation tooling. Focused Range, IndexedDB and
+  editing slices now pass. The first complete current-source in-process
+  diagnostic recorded 446/4,022 passes: generated-WebIDL 405/3,407,
+  semantic/accessibility 0/51 and Stylo 41/564. It also exposed a WPT server
+  alias and sparse-cache dependency defect, both now corrected. The controlled
+  runner now delegates unknown responses to the pinned upstream `wptserve`, so
+  Python handlers, sidecar headers, redirects and substitutions no longer rely
+  on SimpleHTTP approximations. A 20-case history rerun remains 9/20, proving
+  that slice is an engine/lifecycle backlog; an IndexedDB dynamic-handler case
+  now terminates deterministically rather than timing out. The corrected full
+  diagnostic is 468/4,022: generated-WebIDL 405/3,407,
+  semantic/accessibility 16/51 and Stylo 47/564. Timeouts fall from 1,001 to
+  568; assertion outcomes rise from 2,081 to 2,409 as previously missing server
+  behavior reaches real checks. Harness failures are 355 and unclassified
+  terminations 222. This remains dirty-tree in-process diagnostic evidence.
+- Generated CSSOM now includes a Rust-backed constructable `CSSStyleSheet`, a
+  live same-object `CSSRuleList`, indexed insert/delete and
+  synchronous/asynchronous replacement. Its generated-binding tests pass, and
+  the first 30-case CSSOM rerun improves from 0/30 to 4/30. `CSSRuleList`,
+  constructable `cssRules`, regular-sheet insertion constraints and replace
+  thenable behavior now pass their exact upstream cases. The remaining failures identify concrete
+  CSS namespace, broader rule interfaces, adopted stylesheet and
+  computed-value work; the Stylo evidence gate remains open.
+- The WPT testdriver accessibility hooks now call the same Rust
+  accessible-name and computed-role implementation used by the persistent
+  semantic graph; no parallel JavaScript naming heuristic is introduced. The
+  51-case pinned semantic/ARIA inventory improves from 0/51 to 16/51. Remaining
+  failures are now algorithm-level vectors for hidden/reference traversal,
+  embedded controls, pseudo content, shadow slots, `aria-owns`/`aria-actions`
+  and long-tail whitespace rather than a missing testdriver bridge. Focused
+  regressions additionally cover hidden descendants, adjacent inline text,
+  authoritative empty `alt`, and dialog-heading naming.
 - The V8-host native library regression passes 227 tests, including
   32 simultaneous context streams, demand-driven body reads, production HTTP/2,
   redirects, decompression limits, stale/timeout cancellation, teardown
@@ -708,12 +740,18 @@ rewrite those historical payloads or present them as a new validation run.
 
 ## Next tracks
 
-- Complete the dependency-ordered runtime cutover in
-  `RUNTIME-COMPLETION-ACTION-PLAN.md`: async resource scheduling, incremental
-  semantics, generated APIs, Stylo and sandboxed runtime profiles.
-- Run pinned upstream and deterministic product validation, then create a new
-  exact macOS/Linux artifact attestation. Historical schema-v4/v5 evidence does
-  not close this new runtime-completion result.
+- Run the complete 4,022-variant pinned upstream inventory and convert any
+  newly exposed failures into a concrete API-algorithm backlog.
+- Complete semantic-graph/oracle, ARIA/Accessible Name and Stylo/Chromium
+  differential evidence, then build and validate Linux full/lite profiles in
+  CayVM alongside the macOS full/lite profiles.
+- Freeze one exact candidate, rerun deterministic product, platform-security
+  and performance validation, and produce a recomputable
+  `runtime-completion-v1` result. Historical schema-v4/v5 evidence does not
+  close this result.
+- Privately sign the exact macOS bundle and only then re-attest the 96-cell
+  Azure/Qwen panel with `$7.996254` cumulative hosted spend carried forward
+  under the `$100` ceiling.
 - Rendering's optional CPU reference package is complete. Broader long-running fuzzing,
   V8 update automation, GPU acceleration, multi-page print layout, broader SVG
   and font support remain operational or product-driven tracks rather than

@@ -1,8 +1,8 @@
 # Oryn2 runtime completion action plan
 
 **Created:** 2026-08-31
-**Committed baseline:** `4b1f287` (`package Oryn for macOS and Linux`)
-**Working baseline:** `a39d7a6` plus the remaining resource-scheduler cutover
+**Current committed baseline:** `20784f6` (`fix: close document-root editing conformance`)
+**Status reconciled:** 2026-09-03
 **Scope:** remaining work required to close the proposal-v1 runtime and produce
 one exact-artifact implementation attestation
 
@@ -20,7 +20,7 @@ of a completed production cutover.
 | Generated WebIDL and compatibility APIs | Implemented in software for the declared interface inventory | Generated V8 templates and prototypes are deterministic and executable. Rust owns wrapper identity, brands, realm/origin/document-generation checks and the supported DOM, editing, navigation, Fetch/File/Streams/XHR/WebSocket and IndexedDB algorithms. Network and database work crosses only typed, asynchronous parent-host operations. Production restores the generated interface namespace after bootstrap; handwritten compatibility implementations remain available only to the explicit in-process probe. | Run every mapped API inventory entry and the broader upstream conformance set. Long-tail algorithms outside the declared inventory remain capability-scoped rather than inferred from focused regressions. |
 | Stylo cascade | Implemented in software | Production resolves an immutable Rust style snapshot through native Stylo `ComputedValues`, including origins, inheritance, custom properties and supported values. Taffy and Parley remain the box/text consumers; the prior handwritten cascade is test-only. | Pass and publish the mapped CSSOM/native-versus-Chromium differential corpus, including the supported grid bridge and explicit long-tail layout boundaries. |
 | V8 sandbox, ICU and startup snapshots | Partial | Production features require `v8_enable_sandbox`; runtime initialization is fail-closed. Exact macOS ARM64 full and external-data lite archives build from pinned source. Lite embeds a physically reduced 2.2 MiB root/en/en-US ICU package. A versioned callback table and content-addressed snapshot are supplied to both snapshot creation and runtime isolates, with hashes in schema-v3 manifests. Heap-sandbox, locale, Segmenter and snapshot-load checks pass. | Build Linux x86_64 full/lite, regenerate the full macOS schema-v3 bundle, then attest all four exact profile artifacts. |
-| Upstream conformance | Partial | A pinned sparse WPT cache exists outside Git. The native harness supports applicable `.any.js`, `.window.js` and testharness HTML cases through controlled loopback and records assertion-level outcomes and failure traces. Four SharedWorker and four ServiceWorker IndexedDB variants pass through a signed production worker and have a compact recomputable ledger. The replacement exact-tree first-100 IndexedDB diagnostic passes 100/100. BFCache open-connection and open-transaction lifecycle retain and restore the suspended realm with persisted lifecycle events. Partition coverage completes the remote harness and passes all 31 reported assertions. Due timer tasks preempt future deadlines and non-blocking page-task draining keeps popup messages live. Opaque-origin rejection, cross-realm branding, high-volume/multi-entry execution, stable frame proxies, atomic rollback, compound keys, connection/versionchange ordering, failed-upgrade ordering, exact WTF-16 names, detached binary keys, cross-origin iframe/window database isolation, and the complete 11-file cursor slice pass. The comparable editing/other slice closes at 40/40 conformant cases and 564/564 valid internal assertions; eight invalid tentative assertions remain visible in raw output and are excluded only through a hash-checked defect ledger. | Run every remaining required mapped WPT/ARIA/Accessible Name case. Keep raw, deferred, excluded and informational results separate. |
+| Upstream conformance | Partial | A pinned sparse WPT cache exists outside Git. The native harness supports applicable `.any.js`, `.window.js` and testharness HTML cases through controlled loopback and records assertion-level outcomes and failure traces. Four SharedWorker and four ServiceWorker IndexedDB variants pass through a signed production worker and have a compact recomputable ledger. The replacement exact-tree first-100 IndexedDB diagnostic passes 100/100. BFCache open-connection and open-transaction lifecycle retain and restore the suspended realm with persisted lifecycle events. Partition coverage completes the remote harness and passes all 31 reported assertions. Due timer tasks preempt future deadlines and non-blocking page-task draining keeps popup messages live. Opaque-origin rejection, cross-realm branding, high-volume/multi-entry execution, stable frame proxies, atomic rollback, compound keys, connection/versionchange ordering, failed-upgrade ordering, exact WTF-16 names, detached binary keys, cross-origin iframe/window database isolation, and the complete 11-file cursor slice pass. The comparable editing/other slice closes at 40/40 conformant cases and 564/564 valid internal assertions; eight invalid tentative assertions remain visible in raw output and are excluded only through a hash-checked defect ledger. The corrected complete 4,022-variant in-process diagnostic passes 468: generated-WebIDL 405/3,407, semantics 16/51 and Stylo 47/564. Pinned `wptserve` reduces timeouts from 1,001 to 568 and exposes 2,409 assertion failures, 355 harness failures and 222 unclassified terminations. | Close shared CSSOM/DOM, referrer/navigation and worker-global prerequisites before individual long-tail assertions. Rerun through the production worker and keep raw, deferred, excluded and informational results separate. |
 | Product and release validation | Not started for this cutover | Focused Rust/V8 tests pass and historical product evidence remains available for its original commits. | Rerun framework/OAuth, MiniWoB, churn, replay, scanner, Python, MCP, platform security and benchmarks against one clean release candidate; privately sign and re-attest only after deterministic completion. |
 
 ## 2. Remaining implementation list
@@ -82,8 +82,9 @@ of a completed production cutover.
 - ~~Complete same-document history traversal, state cloning and event
   ordering.~~ Generated History owns cloned state, same-document URL updates,
   traversal, `popstate`, `hashchange`, and `scrollRestoration`.
-- Apply referrer policy consistently to navigation, Fetch/XHR, redirects,
-  frames, scripts, stylesheets and form submissions.
+- Validate the implemented referrer-policy calculation across navigation,
+  Fetch/XHR, redirects, frames, scripts, stylesheets and form submissions; fix
+  only failures exposed by the mapped inventory.
 - ~~Complete the architectural IndexedDB cutover.~~ Generated Rust callbacks now
   own requests, upgrade delivery, databases, transactions, object stores,
   indexes, cursors, key ranges and structured cloning while the parent remains
@@ -173,8 +174,8 @@ navigation, Fetch bodies, image loading, or CORS preflight.
    and deltas; publish additive contract v6 through every public adapter.
 2. Run randomized graph-oracle equivalence, pinned accessibility conformance and
    expanded reference churn.
-3. Complete the mapped referrer, IndexedDB transaction/version-change and
-   broader editing conformance inventory.
+3. Run the mapped referrer, IndexedDB transaction/version-change and broader
+   editing inventory; focused IndexedDB and editing slices are already closed.
 4. Delete the probe-only handwritten interfaces after the compatibility probe
    is no longer required by historical differential tests.
 
@@ -238,16 +239,33 @@ release status be marked complete.
 
 ## 4. Immediate next actions
 
-1. Diagnose the remaining broader Range/API WPT inventory; the eight requested
-   SharedWorker/ServiceWorker IndexedDB variants now pass production and have a
-   recomputable compact ledger.
-2. Expand the now-production contract-v6 graph/oracle tests to framework churn,
-   navigation, frames and shadow DOM, then run pinned ARIA/AccName mappings.
-3. Complete the remaining generated Selection/traversal/editing,
-   history/referrer and IndexedDB connection/version/transaction algorithms.
-4. Publish the Stylo CSSOM and native-versus-Chromium differential corpus.
-5. Build Linux custom V8 artifacts after software cutovers stabilize, avoiding costly
-   rebuilds for a moving external-reference table.
+1. ~~Use the completed 446/4,022 diagnostic to replace SimpleHTTP response
+   approximations with pinned upstream `wptserve`.~~ Implemented for dynamic
+   handlers, sidecar headers, redirects and substitutions. The corrected full
+   diagnostic is 468/4,022 and reduces timeouts from 1,001 to 568.
+2. Close shared DOM/CSSOM prerequisites and generated worker-global exposure,
+   then rerun the Stylo slice before addressing property-by-property failures.
+   Constructable stylesheets, live `CSSRuleList`, indexed rule mutation and
+   replace are now Rust-backed; the first 30-case CSSOM slice improves from
+   0/30 to 4/30.
+3. Expand contract-v6 graph/oracle comparison to randomized mutations,
+   framework churn, navigation, frames, shadow DOM and replay, then run all
+   pinned ARIA/Accessible Name mappings and the expanded reference-churn suite.
+   WPT testdriver name/role queries now use the graph's Rust algorithm and move
+   the pinned semantic/ARIA slice from 0/51 to 16/51; close the exposed hidden,
+   reference, pseudo-content, shadow-slot, embedded-control and whitespace
+   vectors next.
+4. Publish the frozen Stylo CSSOM and native-versus-Chromium differential
+   corpus, including the grid bridge and explicit unsupported boundaries.
+5. Rerun and recompute all 4,022 variants through the production worker; only
+   remaining engine failures become the long-tail API backlog.
+6. Build and validate Linux x86_64 full/lite V8 artifacts in CayVM, then produce
+   four-profile equivalence evidence with the macOS ARM64 full/lite artifacts.
+7. Freeze an exact candidate and rerun deterministic product, security and
+   performance validation. Produce a recomputable `runtime-completion-v1`
+   ledger before private signing or hosted-model requests.
+8. Privately sign the exact macOS bundle and rerun the 96-cell Azure/Qwen panel,
+   carrying `$7.996254` cumulative hosted spend under the `$100` ceiling.
 
 ## 5. Completion rules
 

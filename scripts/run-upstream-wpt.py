@@ -9,11 +9,14 @@ import collections
 import hashlib
 import html as html_module
 import http.server
+import http.client
 from html.parser import HTMLParser
 import json
 import os
 import re
+import select
 import subprocess
+import sys
 import tempfile
 import threading
 import urllib.parse
@@ -63,15 +66,28 @@ add_completion_callback(function(tests, harness) { __oryn_publish_wpt(harness, t
 """
 
 
+# Mirror the stable path aliases installed by `wpt serve`. Tests intentionally
+# use the historical WebIDL parser URL while the pinned source tree stores the
+# current webidl2 implementation at the rewritten path.
+WPT_SERVER_REWRITES = {
+    "/resources/WebIDLParser.js": "/resources/webidl2/lib/webidl2.js",
+}
+
+
+def wpt_server_path(path: str) -> str:
+    return WPT_SERVER_REWRITES.get(path, path)
+
+
 def meta_script_paths(root: Path, source_path: Path, source_text: str) -> list[str]:
     dependencies: list[str] = []
     for line in source_text.splitlines():
         if not line.startswith("// META: script="):
             continue
         declared = line.split("=", 1)[1].strip()
+        served = wpt_server_path(declared) if declared.startswith("/") else declared
         dependency = (
-            root / declared.lstrip("/")
-            if declared.startswith("/")
+            root / served.lstrip("/")
+            if served.startswith("/")
             else source_path.parent / declared
         ).resolve()
         if root not in dependency.parents or not dependency.is_file():
@@ -184,6 +200,7 @@ def outcome(assertions: list[dict[str, object]], expected_total: int, complete: 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     root: Path
+    official_wpt_port: int | None = None
     dispatcher_condition = threading.Condition()
     dispatcher_queues: dict[str, collections.deque[bytes]] = {}
 
@@ -214,7 +231,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_bytes(b"done", "text/plain; charset=utf-8")
             return
         if parsed.path != "/xhr/resources/content.py":
-            self.send_error(404)
+            self._proxy_to_wptserve()
             return
         length = int(self.headers.get("content-length", "0"))
         body = self.rfile.read(length)
@@ -236,6 +253,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
+        rewritten = wpt_server_path(parsed.path)
+        if rewritten != parsed.path:
+            self.path = urllib.parse.urlunparse(
+                (parsed.scheme, parsed.netloc, rewritten, parsed.params, parsed.query, parsed.fragment)
+            )
+            parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/resources/testdriver-vendor.js":
             # Controlled native automation only. The page worker still has no
             # filesystem or generic automation operation: these calls reach
@@ -247,6 +270,8 @@ window.test_driver.click = function(element) { __oryn_testdriver_log.push({opera
 window.test_driver_internal.click = element => { __oryn_testdriver_log.push({operation:'click',target:element && (element.id || element.tagName)}); return __oryn_testdriver_click(element); };
 window.test_driver_internal.send_keys = (element, keys) => { __oryn_testdriver_log.push({operation:'send_keys',target:element && (element.id || element.tagName),keys:String(keys)}); return __oryn_testdriver_send_keys(element, keys); };
 window.test_driver_internal.action_sequence = actions => { __oryn_testdriver_log.push({operation:'actions',count:Array.isArray(actions)?actions.length:0}); return __oryn_testdriver_actions(actions, document.activeElement); };
+window.test_driver_internal.get_computed_label = element => Promise.resolve(__oryn_computed_accessibility(element).name);
+window.test_driver_internal.get_computed_role = element => Promise.resolve(__oryn_computed_accessibility(element).role);
 """
             self._send_bytes(body, "application/javascript; charset=utf-8")
             return
@@ -459,7 +484,63 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             self.send_response(200); self.send_header("content-type", "text/html; charset=utf-8")
             self.send_header("content-length", str(len(encoded))); self.end_headers(); self.wfile.write(encoded)
             return
-        super().do_GET()
+        self._proxy_to_wptserve()
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        self._proxy_to_wptserve(include_body=False)
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self._proxy_to_wptserve()
+
+    def do_PUT(self) -> None:  # noqa: N802
+        self._proxy_to_wptserve()
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        self._proxy_to_wptserve()
+
+    def _proxy_to_wptserve(self, *, include_body: bool = True) -> None:
+        """Delegate WPT response semantics to the pinned upstream server.
+
+        The public loopback server remains the browser-visible origin so Oryn's
+        controlled policy and result wrappers stay unchanged.  The private
+        upstream server supplies dynamic Python handlers, `.headers` sidecars,
+        substitutions, and other WPT response behavior that SimpleHTTPServer
+        cannot reproduce faithfully.
+        """
+        if self.official_wpt_port is None:
+            self.send_error(503, "official wptserve is unavailable")
+            return
+        length = int(self.headers.get("content-length", "0"))
+        if length > 24 * 1024 * 1024:
+            self.send_error(413)
+            return
+        body = self.rfile.read(length) if length else None
+        headers = {
+            name: value
+            for name, value in self.headers.items()
+            if name.lower() not in {"connection", "content-length", "transfer-encoding"}
+        }
+        # Preserve the browser-visible authority for wptserve substitutions and
+        # handler logic; only the TCP destination is private.
+        headers["Host"] = self.headers.get("Host", f"localhost:{self.server.server_address[1]}")
+        connection = http.client.HTTPConnection("127.0.0.1", self.official_wpt_port, timeout=30)
+        try:
+            connection.request(self.command, self.path, body=body, headers=headers)
+            response = connection.getresponse()
+            response_body = response.read()
+            self.send_response(response.status, response.reason)
+            for name, value in response.getheaders():
+                if name.lower() in {"connection", "content-length", "transfer-encoding"}:
+                    continue
+                self.send_header(name, value)
+            self.send_header("content-length", str(len(response_body)))
+            self.end_headers()
+            if include_body and self.command != "HEAD":
+                self.wfile.write(response_body)
+        except (OSError, http.client.HTTPException) as error:
+            self.send_error(502, f"wptserve proxy failure: {error}")
+        finally:
+            connection.close()
 
     def _send_bytes(self, body: bytes, content_type: str, *, status: int = 200) -> None:
         self.send_response(status)
@@ -801,6 +882,43 @@ def main() -> int:
     )
     Handler.root = args.checkout.resolve()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    helper = ROOT / "scripts/wptserve-helper.py"
+    venv_python = args.checkout / "_venv3/bin/python"
+    helper_python = venv_python if venv_python.is_file() else Path(sys.executable)
+    helper_errors = tempfile.NamedTemporaryFile("w+", suffix=".wptserve.log")
+    official = subprocess.Popen(
+        [
+            str(helper_python),
+            str(helper),
+            "--checkout",
+            str(args.checkout.resolve()),
+            "--public-port",
+            str(server.server_port),
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=helper_errors,
+    )
+    ready, _, _ = select.select([official.stdout], [], [], 20) if official.stdout else ([], [], [])
+    if not ready:
+        official.terminate()
+        official.wait(timeout=5)
+        helper_errors.seek(0)
+        raise SystemExit("official wptserve did not start: " + helper_errors.read().strip())
+    startup_line = official.stdout.readline() if official.stdout else ""
+    try:
+        Handler.official_wpt_port = int(json.loads(startup_line)["port"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        official.terminate()
+        official.wait(timeout=5)
+        helper_errors.seek(0)
+        raise SystemExit(
+            "official wptserve returned invalid startup metadata: "
+            + startup_line.strip()
+            + " "
+            + helper_errors.read().strip()
+        ) from error
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
         raise SystemExit("invalid shard index/count")
@@ -839,6 +957,10 @@ def main() -> int:
     fingerprint_input = {
         "upstream_revision": revision,
         "inventory_sha256": inventory_sha256,
+        "harness": {
+            "server": "pinned_wptserve_proxy_v1",
+            "helper_sha256": sha256_bytes(helper.read_bytes()),
+        },
         "execution_mode": "in_process_probe" if args.in_process_probe else "sandboxed_worker",
         "binary": binary_fingerprint,
         "runtime_metadata": runtime_metadata,
@@ -870,6 +992,7 @@ def main() -> int:
             "schema_version": 2 if args.inventory else 1,
             "upstream_revision": revision,
             "inventory_sha256": inventory_sha256,
+            "harness": fingerprint_input["harness"],
             "execution_mode": fingerprint_input["execution_mode"],
             "run_fingerprint": run_fingerprint,
             "binary": binary_fingerprint,
@@ -918,6 +1041,13 @@ def main() -> int:
                 publish(complete=False)
     finally:
         server.shutdown(); thread.join()
+        official.terminate()
+        try:
+            official.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            official.kill()
+            official.wait(timeout=5)
+        helper_errors.close()
     result = publish(complete=True)
     print(json.dumps(result["outcome"], sort_keys=True))
     return 0 if result["outcome"]["status"] == "passed" else 1
