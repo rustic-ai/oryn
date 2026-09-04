@@ -8218,6 +8218,33 @@ fn selection_format_value(state: &V8BindingState, command: &str) -> Option<Strin
     None
 }
 
+fn selection_block_alignment(state: &V8BindingState) -> String {
+    let dom = state.dom.borrow();
+    let mut current = state.selection_anchor.get().map(|point| point.container);
+    while let Some(node) = current {
+        let Ok(record) = dom.arena().get(node) else {
+            break;
+        };
+        let style = inline_style_entries(record.attributes.get("style").map_or("", String::as_str));
+        if let Some(value) = style.get("text-align").filter(|value| !value.is_empty()) {
+            return match value.as_str() {
+                "start" => "left".into(),
+                "end" => "right".into(),
+                value => value.into(),
+            };
+        }
+        if let Some(value) = record
+            .attributes
+            .get("align")
+            .filter(|value| !value.is_empty())
+        {
+            return value.to_ascii_lowercase();
+        }
+        current = record.parent;
+    }
+    "left".into()
+}
+
 fn document_is_editable(state: &V8BindingState) -> bool {
     editing_host(state).is_ok_and(|host| host.is_some())
 }
@@ -9838,7 +9865,54 @@ fn apply_block_command(
     let Some(host) = editing_host(state)? else {
         return Ok(());
     };
-    let block = nearest_editing_block(&state.dom.borrow(), anchor.container, host)?;
+    let mut block = nearest_editing_block(&state.dom.borrow(), anchor.container, host)?;
+    if block == host
+        && matches!(
+            command,
+            "justifyleft" | "justifycenter" | "justifyright" | "justifyfull"
+        )
+    {
+        let focus_before_wrap = state.selection_focus.get();
+        let children = light_children(&state.dom.borrow(), host)?;
+        let mut top = anchor.container;
+        while top != host {
+            let parent = state.dom.borrow().parent(top)?;
+            if parent == Some(host) {
+                break;
+            }
+            top = parent.unwrap_or(host);
+        }
+        let selected_index = if top == host {
+            (anchor.offset as usize).min(children.len().saturating_sub(1))
+        } else {
+            children
+                .iter()
+                .position(|candidate| *candidate == top)
+                .unwrap_or(0)
+        };
+        let mut start = selected_index;
+        while start > 0 && !is_editing_block(&state.dom.borrow(), children[start - 1]) {
+            start -= 1;
+        }
+        let mut end = selected_index.saturating_add(1).min(children.len());
+        while end < children.len() && !is_editing_block(&state.dom.borrow(), children[end]) {
+            end += 1;
+        }
+        if start < end {
+            let wrapper = state.dom.borrow_mut().create_element("div");
+            state
+                .dom
+                .borrow_mut()
+                .insert_before(host, wrapper, Some(children[start]))?;
+            for child in &children[start..end] {
+                state.dom.borrow_mut().append_child(wrapper, *child)?;
+            }
+            if let Some(focus) = focus_before_wrap {
+                set_selection_boundaries(state, anchor, focus)?;
+            }
+            block = wrapper;
+        }
+    }
     match command {
         "justifyleft" | "justifycenter" | "justifyright" | "justifyfull" => {
             let value = match command {
@@ -15765,9 +15839,16 @@ fn css_property_name(member: &str) -> &str {
         "borderCollapse" => "border-collapse",
         "boxSizing" => "box-sizing",
         "cssFloat" => "float",
+        "fontSize" => "font-size",
+        "fontStyle" => "font-style",
+        "fontWeight" => "font-weight",
+        "marginLeft" => "margin-left",
         "marginRight" => "margin-right",
         "maxHeight" => "max-height",
         "minHeight" => "min-height",
+        "textAlign" => "text-align",
+        "textDecoration" => "text-decoration",
+        "verticalAlign" => "vertical-align",
         "whiteSpace" => "white-space",
         "MozBoxSizing" => "-moz-box-sizing",
         "WebkitBoxSizing" => "-webkit-box-sizing",
@@ -16455,6 +16536,11 @@ fn get_attribute_value<'s>(
             scope,
             record.attributes.get("style").map_or("", String::as_str),
         )?,
+        ("CSSStyleDeclaration", "length") => {
+            let styles =
+                inline_style_entries(record.attributes.get("style").map_or("", String::as_str));
+            v8::Integer::new_from_unsigned(scope, styles.len() as u32).into()
+        }
         ("CSSStyleDeclaration", member) => {
             let property = css_property_name(member);
             let styles =
@@ -17288,22 +17374,26 @@ fn call_operation<'s>(
                 return Ok(Some(v8::Boolean::new(scope, false).into()));
             }
             if member == "queryCommandState" {
-                let active = if command == "stylewithcss" {
-                    state.style_with_css.get()
-                } else {
-                    selection_format_value(state, &command).is_some()
+                let active = match command.as_str() {
+                    "stylewithcss" => state.style_with_css.get(),
+                    "justifyleft" => selection_block_alignment(state) == "left",
+                    "justifycenter" => selection_block_alignment(state) == "center",
+                    "justifyright" => selection_block_alignment(state) == "right",
+                    "justifyfull" => selection_block_alignment(state) == "justify",
+                    _ => selection_format_value(state, &command).is_some(),
                 };
                 return Ok(Some(v8::Boolean::new(scope, active).into()));
             }
             if member == "queryCommandValue" {
-                let value = if command == "stylewithcss" {
-                    if state.style_with_css.get() {
-                        "true".into()
-                    } else {
-                        "false".into()
+                let value = match command.as_str() {
+                    "stylewithcss" => String::new(),
+                    "defaultparagraphseparator" => {
+                        state.default_paragraph_separator.borrow().clone()
                     }
-                } else {
-                    selection_format_value(state, &command).unwrap_or_default()
+                    "justifyleft" | "justifycenter" | "justifyright" | "justifyfull" => {
+                        selection_block_alignment(state)
+                    }
+                    _ => selection_format_value(state, &command).unwrap_or_default(),
                 };
                 return Ok(Some(v8_string(scope, &value)?));
             }
@@ -17351,6 +17441,15 @@ fn call_operation<'s>(
                 "stylewithcss" => {
                     state.style_with_css.set(value.eq_ignore_ascii_case("true"));
                     true
+                }
+                "defaultparagraphseparator" => {
+                    let separator = value.to_ascii_lowercase();
+                    if matches!(separator.as_str(), "div" | "p" | "br") {
+                        *state.default_paragraph_separator.borrow_mut() = separator;
+                        true
+                    } else {
+                        false
+                    }
                 }
                 "selectall" => {
                     let root = state

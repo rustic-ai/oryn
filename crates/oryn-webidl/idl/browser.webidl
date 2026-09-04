@@ -795,6 +795,7 @@ interface CSSStyleSheet {
 [Exposed=Window]
 interface CSSStyleDeclaration {
   attribute DOMString cssText;
+  readonly attribute unsigned long length;
   attribute DOMString display;
   attribute DOMString visibility;
   attribute DOMString width;
@@ -806,6 +807,17 @@ interface CSSStyleDeclaration {
   attribute DOMString bottom;
   attribute DOMString overflow;
   attribute DOMString opacity;
+  attribute DOMString color;
+  attribute DOMString border;
+  attribute DOMString fontSize;
+  attribute DOMString fontStyle;
+  attribute DOMString fontWeight;
+  attribute DOMString margin;
+  attribute DOMString marginLeft;
+  attribute DOMString padding;
+  attribute DOMString textAlign;
+  attribute DOMString textDecoration;
+  attribute DOMString verticalAlign;
   attribute DOMString backgroundClip;
   attribute DOMString backgroundColor;
   attribute DOMString borderCollapse;

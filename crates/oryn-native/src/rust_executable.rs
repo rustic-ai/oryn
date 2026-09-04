@@ -3554,6 +3554,21 @@ mod tests {
     }
 
     #[test]
+    fn editing_command_state_reports_paragraph_and_alignment_values() {
+        let mut page = RustExecutableDocument::load(
+            "<div id='editor' contenteditable>text</div><script>const editor=document.getElementById('editor');const selection=getSelection();selection.selectAllChildren(editor)</script>",
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                "const before=document.queryCommandValue('defaultParagraphSeparator')+'|'+document.queryCommandValue('justifyCenter')+'|'+document.queryCommandState('justifyLeft')+'|'+document.queryCommandValue('styleWithCSS');const paragraph=document.execCommand('defaultParagraphSeparator',false,'p');const centered=document.execCommand('justifyCenter',false,'');before+'|'+paragraph+'|'+centered+'|'+document.queryCommandValue('defaultParagraphSeparator')+'|'+document.queryCommandValue('justifyCenter')+'|'+document.queryCommandState('justifyCenter')"
+            )
+            .unwrap(),
+            "div|left|true||true|true|p|center|true"
+        );
+    }
+
+    #[test]
     fn navigator_and_performance_are_available_for_framework_feature_detection() {
         let mut page = RustExecutableDocument::load("<main></main>").unwrap();
         assert_eq!(
