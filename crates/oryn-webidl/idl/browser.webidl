@@ -1,9 +1,19 @@
 [Exposed=(Window,Worker)]
 interface EventTarget {
   constructor();
-  undefined addEventListener(DOMString type, EventListener? callback);
-  undefined removeEventListener(DOMString type, EventListener? callback);
+  undefined addEventListener(DOMString type, EventListener? callback, optional (boolean or AddEventListenerOptions) options);
+  undefined removeEventListener(DOMString type, EventListener? callback, optional (boolean or EventListenerOptions) options);
   boolean dispatchEvent(Event event);
+};
+
+dictionary EventListenerOptions {
+  boolean capture = false;
+};
+
+dictionary AddEventListenerOptions : EventListenerOptions {
+  boolean passive;
+  boolean once = false;
+  AbortSignal? signal;
 };
 
 dictionary EventInit {
@@ -75,6 +85,7 @@ interface Event {
   readonly attribute boolean cancelable;
   [LegacyUnforgeable] readonly attribute boolean isTrusted;
   readonly attribute boolean defaultPrevented;
+  attribute boolean cancelBubble;
   attribute boolean returnValue;
   readonly attribute double timeStamp;
   sequence<EventTarget> composedPath();

@@ -3613,7 +3613,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(1572878),
-        name: "returnValue",
+        name: "cancelBubble",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
         readonly: false,
@@ -3628,6 +3628,21 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(1572879),
+        name: "returnValue",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: false,
+        constant_value: None,
+        type_name: Some("boolean"),
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(1572880),
         name: "timeStamp",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -3642,7 +3657,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1572880),
+        id: GeneratedMemberId(1572881),
         name: "composedPath",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -3657,7 +3672,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1572881),
+        id: GeneratedMemberId(1572882),
         name: "initEvent",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3672,7 +3687,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1572882),
+        id: GeneratedMemberId(1572883),
         name: "preventDefault",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -3687,7 +3702,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1572883),
+        id: GeneratedMemberId(1572884),
         name: "stopPropagation",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -3702,7 +3717,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1572884),
+        id: GeneratedMemberId(1572885),
         name: "stopImmediatePropagation",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -12403,6 +12418,36 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
     },
 ];
 #[allow(dead_code)]
+pub const EVENT_LISTENER_OPTIONS_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
+    GeneratedDictionaryMember {
+        name: "capture",
+        type_name: "boolean",
+        required: false,
+        default: Some("false"),
+    },
+];
+#[allow(dead_code)]
+pub const ADD_EVENT_LISTENER_OPTIONS_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
+    GeneratedDictionaryMember {
+        name: "passive",
+        type_name: "boolean",
+        required: false,
+        default: None,
+    },
+    GeneratedDictionaryMember {
+        name: "once",
+        type_name: "boolean",
+        required: false,
+        default: Some("false"),
+    },
+    GeneratedDictionaryMember {
+        name: "signal",
+        type_name: "AbortSignal?",
+        required: false,
+        default: None,
+    },
+];
+#[allow(dead_code)]
 pub const EVENT_INIT_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
     GeneratedDictionaryMember {
         name: "bubbles",
@@ -12704,6 +12749,16 @@ pub const REQUEST_INIT_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
 ];
 #[allow(dead_code)]
 pub const GENERATED_DICTIONARIES: &[GeneratedDictionary] = &[
+    GeneratedDictionary {
+        name: "EventListenerOptions",
+        parent: None,
+        members: EVENT_LISTENER_OPTIONS_DICTIONARY_MEMBERS,
+    },
+    GeneratedDictionary {
+        name: "AddEventListenerOptions",
+        parent: Some("EventListenerOptions"),
+        members: ADD_EVENT_LISTENER_OPTIONS_DICTIONARY_MEMBERS,
+    },
     GeneratedDictionary {
         name: "EventInit",
         parent: None,

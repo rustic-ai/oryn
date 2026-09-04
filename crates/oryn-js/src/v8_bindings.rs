@@ -109,10 +109,15 @@ struct EventRecord {
     propagation_stopped: bool,
     immediate_stopped: bool,
     in_passive_listener: bool,
+    phase: u16,
 }
 
+#[derive(Clone)]
 struct EventListener {
     callback: v8::Global<v8::Function>,
+    capture: bool,
+    once: bool,
+    passive: bool,
 }
 
 #[derive(Clone)]
@@ -6450,6 +6455,7 @@ fn generated_constructor<'s>(
                 propagation_stopped: false,
                 immediate_stopped: false,
                 in_passive_listener: false,
+                phase: 0,
             },
         );
         let id = v8::Number::new(scope, event_id as f64);
@@ -6945,14 +6951,21 @@ fn generated_attribute_setter(
         }
         return;
     }
-    if interface == "Event" && member == "returnValue" {
+    if interface == "Event" && matches!(member, "returnValue" | "cancelBubble") {
         let result = event_id(scope, args.this()).and_then(|id| {
             let mut events = state.events.borrow_mut();
             let event = events
                 .get_mut(&id)
                 .ok_or(V8BindingError::Allocation("event record"))?;
-            if !args.get(0).boolean_value(scope) && event.cancelable && !event.in_passive_listener {
-                event.default_prevented = true;
+            if member == "returnValue" {
+                if !args.get(0).boolean_value(scope)
+                    && event.cancelable
+                    && !event.in_passive_listener
+                {
+                    event.default_prevented = true;
+                }
+            } else if args.get(0).boolean_value(scope) {
+                event.propagation_stopped = true;
             }
             Ok(())
         });
@@ -18077,14 +18090,32 @@ fn call_operation<'s>(
             }
             let callback = v8::Local::<v8::Function>::try_from(args.get(1))
                 .map_err(|_| V8BindingError::Allocation("event listener callback"))?;
-            state
-                .listeners
-                .borrow_mut()
-                .entry((node, event_type.clone()))
-                .or_default()
-                .push(EventListener {
-                    callback: v8::Global::new(scope, callback),
-                });
+            let options = args.get(2);
+            let capture = if options.is_boolean() {
+                options.boolean_value(scope)
+            } else {
+                option_value(scope, options, "capture")
+                    .is_some_and(|value| value.boolean_value(scope))
+            };
+            let once = option_value(scope, options, "once")
+                .is_some_and(|value| value.boolean_value(scope));
+            let passive = option_value(scope, options, "passive")
+                .is_some_and(|value| value.boolean_value(scope));
+            let mut listener_map = state.listeners.borrow_mut();
+            let listeners = listener_map.entry((node, event_type.clone())).or_default();
+            if listeners.iter().any(|listener| {
+                listener.capture == capture
+                    && v8::Local::new(scope, &listener.callback).strict_equals(callback.into())
+            }) {
+                return Ok(None);
+            }
+            listeners.push(EventListener {
+                callback: v8::Global::new(scope, callback),
+                capture,
+                once,
+                passive,
+            });
+            drop(listener_map);
             state
                 .dom
                 .borrow_mut()
@@ -18094,12 +18125,21 @@ fn call_operation<'s>(
         ("EventTarget", "removeEventListener") => {
             let event_type = required_string(scope, args, 0)?;
             let candidate = v8::Local::<v8::Function>::try_from(args.get(1)).ok();
+            let options = args.get(2);
+            let capture = if options.is_boolean() {
+                options.boolean_value(scope)
+            } else {
+                option_value(scope, options, "capture")
+                    .is_some_and(|value| value.boolean_value(scope))
+            };
             let is_click = event_type.eq_ignore_ascii_case("click");
             let mut listener_map = state.listeners.borrow_mut();
             if let Some(listeners) = listener_map.get_mut(&(node, event_type.clone())) {
                 listeners.retain(|listener| {
                     candidate.is_none_or(|candidate| {
-                        !v8::Local::new(scope, &listener.callback).strict_equals(candidate.into())
+                        listener.capture != capture
+                            || !v8::Local::new(scope, &listener.callback)
+                                .strict_equals(candidate.into())
                     })
                 });
             }
@@ -20180,6 +20220,7 @@ fn create_event_object<'s>(
             propagation_stopped: false,
             immediate_stopped: false,
             in_passive_listener: false,
+            phase: 0,
         },
     );
     object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
@@ -20220,6 +20261,7 @@ fn create_input_event_object<'s>(
             propagation_stopped: false,
             immediate_stopped: false,
             in_passive_listener: false,
+            phase: 0,
         },
     );
     object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
@@ -20302,12 +20344,13 @@ fn get_event_attribute<'s>(
             event.current_target,
             event.platform_current_target,
         ),
-        "eventPhase" => Ok(v8::Integer::new_from_unsigned(scope, 0).into()),
+        "eventPhase" => Ok(v8::Integer::new_from_unsigned(scope, event.phase.into()).into()),
         "bubbles" => Ok(v8::Boolean::new(scope, event.bubbles).into()),
         "cancelable" => Ok(v8::Boolean::new(scope, event.cancelable).into()),
         "isTrusted" => Ok(v8::Boolean::new(scope, event.is_trusted).into()),
         "defaultPrevented" => Ok(v8::Boolean::new(scope, event.default_prevented).into()),
         "returnValue" => Ok(v8::Boolean::new(scope, !event.default_prevented).into()),
+        "cancelBubble" => Ok(v8::Boolean::new(scope, event.propagation_stopped).into()),
         "timeStamp" => Ok(v8::Number::new(scope, 1.0).into()),
         _ => Ok(v8::undefined(scope).into()),
     }
@@ -20380,86 +20423,153 @@ fn dispatch_event(
         event.target = Some(target);
         event.platform_target = None;
         event.platform_current_target = None;
-        event.propagation_stopped = false;
-        event.immediate_stopped = false;
+        event.phase = 0;
     }
-    let mut path = vec![target];
     if state
         .events
         .borrow()
         .get(&id)
-        .is_some_and(|event| event.bubbles)
+        .is_some_and(|event| event.propagation_stopped)
     {
-        path.extend(state.dom.borrow().arena().ancestors(target)?);
+        return Ok(!state.events.borrow().get(&id).unwrap().default_prevented);
     }
-    for current in path {
-        {
-            let mut events = state.events.borrow_mut();
-            let event = events.get_mut(&id).unwrap();
-            if event.propagation_stopped && event.current_target.is_some() {
-                break;
-            }
-            event.current_target = Some(current);
-            event.platform_current_target = None;
-            event.immediate_stopped = false;
-        }
-        let event_type = state.events.borrow().get(&id).unwrap().event_type.clone();
-        let callbacks = state
-            .listeners
+    let ancestors = state.dom.borrow().arena().ancestors(target)?;
+    for current in ancestors.iter().rev().copied() {
+        invoke_node_event_listeners(scope, state, current, object, id, 1, Some(true), false)?;
+        if state
+            .events
             .borrow()
-            .get(&(current, event_type))
-            .map(|listeners| {
-                listeners
-                    .iter()
-                    .map(|listener| listener.callback.clone())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let receiver = wrap_node(scope, state, current)?;
-        for callback in callbacks {
-            let callback = v8::Local::new(scope, &callback);
-            if callback
-                .call(scope, receiver.into(), &[object.into()])
-                .is_none()
-            {
-                let detail = scope
-                    .stack_trace()
-                    .or_else(|| scope.exception())
-                    .and_then(|value| value.to_string(scope))
-                    .map(|value| value.to_rust_string_lossy(scope))
-                    .unwrap_or_else(|| "JavaScript listener raised an exception".into());
-                return Err(V8BindingError::EventCallback(detail));
-            }
-            if state
-                .events
-                .borrow()
-                .get(&id)
-                .is_some_and(|event| event.immediate_stopped)
-            {
-                break;
-            }
+            .get(&id)
+            .is_some_and(|event| event.propagation_stopped)
+        {
+            break;
         }
-        let event_type = state.events.borrow().get(&id).unwrap().event_type.clone();
-        let property = format!("on{event_type}");
+    }
+    if !state
+        .events
+        .borrow()
+        .get(&id)
+        .is_some_and(|event| event.propagation_stopped)
+    {
+        invoke_node_event_listeners(scope, state, target, object, id, 2, Some(true), false)?;
         if !state
             .events
             .borrow()
             .get(&id)
             .is_some_and(|event| event.immediate_stopped)
-            && let Some(property) = v8::String::new(scope, &property)
+        {
+            invoke_node_event_listeners(scope, state, target, object, id, 2, Some(false), true)?;
+        }
+    }
+    let bubbles = state.events.borrow().get(&id).unwrap().bubbles;
+    if bubbles {
+        for current in ancestors {
+            if state
+                .events
+                .borrow()
+                .get(&id)
+                .is_some_and(|event| event.propagation_stopped)
+            {
+                break;
+            }
+            invoke_node_event_listeners(scope, state, current, object, id, 3, Some(false), true)?;
+        }
+    }
+    let mut events = state.events.borrow_mut();
+    let event = events.get_mut(&id).unwrap();
+    event.current_target = None;
+    event.phase = 0;
+    Ok(!event.default_prevented)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn invoke_node_event_listeners(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    current: NodeId,
+    object: v8::Local<v8::Object>,
+    id: u64,
+    phase: u16,
+    capture: Option<bool>,
+    invoke_property: bool,
+) -> Result<(), V8BindingError> {
+    let event_type = state.events.borrow().get(&id).unwrap().event_type.clone();
+    {
+        let mut events = state.events.borrow_mut();
+        let event = events.get_mut(&id).unwrap();
+        event.current_target = Some(current);
+        event.platform_current_target = None;
+        event.phase = phase;
+        event.immediate_stopped = false;
+    }
+    let listeners = state
+        .listeners
+        .borrow()
+        .get(&(current, event_type.clone()))
+        .cloned()
+        .unwrap_or_default();
+    let receiver = wrap_node(scope, state, current)?;
+    for listener in listeners
+        .into_iter()
+        .filter(|listener| capture.is_none_or(|capture| listener.capture == capture))
+    {
+        {
+            let mut events = state.events.borrow_mut();
+            events.get_mut(&id).unwrap().in_passive_listener = listener.passive;
+        }
+        let callback = v8::Local::new(scope, &listener.callback);
+        if callback
+            .call(scope, receiver.into(), &[object.into()])
+            .is_none()
+        {
+            return Err(V8BindingError::EventCallback(
+                "JavaScript listener raised an exception".into(),
+            ));
+        }
+        state
+            .events
+            .borrow_mut()
+            .get_mut(&id)
+            .unwrap()
+            .in_passive_listener = false;
+        if listener.once
+            && let Some(current_listeners) = state
+                .listeners
+                .borrow_mut()
+                .get_mut(&(current, event_type.clone()))
+        {
+            current_listeners.retain(|candidate| {
+                candidate.capture != listener.capture
+                    || !v8::Local::new(scope, &candidate.callback).strict_equals(callback.into())
+            });
+        }
+        if state
+            .events
+            .borrow()
+            .get(&id)
+            .is_some_and(|event| event.immediate_stopped)
+        {
+            break;
+        }
+    }
+    if invoke_property
+        && !state
+            .events
+            .borrow()
+            .get(&id)
+            .is_some_and(|event| event.immediate_stopped)
+    {
+        let property = format!("on{event_type}");
+        if let Some(property) = v8::String::new(scope, &property)
             && let Some(handler) = receiver.get(scope, property.into())
             && let Ok(handler) = v8::Local::<v8::Function>::try_from(handler)
         {
             let result = handler
                 .call(scope, receiver.into(), &[object.into()])
                 .ok_or_else(|| {
-                    let detail = scope
-                        .stack_trace()
-                        .or_else(|| scope.exception())
-                        .and_then(|value| value.to_string(scope))
-                        .map(|value| value.to_rust_string_lossy(scope))
-                        .unwrap_or_else(|| "event property handler raised an exception".into());
-                    V8BindingError::EventCallback(detail)
+                    V8BindingError::EventCallback(
+                        "event property handler raised an exception".into(),
+                    )
                 })?;
             if result.is_false() {
                 let mut events = state.events.borrow_mut();
@@ -20470,10 +20580,7 @@ fn dispatch_event(
             }
         }
     }
-    let mut events = state.events.borrow_mut();
-    let event = events.get_mut(&id).unwrap();
-    event.current_target = None;
-    Ok(!event.default_prevented)
+    Ok(())
 }
 
 fn optional_event_target<'s>(
@@ -20859,6 +20966,28 @@ mod tests {
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
             "go,property,root:go|false|true"
+        );
+    }
+
+    #[test]
+    fn generated_event_target_orders_capture_target_and_bubble_listeners() {
+        initialize_v8();
+        let parsed = html::parse("<main id='root'><button id='go'></button></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const calls=[];const root=document.getElementById('root');const go=document.getElementById('go');root.addEventListener('ping',e=>calls.push('capture:'+e.eventPhase),true);go.addEventListener('ping',e=>calls.push('target-capture:'+e.eventPhase),{capture:true,once:true});go.addEventListener('ping',e=>calls.push('target-bubble:'+e.eventPhase));root.addEventListener('ping',e=>calls.push('bubble:'+e.eventPhase));go.dispatchEvent(new Event('ping',{bubbles:true}));go.dispatchEvent(new Event('ping',{bubbles:true}));calls.join(',')",
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "capture:1,target-capture:2,target-bubble:2,bubble:3,capture:1,target-bubble:2,bubble:3"
         );
     }
 
