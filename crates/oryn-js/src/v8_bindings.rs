@@ -108,13 +108,22 @@ struct EventRecord {
     default_prevented: bool,
     propagation_stopped: bool,
     immediate_stopped: bool,
+    in_passive_listener: bool,
 }
 
 struct EventListener {
     callback: v8::Global<v8::Function>,
 }
 
-type PlatformListenerMap = BTreeMap<(u64, String), Vec<v8::Global<v8::Value>>>;
+#[derive(Clone)]
+struct PlatformEventListener {
+    callback: v8::Global<v8::Value>,
+    capture: bool,
+    once: bool,
+    passive: bool,
+}
+
+type PlatformListenerMap = BTreeMap<(u64, String), Vec<PlatformEventListener>>;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct MutationObserverOptions {
@@ -273,6 +282,7 @@ struct HeadersRecord {
 struct AbortSignalRecord {
     aborted: bool,
     reason: Option<v8::Global<v8::Value>>,
+    followers: Vec<u64>,
 }
 
 struct RequestRecord {
@@ -399,13 +409,28 @@ struct IdbKeyRangeRecord {
 
 enum PlatformObjectRecord {
     EventTarget,
+    DomException {
+        name: String,
+        message: String,
+        code: i32,
+    },
+    Url(Url),
     Blob(BlobRecord),
+    FileReader {
+        result: Option<v8::Global<v8::Value>>,
+        ready_state: u16,
+    },
     FormData(FormDataRecord),
     Headers(HeadersRecord),
     AbortSignal(AbortSignalRecord),
-    AbortController { signal_id: u64 },
+    AbortController {
+        signal_id: u64,
+    },
     MessagePort,
-    MessageChannel { port1_id: u64, port2_id: u64 },
+    MessageChannel {
+        port1_id: u64,
+        port2_id: u64,
+    },
     Request(RequestRecord),
     Response(ResponseRecord),
     XMLHttpRequest(XhrRecord),
@@ -419,12 +444,23 @@ enum PlatformObjectRecord {
     IdbCursor(IdbCursorRecord),
     IdbKeyRange(IdbKeyRangeRecord),
     ReadableStream(ReadableStreamRecord),
-    ReadableController { stream_id: u64 },
-    ReadableReader { stream_id: u64 },
+    ReadableController {
+        stream_id: u64,
+    },
+    ReadableReader {
+        stream_id: u64,
+    },
     WritableStream(WritableStreamRecord),
-    WritableController { stream_id: u64 },
-    WritableWriter { stream_id: u64 },
-    TransformStream { readable_id: u64, writable_id: u64 },
+    WritableController {
+        stream_id: u64,
+    },
+    WritableWriter {
+        stream_id: u64,
+    },
+    TransformStream {
+        readable_id: u64,
+        writable_id: u64,
+    },
 }
 
 struct ReadableStreamRecord {
@@ -2734,13 +2770,6 @@ pub fn install_generated_bindings_with_root_for_global(
                 .global(scope)
                 .set(scope, name.into(), storage.into());
         }
-        let factory_id = register_platform_object(&state, PlatformObjectRecord::IdbFactory);
-        let factory = new_platform_object(scope, &state, "IDBFactory", factory_id)?;
-        let name = v8::String::new(scope, "indexedDB")
-            .ok_or(V8BindingError::Allocation("indexedDB name"))?;
-        context
-            .global(scope)
-            .set(scope, name.into(), factory.into());
         let restore = v8::Function::new(scope, restore_storage_callback)
             .ok_or(V8BindingError::Allocation("storage restore function"))?;
         let name = v8::String::new(scope, "__oryn_restore_storage")
@@ -2749,8 +2778,17 @@ pub fn install_generated_bindings_with_root_for_global(
             .global(scope)
             .set(scope, name.into(), restore.into());
     }
+    let factory_id = register_platform_object(&state, PlatformObjectRecord::IdbFactory);
+    let factory = new_platform_object(scope, &state, "IDBFactory", factory_id)?;
+    let name =
+        v8::String::new(scope, "indexedDB").ok_or(V8BindingError::Allocation("indexedDB name"))?;
+    context
+        .global(scope)
+        .set(scope, name.into(), factory.into());
+    install_dom_exception_intrinsics(scope, context)?;
     install_idb_key_range_statics(scope, context)?;
     install_abort_signal_statics(scope, context)?;
+    install_url_statics(scope, context)?;
     install_response_statics(scope, context)?;
     if binding_global == BindingGlobal::Window {
         let get_computed_style = v8::Function::new(scope, get_computed_style_callback)
@@ -2934,6 +2972,56 @@ fn install_response_statics(
     Ok(())
 }
 
+fn install_url_statics(
+    scope: &mut v8::PinScope,
+    context: v8::Local<v8::Context>,
+) -> Result<(), V8BindingError> {
+    let name = v8::String::new(scope, "URL").ok_or(V8BindingError::Allocation("URL name"))?;
+    let constructor = context
+        .global(scope)
+        .get(scope, name.into())
+        .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+        .ok_or(V8BindingError::MissingInterface("URL"))?;
+    let create = v8::Function::new(scope, blob_url_create_callback)
+        .ok_or(V8BindingError::Allocation("URL.createObjectURL"))?;
+    let create_name = v8::String::new(scope, "createObjectURL")
+        .ok_or(V8BindingError::Allocation("URL.createObjectURL name"))?;
+    constructor.create_data_property(scope, create_name.into(), create.into());
+    let revoke = v8::Function::new(scope, blob_url_revoke_callback)
+        .ok_or(V8BindingError::Allocation("URL.revokeObjectURL"))?;
+    let revoke_name = v8::String::new(scope, "revokeObjectURL")
+        .ok_or(V8BindingError::Allocation("URL.revokeObjectURL name"))?;
+    constructor.create_data_property(scope, revoke_name.into(), revoke.into());
+    Ok(())
+}
+
+fn install_dom_exception_intrinsics(
+    scope: &mut v8::PinScope,
+    context: v8::Local<v8::Context>,
+) -> Result<(), V8BindingError> {
+    let prototype_name =
+        v8::String::new(scope, "prototype").ok_or(V8BindingError::Allocation("prototype"))?;
+    let dom_name = v8::String::new(scope, "DOMException")
+        .ok_or(V8BindingError::Allocation("DOMException name"))?;
+    let dom_prototype = context
+        .global(scope)
+        .get(scope, dom_name.into())
+        .and_then(|value| value.to_object(scope))
+        .and_then(|constructor| constructor.get(scope, prototype_name.into()))
+        .and_then(|value| value.to_object(scope))
+        .ok_or(V8BindingError::MissingInterface("DOMException"))?;
+    let error_name =
+        v8::String::new(scope, "Error").ok_or(V8BindingError::Allocation("Error name"))?;
+    let error_prototype = context
+        .global(scope)
+        .get(scope, error_name.into())
+        .and_then(|value| value.to_object(scope))
+        .and_then(|constructor| constructor.get(scope, prototype_name.into()))
+        .ok_or(V8BindingError::Allocation("Error prototype"))?;
+    dom_prototype.set_prototype(scope, error_prototype);
+    Ok(())
+}
+
 fn install_abort_signal_statics(
     scope: &mut v8::PinScope,
     context: v8::Local<v8::Context>,
@@ -2950,6 +3038,16 @@ fn install_abort_signal_statics(
     let name = v8::String::new(scope, "abort")
         .ok_or(V8BindingError::Allocation("AbortSignal.abort name"))?;
     constructor.create_data_property(scope, name.into(), callback.into());
+    let callback = v8::Function::new(scope, abort_signal_any_static)
+        .ok_or(V8BindingError::Allocation("AbortSignal.any static"))?;
+    let name =
+        v8::String::new(scope, "any").ok_or(V8BindingError::Allocation("AbortSignal.any name"))?;
+    constructor.create_data_property(scope, name.into(), callback.into());
+    let callback = v8::Function::new(scope, abort_signal_timeout_static)
+        .ok_or(V8BindingError::Allocation("AbortSignal.timeout static"))?;
+    let name = v8::String::new(scope, "timeout")
+        .ok_or(V8BindingError::Allocation("AbortSignal.timeout name"))?;
+    constructor.create_data_property(scope, name.into(), callback.into());
     Ok(())
 }
 
@@ -2964,9 +3062,7 @@ fn abort_signal_abort_static<'s>(
             .get_slot::<V8BindingState>()
             .ok_or(V8BindingError::Allocation("AbortSignal state"))?;
         let reason = if args.length() == 0 || args.get(0).is_undefined() {
-            v8::String::new(scope, "AbortError")
-                .ok_or(V8BindingError::Allocation("AbortSignal reason"))?
-                .into()
+            dom_exception_value(scope, "AbortError")?
         } else {
             args.get(0)
         };
@@ -2975,6 +3071,7 @@ fn abort_signal_abort_static<'s>(
             PlatformObjectRecord::AbortSignal(AbortSignalRecord {
                 aborted: true,
                 reason: Some(v8::Global::new(scope, reason)),
+                followers: Vec::new(),
             }),
         );
         new_platform_object(scope, &state, "AbortSignal", id)
@@ -2982,6 +3079,195 @@ fn abort_signal_abort_static<'s>(
     match result {
         Ok(signal) => return_value.set(signal.into()),
         Err(error) => throw_binding_error(scope, &error),
+    }
+}
+
+fn abort_signal_any_static<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut return_value: v8::ReturnValue,
+) {
+    let result = (|| -> Result<v8::Local<v8::Object>, V8BindingError> {
+        let state = scope
+            .get_current_context()
+            .get_slot::<V8BindingState>()
+            .ok_or(V8BindingError::Allocation("AbortSignal state"))?;
+        let signals = args
+            .get(0)
+            .to_object(scope)
+            .ok_or(V8BindingError::Unsupported {
+                interface: "AbortSignal".into(),
+                member: "TypeError".into(),
+            })?;
+        let length_key = v8::String::new(scope, "length")
+            .ok_or(V8BindingError::Allocation("AbortSignal.any length"))?;
+        let length = signals
+            .get(scope, length_key.into())
+            .and_then(|value| value.uint32_value(scope))
+            .ok_or(V8BindingError::Unsupported {
+                interface: "AbortSignal".into(),
+                member: "TypeError".into(),
+            })?;
+        let result_id = register_platform_object(
+            &state,
+            PlatformObjectRecord::AbortSignal(AbortSignalRecord {
+                aborted: false,
+                reason: None,
+                followers: Vec::new(),
+            }),
+        );
+        let mut already_aborted = None;
+        for index in 0..length {
+            let signal = signals
+                .get_index(scope, index)
+                .and_then(|value| value.to_object(scope))
+                .ok_or(V8BindingError::Unsupported {
+                    interface: "AbortSignal".into(),
+                    member: "TypeError".into(),
+                })?;
+            let signal_id = stateful_id(scope, signal)?;
+            let (aborted, reason) = {
+                let record = platform_object(&state, signal_id)?;
+                let PlatformObjectRecord::AbortSignal(signal) = &*record else {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "AbortSignal".into(),
+                        member: "TypeError".into(),
+                    });
+                };
+                (signal.aborted, signal.reason.clone())
+            };
+            if aborted && already_aborted.is_none() {
+                already_aborted = reason;
+            }
+            if !aborted {
+                for source_id in abort_signal_root_sources(&state, signal_id) {
+                    let mut record = platform_object_mut(&state, source_id)?;
+                    let PlatformObjectRecord::AbortSignal(source) = &mut *record else {
+                        continue;
+                    };
+                    if !source.followers.contains(&result_id) {
+                        source.followers.push(result_id);
+                    }
+                }
+            }
+        }
+        if let Some(reason) = already_aborted {
+            let reason = v8::Local::new(scope, &reason);
+            abort_signal_with_reason(scope, &state, result_id, reason)?;
+        }
+        new_platform_object(scope, &state, "AbortSignal", result_id)
+    })();
+    match result {
+        Ok(signal) => return_value.set(signal.into()),
+        Err(error) => throw_binding_error(scope, &error),
+    }
+}
+
+fn abort_signal_root_sources(state: &V8BindingState, signal_id: u64) -> Vec<u64> {
+    let mut pending = VecDeque::from([signal_id]);
+    let mut roots = Vec::new();
+    let mut visited = BTreeSet::new();
+    while let Some(current) = pending.pop_front() {
+        if !visited.insert(current) {
+            continue;
+        }
+        let parents = state
+            .platform_objects
+            .borrow()
+            .iter()
+            .filter_map(|(id, record)| match record {
+                PlatformObjectRecord::AbortSignal(signal)
+                    if signal.followers.contains(&current) =>
+                {
+                    Some(*id)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if parents.is_empty() {
+            roots.push(current);
+        } else {
+            pending.extend(parents);
+        }
+    }
+    roots
+}
+
+fn abort_signal_timeout_static<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut return_value: v8::ReturnValue,
+) {
+    let result = (|| -> Result<v8::Local<v8::Object>, V8BindingError> {
+        let state = scope
+            .get_current_context()
+            .get_slot::<V8BindingState>()
+            .ok_or(V8BindingError::Allocation("AbortSignal state"))?;
+        let delay = args
+            .get(0)
+            .uint32_value(scope)
+            .ok_or(V8BindingError::Unsupported {
+                interface: "AbortSignal".into(),
+                member: "TypeError".into(),
+            })?;
+        let id = register_platform_object(
+            &state,
+            PlatformObjectRecord::AbortSignal(AbortSignalRecord {
+                aborted: false,
+                reason: None,
+                followers: Vec::new(),
+            }),
+        );
+        let callback = v8::Function::builder(abort_signal_timeout_callback)
+            .data(v8::Number::new(scope, id as f64).into())
+            .build(scope)
+            .ok_or(V8BindingError::Allocation("AbortSignal timeout callback"))?;
+        let global = scope.get_current_context().global(scope);
+        let timer_key =
+            v8::String::new(scope, "setTimeout").ok_or(V8BindingError::Allocation("setTimeout"))?;
+        let timer = global
+            .get(scope, timer_key.into())
+            .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+            .ok_or(V8BindingError::MissingInterface("setTimeout"))?;
+        timer
+            .call(
+                scope,
+                global.into(),
+                &[
+                    callback.into(),
+                    v8::Integer::new_from_unsigned(scope, delay).into(),
+                ],
+            )
+            .ok_or(V8BindingError::Allocation("AbortSignal timeout scheduling"))?;
+        new_platform_object(scope, &state, "AbortSignal", id)
+    })();
+    match result {
+        Ok(signal) => return_value.set(signal.into()),
+        Err(error) => throw_binding_error(scope, &error),
+    }
+}
+
+fn abort_signal_timeout_callback(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _return_value: v8::ReturnValue,
+) {
+    let result = (|| -> Result<(), V8BindingError> {
+        let state = scope
+            .get_current_context()
+            .get_slot::<V8BindingState>()
+            .ok_or(V8BindingError::Allocation("AbortSignal state"))?;
+        let id = args
+            .data()
+            .integer_value(scope)
+            .filter(|id| *id > 0)
+            .ok_or(V8BindingError::Allocation("AbortSignal timeout identity"))?
+            as u64;
+        let reason = dom_exception_value(scope, "TimeoutError")?;
+        abort_signal_with_reason(scope, &state, id, reason)
+    })();
+    if let Err(error) = result {
+        throw_binding_error(scope, &error);
     }
 }
 
@@ -3496,15 +3782,43 @@ fn idb_value_to_json_inner(
         }));
     }
     if let Ok(array) = v8::Local::<v8::Array>::try_from(value) {
-        return (0..array.length())
+        let values = (0..array.length())
             .map(|index| {
                 array
                     .get_index(scope, index)
                     .ok_or(V8BindingError::Allocation("IndexedDB array element"))
                     .and_then(|value| idb_value_to_json_inner(scope, state, value, depth + 1))
             })
-            .collect::<Result<Vec<_>, _>>()
-            .map(serde_json::Value::Array);
+            .collect::<Result<Vec<_>, _>>()?;
+        let names = array
+            .get_own_property_names(scope, v8::GetPropertyNamesArgs::default())
+            .ok_or(V8BindingError::Allocation("IndexedDB array properties"))?;
+        let mut properties = serde_json::Map::new();
+        for index in 0..names.length() {
+            let key = names
+                .get_index(scope, index)
+                .ok_or(V8BindingError::Allocation("IndexedDB array property"))?;
+            let name = key.to_rust_string_lossy(scope);
+            if name == "length"
+                || name
+                    .parse::<u32>()
+                    .is_ok_and(|index| index < array.length())
+            {
+                continue;
+            }
+            let child = array
+                .get(scope, key)
+                .ok_or(V8BindingError::Allocation("IndexedDB array property value"))?;
+            properties.insert(
+                name,
+                idb_value_to_json_inner(scope, state, child, depth + 1)?,
+            );
+        }
+        return Ok(serde_json::json!({
+            "__oryn_clone_type":"array",
+            "values":values,
+            "properties":properties,
+        }));
     }
     if let Some(object) = value.to_object(scope) {
         let constructor_name = option_value(scope, object.into(), "constructor")
@@ -3600,6 +3914,34 @@ fn idb_json_to_value<'s>(
         == Some("undefined")
     {
         return Ok(v8::undefined(scope).into());
+    }
+    if value
+        .get("__oryn_clone_type")
+        .and_then(serde_json::Value::as_str)
+        == Some("array")
+    {
+        let values = value
+            .get("values")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let array = v8::Array::new(scope, values.len() as i32);
+        for (index, value) in values.iter().enumerate() {
+            let value = idb_json_to_value(scope, state, value)?;
+            array.set_index(scope, index as u32, value);
+        }
+        if let Some(properties) = value
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+        {
+            for (name, value) in properties {
+                let key = v8::String::new(scope, name)
+                    .ok_or(V8BindingError::Allocation("IndexedDB array property"))?;
+                let value = idb_json_to_value(scope, state, value)?;
+                array.create_data_property(scope, key.into(), value);
+            }
+        }
+        return Ok(array.into());
     }
     if value
         .get("__oryn_clone_type")
@@ -4649,8 +4991,11 @@ fn is_platform_interface(interface: &str) -> bool {
         interface,
         "Blob"
             | "File"
+            | "FileReader"
             | "FormData"
             | "Headers"
+            | "DOMException"
+            | "URL"
             | "AbortSignal"
             | "AbortController"
             | "MessagePort"
@@ -5130,6 +5475,58 @@ fn initialize_platform_constructor<'s>(
     if !args.is_construct_call() {
         return Ok(false);
     }
+    if name == "DOMException" {
+        let message = if args.length() == 0 || args.get(0).is_undefined() {
+            String::new()
+        } else {
+            args.get(0).to_rust_string_lossy(scope)
+        };
+        let exception_name = if args.length() < 2 || args.get(1).is_undefined() {
+            "Error".to_string()
+        } else {
+            args.get(1).to_rust_string_lossy(scope)
+        };
+        let code = dom_exception_code(&exception_name);
+        let id = register_platform_object(
+            state,
+            PlatformObjectRecord::DomException {
+                name: exception_name,
+                message,
+                code,
+            },
+        );
+        bind_platform_object(scope, state, id, args.this());
+        let stack = v8_string(scope, "DOMException")?;
+        set_object_property(scope, args.this(), "stack", stack)?;
+        return Ok(true);
+    }
+    if name == "URL" {
+        let input = required_string(scope, args, 0)?;
+        let parsed = if args.length() > 1 && !args.get(1).is_undefined() {
+            let base = required_string(scope, args, 1)?;
+            Url::parse(&base).and_then(|base| base.join(&input))
+        } else {
+            Url::parse(&input)
+        }
+        .map_err(|_| V8BindingError::Unsupported {
+            interface: "URL".into(),
+            member: "TypeError".into(),
+        })?;
+        let id = register_platform_object(state, PlatformObjectRecord::Url(parsed));
+        bind_platform_object(scope, state, id, args.this());
+        return Ok(true);
+    }
+    if name == "FileReader" {
+        let id = register_platform_object(
+            state,
+            PlatformObjectRecord::FileReader {
+                result: None,
+                ready_state: 0,
+            },
+        );
+        bind_platform_object(scope, state, id, args.this());
+        return Ok(true);
+    }
     if name == "CSSStyleSheet" {
         let node = state.dom.borrow_mut().create_element("style");
         let wrapper = state.wrappers.borrow_mut().get_or_create(
@@ -5156,6 +5553,7 @@ fn initialize_platform_constructor<'s>(
             PlatformObjectRecord::AbortSignal(AbortSignalRecord {
                 aborted: false,
                 reason: None,
+                followers: Vec::new(),
             }),
         );
         let id =
@@ -5313,6 +5711,7 @@ fn initialize_platform_constructor<'s>(
                     PlatformObjectRecord::AbortSignal(AbortSignalRecord {
                         aborted: false,
                         reason: None,
+                        followers: Vec::new(),
                     }),
                 )
             });
@@ -5998,6 +6397,7 @@ fn generated_constructor<'s>(
                 default_prevented: false,
                 propagation_stopped: false,
                 immediate_stopped: false,
+                in_passive_listener: false,
             },
         );
         let id = v8::Number::new(scope, event_id as f64);
@@ -6493,6 +6893,22 @@ fn generated_attribute_setter(
         }
         return;
     }
+    if interface == "Event" && member == "returnValue" {
+        let result = event_id(scope, args.this()).and_then(|id| {
+            let mut events = state.events.borrow_mut();
+            let event = events
+                .get_mut(&id)
+                .ok_or(V8BindingError::Allocation("event record"))?;
+            if !args.get(0).boolean_value(scope) && event.cancelable && !event.in_passive_listener {
+                event.default_prevented = true;
+            }
+            Ok(())
+        });
+        if let Err(error) = result {
+            throw_binding_error(scope, &error);
+        }
+        return;
+    }
     if is_platform_interface(interface) {
         if let Err(error) =
             set_platform_attribute(scope, &state, args.this(), interface, member, args.get(0))
@@ -6703,26 +7119,53 @@ fn call_platform_event_target<'s>(
     match member {
         "addEventListener" => {
             let callback = args.get(1);
+            let options = args.get(2);
+            let capture = if options.is_boolean() {
+                options.boolean_value(scope)
+            } else {
+                option_value(scope, options, "capture")
+                    .is_some_and(|value| value.boolean_value(scope))
+            };
+            let once = option_value(scope, options, "once")
+                .is_some_and(|value| value.boolean_value(scope));
+            let passive = option_value(scope, options, "passive")
+                .is_some_and(|value| value.boolean_value(scope));
             if !callback.is_null_or_undefined() && (callback.is_function() || callback.is_object())
             {
-                state
-                    .platform_listeners
-                    .borrow_mut()
-                    .entry((id, event_type))
-                    .or_default()
-                    .push(v8::Global::new(scope, callback));
+                let mut listeners = state.platform_listeners.borrow_mut();
+                let listeners = listeners.entry((id, event_type)).or_default();
+                if !listeners.iter().any(|candidate| {
+                    candidate.capture == capture
+                        && v8::Local::new(scope, &candidate.callback).strict_equals(callback)
+                }) {
+                    listeners.push(PlatformEventListener {
+                        callback: v8::Global::new(scope, callback),
+                        capture,
+                        once,
+                        passive,
+                    });
+                }
             }
             Ok(None)
         }
         "removeEventListener" => {
             let callback = args.get(1);
+            let options = args.get(2);
+            let capture = if options.is_boolean() {
+                options.boolean_value(scope)
+            } else {
+                option_value(scope, options, "capture")
+                    .is_some_and(|value| value.boolean_value(scope))
+            };
             if let Some(listeners) = state
                 .platform_listeners
                 .borrow_mut()
                 .get_mut(&(id, event_type))
             {
-                listeners
-                    .retain(|candidate| !v8::Local::new(scope, candidate).strict_equals(callback));
+                listeners.retain(|candidate| {
+                    candidate.capture != capture
+                        || !v8::Local::new(scope, &candidate.callback).strict_equals(callback)
+                });
             }
             Ok(None)
         }
@@ -6738,7 +7181,11 @@ fn call_platform_event_target<'s>(
                 .map(|value| value.to_rust_string_lossy(scope))
                 .unwrap_or_default();
             dispatch_platform_event(scope, state, id, &event_type, Some(event))?;
-            Ok(Some(v8::Boolean::new(scope, true).into()))
+            let accepted = event_id(scope, event)
+                .ok()
+                .and_then(|event_id| state.events.borrow().get(&event_id).cloned())
+                .is_none_or(|event| !event.default_prevented);
+            Ok(Some(v8::Boolean::new(scope, accepted).into()))
         }
         _ => Err(V8BindingError::Unsupported {
             interface: "EventTarget".into(),
@@ -6845,28 +7292,23 @@ fn dispatch_platform_event_capturing(
         Some(event) => event,
         None => generated_event(scope, event_type)?,
     };
-    if let Ok(event_id) = event_id(scope, event)
+    let generated_event_id = event_id(scope, event).ok();
+    if let Some(event_id) = generated_event_id
         && let Some(record) = state.events.borrow_mut().get_mut(&event_id)
     {
+        record.event_type = event_type.into();
         record.target = None;
         record.current_target = None;
         record.platform_target = Some(id);
         record.platform_current_target = Some(id);
         record.propagation_stopped = false;
         record.immediate_stopped = false;
+        if existing.is_none() {
+            record.is_trusted = true;
+        }
     }
     let default_prevented = v8::String::new(scope, "defaultPrevented")
         .ok_or(V8BindingError::Allocation("event defaultPrevented"))?;
-    if !event
-        .has_own_property(scope, default_prevented.into())
-        .unwrap_or(false)
-    {
-        event.create_data_property(
-            scope,
-            default_prevented.into(),
-            v8::Boolean::new(scope, false).into(),
-        );
-    }
     macro_rules! install_event_method {
         ($name:literal, $callback:ident) => {{
             let key = v8::String::new(scope, $name)
@@ -6878,13 +7320,27 @@ fn dispatch_platform_event_capturing(
             }
         }};
     }
-    install_event_method!("preventDefault", platform_event_prevent_default);
-    install_event_method!("stopPropagation", platform_event_stop);
-    install_event_method!("stopImmediatePropagation", platform_event_stop);
+    if generated_event_id.is_none() {
+        if !event
+            .has_own_property(scope, default_prevented.into())
+            .unwrap_or(false)
+        {
+            event.create_data_property(
+                scope,
+                default_prevented.into(),
+                v8::Boolean::new(scope, false).into(),
+            );
+        }
+        install_event_method!("preventDefault", platform_event_prevent_default);
+        install_event_method!("stopPropagation", platform_event_stop);
+        install_event_method!("stopImmediatePropagation", platform_event_stop);
+    }
     let type_key =
         v8::String::new(scope, "type").ok_or(V8BindingError::Allocation("event type"))?;
     let type_value = v8_string(scope, event_type)?;
-    event.create_data_property(scope, type_key.into(), type_value);
+    if generated_event_id.is_none() {
+        event.create_data_property(scope, type_key.into(), type_value);
+    }
     for (name, value) in [
         ("bubbles", event_type == "error"),
         ("cancelable", event_type == "error"),
@@ -6892,13 +7348,17 @@ fn dispatch_platform_event_capturing(
     ] {
         let key = v8::String::new(scope, name)
             .ok_or(V8BindingError::Allocation("platform event property"))?;
-        if !event.has_own_property(scope, key.into()).unwrap_or(false) {
+        if generated_event_id.is_none()
+            && !event.has_own_property(scope, key.into()).unwrap_or(false)
+        {
             event.create_data_property(scope, key.into(), v8::Boolean::new(scope, value).into());
         }
     }
     let target = platform_interface_for_id(state, id)
         .and_then(|interface| new_platform_object(scope, state, interface, id).ok());
-    if let Some(target) = target {
+    if generated_event_id.is_none()
+        && let Some(target) = target
+    {
         let key =
             v8::String::new(scope, "target").ok_or(V8BindingError::Allocation("event target"))?;
         event.create_data_property(scope, key.into(), target.into());
@@ -6911,8 +7371,29 @@ fn dispatch_platform_event_capturing(
         .unwrap_or_default();
     let receiver = target.map_or_else(|| v8::undefined(scope).into(), Into::into);
     let mut threw = false;
-    for callback in callbacks {
-        threw |= invoke_platform_listener(scope, &callback, receiver, event);
+    for listener in callbacks {
+        if listener.once
+            && let Some(listeners) = state
+                .platform_listeners
+                .borrow_mut()
+                .get_mut(&(id, event_type.into()))
+        {
+            listeners.retain(|candidate| {
+                !v8::Local::new(scope, &candidate.callback)
+                    .strict_equals(v8::Local::new(scope, &listener.callback))
+            });
+        }
+        if let Some(event_id) = generated_event_id
+            && let Some(record) = state.events.borrow_mut().get_mut(&event_id)
+        {
+            record.in_passive_listener = listener.passive;
+        }
+        threw |= invoke_platform_listener(scope, &listener.callback, receiver, event);
+        if let Some(event_id) = generated_event_id
+            && let Some(record) = state.events.borrow_mut().get_mut(&event_id)
+        {
+            record.in_passive_listener = false;
+        }
     }
     let registered_handler = {
         state
@@ -7026,6 +7507,9 @@ fn record_platform_trace(scope: &mut v8::PinScope, kind: &str, detail: serde_jso
 fn platform_interface_for_id(state: &V8BindingState, id: u64) -> Option<&'static str> {
     Some(match state.platform_objects.borrow().get(&id)? {
         PlatformObjectRecord::EventTarget => "EventTarget",
+        PlatformObjectRecord::DomException { .. } => "DOMException",
+        PlatformObjectRecord::Url(_) => "URL",
+        PlatformObjectRecord::FileReader { .. } => "FileReader",
         PlatformObjectRecord::AbortSignal(_) => "AbortSignal",
         PlatformObjectRecord::XMLHttpRequest(_) => "XMLHttpRequest",
         PlatformObjectRecord::WebSocket(_) => "WebSocket",
@@ -10956,6 +11440,54 @@ fn get_platform_attribute<'s>(
     }
     let record = platform_object(state, id)?;
     match (&*record, interface, member) {
+        (
+            PlatformObjectRecord::DomException {
+                name,
+                message,
+                code,
+            },
+            "DOMException",
+            member,
+        ) => match member {
+            "name" => v8_string(scope, name),
+            "message" => v8_string(scope, message),
+            "code" => Ok(v8::Integer::new(scope, *code).into()),
+            _ => Err(V8BindingError::Unsupported {
+                interface: interface.into(),
+                member: member.into(),
+            }),
+        },
+        (PlatformObjectRecord::Url(url), "URL", member) => {
+            let value = match member {
+                "href" => url.as_str().to_string(),
+                "origin" => url.origin().ascii_serialization(),
+                "protocol" => format!("{}:", url.scheme()),
+                "username" => url.username().to_string(),
+                "password" => url.password().unwrap_or_default().to_string(),
+                "host" => url.host_str().map_or_else(String::new, |host| {
+                    url.port()
+                        .map_or_else(|| host.to_string(), |port| format!("{host}:{port}"))
+                }),
+                "hostname" => url.host_str().unwrap_or_default().to_string(),
+                "port" => url.port().map(|port| port.to_string()).unwrap_or_default(),
+                "pathname" => url.path().to_string(),
+                "search" => url
+                    .query()
+                    .map(|query| format!("?{query}"))
+                    .unwrap_or_default(),
+                "hash" => url
+                    .fragment()
+                    .map(|hash| format!("#{hash}"))
+                    .unwrap_or_default(),
+                _ => {
+                    return Err(V8BindingError::Unsupported {
+                        interface: interface.into(),
+                        member: member.into(),
+                    });
+                }
+            };
+            v8_string(scope, &value)
+        }
         (PlatformObjectRecord::Blob(blob), "Blob", "size") => {
             Ok(v8::Number::new(scope, blob.bytes.len() as f64).into())
         }
@@ -10969,6 +11501,27 @@ fn get_platform_attribute<'s>(
         )
         .into()),
         (PlatformObjectRecord::Blob(_), "File", "webkitRelativePath") => v8_string(scope, ""),
+        (
+            PlatformObjectRecord::FileReader {
+                result,
+                ready_state,
+            },
+            "FileReader",
+            member,
+        ) => match member {
+            "result" => Ok(result
+                .as_ref()
+                .map(|value| v8::Local::new(scope, value))
+                .unwrap_or_else(|| v8::null(scope).into())),
+            "error" => Ok(v8::null(scope).into()),
+            "readyState" => {
+                Ok(v8::Integer::new_from_unsigned(scope, u32::from(*ready_state)).into())
+            }
+            _ => Err(V8BindingError::Unsupported {
+                interface: interface.into(),
+                member: member.into(),
+            }),
+        },
         (PlatformObjectRecord::AbortSignal(signal), "AbortSignal", "aborted") => {
             Ok(v8::Boolean::new(scope, signal.aborted).into())
         }
@@ -11637,6 +12190,19 @@ fn set_platform_attribute(
     value: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
     let id = stateful_id(scope, object)?;
+    if interface == "URL" && member == "href" {
+        let href = value.to_rust_string_lossy(scope);
+        let parsed = Url::parse(&href).map_err(|_| V8BindingError::Unsupported {
+            interface: "URL".into(),
+            member: "TypeError".into(),
+        })?;
+        let mut record = platform_object_mut(state, id)?;
+        let PlatformObjectRecord::Url(url) = &mut *record else {
+            return Err(V8BindingError::Allocation("URL record"));
+        };
+        *url = parsed;
+        return Ok(());
+    }
     if let Some(event_type) = member.strip_prefix("on") {
         state
             .platform_handlers
@@ -11801,6 +12367,95 @@ fn queue_ready_blocked_idb_completions(state: &V8BindingState) -> Result<(), V8B
     Ok(())
 }
 
+fn abort_signal_with_reason(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    signal_id: u64,
+    reason: v8::Local<v8::Value>,
+) -> Result<(), V8BindingError> {
+    // Mark the complete dependent set before dispatching any event. This is
+    // observable during re-entrant abort handlers and prevents a second source
+    // from replacing the first abort reason.
+    let mut pending = VecDeque::from([signal_id]);
+    let mut order = Vec::new();
+    while let Some(current) = pending.pop_front() {
+        let followers = {
+            let mut record = platform_object_mut(state, current)?;
+            let PlatformObjectRecord::AbortSignal(signal) = &mut *record else {
+                return Err(V8BindingError::Allocation("AbortSignal record"));
+            };
+            if signal.aborted {
+                continue;
+            }
+            signal.aborted = true;
+            signal.reason = Some(v8::Global::new(scope, reason));
+            signal.followers.clone()
+        };
+        order.push(current);
+        for follower in followers {
+            if !order.contains(&follower) && !pending.contains(&follower) {
+                pending.push_back(follower);
+            }
+        }
+    }
+    for signal_id in order {
+        let operations = state
+            .pending_platform_operations
+            .borrow()
+            .iter()
+            .filter_map(|(operation, pending)| matches!(pending, PendingPlatformOperation::FetchStart { signal_id: pending_signal, .. } if *pending_signal == signal_id).then_some(*operation))
+            .collect::<Vec<_>>();
+        for operation in operations {
+            let pending = state
+                .pending_platform_operations
+                .borrow_mut()
+                .remove(&operation);
+            if let Some(PendingPlatformOperation::FetchStart { resolver, .. }) = pending {
+                v8::Local::new(scope, resolver).reject(scope, reason);
+            }
+            if let Some(host) = state.platform_host.borrow().as_ref() {
+                host.cancel(operation);
+            }
+            state
+                .cancelled_platform_operations
+                .borrow_mut()
+                .insert(operation);
+        }
+        let body_streams = state
+            .platform_objects
+            .borrow()
+            .values()
+            .filter_map(|record| {
+                let PlatformObjectRecord::Response(response) = record else {
+                    return None;
+                };
+                (response.signal_id == Some(signal_id))
+                    .then_some(response.body_stream_id)
+                    .flatten()
+            })
+            .collect::<Vec<_>>();
+        let streams = {
+            let objects = state.platform_objects.borrow();
+            body_streams
+                .into_iter()
+                .filter_map(|stream_id| match objects.get(&stream_id) {
+                    Some(PlatformObjectRecord::ReadableStream(stream)) => stream.host_stream_id,
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        for stream_id in streams {
+            let _ = submit_platform_operation(
+                state,
+                PlatformHostRequest::HttpAbort { stream_id },
+                PendingPlatformOperation::WebSocketCommand,
+            );
+        }
+        dispatch_platform_event(scope, state, signal_id, "abort", None)?;
+    }
+    Ok(())
+}
+
 fn call_platform_operation<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
@@ -11811,6 +12466,74 @@ fn call_platform_operation<'s>(
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let id = stateful_id(scope, object)?;
     match (interface, member) {
+        ("FileReader", "readAsArrayBuffer" | "readAsText" | "readAsDataURL") => {
+            let blob = args
+                .get(0)
+                .to_object(scope)
+                .ok_or(V8BindingError::Unsupported {
+                    interface: "FileReader".into(),
+                    member: "TypeError".into(),
+                })?;
+            let blob_id = stateful_id(scope, blob)?;
+            let (bytes, media_type) = {
+                let record = platform_object(state, blob_id)?;
+                let PlatformObjectRecord::Blob(blob) = &*record else {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "FileReader".into(),
+                        member: "TypeError".into(),
+                    });
+                };
+                (blob.bytes.clone(), blob.media_type.clone())
+            };
+            let value = match member {
+                "readAsArrayBuffer" => array_buffer_from_bytes(scope, &bytes).into(),
+                "readAsText" => v8_string(scope, &String::from_utf8_lossy(&bytes))?,
+                "readAsDataURL" => {
+                    let encoded = BASE64.encode(bytes);
+                    v8_string(scope, &format!("data:{media_type};base64,{encoded}"))?
+                }
+                _ => unreachable!(),
+            };
+            {
+                let mut record = platform_object_mut(state, id)?;
+                let PlatformObjectRecord::FileReader {
+                    result,
+                    ready_state,
+                } = &mut *record
+                else {
+                    return Err(V8BindingError::Allocation("FileReader record"));
+                };
+                *result = Some(v8::Global::new(scope, value));
+                *ready_state = 2;
+            }
+            dispatch_platform_event(scope, state, id, "load", None)?;
+            dispatch_platform_event(scope, state, id, "loadend", None)?;
+            return Ok(None);
+        }
+        ("FileReader", "abort") => {
+            {
+                let mut record = platform_object_mut(state, id)?;
+                let PlatformObjectRecord::FileReader {
+                    result,
+                    ready_state,
+                } = &mut *record
+                else {
+                    return Err(V8BindingError::Allocation("FileReader record"));
+                };
+                *result = None;
+                *ready_state = 2;
+            }
+            dispatch_platform_event(scope, state, id, "abort", None)?;
+            dispatch_platform_event(scope, state, id, "loadend", None)?;
+            return Ok(None);
+        }
+        ("URL", "toJSON" | "toString") => {
+            let record = platform_object(state, id)?;
+            let PlatformObjectRecord::Url(url) = &*record else {
+                return Err(V8BindingError::Allocation("URL record"));
+            };
+            return Ok(Some(v8_string(scope, url.as_str())?));
+        }
         ("FormData", "append" | "set") => {
             let name = required_string(scope, args, 0)?;
             let value = form_data_entry_value(scope, state, args.get(1), args.get(2))?;
@@ -13135,77 +13858,12 @@ fn call_platform_operation<'s>(
                 };
                 *signal_id
             };
-            let changed = {
-                let mut record = platform_object_mut(state, signal_id)?;
-                let PlatformObjectRecord::AbortSignal(signal) = &mut *record else {
-                    return Err(V8BindingError::Allocation("AbortSignal record"));
-                };
-                if signal.aborted {
-                    false
-                } else {
-                    signal.aborted = true;
-                    signal.reason = Some(v8::Global::new(scope, args.get(0)));
-                    true
-                }
+            let reason = if args.length() == 0 || args.get(0).is_undefined() {
+                dom_exception_value(scope, "AbortError")?
+            } else {
+                args.get(0)
             };
-            if changed {
-                let operations = state
-                    .pending_platform_operations
-                    .borrow()
-                    .iter()
-                    .filter_map(|(operation, pending)| matches!(pending, PendingPlatformOperation::FetchStart { signal_id: pending_signal, .. } if *pending_signal == signal_id).then_some(*operation))
-                    .collect::<Vec<_>>();
-                for operation in operations {
-                    let pending = state
-                        .pending_platform_operations
-                        .borrow_mut()
-                        .remove(&operation);
-                    if let Some(PendingPlatformOperation::FetchStart { resolver, .. }) = pending {
-                        let reason = args.get(0);
-                        v8::Local::new(scope, resolver).reject(scope, reason);
-                    }
-                    if let Some(host) = state.platform_host.borrow().as_ref() {
-                        host.cancel(operation);
-                    }
-                    state
-                        .cancelled_platform_operations
-                        .borrow_mut()
-                        .insert(operation);
-                }
-                let body_streams = state
-                    .platform_objects
-                    .borrow()
-                    .values()
-                    .filter_map(|record| {
-                        let PlatformObjectRecord::Response(response) = record else {
-                            return None;
-                        };
-                        (response.signal_id == Some(signal_id))
-                            .then_some(response.body_stream_id)
-                            .flatten()
-                    })
-                    .collect::<Vec<_>>();
-                let streams = {
-                    let objects = state.platform_objects.borrow();
-                    body_streams
-                        .into_iter()
-                        .filter_map(|stream_id| match objects.get(&stream_id) {
-                            Some(PlatformObjectRecord::ReadableStream(stream)) => {
-                                stream.host_stream_id
-                            }
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                };
-                for stream_id in streams {
-                    let _ = submit_platform_operation(
-                        state,
-                        PlatformHostRequest::HttpAbort { stream_id },
-                        PendingPlatformOperation::WebSocketCommand,
-                    );
-                }
-                dispatch_platform_event(scope, state, signal_id, "abort", None)?;
-            }
+            abort_signal_with_reason(scope, state, signal_id, reason)?;
             return Ok(None);
         }
         ("MessagePort", "postMessage") => {
@@ -13228,10 +13886,12 @@ fn call_platform_operation<'s>(
             if let PlatformObjectRecord::AbortSignal(signal) = &*signal
                 && signal.aborted
             {
-                return Err(V8BindingError::Unsupported {
-                    interface: "AbortSignal".into(),
-                    member: "aborted".into(),
-                });
+                let reason = signal
+                    .reason
+                    .as_ref()
+                    .map(|reason| v8::Local::new(scope, reason))
+                    .unwrap_or_else(|| v8::undefined(scope).into());
+                scope.throw_exception(reason);
             }
             return Ok(None);
         }
@@ -19413,6 +20073,7 @@ fn create_event_object<'s>(
             default_prevented: false,
             propagation_stopped: false,
             immediate_stopped: false,
+            in_passive_listener: false,
         },
     );
     object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
@@ -19452,6 +20113,7 @@ fn create_input_event_object<'s>(
             default_prevented: false,
             propagation_stopped: false,
             immediate_stopped: false,
+            in_passive_listener: false,
         },
     );
     object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
@@ -19537,6 +20199,7 @@ fn get_event_attribute<'s>(
         "cancelable" => Ok(v8::Boolean::new(scope, event.cancelable).into()),
         "isTrusted" => Ok(v8::Boolean::new(scope, event.is_trusted).into()),
         "defaultPrevented" => Ok(v8::Boolean::new(scope, event.default_prevented).into()),
+        "returnValue" => Ok(v8::Boolean::new(scope, !event.default_prevented).into()),
         _ => Ok(v8::undefined(scope).into()),
     }
 }
@@ -19579,7 +20242,9 @@ fn call_event_operation<'s>(
             event.cancelable = args.get(2).boolean_value(scope);
             event.default_prevented = false;
         }
-        "preventDefault" if event.cancelable => event.default_prevented = true,
+        "preventDefault" if event.cancelable && !event.in_passive_listener => {
+            event.default_prevented = true
+        }
         "stopPropagation" => event.propagation_stopped = true,
         "stopImmediatePropagation" => {
             event.propagation_stopped = true;
@@ -19874,30 +20539,7 @@ fn throw_binding_error(scope: &mut v8::PinScope, error: &V8BindingError) {
         )
     {
         object.create_data_property(scope, name_key.into(), name.into());
-        let code = match member.as_str() {
-            "IndexSizeError" => 1,
-            "HierarchyRequestError" => 3,
-            "WrongDocumentError" => 4,
-            "InvalidCharacterError" => 5,
-            "NoModificationAllowedError" => 7,
-            "NotFoundError" => 8,
-            "NotSupportedError" => 9,
-            "InUseAttributeError" => 10,
-            "InvalidStateError" => 11,
-            "SyntaxError" => 12,
-            "InvalidModificationError" => 13,
-            "NamespaceError" => 14,
-            "InvalidAccessError" => 15,
-            "SecurityError" => 18,
-            "NetworkError" => 19,
-            "AbortError" => 20,
-            "URLMismatchError" => 21,
-            "QuotaExceededError" => 22,
-            "TimeoutError" => 23,
-            "InvalidNodeTypeError" => 24,
-            "DataCloneError" => 25,
-            _ => 0,
-        };
+        let code = dom_exception_code(member);
         if let Some(code_key) = v8::String::new(scope, "code") {
             object.create_data_property(
                 scope,
@@ -19917,6 +20559,34 @@ fn throw_binding_error(scope: &mut v8::PinScope, error: &V8BindingError) {
         }
     }
     scope.throw_exception(exception);
+}
+
+fn dom_exception_code(name: &str) -> i32 {
+    match name {
+        "IndexSizeError" => 1,
+        "HierarchyRequestError" => 3,
+        "WrongDocumentError" => 4,
+        "InvalidCharacterError" => 5,
+        "NoModificationAllowedError" => 7,
+        "NotFoundError" => 8,
+        "NotSupportedError" => 9,
+        "InUseAttributeError" => 10,
+        "InvalidStateError" => 11,
+        "SyntaxError" => 12,
+        "InvalidModificationError" => 13,
+        "NamespaceError" => 14,
+        "InvalidAccessError" => 15,
+        "TypeMismatchError" => 17,
+        "SecurityError" => 18,
+        "NetworkError" => 19,
+        "AbortError" => 20,
+        "URLMismatchError" => 21,
+        "QuotaExceededError" => 22,
+        "TimeoutError" => 23,
+        "InvalidNodeTypeError" => 24,
+        "DataCloneError" => 25,
+        _ => 0,
+    }
 }
 
 #[cfg(test)]

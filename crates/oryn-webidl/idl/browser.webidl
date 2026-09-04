@@ -13,6 +13,53 @@ dictionary EventInit {
 };
 
 [Exposed=(Window,Worker)]
+interface DOMException {
+  constructor(optional DOMString message = "", optional DOMString name = "Error");
+  readonly attribute DOMString name;
+  readonly attribute DOMString message;
+  readonly attribute unsigned short code;
+  const unsigned short INDEX_SIZE_ERR = 1;
+  const unsigned short HIERARCHY_REQUEST_ERR = 3;
+  const unsigned short WRONG_DOCUMENT_ERR = 4;
+  const unsigned short INVALID_CHARACTER_ERR = 5;
+  const unsigned short NO_MODIFICATION_ALLOWED_ERR = 7;
+  const unsigned short NOT_FOUND_ERR = 8;
+  const unsigned short NOT_SUPPORTED_ERR = 9;
+  const unsigned short INUSE_ATTRIBUTE_ERR = 10;
+  const unsigned short INVALID_STATE_ERR = 11;
+  const unsigned short SYNTAX_ERR = 12;
+  const unsigned short INVALID_MODIFICATION_ERR = 13;
+  const unsigned short NAMESPACE_ERR = 14;
+  const unsigned short INVALID_ACCESS_ERR = 15;
+  const unsigned short SECURITY_ERR = 18;
+  const unsigned short NETWORK_ERR = 19;
+  const unsigned short ABORT_ERR = 20;
+  const unsigned short URL_MISMATCH_ERR = 21;
+  const unsigned short QUOTA_EXCEEDED_ERR = 22;
+  const unsigned short TIMEOUT_ERR = 23;
+  const unsigned short INVALID_NODE_TYPE_ERR = 24;
+  const unsigned short DATA_CLONE_ERR = 25;
+};
+
+[Exposed=(Window,Worker)]
+interface URL {
+  constructor(DOMString url, optional DOMString base);
+  attribute DOMString href;
+  readonly attribute DOMString origin;
+  readonly attribute DOMString protocol;
+  readonly attribute DOMString username;
+  readonly attribute DOMString password;
+  readonly attribute DOMString host;
+  readonly attribute DOMString hostname;
+  readonly attribute DOMString port;
+  readonly attribute DOMString pathname;
+  readonly attribute DOMString search;
+  readonly attribute DOMString hash;
+  DOMString toJSON();
+  DOMString toString();
+};
+
+[Exposed=(Window,Worker)]
 interface Event {
   constructor(DOMString type, optional EventInit eventInitDict);
   readonly attribute DOMString type;
@@ -22,6 +69,7 @@ interface Event {
   readonly attribute boolean cancelable;
   readonly attribute boolean isTrusted;
   readonly attribute boolean defaultPrevented;
+  attribute boolean returnValue;
   sequence<EventTarget> composedPath();
   undefined initEvent(DOMString type, optional boolean bubbles = false, optional boolean cancelable = false);
   undefined preventDefault();
@@ -909,6 +957,22 @@ interface File : Blob {
 };
 
 [Exposed=(Window,Worker)]
+interface FileReader : EventTarget {
+  constructor();
+  readonly attribute any result;
+  readonly attribute DOMException? error;
+  readonly attribute unsigned short readyState;
+  attribute EventListener? onload;
+  attribute EventListener? onerror;
+  attribute EventListener? onabort;
+  attribute EventListener? onloadend;
+  undefined readAsArrayBuffer(Blob blob);
+  undefined readAsText(Blob blob, optional DOMString encoding);
+  undefined readAsDataURL(Blob blob);
+  undefined abort();
+};
+
+[Exposed=(Window,Worker)]
 interface FormData {
   constructor(optional any form = null);
   undefined append(DOMString name, any value, optional DOMString filename);
@@ -933,6 +997,9 @@ interface Headers {
 
 [Exposed=(Window,Worker)]
 interface AbortSignal : EventTarget {
+  static AbortSignal abort(optional any reason);
+  static AbortSignal timeout(unsigned long milliseconds);
+  static AbortSignal any(sequence<AbortSignal> signals);
   readonly attribute boolean aborted;
   readonly attribute any reason;
   attribute EventListener? onabort;
@@ -1036,7 +1103,7 @@ interface Response {
   Promise<Blob> blob();
 };
 
-[Exposed=Window]
+[Exposed=(Window,Worker)]
 interface XMLHttpRequest : EventTarget {
   constructor();
   const unsigned short UNSENT = 0;

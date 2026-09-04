@@ -1529,7 +1529,18 @@ fn json_value_at_key_path(value: &serde_json::Value, path: &str) -> Option<serde
         return Some(value.clone());
     }
     path.split('.')
-        .try_fold(value, |current, segment| current.as_object()?.get(segment))
+        .try_fold(value, |current, segment| {
+            let object = current.as_object()?;
+            if object
+                .get("__oryn_clone_type")
+                .and_then(serde_json::Value::as_str)
+                == Some("array")
+            {
+                object.get("properties")?.as_object()?.get(segment)
+            } else {
+                object.get(segment)
+            }
+        })
         .cloned()
 }
 
@@ -1542,6 +1553,18 @@ fn inject_json_key_path(
     let mut current = value;
     while let Some(segment) = segments.next() {
         let object = current.as_object_mut().ok_or(StorageError::KeyRequired)?;
+        let object = if object
+            .get("__oryn_clone_type")
+            .and_then(serde_json::Value::as_str)
+            == Some("array")
+        {
+            object
+                .get_mut("properties")
+                .and_then(serde_json::Value::as_object_mut)
+                .ok_or(StorageError::KeyRequired)?
+        } else {
+            object
+        };
         if segments.peek().is_none() {
             object.insert(segment.to_string(), key);
             return Ok(());
