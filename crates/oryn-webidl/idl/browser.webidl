@@ -1,12 +1,20 @@
-[Exposed=Window]
+[Exposed=(Window,Worker)]
 interface EventTarget {
+  constructor();
   undefined addEventListener(DOMString type, EventListener? callback);
   undefined removeEventListener(DOMString type, EventListener? callback);
   boolean dispatchEvent(Event event);
 };
 
-[Exposed=Window]
+dictionary EventInit {
+  boolean bubbles = false;
+  boolean cancelable = false;
+  boolean composed = false;
+};
+
+[Exposed=(Window,Worker)]
 interface Event {
+  constructor(DOMString type, optional EventInit eventInitDict);
   readonly attribute DOMString type;
   readonly attribute EventTarget? target;
   readonly attribute EventTarget? currentTarget;
@@ -14,14 +22,16 @@ interface Event {
   readonly attribute boolean cancelable;
   readonly attribute boolean isTrusted;
   readonly attribute boolean defaultPrevented;
+  sequence<EventTarget> composedPath();
   undefined initEvent(DOMString type, optional boolean bubbles = false, optional boolean cancelable = false);
   undefined preventDefault();
   undefined stopPropagation();
   undefined stopImmediatePropagation();
 };
 
-[Exposed=Window]
+[Exposed=(Window,Worker)]
 interface CustomEvent : Event {
+  constructor(DOMString type, optional EventInit eventInitDict);
 };
 
 dictionary MouseEventInit {

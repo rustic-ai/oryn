@@ -100,6 +100,8 @@ struct EventRecord {
     event_type: String,
     target: Option<NodeId>,
     current_target: Option<NodeId>,
+    platform_target: Option<u64>,
+    platform_current_target: Option<u64>,
     bubbles: bool,
     cancelable: bool,
     is_trusted: bool,
@@ -396,6 +398,7 @@ struct IdbKeyRangeRecord {
 }
 
 enum PlatformObjectRecord {
+    EventTarget,
     Blob(BlobRecord),
     FormData(FormDataRecord),
     Headers(HeadersRecord),
@@ -2525,6 +2528,7 @@ pub fn install_generated_bindings_with_root_for_global(
         .insert(state.instance_id, Rc::downgrade(&state));
 
     let mut templates = BTreeMap::<&'static str, v8::Global<v8::FunctionTemplate>>::new();
+    let mut constructors = BTreeMap::<&'static str, v8::Global<v8::Function>>::new();
     let mut remaining = GENERATED_INTERFACES.iter().enumerate().collect::<Vec<_>>();
     while !remaining.is_empty() {
         let before = remaining.len();
@@ -2647,15 +2651,18 @@ pub fn install_generated_bindings_with_root_for_global(
             }
             let constructor = template
                 .get_function(scope)
-                .ok_or(V8BindingError::Allocation("interface constructor"))?;
+                .ok_or(V8BindingError::MissingInterface(interface.name))?;
             if let Some(parent) = interface.parent {
-                let global = context.global(scope);
-                let parent_name = v8::String::new(scope, parent)
-                    .ok_or(V8BindingError::Allocation("parent interface name"))?;
-                let parent_constructor = global
-                    .get(scope, parent_name.into())
-                    .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
-                    .ok_or(V8BindingError::MissingInterface(parent))?;
+                // A child exposed in Worker can inherit from a parent whose
+                // constructor is intentionally not exposed on that global.
+                // Prototype linkage must therefore use the generated parent
+                // constructor registry, not a lookup through globalThis.
+                let parent_constructor = v8::Local::new(
+                    scope,
+                    constructors
+                        .get(parent)
+                        .ok_or(V8BindingError::MissingInterface(parent))?,
+                );
                 let prototype_name = v8::String::new(scope, "prototype")
                     .ok_or(V8BindingError::Allocation("prototype name"))?;
                 let child_prototype = constructor
@@ -2694,6 +2701,7 @@ pub fn install_generated_bindings_with_root_for_global(
                 .instance_templates
                 .borrow_mut()
                 .insert(interface.name, v8::Global::new(scope, instance));
+            constructors.insert(interface.name, v8::Global::new(scope, constructor));
             templates.insert(interface.name, v8::Global::new(scope, template));
             remaining.remove(index);
         }
@@ -2704,13 +2712,14 @@ pub fn install_generated_bindings_with_root_for_global(
         }
     }
 
-    let wrapper = wrap_node(scope, &state, document)?;
-    let name = v8::String::new(scope, "document").ok_or(V8BindingError::Allocation("document"))?;
-    context
-        .global(scope)
-        .set(scope, name.into(), wrapper.into());
-    publish_named_window_properties(scope, context, &state, document)?;
     if binding_global == BindingGlobal::Window {
+        let wrapper = wrap_node(scope, &state, document)?;
+        let name =
+            v8::String::new(scope, "document").ok_or(V8BindingError::Allocation("document"))?;
+        context
+            .global(scope)
+            .set(scope, name.into(), wrapper.into());
+        publish_named_window_properties(scope, context, &state, document)?;
         let history = new_stateful_object(scope, &state, "History", 1)?;
         let name =
             v8::String::new(scope, "history").ok_or(V8BindingError::Allocation("history name"))?;
@@ -2732,7 +2741,6 @@ pub fn install_generated_bindings_with_root_for_global(
         context
             .global(scope)
             .set(scope, name.into(), factory.into());
-        install_idb_key_range_statics(scope, context)?;
         let restore = v8::Function::new(scope, restore_storage_callback)
             .ok_or(V8BindingError::Allocation("storage restore function"))?;
         let name = v8::String::new(scope, "__oryn_restore_storage")
@@ -2741,23 +2749,28 @@ pub fn install_generated_bindings_with_root_for_global(
             .global(scope)
             .set(scope, name.into(), restore.into());
     }
+    install_idb_key_range_statics(scope, context)?;
+    install_abort_signal_statics(scope, context)?;
     install_response_statics(scope, context)?;
-    let get_computed_style = v8::Function::new(scope, get_computed_style_callback)
-        .ok_or(V8BindingError::Allocation("getComputedStyle function"))?;
-    let name = v8::String::new(scope, "getComputedStyle")
-        .ok_or(V8BindingError::Allocation("getComputedStyle name"))?;
-    context
-        .global(scope)
-        .set(scope, name.into(), get_computed_style.into());
-    let get_accessibility = v8::Function::new(scope, get_computed_accessibility_callback).ok_or(
-        V8BindingError::Allocation("computed accessibility function"),
-    )?;
-    let name = v8::String::new(scope, "__oryn_computed_accessibility")
-        .ok_or(V8BindingError::Allocation("computed accessibility name"))?;
-    context
-        .global(scope)
-        .set(scope, name.into(), get_accessibility.into());
-    install_trusted_types(scope, context)?;
+    if binding_global == BindingGlobal::Window {
+        let get_computed_style = v8::Function::new(scope, get_computed_style_callback)
+            .ok_or(V8BindingError::Allocation("getComputedStyle function"))?;
+        let name = v8::String::new(scope, "getComputedStyle")
+            .ok_or(V8BindingError::Allocation("getComputedStyle name"))?;
+        context
+            .global(scope)
+            .set(scope, name.into(), get_computed_style.into());
+        let get_accessibility = v8::Function::new(scope, get_computed_accessibility_callback)
+            .ok_or(V8BindingError::Allocation(
+                "computed accessibility function",
+            ))?;
+        let name = v8::String::new(scope, "__oryn_computed_accessibility")
+            .ok_or(V8BindingError::Allocation("computed accessibility name"))?;
+        context
+            .global(scope)
+            .set(scope, name.into(), get_accessibility.into());
+        install_trusted_types(scope, context)?;
+    }
     let fetch = v8::Function::new(scope, platform_fetch_callback)
         .ok_or(V8BindingError::Allocation("fetch function"))?;
     let name = v8::String::new(scope, "fetch").ok_or(V8BindingError::Allocation("fetch name"))?;
@@ -2776,15 +2789,17 @@ pub fn install_generated_bindings_with_root_for_global(
     context
         .global(scope)
         .set(scope, name.into(), revoke_object_url.into());
-    let adopt_custom = v8::Function::new(scope, begin_custom_element_upgrade).ok_or(
-        V8BindingError::Allocation("custom-element upgrade initializer"),
-    )?;
-    let name = v8::String::new(scope, "__oryn_begin_custom_element_upgrade").ok_or(
-        V8BindingError::Allocation("custom-element upgrade initializer name"),
-    )?;
-    context
-        .global(scope)
-        .set(scope, name.into(), adopt_custom.into());
+    if binding_global == BindingGlobal::Window {
+        let adopt_custom = v8::Function::new(scope, begin_custom_element_upgrade).ok_or(
+            V8BindingError::Allocation("custom-element upgrade initializer"),
+        )?;
+        let name = v8::String::new(scope, "__oryn_begin_custom_element_upgrade").ok_or(
+            V8BindingError::Allocation("custom-element upgrade initializer name"),
+        )?;
+        context
+            .global(scope)
+            .set(scope, name.into(), adopt_custom.into());
+    }
     Ok(state)
 }
 
@@ -2917,6 +2932,57 @@ fn install_response_statics(
         v8::String::new(scope, "json").ok_or(V8BindingError::Allocation("Response.json name"))?;
     constructor.create_data_property(scope, name.into(), callback.into());
     Ok(())
+}
+
+fn install_abort_signal_statics(
+    scope: &mut v8::PinScope,
+    context: v8::Local<v8::Context>,
+) -> Result<(), V8BindingError> {
+    let name = v8::String::new(scope, "AbortSignal")
+        .ok_or(V8BindingError::Allocation("AbortSignal name"))?;
+    let constructor = context
+        .global(scope)
+        .get(scope, name.into())
+        .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+        .ok_or(V8BindingError::MissingInterface("AbortSignal"))?;
+    let callback = v8::Function::new(scope, abort_signal_abort_static)
+        .ok_or(V8BindingError::Allocation("AbortSignal.abort static"))?;
+    let name = v8::String::new(scope, "abort")
+        .ok_or(V8BindingError::Allocation("AbortSignal.abort name"))?;
+    constructor.create_data_property(scope, name.into(), callback.into());
+    Ok(())
+}
+
+fn abort_signal_abort_static<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut return_value: v8::ReturnValue,
+) {
+    let result = (|| -> Result<v8::Local<v8::Object>, V8BindingError> {
+        let state = scope
+            .get_current_context()
+            .get_slot::<V8BindingState>()
+            .ok_or(V8BindingError::Allocation("AbortSignal state"))?;
+        let reason = if args.length() == 0 || args.get(0).is_undefined() {
+            v8::String::new(scope, "AbortError")
+                .ok_or(V8BindingError::Allocation("AbortSignal reason"))?
+                .into()
+        } else {
+            args.get(0)
+        };
+        let id = register_platform_object(
+            &state,
+            PlatformObjectRecord::AbortSignal(AbortSignalRecord {
+                aborted: true,
+                reason: Some(v8::Global::new(scope, reason)),
+            }),
+        );
+        new_platform_object(scope, &state, "AbortSignal", id)
+    })();
+    match result {
+        Ok(signal) => return_value.set(signal.into()),
+        Err(error) => throw_binding_error(scope, &error),
+    }
 }
 
 fn response_json_static<'s>(
@@ -5097,6 +5163,11 @@ fn initialize_platform_constructor<'s>(
         bind_platform_object(scope, state, id, args.this());
         return Ok(true);
     }
+    if name == "EventTarget" {
+        let id = register_platform_object(state, PlatformObjectRecord::EventTarget);
+        bind_platform_object(scope, state, id, args.this());
+        return Ok(true);
+    }
     if name == "MessageChannel" {
         let port1_id = register_platform_object(state, PlatformObjectRecord::MessagePort);
         let port2_id = register_platform_object(state, PlatformObjectRecord::MessagePort);
@@ -5919,6 +5990,8 @@ fn generated_constructor<'s>(
                 event_type,
                 target: None,
                 current_target: None,
+                platform_target: None,
+                platform_current_target: None,
                 bubbles,
                 cancelable,
                 is_trusted: false,
@@ -6772,6 +6845,16 @@ fn dispatch_platform_event_capturing(
         Some(event) => event,
         None => generated_event(scope, event_type)?,
     };
+    if let Ok(event_id) = event_id(scope, event)
+        && let Some(record) = state.events.borrow_mut().get_mut(&event_id)
+    {
+        record.target = None;
+        record.current_target = None;
+        record.platform_target = Some(id);
+        record.platform_current_target = Some(id);
+        record.propagation_stopped = false;
+        record.immediate_stopped = false;
+    }
     let default_prevented = v8::String::new(scope, "defaultPrevented")
         .ok_or(V8BindingError::Allocation("event defaultPrevented"))?;
     if !event
@@ -6831,15 +6914,26 @@ fn dispatch_platform_event_capturing(
     for callback in callbacks {
         threw |= invoke_platform_listener(scope, &callback, receiver, event);
     }
-    let handler = {
+    let registered_handler = {
         state
             .platform_handlers
             .borrow()
             .get(&(id, event_type.into()))
             .cloned()
     };
+    let handler = registered_handler.or_else(|| {
+        let target = target?;
+        let property = v8::String::new(scope, &format!("on{event_type}"))?;
+        let value = target.get(scope, property.into())?;
+        (!value.is_null_or_undefined()).then(|| v8::Global::new(scope, value))
+    });
     if let Some(handler) = handler {
         threw |= invoke_platform_listener(scope, &handler, receiver, event);
+    }
+    if let Ok(event_id) = event_id(scope, event)
+        && let Some(record) = state.events.borrow_mut().get_mut(&event_id)
+    {
+        record.platform_current_target = None;
     }
     Ok(threw)
 }
@@ -6931,6 +7025,7 @@ fn record_platform_trace(scope: &mut v8::PinScope, kind: &str, detail: serde_jso
 
 fn platform_interface_for_id(state: &V8BindingState, id: u64) -> Option<&'static str> {
     Some(match state.platform_objects.borrow().get(&id)? {
+        PlatformObjectRecord::EventTarget => "EventTarget",
         PlatformObjectRecord::AbortSignal(_) => "AbortSignal",
         PlatformObjectRecord::XMLHttpRequest(_) => "XMLHttpRequest",
         PlatformObjectRecord::WebSocket(_) => "WebSocket",
@@ -19310,6 +19405,8 @@ fn create_event_object<'s>(
             event_type: event_type.into(),
             target: None,
             current_target: None,
+            platform_target: None,
+            platform_current_target: None,
             bubbles,
             cancelable,
             is_trusted: false,
@@ -19347,6 +19444,8 @@ fn create_input_event_object<'s>(
             event_type: event_type.into(),
             target: None,
             current_target: None,
+            platform_target: None,
+            platform_current_target: None,
             bubbles: true,
             cancelable,
             is_trusted: true,
@@ -19427,8 +19526,13 @@ fn get_event_attribute<'s>(
         .ok_or(V8BindingError::Allocation("event record"))?;
     match member {
         "type" => v8_string(scope, &event.event_type),
-        "target" => optional_node(scope, state, event.target),
-        "currentTarget" => optional_node(scope, state, event.current_target),
+        "target" => optional_event_target(scope, state, event.target, event.platform_target),
+        "currentTarget" => optional_event_target(
+            scope,
+            state,
+            event.current_target,
+            event.platform_current_target,
+        ),
         "bubbles" => Ok(v8::Boolean::new(scope, event.bubbles).into()),
         "cancelable" => Ok(v8::Boolean::new(scope, event.cancelable).into()),
         "isTrusted" => Ok(v8::Boolean::new(scope, event.is_trusted).into()),
@@ -19445,6 +19549,25 @@ fn call_event_operation<'s>(
     args: &v8::FunctionCallbackArguments,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let id = event_id(scope, object)?;
+    if member == "composedPath" {
+        let event = state
+            .events
+            .borrow()
+            .get(&id)
+            .cloned()
+            .ok_or(V8BindingError::Allocation("event record"))?;
+        let path = v8::Array::new(scope, 0);
+        let target = optional_event_target(
+            scope,
+            state,
+            event.current_target,
+            event.platform_current_target,
+        )?;
+        if !target.is_null() {
+            path.set_index(scope, 0, target);
+        }
+        return Ok(Some(path.into()));
+    }
     let mut events = state.events.borrow_mut();
     let event = events
         .get_mut(&id)
@@ -19481,6 +19604,8 @@ fn dispatch_event(
             .get_mut(&id)
             .ok_or(V8BindingError::Allocation("event record"))?;
         event.target = Some(target);
+        event.platform_target = None;
+        event.platform_current_target = None;
         event.propagation_stopped = false;
         event.immediate_stopped = false;
     }
@@ -19501,6 +19626,7 @@ fn dispatch_event(
                 break;
             }
             event.current_target = Some(current);
+            event.platform_current_target = None;
             event.immediate_stopped = false;
         }
         let event_type = state.events.borrow().get(&id).unwrap().event_type.clone();
@@ -19574,6 +19700,23 @@ fn dispatch_event(
     let event = events.get_mut(&id).unwrap();
     event.current_target = None;
     Ok(!event.default_prevented)
+}
+
+fn optional_event_target<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    node: Option<NodeId>,
+    platform: Option<u64>,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if let Some(node) = node {
+        return Ok(wrap_node(scope, state, node)?.into());
+    }
+    if let Some(id) = platform
+        && let Some(interface) = platform_interface_for_id(state, id)
+    {
+        return Ok(new_platform_object(scope, state, interface, id)?.into());
+    }
+    Ok(v8::null(scope).into())
 }
 
 fn optional_node<'s>(

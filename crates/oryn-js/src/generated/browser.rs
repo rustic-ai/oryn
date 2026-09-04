@@ -1212,7 +1212,23 @@ pub const CHARACTER_DATA_MEMBERS: &[GeneratedMember] = &[
     },
 ];
 pub const COMMENT_MEMBERS: &[GeneratedMember] = &[];
-pub const CUSTOM_EVENT_MEMBERS: &[GeneratedMember] = &[];
+pub const CUSTOM_EVENT_MEMBERS: &[GeneratedMember] = &[
+    GeneratedMember {
+        id: GeneratedMemberId(655360),
+        name: "constructor",
+        kind: GeneratedMemberKind::Constructor,
+        arity: 1,
+        readonly: false,
+        constant_value: None,
+        type_name: None,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
+];
 pub const D_O_M_IMPLEMENTATION_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         id: GeneratedMemberId(720896),
@@ -2965,6 +2981,21 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
 pub const EVENT_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         id: GeneratedMemberId(1507328),
+        name: "constructor",
+        kind: GeneratedMemberKind::Constructor,
+        arity: 1,
+        readonly: false,
+        constant_value: None,
+        type_name: None,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(1507329),
         name: "type",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -2979,7 +3010,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1507329),
+        id: GeneratedMemberId(1507330),
         name: "target",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -2994,7 +3025,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1507330),
+        id: GeneratedMemberId(1507331),
         name: "currentTarget",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -3009,7 +3040,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1507331),
+        id: GeneratedMemberId(1507332),
         name: "bubbles",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -3024,7 +3055,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1507332),
+        id: GeneratedMemberId(1507333),
         name: "cancelable",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -3039,7 +3070,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1507333),
+        id: GeneratedMemberId(1507334),
         name: "isTrusted",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -3054,7 +3085,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1507334),
+        id: GeneratedMemberId(1507335),
         name: "defaultPrevented",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -3069,7 +3100,22 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1507335),
+        id: GeneratedMemberId(1507336),
+        name: "composedPath",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+        constant_value: None,
+        type_name: Some("sequence<EventTarget>"),
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(1507337),
         name: "initEvent",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3084,7 +3130,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1507336),
+        id: GeneratedMemberId(1507338),
         name: "preventDefault",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -3099,7 +3145,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1507337),
+        id: GeneratedMemberId(1507339),
         name: "stopPropagation",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -3114,7 +3160,7 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1507338),
+        id: GeneratedMemberId(1507340),
         name: "stopImmediatePropagation",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -3132,6 +3178,21 @@ pub const EVENT_MEMBERS: &[GeneratedMember] = &[
 pub const EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         id: GeneratedMemberId(1572864),
+        name: "constructor",
+        kind: GeneratedMemberKind::Constructor,
+        arity: 0,
+        readonly: false,
+        constant_value: None,
+        type_name: None,
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(1572865),
         name: "addEventListener",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -3146,7 +3207,7 @@ pub const EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1572865),
+        id: GeneratedMemberId(1572866),
         name: "removeEventListener",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -3161,7 +3222,7 @@ pub const EVENT_TARGET_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1572866),
+        id: GeneratedMemberId(1572867),
         name: "dispatchEvent",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -10819,8 +10880,8 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
     GeneratedInterface {
         name: "CustomEvent",
         parent: Some("Event"),
-        exposed: &["Window"],
-        constructible: false,
+        exposed: &["Window", "Worker"],
+        constructible: true,
         members: CUSTOM_EVENT_MEMBERS,
     },
     GeneratedInterface {
@@ -10910,15 +10971,15 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
     GeneratedInterface {
         name: "Event",
         parent: None,
-        exposed: &["Window"],
-        constructible: false,
+        exposed: &["Window", "Worker"],
+        constructible: true,
         members: EVENT_MEMBERS,
     },
     GeneratedInterface {
         name: "EventTarget",
         parent: None,
-        exposed: &["Window"],
-        constructible: false,
+        exposed: &["Window", "Worker"],
+        constructible: true,
         members: EVENT_TARGET_MEMBERS,
     },
     GeneratedInterface {
@@ -11385,6 +11446,27 @@ pub const GENERATED_INTERFACES: &[GeneratedInterface] = &[
     },
 ];
 #[allow(dead_code)]
+pub const EVENT_INIT_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
+    GeneratedDictionaryMember {
+        name: "bubbles",
+        type_name: "boolean",
+        required: false,
+        default: Some("false"),
+    },
+    GeneratedDictionaryMember {
+        name: "cancelable",
+        type_name: "boolean",
+        required: false,
+        default: Some("false"),
+    },
+    GeneratedDictionaryMember {
+        name: "composed",
+        type_name: "boolean",
+        required: false,
+        default: Some("false"),
+    },
+];
+#[allow(dead_code)]
 pub const MOUSE_EVENT_INIT_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
     GeneratedDictionaryMember {
         name: "bubbles",
@@ -11665,6 +11747,11 @@ pub const REQUEST_INIT_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
 ];
 #[allow(dead_code)]
 pub const GENERATED_DICTIONARIES: &[GeneratedDictionary] = &[
+    GeneratedDictionary {
+        name: "EventInit",
+        parent: None,
+        members: EVENT_INIT_DICTIONARY_MEMBERS,
+    },
     GeneratedDictionary {
         name: "MouseEventInit",
         parent: None,

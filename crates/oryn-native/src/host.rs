@@ -79,9 +79,11 @@ mod raw_v8 {
     use oryn_js::realm::{RealmDescriptor, RealmId, RealmRegistry};
     use oryn_js::scheduler::{PageScheduler, Task, TaskSource};
     use oryn_js::v8_bindings::{
-        BindingLayout, BindingLayoutProvider, PendingDefaultAction, SharedDom, V8BindingState,
-        deliver_mutation_observers, deliver_selection_change, install_generated_bindings,
-        install_generated_bindings_with_root, publish_named_window_properties, wrap_node,
+        BindingGlobal, BindingLayout, BindingLayoutProvider, PendingDefaultAction, SharedDom,
+        V8BindingState, deliver_mutation_observers, deliver_selection_change,
+        install_generated_bindings, install_generated_bindings_with_root,
+        install_generated_bindings_with_root_for_global, publish_named_window_properties,
+        wrap_node,
     };
 
     static INITIALIZE_V8: Once = Once::new();
@@ -399,6 +401,7 @@ mod raw_v8 {
     struct DedicatedWorker {
         owner_identity: i32,
         context: v8::Global<v8::Context>,
+        binding_state: Option<Rc<V8BindingState>>,
         closed: bool,
     }
 
@@ -1767,14 +1770,31 @@ mod raw_v8 {
             let mut delivered = 0;
             loop {
                 let mut pass = 0;
-                let realms = self.binding_states.keys().copied().collect::<Vec<_>>();
-                for realm in realms {
-                    let Some(state) = self.binding_states.get(&realm).cloned() else {
-                        continue;
-                    };
-                    let Some(context) = self.contexts.get(&realm).cloned() else {
-                        continue;
-                    };
+                let mut scheduled = self
+                    .binding_states
+                    .iter()
+                    .filter_map(|(realm, state)| {
+                        self.contexts
+                            .get(realm)
+                            .cloned()
+                            .map(|context| (context, state.clone()))
+                    })
+                    .collect::<Vec<_>>();
+                scheduled.extend(
+                    self.isolate
+                        .get_slot::<DedicatedWorkers>()
+                        .into_iter()
+                        .flat_map(|registry| registry.workers.values())
+                        .filter(|worker| !worker.closed)
+                        .filter_map(|worker| {
+                            worker
+                                .binding_state
+                                .as_ref()
+                                .cloned()
+                                .map(|state| (worker.context.clone(), state))
+                        }),
+                );
+                for (context, state) in scheduled {
                     v8::scope!(let handle_scope, &mut self.isolate);
                     let context = v8::Local::new(handle_scope, &context);
                     let scope = &mut v8::ContextScope::new(handle_scope, context);
@@ -1800,7 +1820,19 @@ mod raw_v8 {
                 let pending = self
                     .binding_states
                     .values()
-                    .any(|state| state.has_pending_platform_work());
+                    .any(|state| state.has_pending_platform_work())
+                    || self
+                        .isolate
+                        .get_slot::<DedicatedWorkers>()
+                        .is_some_and(|registry| {
+                            registry.workers.values().any(|worker| {
+                                !worker.closed
+                                    && worker
+                                        .binding_state
+                                        .as_ref()
+                                        .is_some_and(|state| state.has_pending_platform_work())
+                            })
+                        });
                 if !wait || !pending {
                     break;
                 }
@@ -1835,6 +1867,18 @@ mod raw_v8 {
                     .binding_states
                     .values()
                     .any(|state| state.has_pending_platform_work())
+                || self
+                    .isolate
+                    .get_slot::<DedicatedWorkers>()
+                    .is_some_and(|registry| {
+                        registry.workers.values().any(|worker| {
+                            !worker.closed
+                                && worker
+                                    .binding_state
+                                    .as_ref()
+                                    .is_some_and(|state| state.has_pending_platform_work())
+                        })
+                    })
         }
 
         /// Create another global realm in this page's isolate. DOM wrappers are
@@ -2226,11 +2270,11 @@ mod raw_v8 {
     const DEDICATED_WORKER_BOOTSTRAP: &str = r#"
         (() => {
           const listeners = new Map();
-          class WorkerEvent {
+          const WorkerEvent = globalThis.Event || class WorkerEvent {
             constructor(type, init = {}) { this.type = String(type); this.defaultPrevented = false; Object.assign(this, init); }
             preventDefault() { this.defaultPrevented = true; }
-          }
-          class WorkerEventTarget {
+          };
+          const WorkerEventTarget = globalThis.EventTarget || class WorkerEventTarget {
             addEventListener(type, callback) {
               const key = String(type), list = this.__listeners?.get(key) || [];
               list.push(callback); (this.__listeners || (this.__listeners = new Map())).set(key, list);
@@ -2245,7 +2289,7 @@ mod raw_v8 {
               if (typeof handler === 'function') handler.call(this, event);
               return !event.defaultPrevented;
             }
-          }
+          };
           class DedicatedWorkerGlobalScope extends WorkerEventTarget {}
           class SharedWorkerGlobalScope extends WorkerEventTarget {}
           class ServiceWorkerGlobalScope extends WorkerEventTarget {}
@@ -2318,8 +2362,8 @@ mod raw_v8 {
         };
         const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
         class Request extends EventTarget {
-          constructor(){super();this.result=undefined;this.error=null;this.transaction=null;this.onsuccess=null;this.onerror=null;this.onupgradeneeded=null;this.onblocked=null}
-          fire(type,extra={}){const event=new Event(type,{target:this,...extra});event.target=this;this.dispatchEvent(event)}
+          constructor(){super();this.result=undefined;this.error=null;this.transaction=null;this.readyState='pending';this.onsuccess=null;this.onerror=null;this.onupgradeneeded=null;this.onblocked=null}
+          fire(type,extra={}){if(type==='success'||type==='error'||type==='upgradeneeded')this.readyState='done';this.dispatchEvent(new Event(type,extra))}
           success(value){queueMicrotask(()=>{this.result=value;this.fire('success')})}
           failure(error){queueMicrotask(()=>{this.error=error;this.fire('error')})}
         }
@@ -2361,7 +2405,7 @@ mod raw_v8 {
           index(name){return new Index(this,name)}
         }
         class Transaction extends EventTarget {
-          constructor(db,names,mode='readonly'){super();this.db=db;this.mode=mode;this.objectStoreNames=Array.isArray(names)?names.map(String):[String(names)];this.oncomplete=null;this.onabort=null;this.onerror=null;queueMicrotask(()=>this.dispatchEvent(new Event('complete',{target:this})))}
+          constructor(db,names,mode='readonly',autoComplete=true){super();this.db=db;this.mode=mode;this.objectStoreNames=Array.isArray(names)?names.map(String):[String(names)];this.oncomplete=null;this.onabort=null;this.onerror=null;if(autoComplete)queueMicrotask(()=>this.dispatchEvent(new Event('complete',{target:this})))}
           objectStore(name){if(!this.objectStoreNames.includes(String(name)))throw new Error('NotFoundError');return new ObjectStore(this,name)}
           abort(){this.dispatchEvent(new Event('abort',{target:this}))}
         }
@@ -2373,7 +2417,7 @@ mod raw_v8 {
         }
         const compare=(left,right)=>{if(typeof left==='number'&&typeof right==='number')return Math.sign(left-right);if(typeof left==='string'&&typeof right==='string')return left<right?-1:left>right?1:0;const a=JSON.stringify(left),b=JSON.stringify(right);return a<b?-1:a>b?1:0};
         globalThis.IDBRequest=Request;globalThis.IDBOpenDBRequest=Request;globalThis.IDBCursor=Cursor;globalThis.IDBIndex=Index;globalThis.IDBObjectStore=ObjectStore;globalThis.IDBTransaction=Transaction;globalThis.IDBDatabase=Database;
-        globalThis.indexedDB={cmp:compare,open(name,version=0){const request=new Request();try{const response=call({command:'open',name:String(name),version:Number(version)||0});const db=new Database(name,response.version,response.object_stores);const transaction=new Transaction(db,response.object_stores,'versionchange');db.__upgradeTransaction=transaction;request.transaction=transaction;queueMicrotask(()=>{request.result=db;if(response.upgrade_needed)request.fire('upgradeneeded',{oldVersion:response.old_version,newVersion:response.version});request.fire('success')})}catch(error){request.failure(error)}return request},deleteDatabase(name){const request=new Request();try{call({command:'delete_database',name:String(name)});request.success(undefined)}catch(error){request.failure(error)}return request}};
+        globalThis.indexedDB={cmp:compare,open(name,version=0){const request=new Request();try{const response=call({command:'open',name:String(name),version:Number(version)||0});const db=new Database(name,response.version,response.object_stores);const transaction=new Transaction(db,response.object_stores,'versionchange',false);db.__upgradeTransaction=transaction;request.transaction=transaction;queueMicrotask(()=>{request.result=db;if(response.upgrade_needed)request.fire('upgradeneeded',{oldVersion:response.old_version,newVersion:response.version});queueMicrotask(()=>{transaction.dispatchEvent(new Event('complete',{target:transaction}));request.fire('success')})})}catch(error){request.failure(error)}return request},deleteDatabase(name){const request=new Request();try{call({command:'delete_database',name:String(name)});request.success(undefined)}catch(error){request.failure(error)}return request}};
       })();
     "#;
 
@@ -2408,6 +2452,8 @@ mod raw_v8 {
         args: v8::FunctionCallbackArguments,
         mut return_value: v8::ReturnValue<v8::Value>,
     ) {
+        #[cfg(unix)]
+        let platform_context = scope.get_slot::<ContextState>().cloned();
         let created = (|| -> Result<u64, String> {
             let source = args
                 .get(0)
@@ -2451,12 +2497,43 @@ mod raw_v8 {
                     DedicatedWorker {
                         owner_identity,
                         context: context_global,
+                        binding_state: None,
                         closed: false,
                     },
                 );
 
             let executed = (|| -> Result<(), String> {
                 let worker_scope = &mut v8::ContextScope::new(scope, context);
+                let runtime = oryn_dom::html::parse("<!doctype html>")
+                    .into_runtime()
+                    .map_err(|error| error.to_string())?;
+                let document = runtime.document();
+                let dom = Rc::new(RefCell::new(runtime));
+                let worker_realm = u32::try_from(worker_id)
+                    .map_err(|_| "worker realm id exceeds u32".to_string())?
+                    .saturating_add(10_000);
+                let binding_state = install_generated_bindings_with_root_for_global(
+                    worker_scope,
+                    context,
+                    dom,
+                    RealmId(worker_realm),
+                    1,
+                    document,
+                    BindingGlobal::Worker,
+                )
+                .map_err(|error| error.to_string())?;
+                #[cfg(unix)]
+                if let Some(platform_context) = platform_context.clone() {
+                    binding_state
+                        .set_platform_host(Rc::new(ContextPlatformHost::new(platform_context)));
+                }
+                worker_scope
+                    .get_slot_mut::<DedicatedWorkers>()
+                    .expect("dedicated-worker registry installed")
+                    .workers
+                    .get_mut(&worker_id)
+                    .expect("dedicated worker registered before initialization")
+                    .binding_state = Some(binding_state.clone());
                 let id_name = v8::String::new(worker_scope, "__oryn_worker_id")
                     .ok_or_else(|| "worker id allocation failed".to_string())?;
                 worker_scope.get_current_context().global(worker_scope).set(
@@ -3791,6 +3868,32 @@ mod tests {
             assert_eq!(payload["tag"], format!("[object {expected}]"));
             assert_eq!(payload["matches"], true);
         }
+    }
+
+    #[test]
+    fn worker_realms_install_generated_platform_bindings() {
+        let mut host = RawV8Host::new();
+        let source = serde_json::to_string(
+            "const target=new EventTarget();const event=new Event('probe');let during=0;target.addEventListener('probe',e=>during=e.composedPath().length);target.dispatchEvent(event);class Request extends EventTarget{constructor(){super();this.onsuccess=null}finish(){this.dispatchEvent(new Event('success'))}}const request=new Request();let propertyHandler=false;request.onsuccess=()=>propertyHandler=true;request.finish();postMessage({blob:typeof Blob,event:event instanceof Event,target:event.target===target,during,after:event.composedPath().length,aborted:AbortSignal.abort().aborted,propertyHandler})",
+        )
+        .unwrap();
+        let id = host
+            .evaluate_string(&format!(
+                "__oryn_worker_create({source},'https://example.test/worker.js',false,'dedicatedworker')"
+            ))
+            .unwrap();
+        let messages = host
+            .evaluate_string(&format!("__oryn_worker_take({id})"))
+            .unwrap();
+        let messages: Vec<String> = serde_json::from_str(&messages).unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&messages[0]).unwrap();
+        assert_eq!(payload["blob"], "function");
+        assert_eq!(payload["event"], true);
+        assert_eq!(payload["target"], true);
+        assert_eq!(payload["during"], 1);
+        assert_eq!(payload["after"], 0);
+        assert_eq!(payload["aborted"], true);
+        assert_eq!(payload["propertyHandler"], true);
     }
 
     #[test]
