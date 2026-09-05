@@ -782,6 +782,13 @@ impl DomRuntime {
     ) -> Result<(), DomError> {
         self.arena.get(parent)?;
         self.arena.get(child)?;
+        // The DOM insertion algorithms define inserting a node immediately
+        // before itself as a no-op. Resolve this before detaching the node or
+        // the reference ceases to be a child and its stable identity can be
+        // reclaimed as stale.
+        if reference == Some(child) {
+            return Ok(());
+        }
         let former_parent = self.arena.get(child)?.parent;
         if let Some(former_parent) = former_parent {
             let former_index = self.child_index(former_parent, child)?;
@@ -2107,5 +2114,21 @@ mod tests {
         assert_eq!(dom.live_range(before).unwrap().start.offset, 1);
         assert_eq!(dom.live_range(inside).unwrap().start.offset, 2);
         assert_eq!(dom.live_range(after).unwrap().start.offset, 5);
+    }
+
+    #[test]
+    fn inserting_a_child_before_itself_is_a_true_no_op() {
+        let mut dom = DomRuntime::new();
+        let parent = dom.create_element("div");
+        let child = dom.create_element("span");
+        dom.append_child(dom.document(), parent).unwrap();
+        dom.append_child(parent, child).unwrap();
+        let cursor = dom.mutation_cursor();
+
+        dom.insert_before(parent, child, Some(child)).unwrap();
+
+        assert_eq!(dom.children(parent).unwrap(), &[child]);
+        assert_eq!(dom.parent(child).unwrap(), Some(parent));
+        assert!(dom.mutations_since(cursor).mutations.is_empty());
     }
 }

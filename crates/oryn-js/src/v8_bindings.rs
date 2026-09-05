@@ -19955,13 +19955,37 @@ fn call_operation<'s>(
             let moved = argument_node(scope, state, args.get(0))?;
             let reference = optional_argument_node(scope, state, args.get(1))?;
             validate_tree_insertion(&state.dom.borrow(), node, moved)?;
-            if let Some(reference) = reference
-                && state.dom.borrow().arena().get(reference)?.parent != Some(node)
             {
-                return Err(V8BindingError::Unsupported {
-                    interface: "Node".into(),
-                    member: "NotFoundError".into(),
-                });
+                let dom = state.dom.borrow();
+                if let Some(reference) = reference
+                    && dom.arena().get(reference)?.parent != Some(node)
+                {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Node".into(),
+                        member: "NotFoundError".into(),
+                    });
+                }
+                if !matches!(
+                    dom.arena().get(moved)?.kind,
+                    NodeKind::Element { .. }
+                        | NodeKind::Text { .. }
+                        | NodeKind::CDataSection { .. }
+                        | NodeKind::ProcessingInstruction { .. }
+                        | NodeKind::Comment { .. }
+                ) || dom.is_connected(node)? != dom.is_connected(moved)?
+                {
+                    return Err(hierarchy_request_error());
+                }
+
+                if matches!(dom.arena().get(node)?.kind, NodeKind::Document) {
+                    let mut proposed = dom.children(node)?.to_vec();
+                    proposed.retain(|candidate| *candidate != moved);
+                    let index = reference
+                        .and_then(|reference| proposed.iter().position(|item| *item == reference))
+                        .unwrap_or(proposed.len());
+                    proposed.insert(index, moved);
+                    validate_child_sequence(&dom, node, &proposed)?;
+                }
             }
             // DomRuntime owns the live node and wrapper lease. Moving that
             // same NodeId preserves JavaScript identity and all Rust-owned
