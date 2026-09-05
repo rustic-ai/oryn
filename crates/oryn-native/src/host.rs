@@ -101,6 +101,7 @@ mod raw_v8 {
         "dedicated_worker_terminate_callback",
         "dedicated_worker_emit_callback",
         "dedicated_worker_close_callback",
+        "import_scripts_callback",
     ];
 
     pub fn startup_external_references() -> Cow<'static, [v8::ExternalReference]> {
@@ -141,6 +142,9 @@ mod raw_v8 {
             },
             v8::ExternalReference {
                 function: dedicated_worker_close_callback.map_fn_to(),
+            },
+            v8::ExternalReference {
+                function: import_scripts_callback.map_fn_to(),
             },
         ]
         .into()
@@ -545,6 +549,13 @@ mod raw_v8 {
                 .expect("allocate dedicated-worker terminate callback");
             let name = v8::String::new(context_scope, "__oryn_worker_terminate")
                 .expect("allocate dedicated-worker terminate name");
+            $context
+                .global(context_scope)
+                .set(context_scope, name.into(), function.into());
+            let function = v8::Function::new(context_scope, import_scripts_callback)
+                .expect("allocate importScripts callback");
+            let name = v8::String::new(context_scope, "__oryn_import_scripts")
+                .expect("allocate importScripts callback name");
             $context
                 .global(context_scope)
                 .set(context_scope, name.into(), function.into());
@@ -2342,6 +2353,7 @@ mod raw_v8 {
           globalThis.setInterval = (callback, delay = 0, ...args) => __oryn_timer_schedule(callback, delay, true, args);
           globalThis.clearTimeout = id => __oryn_timer_cancel(Number(id));
           globalThis.clearInterval = globalThis.clearTimeout;
+          globalThis.importScripts = (...urls) => __oryn_import_scripts(...urls);
           globalThis.DedicatedWorkerGlobalScope = DedicatedWorkerGlobalScope;
           globalThis.SharedWorkerGlobalScope = SharedWorkerGlobalScope;
           globalThis.ServiceWorkerGlobalScope = ServiceWorkerGlobalScope;
@@ -2352,6 +2364,66 @@ mod raw_v8 {
           globalThis.onerror = null;
           globalThis.onconnect = null;
           globalThis.oninstall = null;
+          class NestedWorker {
+            constructor(url, options = {}) {
+              this.onmessage = null;
+              this.onerror = null;
+              this.listeners = new Map();
+              this.closed = false;
+              const target = String(url);
+              let response;
+              try {
+                response = JSON.parse(__oryn_context_call(JSON.stringify({
+                  operation: 'load_worker_script',
+                  page_id: __oryn_worker_page_id,
+                  url: target,
+                  module: String(options.type || 'classic') === 'module'
+                })));
+              } catch (error) {
+                throw new Error(`nested worker load failed for ${target}: ${error}`);
+              }
+              if (response.result !== 'worker_script') throw new Error('Worker script load failed');
+              try {
+                this.id = __oryn_worker_create(response.source, response.url, !!response.module, 'dedicatedworker', response.referrer_policy || '');
+              } catch (error) {
+                throw new Error(`nested worker execution failed for ${response.url}: ${error}`);
+              }
+            }
+            addEventListener(type, callback) {
+              const key = String(type), list = this.listeners.get(key) || [];
+              list.push(callback); this.listeners.set(key, list);
+              if (key === 'message') queueMicrotask(() => this.poll());
+            }
+            removeEventListener(type, callback) {
+              const key = String(type);
+              this.listeners.set(key, (this.listeners.get(key) || []).filter(item => item !== callback));
+            }
+            dispatch(type, extra = {}) {
+              const event = new WorkerEvent(type, extra);
+              Object.assign(event, extra);
+              for (const callback of this.listeners.get(type) || []) callback.call(this, event);
+              const handler = this['on' + type];
+              if (typeof handler === 'function') handler.call(this, event);
+            }
+            poll() {
+              if (this.closed || !this.id) return;
+              for (const encoded of JSON.parse(__oryn_worker_take(this.id))) {
+                this.dispatch('message', {data: JSON.parse(encoded), source: null});
+              }
+            }
+            postMessage(data) {
+              if (this.closed || !this.id) return;
+              const encoded = JSON.stringify(data);
+              if (encoded === undefined) throw new TypeError('worker message is not structured-cloneable');
+              __oryn_worker_post(this.id, encoded);
+              queueMicrotask(() => this.poll());
+            }
+            terminate() {
+              if (this.id) __oryn_worker_terminate(this.id);
+              this.closed = true; this.id = 0;
+            }
+          }
+          globalThis.Worker = NestedWorker;
           globalThis.addEventListener = (type, callback) => {
             const key = String(type), list = listeners.get(key) || [];
             list.push(callback); listeners.set(key, list);
@@ -2427,6 +2499,11 @@ mod raw_v8 {
                 .map(|value| value.to_rust_string_lossy(scope))
                 .unwrap_or_else(|| "oryn:dedicated-worker".into());
             let module = args.get(2).boolean_value(scope);
+            let referrer_policy = args
+                .get(4)
+                .to_string(scope)
+                .map(|value| value.to_rust_string_lossy(scope))
+                .unwrap_or_default();
             let global_kind = WorkerGlobalKind::parse(
                 &args
                     .get(3)
@@ -2502,6 +2579,16 @@ mod raw_v8 {
                     id_name.into(),
                     v8::Number::new(worker_scope, worker_id as f64).into(),
                 );
+                #[cfg(unix)]
+                if let Some(platform_context) = platform_context.as_ref() {
+                    let page_name = v8::String::new(worker_scope, "__oryn_worker_page_id")
+                        .ok_or_else(|| "worker page id allocation failed".to_string())?;
+                    worker_scope.get_current_context().global(worker_scope).set(
+                        worker_scope,
+                        page_name.into(),
+                        v8::Number::new(worker_scope, platform_context.page_id.0 as f64).into(),
+                    );
+                }
                 let emit = v8::Function::new(worker_scope, dedicated_worker_emit_callback)
                     .ok_or_else(|| "worker emit callback allocation failed".to_string())?;
                 let name = v8::String::new(worker_scope, "__oryn_worker_emit")
@@ -2534,7 +2621,8 @@ mod raw_v8 {
                 let global_name = serde_json::to_string(global_kind.web_name())
                     .map_err(|error| error.to_string())?;
                 let bootstrap = format!(
-                    "globalThis.location=Object.freeze({{href:{url},origin:{origin},pathname:{pathname}}});globalThis.__oryn_worker_global_name={global_name};{}{}",
+                    "globalThis.location=Object.freeze({{href:{url},origin:{origin},pathname:{pathname},toString(){{return this.href}}}});globalThis.__oryn_worker_global_name={global_name};globalThis.__oryn_referrer_policy={};{}{}",
+                    serde_json::to_string(&referrer_policy).map_err(|error| error.to_string())?,
                     DEDICATED_WORKER_BOOTSTRAP,
                     crate::observable::OBSERVABLE_GLOBALS,
                 );
@@ -2556,9 +2644,20 @@ mod raw_v8 {
                     {
                         return Err("worker module linking failed".into());
                     }
-                    module
+                    let evaluation = module
                         .evaluate(worker_scope)
                         .ok_or_else(|| "worker module evaluation failed".to_string())?;
+                    worker_scope.perform_microtask_checkpoint();
+                    if let Ok(promise) = v8::Local::<v8::Promise>::try_from(evaluation)
+                        && promise.state() == v8::PromiseState::Rejected
+                    {
+                        return Err(format!(
+                            "worker module evaluation rejected: {}",
+                            promise
+                                .result(worker_scope)
+                                .to_rust_string_lossy(worker_scope)
+                        ));
+                    }
                 } else {
                     let source = v8::String::new(worker_scope, &source)
                         .ok_or_else(|| "worker source allocation failed".to_string())?;
@@ -2603,6 +2702,98 @@ mod raw_v8 {
         }
     }
 
+    fn import_scripts_callback(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        mut return_value: v8::ReturnValue<v8::Value>,
+    ) {
+        #[cfg(unix)]
+        let context = scope.get_slot::<ContextState>().cloned();
+        let result = (|| -> Result<(), String> {
+            let location = scope
+                .get_current_context()
+                .global(scope)
+                .get(
+                    scope,
+                    v8::String::new(scope, "location")
+                        .ok_or_else(|| "worker location allocation failed".to_string())?
+                        .into(),
+                )
+                .and_then(|value| value.to_object(scope))
+                .and_then(|location| {
+                    location.get(
+                        scope,
+                        v8::String::new(scope, "href")
+                            .expect("static worker href name")
+                            .into(),
+                    )
+                })
+                .and_then(|value| value.to_string(scope))
+                .map(|value| value.to_rust_string_lossy(scope))
+                .ok_or_else(|| "worker location is unavailable".to_string())?;
+            for index in 0..args.length() {
+                let requested = args
+                    .get(index)
+                    .to_string(scope)
+                    .map(|value| value.to_rust_string_lossy(scope))
+                    .ok_or_else(|| "importScripts URL is not string-convertible".to_string())?;
+                #[cfg(unix)]
+                let (url, source) = {
+                    let context = context.as_ref().ok_or_else(|| {
+                        "importScripts context service is unavailable".to_string()
+                    })?;
+                    match context
+                        .client
+                        .request(ContextServiceRequest::LoadScript {
+                            page_id: context.page_id,
+                            url: requested,
+                            module: false,
+                            nonce: None,
+                            initiator_url: Some(location.clone()),
+                            referrer_policy: None,
+                        })
+                        .map_err(|error| error.to_string())?
+                    {
+                        ContextServiceResponse::ScriptSource { url, source, .. } => (url, source),
+                        _ => return Err("importScripts received an invalid response".into()),
+                    }
+                };
+                #[cfg(not(unix))]
+                let (url, source): (String, String) = {
+                    let _ = (&requested, &location);
+                    return Err("importScripts requires the parent context service".into());
+                };
+                let source = v8::String::new(scope, &source)
+                    .ok_or_else(|| "importScripts source allocation failed".to_string())?;
+                let resource = v8::String::new(scope, &url)
+                    .ok_or_else(|| "importScripts resource-name allocation failed".to_string())?;
+                let origin = v8::ScriptOrigin::new(
+                    scope,
+                    resource.into(),
+                    0,
+                    0,
+                    false,
+                    0,
+                    None,
+                    false,
+                    false,
+                    false,
+                    None,
+                );
+                let script = v8::Script::compile(scope, source, Some(&origin))
+                    .ok_or_else(|| format!("importScripts compilation failed for {url}"))?;
+                script
+                    .run(scope)
+                    .ok_or_else(|| format!("importScripts execution failed for {url}"))?;
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => return_value.set(v8::undefined(scope).into()),
+            Err(error) => throw_type_error(scope, &error),
+        }
+    }
+
     fn dedicated_worker_post_callback(
         scope: &mut v8::PinScope,
         args: v8::FunctionCallbackArguments,
@@ -2635,15 +2826,21 @@ mod raw_v8 {
             let context = v8::Local::new(scope, &context);
             let worker_scope = &mut v8::ContextScope::new(scope, context);
             let encoded = serde_json::to_string(&encoded).map_err(|error| error.to_string())?;
+            let try_catch = std::pin::pin!(v8::TryCatch::new(worker_scope));
+            let mut try_catch = try_catch.init();
             let source =
-                v8::String::new(worker_scope, &format!("__oryn_dispatch_message({encoded})"))
+                v8::String::new(&try_catch, &format!("__oryn_dispatch_message({encoded})"))
                     .ok_or_else(|| "worker message allocation failed".to_string())?;
-            let script = v8::Script::compile(worker_scope, source, None)
+            let script = v8::Script::compile(&try_catch, source, None)
                 .ok_or_else(|| "worker message compilation failed".to_string())?;
-            script
-                .run(worker_scope)
-                .ok_or_else(|| "worker message dispatch failed".to_string())?;
-            worker_scope.perform_microtask_checkpoint();
+            if script.run(&try_catch).is_none() {
+                let detail = try_catch
+                    .exception()
+                    .map(|value| value.to_rust_string_lossy(&try_catch))
+                    .unwrap_or_else(|| "unknown exception".into());
+                return Err(format!("worker message dispatch failed: {detail}"));
+            }
+            try_catch.perform_microtask_checkpoint();
             Ok(true)
         })();
         match result {
@@ -3524,12 +3721,55 @@ mod raw_v8 {
         {
             return None;
         }
-        let fetch = scope.get_slot::<FetchState>()?.clone();
-        let base = Url::parse(resource_name)
-            .ok()
-            .or_else(|| fetch.base_url.join(resource_name).ok())
-            .unwrap_or_else(|| fetch.base_url.clone());
+        let fetch = scope.get_slot::<FetchState>().cloned();
+        let fallback_base = fetch.as_ref().map(|state| state.base_url.clone());
+        let base = if resource_name.trim().is_empty() || resource_name == "undefined" {
+            fallback_base
+        } else {
+            Url::parse(resource_name)
+                .ok()
+                .or_else(|| {
+                    fallback_base
+                        .as_ref()
+                        .and_then(|base| base.join(resource_name).ok())
+                })
+                .or(fallback_base)
+        }?;
         let url = base.join(specifier).ok()?;
+        #[cfg(unix)]
+        if let Some(context) = scope.get_slot::<ContextState>().cloned() {
+            let referrer_policy = scope
+                .get_current_context()
+                .global(scope)
+                .get(
+                    scope,
+                    v8::String::new(scope, "__oryn_referrer_policy")?.into(),
+                )
+                .filter(|value| !value.is_null_or_undefined())
+                .and_then(|value| value.to_string(scope))
+                .map(|value| value.to_rust_string_lossy(scope))
+                .filter(|value| !value.trim().is_empty());
+            let response = context
+                .client
+                .request(ContextServiceRequest::LoadScript {
+                    page_id: context.page_id,
+                    url: url.to_string(),
+                    module: true,
+                    nonce: None,
+                    initiator_url: Some(base.to_string()),
+                    referrer_policy,
+                })
+                .ok()?;
+            let ContextServiceResponse::ScriptSource { url, source, .. } = response else {
+                return None;
+            };
+            scope
+                .get_slot_mut::<ModuleSources>()?
+                .0
+                .insert(url.clone(), source);
+            return Some(url);
+        }
+        let fetch = fetch?;
         let response = collect_operation_bounded(
             &fetch.broker,
             NetworkRequest {

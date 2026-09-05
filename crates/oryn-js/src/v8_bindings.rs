@@ -2688,7 +2688,11 @@ pub fn install_generated_bindings_with_root_for_global(
                                 .constant_value
                                 .ok_or(V8BindingError::Allocation("WebIDL constant value"))?,
                         )?;
-                        prototype.set(name.into(), value.into());
+                        prototype.set_with_attr(
+                            name.into(),
+                            value.into(),
+                            v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_DELETE,
+                        );
                     }
                     GeneratedMemberKind::Iterable => {
                         let function = v8::FunctionTemplate::builder(generated_operation)
@@ -2704,6 +2708,19 @@ pub fn install_generated_bindings_with_root_for_global(
             let constructor = template
                 .get_function(scope)
                 .ok_or(V8BindingError::MissingInterface(interface.name))?;
+            let prototype_name = v8::String::new(scope, "prototype")
+                .ok_or(V8BindingError::Allocation("prototype name"))?;
+            let interface_prototype = constructor
+                .get(scope, prototype_name.into())
+                .ok_or(V8BindingError::Allocation("interface prototype"))?;
+            constructor.define_own_property(
+                scope,
+                prototype_name.into(),
+                interface_prototype,
+                v8::PropertyAttribute::READ_ONLY
+                    | v8::PropertyAttribute::DONT_ENUM
+                    | v8::PropertyAttribute::DONT_DELETE,
+            );
             if let Some(parent) = interface.parent {
                 // A child exposed in Worker can inherit from a parent whose
                 // constructor is intentionally not exposed on that global.
@@ -2715,8 +2732,6 @@ pub fn install_generated_bindings_with_root_for_global(
                         .get(parent)
                         .ok_or(V8BindingError::MissingInterface(parent))?,
                 );
-                let prototype_name = v8::String::new(scope, "prototype")
-                    .ok_or(V8BindingError::Allocation("prototype name"))?;
                 let child_prototype = constructor
                     .get(scope, prototype_name.into())
                     .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
@@ -2739,14 +2754,20 @@ pub fn install_generated_bindings_with_root_for_global(
                         .constant_value
                         .ok_or(V8BindingError::Allocation("WebIDL constant value"))?,
                 )?;
-                constructor.create_data_property(scope, name.into(), value);
+                constructor.define_own_property(
+                    scope,
+                    name.into(),
+                    value,
+                    v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_DELETE,
+                );
             }
             if interface.exposed.contains(&binding_global.webidl_name()) {
                 let global = context.global(scope);
-                global.set(
+                global.define_own_property(
                     scope,
                     v8::String::new(scope, interface.name).unwrap().into(),
                     constructor.into(),
+                    v8::PropertyAttribute::DONT_ENUM,
                 );
             }
             state
@@ -3035,6 +3056,14 @@ fn install_dom_exception_intrinsics(
         .and_then(|constructor| constructor.get(scope, prototype_name.into()))
         .ok_or(V8BindingError::Allocation("Error prototype"))?;
     dom_prototype.set_prototype(scope, error_prototype);
+    let stack_shim = v8::String::new(
+        scope,
+        "if(!Object.getOwnPropertyDescriptor(Error.prototype,'stack'))Object.defineProperty(Error.prototype,'stack',{configurable:true,enumerable:false,get:function(){return String(this.name||'Error')+(this.message?': '+String(this.message):'')},set:function(value){if(this!==Error.prototype)Object.defineProperty(this,'stack',{value:value,writable:true,enumerable:true,configurable:true})}})",
+    )
+    .ok_or(V8BindingError::Allocation("Error stack accessor source"))?;
+    v8::Script::compile(scope, stack_shim, None)
+        .and_then(|script| script.run(scope))
+        .ok_or(V8BindingError::Allocation("Error stack accessor"))?;
     Ok(())
 }
 
@@ -5571,8 +5600,6 @@ fn initialize_platform_constructor<'s>(
             },
         );
         bind_platform_object(scope, state, id, args.this());
-        let stack = v8_string(scope, "DOMException")?;
-        set_object_property(scope, args.this(), "stack", stack)?;
         return Ok(true);
     }
     if name == "URL" {
@@ -7227,7 +7254,7 @@ fn generated_operation<'s>(
     match result {
         Ok(Some(value)) => return_value.set(value),
         Ok(None) => return_value.set(v8::undefined(scope).into()),
-        Err(error) => throw_type_error(scope, &error.to_string()),
+        Err(error) => throw_binding_error(scope, &error),
     }
 }
 
@@ -10922,6 +10949,7 @@ fn location_href(scope: &mut v8::PinScope) -> Result<String, V8BindingError> {
 fn request_initiator_url(scope: &mut v8::PinScope) -> Option<String> {
     global_property(scope, "__oryn_request_initiator_url")
         .ok()
+        .filter(|value| !value.is_null_or_undefined())
         .and_then(|value| value.to_string(scope))
         .map(|value| value.to_rust_string_lossy(scope))
         .filter(|value| !value.trim().is_empty())
@@ -18416,6 +18444,12 @@ fn call_operation<'s>(
         }
         ("Document", "createElement") => {
             let name = required_string(scope, args, 0)?;
+            if !is_valid_xml_name(&name) {
+                return Err(V8BindingError::Unsupported {
+                    interface: "Document".into(),
+                    member: "InvalidCharacterError".into(),
+                });
+            }
             let created = state
                 .dom
                 .borrow_mut()
@@ -20971,6 +21005,23 @@ fn required_string(
     rust_string_preserving_utf16(scope, value)
 }
 
+fn is_valid_xml_name(value: &str) -> bool {
+    let mut characters = value.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    let valid_start =
+        |character: char| character == ':' || character == '_' || character.is_alphabetic();
+    let valid_continue = |character: char| {
+        valid_start(character)
+            || character.is_ascii_digit()
+            || matches!(character, '-' | '.' | '\u{00B7}')
+            || ('\u{0300}'..='\u{036F}').contains(&character)
+            || ('\u{203F}'..='\u{2040}').contains(&character)
+    };
+    valid_start(first) && characters.all(valid_continue)
+}
+
 const WTF16_STRING_PREFIX: &str = "\u{f0000}oryn-wtf16:";
 
 fn rust_string_preserving_utf16(
@@ -22673,6 +22724,16 @@ mod tests {
                 "b { color: red }",
             ]
         );
+    }
+
+    #[test]
+    fn xml_name_validation_rejects_empty_and_whitespace_names() {
+        assert!(is_valid_xml_name("section"));
+        assert!(is_valid_xml_name("svg:path"));
+        assert!(is_valid_xml_name("élément"));
+        assert!(!is_valid_xml_name(""));
+        assert!(!is_valid_xml_name("two words"));
+        assert!(!is_valid_xml_name("1section"));
     }
 
     #[test]

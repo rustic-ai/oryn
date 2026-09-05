@@ -294,6 +294,8 @@ pub enum ContextServiceResponse {
         url: String,
         source: String,
         module: bool,
+        #[serde(default)]
+        referrer_policy: String,
     },
     ScriptSource {
         url: String,
@@ -1272,11 +1274,15 @@ impl ParentContextService {
         })?;
         let page_url = self.context.page_url(page_id)?;
         let source_url = request.initiator_url.as_deref().unwrap_or(&page_url);
-        let source =
-            Url::parse(source_url).map_err(|error| RuntimeError::Network(error.to_string()))?;
+        let page_base =
+            Url::parse(&page_url).map_err(|error| RuntimeError::Network(error.to_string()))?;
+        let source = Url::parse(source_url)
+            .or_else(|_| page_base.join(source_url))
+            .map_err(|error| RuntimeError::Network(error.to_string()))?;
         let source_origin = source.origin().ascii_serialization();
-        let mut target =
-            Url::parse(&request.url).map_err(|error| RuntimeError::Network(error.to_string()))?;
+        let mut target = Url::parse(&request.url)
+            .or_else(|_| source.join(&request.url))
+            .map_err(|error| RuntimeError::Network(error.to_string()))?;
         let base_headers = sanitize_worker_headers(request.headers);
         let method = request.method;
         let credentials_mode = request.credentials_mode.clone();
@@ -1314,7 +1320,7 @@ impl ParentContextService {
                     "request blocked by Content-Security-Policy connect-src".into(),
                 ));
             }
-            enforce_mixed_content(source_url, &target)?;
+            enforce_mixed_content(source.as_str(), &target)?;
             let cross_origin = target.origin().ascii_serialization() != source_origin;
             let credentials = match credentials_mode.as_deref() {
                 Some("include") => true,
@@ -1801,10 +1807,23 @@ impl ParentContextService {
                 content_type,
                 oryn_net::TextResourceKind::JavaScript,
             );
+            let referrer_policy = response
+                .headers
+                .iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case("referrer-policy"))
+                .map(|(_, value)| value.as_str())
+                .collect::<Vec<_>>()
+                .join(",");
+            let referrer_policy = if referrer_policy.trim().is_empty() {
+                "strict-origin-when-cross-origin".to_string()
+            } else {
+                referrer_policy
+            };
             return Ok(ContextServiceResponse::WorkerScript {
                 url: url.to_string(),
                 source,
                 module,
+                referrer_policy,
             });
         }
         Err(RuntimeError::Network(
@@ -1889,6 +1908,25 @@ impl ParentContextService {
                 return Err(RuntimeError::ContextService(
                     "dynamic script blocked by Content-Security-Policy script-src".into(),
                 ));
+            }
+            if url.scheme() == "data" {
+                let (media_type, body) = crate::network::decode_data_url(&url)
+                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                if body.len() > 1024 * 1024 {
+                    return Err(RuntimeError::WorkerLimitExceeded {
+                        resource: "decoded dynamic script data URL".into(),
+                    });
+                }
+                let (source, _) = oryn_net::decode_resource_text(
+                    &body,
+                    media_type.as_deref(),
+                    oryn_net::TextResourceKind::JavaScript,
+                );
+                return Ok(ContextServiceResponse::ScriptSource {
+                    url: url.to_string(),
+                    source,
+                    module,
+                });
             }
             let mut headers = vec![(
                 "accept".into(),
