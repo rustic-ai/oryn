@@ -271,6 +271,7 @@ interface Node : EventTarget {
   Node insertBefore(Node child, Node? reference);
   Node removeChild(Node child);
   Node replaceChild(Node child, Node replaced);
+  undefined moveBefore(Node movedNode, Node? referenceNode);
   Node cloneNode(optional boolean deep = false);
   boolean contains(Node? other);
   boolean isEqualNode(Node? other);

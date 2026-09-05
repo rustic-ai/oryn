@@ -19677,6 +19677,27 @@ fn call_operation<'s>(
             }
             Ok(Some(wrap_node(scope, state, child)?.into()))
         }
+        (_, "moveBefore") => {
+            let moved = argument_node(scope, state, args.get(0))?;
+            let reference = optional_argument_node(scope, state, args.get(1))?;
+            validate_tree_insertion(&state.dom.borrow(), node, moved)?;
+            if let Some(reference) = reference
+                && state.dom.borrow().arena().get(reference)?.parent != Some(node)
+            {
+                return Err(V8BindingError::Unsupported {
+                    interface: "Node".into(),
+                    member: "NotFoundError".into(),
+                });
+            }
+            // DomRuntime owns the live node and wrapper lease. Moving that
+            // same NodeId preserves JavaScript identity and all Rust-owned
+            // state; the mutation journal records the old and new parentage.
+            state
+                .dom
+                .borrow_mut()
+                .insert_before(node, moved, reference)?;
+            Ok(None)
+        }
         (_, "cloneNode") => {
             let deep = args.get(0).boolean_value(scope);
             let clone = state.dom.borrow_mut().clone_node(node, deep)?;
