@@ -2035,6 +2035,18 @@ impl ParentContextService {
                 "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
                 oryn_net::TextResourceKind::Html,
             ),
+            "image" => (
+                crate::csp::CspDestination::Image,
+                crate::cookies::CookieRequestKind::Image,
+                "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                oryn_net::TextResourceKind::Fetch,
+            ),
+            "font" => (
+                crate::csp::CspDestination::Font,
+                crate::cookies::CookieRequestKind::Font,
+                "font/woff2,font/woff,application/font-woff,*/*;q=0.1",
+                oryn_net::TextResourceKind::Fetch,
+            ),
             _ => {
                 return Err(RuntimeError::ContextService(format!(
                     "unsupported parser resource destination {destination:?}"

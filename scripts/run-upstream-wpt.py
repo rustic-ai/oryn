@@ -699,7 +699,7 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
         headers = {
             name: value
             for name, value in self.headers.items()
-            if name.lower() not in {"connection", "content-length", "transfer-encoding"}
+            if name.lower() not in {"content-length", "transfer-encoding"}
         }
         # Preserve the browser-visible authority for wptserve substitutions and
         # handler logic; only the TCP destination is private.

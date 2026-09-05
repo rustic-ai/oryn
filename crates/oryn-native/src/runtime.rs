@@ -2575,10 +2575,35 @@ impl BrowserContext {
             .expected_meta_security
             .lock()
             .map_err(|_| RuntimeError::ContextService("meta security lock poisoned".into()))?
-            .insert(
-                page_id,
-                crate::csp::CspPolicySet::meta_policies_from_html(html).into(),
-            );
+            .insert(page_id, std::collections::VecDeque::new());
+        let meta_policies = crate::csp::CspPolicySet::meta_policies_from_html(html);
+        for serialized in meta_policies {
+            self.append_document_meta_security(page_id, serialized)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn append_document_meta_security(
+        &self,
+        page_id: PageId,
+        serialized: String,
+    ) -> Result<(), RuntimeError> {
+        {
+            let mut policies = self.inner.document_security.lock().map_err(|_| {
+                RuntimeError::ContextService("document security lock poisoned".into())
+            })?;
+            let policy = policies.get_mut(&page_id).ok_or_else(|| {
+                RuntimeError::ContextService("document policy is not installed".into())
+            })?;
+            policy.install_meta(&serialized);
+        }
+        self.inner
+            .expected_meta_security
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("meta security lock poisoned".into()))?
+            .entry(page_id)
+            .or_default()
+            .push_back(serialized);
         Ok(())
     }
 
@@ -2613,22 +2638,10 @@ impl BrowserContext {
         page_id: PageId,
         request: &crate::csp::CspRequest,
     ) -> Result<crate::csp::CspDecision, RuntimeError> {
-        let pending = self
-            .inner
-            .expected_meta_security
-            .lock()
-            .map_err(|_| RuntimeError::ContextService("meta security lock poisoned".into()))?
-            .remove(&page_id)
-            .unwrap_or_default();
-        let mut policies =
+        let policies =
             self.inner.document_security.lock().map_err(|_| {
                 RuntimeError::ContextService("document security lock poisoned".into())
             })?;
-        if let Some(policy) = policies.get_mut(&page_id) {
-            for serialized in pending {
-                policy.install_meta(&serialized);
-            }
-        }
         Ok(policies.get(&page_id).map_or(
             crate::csp::CspDecision {
                 allowed: true,
@@ -2798,33 +2811,47 @@ impl BrowserContext {
     ) -> Result<(), RuntimeError> {
         #[cfg(not(test))]
         {
-            let mut expected =
-                self.inner.expected_meta_security.lock().map_err(|_| {
+            let next = {
+                let mut expected = self.inner.expected_meta_security.lock().map_err(|_| {
                     RuntimeError::ContextService("meta security lock poisoned".into())
                 })?;
-            let next = expected
-                .get_mut(&page_id)
-                .and_then(std::collections::VecDeque::pop_front)
-                .ok_or_else(|| {
-                    RuntimeError::ProtocolViolation(
-                        "worker reported a CSP meta policy not present in the parent response"
-                            .into(),
-                    )
-                })?;
-            if next != serialized {
+                expected
+                    .get_mut(&page_id)
+                    .and_then(std::collections::VecDeque::pop_front)
+            };
+            if next.as_deref().is_some_and(|next| next != serialized) {
                 return Err(RuntimeError::ProtocolViolation(
                     "worker CSP meta policy did not match parent response order".into(),
                 ));
             }
+            if next.is_none() {
+                // A streamed meta element can cross the parent scanner's
+                // current decode boundary while html5ever already has enough
+                // input to publish it. Accepting an additional meta policy is
+                // fail-safe: CSP policies combine restrictively and meta
+                // sandbox/reporting directives are ignored by install_meta.
+                // Omissions remain prevented by the parent-side stream scan.
+                let mut policies = self.inner.document_security.lock().map_err(|_| {
+                    RuntimeError::ContextService("document security lock poisoned".into())
+                })?;
+                let policy = policies.get_mut(&page_id).ok_or_else(|| {
+                    RuntimeError::ContextService("document policy is not installed".into())
+                })?;
+                if !policy.contains_meta(serialized) {
+                    policy.install_meta(serialized);
+                }
+            }
         }
-        let mut policies =
-            self.inner.document_security.lock().map_err(|_| {
+        #[cfg(test)]
+        {
+            let mut policies = self.inner.document_security.lock().map_err(|_| {
                 RuntimeError::ContextService("document security lock poisoned".into())
             })?;
-        let policy = policies.get_mut(&page_id).ok_or_else(|| {
-            RuntimeError::ContextService("document policy is not installed".into())
-        })?;
-        policy.install_meta(serialized);
+            let policy = policies.get_mut(&page_id).ok_or_else(|| {
+                RuntimeError::ContextService("document policy is not installed".into())
+            })?;
+            policy.install_meta(serialized);
+        }
         Ok(())
     }
 
@@ -3163,7 +3190,7 @@ impl BrowserContext {
                         let _ = reply.send(state.evaluate(&source));
                     }
                     PageCommand::PollContextEvents => {
-                        if let Err(error) = state.evaluate("__oryn_drain(false);''") {
+                        if let Err(error) = state.poll_page_tasks() {
                             state.trace.push(
                                 Revision(state.revision),
                                 None,
@@ -5589,7 +5616,16 @@ impl PageState {
             // authorized at its parser boundary and is never replayed here.
             let _ = self.enforce_csp_html(&capture.source);
             self.load_auxiliary_resources(&current, &capture.source);
-            let stylesheet_source = self.inline_external_stylesheets(&current, &capture.source)?;
+            // Parser and script mutations already share the authoritative
+            // Rust DOM. Re-parsing the original response here can mistake
+            // markup embedded in JavaScript strings for live stylesheets and
+            // duplicate network requests. Layout/font discovery consumes the
+            // current DOM serialization instead.
+            let stylesheet_source = self
+                .document
+                .as_ref()
+                .map(|document| serialize_dom_node(&document.dom, document.document))
+                .unwrap_or_default();
             self.web_fonts = self.load_web_fonts(&current, &stylesheet_source)?;
             self.layout = None;
             self.style_revision = self.style_revision.saturating_add(1);
@@ -5984,7 +6020,8 @@ impl PageState {
     #[cfg(not(feature = "v8-host"))]
     fn load_auxiliary_resources(&mut self, _base_url: &Url, _html: &str) {}
 
-    #[cfg(feature = "v8-host")]
+    #[cfg(all(feature = "v8-host", test))]
+    #[allow(dead_code)]
     fn inline_external_stylesheets(
         &mut self,
         base_url: &Url,
@@ -6033,7 +6070,8 @@ impl PageState {
         self.expand_inline_style_imports(base_url, &expanded)
     }
 
-    #[cfg(feature = "v8-host")]
+    #[cfg(all(feature = "v8-host", test))]
+    #[allow(dead_code)]
     fn expand_inline_style_imports(
         &mut self,
         base_url: &Url,
@@ -6060,7 +6098,8 @@ impl PageState {
         Ok(output)
     }
 
-    #[cfg(feature = "v8-host")]
+    #[cfg(all(feature = "v8-host", test))]
+    #[allow(dead_code)]
     fn load_stylesheet_recursive(
         &mut self,
         url: &Url,
@@ -6083,7 +6122,8 @@ impl PageState {
         self.expand_css_imports(url, &css, depth, visited)
     }
 
-    #[cfg(feature = "v8-host")]
+    #[cfg(all(feature = "v8-host", test))]
+    #[allow(dead_code)]
     fn expand_css_imports(
         &mut self,
         base_url: &Url,
@@ -6638,7 +6678,7 @@ impl PageState {
         {
             self.executable
                 .as_mut()
-                .is_some_and(|executable| executable.has_pending_page_work())
+                .is_some_and(|executable| executable.has_runnable_page_work())
         }
         #[cfg(not(feature = "v8-host"))]
         {
@@ -6719,6 +6759,78 @@ impl PageState {
         self.wait_satisfied(predicate)
             .then_some(())
             .ok_or_else(|| RuntimeError::WaitUnsatisfied(format!("{predicate:?}")))
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn poll_page_tasks(&mut self) -> Result<(), RuntimeError> {
+        let before = self.semantic_graph.semantic_revision();
+        let (console_entries, context_entries, location, history_traversal) = {
+            let executable = self
+                .executable
+                .as_mut()
+                .ok_or(RuntimeError::EvaluationUnavailable)?;
+            executable.drain_tasks().map_err(map_host_error)?;
+            (
+                executable.take_console_entries().unwrap_or_default(),
+                executable.take_context_trace_entries().unwrap_or_default(),
+                executable.location().ok(),
+                executable
+                    .take_history_traversal()
+                    .map_err(map_host_error)?,
+            )
+        };
+        self.sync_executable_semantics();
+        for entry in console_entries {
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::Console {
+                    level: entry.level,
+                    message: entry.message,
+                },
+            );
+        }
+        for entry in context_entries {
+            match entry.kind.as_str() {
+                "request_started" => self.network_quiet_since = None,
+                "response_received" => self.network_quiet_since = Some(Instant::now()),
+                _ => {}
+            }
+            if let Some(kind) = context_trace_kind(entry) {
+                self.trace.push(Revision(self.revision), None, kind);
+            }
+        }
+        if let Some(delta) = history_traversal {
+            let delta = isize::try_from(delta).map_err(|_| RuntimeError::HistoryBoundary)?;
+            self.traverse_history(delta)?;
+            return Ok(());
+        }
+        if let Some(location) = location
+            && location != self.url
+            && Url::parse(&location).ok() != Url::parse(&self.url).ok()
+        {
+            self.navigate(location, HistoryUpdate::Push)?;
+            return Ok(());
+        }
+        let after = self.semantic_graph.semantic_revision();
+        if before != after {
+            self.refresh_layout()?;
+            self.revision += 1;
+            self.record_snapshot();
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::Mutation {
+                    summary: "asynchronous page checkpoint".into(),
+                },
+            );
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "v8-host"))]
+    fn poll_page_tasks(&mut self) -> Result<(), RuntimeError> {
+        Ok(())
     }
 
     fn wait_satisfied(&self, predicate: &WaitPredicate) -> bool {

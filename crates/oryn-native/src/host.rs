@@ -218,7 +218,15 @@ mod raw_v8 {
     struct ModuleNames(BTreeMap<i32, String>);
 
     #[derive(Default)]
-    struct ModuleCache(BTreeMap<String, v8::Global<v8::Module>>);
+    struct ModuleCache(BTreeMap<(i32, String), v8::Global<v8::Module>>);
+
+    fn current_realm_identity(scope: &mut v8::PinScope<'_, '_>) -> i32 {
+        scope
+            .get_current_context()
+            .global(scope)
+            .get_identity_hash()
+            .get()
+    }
 
     #[derive(Default)]
     struct ModuleResolutionFailures(Vec<String>);
@@ -1384,6 +1392,21 @@ mod raw_v8 {
                 .collect())
         }
 
+        pub fn take_all_pending_dynamic_stylesheets(
+            &self,
+        ) -> Result<Vec<(RealmId, NodeId)>, HostError> {
+            Ok(self
+                .binding_states
+                .iter()
+                .flat_map(|(realm, state)| {
+                    state
+                        .take_pending_dynamic_stylesheets()
+                        .into_iter()
+                        .map(|stylesheet| (*realm, stylesheet))
+                })
+                .collect())
+        }
+
         pub fn take_all_pending_dynamic_frames(&self) -> Result<Vec<(RealmId, NodeId)>, HostError> {
             Ok(self
                 .binding_states
@@ -1915,6 +1938,27 @@ mod raw_v8 {
                     })
         }
 
+        pub fn has_runnable_page_work(&mut self) -> bool {
+            self.has_pending_async_fetches()
+                || self.next_timer_delay().is_some_and(|delay| delay.is_zero())
+                || self
+                    .binding_states
+                    .values()
+                    .any(|state| state.has_pending_platform_work())
+                || self
+                    .isolate
+                    .get_slot::<DedicatedWorkers>()
+                    .is_some_and(|registry| {
+                        registry.workers.values().any(|worker| {
+                            !worker.closed
+                                && worker
+                                    .binding_state
+                                    .as_ref()
+                                    .is_some_and(|state| state.has_pending_platform_work())
+                        })
+                    })
+        }
+
         /// Create another global realm in this page's isolate. DOM wrappers are
         /// still installed separately; this method only establishes the V8
         /// context and its immutable security identity.
@@ -2043,9 +2087,10 @@ mod raw_v8 {
                     .expect("active realm context exists"),
             );
             let scope = &mut v8::ContextScope::new(handle_scope, context);
+            let cache_key = (current_realm_identity(scope), resource_name.into());
             let cached = scope
                 .get_slot::<ModuleCache>()
-                .and_then(|cache| cache.0.get(resource_name))
+                .and_then(|cache| cache.0.get(&cache_key))
                 .cloned();
             let module = if let Some(cached) = cached {
                 v8::Local::new(scope, cached)
@@ -2063,7 +2108,7 @@ mod raw_v8 {
                     .get_slot_mut::<ModuleCache>()
                     .expect("module cache installed")
                     .0
-                    .insert(resource_name.into(), global);
+                    .insert(cache_key, global);
                 module
             };
             if module.get_status() == v8::ModuleStatus::Uninstantiated {
@@ -2196,9 +2241,10 @@ mod raw_v8 {
             if let Some(updated) = scope.get_slot::<ModuleSources>() {
                 sources = updated.0.clone();
             }
+            let cache_key = (current_realm_identity(scope), resolved.clone());
             let cached = scope
                 .get_slot::<ModuleCache>()
-                .and_then(|cache| cache.0.get(&resolved))
+                .and_then(|cache| cache.0.get(&cache_key))
                 .cloned();
             let module = if let Some(cached) = cached {
                 v8::Local::new(scope, cached)
@@ -2220,7 +2266,7 @@ mod raw_v8 {
                     .get_slot_mut::<ModuleCache>()
                     .ok_or_else(|| "module cache is unavailable".to_string())?
                     .0
-                    .insert(resolved.clone(), global);
+                    .insert(cache_key, global);
                 module
             };
             if module.get_status() == v8::ModuleStatus::Uninstantiated
@@ -3684,9 +3730,10 @@ mod raw_v8 {
             }
             return None;
         };
+        let cache_key = (current_realm_identity(scope), resolved.clone());
         if let Some(module) = scope
             .get_slot::<ModuleCache>()
-            .and_then(|cache| cache.0.get(&resolved))
+            .and_then(|cache| cache.0.get(&cache_key))
             .cloned()
         {
             return Some(v8::Local::new(scope, module));
@@ -3706,7 +3753,7 @@ mod raw_v8 {
         scope
             .get_slot_mut::<ModuleCache>()?
             .0
-            .insert(resolved, global);
+            .insert(cache_key, global);
         Some(module)
     }
 

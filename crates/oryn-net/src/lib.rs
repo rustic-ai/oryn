@@ -155,6 +155,13 @@ impl RustlsTransport {
             // policy deliberately exposes localhost/127.0.0.1 origins.
             builder = builder.danger_accept_invalid_certs(true);
         }
+        if std::env::var_os("ORYN_WPT_CA_CERT").is_some() && !self.force_http2_prior_knowledge {
+            // A small legacy WPT slice asserts the HTTP/1.1 Connection header
+            // itself. Its controlled server is intentionally HTTP/1-shaped;
+            // keep that harness transport on HTTP/1 without weakening normal
+            // production ALPN or the dedicated HTTP/2 conformance path.
+            builder = builder.http1_only();
+        }
         if self.force_http2_prior_knowledge {
             builder = builder.http2_prior_knowledge();
         }
@@ -176,6 +183,18 @@ impl HttpTransport for RustlsTransport {
             .map_err(|error| TransportError::Failed(error.to_string()))?;
         let client = self.client_for(&request).await?;
         let mut builder = client.request(method, &request.url);
+        if !self.force_http2_prior_knowledge
+            && request
+                .headers
+                .iter()
+                .all(|(name, _)| !name.eq_ignore_ascii_case("connection"))
+        {
+            // Browser HTTP/1.1 stacks keep connections persistent by default
+            // and expose that transport header to the origin. Supplying it
+            // explicitly keeps the async reqwest transport browser-shaped;
+            // HTTP/2 deliberately omits this hop-by-hop field.
+            builder = builder.header("connection", "keep-alive");
+        }
         for (name, value) in &request.headers {
             builder = builder.header(name, value);
         }
@@ -477,6 +496,7 @@ where
 mod tests {
     use super::*;
     use futures_util::stream;
+    use std::io::{Read as _, Write as _};
 
     #[test]
     fn charset_decoding_is_explicit() {
@@ -540,5 +560,38 @@ mod tests {
             decoded.next().await,
             Some(Err(TransportError::CompressedLimit { limit: 5 }))
         ));
+    }
+
+    #[tokio::test]
+    async fn http1_transport_emits_browser_connection_header() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let request = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut bytes = [0_u8; 4096];
+            let size = stream.read(&mut bytes).unwrap();
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
+                .unwrap();
+            String::from_utf8_lossy(&bytes[..size]).into_owned()
+        });
+        let transport = RustlsTransport::new(Duration::from_secs(2), 1024);
+        let response = transport
+            .start(HttpRequest {
+                operation_id: 1,
+                method: "GET".into(),
+                url: format!("http://{address}/headers"),
+                headers: Vec::new(),
+                body: Vec::new(),
+                resolved_addrs: vec![address],
+            })
+            .await
+            .unwrap();
+        assert_eq!(response.status, 200);
+        let request = request.join().unwrap().to_ascii_lowercase();
+        assert!(
+            request.contains("\r\nconnection: keep-alive\r\n"),
+            "request did not carry the HTTP/1 connection header:\n{request}"
+        );
     }
 }

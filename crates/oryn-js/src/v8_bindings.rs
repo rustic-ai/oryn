@@ -746,6 +746,8 @@ pub struct V8BindingState {
     document_write_depth: Cell<u32>,
     pending_dynamic_scripts: RefCell<VecDeque<NodeId>>,
     prepared_scripts: RefCell<BTreeSet<NodeId>>,
+    pending_dynamic_stylesheets: RefCell<VecDeque<NodeId>>,
+    prepared_stylesheets: RefCell<BTreeSet<NodeId>>,
     pending_dynamic_frames: RefCell<VecDeque<NodeId>>,
     prepared_frames: RefCell<BTreeSet<NodeId>>,
     pending_default_actions: RefCell<VecDeque<PendingDefaultAction>>,
@@ -1245,8 +1247,23 @@ impl V8BindingState {
                     response.bytes.extend_from_slice(&bytes);
                 }
                 if done {
-                    let value = response_consumed_value(scope, self, response_id, &member)?;
-                    v8::Local::new(scope, resolver).resolve(scope, value);
+                    let resolver = v8::Local::new(scope, resolver);
+                    match response_consumed_value(scope, self, response_id, &member) {
+                        Ok(value) => {
+                            resolver.resolve(scope, value);
+                        }
+                        Err(error) => {
+                            let detail = error.to_string();
+                            let message = v8::String::new(scope, &detail)
+                                .ok_or(V8BindingError::Allocation("body error message"))?;
+                            let exception = if detail.contains("JSON parse failed") {
+                                v8::Exception::syntax_error(scope, message)
+                            } else {
+                                v8::Exception::type_error(scope, message)
+                            };
+                            resolver.reject(scope, exception);
+                        }
+                    }
                 } else {
                     submit_platform_operation(
                         self,
@@ -2281,6 +2298,13 @@ impl V8BindingState {
             .collect()
     }
 
+    pub fn take_pending_dynamic_stylesheets(&self) -> Vec<NodeId> {
+        self.pending_dynamic_stylesheets
+            .borrow_mut()
+            .drain(..)
+            .collect()
+    }
+
     pub fn take_pending_dynamic_frames(&self) -> Vec<NodeId> {
         self.pending_dynamic_frames.borrow_mut().drain(..).collect()
     }
@@ -2547,6 +2571,8 @@ pub fn install_generated_bindings_with_root_for_global(
         document_write_depth: Cell::new(0),
         pending_dynamic_scripts: RefCell::new(VecDeque::new()),
         prepared_scripts: RefCell::new(BTreeSet::new()),
+        pending_dynamic_stylesheets: RefCell::new(VecDeque::new()),
+        prepared_stylesheets: RefCell::new(BTreeSet::new()),
         pending_dynamic_frames: RefCell::new(VecDeque::new()),
         prepared_frames: RefCell::new(BTreeSet::new()),
         pending_default_actions: RefCell::new(VecDeque::new()),
@@ -5308,6 +5334,25 @@ fn resolved_promise<'s>(
         v8::PromiseResolver::new(scope).ok_or(V8BindingError::Allocation("resolved promise"))?;
     let promise = resolver.get_promise(scope);
     resolver.resolve(scope, value);
+    Ok(promise)
+}
+
+fn rejected_body_promise<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    error: &V8BindingError,
+) -> Result<v8::Local<'s, v8::Promise>, V8BindingError> {
+    let resolver =
+        v8::PromiseResolver::new(scope).ok_or(V8BindingError::Allocation("rejected promise"))?;
+    let promise = resolver.get_promise(scope);
+    let detail = error.to_string();
+    let message =
+        v8::String::new(scope, &detail).ok_or(V8BindingError::Allocation("body error message"))?;
+    let exception = if detail.contains("JSON parse failed") {
+        v8::Exception::syntax_error(scope, message)
+    } else {
+        v8::Exception::type_error(scope, message)
+    };
+    resolver.reject(scope, exception);
     Ok(promise)
 }
 
@@ -12258,8 +12303,10 @@ fn response_body_operation<'s>(
         )?;
         return Ok(promise.into());
     }
-    let value = response_value_from_bytes(scope, state, member, bytes)?;
-    Ok(resolved_promise(scope, value)?.into())
+    match response_value_from_bytes(scope, state, member, bytes) {
+        Ok(value) => Ok(resolved_promise(scope, value)?.into()),
+        Err(error) => Ok(rejected_body_promise(scope, &error)?.into()),
+    }
 }
 
 fn response_consumed_value<'s>(
@@ -16469,6 +16516,7 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "SVGElement"
         }
         NodeKind::Element { name } => match name.local.as_ref() {
+            "body" => "HTMLBodyElement",
             "template" => "HTMLTemplateElement",
             "audio" | "video" => "HTMLMediaElement",
             "canvas" => "HTMLCanvasElement",
@@ -16480,8 +16528,10 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "button" => "HTMLButtonElement",
             "form" => "HTMLFormElement",
             "a" => "HTMLAnchorElement",
+            "area" => "HTMLAreaElement",
             "link" => "HTMLLinkElement",
             "iframe" => "HTMLIFrameElement",
+            "script" => "HTMLScriptElement",
             _ => "HTMLElement",
         },
         NodeKind::Text { .. } => "Text",
@@ -17177,7 +17227,7 @@ fn get_attribute_value<'s>(
     if interface == "Element" && member == "classList" {
         return associated_wrapper(scope, state, node, "DOMTokenList");
     }
-    if interface == "HTMLElement" && member == "style" {
+    if matches!(interface, "HTMLElement" | "SVGElement") && member == "style" {
         return associated_wrapper(scope, state, node, "CSSStyleDeclaration");
     }
     if interface == "HTMLElement" && member == "dataset" {
@@ -17785,7 +17835,7 @@ fn get_attribute_value<'s>(
         (
             interface,
             "type" | "name" | "action" | "method" | "href" | "target" | "src" | "srcdoc"
-            | "sandbox" | "crossOrigin" | "referrerPolicy" | "rel" | "media",
+            | "sandbox" | "crossOrigin" | "referrerPolicy" | "rel" | "media" | "background",
         ) if interface.starts_with("HTML") => {
             let attribute = match member {
                 "crossOrigin" => "crossorigin",
@@ -17798,13 +17848,27 @@ fn get_attribute_value<'s>(
                 "type" if interface == "HTMLInputElement" => "text",
                 _ => "",
             };
-            v8_string(
-                scope,
-                record
-                    .attributes
-                    .get(attribute)
-                    .map_or(fallback, String::as_str),
-            )?
+            let reflected = record
+                .attributes
+                .get(attribute)
+                .map_or(fallback, String::as_str);
+            let reflected = if member == "referrerPolicy"
+                && !matches!(
+                    reflected.to_ascii_lowercase().as_str(),
+                    "" | "no-referrer"
+                        | "no-referrer-when-downgrade"
+                        | "origin"
+                        | "origin-when-cross-origin"
+                        | "same-origin"
+                        | "strict-origin"
+                        | "strict-origin-when-cross-origin"
+                        | "unsafe-url"
+                ) {
+                ""
+            } else {
+                reflected
+            };
+            v8_string(scope, reflected)?
         }
         ("HTMLSelectElement", "selectedIndex") => {
             let options = dom.query_selector_all(node, "option")?;
@@ -18097,7 +18161,7 @@ fn set_attribute_value(
         (
             interface,
             "type" | "name" | "action" | "method" | "href" | "target" | "src" | "srcdoc"
-            | "sandbox" | "crossOrigin" | "referrerPolicy" | "rel" | "media",
+            | "sandbox" | "crossOrigin" | "referrerPolicy" | "rel" | "media" | "background",
         ) if interface.starts_with("HTML") => {
             let attribute = match member {
                 "crossOrigin" => "crossorigin",
@@ -18120,6 +18184,29 @@ fn set_attribute_value(
             {
                 drop(dom);
                 prepare_dynamic_image_subtree(scope, state, node)?;
+                return Ok(());
+            }
+            if interface == "HTMLScriptElement"
+                && matches!(member, "src" | "type" | "referrerPolicy")
+            {
+                drop(dom);
+                state.prepared_scripts.borrow_mut().remove(&node);
+                state
+                    .pending_dynamic_scripts
+                    .borrow_mut()
+                    .retain(|pending| *pending != node);
+                prepare_dynamic_script_subtree(scope, state, node)?;
+                return Ok(());
+            }
+            if interface == "HTMLLinkElement" && matches!(member, "href" | "rel" | "referrerPolicy")
+            {
+                drop(dom);
+                state.prepared_stylesheets.borrow_mut().remove(&node);
+                state
+                    .pending_dynamic_stylesheets
+                    .borrow_mut()
+                    .retain(|pending| *pending != node);
+                prepare_dynamic_stylesheet_subtree(state, node)?;
                 return Ok(());
             }
         }
@@ -18152,6 +18239,15 @@ fn set_attribute_value(
                 member: member.into(),
             });
         }
+    }
+    drop(dom);
+    if interface == "CSSStyleDeclaration" || member == "background" {
+        state.prepared_stylesheets.borrow_mut().remove(&node);
+        state
+            .pending_dynamic_stylesheets
+            .borrow_mut()
+            .retain(|pending| *pending != node);
+        prepare_dynamic_stylesheet_subtree(state, node)?;
     }
     Ok(())
 }
@@ -20183,6 +20279,7 @@ fn prepare_dynamic_script_subtree(
 ) -> Result<(), V8BindingError> {
     prepare_dynamic_frame_subtree(state, root)?;
     prepare_dynamic_image_subtree(scope, state, root)?;
+    prepare_dynamic_stylesheet_subtree(state, root)?;
     for script in state.dynamic_script_candidates(root)? {
         if state.prepared_scripts.borrow().contains(&script) {
             continue;
@@ -20223,6 +20320,90 @@ fn prepare_dynamic_script_subtree(
             .run(scope)
             .ok_or(V8BindingError::Allocation("dynamic script result"))?;
         scope.perform_microtask_checkpoint();
+    }
+    Ok(())
+}
+
+fn prepare_dynamic_stylesheet_subtree(
+    state: &Rc<V8BindingState>,
+    root: NodeId,
+) -> Result<(), V8BindingError> {
+    let stylesheets = {
+        let dom = state.dom.borrow();
+        if !dom.is_connected(root)? {
+            return Ok(());
+        }
+        let mut stylesheets = vec![root];
+        stylesheets.extend(dom.query_selector_all(root, "*")?);
+        stylesheets
+            .into_iter()
+            .filter(|node| {
+                let processing_instruction = dom.arena().get(*node).is_ok_and(|record| {
+                    matches!(
+                        &record.kind,
+                        NodeKind::ProcessingInstruction { target, data }
+                            if target.eq_ignore_ascii_case("xml-stylesheet")
+                                && data.to_ascii_lowercase().contains("text/css")
+                                && data.to_ascii_lowercase().contains("href")
+                    )
+                });
+                let name = dom.node_name(*node).unwrap_or_default();
+                let linked = name.eq_ignore_ascii_case("link")
+                    && dom
+                        .attribute(*node, "rel")
+                        .ok()
+                        .flatten()
+                        .is_some_and(|rel| {
+                            rel.split_ascii_whitespace()
+                                .any(|token| token.eq_ignore_ascii_case("stylesheet"))
+                        })
+                    && dom
+                        .attribute(*node, "href")
+                        .ok()
+                        .flatten()
+                        .is_some_and(|href| !href.trim().is_empty());
+                let embedded = name.eq_ignore_ascii_case("style")
+                    && dom
+                        .arena()
+                        .text_content(*node)
+                        .is_ok_and(|css| css.contains("url(") || css.contains("@import"));
+                let inline = [
+                    "style",
+                    "background",
+                    "fill",
+                    "stroke",
+                    "filter",
+                    "clip-path",
+                    "mask",
+                    "mask-image",
+                    "marker-start",
+                    "marker-mid",
+                    "marker-end",
+                ]
+                .into_iter()
+                .any(|attribute| {
+                    dom.attribute(*node, attribute)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|value| {
+                            if attribute == "background" {
+                                !value.trim().is_empty()
+                            } else {
+                                value.contains("url(")
+                            }
+                        })
+                });
+                processing_instruction || linked || embedded || inline
+            })
+            .collect::<Vec<_>>()
+    };
+    for stylesheet in stylesheets {
+        if state.prepared_stylesheets.borrow_mut().insert(stylesheet) {
+            state
+                .pending_dynamic_stylesheets
+                .borrow_mut()
+                .push_back(stylesheet);
+        }
     }
     Ok(())
 }

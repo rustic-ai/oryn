@@ -594,7 +594,7 @@ impl ParserResourceScheduler {
         let sender = self.sender.clone();
         self.pending = self.pending.saturating_add(1);
         std::thread::spawn(move || {
-            let result = load_parser_stylesheet(&client, page_id, &requested_url, 0)
+            let result = load_parser_stylesheet(&client, page_id, &requested_url, None, None, 0)
                 .map_err(|error| error.to_string());
             let _ = sender.send(ParserResourceCompletion::Stylesheet { node, result });
         });
@@ -658,6 +658,8 @@ fn load_parser_stylesheet(
     client: &crate::context_service::SharedContextClient,
     page_id: oryn_common::v3::PageId,
     requested_url: &str,
+    initiator_url: Option<String>,
+    referrer_policy: Option<String>,
     depth: usize,
 ) -> Result<(String, String), HostError> {
     if depth > 8 {
@@ -671,8 +673,8 @@ fn load_parser_stylesheet(
                 page_id,
                 url: requested_url.into(),
                 destination: "stylesheet".into(),
-                initiator_url: None,
-                referrer_policy: None,
+                initiator_url,
+                referrer_policy,
             },
         )
         .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -680,6 +682,7 @@ fn load_parser_stylesheet(
         url,
         source,
         destination,
+        referrer_policy,
         ..
     } = response
     else {
@@ -702,11 +705,168 @@ fn load_parser_stylesheet(
             .as_ref()
             .and_then(|base| base.join(&capture[1]).ok())
             .map_or_else(|| capture[1].to_string(), |url| url.to_string());
-        let (_, imported) = load_parser_stylesheet(client, page_id, &child, depth + 1)?;
+        let (_, imported) = load_parser_stylesheet(
+            client,
+            page_id,
+            &child,
+            Some(url.clone()),
+            Some(referrer_policy.clone()),
+            depth + 1,
+        )?;
         expanded.push_str(&imported);
     }
-    expanded.push_str(&import.replace_all(&source, ""));
+    let remaining = import.replace_all(&source, "");
+    load_css_subresources(client, page_id, &url, &referrer_policy, remaining.as_ref())?;
+    expanded.push_str(&remaining);
     Ok((url, expanded))
+}
+
+#[cfg(unix)]
+fn load_css_subresources(
+    client: &crate::context_service::SharedContextClient,
+    page_id: oryn_common::v3::PageId,
+    stylesheet_url: &str,
+    referrer_policy: &str,
+    css: &str,
+) -> Result<(), HostError> {
+    let urls = regex::Regex::new(r#"(?is)url\(\s*[\"']?([^\"')\s]+)[\"']?\s*\)"#)
+        .expect("CSS resource URL regex");
+    let destination = if css.to_ascii_lowercase().contains("@font-face") {
+        "font"
+    } else {
+        "image"
+    };
+    let base = Url::parse(stylesheet_url).ok();
+    for capture in urls.captures_iter(css) {
+        let requested = capture[1].trim();
+        if requested.is_empty() || requested.starts_with('#') {
+            continue;
+        }
+        let requested = base
+            .as_ref()
+            .and_then(|base| base.join(requested).ok())
+            .map_or_else(|| requested.to_owned(), |url| url.to_string());
+        let response = client
+            .request(
+                crate::context_service::ContextServiceRequest::LoadPageResource {
+                    page_id,
+                    url: requested,
+                    destination: destination.into(),
+                    initiator_url: Some(stylesheet_url.into()),
+                    referrer_policy: Some(referrer_policy.into()),
+                },
+            )
+            .map_err(|error| HostError::Execution(error.to_string()))?;
+        if !matches!(
+            response,
+            crate::context_service::ContextServiceResponse::PageResource { .. }
+        ) {
+            return Err(HostError::Execution(
+                "parent returned an invalid CSS subresource response".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn load_inline_css_resources(
+    client: &crate::context_service::SharedContextClient,
+    page_id: oryn_common::v3::PageId,
+    document_url: &str,
+    referrer_policy: &str,
+    css: &str,
+) -> Result<(), HostError> {
+    let imports =
+        regex::Regex::new(r#"(?is)@import\s+(?:url\(\s*)?[\"']?([^\"'\)\s;]+)[\"']?\s*\)?[^;]*;"#)
+            .expect("inline stylesheet import regex");
+    let base = Url::parse(document_url).ok();
+    for capture in imports.captures_iter(css) {
+        let child = base
+            .as_ref()
+            .and_then(|base| base.join(&capture[1]).ok())
+            .map_or_else(|| capture[1].to_string(), |url| url.to_string());
+        load_parser_stylesheet(
+            client,
+            page_id,
+            &child,
+            Some(document_url.into()),
+            Some(referrer_policy.into()),
+            0,
+        )?;
+    }
+    let remaining = imports.replace_all(css, "");
+    load_css_subresources(
+        client,
+        page_id,
+        document_url,
+        referrer_policy,
+        remaining.as_ref(),
+    )
+}
+
+#[cfg(unix)]
+fn load_frame_style_resources(
+    client: &crate::context_service::SharedContextClient,
+    page_id: oryn_common::v3::PageId,
+    document_url: &str,
+    referrer_policy: &str,
+    source: &str,
+    parsed: &ParsedDocument,
+) -> Result<(), HostError> {
+    for (_, node) in parsed.dom.iter() {
+        let NodeKind::Element { name } = &node.kind else {
+            continue;
+        };
+        if name.local.as_ref() == "style" {
+            let css = node
+                .children
+                .iter()
+                .filter_map(|child| parsed.dom.text_content(*child).ok())
+                .collect::<String>();
+            load_inline_css_resources(client, page_id, document_url, referrer_policy, &css)?;
+        } else if name.local.as_ref() == "link"
+            && node.attributes.get("rel").is_some_and(|rel| {
+                rel.split_ascii_whitespace()
+                    .any(|token| token.eq_ignore_ascii_case("stylesheet"))
+            })
+            && let Some(href) = node.attributes.get("href")
+        {
+            load_parser_stylesheet(
+                client,
+                page_id,
+                href,
+                Some(document_url.into()),
+                Some(referrer_policy.into()),
+                0,
+            )?;
+        }
+    }
+    // Attribute values commonly contain a query string. Stopping the PI body
+    // at the first `?` drops exactly those browser resource URLs; terminate
+    // only at the actual `?>` delimiter.
+    let processing_instructions = regex::Regex::new(r#"(?is)<\?xml-stylesheet\s+(.+?)\?>"#)
+        .expect("XML stylesheet processing-instruction regex");
+    let href = regex::Regex::new(r#"(?i)href\s*=\s*[\"']([^\"']+)[\"']"#)
+        .expect("XML stylesheet href regex");
+    for instruction in processing_instructions.captures_iter(source) {
+        let Some(href) = href.captures(&instruction[1]) else {
+            continue;
+        };
+        let requested = href[1]
+            .replace("&amp;", "&")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'");
+        load_parser_stylesheet(
+            client,
+            page_id,
+            &requested,
+            Some(document_url.into()),
+            Some(referrer_policy.into()),
+            0,
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -1891,6 +2051,19 @@ impl RustExecutableDocument {
                 .next_back()
                 .map(crate::referrer::ReferrerPolicy::parse_list)
                 .unwrap_or_default();
+            #[cfg(unix)]
+            if let (Some((client, page_id, _)), Some(document_url)) =
+                (&context_handle, frame_url.as_ref())
+            {
+                load_frame_style_resources(
+                    client,
+                    *page_id,
+                    document_url.as_str(),
+                    child_referrer_policy.as_str(),
+                    &frame_html,
+                    &child,
+                )?;
+            }
             let (frame_dom, child_document) = if same_origin {
                 let document = live_dom
                     .borrow_mut()
@@ -2062,6 +2235,7 @@ impl RustExecutableDocument {
         // Dynamic external/module scripts inserted by parser-time JavaScript
         // are force-async but still participate in the document load barrier.
         page.drain_dynamic_frames()?;
+        page.drain_dynamic_stylesheets()?;
         page.drain_dynamic_scripts()?;
         page.host.drain_async_fetches(true)?;
         // Zero-delay framework commits queued before load run at this
@@ -2154,6 +2328,10 @@ impl RustExecutableDocument {
 
     pub fn has_pending_page_work(&mut self) -> bool {
         self.host.has_pending_page_work()
+    }
+
+    pub fn has_runnable_page_work(&mut self) -> bool {
+        self.host.has_runnable_page_work()
     }
 
     pub fn storage_snapshot(&mut self) -> Result<(String, String), HostError> {
@@ -2521,6 +2699,7 @@ impl RustExecutableDocument {
             self.host.drain_async_fetches(true)?;
             self.drain_default_actions()?;
             self.drain_dynamic_frames()?;
+            self.drain_dynamic_stylesheets()?;
             self.drain_dynamic_scripts()?;
             self.host.drain_async_fetches(true)?;
             for realm in self.host.realm_ids() {
@@ -2573,6 +2752,171 @@ impl RustExecutableDocument {
         }
         Err(HostError::LimitExceeded {
             resource: "default-action queue".into(),
+        })
+    }
+
+    fn drain_dynamic_stylesheets(&mut self) -> Result<(), HostError> {
+        let processing_instruction_href =
+            regex::Regex::new(r#"(?i)href\s*=\s*[\"']([^\"']+)[\"']"#)
+                .expect("xml-stylesheet href regex");
+        for _ in 0..1024 {
+            let pending = self.host.take_all_pending_dynamic_stylesheets()?;
+            if pending.is_empty() {
+                return Ok(());
+            }
+            for (realm, stylesheet) in pending {
+                self.host.activate_realm(realm)?;
+                let active_dom = self.host.active_dom().ok_or_else(|| {
+                    HostError::Execution("dynamic-stylesheet realm DOM is unavailable".into())
+                })?;
+                let (name, href, css, element_policy) = {
+                    let dom = active_dom.borrow();
+                    let record = dom
+                        .arena()
+                        .get(stylesheet)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    if let NodeKind::ProcessingInstruction { target, data } = &record.kind {
+                        let href = processing_instruction_href
+                            .captures(data)
+                            .map(|capture| {
+                                capture[1]
+                                    .replace("&amp;", "&")
+                                    .replace("&quot;", "\"")
+                                    .replace("&apos;", "'")
+                            })
+                            .unwrap_or_default();
+                        (target.clone(), href, String::new(), None)
+                    } else {
+                        let name = dom
+                            .node_name(stylesheet)
+                            .map_err(|error| HostError::Execution(error.to_string()))?;
+                        let href = dom
+                            .attribute(stylesheet, "href")
+                            .map_err(|error| HostError::Execution(error.to_string()))?
+                            .map(str::to_owned)
+                            .unwrap_or_default();
+                        let css = if dom
+                            .node_name(stylesheet)
+                            .is_ok_and(|name| name.eq_ignore_ascii_case("style"))
+                        {
+                            dom.arena()
+                                .text_content(stylesheet)
+                                .map_err(|error| HostError::Execution(error.to_string()))?
+                        } else {
+                            [
+                                "style",
+                                "background",
+                                "fill",
+                                "stroke",
+                                "filter",
+                                "clip-path",
+                                "mask",
+                                "mask-image",
+                                "marker-start",
+                                "marker-mid",
+                                "marker-end",
+                            ]
+                            .into_iter()
+                            .filter_map(|attribute| {
+                                dom.attribute(stylesheet, attribute)
+                                    .ok()
+                                    .flatten()
+                                    .map(|value| {
+                                        if attribute == "background" {
+                                            format!("background-image:url({value})")
+                                        } else {
+                                            value.to_owned()
+                                        }
+                                    })
+                            })
+                            .collect::<Vec<_>>()
+                            .join(";")
+                        };
+                        let element_policy = dom
+                            .attribute(stylesheet, "referrerpolicy")
+                            .map_err(|error| HostError::Execution(error.to_string()))?
+                            .map(str::to_owned)
+                            .filter(|value| !value.trim().is_empty());
+                        (name, href, css, element_policy)
+                    }
+                };
+                #[cfg(unix)]
+                let loaded = if let Some((client, page_id, _)) = &self.context {
+                    let document_url = self.host.evaluate_string("location.href")?;
+                    let policy = element_policy
+                        .or_else(|| {
+                            self.host
+                                .evaluate_string("globalThis.__oryn_referrer_policy")
+                                .ok()
+                        })
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or_else(|| "strict-origin-when-cross-origin".into());
+                    if name.eq_ignore_ascii_case("link")
+                        || name.eq_ignore_ascii_case("xml-stylesheet")
+                    {
+                        load_parser_stylesheet(
+                            client,
+                            *page_id,
+                            &href,
+                            Some(document_url),
+                            Some(policy),
+                            0,
+                        )
+                    } else {
+                        load_inline_css_resources(client, *page_id, &document_url, &policy, &css)?;
+                        Ok((document_url, css))
+                    }
+                } else {
+                    Err(HostError::Execution(
+                        "dynamic stylesheet broker is unavailable".into(),
+                    ))
+                };
+                #[cfg(not(unix))]
+                let loaded: Result<(String, String), HostError> = Err(HostError::Execution(
+                    "dynamic stylesheet broker is unavailable".into(),
+                ));
+                match loaded {
+                    Ok((url, css)) => {
+                        self.resources.insert(url, css.clone());
+                        if name.eq_ignore_ascii_case("link") {
+                            let mut dom = active_dom.borrow_mut();
+                            let style = dom.create(NodeKind::Element {
+                                name: QualName::new(None, ns!(html), local_name!("style")),
+                            });
+                            let text = dom.create_text(css);
+                            dom.append_child(style, text)
+                                .map_err(|error| HostError::Execution(error.to_string()))?;
+                            if let Some(parent) = dom
+                                .parent(stylesheet)
+                                .map_err(|error| HostError::Execution(error.to_string()))?
+                            {
+                                dom.append_child(parent, style)
+                                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                            }
+                            drop(dom);
+                            self.host.execute_with_node(
+                                stylesheet,
+                                "__oryn_dynamic_stylesheet",
+                                "__oryn_dynamic_stylesheet.dispatchEvent(new Event('load'))",
+                            )?;
+                        }
+                    }
+                    Err(error) => {
+                        self.diagnostics
+                            .push(script_diagnostic(HostError::Execution(format!(
+                                "dynamic stylesheet failed: {error}"
+                            ))));
+                        let _ = self.host.execute_with_node(
+                            stylesheet,
+                            "__oryn_dynamic_stylesheet",
+                            "__oryn_dynamic_stylesheet.dispatchEvent(new Event('error'))",
+                        );
+                    }
+                }
+            }
+        }
+        Err(HostError::LimitExceeded {
+            resource: "dynamic stylesheet preparation queue".into(),
         })
     }
 
@@ -2901,6 +3245,20 @@ impl RustExecutableDocument {
                     child_referrer_policy = crate::referrer::ReferrerPolicy::parse_list(content)
                         .as_str()
                         .into();
+                }
+                #[cfg(unix)]
+                if let Some((client, page_id, _)) = &self.context {
+                    let document_url = frame_url
+                        .as_ref()
+                        .map_or_else(|| url.clone(), Url::to_string);
+                    load_frame_style_resources(
+                        client,
+                        *page_id,
+                        &document_url,
+                        &child_referrer_policy,
+                        &source,
+                        &parsed,
+                    )?;
                 }
                 let (frame_dom, child_document) = if cross_origin {
                     let document = parsed.document;
@@ -3298,7 +3656,7 @@ impl RustExecutableDocument {
                     .get(node)
                     .map_err(|error| HostError::Execution(error.to_string()))?;
                 if let NodeKind::Element { name } = &record.kind {
-                    if name.local.as_ref() == "a"
+                    if matches!(name.local.as_ref(), "a" | "area")
                         && action == SemanticAction::Click
                         && let Some(href) = record.attributes.get("href")
                     {

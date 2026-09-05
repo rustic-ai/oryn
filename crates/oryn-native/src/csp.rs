@@ -199,6 +199,14 @@ impl CspPolicySet {
         self.policies.push(policy);
     }
 
+    pub fn contains_meta(&self, serialized: &str) -> bool {
+        let mut candidate = parse_policy(serialized, CspDisposition::Enforce, "meta");
+        for ignored in ["report-uri", "report-to", "frame-ancestors", "sandbox"] {
+            candidate.directives.remove(ignored);
+        }
+        self.policies.contains(&candidate)
+    }
+
     pub fn install(&mut self, serialized: &str, disposition: CspDisposition, source: &str) {
         self.policies
             .push(parse_policy(serialized, disposition, source));

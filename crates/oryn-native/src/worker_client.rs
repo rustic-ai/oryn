@@ -219,15 +219,29 @@ impl NetworkBroker for PageNetworkBroker {
         let (sender, events) = tokio::sync::mpsc::channel(8);
         std::thread::spawn(move || {
             let mut response_headers = Vec::new();
-            let mut response_status = 0;
             let mut body = Vec::new();
+            let mut prepared_meta_count = 0_usize;
             while let Some(event) = operation.events.blocking_recv() {
                 if let NetworkEvent::Headers {
                     status, headers, ..
                 } = &event
                 {
-                    response_status = *status;
                     response_headers = headers.clone();
+                    if request_kind == CookieRequestKind::Document
+                        && !(300..400).contains(status)
+                        && let Err(error) = context.prepare_document_security(
+                            page_id,
+                            request_url.clone(),
+                            &response_headers,
+                            "",
+                        )
+                    {
+                        let _ = sender.blocking_send(NetworkEvent::Failed {
+                            request_id,
+                            error: error.to_string(),
+                        });
+                        return;
+                    }
                     if request_kind == CookieRequestKind::Frame {
                         let policy = crate::csp::CspPolicySet::from_headers(
                             request_url.clone(),
@@ -249,11 +263,6 @@ impl NetworkBroker for PageNetworkBroker {
                     && request_kind == CookieRequestKind::Document
                 {
                     body.extend_from_slice(bytes);
-                }
-                if matches!(event, NetworkEvent::Complete { .. })
-                    && request_kind == CookieRequestKind::Document
-                    && !(300..400).contains(&response_status)
-                {
                     let content_type = response_headers
                         .iter()
                         .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
@@ -263,17 +272,18 @@ impl NetworkBroker for PageNetworkBroker {
                         content_type,
                         oryn_net::TextResourceKind::Html,
                     );
-                    if let Err(error) = context.prepare_document_security(
-                        page_id,
-                        request_url.clone(),
-                        &response_headers,
-                        &html,
-                    ) {
-                        let _ = sender.blocking_send(NetworkEvent::Failed {
-                            request_id,
-                            error: error.to_string(),
-                        });
-                        return;
+                    let meta_policies = crate::csp::CspPolicySet::meta_policies_from_html(&html);
+                    for serialized in meta_policies.into_iter().skip(prepared_meta_count) {
+                        if let Err(error) =
+                            context.append_document_meta_security(page_id, serialized)
+                        {
+                            let _ = sender.blocking_send(NetworkEvent::Failed {
+                                request_id,
+                                error: error.to_string(),
+                            });
+                            return;
+                        }
+                        prepared_meta_count = prepared_meta_count.saturating_add(1);
                     }
                 }
                 if sender.blocking_send(event).is_err() {

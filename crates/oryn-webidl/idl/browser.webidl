@@ -337,10 +337,16 @@ interface DocumentType : Node {
 
 [Exposed=Window]
 interface SVGElement : Element {
+  [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
 };
 
 [Exposed=Window]
 interface SVGAElement : SVGElement {
+};
+
+[Exposed=Window]
+interface HTMLBodyElement : HTMLElement {
+  attribute USVString background;
 };
 
 [Exposed=Window]
@@ -520,6 +526,14 @@ interface HTMLFormElement : HTMLElement {
 interface HTMLAnchorElement : HTMLElement {
   attribute DOMString href;
   attribute DOMString target;
+  attribute DOMString referrerPolicy;
+};
+
+[Exposed=Window]
+interface HTMLAreaElement : HTMLElement {
+  attribute DOMString href;
+  attribute DOMString target;
+  attribute DOMString referrerPolicy;
 };
 
 [Exposed=Window]
@@ -529,6 +543,7 @@ interface HTMLLinkElement : HTMLElement {
   attribute DOMString rel;
   attribute DOMString media;
   attribute DOMString type;
+  attribute DOMString referrerPolicy;
 };
 
 [Exposed=Window]
@@ -537,8 +552,16 @@ interface HTMLIFrameElement : HTMLElement {
   attribute DOMString src;
   attribute DOMString srcdoc;
   attribute DOMString sandbox;
+  attribute DOMString referrerPolicy;
   readonly attribute Document? contentDocument;
   readonly attribute any contentWindow;
+};
+
+[Exposed=Window]
+interface HTMLScriptElement : HTMLElement {
+  attribute DOMString src;
+  attribute DOMString type;
+  attribute DOMString referrerPolicy;
 };
 
 [Exposed=Window]
