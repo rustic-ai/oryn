@@ -24,7 +24,7 @@ use crate::{
 };
 use url::Url;
 
-const DOCUMENT_LIFECYCLE_SCRIPT: &str = "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));if(document.body&&typeof document.body.onload==='function'){globalThis.onload=document.body.onload;}dispatchEvent(new Event('load'))";
+const DOCUMENT_LIFECYCLE_SCRIPT: &str = "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));if(document.body){if(typeof document.body.onload==='function')globalThis.onload=document.body.onload;else{const source=document.body.getAttribute('onload');if(source)globalThis.onload=Function(source)}}dispatchEvent(new Event('load'))";
 
 struct LiveLayoutProvider {
     dom: SharedDomRuntime,
@@ -49,9 +49,17 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             oryn_common::v4::ReducedMotion::NoPreference,
             &[],
         );
-        let output = oryn_layout::StyleEngine::default()
-            .compute(&input, &oryn_layout::LayoutLimits::default())
-            .map_err(|error| format!("synchronous layout flush failed: {error}"))?;
+        // Geometry is an optional capability and must never be able to tear
+        // down the page worker. Stylo/Blitz can reject a transient DOM shape
+        // while parser re-entry is replacing nested documents; translate an
+        // upstream panic into the same explicit unavailable result as a
+        // normal layout error.
+        let output = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            oryn_layout::StyleEngine::default()
+                .compute(&input, &oryn_layout::LayoutLimits::default())
+        }))
+        .map_err(|_| "synchronous layout flush panicked on a transient DOM shape".to_owned())?
+        .map_err(|error| format!("synchronous layout flush failed: {error}"))?;
         Ok(binding_layout_from_output(&output))
     }
 
@@ -1275,6 +1283,7 @@ globalThis.ResizeObserver=OrynResizeObserver;globalThis.IntersectionObserver=Ory
 const __oryn_rect_key=rect=>[rect.x,rect.y,rect.width,rect.height].join(':');
 globalThis.__oryn_run_geometry_observers=()=>{for(const observer of __oryn_resize_observers){const entries=[];for(const target of observer.targets.keys())try{const rect=target.getBoundingClientRect(),key=__oryn_rect_key(rect);if(observer.targets.get(target)!==key){observer.targets.set(target,key);entries.push({target,contentRect:rect,borderBoxSize:[{inlineSize:rect.width,blockSize:rect.height}],contentBoxSize:[{inlineSize:rect.width,blockSize:rect.height}]})}}catch(_){}if(entries.length)observer.callback(entries,observer)}for(const observer of __oryn_intersection_observers){const entries=[];for(const target of observer.targets.keys())try{const rect=target.getBoundingClientRect(),viewport={x:0,y:0,width:innerWidth||0,height:innerHeight||0},width=Math.max(0,Math.min(rect.right,viewport.width)-Math.max(rect.left,0)),height=Math.max(0,Math.min(rect.bottom,viewport.height)-Math.max(rect.top,0)),area=rect.width*rect.height,ratio=area>0?(width*height)/area:0,key=__oryn_rect_key(rect)+':'+ratio;if(observer.targets.get(target)!==key){observer.targets.set(target,key);entries.push({target,boundingClientRect:rect,intersectionRect:{x:Math.max(rect.x,0),y:Math.max(rect.y,0),width,height},rootBounds:viewport,isIntersecting:ratio>0,intersectionRatio:ratio,time:Date.now()})}}catch(_){}if(entries.length)observer.callback(entries,observer)}};
 Object.defineProperty(globalThis,'location',{value:{href:'about:blank'},writable:true,enumerable:true,configurable:true});
+Object.defineProperty(globalThis,'origin',{configurable:true,enumerable:true,get(){return location.origin}});
 globalThis.__oryn_layout={styles:{},geometry:{},viewport:{width:1280,height:720,device_pixel_ratio:1},scroll:{},media:{}};
 globalThis.innerWidth=1280;globalThis.innerHeight=720;
 globalThis.__oryn_install_layout=value=>{globalThis.__oryn_layout=value;globalThis.innerWidth=Number(value.viewport?.width||0);globalThis.innerHeight=Number(value.viewport?.height||0)};
@@ -1323,7 +1332,7 @@ globalThis.clearTimeout=id=>{__oryn_timer_cancel(Number(id))};
 globalThis.clearInterval=globalThis.clearTimeout;
 globalThis.__oryn_drain=()=>{if(typeof __oryn_poll_context==='function')__oryn_poll_context()};
 class OrynURLSearchParams {
-  constructor(init='',onChange=null){this.items=[];this.onChange=onChange;for(const part of String(init).replace(/^\?/,'').split('&'))if(part){const [key,value='']=part.split('=');this.items.push([decodeURIComponent(key.replace(/\+/g,' ')),decodeURIComponent(value.replace(/\+/g,' '))])}}
+  constructor(init='',onChange=null){this.items=[];this.onChange=onChange;if(init&&typeof init==='object'){const entries=typeof init[Symbol.iterator]==='function'?[...init]:Object.entries(init);for(const entry of entries){if(!entry||entry.length!==2)throw new TypeError('URLSearchParams entry must contain two values');this.items.push([String(entry[0]),String(entry[1])])}return}for(const part of String(init).replace(/^\?/,'').split('&'))if(part){const [key,value='']=part.split('=');this.items.push([decodeURIComponent(key.replace(/\+/g,' ')),decodeURIComponent(value.replace(/\+/g,' '))])}}
   changed(){if(this.onChange)this.onChange()}
   append(key,value){this.items.push([String(key),String(value)]);this.changed()}
   set(key,value){this.delete(key);this.append(key,value)}
@@ -1410,8 +1419,8 @@ class OrynWebSocket {constructor(url,protocols=[]){this.url=new OrynURL(url,loca
 Object.assign(OrynWebSocket,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});Object.assign(OrynWebSocket.prototype,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});globalThis.WebSocket=OrynWebSocket;
 const __oryn_workers=new Set();
 const __oryn_worker_clone=value=>{const encoded=JSON.stringify(value);if(encoded===undefined){const error=new TypeError('dedicated-worker messages must be structured-cloneable JSON values');error.name='DataCloneError';throw error}return encoded};
-class OrynWorker {constructor(url,options={}){this.__onmessage=null;this.__onerror=null;this.__listeners=new Map();this.__pendingErrors=[];this.__closed=false;this.__global=String(options.orynGlobal||'dedicatedworker');const rawTarget=String(url),target=rawTarget.startsWith('data:')?rawTarget:new OrynURL(rawTarget,location.href).href;const opaquePrefix=`globalThis.indexedDB={open(){const error=new Error('opaque origins cannot access IndexedDB');error.name='SecurityError';throw error},deleteDatabase(){const error=new Error('opaque origins cannot access IndexedDB');error.name='SecurityError';throw error},databases(){const error=new Error('opaque origins cannot access IndexedDB');error.name='SecurityError';return Promise.reject(error)}};`;
-const response=target.startsWith('data:,')?{result:'worker_script',source:opaquePrefix+decodeURIComponent(target.slice(6)),url:target,module:false,referrer_policy:''}:contextCall({operation:'load_worker_script',page_id:__oryn_page_id,url:target,module:String(options.type||'classic')==='module'});if(response.result!=='worker_script')throw new Error('Worker script load failed');try{this.__id=__oryn_worker_create(response.source,response.url,!!response.module,this.__global,response.referrer_policy||'');__oryn_workers.add(this);queueMicrotask(()=>this.__poll())}catch(error){this.__closed=true;const message=String(error);__oryn_context_trace.push({kind:'capability_failure',detail:{capability:`worker.create: ${message}`,interface:'Worker',operation:'create',url:response.url||target,module:!!response.module,message}});this.__pendingErrors.push({error,message});queueMicrotask(()=>this.__flushErrors())}}get onmessage(){return this.__onmessage}set onmessage(callback){this.__onmessage=typeof callback==='function'?callback:null;if(this.__onmessage)queueMicrotask(()=>this.__poll())}get onerror(){return this.__onerror}set onerror(callback){this.__onerror=typeof callback==='function'?callback:null;if(this.__onerror)queueMicrotask(()=>this.__flushErrors())}addEventListener(type,callback){type=String(type);const list=this.__listeners.get(type)||[];list.push(callback);this.__listeners.set(type,list);if(type==='message')queueMicrotask(()=>this.__poll());if(type==='error')queueMicrotask(()=>this.__flushErrors())}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=type==='message'?this.__onmessage:type==='error'?this.__onerror:this['on'+type];if(typeof handler==='function')handler.call(this,event)}__flushErrors(){if(!this.__onerror&&!(this.__listeners.get('error')||[]).length)return;while(this.__pendingErrors.length)this.__event('error',this.__pendingErrors.shift())}__poll(){if(this.__closed||!this.__id)return;if(!this.__onmessage&&!(this.__listeners.get('message')||[]).length)return;for(const encoded of JSON.parse(__oryn_worker_take(this.__id))){this.__event('message',{data:JSON.parse(encoded),source:null})}}postMessage(data){if(this.__closed||!this.__id)return;__oryn_worker_post(this.__id,__oryn_worker_clone(data));queueMicrotask(()=>this.__poll())}terminate(){if(this.__id)__oryn_worker_terminate(this.__id);this.__closed=true;this.__id=0;__oryn_workers.delete(this)}}
+class OrynWorker {constructor(url,options={}){this.__onmessage=null;this.__onerror=null;this.__listeners=new Map();this.__pendingErrors=[];this.__closed=false;this.__global=String(options.orynGlobal||'dedicatedworker');const rawTarget=String(url),target=rawTarget.startsWith('data:')?rawTarget:new OrynURL(rawTarget,location.href).href;const opaquePrefix=`globalThis.indexedDB={open(){const error=new Error('opaque origins cannot access IndexedDB');error.name='SecurityError';throw error},deleteDatabase(){const error=new Error('opaque origins cannot access IndexedDB');error.name='SecurityError';throw error},databases(){const error=new Error('opaque origins cannot access IndexedDB');error.name='SecurityError';return Promise.reject(error)}};`;const blobSource=target.startsWith('blob:')&&typeof __oryn_blob_url_source==='function'?__oryn_blob_url_source(target):null;
+const response=target.startsWith('data:,')?{result:'worker_script',source:opaquePrefix+decodeURIComponent(target.slice(6)),url:target,module:false,referrer_policy:''}:blobSource!==null?{result:'worker_script',source:blobSource,url:target,module:String(options.type||'classic')==='module',referrer_policy:globalThis.__oryn_referrer_policy||''}:contextCall({operation:'load_worker_script',page_id:__oryn_page_id,url:target,module:String(options.type||'classic')==='module'});if(response.result!=='worker_script')throw new Error('Worker script load failed');try{this.__id=__oryn_worker_create(response.source,response.url,!!response.module,this.__global,response.referrer_policy||'');__oryn_workers.add(this);queueMicrotask(()=>this.__poll())}catch(error){this.__closed=true;const message=String(error);__oryn_context_trace.push({kind:'capability_failure',detail:{capability:`worker.create: ${message}`,interface:'Worker',operation:'create',url:response.url||target,module:!!response.module,message}});this.__pendingErrors.push({error,message});queueMicrotask(()=>this.__flushErrors())}}get onmessage(){return this.__onmessage}set onmessage(callback){this.__onmessage=typeof callback==='function'?callback:null;if(this.__onmessage)queueMicrotask(()=>this.__poll())}get onerror(){return this.__onerror}set onerror(callback){this.__onerror=typeof callback==='function'?callback:null;if(this.__onerror)queueMicrotask(()=>this.__flushErrors())}addEventListener(type,callback){type=String(type);const list=this.__listeners.get(type)||[];list.push(callback);this.__listeners.set(type,list);if(type==='message')queueMicrotask(()=>this.__poll());if(type==='error')queueMicrotask(()=>this.__flushErrors())}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=type==='message'?this.__onmessage:type==='error'?this.__onerror:this['on'+type];if(typeof handler==='function')handler.call(this,event)}__flushErrors(){if(!this.__onerror&&!(this.__listeners.get('error')||[]).length)return;while(this.__pendingErrors.length)this.__event('error',this.__pendingErrors.shift())}__poll(){if(this.__closed||!this.__id)return;if(!this.__onmessage&&!(this.__listeners.get('message')||[]).length)return;for(const encoded of JSON.parse(__oryn_worker_take(this.__id))){this.__event('message',{data:JSON.parse(encoded),source:null})}}postMessage(data){if(this.__closed||!this.__id)return;__oryn_worker_post(this.__id,__oryn_worker_clone(data));queueMicrotask(()=>this.__poll())}terminate(){if(this.__id)__oryn_worker_terminate(this.__id);this.__closed=true;this.__id=0;__oryn_workers.delete(this)}}
 class OrynMessagePort {constructor(worker){this.__worker=worker;this.__onmessage=null;this.__listeners=new Map();this.__queue=[];this.__started=false;worker.addEventListener('message',event=>this.__enqueue(event.data))}get onmessage(){return this.__onmessage}set onmessage(callback){this.__onmessage=typeof callback==='function'?callback:null;if(this.__onmessage)this.start()}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=type==='message'?this.__onmessage:this['on'+type];if(typeof handler==='function')handler.call(this,event)}__enqueue(data){this.__queue.push(data);this.__flush()}__flush(){if(!this.__started)return;while(this.__queue.length)this.__event('message',{data:this.__queue.shift(),source:null})}postMessage(value){this.__worker.postMessage(value)}start(){this.__started=true;this.__flush()}close(){this.__queue.length=0;this.__worker.terminate()}}
 class OrynSharedWorker {constructor(url,options={}){this.__listeners=new Map();this.__worker=new OrynWorker(url,{...options,orynGlobal:'sharedworker'});this.port=new OrynMessagePort(this.__worker);this.onerror=null;this.__worker.addEventListener('error',event=>this.__event('error',event))}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}removeEventListener(type,callback){this.__listeners.set(String(type),(this.__listeners.get(String(type))||[]).filter(item=>item!==callback))}__event(type,event){for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}}
 class OrynServiceWorker {constructor(url,options={}){this.__worker=new OrynWorker(url,{...options,orynGlobal:'serviceworker'});this.state='activated';this.__onmessage=null;this.__listeners=new Map();this.__queue=[];this.__worker.addEventListener('message',event=>{this.__queue.push(event.data);this.__flush()})}get onmessage(){return this.__onmessage}set onmessage(callback){this.__onmessage=typeof callback==='function'?callback:null;this.__flush()}addEventListener(type,callback){type=String(type);const list=this.__listeners.get(type)||[];list.push(callback);this.__listeners.set(type,list);if(type==='message')this.__flush()}__flush(){if(!this.__onmessage&&!(this.__listeners.get('message')||[]).length)return;while(this.__queue.length)this.__event('message',{data:this.__queue.shift()})}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=type==='message'?this.__onmessage:this['on'+type];if(typeof handler==='function')handler.call(this,event)}postMessage(value){this.__worker.postMessage(value)}}
@@ -1632,6 +1641,8 @@ pub struct RustExecutableDocument {
     host: RawV8Host,
     top_realm: RealmId,
     node_realms: BTreeMap<NodeId, RealmId>,
+    frame_realms: BTreeMap<RealmId, FrameRealm>,
+    pending_frame_navigations: BTreeMap<(RealmId, NodeId), FrameNavigationContext>,
     base_url: Option<Url>,
     resources: BTreeMap<String, String>,
     broker: Option<SharedNetworkBroker>,
@@ -1643,6 +1654,19 @@ pub struct RustExecutableDocument {
         oryn_common::v3::PageId,
         Option<oryn_common::v3::PageId>,
     )>,
+}
+
+#[derive(Debug, Clone)]
+struct FrameRealm {
+    parent_realm: RealmId,
+    frame: NodeId,
+    committed_url: String,
+}
+
+#[derive(Debug, Clone)]
+struct FrameNavigationContext {
+    initiator_url: Option<String>,
+    referrer_policy: Option<String>,
 }
 
 impl RustExecutableDocument {
@@ -2202,6 +2226,8 @@ impl RustExecutableDocument {
             host,
             top_realm,
             node_realms,
+            frame_realms: BTreeMap::new(),
+            pending_frame_navigations: BTreeMap::new(),
             base_url,
             resources,
             broker: broker_handle,
@@ -2697,7 +2723,9 @@ impl RustExecutableDocument {
         // unrelated future command to tick that realm.
         for _ in 0..8 {
             self.host.drain_async_fetches(true)?;
+            self.drain_dynamic_referrer_policies()?;
             self.drain_default_actions()?;
+            self.drain_frame_location_navigations()?;
             self.drain_dynamic_frames()?;
             self.drain_dynamic_stylesheets()?;
             self.drain_dynamic_scripts()?;
@@ -2726,6 +2754,94 @@ impl RustExecutableDocument {
         let (dom, document) = self.live_dom.borrow().snapshot();
         self.document.dom = dom;
         self.document.document = document;
+        Ok(())
+    }
+
+    fn drain_dynamic_referrer_policies(&mut self) -> Result<(), HostError> {
+        let pending = self.host.take_all_pending_referrer_policies()?;
+        #[cfg(unix)]
+        if let Some((client, page_id, _)) = &self.context {
+            for (realm, policy) in pending {
+                if realm != self.top_realm {
+                    continue;
+                }
+                let response = client
+                    .request(
+                        crate::context_service::ContextServiceRequest::InstallReferrerPolicy {
+                            page_id: *page_id,
+                            serialized: policy,
+                        },
+                    )
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                if !matches!(
+                    response,
+                    crate::context_service::ContextServiceResponse::DocumentSecurityInstalled
+                ) {
+                    return Err(HostError::Execution(
+                        "parent returned an invalid referrer-policy update response".into(),
+                    ));
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = pending;
+        Ok(())
+    }
+
+    fn drain_frame_location_navigations(&mut self) -> Result<(), HostError> {
+        let mut navigations = Vec::new();
+        for (realm, owner) in self.frame_realms.clone() {
+            self.host.activate_realm(realm)?;
+            let href = self.host.evaluate_string("location.href")?;
+            if let Some(source) = href.strip_prefix("javascript:") {
+                execute_javascript_url(&mut self.host, source, &owner.committed_url)?;
+                continue;
+            }
+            if href != owner.committed_url
+                && Url::parse(&href).is_ok_and(|url| matches!(url.scheme(), "http" | "https"))
+            {
+                let opaque = self
+                    .host
+                    .evaluate_string("String(globalThis.__oryn_opaque_origin===true)")?
+                    == "true";
+                let initiator_url = (!opaque)
+                    .then(|| {
+                        self.host
+                            .evaluate_string("globalThis.__oryn_request_initiator_url")
+                            .ok()
+                    })
+                    .flatten()
+                    .filter(|value| !value.trim().is_empty());
+                let referrer_policy = self
+                    .host
+                    .evaluate_string("globalThis.__oryn_referrer_policy")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty());
+                navigations.push((owner, href, initiator_url, referrer_policy));
+            }
+        }
+        for (owner, href, initiator_url, referrer_policy) in navigations {
+            self.host.activate_realm(owner.parent_realm)?;
+            let dom = self.host.active_dom().ok_or_else(|| {
+                HostError::Execution("frame-navigation parent DOM is unavailable".into())
+            })?;
+            {
+                let mut dom = dom.borrow_mut();
+                dom.remove_attribute(owner.frame, "srcdoc")
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                dom.set_attribute(owner.frame, "src", href)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+            }
+            self.pending_frame_navigations.insert(
+                (owner.parent_realm, owner.frame),
+                FrameNavigationContext {
+                    initiator_url,
+                    referrer_policy,
+                },
+            );
+            self.host.reschedule_dynamic_frame(owner.frame)?;
+        }
+        self.host.activate_realm(self.top_realm)?;
         Ok(())
     }
 
@@ -3047,22 +3163,123 @@ impl RustExecutableDocument {
             if pending.is_empty() {
                 return Ok(());
             }
-            for (parent_realm, frame) in pending {
+            for (scheduled_realm, frame) in pending {
+                let navigation_context = self
+                    .pending_frame_navigations
+                    .remove(&(scheduled_realm, frame));
+                // A same-origin child Document can be accessed through a
+                // wrapper in its parent's realm. Nodes created through that
+                // wrapper still belong to the child document, so derive the
+                // browsing-context owner from the nearest mapped ancestor
+                // instead of trusting the realm that happened to enqueue the
+                // insertion callback.
+                self.host.activate_realm(scheduled_realm)?;
+                let scheduled_dom = self.host.active_dom().ok_or_else(|| {
+                    HostError::Execution("dynamic-frame scheduled DOM is unavailable".into())
+                })?;
+                let (document_realm, document_referrer_policy) = {
+                    let dom = scheduled_dom.borrow();
+                    let ancestry = std::iter::once(frame)
+                        .chain(
+                            dom.arena()
+                                .ancestors(frame)
+                                .map_err(|error| HostError::Execution(error.to_string()))?,
+                        )
+                        .collect::<Vec<_>>();
+                    let realm = ancestry
+                        .iter()
+                        .find_map(|node| self.node_realms.get(node).copied())
+                        .unwrap_or(scheduled_realm);
+                    let policy = ancestry
+                        .iter()
+                        .find(|node| {
+                            dom.arena()
+                                .get(**node)
+                                .is_ok_and(|record| matches!(record.kind, NodeKind::Document))
+                        })
+                        .and_then(|document| dom.query_selector_all(*document, "meta").ok())
+                        .and_then(|metas| {
+                            metas.into_iter().rev().find_map(|meta| {
+                                dom.attribute(meta, "name")
+                                    .ok()
+                                    .flatten()
+                                    .is_some_and(|name| name.eq_ignore_ascii_case("referrer"))
+                                    .then(|| {
+                                        dom.attribute(meta, "content")
+                                            .ok()
+                                            .flatten()
+                                            .map(str::to_owned)
+                                    })
+                                    .flatten()
+                            })
+                        });
+                    (realm, policy)
+                };
+                // Keep frame wrapper and WindowProxy bookkeeping in the realm
+                // that scheduled the insertion. The document realm below is
+                // used for URL/security inheritance only.
+                let parent_realm = scheduled_realm;
+                let replaced_realms = self
+                    .frame_realms
+                    .iter()
+                    .filter_map(|(realm, owner)| {
+                        (owner.parent_realm == parent_realm && owner.frame == frame)
+                            .then_some(*realm)
+                    })
+                    .collect::<Vec<_>>();
+                let replacing_document = !replaced_realms.is_empty();
+                for realm in replaced_realms {
+                    self.frame_realms.remove(&realm);
+                    let _ = self.host.remove_realm(realm);
+                    self.node_realms
+                        .retain(|_, node_realm| *node_realm != realm);
+                }
                 self.host.activate_realm(parent_realm)?;
                 let parent_dom = self.host.active_dom().ok_or_else(|| {
                     HostError::Execution("dynamic-frame realm DOM is unavailable".into())
                 })?;
+                if replacing_document {
+                    let old_documents = {
+                        let dom = parent_dom.borrow();
+                        dom.arena()
+                            .get(frame)
+                            .map_err(|error| HostError::Execution(error.to_string()))?
+                            .children
+                            .iter()
+                            .copied()
+                            .filter(|child| {
+                                dom.arena()
+                                    .get(*child)
+                                    .is_ok_and(|record| matches!(record.kind, NodeKind::Document))
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    for document in old_documents {
+                        parent_dom
+                            .borrow_mut()
+                            .remove_child(frame, document)
+                            .map_err(|error| HostError::Execution(error.to_string()))?;
+                    }
+                }
+                self.host.activate_realm(document_realm)?;
                 let parent_url = self
                     .host
                     .evaluate_string("location.href")
                     .ok()
                     .and_then(|value| Url::parse(&value).ok())
                     .or_else(|| self.base_url.clone());
-                let mut parent_policy = self
+                let parent_security_url = self
                     .host
-                    .evaluate_string("globalThis.__oryn_referrer_policy")
+                    .evaluate_string("globalThis.__oryn_request_initiator_url")
                     .ok()
-                    .filter(|value| !value.trim().is_empty());
+                    .and_then(|value| Url::parse(&value).ok())
+                    .or_else(|| parent_url.clone());
+                let mut parent_policy = document_referrer_policy.or_else(|| {
+                    self.host
+                        .evaluate_string("globalThis.__oryn_referrer_policy")
+                        .ok()
+                        .filter(|value| !value.trim().is_empty())
+                });
                 #[cfg(unix)]
                 if parent_policy.is_none()
                     && let Some((client, page_id, _)) = &self.context
@@ -3076,6 +3293,7 @@ impl RustExecutableDocument {
                 {
                     parent_policy = Some(value);
                 }
+                self.host.activate_realm(parent_realm)?;
                 let (requested, mut srcdoc, opaque_sandbox, element_referrer_policy) = {
                     let dom = parent_dom.borrow();
                     let requested = dom
@@ -3102,8 +3320,18 @@ impl RustExecutableDocument {
                         .filter(|value| !value.trim().is_empty());
                     (requested, srcdoc, opaque_sandbox, element_referrer_policy)
                 };
-                let request_referrer_policy = element_referrer_policy.or(parent_policy.clone());
-                if requested.is_none() && srcdoc.is_none() {
+                let javascript_url = requested
+                    .as_deref()
+                    .and_then(|url| url.strip_prefix("javascript:"))
+                    .map(str::to_owned);
+                let request_referrer_policy = navigation_context
+                    .as_ref()
+                    .and_then(|context| context.referrer_policy.clone())
+                    .or(element_referrer_policy)
+                    .or(parent_policy.clone());
+                let inherited_about_blank =
+                    (requested.is_none() && srcdoc.is_none()) || javascript_url.is_some();
+                if inherited_about_blank {
                     // An iframe without src creates an inherited-origin
                     // about:blank document and a fully usable child realm.
                     srcdoc = Some(String::new());
@@ -3111,12 +3339,17 @@ impl RustExecutableDocument {
                 #[cfg(unix)]
                 let fetched = if let Some(source) = srcdoc.clone() {
                     Some((
-                        "about:srcdoc".to_owned(),
+                        if inherited_about_blank {
+                            "about:blank".to_owned()
+                        } else {
+                            "about:srcdoc".to_owned()
+                        },
                         source,
                         parent_url.as_ref().map_or_else(String::new, Url::to_string),
                         parent_policy
                             .clone()
                             .unwrap_or_else(|| "strict-origin-when-cross-origin".into()),
+                        None,
                     ))
                 } else if let (Some(requested), Some((client, page_id, _))) =
                     (requested.as_ref(), &self.context)
@@ -3130,7 +3363,10 @@ impl RustExecutableDocument {
                             page_id: *page_id,
                             url: requested.clone(),
                             destination: "frame".into(),
-                            initiator_url: parent_url.as_ref().map(Url::to_string),
+                            initiator_url: navigation_context
+                                .as_ref()
+                                .map(|context| context.initiator_url.clone())
+                                .unwrap_or_else(|| parent_url.as_ref().map(Url::to_string)),
                             referrer_policy: request_referrer_policy,
                         },
                     ) {
@@ -3140,8 +3376,9 @@ impl RustExecutableDocument {
                             destination,
                             document_referrer,
                             referrer_policy,
+                            refresh_url,
                         }) if destination == "frame" => {
-                            Some((url, source, document_referrer, referrer_policy))
+                            Some((url, source, document_referrer, referrer_policy, refresh_url))
                         }
                         Ok(_) => {
                             return Err(HostError::Execution(
@@ -3167,6 +3404,7 @@ impl RustExecutableDocument {
                             source,
                             parent_url.as_ref().map_or_else(String::new, Url::to_string),
                             "strict-origin-when-cross-origin".into(),
+                            None,
                         )
                     })
                 } else {
@@ -3181,6 +3419,7 @@ impl RustExecutableDocument {
                         parent_policy
                             .clone()
                             .unwrap_or_else(|| "strict-origin-when-cross-origin".into()),
+                        None,
                     ))
                 } else if let Some(requested) = requested.as_ref() {
                     self.resources.get(requested).cloned().map(|source| {
@@ -3193,17 +3432,21 @@ impl RustExecutableDocument {
                             source,
                             parent_url.as_ref().map_or_else(String::new, Url::to_string),
                             "strict-origin-when-cross-origin".into(),
+                            None,
                         )
                     })
                 } else {
                     None
                 };
-                let Some((url, source, document_referrer, mut child_referrer_policy)) = fetched
+                let Some((url, source, document_referrer, mut child_referrer_policy, refresh_url)) =
+                    fetched
                 else {
                     continue;
                 };
-                let is_srcdoc = srcdoc.is_some();
-                let frame_url = if is_srcdoc {
+                let is_srcdoc = srcdoc.is_some() && !inherited_about_blank;
+                let frame_url = if inherited_about_blank {
+                    parent_security_url.clone()
+                } else if is_srcdoc {
                     parent_url.clone()
                 } else {
                     Url::parse(&url)
@@ -3245,6 +3488,9 @@ impl RustExecutableDocument {
                     child_referrer_policy = crate::referrer::ReferrerPolicy::parse_list(content)
                         .as_str()
                         .into();
+                }
+                if opaque_sandbox {
+                    child_referrer_policy = "no-referrer".into();
                 }
                 #[cfg(unix)]
                 if let Some((client, page_id, _)) = &self.context {
@@ -3314,13 +3560,17 @@ impl RustExecutableDocument {
                             HostError::Execution(format!("dynamic frame context: {error}"))
                         })?;
                 }
-                if let Some(frame_url) = &frame_url {
-                    let committed_url = if is_srcdoc {
-                        "about:srcdoc"
-                    } else {
-                        frame_url.as_str()
-                    };
-                    let encoded = serde_json::to_string(committed_url)
+                let committed_url = if inherited_about_blank {
+                    "about:blank".to_owned()
+                } else if is_srcdoc {
+                    "about:srcdoc".to_owned()
+                } else {
+                    frame_url
+                        .as_ref()
+                        .map_or_else(|| url.clone(), Url::to_string)
+                };
+                if frame_url.is_some() {
+                    let encoded = serde_json::to_string(&committed_url)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                     self.host
                         .execute(&format!(
@@ -3339,9 +3589,11 @@ impl RustExecutableDocument {
                 self.host.execute(&format!(
                     "globalThis.__oryn_referrer_policy={child_referrer_policy}"
                 ))?;
-                let request_initiator = serde_json::to_string(
-                    &frame_url.as_ref().map_or_else(String::new, Url::to_string),
-                )
+                let request_initiator = serde_json::to_string(&if inherited_about_blank {
+                    "about:blank".to_owned()
+                } else {
+                    frame_url.as_ref().map_or_else(String::new, Url::to_string)
+                })
                 .map_err(|error| HostError::Execution(error.to_string()))?;
                 self.host.execute(&format!(
                     "globalThis.__oryn_request_initiator_url={request_initiator}"
@@ -3352,7 +3604,7 @@ impl RustExecutableDocument {
                         .map_err(|error| {
                             HostError::Execution(format!("dynamic frame opaque origin: {error}"))
                         })?;
-                } else if is_srcdoc
+                } else if (is_srcdoc || inherited_about_blank)
                     && let Some(frame_origin) = frame_url
                         .as_ref()
                         .map(|url| url.origin().ascii_serialization())
@@ -3378,6 +3630,9 @@ impl RustExecutableDocument {
                     self.host.set_frame_realm(frame, child_document, realm)?;
                 }
                 self.host.activate_realm(realm)?;
+                if let Some(source) = javascript_url.as_deref() {
+                    execute_javascript_url(&mut self.host, source, &committed_url)?;
+                }
                 let child_scripts = {
                     let dom = frame_dom.borrow();
                     dom.query_selector_all(child_document, "script")
@@ -3421,6 +3676,14 @@ impl RustExecutableDocument {
                         HostError::Execution(format!("dynamic frame lifecycle: {error}"))
                     })?;
                 self.host.activate_realm(parent_realm)?;
+                self.frame_realms.insert(
+                    realm,
+                    FrameRealm {
+                        parent_realm,
+                        frame,
+                        committed_url,
+                    },
+                );
                 self.host
                     .execute_with_node(
                         frame,
@@ -3430,6 +3693,14 @@ impl RustExecutableDocument {
                     .map_err(|error| {
                         HostError::Execution(format!("dynamic frame element load: {error}"))
                     })?;
+                if let Some(refresh_url) = refresh_url {
+                    self.host.activate_realm(realm)?;
+                    let refresh_url = serde_json::to_string(&refresh_url)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    self.host
+                        .execute(&format!("setTimeout(()=>location.href={refresh_url},0)"))?;
+                    self.host.activate_realm(parent_realm)?;
+                }
             }
         }
         Err(HostError::LimitExceeded {
@@ -3802,6 +4073,36 @@ fn script_diagnostic(error: HostError) -> oryn_common::v3::CapabilityDiagnostic 
 
 fn script_diagnostic_at(error: HostError, resource: &str) -> oryn_common::v3::CapabilityDiagnostic {
     script_diagnostic(HostError::Execution(format!("{resource}: {error}")))
+}
+
+fn execute_javascript_url(
+    host: &mut RawV8Host,
+    source: &str,
+    committed_url: &str,
+) -> Result<(), HostError> {
+    let committed_url = serde_json::to_string(committed_url)
+        .map_err(|error| HostError::Execution(error.to_string()))?;
+    let source = source.trim();
+    let evaluation = if let Some(literal) = source
+        .strip_prefix('\'')
+        .and_then(|literal| literal.strip_suffix('\''))
+    {
+        let literal = literal
+            .replace("\\/", "/")
+            .replace("\\'", "'")
+            .replace("\\n", "\n")
+            .replace("\\r", "\r");
+        let literal = serde_json::to_string(&literal)
+            .map_err(|error| HostError::Execution(error.to_string()))?;
+        format!("const __html={literal};")
+    } else {
+        let source = serde_json::to_string(source)
+            .map_err(|error| HostError::Execution(error.to_string()))?;
+        format!("const __html=(0,eval)({source});")
+    };
+    host.execute(&format!(
+        "{{const __origin=location.origin;Object.assign(location,new OrynURL({committed_url}));location.origin=__origin;{evaluation}if(typeof __html==='string'){{document.open();document.write(__html);document.close()}}}}"
+    ))
 }
 
 fn subtree_nodes(dom: &DomRuntime, root: NodeId) -> Result<Vec<NodeId>, HostError> {
@@ -4798,5 +5099,24 @@ mod tests {
                 .unwrap(),
             "complete"
         );
+    }
+
+    #[test]
+    fn blob_url_worker_executes_registered_rust_owned_bytes() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<output id=result>pending</output><script>
+            const output=document.querySelector('#result');
+            const dedicatedUrl=URL.createObjectURL(new Blob(['postMessage({value:"dedicated"})'],{type:'application/javascript'}));
+            const dedicated=new Worker(dedicatedUrl);dedicated.onmessage=event=>output.textContent=event.data.value;
+            </script>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://example.test/root").unwrap()),
+        )
+        .unwrap();
+        let value = page
+            .evaluate("__oryn_drain(true);document.querySelector('#result').textContent+'|'+dedicated.__closed+'|'+JSON.stringify(__oryn_take_context_trace())")
+            .unwrap();
+        assert!(value.starts_with("dedicated|false|"), "{value}");
     }
 }

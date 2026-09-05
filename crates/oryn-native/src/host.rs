@@ -1138,6 +1138,17 @@ mod raw_v8 {
                     .unwrap_or_else(|| v8::undefined(scope).into());
                 v8::Global::new(scope, value)
             };
+            let parent_top = {
+                let parent_context = v8::Local::new(handle_scope, &parent_context);
+                let scope = &mut v8::ContextScope::new(handle_scope, parent_context);
+                let window = v8::Local::new(scope, &parent_window);
+                let key = v8::String::new(scope, "top")
+                    .ok_or_else(|| HostError::Execution("allocate top key".into()))?;
+                let value = window
+                    .get(scope, key.into())
+                    .unwrap_or_else(|| window.into());
+                v8::Global::new(scope, value)
+            };
             let frame_element = if same_origin {
                 let parent_context = v8::Local::new(handle_scope, &parent_context);
                 let scope = &mut v8::ContextScope::new(handle_scope, parent_context);
@@ -1261,6 +1272,7 @@ mod raw_v8 {
                 let child_window = v8::Local::new(scope, &child_window);
                 let child_proxy = v8::Local::new(scope, &public_child_proxy);
                 let parent_proxy = v8::Local::new(scope, &parent_proxy);
+                let parent_top = v8::Local::new(scope, &parent_top);
                 let source_key = v8::String::new(scope, "__source")
                     .ok_or_else(|| HostError::Execution("allocate parent proxy source".into()))?;
                 parent_proxy.set(scope, source_key.into(), child_proxy.into());
@@ -1282,11 +1294,15 @@ mod raw_v8 {
                         parent_proxy.set(scope, key.into(), parent_proxy.into());
                     }
                 }
-                for name in ["parent", "top"] {
-                    let key = v8::String::new(scope, name)
-                        .ok_or_else(|| HostError::Execution(format!("allocate frame {name}")))?;
-                    child_window.set(scope, key.into(), parent_proxy.into());
-                }
+                let parent_key = v8::String::new(scope, "parent")
+                    .ok_or_else(|| HostError::Execution("allocate frame parent".into()))?;
+                child_window.set(scope, parent_key.into(), parent_proxy.into());
+                // `top` is transitive. Pointing it at the immediate parent
+                // causes messages from a grandchild to terminate in the
+                // intermediate iframe instead of the top-level harness.
+                let top_key = v8::String::new(scope, "top")
+                    .ok_or_else(|| HostError::Execution("allocate frame top".into()))?;
+                child_window.set(scope, top_key.into(), parent_top);
                 if let Some(frame_element) = &frame_element {
                     let key = v8::String::new(scope, "frameElement")
                         .ok_or_else(|| HostError::Execution("allocate frameElement key".into()))?;
@@ -1403,6 +1419,21 @@ mod raw_v8 {
                         .take_pending_dynamic_stylesheets()
                         .into_iter()
                         .map(|stylesheet| (*realm, stylesheet))
+                })
+                .collect())
+        }
+
+        pub fn take_all_pending_referrer_policies(
+            &self,
+        ) -> Result<Vec<(RealmId, String)>, HostError> {
+            Ok(self
+                .binding_states
+                .iter()
+                .flat_map(|(realm, state)| {
+                    state
+                        .take_pending_referrer_policies()
+                        .into_iter()
+                        .map(|policy| (*realm, policy))
                 })
                 .collect())
         }

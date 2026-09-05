@@ -195,6 +195,8 @@ def substitute_wpt_tokens(
     root: Path | None = None,
     source_path: Path | None = None,
     https_port: int | None = None,
+    request_query: str | None = None,
+    request_headers: collections.abc.Mapping[str, str] | None = None,
 ) -> str:
     """Apply the deterministic wptserve substitutions used by this harness."""
     remote_host = "localhost" if request_host == "127.0.0.1" else "127.0.0.1"
@@ -225,6 +227,20 @@ def substitute_wpt_tokens(
 
     if root is not None:
         body = re.sub(r"\{\{fs_path\(([^)]+)\)\}\}", replace_fs_path, body)
+    if request_query is not None:
+        query = urllib.parse.parse_qs(request_query, keep_blank_values=True)
+        body = re.sub(
+            r"\{\{GET\[([^\]]+)\]\}\}",
+            lambda match: query.get(match.group(1), [""])[0],
+            body,
+        )
+    if request_headers is not None:
+        headers = {name.lower(): value for name, value in request_headers.items()}
+        body = re.sub(
+            r"\{\{header_or_default\(([^,]+),\s*([^)]*)\)\}\}",
+            lambda match: headers.get(match.group(1).strip().lower(), match.group(2).strip()),
+            body,
+        )
     return body
 
 
@@ -637,6 +653,8 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                     self.root,
                     path,
                     self.public_https_port,
+                    parsed.query,
+                    self.headers,
                 )
             body = re.sub(
                 r"<script\b[^>]*\bsrc\s*=\s*(['\"]?)/resources/testharnessreport\.js\1[^>]*>\s*</script>",
@@ -746,6 +764,8 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                     self.root,
                     source_path,
                     self.public_https_port,
+                    urllib.parse.urlparse(self.path).query,
+                    self.headers,
                 ).encode("utf-8")
             self.send_response(response.status, response.reason)
             response_started = True

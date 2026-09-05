@@ -311,6 +311,8 @@ pub enum ContextServiceResponse {
         document_referrer: String,
         #[serde(default)]
         referrer_policy: String,
+        #[serde(default)]
+        refresh_url: Option<String>,
     },
     WebSocketOpened {
         socket_id: u64,
@@ -2106,6 +2108,7 @@ impl ParentContextService {
                     destination: destination.into(),
                     document_referrer: String::new(),
                     referrer_policy: crate::referrer::ReferrerPolicy::default().as_str().into(),
+                    refresh_url: None,
                 });
             }
             let mut request_headers = vec![("accept".into(), accept.into())];
@@ -2175,6 +2178,15 @@ impl ParentContextService {
                 .map(|(_, value)| crate::referrer::ReferrerPolicy::parse_list(value))
                 .next_back()
                 .unwrap_or_default();
+            let refresh_url = response
+                .headers
+                .iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case("refresh"))
+                .filter_map(|(_, value)| value.split_once(';').map(|(_, target)| target))
+                .filter_map(|target| target.split_once('=').map(|(_, target)| target.trim()))
+                .next_back()
+                .and_then(|target| url.join(target).ok())
+                .map(|target| target.to_string());
             if destination == "frame" {
                 self.authorized_storage_origins
                     .lock()
@@ -2191,6 +2203,7 @@ impl ParentContextService {
                 destination: destination.into(),
                 document_referrer,
                 referrer_policy: response_policy.as_str().into(),
+                refresh_url,
             });
         }
         Err(RuntimeError::Network(format!(

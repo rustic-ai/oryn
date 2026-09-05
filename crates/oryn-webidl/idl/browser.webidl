@@ -350,6 +350,13 @@ interface HTMLBodyElement : HTMLElement {
 };
 
 [Exposed=Window]
+interface HTMLMetaElement : HTMLElement {
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute DOMString content;
+  [Reflect] attribute DOMString httpEquiv;
+};
+
+[Exposed=Window]
 interface DOMRect {
   constructor(optional double x = 0, optional double y = 0, optional double width = 0, optional double height = 0);
   readonly attribute double x;
@@ -613,6 +620,12 @@ interface Document : Node {
   boolean queryCommandState(DOMString commandId);
   boolean queryCommandSupported(DOMString commandId);
   DOMString queryCommandValue(DOMString commandId);
+};
+
+[Exposed=Window]
+interface DOMParser {
+  constructor();
+  Document parseFromString(DOMString input, DOMString type);
 };
 
 [Exposed=Window]
@@ -1140,6 +1153,8 @@ interface Request {
   readonly attribute Headers headers;
   readonly attribute AbortSignal signal;
   readonly attribute DOMString credentials;
+  readonly attribute DOMString referrer;
+  readonly attribute DOMString referrerPolicy;
   readonly attribute any body;
   readonly attribute boolean bodyUsed;
   Request clone();
@@ -1271,6 +1286,8 @@ interface TrustedTypePolicyFactory {
 dictionary RequestInit {
   DOMString method = "GET";
   DOMString? body = null;
+  DOMString referrer = "client";
+  DOMString referrerPolicy = "";
 };
 
 callback EventListener = undefined (Event event);

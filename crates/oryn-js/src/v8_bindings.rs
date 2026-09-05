@@ -297,6 +297,8 @@ struct RequestRecord {
     headers_id: u64,
     signal_id: u64,
     credentials: String,
+    referrer: String,
+    referrer_policy: String,
     body: Vec<u8>,
     body_object_id: Option<u64>,
     body_used: bool,
@@ -748,6 +750,7 @@ pub struct V8BindingState {
     prepared_scripts: RefCell<BTreeSet<NodeId>>,
     pending_dynamic_stylesheets: RefCell<VecDeque<NodeId>>,
     prepared_stylesheets: RefCell<BTreeSet<NodeId>>,
+    pending_referrer_policies: RefCell<VecDeque<String>>,
     pending_dynamic_frames: RefCell<VecDeque<NodeId>>,
     prepared_frames: RefCell<BTreeSet<NodeId>>,
     pending_default_actions: RefCell<VecDeque<PendingDefaultAction>>,
@@ -1398,6 +1401,17 @@ impl V8BindingState {
                                     rgba: rgba.into_raw(),
                                 },
                             );
+                            let event = create_event_object(scope, self, "load", false, false)?;
+                            dispatch_event(scope, self, node, event)?;
+                        }
+                        Err(_)
+                            if String::from_utf8_lossy(&bytes)
+                                .to_ascii_lowercase()
+                                .contains("<svg") =>
+                        {
+                            // SVG resources have successfully decoded as an image even when
+                            // the optional pixel renderer has no SVG rasterizer. Keep paint
+                            // availability separate from the HTMLImageElement load contract.
                             let event = create_event_object(scope, self, "load", false, false)?;
                             dispatch_event(scope, self, node, event)?;
                         }
@@ -2305,6 +2319,13 @@ impl V8BindingState {
             .collect()
     }
 
+    pub fn take_pending_referrer_policies(&self) -> Vec<String> {
+        self.pending_referrer_policies
+            .borrow_mut()
+            .drain(..)
+            .collect()
+    }
+
     pub fn take_pending_dynamic_frames(&self) -> Vec<NodeId> {
         self.pending_dynamic_frames.borrow_mut().drain(..).collect()
     }
@@ -2573,6 +2594,7 @@ pub fn install_generated_bindings_with_root_for_global(
         prepared_scripts: RefCell::new(BTreeSet::new()),
         pending_dynamic_stylesheets: RefCell::new(VecDeque::new()),
         prepared_stylesheets: RefCell::new(BTreeSet::new()),
+        pending_referrer_policies: RefCell::new(VecDeque::new()),
         pending_dynamic_frames: RefCell::new(VecDeque::new()),
         prepared_frames: RefCell::new(BTreeSet::new()),
         pending_default_actions: RefCell::new(VecDeque::new()),
@@ -2854,6 +2876,7 @@ pub fn install_generated_bindings_with_root_for_global(
     install_url_statics(scope, context)?;
     install_response_statics(scope, context)?;
     if binding_global == BindingGlobal::Window {
+        install_document_statics(scope, context)?;
         let get_computed_style = v8::Function::new(scope, get_computed_style_callback)
             .ok_or(V8BindingError::Allocation("getComputedStyle function"))?;
         let name = v8::String::new(scope, "getComputedStyle")
@@ -3035,6 +3058,26 @@ fn install_response_statics(
     Ok(())
 }
 
+fn install_document_statics(
+    scope: &mut v8::PinScope,
+    context: v8::Local<v8::Context>,
+) -> Result<(), V8BindingError> {
+    let name =
+        v8::String::new(scope, "Document").ok_or(V8BindingError::Allocation("Document name"))?;
+    let constructor = context
+        .global(scope)
+        .get(scope, name.into())
+        .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+        .ok_or(V8BindingError::MissingInterface("Document"))?;
+    let callback = v8::Function::new(scope, document_parse_html_unsafe_static).ok_or(
+        V8BindingError::Allocation("Document.parseHTMLUnsafe static"),
+    )?;
+    let name = v8::String::new(scope, "parseHTMLUnsafe")
+        .ok_or(V8BindingError::Allocation("Document.parseHTMLUnsafe name"))?;
+    constructor.create_data_property(scope, name.into(), callback.into());
+    Ok(())
+}
+
 fn install_url_statics(
     scope: &mut v8::PinScope,
     context: v8::Local<v8::Context>,
@@ -3055,7 +3098,33 @@ fn install_url_statics(
     let revoke_name = v8::String::new(scope, "revokeObjectURL")
         .ok_or(V8BindingError::Allocation("URL.revokeObjectURL name"))?;
     constructor.create_data_property(scope, revoke_name.into(), revoke.into());
+    let source = v8::Function::new(scope, blob_url_source_callback)
+        .ok_or(V8BindingError::Allocation("blob URL source callback"))?;
+    let source_name = v8::String::new(scope, "__oryn_blob_url_source")
+        .ok_or(V8BindingError::Allocation("blob URL source name"))?;
+    context
+        .global(scope)
+        .create_data_property(scope, source_name.into(), source.into());
     Ok(())
+}
+
+fn blob_url_source_callback(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+        return_value.set(v8::null(scope).into());
+        return;
+    };
+    let url = args.get(0).to_rust_string_lossy(scope);
+    let Some(blob) = blob_url_record(&state, &url) else {
+        return_value.set(v8::null(scope).into());
+        return;
+    };
+    if let Some(value) = v8::String::new(scope, &String::from_utf8_lossy(&blob.bytes)) {
+        return_value.set(value.into());
+    }
 }
 
 fn install_dom_exception_intrinsics(
@@ -3396,6 +3465,49 @@ fn response_json_static<'s>(
             }),
         );
         new_platform_object(scope, &state, "Response", id)
+    })();
+    match result {
+        Ok(value) => return_value.set(value.into()),
+        Err(error) => throw_binding_error(scope, &error),
+    }
+}
+
+fn parse_detached_document<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    markup: &str,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let parsed = oryn_dom::html::parse_streamed(markup, 4096);
+    let document = state
+        .dom
+        .borrow_mut()
+        .import_subtree(&parsed.dom, parsed.document)?;
+    let mut pending = vec![document];
+    let mut owned = Vec::new();
+    while let Some(node) = pending.pop() {
+        owned.push(node);
+        let children = state.dom.borrow().arena().get(node)?.children.clone();
+        pending.extend(children);
+    }
+    let mut documents = state.node_documents.borrow_mut();
+    for node in owned {
+        documents.insert(node, document);
+    }
+    drop(documents);
+    wrap_node(scope, state, document)
+}
+
+fn document_parse_html_unsafe_static<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut return_value: v8::ReturnValue,
+) {
+    let result = (|| -> Result<v8::Local<v8::Object>, V8BindingError> {
+        let state = scope
+            .get_current_context()
+            .get_slot::<V8BindingState>()
+            .ok_or(V8BindingError::Allocation("Document state"))?;
+        parse_detached_document(scope, &state, &args.get(0).to_rust_string_lossy(scope))
     })();
     match result {
         Ok(value) => return_value.set(value.into()),
@@ -5815,6 +5927,8 @@ fn initialize_platform_constructor<'s>(
                         request.credentials.clone(),
                         request.body.clone(),
                         request.body_object_id,
+                        request.referrer.clone(),
+                        request.referrer_policy.clone(),
                     )),
                     _ => None,
                 }
@@ -5867,6 +5981,16 @@ fn initialize_platform_constructor<'s>(
             .map(|value| value.to_rust_string_lossy(scope))
             .or_else(|| inherited.as_ref().map(|value| value.4.clone()))
             .unwrap_or_else(|| "same-origin".into());
+        let referrer = option_value(scope, init, "referrer")
+            .filter(|value| !value.is_null_or_undefined())
+            .map(|value| value.to_rust_string_lossy(scope))
+            .or_else(|| inherited.as_ref().map(|value| value.7.clone()))
+            .unwrap_or_else(|| "client".into());
+        let referrer_policy = option_value(scope, init, "referrerPolicy")
+            .filter(|value| !value.is_null_or_undefined())
+            .map(|value| value.to_rust_string_lossy(scope))
+            .or_else(|| inherited.as_ref().map(|value| value.8.clone()))
+            .unwrap_or_default();
         let body_value =
             option_value(scope, init, "body").filter(|value| !value.is_null_or_undefined());
         let body_object_id = body_value
@@ -5902,6 +6026,8 @@ fn initialize_platform_constructor<'s>(
                 headers_id,
                 signal_id,
                 credentials,
+                referrer,
+                referrer_policy,
                 body,
                 body_object_id,
                 body_used: false,
@@ -6889,6 +7015,17 @@ fn generated_constructor<'s>(
         );
         return;
     }
+    if name == "DOMParser" && args.is_construct_call() {
+        let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+            throw_type_error(scope, "generated binding state is unavailable");
+            return;
+        };
+        args.this()
+            .set_internal_field(0, v8::Number::new(scope, 1.0).into());
+        args.this()
+            .set_internal_field(1, v8::BigInt::new_from_u64(scope, state.instance_id).into());
+        return;
+    }
     // During custom-element upgrade `super()` reaches this constructor with a
     // freshly allocated derived-class instance. Bind that instance to the
     // existing Rust node before the rest of the user constructor runs. This is
@@ -7278,6 +7415,7 @@ fn generated_operation<'s>(
             | "NodeIterator"
             | "TreeWalker"
             | "DOMImplementation"
+            | "DOMParser"
             | "History"
             | "Storage"
     ) {
@@ -11893,6 +12031,12 @@ fn get_platform_attribute<'s>(
         (PlatformObjectRecord::Request(request), "Request", "credentials") => {
             v8_string(scope, &request.credentials)
         }
+        (PlatformObjectRecord::Request(request), "Request", "referrer") => {
+            v8_string(scope, &request.referrer)
+        }
+        (PlatformObjectRecord::Request(request), "Request", "referrerPolicy") => {
+            v8_string(scope, &request.referrer_policy)
+        }
         (PlatformObjectRecord::Request(request), "Request", "body") => match request.body_object_id
         {
             Some(id) => {
@@ -12392,7 +12536,7 @@ fn platform_fetch_callback(
         } else {
             create_request_record(scope, &state, args.get(0), args.get(1))?
         };
-        let (method, url, headers_id, body, credentials, signal_id) = {
+        let (method, url, headers_id, body, credentials, signal_id, referrer, request_policy) = {
             let mut record = platform_object_mut(&state, request_id)?;
             let PlatformObjectRecord::Request(request) = &mut *record else {
                 return Err(V8BindingError::Allocation("Request record"));
@@ -12405,6 +12549,8 @@ fn platform_fetch_callback(
                 request.body.clone(),
                 request.credentials.clone(),
                 request.signal_id,
+                request.referrer.clone(),
+                request.referrer_policy.clone(),
             )
         };
         let signal = platform_object(&state, signal_id)?;
@@ -12455,12 +12601,20 @@ fn platform_fetch_callback(
             headers: headers.entries.clone(),
             body,
             credentials,
-            initiator_url: request_initiator_url(scope),
-            referrer_policy: global_property(scope, "__oryn_referrer_policy")
-                .ok()
-                .and_then(|value| value.to_string(scope))
-                .map(|value| value.to_rust_string_lossy(scope))
-                .filter(|value| !value.trim().is_empty()),
+            initiator_url: if referrer == "client" || referrer.is_empty() {
+                request_initiator_url(scope)
+            } else {
+                Some(resolve_platform_url(scope, &referrer)?)
+            },
+            referrer_policy: (!request_policy.trim().is_empty())
+                .then_some(request_policy)
+                .or_else(|| {
+                    global_property(scope, "__oryn_referrer_policy")
+                        .ok()
+                        .and_then(|value| value.to_string(scope))
+                        .map(|value| value.to_rust_string_lossy(scope))
+                        .filter(|value| !value.trim().is_empty())
+                }),
         };
         let resolver =
             v8::PromiseResolver::new(scope).ok_or(V8BindingError::Allocation("fetch promise"))?;
@@ -14296,7 +14450,17 @@ fn call_platform_operation<'s>(
             return Ok(None);
         }
         ("Request", "clone") => {
-            let (url, method, source_headers_id, signal_id, credentials, body, body_object_id) = {
+            let (
+                url,
+                method,
+                source_headers_id,
+                signal_id,
+                credentials,
+                body,
+                body_object_id,
+                referrer,
+                referrer_policy,
+            ) = {
                 let record = platform_object(state, id)?;
                 let PlatformObjectRecord::Request(request) = &*record else {
                     return Err(V8BindingError::Allocation("Request record"));
@@ -14315,6 +14479,8 @@ fn call_platform_operation<'s>(
                     request.credentials.clone(),
                     request.body.clone(),
                     request.body_object_id,
+                    request.referrer.clone(),
+                    request.referrer_policy.clone(),
                 )
             };
             let clone = RequestRecord {
@@ -14323,6 +14489,8 @@ fn call_platform_operation<'s>(
                 headers_id: clone_headers(state, source_headers_id)?,
                 signal_id,
                 credentials,
+                referrer,
+                referrer_policy,
                 body,
                 body_object_id,
                 body_used: false,
@@ -15464,6 +15632,24 @@ fn call_stateful_operation<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if interface == "DOMParser" && member == "parseFromString" {
+        let media_type = args.get(1).to_rust_string_lossy(scope);
+        if !matches!(
+            media_type.as_str(),
+            "text/html"
+                | "text/xml"
+                | "application/xml"
+                | "application/xhtml+xml"
+                | "image/svg+xml"
+        ) {
+            return Err(V8BindingError::Unsupported {
+                interface: interface.into(),
+                member: "unsupported MIME type".into(),
+            });
+        }
+        let markup = args.get(0).to_rust_string_lossy(scope);
+        return Ok(Some(parse_detached_document(scope, state, &markup)?.into()));
+    }
     if interface == "Storage" {
         return call_storage_operation(scope, state, object, member, args);
     }
@@ -16471,6 +16657,7 @@ fn validate_interface_node(
         "HTMLButtonElement" => Some("button"),
         "HTMLFormElement" => Some("form"),
         "HTMLAnchorElement" => Some("a"),
+        "HTMLMetaElement" => Some("meta"),
         "HTMLLinkElement" => Some("link"),
         "HTMLCanvasElement" => Some("canvas"),
         "HTMLImageElement" => Some("img"),
@@ -16528,6 +16715,7 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "button" => "HTMLButtonElement",
             "form" => "HTMLFormElement",
             "a" => "HTMLAnchorElement",
+            "meta" => "HTMLMetaElement",
             "area" => "HTMLAreaElement",
             "link" => "HTMLLinkElement",
             "iframe" => "HTMLIFrameElement",
@@ -17393,8 +17581,14 @@ fn get_attribute_value<'s>(
         return Ok(v8::Integer::new_from_unsigned(scope, value).into());
     }
     if interface == "HTMLIFrameElement" && member == "contentDocument" {
-        let document = state.frame_roots.borrow().get(&node).copied();
-        return optional_node(scope, state, document);
+        // `frame_roots` is populated only for an origin-readable child.
+        // Consult it directly: a stable/provisional WindowProxy is not
+        // required to expose the target realm's `document` property and is
+        // therefore not an authoritative source for contentDocument.
+        if let Some(document) = state.frame_roots.borrow().get(&node).copied() {
+            return Ok(wrap_node(scope, state, document)?.into());
+        }
+        return Ok(v8::null(scope).into());
     }
     if interface == "HTMLIFrameElement" && member == "contentWindow" {
         return Ok(state
@@ -17834,12 +18028,14 @@ fn get_attribute_value<'s>(
         }
         (
             interface,
-            "type" | "name" | "action" | "method" | "href" | "target" | "src" | "srcdoc"
-            | "sandbox" | "crossOrigin" | "referrerPolicy" | "rel" | "media" | "background",
+            "type" | "name" | "content" | "httpEquiv" | "action" | "method" | "href" | "target"
+            | "src" | "srcdoc" | "sandbox" | "crossOrigin" | "referrerPolicy" | "rel" | "media"
+            | "background",
         ) if interface.starts_with("HTML") => {
             let attribute = match member {
                 "crossOrigin" => "crossorigin",
                 "referrerPolicy" => "referrerpolicy",
+                "httpEquiv" => "http-equiv",
                 _ => member,
             };
             let fallback = match member {
@@ -17868,6 +18064,12 @@ fn get_attribute_value<'s>(
             } else {
                 reflected
             };
+            if matches!(member, "href" | "src" | "action") && !reflected.is_empty() {
+                let reflected = reflected.to_owned();
+                drop(dom);
+                let resolved = resolve_platform_url(scope, &reflected)?;
+                return v8_string(scope, &resolved);
+            }
             v8_string(scope, reflected)?
         }
         ("HTMLSelectElement", "selectedIndex") => {
@@ -18160,15 +18362,23 @@ fn set_attribute_value(
         }
         (
             interface,
-            "type" | "name" | "action" | "method" | "href" | "target" | "src" | "srcdoc"
-            | "sandbox" | "crossOrigin" | "referrerPolicy" | "rel" | "media" | "background",
+            "type" | "name" | "content" | "httpEquiv" | "action" | "method" | "href" | "target"
+            | "src" | "srcdoc" | "sandbox" | "crossOrigin" | "referrerPolicy" | "rel" | "media"
+            | "background",
         ) if interface.starts_with("HTML") => {
             let attribute = match member {
                 "crossOrigin" => "crossorigin",
                 "referrerPolicy" => "referrerpolicy",
+                "httpEquiv" => "http-equiv",
                 _ => member,
             };
             dom.set_attribute(node, attribute, value)?;
+            if interface == "HTMLMetaElement" && matches!(member, "name" | "content" | "httpEquiv")
+            {
+                drop(dom);
+                prepare_dynamic_referrer_meta(scope, state, node)?;
+                return Ok(());
+            }
             if interface == "HTMLIFrameElement" && matches!(member, "src" | "srcdoc") {
                 drop(dom);
                 state.prepared_frames.borrow_mut().remove(&node);
@@ -19103,6 +19313,13 @@ fn call_operation<'s>(
             if state.document_open.replace(false) {
                 let markup = std::mem::take(&mut *state.document_write_buffer.borrow_mut());
                 state.dom.borrow_mut().replace_document_contents(&markup)?;
+                // `document.close()` completes the replacement parser. Scripts
+                // in that newly parsed document are parser-inserted and must run
+                // before the close call returns (not wait for an unrelated page
+                // scheduler tick). This is especially important for
+                // `javascript:` navigations whose completion value is HTML.
+                let document = state.dom.borrow().document();
+                execute_parser_inserted_scripts(scope, state, &[document])?;
             }
             Ok(None)
         }
@@ -20277,6 +20494,7 @@ fn prepare_dynamic_script_subtree(
     state: &Rc<V8BindingState>,
     root: NodeId,
 ) -> Result<(), V8BindingError> {
+    prepare_dynamic_referrer_meta(scope, state, root)?;
     prepare_dynamic_frame_subtree(state, root)?;
     prepare_dynamic_image_subtree(scope, state, root)?;
     prepare_dynamic_stylesheet_subtree(state, root)?;
@@ -20320,6 +20538,75 @@ fn prepare_dynamic_script_subtree(
             .run(scope)
             .ok_or(V8BindingError::Allocation("dynamic script result"))?;
         scope.perform_microtask_checkpoint();
+    }
+    Ok(())
+}
+
+fn prepare_dynamic_referrer_meta(
+    scope: &mut v8::PinScope<'_, '_>,
+    state: &Rc<V8BindingState>,
+    root: NodeId,
+) -> Result<(), V8BindingError> {
+    let (policies, refreshes) = {
+        let dom = state.dom.borrow();
+        if !dom.is_connected(root)? {
+            return Ok(());
+        }
+        let mut candidates = vec![root];
+        candidates.extend(dom.query_selector_all(root, "meta")?);
+        let mut policies = Vec::new();
+        let mut refreshes = Vec::new();
+        for node in candidates {
+            if !dom
+                .node_name(node)
+                .is_ok_and(|name| name.eq_ignore_ascii_case("meta"))
+            {
+                continue;
+            }
+            let content = dom
+                .attribute(node, "content")?
+                .unwrap_or_default()
+                .to_owned();
+            if dom
+                .attribute(node, "name")?
+                .is_some_and(|name| name.eq_ignore_ascii_case("referrer"))
+            {
+                policies.push(content.clone());
+            }
+            if dom
+                .attribute(node, "http-equiv")?
+                .is_some_and(|name| name.eq_ignore_ascii_case("refresh"))
+                && let Some((_, target)) = content.split_once(';')
+                && let Some((_, target)) = target.split_once('=')
+            {
+                refreshes.push(target.trim().trim_matches(['\'', '"']).to_owned());
+            }
+        }
+        (policies, refreshes)
+    };
+    for policy in policies {
+        let global = scope.get_current_context().global(scope);
+        let key = v8::String::new(scope, "__oryn_referrer_policy")
+            .ok_or(V8BindingError::Allocation("referrer policy key"))?;
+        let value = v8::String::new(scope, &policy)
+            .ok_or(V8BindingError::Allocation("referrer policy value"))?;
+        global.set(scope, key.into(), value.into());
+        state
+            .pending_referrer_policies
+            .borrow_mut()
+            .push_back(policy);
+    }
+    for target in refreshes {
+        let target = resolve_platform_url(scope, &target)?;
+        let target = serde_json::to_string(&target)
+            .map_err(|_| V8BindingError::Allocation("refresh URL"))?;
+        let source = v8::String::new(scope, &format!("setTimeout(()=>location.href={target},0)"))
+            .ok_or(V8BindingError::Allocation("meta refresh task"))?;
+        let script = v8::Script::compile(scope, source, None)
+            .ok_or(V8BindingError::Allocation("meta refresh script"))?;
+        script
+            .run(scope)
+            .ok_or(V8BindingError::Allocation("meta refresh result"))?;
     }
     Ok(())
 }
