@@ -5055,13 +5055,18 @@ fn get_computed_style_callback(
         let node = argument_node(scope, &state, args.get(0))?;
         refresh_layout(&state)?;
         let key = node_key(node);
-        let styles = state
+        let mut styles = state
             .layout
             .borrow()
             .styles
             .get(&key)
             .cloned()
             .unwrap_or_default();
+        if let (Some(x), Some(y)) = (styles.get("overflow-x"), styles.get("overflow-y"))
+            && x == y
+        {
+            styles.insert("overflow".into(), x.clone());
+        }
         let object = v8::Local::<v8::Object>::try_from(associated_wrapper(
             scope,
             &state,
@@ -5070,13 +5075,27 @@ fn get_computed_style_callback(
         )?)
         .map_err(|_| V8BindingError::Allocation("computed CSSStyleDeclaration"))?;
         for (name, value) in styles {
-            let Some(name) = v8::String::new(scope, &name) else {
-                continue;
-            };
+            let mut idl_name = String::new();
+            let mut uppercase = false;
+            for character in name.trim_start_matches('-').chars() {
+                if character == '-' {
+                    uppercase = true;
+                } else if uppercase {
+                    idl_name.extend(character.to_uppercase());
+                    uppercase = false;
+                } else {
+                    idl_name.push(character);
+                }
+            }
             let Some(value) = v8::String::new(scope, &value) else {
                 continue;
             };
-            object.create_data_property(scope, name.into(), value.into());
+            for property in [&name, &idl_name] {
+                let Some(property) = v8::String::new(scope, property) else {
+                    continue;
+                };
+                object.create_data_property(scope, property.into(), value.into());
+            }
         }
         let getter = v8::Function::builder(computed_style_get_property_value)
             .data(v8::BigInt::new_from_u64(scope, node_key(node)).into())
@@ -17558,6 +17577,12 @@ fn get_attribute_value<'s>(
             .filter(|value| value.is_string())
             .unwrap_or_else(|| v8::String::empty(scope).into()));
     }
+    if interface == "Document" && matches!(member, "characterSet" | "charset" | "inputEncoding") {
+        return v8_string(scope, "UTF-8");
+    }
+    if interface == "Document" && member == "contentType" {
+        return v8_string(scope, "text/html");
+    }
     if interface == "Document" && member == "currentScript" {
         return optional_node(scope, state, state.current_script.get());
     }
@@ -19578,6 +19603,21 @@ fn call_operation<'s>(
                 None => Ok(Some(v8::null(scope).into())),
             }
         }
+        ("Element", "getAttributeNS") => {
+            let local_name = required_string(scope, args, 1)?;
+            let dom = state.dom.borrow();
+            let value = dom
+                .arena()
+                .get(node)?
+                .attributes
+                .iter()
+                .find(|(name, _)| name.rsplit(':').next() == Some(local_name.as_str()))
+                .map(|(_, value)| value.as_str());
+            match value {
+                Some(value) => Ok(Some(v8_string(scope, value)?)),
+                None => Ok(Some(v8::null(scope).into())),
+            }
+        }
         ("Element", "getAttributeNames") => {
             let names = state
                 .dom
@@ -19635,14 +19675,51 @@ fn call_operation<'s>(
             }
             Ok(None)
         }
+        ("Element", "setAttributeNS") => {
+            let qualified_name = required_string(scope, args, 1)?;
+            let value = required_string(scope, args, 2)?;
+            state
+                .dom
+                .borrow_mut()
+                .set_attribute(node, qualified_name, value)?;
+            Ok(None)
+        }
         ("Element", "removeAttribute") => {
             let name = required_string(scope, args, 0)?;
             state.dom.borrow_mut().remove_attribute(node, &name)?;
             Ok(None)
         }
+        ("Element", "removeAttributeNS") => {
+            let local_name = required_string(scope, args, 1)?;
+            let name = state
+                .dom
+                .borrow()
+                .arena()
+                .get(node)?
+                .attributes
+                .keys()
+                .find(|name| name.rsplit(':').next() == Some(local_name.as_str()))
+                .cloned();
+            if let Some(name) = name {
+                state.dom.borrow_mut().remove_attribute(node, &name)?;
+            }
+            Ok(None)
+        }
         ("Element", "hasAttribute") => {
             let name = required_string(scope, args, 0)?;
             let present = state.dom.borrow().attribute(node, &name)?.is_some();
+            Ok(Some(v8::Boolean::new(scope, present).into()))
+        }
+        ("Element", "hasAttributeNS") => {
+            let local_name = required_string(scope, args, 1)?;
+            let present = state
+                .dom
+                .borrow()
+                .arena()
+                .get(node)?
+                .attributes
+                .keys()
+                .any(|name| name.rsplit(':').next() == Some(local_name.as_str()));
             Ok(Some(v8::Boolean::new(scope, present).into()))
         }
         ("Element", "hasAttributes") => {

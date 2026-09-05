@@ -296,11 +296,15 @@ interface Element : Node {
   readonly attribute ShadowRoot? shadowRoot;
   ShadowRoot attachShadow(ShadowRootInit init);
   DOMString? getAttribute(DOMString name);
+  DOMString? getAttributeNS(DOMString? namespace, DOMString localName);
   Attr? getAttributeNode(DOMString name);
   sequence<DOMString> getAttributeNames();
   undefined setAttribute(DOMString name, DOMString value);
+  undefined setAttributeNS(DOMString? namespace, DOMString qualifiedName, DOMString value);
   undefined removeAttribute(DOMString name);
+  undefined removeAttributeNS(DOMString? namespace, DOMString localName);
   boolean hasAttribute(DOMString name);
+  boolean hasAttributeNS(DOMString? namespace, DOMString localName);
   boolean hasAttributes();
   boolean toggleAttribute(DOMString name, optional boolean force);
   Element? querySelector(DOMString selectors);
@@ -578,6 +582,10 @@ interface Document : Node {
   readonly attribute DOMString URL;
   readonly attribute DOMString baseURI;
   readonly attribute DOMString referrer;
+  readonly attribute DOMString characterSet;
+  readonly attribute DOMString charset;
+  readonly attribute DOMString inputEncoding;
+  readonly attribute DOMString contentType;
   readonly attribute any location;
   attribute DOMString cookie;
   readonly attribute any defaultView;

@@ -1238,6 +1238,10 @@ globalThis.parent=globalThis;
 globalThis.top=globalThis;
 globalThis.frames=globalThis;
 globalThis.frameElement=null;globalThis.__oryn_document_detached=false;
+if(globalThis.Document&&!globalThis.XMLDocument)globalThis.XMLDocument=globalThis.Document;
+globalThis.focus=()=>{if(typeof globalThis.__oryn_context_call==='function'&&__oryn_page_id!==null)contextCall({operation:'activate_page',source_page_id:__oryn_page_id,target_page_id:__oryn_page_id})};
+globalThis.blur=()=>{};
+if(globalThis.CSSStyleDeclaration&&!CSSStyleDeclaration.prototype[Symbol.iterator])Object.defineProperty(CSSStyleDeclaration.prototype,Symbol.iterator,{configurable:true,writable:true,value:function*(){for(const declaration of String(this.cssText||'').split(';')){const separator=declaration.indexOf(':');if(separator>0)yield declaration.slice(0,separator).trim()}}});
 // Generated Rust callbacks are the production web-platform authority. The
 // compatibility bootstrap below still supplies unrelated utilities, but its
 // legacy platform classes are restored out of the global namespace at the end
