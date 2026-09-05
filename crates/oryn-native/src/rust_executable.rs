@@ -24,7 +24,7 @@ use crate::{
 };
 use url::Url;
 
-const DOCUMENT_LIFECYCLE_SCRIPT: &str = "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));if(document.body&&typeof document.body.onload==='function'){globalThis.onload=document.body.onload;}dispatchEvent(new Event('load'))";
+const DOCUMENT_LIFECYCLE_SCRIPT: &str = "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));if(document.body&&typeof document.body.onload==='function'){globalThis.onload=document.body.onload;}dispatchEvent(new Event('load'))";
 
 struct LiveLayoutProvider {
     dom: SharedDomRuntime,

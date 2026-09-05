@@ -369,6 +369,7 @@ struct IdbTransactionRecord {
     completion_queued: bool,
     explicit_commit: bool,
     active: bool,
+    finished: bool,
 }
 
 struct IdbObjectStoreRecord {
@@ -1648,6 +1649,7 @@ impl V8BindingState {
                                     completion_queued: false,
                                     explicit_commit: false,
                                     active: true,
+                                    finished: false,
                                 }),
                             )
                         });
@@ -1780,6 +1782,12 @@ impl V8BindingState {
                             request_id,
                             v8::undefined(scope).into(),
                         )?;
+                        if let PlatformObjectRecord::IdbTransaction(transaction) =
+                            &mut *platform_object_mut(self, transaction_id)?
+                        {
+                            transaction.finished = true;
+                            transaction.active = false;
+                        }
                         dispatch_platform_event(scope, self, transaction_id, event_type, None)?;
                         finish_idb_request(self, request_id)?;
                         return Ok(());
@@ -13154,6 +13162,7 @@ fn call_platform_operation<'s>(
                     completion_queued: false,
                     explicit_commit: false,
                     active: true,
+                    finished: false,
                 }),
             );
             state
@@ -13177,7 +13186,7 @@ fn call_platform_operation<'s>(
         }
         ("IDBTransaction", "objectStore") => {
             let name = required_string(scope, args, 0)?;
-            let (finished, in_scope, definition) = {
+            let (finished, active, in_scope, definition) = {
                 let record = platform_object(state, id)?;
                 let PlatformObjectRecord::IdbTransaction(transaction) = &*record else {
                     return Err(V8BindingError::Allocation("IDBTransaction record"));
@@ -13187,9 +13196,8 @@ fn call_platform_operation<'s>(
                     return Err(V8BindingError::Allocation("IDBDatabase record"));
                 };
                 (
-                    transaction.aborted
-                        || transaction.completion_requested
-                        || transaction.explicit_commit,
+                    transaction.aborted || transaction.explicit_commit || transaction.finished,
+                    transaction.active,
                     transaction.object_stores.contains(&name),
                     database.object_store_definitions.get(&name).cloned(),
                 )
@@ -13198,6 +13206,12 @@ fn call_platform_operation<'s>(
                 return Err(V8BindingError::Unsupported {
                     interface: "IDBTransaction".into(),
                     member: "InvalidStateError".into(),
+                });
+            }
+            if !active {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBTransaction".into(),
+                    member: "TransactionInactiveError".into(),
                 });
             }
             if !in_scope {
