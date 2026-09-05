@@ -278,6 +278,7 @@ interface Node : EventTarget {
   boolean hasChildNodes();
   Node getRootNode();
   undefined append(DOMString node);
+  undefined replaceChildren(optional any node);
   undefined before(Node node);
   undefined after(Node node);
   undefined remove();
@@ -344,6 +345,7 @@ interface Attr : Node {
   readonly attribute DOMString? namespaceURI;
   readonly attribute DOMString? prefix;
   readonly attribute boolean specified;
+  readonly attribute boolean expando;
   attribute DOMString value;
   readonly attribute Element? ownerElement;
 };
@@ -1019,6 +1021,10 @@ interface CSSStyleDeclaration {
 
 [Exposed=Window]
 interface DocumentFragment : Node {
+  readonly attribute sequence<Element> children;
+  readonly attribute unsigned long childElementCount;
+  readonly attribute Element? firstElementChild;
+  readonly attribute Element? lastElementChild;
   Element? querySelector(DOMString selectors);
   sequence<Element> querySelectorAll(DOMString selectors);
 };

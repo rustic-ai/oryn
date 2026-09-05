@@ -5086,13 +5086,22 @@ fn get_computed_style_callback(
         {
             styles.insert("overflow".into(), x.clone());
         }
-        let object = v8::Local::<v8::Object>::try_from(associated_wrapper(
-            scope,
-            &state,
-            node,
-            "CSSStyleDeclaration",
-        )?)
-        .map_err(|_| V8BindingError::Allocation("computed CSSStyleDeclaration"))?;
+        // A computed declaration is not the element's live inline-style
+        // declaration. Sharing the associated wrapper makes the computed
+        // snapshot's own properties shadow generated setters on `element.style`
+        // and prevents later inline mutations from reaching Rust.
+        let object = v8::Object::new(scope);
+        if let Some(name) = v8::String::new(scope, "CSSStyleDeclaration")
+            && let Some(prototype_name) = v8::String::new(scope, "prototype")
+            && let Some(prototype) = scope
+                .get_current_context()
+                .global(scope)
+                .get(scope, name.into())
+                .and_then(|constructor| constructor.to_object(scope))
+                .and_then(|constructor| constructor.get(scope, prototype_name.into()))
+        {
+            object.set_prototype(scope, prototype);
+        }
         for (name, value) in styles {
             let mut idl_name = String::new();
             let mut uppercase = false;
@@ -17905,7 +17914,7 @@ fn get_attribute_value<'s>(
         let children = light_children(&state.dom.borrow(), node)?;
         return node_array(scope, state, &children);
     }
-    if interface == "Element" && member == "children" {
+    if matches!(interface, "Element" | "DocumentFragment" | "ShadowRoot") && member == "children" {
         let children = state
             .dom
             .borrow()
@@ -18075,6 +18084,7 @@ fn get_attribute_value<'s>(
             _ => return Err(DomError::StaleNode(node).into()),
         },
         ("Attr", "specified") => v8::Boolean::new(scope, true).into(),
+        ("Attr", "expando") => v8::Boolean::new(scope, false).into(),
         ("Attr", "value") => match &record.kind {
             NodeKind::Attribute { value, .. } => v8_string(scope, value)?,
             _ => return Err(DomError::StaleNode(node).into()),
@@ -18121,7 +18131,7 @@ fn get_attribute_value<'s>(
             NodeKind::Element { name } => v8_string(scope, name.ns.as_ref())?,
             _ => v8::null(scope).into(),
         },
-        ("Element", "childElementCount") => {
+        ("Element" | "DocumentFragment" | "ShadowRoot", "childElementCount") => {
             let count = record
                 .children
                 .iter()
@@ -19719,6 +19729,90 @@ fn call_operation<'s>(
                     state.dom.borrow_mut().append_child(node, inserted)?;
                     prepare_dynamic_script_subtree(scope, state, inserted)?;
                 }
+            }
+            Ok(None)
+        }
+        ("Node", "replaceChildren") => {
+            let owner = if matches!(
+                state.dom.borrow().arena().get(node)?.kind,
+                NodeKind::Document
+            ) {
+                node
+            } else {
+                state
+                    .node_documents
+                    .borrow()
+                    .get(&node)
+                    .copied()
+                    .unwrap_or_else(|| state.dom.borrow().document())
+            };
+            let mut replacements = Vec::new();
+            for index in 0..args.length() {
+                let value = args.get(index);
+                let child = if value.is_object() {
+                    optional_argument_node(scope, state, value)?.unwrap_or_else(|| {
+                        state
+                            .dom
+                            .borrow_mut()
+                            .create_text(value.to_rust_string_lossy(scope))
+                    })
+                } else {
+                    state
+                        .dom
+                        .borrow_mut()
+                        .create_text(value.to_rust_string_lossy(scope))
+                };
+                let fragment_children = {
+                    let dom = state.dom.borrow();
+                    matches!(dom.arena().get(child)?.kind, NodeKind::DocumentFragment)
+                        .then(|| dom.arena().get(child).map(|record| record.children.clone()))
+                        .transpose()?
+                };
+                replacements.extend(fragment_children.unwrap_or_else(|| vec![child]));
+            }
+            {
+                let dom = state.dom.borrow();
+                let parent_is_document = matches!(dom.arena().get(node)?.kind, NodeKind::Document);
+                let mut elements = 0_u8;
+                let mut doctypes = 0_u8;
+                let mut saw_element = false;
+                for child in &replacements {
+                    validate_tree_insertion(&dom, node, *child)?;
+                    match dom.arena().get(*child)?.kind {
+                        NodeKind::Element { .. } if parent_is_document => {
+                            elements = elements.saturating_add(1);
+                            saw_element = true;
+                        }
+                        NodeKind::DocumentType { .. } if parent_is_document => {
+                            doctypes = doctypes.saturating_add(1);
+                            if saw_element {
+                                return Err(hierarchy_request_error());
+                            }
+                        }
+                        NodeKind::Text { .. } if parent_is_document => {
+                            return Err(hierarchy_request_error());
+                        }
+                        NodeKind::DocumentType { .. } if !parent_is_document => {
+                            return Err(hierarchy_request_error());
+                        }
+                        _ => {}
+                    }
+                }
+                if elements > 1 || doctypes > 1 {
+                    return Err(hierarchy_request_error());
+                }
+            }
+            // Convert arguments before mutating the receiver. This preserves
+            // the DOM algorithm's atomicity when conversion or brand checks
+            // fail and also handles nodes already parented by the receiver.
+            let children = state.dom.borrow().arena().get(node)?.children.clone();
+            for child in children {
+                state.dom.borrow_mut().remove_child(node, child)?;
+            }
+            for child in replacements {
+                state.node_documents.borrow_mut().insert(child, owner);
+                state.dom.borrow_mut().append_child(node, child)?;
+                prepare_dynamic_script_subtree(scope, state, child)?;
             }
             Ok(None)
         }
@@ -21328,6 +21422,13 @@ fn validate_tree_insertion(
         });
     }
     Ok(())
+}
+
+fn hierarchy_request_error() -> V8BindingError {
+    V8BindingError::Unsupported {
+        interface: "Node".into(),
+        member: "HierarchyRequestError".into(),
+    }
 }
 
 fn event_id(
