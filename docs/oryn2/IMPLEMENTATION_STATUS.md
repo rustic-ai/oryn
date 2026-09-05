@@ -2,12 +2,12 @@
 
 > **Current status: proposal-v1 architecture implemented; exhaustive conformance
 > and exact-artifact attestation remain open.** The latest exact diagnostic
-> baseline is clean commit `d5b7ae3`. Production uses streaming navigation and correlated asynchronous
+> baseline is clean commit `efdc331`. Production uses streaming navigation and correlated asynchronous
 > resources, a shared Rust-owned `DomRuntime`, a persistent incremental semantic
 > graph, generated Rust/V8 interfaces for the declared API inventory, and native
 > Stylo computed values. Focused IndexedDB and editing diagnostics close at
 > 100/100 and corrected 40/40 respectively. This is not yet a release candidate.
-> The exact clean-tree in-process inventory passes 2,189/4,022, improving 63
+> The exact clean-tree in-process inventory passes 2,204/4,022, improving 78
 > variants from the preceding exact run. Exhaustive closure,
 > semantic/accessibility and Stylo
 > differential evidence, Linux full/lite artifacts, four-profile equivalence,
@@ -248,15 +248,15 @@ rewrite those historical payloads or present them as a new validation run.
   on SimpleHTTP approximations. A 20-case history rerun remains 9/20, proving
   that slice is an engine/lifecycle backlog; an IndexedDB dynamic-handler case
   now terminates deterministically rather than timing out. The complete,
-  clean-tree `d5b7ae3` diagnostic executes all 4,022 variants and passes 2,189.
-  Exact root totals are IndexedDB 303/456, generated-WebIDL 21/58, Accessible
-  Name 13/19, CSS 88/564, DOM 208/662, editing 116/704, HTML 30/136, referrer
-  policy 1,382/1,391 and WAI-ARIA 28/32. The 1,833 failures comprise 1,524
-  assertion failures, 237 harness failures, 41 timeouts and 31 unclassified
+  clean-tree `efdc331` diagnostic executes all 4,022 variants and passes 2,204.
+  Exact root totals are IndexedDB 304/456, generated-WebIDL 21/58, Accessible
+  Name 13/19, CSS 90/564, DOM 218/662, editing 118/704, HTML 30/136, referrer
+  policy 1,382/1,391 and WAI-ARIA 28/32. The 1,818 failures comprise 1,523
+  assertion failures, 224 harness failures, 40 timeouts and 31 unclassified
   results. The tested binary is 53,122,288 bytes with
-  SHA-256 `fd7772d554dfb3be5a6e30dc334283bce4ea6a23d325c43278a9b55fbb3473f0`;
+  SHA-256 `3747403f652531d5286e7254f0b3c473bf618b6abcf1ebf79020de4f5099051d`;
   its run fingerprint is
-  `cfd57e430f225f426ce03e7fa5cbb70ad5269b970896deb9de5a3d074d835cfd`.
+  `0db582452f364e6c5f6ebb78b8d9def9387061a67d0b93cd93ef03a35327ebd3`.
   This remains in-process diagnostic evidence, not signed production-worker
   attestation. The Observable surface now passes 47/52 exact WPT variants;
   remaining failures isolate iterator-abort exception propagation,
@@ -757,7 +757,7 @@ rewrite those historical payloads or present them as a new validation run.
 
 ## Next tracks
 
-- Close the remaining 1,833 cases in the exact 4,022-variant inventory,
+- Close the remaining 1,818 cases in the exact 4,022-variant inventory,
   prioritizing shared harness/lifecycle causes over isolated assertions. The
   current deficits are editing 588, CSS 476, DOM 454, IndexedDB 153, referrer
   policy 9, HTML 106, generated-WebIDL 37, WAI-ARIA 4 and Accessible Name 6.
