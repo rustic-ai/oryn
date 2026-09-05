@@ -334,6 +334,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
              pub same_object: bool,\n\
              pub new_object: bool,\n\
              pub ce_reactions: bool,\n\
+             pub unscopable: bool,\n\
              pub unforgeable: bool,\n\
              pub replaceable: bool,\n\
              pub put_forwards: Option<&'static str>,\n\
@@ -440,12 +441,13 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
             let same_object = has_extended_attribute(attributes, "SameObject");
             let new_object = has_extended_attribute(attributes, "NewObject");
             let ce_reactions = has_extended_attribute(attributes, "CEReactions");
+            let unscopable = has_extended_attribute(attributes, "Unscopable");
             let unforgeable = has_extended_attribute(attributes, "LegacyUnforgeable")
                 || has_extended_attribute(attributes, "Unforgeable");
             let replaceable = has_extended_attribute(attributes, "Replaceable");
             let put_forwards = extended_attribute_value(attributes, "PutForwards");
             output.push_str(&format!(
-                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, constant_value: {constant_value:?}, type_name: {type_name:?}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unforgeable: {unforgeable}, replaceable: {replaceable}, put_forwards: {put_forwards:?} }},",
+                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, constant_value: {constant_value:?}, type_name: {type_name:?}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, put_forwards: {put_forwards:?} }},",
                 token = ((interface_index as u32) << 16) | member_index as u32,
             ));
         }

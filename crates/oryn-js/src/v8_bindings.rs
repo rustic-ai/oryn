@@ -2825,6 +2825,34 @@ pub fn install_generated_bindings_with_root_for_global(
                     .ok_or(V8BindingError::Allocation("parent interface prototype"))?;
                 child_prototype.set_prototype(scope, parent_prototype);
             }
+            let unscopable_members = interface
+                .members
+                .iter()
+                .filter(|member| member.unscopable)
+                .collect::<Vec<_>>();
+            if !unscopable_members.is_empty() {
+                let prototype = constructor
+                    .get(scope, prototype_name.into())
+                    .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+                    .ok_or(V8BindingError::Allocation("unscopables prototype"))?;
+                let unscopables = v8::Object::new(scope);
+                unscopables.set_prototype(scope, v8::null(scope).into());
+                for member in unscopable_members {
+                    let name = v8::String::new(scope, member.name)
+                        .ok_or(V8BindingError::Allocation("unscopable member name"))?;
+                    unscopables.create_data_property(
+                        scope,
+                        name.into(),
+                        v8::Boolean::new(scope, true).into(),
+                    );
+                }
+                prototype.define_own_property(
+                    scope,
+                    v8::Symbol::get_unscopables(scope).into(),
+                    unscopables.into(),
+                    v8::PropertyAttribute::DONT_ENUM,
+                );
+            }
             for member in interface
                 .members
                 .iter()
@@ -23205,6 +23233,28 @@ mod tests {
         let source = v8::String::new(
             scope,
             "const exception=new DOMException('no','NotAllowedError');Error.isError(exception)&&exception instanceof Error&&exception instanceof DOMException",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert!(result.boolean_value(scope));
+    }
+
+    #[test]
+    fn generated_unscopables_use_a_null_prototype_object() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "Object.hasOwn(Element.prototype,Symbol.unscopables)&&Object.getPrototypeOf(Element.prototype[Symbol.unscopables])===null&&Element.prototype[Symbol.unscopables].remove===true",
         )
         .unwrap();
         let result = v8::Script::compile(scope, source, None)

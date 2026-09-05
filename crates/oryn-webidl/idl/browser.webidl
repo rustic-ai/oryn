@@ -357,7 +357,7 @@ interface Element : Node {
   attribute double scrollTop;
   undefined scrollTo(optional double x = 0, optional double y = 0);
   undefined scrollIntoView(optional boolean alignToTop = true);
-  undefined remove();
+  [Unscopable] undefined remove();
 };
 
 [Exposed=Window]
