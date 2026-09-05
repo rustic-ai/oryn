@@ -677,7 +677,10 @@ pub struct BindingAccessibility {
 /// implementation lives in the page orchestrator so generated bindings keep
 /// using the same Rust DOM and Stylo/Taffy/Parley pipeline as observations.
 pub trait BindingLayoutProvider {
-    fn compute_layout(&self) -> Result<BindingLayout, String>;
+    fn compute_layout(
+        &self,
+        custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
+    ) -> Result<BindingLayout, String>;
 
     fn compute_accessibility(&self, _node: NodeId) -> Result<BindingAccessibility, String> {
         Err("accessible semantics provider is unavailable".into())
@@ -5282,7 +5285,7 @@ fn geometry_for_node(
 fn refresh_layout(state: &V8BindingState) -> Result<(), V8BindingError> {
     if let Some(provider) = state.layout_provider.borrow().as_ref() {
         let layout = provider
-            .compute_layout()
+            .compute_layout(&state.custom_states.borrow())
             .map_err(|member| V8BindingError::Unsupported {
                 interface: "Element".into(),
                 member,
@@ -18207,6 +18210,13 @@ fn get_attribute_value<'s>(
             scope,
             record.attributes.get("class").map_or("", String::as_str),
         )?,
+        ("HTMLElement", "title" | "lang" | "dir") => v8_string(
+            scope,
+            record.attributes.get(member).map_or("", String::as_str),
+        )?,
+        ("HTMLElement", "hidden") => {
+            v8::Boolean::new(scope, record.attributes.contains_key("hidden")).into()
+        }
         ("Element", "scrollLeft" | "scrollTop") => {
             let offset = state
                 .scroll_offsets
@@ -18580,6 +18590,14 @@ fn set_attribute_value(
         }
         ("Element", "id") => dom.set_attribute(node, "id", value)?,
         ("Element", "className") => dom.set_attribute(node, "class", value)?,
+        ("HTMLElement", "title" | "lang" | "dir") => dom.set_attribute(node, member, value)?,
+        ("HTMLElement", "hidden") => {
+            if value == "true" {
+                dom.set_attribute(node, "hidden", "")?;
+            } else {
+                dom.remove_attribute(node, "hidden")?;
+            }
+        }
         ("Element", "scrollLeft" | "scrollTop") => {
             let numeric = value.parse::<f64>().unwrap_or(0.0).max(0.0);
             let mut offsets = state.scroll_offsets.borrow_mut();
@@ -19883,20 +19901,13 @@ fn call_operation<'s>(
             Ok(None)
         }
         ("Node", "prepend") => {
-            let reference = state
-                .dom
-                .borrow()
-                .arena()
-                .get(node)?
-                .children
-                .first()
-                .copied();
             let owner = state
                 .node_documents
                 .borrow()
                 .get(&node)
                 .copied()
                 .unwrap_or_else(|| state.dom.borrow().document());
+            let mut insertions = Vec::new();
             for index in 0..args.length() {
                 let value = args.get(index);
                 let child = if value.is_object() {
@@ -19920,15 +19931,34 @@ fn call_operation<'s>(
                         vec![child]
                     }
                 };
-                for inserted in children {
-                    validate_tree_insertion(&state.dom.borrow(), node, inserted)?;
-                    state.node_documents.borrow_mut().insert(inserted, owner);
-                    state
-                        .dom
-                        .borrow_mut()
-                        .insert_before(node, inserted, reference)?;
-                    prepare_dynamic_script_subtree(scope, state, inserted)?;
-                }
+                insertions.extend(children);
+            }
+            let reference = {
+                let dom = state.dom.borrow();
+                let current = dom.arena().get(node)?.children.clone();
+                let mut proposed = insertions.clone();
+                proposed.extend(
+                    current
+                        .iter()
+                        .copied()
+                        .filter(|child| !insertions.contains(child)),
+                );
+                validate_child_sequence(&dom, node, &proposed)?;
+                current
+                    .into_iter()
+                    .find(|child| !insertions.contains(child))
+            };
+            // Argument conversion and the complete pre-insertion validity
+            // check happen before the first mutation. This is observable for
+            // Document.prepend(), where no prefix may survive a later invalid
+            // argument.
+            for inserted in insertions {
+                state.node_documents.borrow_mut().insert(inserted, owner);
+                state
+                    .dom
+                    .borrow_mut()
+                    .insert_before(node, inserted, reference)?;
+                prepare_dynamic_script_subtree(scope, state, inserted)?;
             }
             Ok(None)
         }
@@ -19972,35 +20002,7 @@ fn call_operation<'s>(
             }
             {
                 let dom = state.dom.borrow();
-                let parent_is_document = matches!(dom.arena().get(node)?.kind, NodeKind::Document);
-                let mut elements = 0_u8;
-                let mut doctypes = 0_u8;
-                let mut saw_element = false;
-                for child in &replacements {
-                    validate_tree_insertion(&dom, node, *child)?;
-                    match dom.arena().get(*child)?.kind {
-                        NodeKind::Element { .. } if parent_is_document => {
-                            elements = elements.saturating_add(1);
-                            saw_element = true;
-                        }
-                        NodeKind::DocumentType { .. } if parent_is_document => {
-                            doctypes = doctypes.saturating_add(1);
-                            if saw_element {
-                                return Err(hierarchy_request_error());
-                            }
-                        }
-                        NodeKind::Text { .. } if parent_is_document => {
-                            return Err(hierarchy_request_error());
-                        }
-                        NodeKind::DocumentType { .. } if !parent_is_document => {
-                            return Err(hierarchy_request_error());
-                        }
-                        _ => {}
-                    }
-                }
-                if elements > 1 || doctypes > 1 {
-                    return Err(hierarchy_request_error());
-                }
+                validate_child_sequence(&dom, node, &replacements)?;
             }
             // Convert arguments before mutating the receiver. This preserves
             // the DOM algorithm's atomicity when conversion or brand checks
@@ -20056,17 +20058,12 @@ fn call_operation<'s>(
             Ok(None)
         }
         ("Node", "replaceWith") => {
-            let (parent, reference) = {
+            let parent = {
                 let dom = state.dom.borrow();
                 let Some(parent) = dom.arena().get(node)?.parent else {
                     return Ok(None);
                 };
-                let siblings = &dom.arena().get(parent)?.children;
-                let index = siblings
-                    .iter()
-                    .position(|candidate| *candidate == node)
-                    .ok_or(DomError::StaleNode(node))?;
-                (parent, siblings.get(index + 1).copied())
+                parent
             };
             let mut replacements = Vec::new();
             for index in 0..args.length() {
@@ -20097,6 +20094,21 @@ fn call_operation<'s>(
                 };
                 replacements.extend(children);
             }
+            // DOM's viable-next-sibling excludes nodes that will themselves
+            // be moved. Using one of those nodes as the insertion reference
+            // makes a self-referential arena move and can invalidate it.
+            let reference = {
+                let dom = state.dom.borrow();
+                let siblings = &dom.arena().get(parent)?.children;
+                let index = siblings
+                    .iter()
+                    .position(|candidate| *candidate == node)
+                    .ok_or(DomError::StaleNode(node))?;
+                siblings[index + 1..]
+                    .iter()
+                    .copied()
+                    .find(|candidate| !replacements.contains(candidate))
+            };
             for replacement in &replacements {
                 validate_tree_insertion(&state.dom.borrow(), parent, *replacement)?;
             }
@@ -20359,13 +20371,12 @@ fn call_operation<'s>(
                 };
             }
             if let Some(provider) = state.layout_provider.borrow().as_ref() {
-                let layout =
-                    provider
-                        .compute_layout()
-                        .map_err(|detail| V8BindingError::Unsupported {
-                            interface: "Document".into(),
-                            member: detail,
-                        })?;
+                let layout = provider
+                    .compute_layout(&state.custom_states.borrow())
+                    .map_err(|detail| V8BindingError::Unsupported {
+                        interface: "Document".into(),
+                        member: detail,
+                    })?;
                 *state.layout.borrow_mut() = layout;
             }
             let dom = state.dom.borrow();
@@ -21731,6 +21742,43 @@ fn validate_tree_insertion(
             interface: "Node".into(),
             member: "HierarchyRequestError".into(),
         });
+    }
+    Ok(())
+}
+
+fn validate_child_sequence(
+    dom: &DomRuntime,
+    parent: NodeId,
+    children: &[NodeId],
+) -> Result<(), V8BindingError> {
+    let parent_is_document = matches!(dom.arena().get(parent)?.kind, NodeKind::Document);
+    let mut elements = 0_u8;
+    let mut doctypes = 0_u8;
+    let mut saw_element = false;
+    for child in children {
+        validate_tree_insertion(dom, parent, *child)?;
+        match dom.arena().get(*child)?.kind {
+            NodeKind::Element { .. } if parent_is_document => {
+                elements = elements.saturating_add(1);
+                saw_element = true;
+            }
+            NodeKind::DocumentType { .. } if parent_is_document => {
+                doctypes = doctypes.saturating_add(1);
+                if saw_element {
+                    return Err(hierarchy_request_error());
+                }
+            }
+            NodeKind::Text { .. } if parent_is_document => {
+                return Err(hierarchy_request_error());
+            }
+            NodeKind::DocumentType { .. } if !parent_is_document => {
+                return Err(hierarchy_request_error());
+            }
+            _ => {}
+        }
+    }
+    if elements > 1 || doctypes > 1 {
+        return Err(hierarchy_request_error());
     }
     Ok(())
 }
@@ -23631,7 +23679,10 @@ mod tests {
         }
 
         impl BindingLayoutProvider for TestLayoutProvider {
-            fn compute_layout(&self) -> Result<BindingLayout, String> {
+            fn compute_layout(
+                &self,
+                _custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
+            ) -> Result<BindingLayout, String> {
                 Ok(BindingLayout {
                     styles: BTreeMap::from([(
                         node_key(self.node),

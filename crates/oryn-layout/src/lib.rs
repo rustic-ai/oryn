@@ -112,6 +112,10 @@ pub struct LayoutNode {
 pub struct LayoutInput {
     pub nodes: Vec<LayoutNode>,
     pub stylesheets: Vec<String>,
+    /// Rust-owned `ElementInternals.states` keyed by the stable DOM node id.
+    /// These are selector state, not serialized HTML attributes.
+    #[serde(default)]
+    pub custom_states: BTreeMap<u64, BTreeSet<String>>,
     pub viewport: ViewportState,
     pub scroll: ScrollState,
     #[serde(default)]
@@ -724,6 +728,59 @@ const COMPUTED_PROPERTIES: &[&str] = &[
     "border-left-style",
 ];
 
+fn custom_state_attribute(state: &str) -> String {
+    state_attribute("data-oryn-custom-state-", state)
+}
+
+fn descendant_custom_state_attribute(state: &str) -> String {
+    state_attribute("data-oryn-descendant-custom-state-", state)
+}
+
+fn state_attribute(prefix: &str, state: &str) -> String {
+    let mut encoded = String::from(prefix);
+    for byte in state.as_bytes() {
+        use std::fmt::Write as _;
+        let _ = write!(encoded, "{byte:02x}");
+    }
+    encoded
+}
+
+fn rewrite_custom_state_selectors(stylesheet: &str) -> Cow<'_, str> {
+    // The style mirror flattens a shadow child beneath its host while the live
+    // DOM retains the real ShadowRoot boundary. Translate exported-part
+    // matching into the equivalent private mirror relationship until Blitz
+    // exposes Stylo's `is_part` hook.
+    let part = Regex::new(r"::part\(\s*([-_a-zA-Z0-9]+)\s*\)")
+        .expect("static shadow-part selector expression");
+    let stylesheet = part.replace_all(stylesheet, |captures: &regex::Captures<'_>| {
+        format!(" [part~={}]", &captures[1])
+    });
+    let direction =
+        Regex::new(r":dir\(\s*(ltr|rtl)\s*\)").expect("static direction selector expression");
+    let stylesheet = direction.replace_all(&stylesheet, |captures: &regex::Captures<'_>| {
+        format!("[data-oryn-effective-dir={}]", &captures[1])
+    });
+    let language = Regex::new(r":lang\(\s*([-_a-zA-Z0-9]+)\s*\)")
+        .expect("static language selector expression");
+    let stylesheet = language.replace_all(&stylesheet, |captures: &regex::Captures<'_>| {
+        format!("[data-oryn-effective-lang|={} i]", &captures[1])
+    });
+    let relational = Regex::new(r":has\(\s*:state\(\s*(--[-_a-zA-Z0-9]+)\s*\)\s*\)")
+        .expect("static relational custom-state selector expression");
+    let stylesheet = relational.replace_all(&stylesheet, |captures: &regex::Captures<'_>| {
+        format!("[{}]", descendant_custom_state_attribute(&captures[1]))
+    });
+    let matcher = Regex::new(r":state\(\s*(--[-_a-zA-Z0-9]+)\s*\)")
+        .expect("static custom-state selector expression");
+    Cow::Owned(
+        matcher
+            .replace_all(&stylesheet, |captures: &regex::Captures<'_>| {
+                format!("[{}]", custom_state_attribute(&captures[1]))
+            })
+            .into_owned(),
+    )
+}
+
 /// Run Stylo's own DOM traversal and serialize the computed longhands consumed
 /// by Oryn's non-painting Taffy/Parley layout layer. The mirror is an immutable
 /// style snapshot: the live DOM remains Rust-owned by `oryn-dom`, while selector
@@ -753,6 +810,17 @@ fn stylo_computed_values(
         .iter()
         .map(|node| (node.id, node))
         .collect::<BTreeMap<_, _>>();
+    let mut descendant_states = BTreeMap::<u64, BTreeSet<String>>::new();
+    for (state_node, states) in &input.custom_states {
+        let mut parent = by_id.get(state_node).and_then(|node| node.parent);
+        while let Some(ancestor) = parent {
+            descendant_states
+                .entry(ancestor)
+                .or_default()
+                .extend(states.iter().cloned());
+            parent = by_id.get(&ancestor).and_then(|node| node.parent);
+        }
+    }
     let mut mirror_ids = BTreeMap::new();
     {
         let mut mutator = document.mutate();
@@ -761,7 +829,7 @@ fn stylo_computed_values(
                 "#text" => mutator.create_text_node(&node.text),
                 "#comment" => mutator.create_comment_node(&node.text),
                 _ => {
-                    let attributes = node
+                    let mut attributes = node
                         .attributes
                         .iter()
                         .map(|(name, value)| BlitzAttribute {
@@ -772,7 +840,67 @@ fn stylo_computed_values(
                             ),
                             value: value.clone(),
                         })
-                        .collect();
+                        .collect::<Vec<_>>();
+                    if let Some(states) = input.custom_states.get(&node.id) {
+                        attributes.extend(states.iter().map(|state| BlitzAttribute {
+                            name: QualName::new(
+                                None,
+                                Namespace::from(""),
+                                LocalName::from(custom_state_attribute(state).as_str()),
+                            ),
+                            value: String::new(),
+                        }));
+                    }
+                    if let Some(states) = descendant_states.get(&node.id) {
+                        attributes.extend(states.iter().map(|state| BlitzAttribute {
+                            name: QualName::new(
+                                None,
+                                Namespace::from(""),
+                                LocalName::from(descendant_custom_state_attribute(state).as_str()),
+                            ),
+                            value: String::new(),
+                        }));
+                    }
+                    let mut cursor = Some(node.id);
+                    let mut direction = None;
+                    let mut language = None;
+                    while let Some(current) = cursor {
+                        let Some(ancestor) = by_id.get(&current).copied() else {
+                            break;
+                        };
+                        direction = direction.or_else(|| ancestor.attributes.get("dir").cloned());
+                        language = language.or_else(|| {
+                            ancestor
+                                .attributes
+                                .get("lang")
+                                .or_else(|| ancestor.attributes.get("xml:lang"))
+                                .cloned()
+                        });
+                        if direction.is_some() && language.is_some() {
+                            break;
+                        }
+                        cursor = ancestor.parent;
+                    }
+                    attributes.push(BlitzAttribute {
+                        name: QualName::new(
+                            None,
+                            Namespace::from(""),
+                            LocalName::from("data-oryn-effective-dir"),
+                        ),
+                        value: direction
+                            .filter(|value| value.eq_ignore_ascii_case("rtl"))
+                            .unwrap_or_else(|| "ltr".into()),
+                    });
+                    if let Some(language) = language {
+                        attributes.push(BlitzAttribute {
+                            name: QualName::new(
+                                None,
+                                Namespace::from(""),
+                                LocalName::from("data-oryn-effective-lang"),
+                            ),
+                            value: language,
+                        });
+                    }
                     mutator.create_element(
                         QualName::new(
                             None,
@@ -806,7 +934,13 @@ fn stylo_computed_values(
                 Vec::new(),
             )
         };
-        let stylesheet = document.make_stylesheet(stylesheet, Origin::Author);
+        // Blitz's Stylo adapter does not yet expose Servo's custom-state hook.
+        // Project the Rust-owned state into private attributes on this
+        // short-lived style mirror and let Stylo parse, match and cascade the
+        // resulting selector. The live DOM and HTML serialization are never
+        // modified by this compatibility bridge.
+        let stylesheet = rewrite_custom_state_selectors(stylesheet);
+        let stylesheet = document.make_stylesheet(&stylesheet, Origin::Author);
         document.add_stylesheet_for_node(stylesheet, style_node);
     }
     document.resolve(0.0);
@@ -2246,6 +2380,7 @@ mod tests {
                 node(3, Some(1), "button", "Second"),
             ],
             stylesheets: vec!["button { width: 120px; height: 30px; margin: 4px }".into()],
+            custom_states: BTreeMap::new(),
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -2271,6 +2406,59 @@ mod tests {
     }
 
     #[test]
+    fn rust_owned_custom_states_participate_in_stylo_relational_selectors() {
+        let mut subject = node(1, None, "div", "");
+        subject.attributes.insert("id".into(), "subject".into());
+        subject.children = vec![2];
+        let input = LayoutInput {
+            nodes: vec![subject, node(2, Some(1), "my-element", "")],
+            stylesheets: vec![
+                "#subject { background-color: #f00 } my-element:state(--green) { color: #0f0 } #subject:has(:state(--green)) { background-color: #0f0 }"
+                    .into(),
+            ],
+            custom_states: BTreeMap::from([(2, BTreeSet::from(["--green".into()]))]),
+            viewport: ViewportState::default(),
+            scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light,
+            reduced_motion: false,
+            web_fonts: Vec::new(),
+        };
+        let output = compute(&input, &LayoutLimits::default()).expect("layout");
+        assert_eq!(output.computed_styles[&2]["color"], "rgb(0, 255, 0)");
+        assert_eq!(
+            output.computed_styles[&1]["background-color"],
+            "rgb(0, 255, 0)"
+        );
+    }
+
+    #[test]
+    fn shadow_parts_use_stylo_for_directional_matching() {
+        let mut host = node(1, None, "my-element", "");
+        host.children = vec![2];
+        let mut inner = node(2, Some(1), "div", "Test");
+        inner.attributes.insert("part".into(), "inner".into());
+        inner.attributes.insert("dir".into(), "rtl".into());
+        let input = LayoutInput {
+            nodes: vec![host, inner],
+            stylesheets: vec![
+                "my-element::part(inner) { background-color: #f00 } my-element::part(inner):dir(rtl) { background-color: #00f }"
+                    .into(),
+            ],
+            custom_states: BTreeMap::new(),
+            viewport: ViewportState::default(),
+            scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light,
+            reduced_motion: false,
+            web_fonts: Vec::new(),
+        };
+        let output = compute(&input, &LayoutLimits::default()).expect("layout");
+        assert_eq!(
+            output.computed_styles[&2]["background-color"],
+            "rgb(0, 0, 255)"
+        );
+    }
+
+    #[test]
     fn unavailable_system_font_uses_embedded_fallback() {
         let mut input_node = node(2, Some(1), "input", "");
         input_node
@@ -2282,6 +2470,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![root, input_node, node(3, Some(1), "span", "Result")],
                 stylesheets: vec!["div { font-family: Arial }".into()],
+                custom_states: BTreeMap::new(),
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2327,6 +2516,7 @@ mod tests {
                     node(4, Some(2), "td", "Value"),
                 ],
                 stylesheets: vec!["table{width:300px} td{padding:4px}".into()],
+                custom_states: BTreeMap::new(),
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2356,6 +2546,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![root, child],
                 stylesheets: vec!["div { width: 100px; min-height: 20px }".into()],
+                custom_states: BTreeMap::new(),
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2395,6 +2586,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![root, outside, inside],
                 stylesheets: Vec::new(),
+                custom_states: BTreeMap::new(),
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2450,6 +2642,7 @@ mod tests {
                      @media (min-width: 600px) { #app > button { height: 33px } }"
                         .into(),
                 ],
+                custom_states: BTreeMap::new(),
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2484,6 +2677,7 @@ mod tests {
                 // traversal must still see inherited parent ComputedValues.
                 nodes: vec![child, parent],
                 stylesheets: Vec::new(),
+                custom_states: BTreeMap::new(),
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2521,6 +2715,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![root, child],
                 stylesheets: vec!["button { color: black !important }".into()],
+                custom_states: BTreeMap::new(),
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2540,6 +2735,7 @@ mod tests {
         let input = |color: &str| LayoutInput {
             nodes: vec![node(1, None, "button", "Save")],
             stylesheets: vec![format!("button {{ color: {color} }}")],
+            custom_states: BTreeMap::new(),
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -2571,6 +2767,7 @@ mod tests {
                     node(3, Some(1), "button", "Two"),
                 ],
                 stylesheets: Vec::new(),
+                custom_states: BTreeMap::new(),
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2602,6 +2799,7 @@ mod tests {
                     node(4, Some(1), "span", "Three"),
                 ],
                 stylesheets: vec!["span{height:20px}".into()],
+                custom_states: BTreeMap::new(),
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2649,6 +2847,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![root, absolute, fixed, moved],
                 stylesheets: Vec::new(),
+                custom_states: BTreeMap::new(),
                 viewport: ViewportState::default(),
                 scroll: ScrollState {
                     x: 0.0,
@@ -2689,6 +2888,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![root, floated, cleared],
                 stylesheets: Vec::new(),
+                custom_states: BTreeMap::new(),
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2710,6 +2910,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![node(1, None, "p", "Measured")],
                 stylesheets: vec!["p{font-family:Fixture Font}".into()],
+                custom_states: BTreeMap::new(),
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2733,6 +2934,7 @@ mod tests {
         let fixture = |sha256: &str| LayoutInput {
             nodes: vec![node(1, None, "p", "Measured")],
             stylesheets: Vec::new(),
+            custom_states: BTreeMap::new(),
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,

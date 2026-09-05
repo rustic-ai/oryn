@@ -2,7 +2,12 @@
 //!
 //! This module never exports or reconstructs a JavaScript-owned node graph.
 
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc, time::Duration};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    rc::Rc,
+    time::Duration,
+};
 
 use base64::Engine as _;
 use html5ever::{QualName, local_name, ns};
@@ -32,7 +37,10 @@ struct LiveLayoutProvider {
 }
 
 impl BindingLayoutProvider for LiveLayoutProvider {
-    fn compute_layout(&self) -> Result<BindingLayout, String> {
+    fn compute_layout(
+        &self,
+        custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
+    ) -> Result<BindingLayout, String> {
         let (dom, document) = self.dom.borrow().snapshot();
         let parsed = ParsedDocument {
             dom,
@@ -41,7 +49,7 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             quirks_mode: html5ever::interface::QuirksMode::NoQuirks,
             events: Vec::new(),
         };
-        let input = crate::runtime::layout_input(
+        let mut input = crate::runtime::layout_input(
             &parsed,
             self.viewport,
             oryn_common::v4::ScrollState::default(),
@@ -49,6 +57,15 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             oryn_common::v4::ReducedMotion::NoPreference,
             &[],
         );
+        input.custom_states = custom_states
+            .iter()
+            .map(|(node, values)| {
+                (
+                    (u64::from(node.generation) << 32) | u64::from(node.slot),
+                    values.clone(),
+                )
+            })
+            .collect();
         // Geometry is an optional capability and must never be able to tear
         // down the page worker. Stylo/Blitz can reject a transient DOM shape
         // while parser re-entry is replacing nested documents; translate an
@@ -1277,7 +1294,7 @@ globalThis.__oryn_run_custom_reactions=()=>{for(let rounds=0;__oryn_custom_react
 globalThis.__oryn_custom_definitions=new Map();
 const __oryn_upgrade_custom_element=node=>{if(!node||!node.tagName)return null;const definition=__oryn_custom_definitions.get(String(node.tagName).toLowerCase());if(!definition||node.__orynCustomDefinition===definition)return null;try{__oryn_begin_custom_element_upgrade(node);const upgraded=Reflect.construct(definition,[],definition);upgraded.__orynCustomDefinition=definition;return upgraded}catch(error){__oryn_begin_custom_element_upgrade(null);__oryn_console.push({level:'error',message:'custom element constructor: '+String(error)});return null}};
 const __oryn_queue_connected=node=>{if(node&&typeof node.connectedCallback==='function'&&!node.__orynConnected){node.__orynConnected=true;__oryn_custom_reactions.push(()=>node.connectedCallback())}};
-globalThis.customElements={define(name,constructor){name=String(name).toLowerCase();if(!name.includes('-'))throw new Error('custom element name must contain a hyphen');if(__oryn_custom_definitions.has(name))throw new Error('custom element already defined');__oryn_custom_definitions.set(name,constructor);for(const node of document.querySelectorAll(name)){const upgraded=__oryn_upgrade_custom_element(node);if(upgraded)__oryn_queue_connected(upgraded)}},get(name){return __oryn_custom_definitions.get(String(name).toLowerCase())},whenDefined(name){name=String(name).toLowerCase();if(this.get(name))return Promise.resolve(this.get(name));return new Promise(resolve=>{const timer=setInterval(()=>{if(this.get(name)){clearInterval(timer);resolve(this.get(name))}},1)})},upgrade(root){const apply=node=>{const upgraded=__oryn_upgrade_custom_element(node);if(upgraded)__oryn_queue_connected(upgraded)};if(root&&root.tagName)apply(root);if(root&&root.querySelectorAll)for(const name of __oryn_custom_definitions.keys())for(const node of root.querySelectorAll(name))apply(node)}};
+globalThis.customElements={define(name,constructor){name=String(name).toLowerCase();if(!name.includes('-'))throw new Error('custom element name must contain a hyphen');if(__oryn_custom_definitions.has(name))throw new Error('custom element already defined');__oryn_custom_definitions.set(name,constructor);for(const node of document.querySelectorAll(name)){const upgraded=__oryn_upgrade_custom_element(node);if(upgraded)__oryn_queue_connected(upgraded)}__oryn_run_custom_reactions()},get(name){return __oryn_custom_definitions.get(String(name).toLowerCase())},whenDefined(name){name=String(name).toLowerCase();if(this.get(name))return Promise.resolve(this.get(name));return new Promise(resolve=>{const timer=setInterval(()=>{if(this.get(name)){clearInterval(timer);resolve(this.get(name))}},1)})},upgrade(root){const apply=node=>{const upgraded=__oryn_upgrade_custom_element(node);if(upgraded)__oryn_queue_connected(upgraded)};if(root&&root.tagName)apply(root);if(root&&root.querySelectorAll)for(const name of __oryn_custom_definitions.keys())for(const node of root.querySelectorAll(name))apply(node);__oryn_run_custom_reactions()}};
 for(const [owner,method] of [[Document.prototype,'createElement'],[Node.prototype,'appendChild'],[Node.prototype,'insertBefore'],[Node.prototype,'replaceChild']]){const native=owner[method];if(typeof native!=='function')continue;Object.defineProperty(owner,method,{configurable:true,writable:true,value:function(...args){const result=native.apply(this,args),node=method==='createElement'?result:args[0],upgraded=__oryn_upgrade_custom_element(node);if(method!=='createElement')__oryn_queue_connected(upgraded||node);return method==='createElement'?(upgraded||result):result}})}
 globalThis.__oryn_animation_frames=new Map();globalThis.__oryn_next_animation_frame=1;
 globalThis.requestAnimationFrame=callback=>{const id=__oryn_next_animation_frame++;__oryn_animation_frames.set(id,callback);return id};
@@ -4738,7 +4755,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             page.evaluate("order.join(',')").unwrap(),
-            "microtask,reaction,observer"
+            "reaction,microtask,observer"
         );
     }
 

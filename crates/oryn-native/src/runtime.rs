@@ -8847,6 +8847,7 @@ pub(crate) fn layout_input(
     oryn_layout::LayoutInput {
         nodes,
         stylesheets,
+        custom_states: BTreeMap::new(),
         viewport,
         scroll,
         color_scheme: match color_scheme {

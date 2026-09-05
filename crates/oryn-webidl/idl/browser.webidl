@@ -438,6 +438,10 @@ interface DOMTokenList {
 
 [Exposed=Window]
 interface HTMLElement : Element {
+  attribute DOMString title;
+  attribute DOMString lang;
+  attribute DOMString dir;
+  attribute boolean hidden;
   attribute DOMString innerText;
   [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
   readonly attribute any dataset;
