@@ -519,6 +519,15 @@ interface HTMLAnchorElement : HTMLElement {
 };
 
 [Exposed=Window]
+interface HTMLLinkElement : HTMLElement {
+  attribute boolean disabled;
+  attribute DOMString href;
+  attribute DOMString rel;
+  attribute DOMString media;
+  attribute DOMString type;
+};
+
+[Exposed=Window]
 interface HTMLIFrameElement : HTMLElement {
   attribute DOMString name;
   attribute DOMString src;

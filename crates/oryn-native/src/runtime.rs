@@ -6466,6 +6466,23 @@ impl PageState {
                 "Content-Security-Policy blocked {resource_kind} resource"
             )));
         }
+        if url.scheme() == "data" {
+            let (media_type, body) = crate::network::decode_data_url(&url)
+                .map_err(|error| RuntimeError::Network(error.to_string()))?;
+            if body.len() > self.config.max_resource_cache_entry_bytes {
+                return Err(RuntimeError::WorkerLimitExceeded {
+                    resource: format!("decoded {resource_kind} data URL"),
+                });
+            }
+            return Ok(NetworkResponse {
+                request_id: self.revision + 10_000,
+                status: 200,
+                headers: media_type
+                    .map(|value| vec![("content-type".into(), value)])
+                    .unwrap_or_default(),
+                body,
+            });
+        }
         for redirect in 0..=self.config.max_redirects {
             if redirect > 0 && !self.csp_allows_resource(&url, resource_kind) {
                 return Err(RuntimeError::Network(format!(

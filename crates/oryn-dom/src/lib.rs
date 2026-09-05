@@ -1705,7 +1705,7 @@ fn matches_compound_selector(node: &Node, selector: &str) -> bool {
     let mut index = 0;
     if bytes
         .first()
-        .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'*')
+        .is_some_and(|byte| !matches!(*byte, b'#' | b'.' | b'[' | b':'))
     {
         let end = selector
             .find(['#', '.', '[', ':'])
@@ -1718,6 +1718,13 @@ fn matches_compound_selector(node: &Node, selector: &str) -> bool {
     }
     while index < selector.len() {
         let marker = bytes[index];
+        if !matches!(marker, b'#' | b'.' | b'[' | b':') {
+            // This bounded selector matcher intentionally leaves escaped and
+            // otherwise unsupported syntax to the Stylo selector path. Never
+            // advance through an arbitrary UTF-8 byte and then slice at a
+            // non-character boundary.
+            return false;
+        }
         index += 1;
         let end = match marker {
             b'[' => selector[index..]
@@ -1941,6 +1948,22 @@ mod tests {
         assert!(
             dom.matches_selector(button, "button.action, input")
                 .unwrap()
+        );
+    }
+
+    #[test]
+    fn selectors_handle_unicode_without_invalid_utf8_slices() {
+        let mut dom = DomRuntime::new();
+        let element = dom.create_element("élément");
+        dom.append_child(dom.document(), element).unwrap();
+        assert!(
+            dom.query_selector(dom.document(), "élément")
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            dom.query_selector(dom.document(), "💥invalid").unwrap(),
+            None
         );
     }
 

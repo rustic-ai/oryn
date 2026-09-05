@@ -27,6 +27,48 @@ const MAX_BROKER_FRAME_BYTES: usize = 24 * 1024 * 1024;
 const MAX_DECODED_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const PERSISTENT_HTTP_CACHE: TableDefinition<&str, &[u8]> = TableDefinition::new("http_cache_v1");
 
+pub(crate) fn decode_data_url(url: &Url) -> Result<(Option<String>, Vec<u8>), NetworkError> {
+    let (metadata, payload) = url
+        .as_str()
+        .strip_prefix("data:")
+        .and_then(|value| value.split_once(','))
+        .ok_or_else(|| NetworkError::Transport("malformed data URL".into()))?;
+    let mut bytes = Vec::with_capacity(payload.len());
+    let input = payload.as_bytes();
+    let mut index = 0;
+    while index < input.len() {
+        if input[index] == b'%' {
+            let pair = input
+                .get(index + 1..index + 3)
+                .ok_or_else(|| NetworkError::Transport("truncated data URL escape".into()))?;
+            let pair = std::str::from_utf8(pair)
+                .map_err(|_| NetworkError::Transport("invalid data URL escape".into()))?;
+            bytes.push(
+                u8::from_str_radix(pair, 16)
+                    .map_err(|_| NetworkError::Transport("invalid data URL escape".into()))?,
+            );
+            index += 3;
+        } else {
+            bytes.push(input[index]);
+            index += 1;
+        }
+    }
+    if metadata
+        .split(';')
+        .any(|item| item.eq_ignore_ascii_case("base64"))
+    {
+        bytes = BASE64.decode(bytes).map_err(|error| {
+            NetworkError::Transport(format!("invalid data URL base64: {error}"))
+        })?;
+    }
+    let media_type = metadata
+        .split(';')
+        .next()
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    Ok((media_type, bytes))
+}
+
 fn operation_runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
@@ -2992,5 +3034,35 @@ mod tests {
             ("Accept".into(), "application/json".into()),
         ]);
         assert_eq!(headers, vec![("Accept".into(), "application/json".into())]);
+    }
+
+    #[test]
+    fn data_urls_preserve_bytes_and_media_type() {
+        let url = Url::parse("data:text/css;charset=utf-8,a%20%7Bcolor%3Ared%7D")
+            .expect("valid data URL");
+        let (media_type, body) = decode_data_url(&url).expect("decoded data URL");
+        assert_eq!(media_type.as_deref(), Some("text/css"));
+        assert_eq!(body, b"a {color:red}");
+
+        let url =
+            Url::parse("data:application/octet-stream;base64,AP8H").expect("valid base64 data URL");
+        let (media_type, body) = decode_data_url(&url).expect("decoded base64 data URL");
+        assert_eq!(media_type.as_deref(), Some("application/octet-stream"));
+        assert_eq!(body, [0, 255, 7]);
+    }
+
+    #[test]
+    fn malformed_data_urls_are_rejected() {
+        let malformed = Url::parse("data:text/plain,%Q0").expect("URL parser accepts payload");
+        assert!(matches!(
+            decode_data_url(&malformed),
+            Err(NetworkError::Transport(message)) if message == "invalid data URL escape"
+        ));
+        let malformed =
+            Url::parse("data:text/plain;base64,not-base64").expect("URL parser accepts payload");
+        assert!(matches!(
+            decode_data_url(&malformed),
+            Err(NetworkError::Transport(message)) if message.starts_with("invalid data URL base64:")
+        ));
     }
 }

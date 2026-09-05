@@ -5098,6 +5098,7 @@ fn is_platform_interface(interface: &str) -> bool {
     )
 }
 
+#[track_caller]
 fn register_platform_object(state: &V8BindingState, record: PlatformObjectRecord) -> u64 {
     let id = state.next_platform_object_id.get();
     state
@@ -11643,6 +11644,66 @@ fn get_platform_attribute<'s>(
         *cache = Some(v8::Global::new(scope, value));
         return Ok(value);
     }
+    if matches!(interface, "IDBRequest" | "IDBOpenDBRequest") && member == "error" {
+        let error = {
+            let record = platform_object(state, id)?;
+            let PlatformObjectRecord::IdbRequest(request) = &*record else {
+                return Err(V8BindingError::Allocation("IDBRequest record"));
+            };
+            if !request.done {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBRequest".into(),
+                    member: "InvalidStateError".into(),
+                });
+            }
+            request.error.clone()
+        };
+        return match error {
+            Some(error) => dom_exception_value(scope, &error),
+            None => Ok(v8::null(scope).into()),
+        };
+    }
+    if interface == "IDBTransaction" && member == "error" {
+        let error = {
+            let record = platform_object(state, id)?;
+            let PlatformObjectRecord::IdbTransaction(transaction) = &*record else {
+                return Err(V8BindingError::Allocation("IDBTransaction record"));
+            };
+            transaction.error.clone()
+        };
+        return match error {
+            Some(error) => dom_exception_value(scope, &error),
+            None => Ok(v8::null(scope).into()),
+        };
+    }
+    if interface == "XMLHttpRequest" && member == "response" {
+        let (response_type, response_bytes) = {
+            let record = platform_object(state, id)?;
+            let PlatformObjectRecord::XMLHttpRequest(xhr) = &*record else {
+                return Err(V8BindingError::Allocation("XMLHttpRequest record"));
+            };
+            (xhr.response_type.clone(), xhr.response_bytes.clone())
+        };
+        return xhr_response_value(scope, state, &response_type, &response_bytes);
+    }
+    if interface == "IDBKeyRange" && matches!(member, "lower" | "upper") {
+        let value = {
+            let record = platform_object(state, id)?;
+            let PlatformObjectRecord::IdbKeyRange(range) = &*record else {
+                return Err(V8BindingError::Allocation("IDBKeyRange record"));
+            };
+            if member == "lower" {
+                range.lower.clone()
+            } else {
+                range.upper.clone()
+            }
+        };
+        return value
+            .as_ref()
+            .map(|value| idb_json_to_value(scope, state, value))
+            .transpose()
+            .map(|value| value.unwrap_or_else(|| v8::undefined(scope).into()));
+    }
     let record = platform_object(state, id)?;
     match (&*record, interface, member) {
         (
@@ -11818,9 +11879,6 @@ fn get_platform_attribute<'s>(
         (PlatformObjectRecord::XMLHttpRequest(xhr), "XMLHttpRequest", "responseText") => {
             v8_string(scope, &String::from_utf8_lossy(&xhr.response_bytes))
         }
-        (PlatformObjectRecord::XMLHttpRequest(xhr), "XMLHttpRequest", "response") => {
-            xhr_response_value(scope, state, xhr)
-        }
         (PlatformObjectRecord::WebSocket(socket), "WebSocket", "url") => {
             v8_string(scope, &socket.url)
         }
@@ -11849,18 +11907,6 @@ fn get_platform_attribute<'s>(
                 .as_ref()
                 .map(|value| v8::Local::new(scope, value))
                 .unwrap_or_else(|| v8::undefined(scope).into()))
-        }
-        (PlatformObjectRecord::IdbRequest(request), "IDBRequest" | "IDBOpenDBRequest", "error") => {
-            if !request.done {
-                return Err(V8BindingError::Unsupported {
-                    interface: "IDBRequest".into(),
-                    member: "InvalidStateError".into(),
-                });
-            }
-            match &request.error {
-                Some(error) => dom_exception_value(scope, error),
-                None => Ok(v8::null(scope).into()),
-            }
         }
         (
             PlatformObjectRecord::IdbRequest(request),
@@ -11918,12 +11964,6 @@ fn get_platform_attribute<'s>(
         (PlatformObjectRecord::IdbTransaction(_), "IDBTransaction", "durability") => {
             v8_string(scope, "default")
         }
-        (PlatformObjectRecord::IdbTransaction(transaction), "IDBTransaction", "error") => {
-            match &transaction.error {
-                Some(error) => dom_exception_value(scope, error),
-                None => Ok(v8::null(scope).into()),
-            }
-        }
         (
             PlatformObjectRecord::IdbTransaction(transaction),
             "IDBTransaction",
@@ -11967,18 +12007,6 @@ fn get_platform_attribute<'s>(
         (PlatformObjectRecord::IdbIndex(index), "IDBIndex", "unique") => {
             Ok(v8::Boolean::new(scope, index.unique).into())
         }
-        (PlatformObjectRecord::IdbKeyRange(range), "IDBKeyRange", "lower") => range
-            .lower
-            .as_ref()
-            .map(|value| idb_json_to_value(scope, state, value))
-            .transpose()
-            .map(|value| value.unwrap_or_else(|| v8::undefined(scope).into())),
-        (PlatformObjectRecord::IdbKeyRange(range), "IDBKeyRange", "upper") => range
-            .upper
-            .as_ref()
-            .map(|value| idb_json_to_value(scope, state, value))
-            .transpose()
-            .map(|value| value.unwrap_or_else(|| v8::undefined(scope).into())),
         (PlatformObjectRecord::IdbKeyRange(range), "IDBKeyRange", "lowerOpen") => {
             Ok(v8::Boolean::new(scope, range.lower_open).into())
         }
@@ -12071,12 +12099,13 @@ fn get_platform_attribute<'s>(
 fn xhr_response_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &V8BindingState,
-    xhr: &XhrRecord,
+    response_type: &str,
+    response_bytes: &[u8],
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    match xhr.response_type.as_str() {
-        "" | "text" => v8_string(scope, &String::from_utf8_lossy(&xhr.response_bytes)),
+    match response_type {
+        "" | "text" => v8_string(scope, &String::from_utf8_lossy(response_bytes)),
         "json" => {
-            let text = v8_string(scope, &String::from_utf8_lossy(&xhr.response_bytes))?;
+            let text = v8_string(scope, &String::from_utf8_lossy(response_bytes))?;
             Ok(v8::json::parse(
                 scope,
                 v8::Local::<v8::String>::try_from(text)
@@ -12084,12 +12113,12 @@ fn xhr_response_value<'s>(
             )
             .unwrap_or_else(|| v8::null(scope).into()))
         }
-        "arraybuffer" => Ok(array_buffer_from_bytes(scope, &xhr.response_bytes).into()),
+        "arraybuffer" => Ok(array_buffer_from_bytes(scope, response_bytes).into()),
         "blob" => {
             let id = register_platform_object(
                 state,
                 PlatformObjectRecord::Blob(BlobRecord {
-                    bytes: xhr.response_bytes.clone(),
+                    bytes: response_bytes.to_vec(),
                     media_type: String::new(),
                     file: None,
                 }),
@@ -16367,6 +16396,7 @@ fn validate_interface_node(
         "HTMLButtonElement" => Some("button"),
         "HTMLFormElement" => Some("form"),
         "HTMLAnchorElement" => Some("a"),
+        "HTMLLinkElement" => Some("link"),
         "HTMLCanvasElement" => Some("canvas"),
         "HTMLImageElement" => Some("img"),
         _ => None,
@@ -16422,6 +16452,7 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "button" => "HTMLButtonElement",
             "form" => "HTMLFormElement",
             "a" => "HTMLAnchorElement",
+            "link" => "HTMLLinkElement",
             "iframe" => "HTMLIFrameElement",
             _ => "HTMLElement",
         },
@@ -17726,7 +17757,7 @@ fn get_attribute_value<'s>(
         (
             interface,
             "type" | "name" | "action" | "method" | "href" | "target" | "src" | "srcdoc"
-            | "sandbox" | "crossOrigin" | "referrerPolicy",
+            | "sandbox" | "crossOrigin" | "referrerPolicy" | "rel" | "media",
         ) if interface.starts_with("HTML") => {
             let attribute = match member {
                 "crossOrigin" => "crossorigin",
@@ -18038,7 +18069,7 @@ fn set_attribute_value(
         (
             interface,
             "type" | "name" | "action" | "method" | "href" | "target" | "src" | "srcdoc"
-            | "sandbox" | "crossOrigin" | "referrerPolicy",
+            | "sandbox" | "crossOrigin" | "referrerPolicy" | "rel" | "media",
         ) if interface.starts_with("HTML") => {
             let attribute = match member {
                 "crossOrigin" => "crossorigin",

@@ -2040,6 +2040,24 @@ impl ParentContextService {
                     "{destination} blocked by Content-Security-Policy"
                 )));
             }
+            if url.scheme() == "data" {
+                let (media_type, body) = crate::network::decode_data_url(&url)
+                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                if body.len() > 16 * 1024 * 1024 {
+                    return Err(RuntimeError::WorkerLimitExceeded {
+                        resource: format!("decoded {destination} data URL"),
+                    });
+                }
+                let (source, _) =
+                    oryn_net::decode_resource_text(&body, media_type.as_deref(), text_kind);
+                return Ok(ContextServiceResponse::PageResource {
+                    url: url.to_string(),
+                    source,
+                    destination: destination.into(),
+                    document_referrer: String::new(),
+                    referrer_policy: crate::referrer::ReferrerPolicy::default().as_str().into(),
+                });
+            }
             let mut request_headers = vec![("accept".into(), accept.into())];
             if let Some(referrer) = policy.header(&source, &url) {
                 request_headers.push(("referer".into(), referrer));
