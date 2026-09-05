@@ -1,8 +1,8 @@
 # Oryn2 runtime completion action plan
 
 **Created:** 2026-08-31
-**Current committed baseline:** `964c426` (`Correct worker conformance execution and lifecycle`)
-**Status reconciled:** 2026-09-04
+**Current committed baseline:** `7565e27` (`Complete namespace attribute reflection`)
+**Status reconciled:** 2026-09-05
 **Scope:** remaining work required to close the proposal-v1 runtime and produce
 one exact-artifact implementation attestation
 
@@ -20,7 +20,7 @@ of a completed production cutover.
 | Generated WebIDL and compatibility APIs | Implemented in software for the declared interface inventory | Generated V8 templates and prototypes are deterministic and executable. Rust owns wrapper identity, brands, realm/origin/document-generation checks and the supported DOM, editing, navigation, Fetch/File/Streams/XHR/WebSocket and IndexedDB algorithms. Network and database work crosses only typed, asynchronous parent-host operations. Production restores the generated interface namespace after bootstrap; handwritten compatibility implementations remain available only to the explicit in-process probe. | Run every mapped API inventory entry and the broader upstream conformance set. Long-tail algorithms outside the declared inventory remain capability-scoped rather than inferred from focused regressions. |
 | Stylo cascade | Implemented in software | Production resolves an immutable Rust style snapshot through native Stylo `ComputedValues`, including origins, inheritance, custom properties and supported values. Taffy and Parley remain the box/text consumers; the prior handwritten cascade is test-only. | Pass and publish the mapped CSSOM/native-versus-Chromium differential corpus, including the supported grid bridge and explicit long-tail layout boundaries. |
 | V8 sandbox, ICU and startup snapshots | Partial | Production features require `v8_enable_sandbox`; runtime initialization is fail-closed. Exact macOS ARM64 full and external-data lite archives build from pinned source. Lite embeds a physically reduced 2.2 MiB root/en/en-US ICU package. A versioned callback table and content-addressed snapshot are supplied to both snapshot creation and runtime isolates, with hashes in schema-v3 manifests. Heap-sandbox, locale, Segmenter and snapshot-load checks pass. | Build Linux x86_64 full/lite, regenerate the full macOS schema-v3 bundle, then attest all four exact profile artifacts. |
-| Upstream conformance | Partial | The pinned runner now publishes results only from the official testharness completion callback, preserves raw URL query variants, and waits for worker completion rather than an empty placeholder. The complete `2763959` in-process diagnostic executes all 4,022 required variants and passes 1,607: generated-WebIDL 1,543/3,407, semantics 16/51 and Stylo 48/564. Its failures are 1,741 assertion, 284 harness, 66 timeout and 324 unclassified outcomes. Because that run predates the worker completion correction, its 273 worker-global failures are diagnostic, not an authoritative worker total. On `964c426`, corrected focused execution produces real assertions for all 265 DedicatedWorker variants (26 pass) and passes the four SharedWorker plus four ServiceWorker IndexedDB variants. The earlier compact eight-cell worker ledger used the premature placeholder and is superseded pending regenerated evidence, even though the corrected eight-cell outcome is also 8/8. | Close the measured DOM/editing, IndexedDB, history/referrer, CSS/Stylo and accessibility differences. Recompute all 4,022 variants through the production worker and publish only a validator-derived exact-binary ledger. |
+| Upstream conformance | Partial | The latest complete exact inventory is `728f850`: 2,126/4,022 pass (generated-WebIDL 2,045/3,407, semantics 32/51, Stylo 49/564), with 1,570 assertion, 252 harness, 46 timeout and 28 unclassified failures. Post-baseline focused runs now reach Accessible Name/ARIA 41/51, WebIDL files 21/58 and the expanded CSS inventory 93/569; Rust-owned namespace-attribute reflection passes its upstream case. These focused totals are diagnostic deltas and do not replace the complete aggregate. A timeout-only rerun converts one former timeout to an assertion and leaves 45 genuine timeouts. The runner now applies WPT's four-times deadline to tests declared `timeout=long`, so ordinary and long-test failures are no longer conflated. | Close the measured DOM/editing, CSS/Stylo, long-tail WebIDL and accessibility differences. Recompute all 4,022 variants from the exact current binary and publish only a validator-derived complete ledger. |
 | Product and release validation | Not started for this cutover | Focused Rust/V8 tests pass and historical product evidence remains available for its original commits. | Rerun framework/OAuth, MiniWoB, churn, replay, scanner, Python, MCP, platform security and benchmarks against one clean release candidate; privately sign and re-attest only after deterministic completion. |
 
 ## 2. Remaining implementation list
@@ -239,28 +239,25 @@ release status be marked complete.
 
 ## 4. Immediate next actions
 
-1. ~~Replace SimpleHTTP response approximations and partial-completion races.~~
-   Pinned `wptserve` now supplies dynamic handlers, sidecar headers, redirects
-   and substitutions. URL variants retain their raw query spelling, editing
-   shards publish exact assertion intervals, and window/worker runners publish
-   only official completion results. The latest complete diagnostic is
-   1,607/4,022; worker-global totals are being recomputed after correcting the
-   upstream wrapper's explicit `done()` and worker lifecycle delivery.
-2. Close shared DOM/CSSOM prerequisites and generated worker-global exposure,
-   then rerun the Stylo slice before addressing property-by-property failures.
-   Constructable stylesheets, live `CSSRuleList`, indexed rule mutation and
-   replace are now Rust-backed; the first 30-case CSSOM slice improves from
-   0/30 to 4/30.
+1. Optimize or partition the upstream-declared long Range matrices without
+   changing their assertions; 45 timeout cases remain after the corrected
+   deadline rerun, dominated by Range/editing plus nine IndexedDB worker cases.
+2. Complete CSSOM stylesheet ownership, constructed/adopted stylesheets,
+   nested rule objects and Stylo invalidation. Stable generated `<style>` and
+   stylesheet-link wrappers, `document.styleSheets`, the CSS namespace and
+   priority APIs raise the expanded CSS slice to 93/569, but this is not yet a
+   passing Stylo differential.
 3. Expand contract-v6 graph/oracle comparison to randomized mutations,
    framework churn, navigation, frames, shadow DOM and replay, then run all
    pinned ARIA/Accessible Name mappings and the expanded reference-churn suite.
-   WPT testdriver name/role queries now use the graph's Rust algorithm and move
-   the pinned semantic/ARIA slice from 0/51 to 16/51; close the exposed hidden,
-   reference, pseudo-content, shadow-slot, embedded-control and whitespace
-   vectors next.
+   WPT testdriver name/role/property queries now use the graph's Rust algorithm.
+   Visibility overrides, article heading names and `aria-actions` exclusion move
+   the pinned semantic/ARIA slice to 41/51; pseudo-content/counters, shadow-slot
+   ordering, tentative reflection and specification-ambiguity cases remain.
 4. Publish the frozen Stylo CSSOM and native-versus-Chromium differential
    corpus, including the grid bridge and explicit unsupported boundaries.
-5. Rerun and recompute all 4,022 variants through the production worker; only
+5. Finish generated descriptor/constructor inheritance and collection
+   semantics, then rerun and recompute all 4,022 variants through the production worker; only
    remaining engine failures become the long-tail API backlog.
 6. Build and validate Linux x86_64 full/lite V8 artifacts in CayVM, then produce
    four-profile equivalence evidence with the macOS ARM64 full/lite artifacts.
