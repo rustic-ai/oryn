@@ -3236,7 +3236,7 @@ fn install_dom_exception_intrinsics(
     dom_prototype.set_prototype(scope, error_prototype);
     let stack_shim = v8::String::new(
         scope,
-        "if(!Object.getOwnPropertyDescriptor(Error.prototype,'stack'))Object.defineProperty(Error.prototype,'stack',{configurable:true,enumerable:false,get:function(){return String(this.name||'Error')+(this.message?': '+String(this.message):'')},set:function(value){if(this!==Error.prototype)Object.defineProperty(this,'stack',{value:value,writable:true,enumerable:true,configurable:true})}})",
+        "if(!Object.getOwnPropertyDescriptor(Error.prototype,'stack'))Object.defineProperty(Error.prototype,'stack',{configurable:true,enumerable:false,get:function(){return String(this.name||'Error')+(this.message?': '+String(this.message):'')},set:function(value){if(this!==Error.prototype)Object.defineProperty(this,'stack',{value:value,writable:true,enumerable:true,configurable:true})}});if(typeof Error.isError==='function'&&!Error.isError.__oryn_dom_exception){const builtin=Error.isError;const isError=function(value){return builtin(value)||value instanceof DOMException};Object.defineProperty(isError,'__oryn_dom_exception',{value:true});Object.defineProperty(Error,'isError',{value:isError,writable:true,configurable:true})}",
     )
     .ok_or(V8BindingError::Allocation("Error stack accessor source"))?;
     v8::Script::compile(scope, stack_shim, None)
@@ -23190,6 +23190,28 @@ mod tests {
         assert!(!is_valid_idb_json_key(
             &idb_json_key_path(&value, "invalid").unwrap()
         ));
+    }
+
+    #[test]
+    fn dom_exception_has_the_webidl_error_brand() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const exception=new DOMException('no','NotAllowedError');Error.isError(exception)&&exception instanceof Error&&exception instanceof DOMException",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert!(result.boolean_value(scope));
     }
 
     #[test]
