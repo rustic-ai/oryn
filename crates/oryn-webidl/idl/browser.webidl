@@ -340,6 +340,9 @@ interface Element : Node {
 [Exposed=Window]
 interface Attr : Node {
   readonly attribute DOMString name;
+  readonly attribute DOMString localName;
+  readonly attribute DOMString? namespaceURI;
+  readonly attribute DOMString? prefix;
   attribute DOMString value;
   readonly attribute Element? ownerElement;
 };
@@ -567,6 +570,15 @@ interface HTMLLinkElement : HTMLElement {
   attribute DOMString media;
   attribute DOMString type;
   attribute DOMString referrerPolicy;
+  readonly attribute CSSStyleSheet? sheet;
+};
+
+[Exposed=Window]
+interface HTMLStyleElement : HTMLElement {
+  attribute boolean disabled;
+  attribute DOMString media;
+  attribute DOMString type;
+  readonly attribute CSSStyleSheet? sheet;
 };
 
 [Exposed=Window]
@@ -983,6 +995,7 @@ interface CSSStyleDeclaration {
   attribute DOMString WebkitBoxSizing;
   attribute DOMString zoom;
   DOMString getPropertyValue(DOMString property);
+  DOMString getPropertyPriority(DOMString property);
   undefined setProperty(DOMString property, DOMString value, optional DOMString priority = "");
   DOMString removeProperty(DOMString property);
 };

@@ -695,6 +695,7 @@ pub struct V8BindingState {
     wrappers: Rc<RefCell<WrapperRegistry>>,
     objects: RefCell<BTreeMap<WrapperId, WrapperObject>>,
     instance_templates: RefCell<BTreeMap<&'static str, v8::Global<v8::ObjectTemplate>>>,
+    associated_wrappers: RefCell<BTreeMap<(NodeId, &'static str), v8::Weak<v8::Object>>>,
     next_event_id: Cell<u64>,
     events: RefCell<BTreeMap<u64, EventRecord>>,
     listeners: RefCell<BTreeMap<(NodeId, String), Vec<EventListener>>>,
@@ -2546,6 +2547,7 @@ pub fn install_generated_bindings_with_root_for_global(
         wrappers: Rc::new(RefCell::new(WrapperRegistry::default())),
         objects: RefCell::new(BTreeMap::new()),
         instance_templates: RefCell::new(BTreeMap::new()),
+        associated_wrappers: RefCell::new(BTreeMap::new()),
         next_event_id: Cell::new(1),
         events: RefCell::new(BTreeMap::new()),
         listeners: RefCell::new(BTreeMap::new()),
@@ -2703,6 +2705,10 @@ pub fn install_generated_bindings_with_root_for_global(
                             .length(0)
                             .constructor_behavior(v8::ConstructorBehavior::Throw)
                             .build(scope);
+                        getter.set_class_name(
+                            v8::String::new(scope, &format!("get {}", member.name))
+                                .ok_or(V8BindingError::Allocation("attribute getter name"))?,
+                        );
                         let setter = (!member.readonly
                             || member.replaceable
                             || member.put_forwards.is_some())
@@ -2713,6 +2719,12 @@ pub fn install_generated_bindings_with_root_for_global(
                                 .constructor_behavior(v8::ConstructorBehavior::Throw)
                                 .build(scope)
                         });
+                        if let Some(setter) = setter.as_ref() {
+                            setter.set_class_name(
+                                v8::String::new(scope, &format!("set {}", member.name))
+                                    .ok_or(V8BindingError::Allocation("attribute setter name"))?,
+                            );
+                        }
                         let target = if member.unforgeable {
                             instance
                         } else {
@@ -2794,6 +2806,7 @@ pub fn install_generated_bindings_with_root_for_global(
                         .get(parent)
                         .ok_or(V8BindingError::MissingInterface(parent))?,
                 );
+                constructor.set_prototype(scope, parent_constructor.into());
                 let child_prototype = constructor
                     .get(scope, prototype_name.into())
                     .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
@@ -16805,6 +16818,7 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "meta" => "HTMLMetaElement",
             "area" => "HTMLAreaElement",
             "link" => "HTMLLinkElement",
+            "style" => "HTMLStyleElement",
             "iframe" => "HTMLIFrameElement",
             "script" => "HTMLScriptElement",
             _ => "HTMLElement",
@@ -17456,6 +17470,44 @@ fn set_inline_style_property(
     Ok(previous)
 }
 
+fn namespaced_attribute_name(
+    state: &Rc<V8BindingState>,
+    element: NodeId,
+    namespace: Option<&str>,
+    local_name: &str,
+) -> Result<Option<String>, V8BindingError> {
+    let names = state
+        .dom
+        .borrow()
+        .arena()
+        .get(element)?
+        .attributes
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    for name in names {
+        let attribute = state
+            .dom
+            .borrow_mut()
+            .attribute_node(element, &name)?
+            .ok_or(V8BindingError::Allocation("attribute node"))?;
+        if let NodeKind::Attribute {
+            local_name: candidate,
+            namespace: candidate_namespace,
+            ..
+        } = &state.dom.borrow().arena().get(attribute)?.kind
+            && candidate == local_name
+            && candidate_namespace
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                == namespace.filter(|value| !value.is_empty())
+        {
+            return Ok(Some(name));
+        }
+    }
+    Ok(None)
+}
+
 fn template_content(
     state: &Rc<V8BindingState>,
     template: NodeId,
@@ -17505,6 +17557,9 @@ fn get_attribute_value<'s>(
     if matches!(interface, "HTMLElement" | "SVGElement") && member == "style" {
         return associated_wrapper(scope, state, node, "CSSStyleDeclaration");
     }
+    if matches!(interface, "HTMLStyleElement" | "HTMLLinkElement") && member == "sheet" {
+        return associated_wrapper(scope, state, node, "CSSStyleSheet");
+    }
     if interface == "HTMLElement" && member == "dataset" {
         let entries = state
             .dom
@@ -17542,35 +17597,41 @@ fn get_attribute_value<'s>(
         return Ok(dataset.into());
     }
     if interface == "Element" && member == "attributes" {
-        let entries = state
+        let names = state
             .dom
             .borrow()
             .arena()
             .get(node)?
             .attributes
-            .iter()
-            .map(|(name, value)| (name.clone(), value.clone()))
+            .keys()
+            .cloned()
             .collect::<Vec<_>>();
-        let attributes = v8::Array::new(scope, entries.len() as i32);
-        for (index, (name, value)) in entries.into_iter().enumerate() {
-            let attribute = v8::Object::new(scope);
-            let property_name = v8_string(scope, &name)?;
-            set_object_property(scope, attribute, "name", property_name)?;
-            let value = v8_string(scope, &value)?;
-            set_object_property(scope, attribute, "value", value)?;
-            set_object_property(
-                scope,
-                attribute,
-                "expando",
-                v8::Boolean::new(scope, false).into(),
-            )?;
+        let attributes = v8::Array::new(scope, names.len() as i32);
+        for (index, name) in names.into_iter().enumerate() {
+            let attribute_node = state
+                .dom
+                .borrow_mut()
+                .attribute_node(node, &name)?
+                .ok_or(V8BindingError::Allocation("attribute node"))?;
+            let attribute = wrap_node(scope, state, attribute_node)?;
             attributes.set_index(scope, index as u32, attribute.into());
+            let property_name = v8_string(scope, &name)?;
             attributes.set(scope, property_name, attribute.into());
         }
         return Ok(attributes.into());
     }
     if interface == "Document" && member == "styleSheets" {
-        let styles = state.dom.borrow().query_selector_all(node, "style")?;
+        let mut styles = state.dom.borrow().query_selector_all(node, "style")?;
+        let links = state.dom.borrow().query_selector_all(node, "link")?;
+        styles.extend(links.into_iter().filter(|link| {
+            state.dom.borrow().arena().get(*link).is_ok_and(|record| {
+                record.attributes.get("rel").is_some_and(|value| {
+                    value
+                        .split_ascii_whitespace()
+                        .any(|token| token.eq_ignore_ascii_case("stylesheet"))
+                })
+            })
+        }));
         return associated_node_array(scope, state, &styles, "CSSStyleSheet");
     }
     if interface == "CSSStyleSheet" && member == "cssRules" {
@@ -17927,6 +17988,26 @@ fn get_attribute_value<'s>(
             NodeKind::Attribute { name, .. } => v8_string(scope, name)?,
             _ => return Err(DomError::StaleNode(node).into()),
         },
+        ("Attr", "localName") => match &record.kind {
+            NodeKind::Attribute { local_name, .. } => v8_string(scope, local_name)?,
+            _ => return Err(DomError::StaleNode(node).into()),
+        },
+        ("Attr", "namespaceURI") => match &record.kind {
+            NodeKind::Attribute {
+                namespace: Some(namespace),
+                ..
+            } => v8_string(scope, namespace)?,
+            NodeKind::Attribute { .. } => v8::null(scope).into(),
+            _ => return Err(DomError::StaleNode(node).into()),
+        },
+        ("Attr", "prefix") => match &record.kind {
+            NodeKind::Attribute {
+                prefix: Some(prefix),
+                ..
+            } => v8_string(scope, prefix)?,
+            NodeKind::Attribute { .. } => v8::null(scope).into(),
+            _ => return Err(DomError::StaleNode(node).into()),
+        },
         ("Attr", "value") => match &record.kind {
             NodeKind::Attribute { value, .. } => v8_string(scope, value)?,
             _ => return Err(DomError::StaleNode(node).into()),
@@ -17953,6 +18034,10 @@ fn get_attribute_value<'s>(
         },
         ("ProcessingInstruction", "target") => match &record.kind {
             NodeKind::ProcessingInstruction { target, .. } => v8_string(scope, target)?,
+            _ => return Err(DomError::StaleNode(node).into()),
+        },
+        ("Attr", "textContent") => match &record.kind {
+            NodeKind::Attribute { value, .. } => v8_string(scope, value)?,
             _ => return Err(DomError::StaleNode(node).into()),
         },
         (_, "textContent") | ("HTMLElement", "innerText") => {
@@ -18318,6 +18403,7 @@ fn set_attribute_value(
     };
     let mut dom = state.dom.borrow_mut();
     match (interface, member) {
+        ("Attr", "textContent") => dom.set_attribute_node_value(node, value)?,
         (_, "textContent") | ("HTMLElement", "innerText") => {
             dom.set_text_content(node, value)?;
             drop(dom);
@@ -19664,15 +19750,18 @@ fn call_operation<'s>(
             }
         }
         ("Element", "getAttributeNS") => {
+            let namespace = if args.get(0).is_null() {
+                None
+            } else {
+                Some(args.get(0).to_rust_string_lossy(scope))
+            };
             let local_name = required_string(scope, args, 1)?;
+            let name = namespaced_attribute_name(state, node, namespace.as_deref(), &local_name)?;
             let dom = state.dom.borrow();
-            let value = dom
-                .arena()
-                .get(node)?
-                .attributes
-                .iter()
-                .find(|(name, _)| name.rsplit(':').next() == Some(local_name.as_str()))
-                .map(|(_, value)| value.as_str());
+            let value = name
+                .as_deref()
+                .and_then(|name| dom.arena().get(node).ok()?.attributes.get(name))
+                .map(String::as_str);
             match value {
                 Some(value) => Ok(Some(v8_string(scope, value)?)),
                 None => Ok(Some(v8::null(scope).into())),
@@ -19736,12 +19825,17 @@ fn call_operation<'s>(
             Ok(None)
         }
         ("Element", "setAttributeNS") => {
+            let namespace = if args.get(0).is_null() {
+                None
+            } else {
+                Some(args.get(0).to_rust_string_lossy(scope))
+            };
             let qualified_name = required_string(scope, args, 1)?;
             let value = required_string(scope, args, 2)?;
             state
                 .dom
                 .borrow_mut()
-                .set_attribute(node, qualified_name, value)?;
+                .set_attribute_ns(node, namespace, qualified_name, value)?;
             Ok(None)
         }
         ("Element", "removeAttribute") => {
@@ -19750,16 +19844,13 @@ fn call_operation<'s>(
             Ok(None)
         }
         ("Element", "removeAttributeNS") => {
+            let namespace = if args.get(0).is_null() {
+                None
+            } else {
+                Some(args.get(0).to_rust_string_lossy(scope))
+            };
             let local_name = required_string(scope, args, 1)?;
-            let name = state
-                .dom
-                .borrow()
-                .arena()
-                .get(node)?
-                .attributes
-                .keys()
-                .find(|name| name.rsplit(':').next() == Some(local_name.as_str()))
-                .cloned();
+            let name = namespaced_attribute_name(state, node, namespace.as_deref(), &local_name)?;
             if let Some(name) = name {
                 state.dom.borrow_mut().remove_attribute(node, &name)?;
             }
@@ -19771,15 +19862,15 @@ fn call_operation<'s>(
             Ok(Some(v8::Boolean::new(scope, present).into()))
         }
         ("Element", "hasAttributeNS") => {
+            let namespace = if args.get(0).is_null() {
+                None
+            } else {
+                Some(args.get(0).to_rust_string_lossy(scope))
+            };
             let local_name = required_string(scope, args, 1)?;
-            let present = state
-                .dom
-                .borrow()
-                .arena()
-                .get(node)?
-                .attributes
-                .keys()
-                .any(|name| name.rsplit(':').next() == Some(local_name.as_str()));
+            let present =
+                namespaced_attribute_name(state, node, namespace.as_deref(), &local_name)?
+                    .is_some();
             Ok(Some(v8::Boolean::new(scope, present).into()))
         }
         ("Element", "hasAttributes") => {
@@ -20051,14 +20142,48 @@ fn call_operation<'s>(
                 .get("style")
                 .cloned()
                 .unwrap_or_default();
-            let value = inline_style_entries(&style)
+            let raw_value = inline_style_entries(&style)
                 .remove(&property)
                 .unwrap_or_default();
-            Ok(Some(v8_string(scope, &value)?))
+            let trimmed = raw_value.trim_end();
+            let value = trimmed
+                .strip_suffix("!important")
+                .unwrap_or(trimmed)
+                .trim_end();
+            Ok(Some(v8_string(scope, value)?))
+        }
+        ("CSSStyleDeclaration", "getPropertyPriority") => {
+            let property = required_string(scope, args, 0)?.to_ascii_lowercase();
+            let dom = state.dom.borrow();
+            let style = dom
+                .arena()
+                .get(node)?
+                .attributes
+                .get("style")
+                .cloned()
+                .unwrap_or_default();
+            let important = inline_style_entries(&style)
+                .get(&property)
+                .is_some_and(|value| value.trim_end().ends_with("!important"));
+            Ok(Some(v8_string(
+                scope,
+                if important { "important" } else { "" },
+            )?))
         }
         ("CSSStyleDeclaration", "setProperty") => {
             let property = required_string(scope, args, 0)?.to_ascii_lowercase();
-            let value = required_string(scope, args, 1)?;
+            let mut value = required_string(scope, args, 1)?;
+            let priority = if args.length() > 2 {
+                required_string(scope, args, 2)?.to_ascii_lowercase()
+            } else {
+                String::new()
+            };
+            if !priority.is_empty() && priority != "important" {
+                return Ok(None);
+            }
+            if priority == "important" && !value.is_empty() {
+                value.push_str(" !important");
+            }
             set_inline_style_property(&mut state.dom.borrow_mut(), node, &property, &value)?;
             Ok(None)
         }
@@ -20970,6 +21095,14 @@ fn associated_wrapper<'s>(
     node: NodeId,
     interface: &'static str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if let Some(object) = state
+        .associated_wrappers
+        .borrow()
+        .get(&(node, interface))
+        .and_then(|object| object.to_local(scope))
+    {
+        return Ok(object.into());
+    }
     let wrapper = state.wrappers.borrow_mut().get_or_create(
         &mut state.dom.borrow_mut(),
         state.realm,
@@ -20987,6 +21120,10 @@ fn associated_wrapper<'s>(
         .new_instance(scope)
         .ok_or(V8BindingError::Allocation("associated wrapper object"))?;
     object.set_internal_field(0, v8::BigInt::new_from_u64(scope, wrapper.0).into());
+    state
+        .associated_wrappers
+        .borrow_mut()
+        .insert((node, interface), v8::Weak::new(scope, object));
     Ok(object.into())
 }
 

@@ -1242,6 +1242,9 @@ if(globalThis.Document&&!globalThis.XMLDocument)globalThis.XMLDocument=globalThi
 globalThis.focus=()=>{if(typeof globalThis.__oryn_context_call==='function'&&__oryn_page_id!==null)contextCall({operation:'activate_page',source_page_id:__oryn_page_id,target_page_id:__oryn_page_id})};
 globalThis.blur=()=>{};
 if(globalThis.CSSStyleDeclaration&&!CSSStyleDeclaration.prototype[Symbol.iterator])Object.defineProperty(CSSStyleDeclaration.prototype,Symbol.iterator,{configurable:true,writable:true,value:function*(){for(const declaration of String(this.cssText||'').split(';')){const separator=declaration.indexOf(':');if(separator>0)yield declaration.slice(0,separator).trim()}}});
+if(!globalThis.CSS)globalThis.CSS={};
+if(!CSS.escape)CSS.escape=value=>{const string=String(value),length=string.length;let result='';for(let index=0;index<length;index++){const code=string.charCodeAt(index),character=string.charAt(index);if(code===0){result+='\uFFFD';continue}if((code>=1&&code<=31)||code===127||(index===0&&code>=48&&code<=57)||(index===1&&code>=48&&code<=57&&string.charCodeAt(0)===45)){result+='\\'+code.toString(16)+' ';continue}if(index===0&&code===45&&length===1){result+='\\-';continue}if(code>=128||code===45||code===95||(code>=48&&code<=57)||(code>=65&&code<=90)||(code>=97&&code<=122)){result+=character;continue}result+='\\'+character}return result};
+if(!CSS.supports)CSS.supports=(property,value)=>{if(value===undefined){const match=String(property).trim().match(/^\(\s*([\w-]+)\s*:\s*([^)]*)\)$/);return !!match&&CSS.supports(match[1],match[2])}const probe=document.createElement('div').style;try{probe.setProperty(String(property),String(value));return probe.getPropertyValue(String(property))!==''}catch(_){return false}};
 // Generated Rust callbacks are the production web-platform authority. The
 // compatibility bootstrap below still supplies unrelated utilities, but its
 // legacy platform classes are restored out of the global namespace at the end

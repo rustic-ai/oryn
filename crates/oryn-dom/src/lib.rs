@@ -64,6 +64,9 @@ pub enum NodeKind {
     },
     Attribute {
         name: String,
+        local_name: String,
+        namespace: Option<String>,
+        prefix: Option<String>,
         value: String,
         owner: Option<NodeId>,
     },
@@ -841,7 +844,22 @@ impl DomRuntime {
         name: impl Into<String>,
         value: impl Into<String>,
     ) -> Result<(), DomError> {
+        self.set_attribute_ns(node, None, name, value)
+    }
+
+    pub fn set_attribute_ns(
+        &mut self,
+        node: NodeId,
+        namespace: Option<String>,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Result<(), DomError> {
         let name = name.into();
+        let (prefix, local_name) = name
+            .split_once(':')
+            .map_or((None, name.clone()), |(prefix, local)| {
+                (Some(prefix.to_string()), local.to_string())
+            });
         let value = value.into();
         let old_value = self
             .arena
@@ -860,11 +878,28 @@ impl DomRuntime {
         }
         if let Some(attribute) = self.attribute_nodes.get(&(node, name.clone())).copied()
             && let NodeKind::Attribute {
+                local_name: attribute_local_name,
+                namespace: attribute_namespace,
+                prefix: attribute_prefix,
                 value: attribute_value,
                 ..
             } = &mut self.arena.get_mut(attribute)?.kind
         {
+            attribute_local_name.clone_from(&local_name);
+            attribute_namespace.clone_from(&namespace);
+            attribute_prefix.clone_from(&prefix);
             attribute_value.clone_from(&value);
+        }
+        if namespace.is_some() && !self.attribute_nodes.contains_key(&(node, name.clone())) {
+            let attribute = self.create(NodeKind::Attribute {
+                name: name.clone(),
+                local_name,
+                namespace,
+                prefix,
+                value: value.clone(),
+                owner: Some(node),
+            });
+            self.attribute_nodes.insert((node, name.clone()), attribute);
         }
         self.mutations.push(Mutation::Attribute {
             node,
@@ -937,6 +972,13 @@ impl DomRuntime {
         }
         let attribute = self.create(NodeKind::Attribute {
             name: normalized.clone(),
+            local_name: normalized
+                .rsplit_once(':')
+                .map_or_else(|| normalized.clone(), |(_, local)| local.to_string()),
+            namespace: None,
+            prefix: normalized
+                .split_once(':')
+                .map(|(prefix, _)| prefix.to_string()),
             value,
             owner: Some(element),
         });
@@ -952,7 +994,9 @@ impl DomRuntime {
     ) -> Result<(), DomError> {
         let value = value.into();
         let (name, owner, old_value) = match &self.arena.get(attribute)?.kind {
-            NodeKind::Attribute { name, value, owner } => (name.clone(), *owner, value.clone()),
+            NodeKind::Attribute {
+                name, value, owner, ..
+            } => (name.clone(), *owner, value.clone()),
             _ => return Err(DomError::StaleNode(attribute)),
         };
         if let NodeKind::Attribute {

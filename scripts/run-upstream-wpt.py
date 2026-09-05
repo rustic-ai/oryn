@@ -698,7 +698,7 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             harness = lowered.find("testharness.js")
             index = lowered.find("</script>", harness) + len("</script>") if harness >= 0 else -1
             timeout_setup = (
-                "<script>setup({timeout_multiplier:20});</script>"
+                "<script>setup({timeout_multiplier:4});</script>"
                 if (
                     ("name=timeout" in lowered or 'name="timeout"' in lowered or "name='timeout'" in lowered)
                     and ("content=long" in lowered or 'content="long"' in lowered or "content='long'" in lowered)
@@ -945,7 +945,7 @@ def run_case(
     # WPT's `long` classification extends the harness deadline. The native
     # process deadline must cover that same interval or a valid, progressing
     # long test is misclassified as an engine hang by the outer runner.
-    process_timeout = timeout * 20 if declared_long_timeout else timeout
+    process_timeout = timeout * 4 if declared_long_timeout else timeout
     if global_name not in {"window", "dedicatedworker", "sharedworker", "serviceworker"}:
         return {
             "id": identifier,
