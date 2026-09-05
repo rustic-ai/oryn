@@ -604,6 +604,16 @@ interface HTMLScriptElement : HTMLElement {
 };
 
 [Exposed=Window]
+interface HTMLDialogElement : HTMLElement {
+  attribute boolean open;
+  attribute DOMString returnValue;
+  undefined show();
+  undefined showModal();
+  undefined close(optional DOMString returnValue);
+  undefined requestClose(optional DOMString returnValue);
+};
+
+[Exposed=Window]
 interface Document : Node {
   constructor();
   readonly attribute DOMImplementation implementation;

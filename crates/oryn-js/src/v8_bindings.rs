@@ -16841,6 +16841,7 @@ fn validate_interface_node(
         "HTMLLinkElement" => Some("link"),
         "HTMLCanvasElement" => Some("canvas"),
         "HTMLImageElement" => Some("img"),
+        "HTMLDialogElement" => Some("dialog"),
         _ => None,
     };
     if let Some(expected_tag) = expected_tag {
@@ -16901,6 +16902,7 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "style" => "HTMLStyleElement",
             "iframe" => "HTMLIFrameElement",
             "script" => "HTMLScriptElement",
+            "dialog" => "HTMLDialogElement",
             _ => "HTMLElement",
         },
         NodeKind::Text { .. } => "Text",
@@ -18328,7 +18330,7 @@ fn get_attribute_value<'s>(
         (
             interface,
             "checked" | "defaultChecked" | "selected" | "defaultSelected" | "disabled" | "readOnly"
-            | "required" | "multiple",
+            | "required" | "multiple" | "open",
         ) if interface.starts_with("HTML") => {
             let attribute = match member {
                 "defaultChecked" => "checked",
@@ -18338,6 +18340,13 @@ fn get_attribute_value<'s>(
             };
             v8::Boolean::new(scope, record.attributes.contains_key(attribute)).into()
         }
+        ("HTMLDialogElement", "returnValue") => v8_string(
+            scope,
+            record
+                .attributes
+                .get("data-oryn-return-value")
+                .map_or("", String::as_str),
+        )?,
         (
             interface,
             "type" | "name" | "content" | "httpEquiv" | "action" | "method" | "href" | "target"
@@ -18574,6 +18583,9 @@ fn set_attribute_value(
         }
         ("CharacterData", "data") => dom.set_text(node, value)?,
         ("Attr", "value") => dom.set_attribute_node_value(node, value)?,
+        ("HTMLDialogElement", "returnValue") => {
+            dom.set_attribute(node, "data-oryn-return-value", value)?
+        }
         ("HTMLElement", "contentEditable") => {
             let normalized = value.to_ascii_lowercase();
             if !matches!(
@@ -18661,7 +18673,7 @@ fn set_attribute_value(
         (
             interface,
             "checked" | "defaultChecked" | "selected" | "defaultSelected" | "disabled" | "readOnly"
-            | "required" | "multiple",
+            | "required" | "multiple" | "open",
         ) if interface.starts_with("HTML") => {
             let attribute = match member {
                 "defaultChecked" => "checked",
@@ -20236,7 +20248,15 @@ fn call_operation<'s>(
         }
         ("Element", "matches") => {
             let selector = required_string(scope, args, 0)?;
-            let matched = state.dom.borrow().matches_selector(node, &selector)?;
+            let matched = match selector.trim() {
+                ":modal" => state
+                    .dom
+                    .borrow()
+                    .attribute(node, "data-oryn-modal")?
+                    .is_some(),
+                ":open" => state.dom.borrow().attribute(node, "open")?.is_some(),
+                _ => state.dom.borrow().matches_selector(node, &selector)?,
+            };
             Ok(Some(v8::Boolean::new(scope, matched).into()))
         }
         ("Element", "closest") => {
@@ -20481,6 +20501,52 @@ fn call_operation<'s>(
             let previous =
                 set_inline_style_property(&mut state.dom.borrow_mut(), node, &property, "")?;
             Ok(Some(v8_string(scope, &previous)?))
+        }
+        ("HTMLDialogElement", "show" | "showModal") => {
+            let mut dom = state.dom.borrow_mut();
+            if !dom.is_connected(node)? {
+                return Err(V8BindingError::Unsupported {
+                    interface: "HTMLDialogElement".into(),
+                    member: "InvalidStateError".into(),
+                });
+            }
+            if member == "showModal" && dom.attribute(node, "open")?.is_some() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "HTMLDialogElement".into(),
+                    member: "InvalidStateError".into(),
+                });
+            }
+            dom.set_attribute(node, "open", "")?;
+            if member == "showModal" {
+                dom.set_attribute(node, "data-oryn-modal", "")?;
+            }
+            Ok(None)
+        }
+        ("HTMLDialogElement", "close" | "requestClose") => {
+            if member == "requestClose" {
+                let cancel = create_event_object(scope, state, "cancel", false, true)?;
+                if !dispatch_event(scope, state, node, cancel)? {
+                    return Ok(None);
+                }
+            }
+            {
+                let mut dom = state.dom.borrow_mut();
+                if dom.attribute(node, "open")?.is_none() {
+                    return Ok(None);
+                }
+                if args.length() > 0 {
+                    dom.set_attribute(
+                        node,
+                        "data-oryn-return-value",
+                        required_string(scope, args, 0)?,
+                    )?;
+                }
+                dom.remove_attribute(node, "open")?;
+                dom.remove_attribute(node, "data-oryn-modal")?;
+            }
+            let close = create_event_object(scope, state, "close", false, false)?;
+            dispatch_event(scope, state, node, close)?;
+            Ok(None)
         }
         ("HTMLElement", "focus") => {
             let previous = state.dom.borrow().focused();
@@ -23450,6 +23516,31 @@ mod tests {
             script.run(scope).unwrap().to_rust_string_lossy(scope),
             "https://fixture.test/app|https://fixture.test/app|true|true|true|focus:blur"
         );
+    }
+
+    #[test]
+    fn generated_dialog_lifecycle_is_rust_backed_and_move_safe() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<body><div id='left'><dialog id='dialog'></dialog></div><div id='right'></div></body>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const dialog=document.getElementById('dialog'),right=document.getElementById('right');let events='';dialog.addEventListener('cancel',()=>events+='cancel:');dialog.addEventListener('close',()=>events+='close');dialog.showModal();const modalBefore=dialog.matches(':modal');right.moveBefore(dialog,null);const preserved=dialog.open&&dialog.matches(':modal');dialog.requestClose('accepted');[dialog instanceof HTMLDialogElement,modalBefore,preserved,dialog.open,dialog.returnValue,events].join('|')",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "true|true|true|false|accepted|cancel:close");
     }
 
     #[test]
