@@ -6706,6 +6706,30 @@ impl PageState {
             return Ok(());
         }
         #[cfg(feature = "v8-host")]
+        if !network_idle && self.executable.is_some() {
+            let deadline = Instant::now() + self.config.command_timeout;
+            loop {
+                // A wait is an event-loop-driving browser operation, not a
+                // one-shot observation. Keep servicing timers, rAF callbacks,
+                // platform completions, message delivery, and V8 microtasks
+                // while the predicate is pending.
+                self.poll_page_tasks()?;
+                if matches!(
+                    predicate,
+                    WaitPredicate::SelectorVisible(_) | WaitPredicate::SelectorHidden(_)
+                ) {
+                    self.refresh_layout()?;
+                }
+                if self.wait_satisfied(predicate) {
+                    return Ok(());
+                }
+                if Instant::now() >= deadline {
+                    return Err(RuntimeError::WaitUnsatisfied(format!("{predicate:?}")));
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+        #[cfg(feature = "v8-host")]
         if self.executable.is_some() {
             let before = self.semantic_graph.semantic_revision();
             let context_entries = {
@@ -12884,5 +12908,27 @@ mod tests {
                 .expect("observer order"),
             "raf,resize,intersection"
         );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn wait_drives_nested_animation_frames_until_the_predicate_is_true() {
+        let page = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context()
+            .new_page();
+        page.load_html(
+            "https://wait.test/",
+            r#"<main id=pending></main><script>
+              requestAnimationFrame(() => requestAnimationFrame(() => {
+                document.querySelector('#pending').id = 'ready';
+              }));
+            </script>"#,
+        )
+        .await
+        .expect("load nested animation-frame fixture");
+
+        page.wait_for(WaitPredicate::SelectorExists("#ready".into()))
+            .await
+            .expect("wait must advance rendering opportunities");
     }
 }

@@ -18688,6 +18688,9 @@ fn set_attribute_value(
     } else {
         None
     };
+    let scroll_extent = (interface == "Element" && matches!(member, "scrollLeft" | "scrollTop"))
+        .then(|| scroll_extent(state, node));
+    let mut queue_scroll = false;
     let mut dom = state.dom.borrow_mut();
     match (interface, member) {
         (_, "textContent") if matches!(dom.arena().get(node)?.kind, NodeKind::Attribute { .. }) => {
@@ -18727,13 +18730,18 @@ fn set_attribute_value(
         }
         ("Element", "scrollLeft" | "scrollTop") => {
             let numeric = value.parse::<f64>().unwrap_or(0.0).max(0.0);
+            let maximum = scroll_extent.unwrap_or_default();
             let mut offsets = state.scroll_offsets.borrow_mut();
             let offset = offsets.entry(node).or_default();
+            let previous = *offset;
             if member == "scrollLeft" {
-                offset.0 = numeric;
+                offset.0 = numeric.min(maximum.0);
             } else {
-                offset.1 = numeric;
+                offset.1 = numeric.min(maximum.1);
             }
+            let changed = *offset != previous;
+            drop(offsets);
+            queue_scroll = changed;
         }
         ("DOMTokenList", "value") => dom.set_attribute(node, "class", value)?,
         ("CSSStyleDeclaration", "cssText") => dom.set_attribute(node, "style", value)?,
@@ -18937,6 +18945,9 @@ fn set_attribute_value(
         }
     }
     drop(dom);
+    if queue_scroll {
+        queue_scroll_events(state, node)?;
+    }
     if interface == "CSSStyleDeclaration" || member == "background" {
         state.prepared_stylesheets.borrow_mut().remove(&node);
         state
@@ -22853,6 +22864,40 @@ mod tests {
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
             "capture:1,target-capture:2,target-bubble:2,bubble:3,capture:1,target-bubble:2,bubble:3"
+        );
+    }
+
+    #[test]
+    fn generated_scroll_offsets_publish_deferred_scroll_events() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<div id='scroller' style='width:10px;height:10px;overflow:auto'><div style='width:50px;height:50px'></div></div>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "globalThis.scrollEvents=[];const target=document.getElementById('scroller');target.addEventListener('scroll',()=>scrollEvents.push('scroll'));target.scrollTop=5;target.scrollLeft=6;target.remove()",
+        )
+        .unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        state.drain_platform_completions(scope, 8).unwrap();
+        scope.perform_microtask_checkpoint();
+        let source = v8::String::new(scope, "scrollEvents.join(',')").unwrap();
+        assert_eq!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .to_rust_string_lossy(scope),
+            "scroll,scroll"
         );
     }
 

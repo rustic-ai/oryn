@@ -2434,6 +2434,11 @@ impl RustExecutableDocument {
         // supposed to guard that very workflow.
         self.host.drain_scheduled_timers(false)?;
         self.host.execute("__oryn_poll_context()")?;
+        // Animation-frame callbacks are page tasks in their own right. They
+        // must advance even when the preceding task changed only platform
+        // state (for example scroll offsets) and therefore produced no
+        // semantic/layout revision that would otherwise trigger a frame.
+        self.host.execute("__oryn_run_animation_frames()")?;
         self.checkpoint()
     }
 
