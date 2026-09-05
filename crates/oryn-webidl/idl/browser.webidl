@@ -515,6 +515,8 @@ interface HTMLImageElement : HTMLElement {
   attribute DOMString src;
   attribute DOMString crossOrigin;
   attribute DOMString referrerPolicy;
+  attribute unsigned long width;
+  attribute unsigned long height;
   readonly attribute unsigned long naturalWidth;
   readonly attribute unsigned long naturalHeight;
   readonly attribute unsigned long clientWidth;

@@ -2957,6 +2957,7 @@ pub fn install_generated_bindings_with_root_for_global(
         context
             .global(scope)
             .set(scope, name.into(), get_accessibility.into());
+        install_image_factory(scope, context)?;
         install_trusted_types(scope, context)?;
     }
     let fetch = v8::Function::new(scope, platform_fetch_callback)
@@ -3236,6 +3237,88 @@ fn blob_url_source_callback(
     if let Some(value) = v8::String::new(scope, &String::from_utf8_lossy(&blob.bytes)) {
         return_value.set(value.into());
     }
+}
+
+fn install_image_factory(
+    scope: &mut v8::PinScope,
+    context: v8::Local<v8::Context>,
+) -> Result<(), V8BindingError> {
+    let template = v8::FunctionTemplate::builder(image_factory_callback)
+        .length(2)
+        .build(scope);
+    template.set_class_name(
+        v8::String::new(scope, "Image").ok_or(V8BindingError::Allocation("Image name"))?,
+    );
+    let factory = template
+        .get_function(scope)
+        .ok_or(V8BindingError::Allocation("Image factory"))?;
+    let prototype_name =
+        v8::String::new(scope, "prototype").ok_or(V8BindingError::Allocation("prototype"))?;
+    let image_element_name = v8::String::new(scope, "HTMLImageElement")
+        .ok_or(V8BindingError::Allocation("HTMLImageElement name"))?;
+    let image_element_prototype = context
+        .global(scope)
+        .get(scope, image_element_name.into())
+        .and_then(|value| value.to_object(scope))
+        .and_then(|constructor| constructor.get(scope, prototype_name.into()))
+        .ok_or(V8BindingError::MissingInterface("HTMLImageElement"))?;
+    factory.define_own_property(
+        scope,
+        prototype_name.into(),
+        image_element_prototype,
+        v8::PropertyAttribute::DONT_ENUM | v8::PropertyAttribute::DONT_DELETE,
+    );
+    let name = v8::String::new(scope, "Image").ok_or(V8BindingError::Allocation("Image name"))?;
+    context.global(scope).define_own_property(
+        scope,
+        name.into(),
+        factory.into(),
+        v8::PropertyAttribute::DONT_ENUM,
+    );
+    Ok(())
+}
+
+fn image_factory_callback(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
+        throw_type_error(scope, "generated binding state is unavailable");
+        return;
+    };
+    let node = state.dom.borrow_mut().create_element("img");
+    for (index, name) in [(0, "width"), (1, "height")] {
+        let value = args.get(index);
+        if value.is_undefined() {
+            continue;
+        }
+        let Some(value) = value.integer_value(scope) else {
+            throw_type_error(scope, "Image dimensions must be finite integers");
+            return;
+        };
+        if let Err(error) =
+            state
+                .dom
+                .borrow_mut()
+                .set_attribute(node, name, value.max(0).to_string())
+        {
+            throw_binding_error(scope, &error.into());
+            return;
+        }
+    }
+    let Ok(wrapper) = wrap_node(scope, &state, node) else {
+        throw_type_error(scope, "Image wrapper allocation failed");
+        return;
+    };
+    if let Some(new_target) = args.new_target().to_object(scope)
+        && let Some(prototype_name) = v8::String::new(scope, "prototype")
+        && let Some(prototype) = new_target.get(scope, prototype_name.into())
+        && prototype.is_object()
+    {
+        wrapper.set_prototype(scope, prototype);
+    }
+    return_value.set(wrapper.into());
 }
 
 fn install_dom_exception_intrinsics(
@@ -18036,6 +18119,15 @@ fn get_attribute_value<'s>(
         });
         return Ok(v8::Integer::new_from_unsigned(scope, value).into());
     }
+    if interface == "HTMLImageElement" && matches!(member, "width" | "height") {
+        let value = state
+            .dom
+            .borrow()
+            .attribute(node, member)?
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or_default();
+        return Ok(v8::Integer::new_from_unsigned(scope, value).into());
+    }
     if interface == "HTMLIFrameElement" && member == "contentDocument" {
         // The public WindowProxy remains stable across navigation, while the
         // committed same-origin proxy carries the child realm's live global
@@ -18763,6 +18855,10 @@ fn set_attribute_value(
         ("Element", "id") => dom.set_attribute(node, "id", value)?,
         ("Element", "className") => dom.set_attribute(node, "class", value)?,
         ("HTMLElement", "title" | "lang" | "dir") => dom.set_attribute(node, member, value)?,
+        ("HTMLImageElement", "width" | "height") => {
+            let value = value.parse::<u32>().unwrap_or_default();
+            dom.set_attribute(node, member, value.to_string())?;
+        }
         ("HTMLElement", "hidden") => {
             if value == "true" {
                 dom.set_attribute(node, "hidden", "")?;
@@ -23262,6 +23358,31 @@ mod tests {
             .run(scope)
             .unwrap();
         assert!(result.boolean_value(scope));
+    }
+
+    #[test]
+    fn image_legacy_factory_preserves_new_target_and_reflected_state() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "class CustomImage extends Image{};const image=new CustomImage(12,7);[image instanceof CustomImage,image instanceof HTMLImageElement,image.width===12,image.height===7,Reflect.ownKeys(Image).slice(0,3).join(',')].join('|')",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert_eq!(
+            result.to_rust_string_lossy(scope),
+            "true|true|true|true|length,name,prototype"
+        );
     }
 
     #[test]
