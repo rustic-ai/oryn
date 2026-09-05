@@ -5074,6 +5074,7 @@ fn get_computed_style_callback(
         let node = argument_node(scope, &state, args.get(0))?;
         refresh_layout(&state)?;
         let key = node_key(node);
+        let connected = state.dom.borrow().is_connected(node)?;
         let mut styles = state
             .layout
             .borrow()
@@ -5081,10 +5082,14 @@ fn get_computed_style_callback(
             .get(&key)
             .cloned()
             .unwrap_or_default();
+        if !connected {
+            styles.clear();
+        }
         // Preserve explicitly specified values that the bounded layout bridge
         // does not yet materialize (notably physical insets). Stylo remains
         // authoritative whenever it supplied a computed value.
-        if let Ok(record) = state.dom.borrow().arena().get(node)
+        if connected
+            && let Ok(record) = state.dom.borrow().arena().get(node)
             && let Some(inline) = record.attributes.get("style")
         {
             for (name, value) in inline_style_entries(inline) {
@@ -6829,6 +6834,13 @@ fn generated_constructor<'s>(
         );
         let id = v8::Number::new(scope, event_id as f64);
         args.this().set_internal_field(0, id.into());
+        if let Some(key) = v8::String::new(scope, "isTrusted") {
+            args.this().create_data_property(
+                scope,
+                key.into(),
+                v8::Boolean::new(scope, false).into(),
+            );
+        }
         if name == "CustomEvent" {
             let detail = init
                 .and_then(|init| {
@@ -20592,7 +20604,9 @@ fn call_operation<'s>(
             Ok(None)
         }
         ("Element", "scrollIntoView") => {
-            let options = args.get(0).to_object(scope);
+            let options = (!args.get(0).is_null_or_undefined())
+                .then(|| args.get(0).to_object(scope))
+                .flatten();
             let alignment = |name: &str| -> Option<String> {
                 let options = options.as_ref()?;
                 let key = v8::String::new(scope, name)?;
@@ -21589,6 +21603,8 @@ fn create_input_event_object<'s>(
         },
     );
     object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
+    let trusted = v8::Boolean::new(scope, true);
+    set_object_property(scope, object, "isTrusted", trusted.into())?;
     let input_type_value = v8_string(scope, input_type)?;
     set_object_property(scope, object, "__oryn_inputType", input_type_value)?;
     let data = match data {
