@@ -682,6 +682,10 @@ pub trait BindingLayoutProvider {
         custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
     ) -> Result<BindingLayout, String>;
 
+    fn canonicalize_selector(&self, _selector: &str) -> Result<String, String> {
+        Err("selector parser is unavailable".into())
+    }
+
     fn compute_accessibility(&self, _node: NodeId) -> Result<BindingAccessibility, String> {
         Err("accessible semantics provider is unavailable".into())
     }
@@ -2955,8 +2959,55 @@ pub fn install_generated_bindings_with_root_for_global(
         context
             .global(scope)
             .set(scope, name.into(), adopt_custom.into());
+        let user_input = v8::Function::new(scope, dispatch_user_input_event)
+            .ok_or(V8BindingError::Allocation("user-input event dispatcher"))?;
+        let name = v8::String::new(scope, "__oryn_dispatch_user_input").ok_or(
+            V8BindingError::Allocation("user-input event dispatcher name"),
+        )?;
+        context
+            .global(scope)
+            .set(scope, name.into(), user_input.into());
     }
     Ok(state)
+}
+
+fn dispatch_user_input_event(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    let result = (|| -> Result<bool, V8BindingError> {
+        let state = scope
+            .get_current_context()
+            .get_slot::<V8BindingState>()
+            .ok_or(V8BindingError::Allocation("user-input binding state"))?;
+        let target = args
+            .get(0)
+            .to_object(scope)
+            .ok_or(V8BindingError::Allocation("user-input target"))?;
+        let target = resolve_receiver(scope, &state, target, "Node")?;
+        let event_type = args.get(1).to_rust_string_lossy(scope);
+        let mut path = state.dom.borrow().arena().ancestors(target)?;
+        path.push(target);
+        let passive = args.get(2).boolean_value(scope)
+            || path.iter().any(|node| {
+                state
+                    .listeners
+                    .borrow()
+                    .get(&(*node, event_type.clone()))
+                    .is_some_and(|listeners| listeners.iter().any(|listener| listener.passive))
+            });
+        let event = create_event_object(scope, &state, &event_type, true, !passive)?;
+        let id = event_id(scope, event)?;
+        if let Some(record) = state.events.borrow_mut().get_mut(&id) {
+            record.is_trusted = true;
+        }
+        dispatch_event(scope, &state, target, event)
+    })();
+    match result {
+        Ok(dispatched) => return_value.set(v8::Boolean::new(scope, dispatched).into()),
+        Err(error) => throw_binding_error(scope, &error),
+    }
 }
 
 fn begin_custom_element_upgrade(
@@ -6789,7 +6840,13 @@ fn generated_constructor<'s>(
     }
     if matches!(
         name,
-        "Event" | "CustomEvent" | "MouseEvent" | "InputEvent" | "IDBVersionChangeEvent"
+        "Event"
+            | "CustomEvent"
+            | "MouseEvent"
+            | "WheelEvent"
+            | "TouchEvent"
+            | "InputEvent"
+            | "IDBVersionChangeEvent"
     ) && args.is_construct_call()
     {
         if args.length() == 0 {
@@ -17547,6 +17604,76 @@ fn css_rule_list_item(
     });
 }
 
+fn insert_cached_stylesheet_rule(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    stylesheet: NodeId,
+    index: usize,
+    css_text: &str,
+) -> Result<(), V8BindingError> {
+    let cached = state
+        .stylesheet_rule_lists
+        .borrow()
+        .get(&stylesheet)
+        .cloned();
+    let Some(cached) = cached else {
+        return Ok(());
+    };
+    let rules = v8::Local::new(scope, &cached);
+    let length = rules.length() as usize;
+    for position in (index..length).rev() {
+        if let Some(value) = rules.get_index(scope, position as u32) {
+            rules.set_index(scope, (position + 1) as u32, value);
+        }
+    }
+    let rule = css_rule_object(scope, css_text)?;
+    rules.set_index(scope, index as u32, rule.into());
+    Ok(())
+}
+
+fn delete_cached_stylesheet_rule(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    stylesheet: NodeId,
+    index: usize,
+) -> Result<(), V8BindingError> {
+    let cached = state
+        .stylesheet_rule_lists
+        .borrow()
+        .get(&stylesheet)
+        .cloned();
+    let Some(cached) = cached else {
+        return Ok(());
+    };
+    let rules = v8::Local::new(scope, &cached);
+    let length = rules.length() as usize;
+    for position in index.saturating_add(1)..length {
+        if let Some(value) = rules.get_index(scope, position as u32) {
+            rules.set_index(scope, (position - 1) as u32, value);
+        }
+    }
+    let length_key =
+        v8::String::new(scope, "length").ok_or(V8BindingError::Allocation("CSSRuleList.length"))?;
+    rules.set(
+        scope,
+        length_key.into(),
+        v8::Integer::new_from_unsigned(scope, length.saturating_sub(1) as u32).into(),
+    );
+    Ok(())
+}
+
+fn validate_css_selector(state: &V8BindingState, selector: &str) -> Result<(), V8BindingError> {
+    if let Some(provider) = state.layout_provider.borrow().as_ref() {
+        provider
+            .canonicalize_selector(selector)
+            .map_err(|_| V8BindingError::Unsupported {
+                interface: "Selectors".into(),
+                member: "SyntaxError".into(),
+            })?;
+    }
+    Ok(())
+}
+
 fn set_inline_style_property(
     dom: &mut DomRuntime,
     node: NodeId,
@@ -20325,11 +20452,13 @@ fn call_operation<'s>(
         }
         (_, "querySelector") => {
             let selector = required_string(scope, args, 0)?;
+            validate_css_selector(state, &selector)?;
             let found = state.dom.borrow().query_selector(node, &selector)?;
             optional_node(scope, state, found).map(Some)
         }
         (_, "querySelectorAll") => {
             let selector = required_string(scope, args, 0)?;
+            validate_css_selector(state, &selector)?;
             let found = state.dom.borrow().query_selector_all(node, &selector)?;
             node_array(scope, state, &found).map(Some)
         }
@@ -20433,6 +20562,7 @@ fn call_operation<'s>(
         }
         ("Element", "matches") => {
             let selector = required_string(scope, args, 0)?;
+            validate_css_selector(state, &selector)?;
             let matched = match selector.trim() {
                 ":modal" => state
                     .dom
@@ -20446,6 +20576,7 @@ fn call_operation<'s>(
         }
         ("Element", "closest") => {
             let selector = required_string(scope, args, 0)?;
+            validate_css_selector(state, &selector)?;
             let mut current = Some(node);
             while let Some(candidate) = current {
                 if state.dom.borrow().matches_selector(candidate, &selector)? {
@@ -20510,7 +20641,19 @@ fn call_operation<'s>(
             Ok(Some(v8::Boolean::new(scope, next).into()))
         }
         ("CSSStyleSheet", "insertRule") => {
-            let rule = required_string(scope, args, 0)?;
+            let mut rule = required_string(scope, args, 0)?;
+            if !rule.trim_start().starts_with('@')
+                && let Some((selector, body)) = rule.split_once('{')
+                && let Some(provider) = state.layout_provider.borrow().as_ref()
+            {
+                let selector = provider
+                    .canonicalize_selector(selector.trim())
+                    .map_err(|_| V8BindingError::Unsupported {
+                        interface: "CSSStyleSheet".into(),
+                        member: "SyntaxError".into(),
+                    })?;
+                rule = format!("{selector} {{{body}");
+            }
             let current = state.dom.borrow().arena().text_content(node)?;
             let mut rules = stylesheet_rule_texts(&current);
             let index = if args.length() > 1 {
@@ -20525,10 +20668,12 @@ fn call_operation<'s>(
                 });
             }
             rules.insert(index, rule);
+            let inserted = rules[index].clone();
             state
                 .dom
                 .borrow_mut()
                 .set_text_content(node, rules.join("\n"))?;
+            insert_cached_stylesheet_rule(scope, state, node, index, &inserted)?;
             Ok(Some(
                 v8::Integer::new_from_unsigned(scope, index as u32).into(),
             ))
@@ -20548,6 +20693,7 @@ fn call_operation<'s>(
                 .dom
                 .borrow_mut()
                 .set_text_content(node, rules.join("\n"))?;
+            delete_cached_stylesheet_rule(scope, state, node, index)?;
             Ok(None)
         }
         ("CSSStyleSheet", "removeRule") => {
@@ -20569,6 +20715,7 @@ fn call_operation<'s>(
                 .dom
                 .borrow_mut()
                 .set_text_content(node, rules.join("\n"))?;
+            delete_cached_stylesheet_rule(scope, state, node, index)?;
             Ok(None)
         }
         ("CSSStyleSheet", "addRule") => {
@@ -20603,6 +20750,11 @@ fn call_operation<'s>(
                 .dom
                 .borrow_mut()
                 .set_text_content(node, rules.join("\n"))?;
+            let inserted = rules
+                .get(index)
+                .cloned()
+                .ok_or(V8BindingError::Allocation("inserted CSS rule"))?;
+            insert_cached_stylesheet_rule(scope, state, node, index, &inserted)?;
             Ok(Some(v8::Integer::new(scope, -1).into()))
         }
         ("CSSStyleSheet", "replaceSync") | ("CSSStyleSheet", "replace") => {

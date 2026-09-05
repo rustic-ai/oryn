@@ -2376,6 +2376,7 @@ version = "0.1.0"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
+ "cssparser",
  "fontique",
  "oryn-common",
  "parley",

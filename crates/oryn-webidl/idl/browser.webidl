@@ -133,6 +133,25 @@ interface MouseEvent : Event {
   constructor(DOMString type, optional MouseEventInit eventInitDict);
 };
 
+dictionary WheelEventInit : MouseEventInit {
+  double deltaX = 0;
+  double deltaY = 0;
+  double deltaZ = 0;
+  unsigned long deltaMode = 0;
+};
+
+[Exposed=Window]
+interface WheelEvent : MouseEvent {
+  constructor(DOMString type, optional WheelEventInit eventInitDict);
+};
+
+dictionary TouchEventInit : EventInit {};
+
+[Exposed=Window]
+interface TouchEvent : Event {
+  constructor(DOMString type, optional TouchEventInit eventInitDict);
+};
+
 dictionary InputEventInit {
   boolean bubbles = true;
   boolean cancelable = false;

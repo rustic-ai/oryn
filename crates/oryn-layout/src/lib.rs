@@ -17,6 +17,7 @@ use blitz_dom::{
     Attribute as BlitzAttribute, BaseDocument, DocumentConfig, LocalName, Namespace, QualName,
 };
 use blitz_traits::shell::{ColorScheme as BlitzColorScheme, Viewport as BlitzViewport};
+use cssparser::ToCss as _;
 use oryn_common::v4::{
     BoxModel, CssRect, EdgeSizes, GeometryAvailability, NodeGeometry, PaintTextFragment,
     ScrollState, ViewportState,
@@ -38,23 +39,28 @@ use selectors::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use skrifa::FontRef;
-#[cfg(test)]
 use style::media_queries::MediaList;
 #[cfg(test)]
 use style::{
     CaseSensitivityExt,
-    context::QuirksMode,
     properties::parse_style_attribute,
     selector_parser::{NonTSPseudoClass, PseudoElement, SelectorImpl},
-    servo_arc::Arc as ServoArc,
-    shared_lock::{SharedRwLock, SharedRwLockReadGuard},
-    stylesheets::{
-        AllowImportRules, CssRule, CssRuleType, CssRules, Stylesheet, StylesheetInDocument,
-        UrlExtraData,
-    },
     values::{AtomIdent, AtomString},
 };
-use style::{properties::PropertyId, stylesheets::Origin};
+use style::{
+    context::QuirksMode,
+    properties::PropertyId,
+    servo_arc::Arc as ServoArc,
+    shared_lock::SharedRwLock,
+    stylesheets::{
+        AllowImportRules, CssRule, Origin, Stylesheet, StylesheetInDocument, UrlExtraData,
+    },
+};
+#[cfg(test)]
+use style::{
+    shared_lock::SharedRwLockReadGuard,
+    stylesheets::{CssRuleType, CssRules},
+};
 #[cfg(test)]
 use style_dom::ElementState;
 #[cfg(test)]
@@ -75,6 +81,32 @@ pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("../assets/NotoSans-Regular
 pub const STYLE_ENGINE_VERSION: &str = oryn_common::STYLE_ENGINE_VERSION;
 pub const BOX_ENGINE_VERSION: &str = "taffy-0.14";
 pub const INLINE_ENGINE_VERSION: &str = "parley-0.11.1";
+
+/// Parse and serialize a selector through Stylo's author-stylesheet parser.
+/// CSSOM uses this to reject malformed selectors and expose canonical
+/// `selectorText` without maintaining a second selector grammar.
+pub fn canonicalize_selector(selector: &str) -> Result<String, String> {
+    let lock = SharedRwLock::new();
+    let media = ServoArc::new(lock.wrap(MediaList::empty()));
+    let stylesheet = Stylesheet::from_str(
+        &format!("{selector} {{}}"),
+        UrlExtraData::from(url::Url::parse("about:blank").expect("constant stylesheet URL")),
+        Origin::Author,
+        media,
+        lock.clone(),
+        None,
+        None,
+        QuirksMode::NoQuirks,
+        AllowImportRules::No,
+    );
+    let guard = stylesheet.shared_lock.read();
+    let contents = stylesheet.contents(&guard);
+    let rules = contents.rules.read_with(&guard);
+    let Some(CssRule::Style(rule)) = rules.0.first() else {
+        return Err("selector does not produce an author style rule".into());
+    };
+    Ok(rule.read_with(&guard).selectors.to_css_string())
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutLimits {
@@ -2429,6 +2461,16 @@ mod tests {
             output.computed_styles[&1]["background-color"],
             "rgb(0, 255, 0)"
         );
+    }
+
+    #[test]
+    fn stylo_canonicalizes_cssom_selectors() {
+        assert_eq!(
+            canonicalize_selector("div ol>li p").unwrap(),
+            "div ol > li p"
+        );
+        assert_eq!(canonicalize_selector("[att=val]").unwrap(), "[att=\"val\"]");
+        assert!(canonicalize_selector(":not()").is_err());
     }
 
     #[test]
