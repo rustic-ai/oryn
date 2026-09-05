@@ -17873,7 +17873,21 @@ fn get_attribute_value<'s>(
     }
     if interface == "CSSStyleSheet" && matches!(member, "cssRules" | "rules") {
         let source = state.dom.borrow().arena().text_content(node)?;
-        let rule_texts = stylesheet_rule_texts(&source);
+        let rule_texts = stylesheet_rule_texts(&source)
+            .into_iter()
+            .filter_map(|rule| {
+                if rule.trim_start().starts_with('@') {
+                    return Some(rule);
+                }
+                let (selector, body) = rule.split_once('{')?;
+                let provider = state.layout_provider.borrow();
+                let selector = provider.as_ref().map_or_else(
+                    || Some(selector.trim().to_string()),
+                    |provider| provider.canonicalize_selector(selector.trim()).ok(),
+                )?;
+                Some(format!("{selector} {{{body}"))
+            })
+            .collect::<Vec<_>>();
         let rules = if let Some(rules) = state.stylesheet_rule_lists.borrow().get(&node) {
             v8::Local::new(scope, rules)
         } else {

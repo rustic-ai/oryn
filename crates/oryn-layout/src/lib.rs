@@ -17,7 +17,7 @@ use blitz_dom::{
     Attribute as BlitzAttribute, BaseDocument, DocumentConfig, LocalName, Namespace, QualName,
 };
 use blitz_traits::shell::{ColorScheme as BlitzColorScheme, Viewport as BlitzViewport};
-use cssparser::ToCss as _;
+use cssparser::{Parser, ParserInput, ToCss as _, parse_nth};
 use oryn_common::v4::{
     BoxModel, CssRect, EdgeSizes, GeometryAvailability, NodeGeometry, PaintTextFragment,
     ScrollState, ViewportState,
@@ -105,7 +105,71 @@ pub fn canonicalize_selector(selector: &str) -> Result<String, String> {
     let Some(CssRule::Style(rule)) = rules.0.first() else {
         return Err("selector does not produce an author style rule".into());
     };
-    Ok(rule.read_with(&guard).selectors.to_css_string())
+    canonicalize_nth_expressions(&rule.read_with(&guard).selectors.to_css_string())
+}
+
+fn canonicalize_nth_expressions(selector: &str) -> Result<String, String> {
+    const FUNCTIONS: [&str; 4] = [
+        ":nth-child(",
+        ":nth-last-child(",
+        ":nth-of-type(",
+        ":nth-last-of-type(",
+    ];
+    let mut output = selector.to_string();
+    let mut search_from = 0;
+    loop {
+        let lowercase = output.to_ascii_lowercase();
+        let Some((start, function)) = FUNCTIONS
+            .iter()
+            .filter_map(|function| {
+                lowercase[search_from..]
+                    .find(function)
+                    .map(|offset| (search_from + offset, *function))
+            })
+            .min_by_key(|(start, _)| *start)
+        else {
+            break;
+        };
+        let content_start = start + function.len();
+        let Some(relative_end) = output[content_start..].find(')') else {
+            return Err("unterminated An+B selector".into());
+        };
+        let end = content_start + relative_end;
+        let raw = output[content_start..end].trim();
+        // Selectors Level 4 permits an optional `of <selector-list>` tail.
+        // Stylo already owns that grammar; normalize only the standalone
+        // An+B token sequence here.
+        if raw.to_ascii_lowercase().contains(" of ") {
+            search_from = end + 1;
+            continue;
+        }
+        let normalized = if raw.eq_ignore_ascii_case("odd") || raw.eq_ignore_ascii_case("even") {
+            raw.to_ascii_lowercase()
+        } else {
+            let mut input = ParserInput::new(raw);
+            let mut parser = Parser::new(&mut input);
+            let (a, b) = parse_nth(&mut parser).map_err(|_| "invalid An+B selector")?;
+            parser
+                .expect_exhausted()
+                .map_err(|_| "invalid trailing An+B tokens")?;
+            let mut value = match a {
+                0 => String::new(),
+                1 => "n".into(),
+                -1 => "-n".into(),
+                coefficient => format!("{coefficient}n"),
+            };
+            if a == 0 || b != 0 {
+                if a != 0 && b > 0 {
+                    value.push('+');
+                }
+                value.push_str(&b.to_string());
+            }
+            value
+        };
+        output.replace_range(content_start..end, &normalized);
+        search_from = content_start + normalized.len() + 1;
+    }
+    Ok(output)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2471,6 +2535,20 @@ mod tests {
         );
         assert_eq!(canonicalize_selector("[att=val]").unwrap(), "[att=\"val\"]");
         assert!(canonicalize_selector(":not()").is_err());
+    }
+
+    #[test]
+    fn stylo_normalizes_and_validates_an_plus_b_selectors() {
+        assert_eq!(
+            canonicalize_selector(":nth-child( 23n\n +\n 123 )").unwrap(),
+            ":nth-child(23n+123)"
+        );
+        assert_eq!(
+            canonicalize_selector(":nth-last-of-type(N- 123)").unwrap(),
+            ":nth-last-of-type(n-123)"
+        );
+        assert!(canonicalize_selector(":nth-child(n- 1 2)").is_err());
+        assert!(canonicalize_selector(":nth-of-type(+ n + 7)").is_err());
     }
 
     #[test]
