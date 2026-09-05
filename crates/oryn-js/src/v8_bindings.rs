@@ -12626,6 +12626,31 @@ fn abort_signal_with_reason(
         }
     }
     for signal_id in order {
+        // AbortSignal algorithms run before the public `abort` event.  The
+        // Observable implementation stores its internal algorithms on the
+        // signal wrapper so chained subscriptions close from the inside out,
+        // matching the DOM abort ordering model.
+        let wrapper = state
+            .platform_wrappers
+            .borrow()
+            .get(&signal_id)
+            .and_then(|wrapper| wrapper.to_local(scope));
+        if let Some(wrapper) = wrapper {
+            let key = v8_string(scope, "__oryn_observable_aborts")?;
+            if let Some(value) = wrapper.get(scope, key)
+                && let Ok(algorithms) = v8::Local::<v8::Array>::try_from(value)
+            {
+                for index in 0..algorithms.length() {
+                    let Some(value) = algorithms.get_index(scope, index) else {
+                        continue;
+                    };
+                    let Ok(callback) = v8::Local::<v8::Function>::try_from(value) else {
+                        continue;
+                    };
+                    let _ = callback.call(scope, wrapper.into(), &[]);
+                }
+            }
+        }
         for listeners in state.platform_listeners.borrow_mut().values_mut() {
             listeners.retain(|listener| listener.signal_id != Some(signal_id));
         }

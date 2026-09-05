@@ -46,6 +46,7 @@ pub mod intent;
 #[cfg(target_os = "linux")]
 pub mod linux_sandbox;
 pub mod network;
+mod observable;
 pub mod oil;
 pub mod referrer;
 pub mod replay;

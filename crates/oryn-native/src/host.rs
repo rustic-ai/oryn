@@ -1119,6 +1119,15 @@ mod raw_v8 {
                     .unwrap_or_else(|| v8::undefined(scope).into());
                 v8::Global::new(scope, value)
             };
+            let frame_element = if same_origin {
+                let parent_context = v8::Local::new(handle_scope, &parent_context);
+                let scope = &mut v8::ContextScope::new(handle_scope, parent_context);
+                let wrapper = wrap_node(scope, &active, frame)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                Some(v8::Global::new(scope, wrapper))
+            } else {
+                None
+            };
             let child_proxy = {
                 let parent_context = v8::Local::new(handle_scope, &parent_context);
                 let scope = &mut v8::ContextScope::new(handle_scope, parent_context);
@@ -1258,6 +1267,20 @@ mod raw_v8 {
                     let key = v8::String::new(scope, name)
                         .ok_or_else(|| HostError::Execution(format!("allocate frame {name}")))?;
                     child_window.set(scope, key.into(), parent_proxy.into());
+                }
+                if let Some(frame_element) = &frame_element {
+                    let key = v8::String::new(scope, "frameElement")
+                        .ok_or_else(|| HostError::Execution("allocate frameElement key".into()))?;
+                    let frame_element = v8::Local::new(scope, frame_element);
+                    child_window.set(scope, key.into(), frame_element.into());
+                    let source = v8::String::new(
+                        scope,
+                        "(()=>{const element=globalThis.frameElement,remove=element.remove;Object.defineProperty(element,'__oryn_child_detached',{configurable:true,writable:true,value:false});Object.defineProperty(element,'remove',{configurable:true,value:function(){globalThis.__oryn_document_detached=true;element.__oryn_child_detached=true;return remove.call(element)}})})()",
+                    )
+                    .ok_or_else(|| HostError::Execution("allocate frame detach hook".into()))?;
+                    v8::Script::compile(scope, source, None)
+                        .and_then(|script| script.run(scope))
+                        .ok_or_else(|| HostError::Execution("install frame detach hook".into()))?;
                 }
             }
             if let Some(document) = document {
@@ -2511,8 +2534,9 @@ mod raw_v8 {
                 let global_name = serde_json::to_string(global_kind.web_name())
                     .map_err(|error| error.to_string())?;
                 let bootstrap = format!(
-                    "globalThis.location=Object.freeze({{href:{url},origin:{origin},pathname:{pathname}}});globalThis.__oryn_worker_global_name={global_name};{}",
-                    DEDICATED_WORKER_BOOTSTRAP
+                    "globalThis.location=Object.freeze({{href:{url},origin:{origin},pathname:{pathname}}});globalThis.__oryn_worker_global_name={global_name};{}{}",
+                    DEDICATED_WORKER_BOOTSTRAP,
+                    crate::observable::OBSERVABLE_GLOBALS,
                 );
                 let bootstrap = v8::String::new(worker_scope, &bootstrap)
                     .ok_or_else(|| "worker bootstrap allocation failed".to_string())?;

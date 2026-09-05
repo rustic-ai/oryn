@@ -1069,7 +1069,7 @@ globalThis.global=globalThis;
 globalThis.parent=globalThis;
 globalThis.top=globalThis;
 globalThis.frames=globalThis;
-globalThis.frameElement=null;
+globalThis.frameElement=null;globalThis.__oryn_document_detached=false;
 // Generated Rust callbacks are the production web-platform authority. The
 // compatibility bootstrap below still supplies unrelated utilities, but its
 // legacy platform classes are restored out of the global namespace at the end
@@ -1743,6 +1743,7 @@ impl RustExecutableDocument {
         }
         let top_realm = host.active_realm();
         host.execute(RUST_RUNTIME_GLOBALS)?;
+        host.execute(crate::observable::OBSERVABLE_GLOBALS)?;
         #[cfg(unix)]
         if let Some((page_id, opener_page_id)) = context_identity {
             host.execute(&format!(
@@ -1927,6 +1928,7 @@ impl RustExecutableDocument {
             }
             host.activate_realm(realm)?;
             host.execute(RUST_RUNTIME_GLOBALS)?;
+            host.execute(crate::observable::OBSERVABLE_GLOBALS)?;
             host.install_layout_provider(Rc::new(LiveLayoutProvider {
                 dom: frame_dom.clone(),
                 viewport: oryn_common::v4::ViewportState::default(),
@@ -2940,6 +2942,9 @@ impl RustExecutableDocument {
                 self.host.execute(RUST_RUNTIME_GLOBALS).map_err(|error| {
                     HostError::Execution(format!("dynamic frame runtime bootstrap: {error}"))
                 })?;
+                self.host
+                    .execute(crate::observable::OBSERVABLE_GLOBALS)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
                 self.host
                     .install_layout_provider(Rc::new(LiveLayoutProvider {
                         dom: frame_dom.clone(),

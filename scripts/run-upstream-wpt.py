@@ -529,6 +529,7 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                 '<script src="/resources/testharness.js"></script>'
                 + timeout_setup
                 + COMPLETION
+                + "<body>"
                 + dependency_tags
                 + f'<script src="/{html_module.escape(source, quote=True)}"></script>'
             ).encode()
@@ -552,6 +553,7 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                 return
             body = (
                 "<!doctype html><meta charset=utf-8><title>Oryn worker WPT</title>"
+                "<body>"
                 "<script>"
                 "const publish=value=>{const output=document.createElement('pre');"
                 "output.id='oryn-wpt-result';"
