@@ -1,7 +1,7 @@
 # Oryn2 runtime completion action plan
 
 **Created:** 2026-08-31
-**Current committed baseline:** `7565e27` (`Complete namespace attribute reflection`)
+**Current committed baseline:** `d5b7ae3` (`Harden generated CSSOM behavior`)
 **Status reconciled:** 2026-09-05
 **Scope:** remaining work required to close the proposal-v1 runtime and produce
 one exact-artifact implementation attestation
@@ -20,7 +20,7 @@ of a completed production cutover.
 | Generated WebIDL and compatibility APIs | Implemented in software for the declared interface inventory | Generated V8 templates and prototypes are deterministic and executable. Rust owns wrapper identity, brands, realm/origin/document-generation checks and the supported DOM, editing, navigation, Fetch/File/Streams/XHR/WebSocket and IndexedDB algorithms. Network and database work crosses only typed, asynchronous parent-host operations. Production restores the generated interface namespace after bootstrap; handwritten compatibility implementations remain available only to the explicit in-process probe. | Run every mapped API inventory entry and the broader upstream conformance set. Long-tail algorithms outside the declared inventory remain capability-scoped rather than inferred from focused regressions. |
 | Stylo cascade | Implemented in software | Production resolves an immutable Rust style snapshot through native Stylo `ComputedValues`, including origins, inheritance, custom properties and supported values. Taffy and Parley remain the box/text consumers; the prior handwritten cascade is test-only. | Pass and publish the mapped CSSOM/native-versus-Chromium differential corpus, including the supported grid bridge and explicit long-tail layout boundaries. |
 | V8 sandbox, ICU and startup snapshots | Partial | Production features require `v8_enable_sandbox`; runtime initialization is fail-closed. Exact macOS ARM64 full and external-data lite archives build from pinned source. Lite embeds a physically reduced 2.2 MiB root/en/en-US ICU package. A versioned callback table and content-addressed snapshot are supplied to both snapshot creation and runtime isolates, with hashes in schema-v3 manifests. Heap-sandbox, locale, Segmenter and snapshot-load checks pass. | Build Linux x86_64 full/lite, regenerate the full macOS schema-v3 bundle, then attest all four exact profile artifacts. |
-| Upstream conformance | Partial | The latest complete exact inventory is `728f850`: 2,126/4,022 pass (generated-WebIDL 2,045/3,407, semantics 32/51, Stylo 49/564), with 1,570 assertion, 252 harness, 46 timeout and 28 unclassified failures. Post-baseline focused runs now reach Accessible Name/ARIA 41/51, WebIDL files 21/58 and the expanded CSS inventory 93/569; Rust-owned namespace-attribute reflection passes its upstream case. These focused totals are diagnostic deltas and do not replace the complete aggregate. A timeout-only rerun converts one former timeout to an assertion and leaves 45 genuine timeouts. The runner now applies WPT's four-times deadline to tests declared `timeout=long`, so ordinary and long-test failures are no longer conflated. | Close the measured DOM/editing, CSS/Stylo, long-tail WebIDL and accessibility differences. Recompute all 4,022 variants from the exact current binary and publish only a validator-derived complete ledger. |
+| Upstream conformance | Partial | The latest complete exact inventory is clean commit `d5b7ae3`: 2,189/4,022 pass (generated-WebIDL 2,060/3,407, semantics 41/51, Stylo 88/564), with 1,524 assertion, 237 harness, 41 timeout and 31 unclassified failures. Exact root totals are IndexedDB 303/456, WebIDL 21/58, Accessible Name 13/19, CSS 88/564, DOM 208/662, editing 116/704, HTML 30/136, referrer policy 1,382/1,391 and WAI-ARIA 28/32. Rust-owned namespace-attribute reflection passes its upstream case. The runner applies WPT's four-times deadline to tests declared `timeout=long`, so ordinary and long-test failures are not conflated. | Close the measured DOM/editing, CSS/Stylo, long-tail WebIDL and accessibility differences, then publish a validator-derived production-worker ledger. |
 | Product and release validation | Not started for this cutover | Focused Rust/V8 tests pass and historical product evidence remains available for its original commits. | Rerun framework/OAuth, MiniWoB, churn, replay, scanner, Python, MCP, platform security and benchmarks against one clean release candidate; privately sign and re-attest only after deterministic completion. |
 
 ## 2. Remaining implementation list
@@ -245,7 +245,7 @@ release status be marked complete.
 2. Complete CSSOM stylesheet ownership, constructed/adopted stylesheets,
    nested rule objects and Stylo invalidation. Stable generated `<style>` and
    stylesheet-link wrappers, `document.styleSheets`, the CSS namespace and
-   priority APIs raise the expanded CSS slice to 93/569, but this is not yet a
+   priority APIs raise the exact CSS slice to 88/564, but this is not yet a
    passing Stylo differential.
 3. Expand contract-v6 graph/oracle comparison to randomized mutations,
    framework churn, navigation, frames, shadow DOM and replay, then run all
