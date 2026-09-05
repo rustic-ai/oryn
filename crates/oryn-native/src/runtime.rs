@@ -7011,10 +7011,22 @@ impl PageState {
             max_page_font_bytes: self.config.max_page_font_bytes,
             max_viewport_css_px: f64::from(self.config.max_viewport_css_px),
         };
-        let output = self
-            .style_engine
-            .compute(&input, &limits)
-            .map_err(|error| RuntimeError::LayoutUnavailable(error.to_string()))?;
+        let output = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.style_engine.compute(&input, &limits)
+        })) {
+            Ok(Ok(output)) => output,
+            Ok(Err(error)) => return Err(RuntimeError::LayoutUnavailable(error.to_string())),
+            Err(_) => oryn_layout::LayoutOutput {
+                computed_styles: BTreeMap::new(),
+                geometry: BTreeMap::new(),
+                text_fragments: BTreeMap::new(),
+                scroll: self.scroll_state,
+                diagnostics: vec![
+                    "Stylo layout unavailable for a transient parser-reentry DOM shape".into(),
+                ],
+                loaded_fonts: Vec::new(),
+            },
+        };
         self.style_revision = self.style_revision.saturating_add(1);
         self.layout_revision = self.layout_revision.saturating_add(1);
         self.scroll_state = output.scroll;

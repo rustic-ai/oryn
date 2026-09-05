@@ -1891,6 +1891,9 @@ impl ParentContextService {
             .or_else(|_| Url::parse(requested_url))
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
         for redirect in 0..=10 {
+            if let Some(upgraded) = self.context.upgrade_csp_url(page_id, &url)? {
+                url = upgraded;
+            }
             let decision = self.context.authorize_csp(
                 page_id,
                 &crate::csp::CspRequest {
@@ -2072,6 +2075,9 @@ impl ParentContextService {
             .or_else(|_| Url::parse(requested_url))
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
         for redirect in 0..=10 {
+            if let Some(upgraded) = self.context.upgrade_csp_url(page_id, &url)? {
+                url = upgraded;
+            }
             let decision = self.context.authorize_csp(
                 page_id,
                 &crate::csp::CspRequest {

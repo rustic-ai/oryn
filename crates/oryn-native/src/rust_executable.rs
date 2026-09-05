@@ -1380,7 +1380,7 @@ Object.defineProperty(Document.prototype,'title',{configurable:true,enumerable:t
 const __oryn_page_proxies=new Map();
 const __oryn_page_proxy=pageId=>{if(pageId==null)return null;if(__oryn_page_proxies.has(pageId))return __oryn_page_proxies.get(pageId);const proxy={__orynPageId:pageId,__closed:false,get closed(){return this.__closed},get origin(){const response=contextCall({operation:'get_related_page_origin',source_page_id:__oryn_page_id,target_page_id:pageId});return response.result==='security_origin'?response.serialized:''},focus(){contextCall({operation:'activate_page',source_page_id:__oryn_page_id,target_page_id:pageId})},close(){contextCall({operation:'close_page',source_page_id:__oryn_page_id,target_page_id:pageId});this.__closed=true},postMessage(data,targetOrigin='*'){contextCall({operation:'post_message',source_page_id:__oryn_page_id,target_page_id:pageId,target_origin:String(targetOrigin),data})}};__oryn_page_proxies.set(pageId,proxy);return proxy};
 globalThis.__oryn_configure_context=(pageId,openerPageId)=>{__oryn_page_id=pageId;globalThis.opener=__oryn_page_proxy(openerPageId);if(typeof globalThis.__oryn_context_call==='function'){const response=contextCall({operation:'get_security_origin',page_id:pageId});if(response.result==='security_origin'){location.origin=response.serialized;globalThis.__oryn_opaque_origin=!!response.opaque}}};
-globalThis.open=(url='')=>{if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return null;const target=url?new OrynURL(url,location.href).href:null;const response=contextCall({operation:'open_page',opener_page_id:__oryn_page_id,url:target});if(response.result==='page_opened'){__oryn_context_trace.push({kind:'page_created',detail:{page_id:response.page_id,opener_page_id:__oryn_page_id}});return __oryn_page_proxy(response.page_id)}if(response.result==='page_denied')__oryn_context_trace.push({kind:'capability_failure',detail:{capability:'popup.open',detail:response.reason}});return null};
+globalThis.open=(url='',name='')=>{url=String(url);name=String(name);if(name&&name!=='_blank'){const frame=[...document.querySelectorAll('iframe')].find(candidate=>candidate.name===name||candidate.getAttribute('name')===name);if(frame){if(url)frame.contentWindow.location.href=new OrynURL(url,location.href).href;return frame.contentWindow}}if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return null;const target=url?new OrynURL(url,location.href).href:null;const response=contextCall({operation:'open_page',opener_page_id:__oryn_page_id,url:target,name:name||null});if(response.result==='page_opened'){__oryn_context_trace.push({kind:'page_created',detail:{page_id:response.page_id,opener_page_id:__oryn_page_id}});return __oryn_page_proxy(response.page_id)}if(response.result==='page_denied')__oryn_context_trace.push({kind:'capability_failure',detail:{capability:'popup.open',detail:response.reason}});return null};
 globalThis.closed=false;
 globalThis.close=()=>{if(closed||__oryn_page_id===null)return;globalThis.closed=true;__oryn_context_trace.push({kind:'page_closed',detail:{page_id:__oryn_page_id}})};
 const __oryn_global_listeners=new Map();const __oryn_websockets=new Set();const __oryn_message_log=[];const __oryn_record_message=value=>{if(__oryn_message_log.length===128)__oryn_message_log.shift();__oryn_message_log.push(value)};let __oryn_context_event_id=0;
@@ -3633,7 +3633,14 @@ impl RustExecutableDocument {
                 if let Some(source) = javascript_url.as_deref() {
                     execute_javascript_url(&mut self.host, source, &committed_url)?;
                 }
-                let child_scripts = {
+                let child_scripts = if javascript_url.is_some() {
+                    // `execute_javascript_url` commits its string completion
+                    // through document.open/write/close; close synchronously
+                    // executes parser-inserted scripts. Do not run the
+                    // committed document a second time in the normal frame
+                    // bootstrap scan.
+                    Vec::new()
+                } else {
                     let dom = frame_dom.borrow();
                     dom.query_selector_all(child_document, "script")
                         .map_err(|error| HostError::Execution(error.to_string()))?

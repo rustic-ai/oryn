@@ -732,6 +732,7 @@ pub struct V8BindingState {
     layout_provider: RefCell<Option<Rc<dyn BindingLayoutProvider>>>,
     frame_roots: RefCell<BTreeMap<NodeId, NodeId>>,
     frame_windows: RefCell<BTreeMap<NodeId, v8::Global<v8::Object>>>,
+    frame_committed_windows: RefCell<BTreeMap<NodeId, v8::Global<v8::Object>>>,
     template_contents: RefCell<BTreeMap<NodeId, NodeId>>,
     stylesheet_rule_lists: RefCell<BTreeMap<NodeId, v8::Global<v8::Array>>>,
     current_script: Cell<Option<NodeId>>,
@@ -2281,6 +2282,12 @@ impl V8BindingState {
         self.frame_windows.borrow_mut().insert(frame, window);
     }
 
+    pub fn set_frame_committed_window(&self, frame: NodeId, window: v8::Global<v8::Object>) {
+        self.frame_committed_windows
+            .borrow_mut()
+            .insert(frame, window);
+    }
+
     pub fn frame_window(&self, frame: NodeId) -> Option<v8::Global<v8::Object>> {
         self.frame_windows.borrow().get(&frame).cloned()
     }
@@ -2576,6 +2583,7 @@ pub fn install_generated_bindings_with_root_for_global(
         layout_provider: RefCell::new(None),
         frame_roots: RefCell::new(BTreeMap::new()),
         frame_windows: RefCell::new(BTreeMap::new()),
+        frame_committed_windows: RefCell::new(BTreeMap::new()),
         template_contents: RefCell::new(BTreeMap::new()),
         stylesheet_rule_lists: RefCell::new(BTreeMap::new()),
         current_script: Cell::new(None),
@@ -17581,12 +17589,19 @@ fn get_attribute_value<'s>(
         return Ok(v8::Integer::new_from_unsigned(scope, value).into());
     }
     if interface == "HTMLIFrameElement" && member == "contentDocument" {
-        // `frame_roots` is populated only for an origin-readable child.
-        // Consult it directly: a stable/provisional WindowProxy is not
-        // required to expose the target realm's `document` property and is
-        // therefore not an authoritative source for contentDocument.
-        if let Some(document) = state.frame_roots.borrow().get(&node).copied() {
-            return Ok(wrap_node(scope, state, document)?.into());
+        // The public WindowProxy remains stable across navigation, while the
+        // committed same-origin proxy carries the child realm's live global
+        // properties. Reading through the latter preserves per-document
+        // values such as `document.referrer`.
+        if let Some(window) = state.frame_committed_windows.borrow().get(&node) {
+            let window = v8::Local::new(scope, window);
+            let key = v8::String::new(scope, "document")
+                .ok_or(V8BindingError::Allocation("frame document key"))?;
+            if let Some(document) = window.get(scope, key.into())
+                && !document.is_null_or_undefined()
+            {
+                return Ok(document);
+            }
         }
         return Ok(v8::null(scope).into());
     }
