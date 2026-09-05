@@ -456,6 +456,21 @@ interface HTMLElement : Element {
   undefined click();
   undefined focus();
   undefined blur();
+  ElementInternals attachInternals();
+};
+
+[Exposed=Window]
+interface ElementInternals {
+  readonly attribute CustomStateSet states;
+};
+
+[Exposed=Window]
+interface CustomStateSet {
+  readonly attribute unsigned long size;
+  CustomStateSet add(DOMString state);
+  boolean delete(DOMString state);
+  boolean has(DOMString state);
+  undefined clear();
 };
 
 [Exposed=Window]

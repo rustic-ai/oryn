@@ -696,6 +696,7 @@ pub struct V8BindingState {
     objects: RefCell<BTreeMap<WrapperId, WrapperObject>>,
     instance_templates: RefCell<BTreeMap<&'static str, v8::Global<v8::ObjectTemplate>>>,
     associated_wrappers: RefCell<BTreeMap<(NodeId, &'static str), v8::Weak<v8::Object>>>,
+    custom_states: RefCell<BTreeMap<NodeId, BTreeSet<String>>>,
     next_event_id: Cell<u64>,
     events: RefCell<BTreeMap<u64, EventRecord>>,
     listeners: RefCell<BTreeMap<(NodeId, String), Vec<EventListener>>>,
@@ -2548,6 +2549,7 @@ pub fn install_generated_bindings_with_root_for_global(
         objects: RefCell::new(BTreeMap::new()),
         instance_templates: RefCell::new(BTreeMap::new()),
         associated_wrappers: RefCell::new(BTreeMap::new()),
+        custom_states: RefCell::new(BTreeMap::new()),
         next_event_id: Cell::new(1),
         events: RefCell::new(BTreeMap::new()),
         listeners: RefCell::new(BTreeMap::new()),
@@ -17662,6 +17664,9 @@ fn get_attribute_value<'s>(
     if matches!(interface, "HTMLStyleElement" | "HTMLLinkElement") && member == "sheet" {
         return associated_wrapper(scope, state, node, "CSSStyleSheet");
     }
+    if interface == "ElementInternals" && member == "states" {
+        return associated_wrapper(scope, state, node, "CustomStateSet");
+    }
     if interface == "HTMLElement" && member == "dataset" {
         let entries = state
             .dom
@@ -18232,6 +18237,15 @@ fn get_attribute_value<'s>(
                 inline_style_entries(record.attributes.get("style").map_or("", String::as_str));
             v8::Integer::new_from_unsigned(scope, styles.len() as u32).into()
         }
+        ("CustomStateSet", "size") => v8::Integer::new_from_unsigned(
+            scope,
+            state
+                .custom_states
+                .borrow()
+                .get(&node)
+                .map_or(0, |states| states.len() as u32),
+        )
+        .into(),
         ("CSSStyleDeclaration", member) => {
             let property = css_property_name(member);
             let styles =
@@ -19461,6 +19475,61 @@ fn call_operation<'s>(
             Ok(Some(
                 new_stateful_object(scope, state, interface, id)?.into(),
             ))
+        }
+        ("HTMLElement", "attachInternals") => {
+            let name = state.dom.borrow().node_name(node)?;
+            if !name.contains('-') {
+                return Err(V8BindingError::Unsupported {
+                    interface: "HTMLElement".into(),
+                    member: "NotSupportedError".into(),
+                });
+            }
+            Ok(Some(associated_wrapper(
+                scope,
+                state,
+                node,
+                "ElementInternals",
+            )?))
+        }
+        ("CustomStateSet", "add" | "delete" | "has" | "clear") => {
+            if member == "clear" {
+                state.custom_states.borrow_mut().remove(&node);
+                return Ok(None);
+            }
+            let value = required_string(scope, args, 0)?;
+            if !value.starts_with("--") {
+                return Err(V8BindingError::Unsupported {
+                    interface: "CustomStateSet".into(),
+                    member: "SyntaxError".into(),
+                });
+            }
+            match member {
+                "add" => {
+                    state
+                        .custom_states
+                        .borrow_mut()
+                        .entry(node)
+                        .or_default()
+                        .insert(value);
+                    Ok(Some(args.this().into()))
+                }
+                "delete" => {
+                    let removed = state
+                        .custom_states
+                        .borrow_mut()
+                        .get_mut(&node)
+                        .is_some_and(|states| states.remove(&value));
+                    Ok(Some(v8::Boolean::new(scope, removed).into()))
+                }
+                _ => {
+                    let present = state
+                        .custom_states
+                        .borrow()
+                        .get(&node)
+                        .is_some_and(|states| states.contains(&value));
+                    Ok(Some(v8::Boolean::new(scope, present).into()))
+                }
+            }
         }
         ("Element", "attachShadow") => {
             let options = args
@@ -23646,6 +23715,29 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "true|true|true|false|accepted|cancel:close");
+    }
+
+    #[test]
+    fn generated_element_internals_owns_custom_states_in_rust() {
+        initialize_v8();
+        let parsed = html::parse("<body><my-control id='control'></my-control></body>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const host=document.getElementById('control'),internals=host.attachInternals(),states=internals.states,same=states===internals.states;states.add('--ready');const present=states.has('--ready');const removed=states.delete('--ready');[internals instanceof ElementInternals,states instanceof CustomStateSet,same,present,removed,states.size].join('|')",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "true|true|true|true|true|0");
     }
 
     #[test]
