@@ -947,11 +947,27 @@ interface IDBObjectStore {
 };
 
 [Exposed=Window]
+interface CSSRule {
+  attribute DOMString cssText;
+};
+
+[Exposed=Window]
+interface CSSStyleRule : CSSRule {
+};
+
+[Exposed=Window]
+interface CSSMediaRule : CSSRule {
+};
+
+[Exposed=Window]
 interface CSSStyleSheet {
   constructor();
   readonly attribute sequence<any> cssRules;
+  readonly attribute sequence<any> rules;
   unsigned long insertRule(DOMString rule, optional unsigned long index = 0);
   undefined deleteRule(unsigned long index);
+  long addRule(optional DOMString selector, optional DOMString style, optional unsigned long index);
+  undefined removeRule(optional unsigned long index = 0);
   undefined replaceSync(DOMString text);
   Promise<CSSStyleSheet> replace(DOMString text);
 };

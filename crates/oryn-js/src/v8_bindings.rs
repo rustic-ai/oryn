@@ -5263,11 +5263,6 @@ fn dom_rect_object<'s>(
     Ok(object)
 }
 
-fn member_from_token(token: i32) -> Option<(&'static str, &'static str)> {
-    let (interface, member) = generated_member_by_id(GeneratedMemberId(token as u32))?;
-    Some((interface.name, member.name))
-}
-
 fn member_metadata_from_token(token: i32) -> Option<(&'static str, &'static GeneratedMember)> {
     let (interface, member) = generated_member_by_id(GeneratedMemberId(token as u32))?;
     Some((interface.name, member))
@@ -7202,11 +7197,25 @@ fn generated_attribute_getter(
     args: v8::FunctionCallbackArguments,
     mut return_value: v8::ReturnValue,
 ) {
-    let Some((interface, member)) = args.data().int32_value(scope).and_then(member_from_token)
+    let Some((interface, metadata)) = args
+        .data()
+        .int32_value(scope)
+        .and_then(member_metadata_from_token)
     else {
         throw_type_error(scope, "invalid generated attribute token");
         return;
     };
+    let member = metadata.name;
+    if args.length() < i32::from(metadata.arity) {
+        throw_type_error(
+            scope,
+            &format!(
+                "{interface}.{member} requires at least {} argument(s)",
+                metadata.arity
+            ),
+        );
+        return;
+    }
     let Some(state) = binding_state_for_receiver(scope, args.this()) else {
         throw_type_error(scope, "generated binding state is unavailable");
         return;
@@ -7409,11 +7418,25 @@ fn generated_operation<'s>(
     args: v8::FunctionCallbackArguments<'s>,
     mut return_value: v8::ReturnValue,
 ) {
-    let Some((interface, member)) = args.data().int32_value(scope).and_then(member_from_token)
+    let Some((interface, metadata)) = args
+        .data()
+        .int32_value(scope)
+        .and_then(member_metadata_from_token)
     else {
         throw_type_error(scope, "invalid generated operation token");
         return;
     };
+    let member = metadata.name;
+    if args.length() < i32::from(metadata.arity) {
+        throw_type_error(
+            scope,
+            &format!(
+                "{interface}.{member} requires at least {} argument(s)",
+                metadata.arity
+            ),
+        );
+        return;
+    }
     let Some(state) = binding_state_for_receiver(scope, args.this()) else {
         throw_type_error(scope, "generated binding state is unavailable");
         return;
@@ -17409,6 +17432,26 @@ fn css_rule_object<'s>(
     css_text: &str,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
     let rule = v8::Object::new(scope);
+    let interface = if css_text
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("@media")
+    {
+        "CSSMediaRule"
+    } else {
+        "CSSStyleRule"
+    };
+    if let Some(name) = v8::String::new(scope, interface)
+        && let Some(prototype_name) = v8::String::new(scope, "prototype")
+        && let Some(prototype) = scope
+            .get_current_context()
+            .global(scope)
+            .get(scope, name.into())
+            .and_then(|constructor| constructor.to_object(scope))
+            .and_then(|constructor| constructor.get(scope, prototype_name.into()))
+    {
+        rule.set_prototype(scope, prototype);
+    }
     let serialized = v8_string(scope, css_text)?;
     set_object_property(scope, rule, "cssText", serialized)?;
     if let Some((selector, declarations)) = css_text.split_once('{') {
@@ -17634,7 +17677,7 @@ fn get_attribute_value<'s>(
         }));
         return associated_node_array(scope, state, &styles, "CSSStyleSheet");
     }
-    if interface == "CSSStyleSheet" && member == "cssRules" {
+    if interface == "CSSStyleSheet" && matches!(member, "cssRules" | "rules") {
         let source = state.dom.borrow().arena().text_content(node)?;
         let rule_texts = stylesheet_rule_texts(&source);
         let rules = if let Some(rules) = state.stylesheet_rule_lists.borrow().get(&node) {
@@ -17651,6 +17694,22 @@ fn get_attribute_value<'s>(
                 .insert(node, v8::Global::new(scope, rules));
             rules
         };
+        let mut existing = Vec::new();
+        for index in 0..rules.length() {
+            let Some(object) = rules
+                .get_index(scope, index)
+                .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+            else {
+                continue;
+            };
+            let css_text_key = v8::String::new(scope, "cssText")
+                .ok_or(V8BindingError::Allocation("CSSRule.cssText"))?;
+            let css_text = object
+                .get(scope, css_text_key.into())
+                .map(|value| value.to_rust_string_lossy(scope))
+                .unwrap_or_default();
+            existing.push((css_text, v8::Global::new(scope, object)));
+        }
         let length = v8::String::new(scope, "length")
             .ok_or(V8BindingError::Allocation("CSSRuleList.length"))?;
         rules.set(
@@ -17659,7 +17718,14 @@ fn get_attribute_value<'s>(
             v8::Integer::new_from_unsigned(scope, rule_texts.len() as u32).into(),
         );
         for (index, css_text) in rule_texts.into_iter().enumerate() {
-            let rule = css_rule_object(scope, &css_text)?;
+            let rule = if let Some(position) = existing
+                .iter()
+                .position(|(existing_text, _)| existing_text == &css_text)
+            {
+                v8::Local::new(scope, existing.swap_remove(position).1)
+            } else {
+                css_rule_object(scope, &css_text)?
+            };
             rules.set_index(scope, index as u32, rule.into());
         }
         return Ok(rules.into());
@@ -20087,7 +20153,7 @@ fn call_operation<'s>(
             if index > rules.len() {
                 return Err(V8BindingError::Unsupported {
                     interface: "CSSStyleSheet".into(),
-                    member: "insertRule index exceeds cssRules length".into(),
+                    member: "IndexSizeError".into(),
                 });
             }
             rules.insert(index, rule);
@@ -20106,7 +20172,7 @@ fn call_operation<'s>(
             if index >= rules.len() {
                 return Err(V8BindingError::Unsupported {
                     interface: "CSSStyleSheet".into(),
-                    member: "deleteRule index exceeds cssRules length".into(),
+                    member: "IndexSizeError".into(),
                 });
             }
             rules.remove(index);
@@ -20115,6 +20181,61 @@ fn call_operation<'s>(
                 .borrow_mut()
                 .set_text_content(node, rules.join("\n"))?;
             Ok(None)
+        }
+        ("CSSStyleSheet", "removeRule") => {
+            let index = if args.length() > 0 {
+                args.get(0).uint32_value(scope).unwrap_or(0) as usize
+            } else {
+                0
+            };
+            let current = state.dom.borrow().arena().text_content(node)?;
+            let mut rules = stylesheet_rule_texts(&current);
+            if index >= rules.len() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "CSSStyleSheet".into(),
+                    member: "IndexSizeError".into(),
+                });
+            }
+            rules.remove(index);
+            state
+                .dom
+                .borrow_mut()
+                .set_text_content(node, rules.join("\n"))?;
+            Ok(None)
+        }
+        ("CSSStyleSheet", "addRule") => {
+            let selector = if args.length() > 0 {
+                args.get(0).to_rust_string_lossy(scope)
+            } else {
+                "undefined".into()
+            };
+            let mut declarations = if args.length() > 1 {
+                args.get(1).to_rust_string_lossy(scope)
+            } else {
+                String::new()
+            };
+            if !declarations.trim().is_empty() && !declarations.trim_end().ends_with(';') {
+                declarations.push(';');
+            }
+            let current = state.dom.borrow().arena().text_content(node)?;
+            let mut rules = stylesheet_rule_texts(&current);
+            let index = if args.length() > 2 {
+                args.get(2).uint32_value(scope).unwrap_or(0) as usize
+            } else {
+                rules.len()
+            };
+            if index > rules.len() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "CSSStyleSheet".into(),
+                    member: "IndexSizeError".into(),
+                });
+            }
+            rules.insert(index, format!("{selector} {{ {declarations} }}"));
+            state
+                .dom
+                .borrow_mut()
+                .set_text_content(node, rules.join("\n"))?;
+            Ok(Some(v8::Integer::new(scope, -1).into()))
         }
         ("CSSStyleSheet", "replaceSync") | ("CSSStyleSheet", "replace") => {
             let source = required_string(scope, args, 0)?;
