@@ -1335,6 +1335,14 @@ globalThis.setInterval=(callback,delay=0,...args)=>{if(typeof callback!=='functi
 globalThis.clearTimeout=id=>{__oryn_timer_cancel(Number(id))};
 globalThis.clearInterval=globalThis.clearTimeout;
 globalThis.__oryn_drain=()=>{if(typeof __oryn_poll_context==='function')__oryn_poll_context()};
+const __oryn_url_search_param_iterators=new WeakMap();
+class OrynURLSearchParamsIterator {
+  constructor(params,kind){__oryn_url_search_param_iterators.set(this,{params,kind,index:0})}
+  next(){const record=__oryn_url_search_param_iterators.get(this);if(!record)throw new TypeError('Illegal invocation');if(record.index>=record.params.items.length)return {value:undefined,done:true};const item=record.params.items[record.index++];return {value:record.kind==='key'?item[0]:record.kind==='value'?item[1]:[item[0],item[1]],done:false}}
+  [Symbol.iterator](){return this}
+}
+Object.setPrototypeOf(OrynURLSearchParamsIterator.prototype,Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]())));
+Object.defineProperty(OrynURLSearchParamsIterator.prototype,Symbol.toStringTag,{value:'URLSearchParams Iterator',writable:false,enumerable:false,configurable:true});
 class OrynURLSearchParams {
   constructor(init='',onChange=null){this.items=[];this.onChange=onChange;if(init&&typeof init==='object'){const entries=typeof init[Symbol.iterator]==='function'?[...init]:Object.entries(init);for(const entry of entries){if(!entry||entry.length!==2)throw new TypeError('URLSearchParams entry must contain two values');this.items.push([String(entry[0]),String(entry[1])])}return}for(const part of String(init).replace(/^\?/,'').split('&'))if(part){const [key,value='']=part.split('=');this.items.push([decodeURIComponent(key.replace(/\+/g,' ')),decodeURIComponent(value.replace(/\+/g,' '))])}}
   changed(){if(this.onChange)this.onChange()}
@@ -1343,10 +1351,17 @@ class OrynURLSearchParams {
   get(key){const item=this.items.find(item=>item[0]===String(key));return item?item[1]:null}
   getAll(key){return this.items.filter(item=>item[0]===String(key)).map(item=>item[1])}
   has(key){return this.items.some(item=>item[0]===String(key))}
-  delete(key){const length=this.items.length;this.items=this.items.filter(item=>item[0]!==String(key));if(this.items.length!==length)this.changed()}
-  [Symbol.iterator](){return this.items[Symbol.iterator]()}
+  delete(key){key=String(key);const length=this.items.length;for(let index=this.items.length-1;index>=0;index--)if(this.items[index][0]===key)this.items.splice(index,1);if(this.items.length!==length)this.changed()}
+  get size(){return this.items.length}
+  entries(){return new OrynURLSearchParamsIterator(this,'entry')}
+  keys(){return new OrynURLSearchParamsIterator(this,'key')}
+  values(){return new OrynURLSearchParamsIterator(this,'value')}
+  forEach(callback,thisArg=undefined){for(let index=0;index<this.items.length;index++){const [key,value]=this.items[index];callback.call(thisArg,value,key,this)}}
+  sort(){this.items=this.items.map((item,index)=>({item,index})).sort((left,right)=>left.item[0]<right.item[0]?-1:left.item[0]>right.item[0]?1:left.index-right.index).map(entry=>entry.item);this.changed()}
+  [Symbol.iterator](){return this.entries()}
   toString(){return this.items.map(([key,value])=>encodeURIComponent(key)+'='+encodeURIComponent(value)).join('&')}
 }
+Object.defineProperty(OrynURLSearchParams.prototype,Symbol.toStringTag,{value:'URLSearchParams',writable:false,enumerable:false,configurable:true});
 class OrynURL {
   constructor(input,base){input=String(input);if(base&&!/^[a-z][a-z0-9+.-]*:/i.test(input)){const parent=new OrynURL(base);const root=parent.host?parent.origin:parent.protocol;if(input.startsWith('#'))input=root+parent.pathname+parent.search+input;else if(input.startsWith('?'))input=root+parent.pathname+input;else input=input.startsWith('/')?root+input:root+parent.pathname.replace(/[^/]*$/,'')+input}const match=input.match(/^([a-z][a-z0-9+.-]*:)(?:\/\/([^/?#]*))?([^?#]*)(\?[^#]*)?(#.*)?$/i);if(!match)throw new TypeError('Invalid URL');this.protocol=match[1];this.hasAuthority=input.startsWith(this.protocol+'//');this.host=match[2]||'';this.hostname=this.host.split(':')[0];this.port=this.host.slice(this.hostname.length+1);this.pathname=match[3]||'/';this._search=match[4]||'';this._searchDirty=false;this.hash=match[5]||'';this.origin=this.host?this.protocol+'//'+this.host:'null';this.searchParams=new OrynURLSearchParams(this._search,()=>{this._searchDirty=true})}
   get search(){if(!this._searchDirty)return this._search;const query=this.searchParams.toString();return query?'?'+query:''}

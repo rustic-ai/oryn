@@ -1766,6 +1766,19 @@ fn host_language_name(
             return Some((text, source.into()));
         }
     }
+    if role == "article"
+        && let Some(heading) = descendants(dom, id).into_iter().find(|candidate| {
+            dom.get(*candidate).is_ok_and(|candidate| {
+                matches!(&candidate.kind, NodeKind::Element { name }
+                    if matches!(name.local.as_ref(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6"))
+            })
+        })
+    {
+        let text = normalize_text(&accessible_text_content(dom, heading, true));
+        if !text.is_empty() {
+            return Some((text, "heading".into()));
+        }
+    }
     if name_from_content(local_name, role)
         || node.attributes.contains_key("onclick")
         || node.event_listeners.contains("click")
@@ -1799,6 +1812,17 @@ fn accessible_text_content_excluding(
         return String::new();
     };
     if !include_hidden_root && accessibility_hidden(node) {
+        // `visibility` is inherited but can be overridden by a descendant.
+        // Other accessibility exclusions suppress the complete subtree.
+        if visibility_hidden_only(node) {
+            return node
+                .children
+                .iter()
+                .map(|child| visible_text_below_hidden_visibility(dom, *child, excluded))
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+        }
         return String::new();
     }
     match &node.kind {
@@ -1910,10 +1934,22 @@ fn accessible_text_content_excluding(
                 .unwrap_or_default()
         }
         _ => {
+            let action_targets = node
+                .attributes
+                .get("aria-actions")
+                .map(|value| {
+                    value
+                        .split_whitespace()
+                        .filter_map(|idref| find_element_by_id_scoped(dom, id, idref))
+                        .collect::<BTreeSet<_>>()
+                })
+                .unwrap_or_default();
             let mut value = node
                 .children
                 .iter()
-                .filter(|child| aria_owner(dom, **child).is_none())
+                .filter(|child| {
+                    aria_owner(dom, **child).is_none() && !action_targets.contains(child)
+                })
                 .map(|child| {
                     accessible_text_content_excluding(
                         dom,
@@ -1952,6 +1988,60 @@ fn accessible_text_content_excluding(
             value
         }
     }
+}
+
+fn visible_text_below_hidden_visibility(
+    dom: &DomArena,
+    id: NodeId,
+    excluded: Option<NodeId>,
+) -> String {
+    if Some(id) == excluded {
+        return String::new();
+    }
+    let Ok(node) = dom.get(id) else {
+        return String::new();
+    };
+    if subtree_excluded_without_visibility(node) {
+        return String::new();
+    }
+    if inline_style_value(node, "visibility").is_some_and(|value| value == "visible") {
+        return accessible_text_content_excluding(dom, id, true, excluded);
+    }
+    node.children
+        .iter()
+        .map(|child| visible_text_below_hidden_visibility(dom, *child, excluded))
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn inline_style_value<'a>(node: &'a crate::dom::Node, property: &str) -> Option<&'a str> {
+    node.attributes
+        .get("style")?
+        .split(';')
+        .find_map(|declaration| {
+            let (name, value) = declaration.split_once(':')?;
+            name.trim()
+                .eq_ignore_ascii_case(property)
+                .then(|| value.trim())
+        })
+}
+
+fn subtree_excluded_without_visibility(node: &crate::dom::Node) -> bool {
+    node.attributes.contains_key("hidden")
+        || node
+            .attributes
+            .get("aria-hidden")
+            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+        || inline_style_value(node, "display")
+            .is_some_and(|value| value.eq_ignore_ascii_case("none"))
+}
+
+fn visibility_hidden_only(node: &crate::dom::Node) -> bool {
+    !subtree_excluded_without_visibility(node)
+        && inline_style_value(node, "visibility").is_some_and(|value| {
+            value.eq_ignore_ascii_case("hidden") || value.eq_ignore_ascii_case("collapse")
+        })
 }
 
 fn aria_owner(dom: &DomArena, target: NodeId) -> Option<NodeId> {
@@ -3434,6 +3524,9 @@ mod tests {
         let document = crate::html::parse(
             r#"
             <button id=hidden><span hidden>skip</span><span>keep</span></button>
+            <h2 id=visibility>visible <span style="visibility:hidden">hidden <span style="visibility:visible">restored</span></span></h2>
+            <button id=actions aria-actions="edit close">Save <span id=edit>Edit</span><span id=close>Close</span></button>
+            <div id=article role=article><div role=group><h3>First heading</h3></div><h2>Later heading</h2></div>
             <span id=joined role=button>button<span></span>label</span>
             <img id=empty-alt alt="" title="must not win">
             <div id=dialog role=alertdialog><h2>Dialog heading</h2><p>Body copy</p></div>
@@ -3449,6 +3542,12 @@ mod tests {
             accessibility_for_node(&document.dom, node).expect("accessibility projection")
         };
         assert_eq!(named("hidden"), ("button".into(), "keep".into()));
+        assert_eq!(
+            named("visibility"),
+            ("heading".into(), "visible restored".into())
+        );
+        assert_eq!(named("actions"), ("button".into(), "Save".into()));
+        assert_eq!(named("article"), ("article".into(), "First heading".into()));
         assert_eq!(named("joined"), ("button".into(), "buttonlabel".into()));
         assert_eq!(named("empty-alt"), ("presentation".into(), String::new()));
         assert_eq!(

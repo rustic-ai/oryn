@@ -289,6 +289,14 @@ class UpstreamWptRunnerTests(unittest.TestCase):
         self.assertIn("test_driver_internal.get_computed_label", source)
         self.assertIn("__oryn_computed_accessibility(element).name", source)
         self.assertIn("test_driver_internal.get_computed_role", source)
+        self.assertIn(
+            "test_driver_internal.get_accessibility_properties_for_element", source
+        )
+        self.assertIn(
+            "test_driver_internal.get_accessibility_properties_for_accessibility_node",
+            source,
+        )
+        self.assertIn("process_timeout = timeout * 20", source)
 
     def test_html_applicability_excludes_crash_and_helper_pages(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

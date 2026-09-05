@@ -55,6 +55,18 @@ interface DOMException {
   const unsigned short DATA_CLONE_ERR = 25;
 };
 
+dictionary QuotaExceededErrorOptions {
+  double quota;
+  double requested;
+};
+
+[Exposed=(Window,Worker)]
+interface QuotaExceededError : DOMException {
+  constructor(optional DOMString message = "", optional any options = null);
+  readonly attribute double? quota;
+  readonly attribute double? requested;
+};
+
 [Exposed=(Window,Worker)]
 interface URL {
   constructor(DOMString url, optional DOMString base);

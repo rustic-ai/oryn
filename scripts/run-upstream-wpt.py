@@ -428,6 +428,38 @@ window.test_driver_internal.send_keys = (element, keys) => { __oryn_testdriver_l
 window.test_driver_internal.action_sequence = actions => { __oryn_testdriver_log.push({operation:'actions',count:Array.isArray(actions)?actions.length:0}); return __oryn_testdriver_actions(actions, document.activeElement); };
 window.test_driver_internal.get_computed_label = element => Promise.resolve(__oryn_computed_accessibility(element).name);
 window.test_driver_internal.get_computed_role = element => Promise.resolve(__oryn_computed_accessibility(element).role);
+const __oryn_accessibility_nodes = new Map();
+const __oryn_accessibility_ids = new WeakMap();
+let __oryn_next_accessibility_id = 1;
+const __oryn_accessibility_id = element => {
+  let id = __oryn_accessibility_ids.get(element);
+  if (!id) { id = `oryn-accessibility-${__oryn_next_accessibility_id++}`; __oryn_accessibility_ids.set(element, id); }
+  return id;
+};
+const __oryn_accessibility_properties = (element, parent = null) => {
+  const computed = __oryn_computed_accessibility(element);
+  const accessibilityId = __oryn_accessibility_id(element);
+  const properties = {
+    accessibilityId,
+    parent,
+    role: computed.role,
+    label: computed.name,
+    children: [],
+  };
+  const role = String(computed.role || '');
+  if (role === 'checkbox' || role === 'radio' || role === 'switch') {
+    properties.checked = element.getAttribute('aria-checked') ?? (element.checked ? 'true' : 'false');
+  }
+  if (element.hasAttribute('aria-pressed')) properties.pressed = element.getAttribute('aria-pressed');
+  for (const child of [...element.children]) {
+    const childProperties = __oryn_accessibility_properties(child, accessibilityId);
+    properties.children.push(childProperties.accessibilityId);
+  }
+  __oryn_accessibility_nodes.set(accessibilityId, properties);
+  return properties;
+};
+window.test_driver_internal.get_accessibility_properties_for_element = element => Promise.resolve(__oryn_accessibility_properties(element));
+window.test_driver_internal.get_accessibility_properties_for_accessibility_node = id => Promise.resolve(__oryn_accessibility_nodes.get(String(id)));
 """
             self._send_bytes(body, "application/javascript; charset=utf-8")
             return
@@ -893,6 +925,27 @@ def run_case(
         return value[:head] + "\n...[diagnostic truncated]...\n" + value[-(limit - head) :]
 
     identifier = f"{test.as_posix()}|{global_name}|{variant}"
+    source_text = (checkout / test).read_text(encoding="utf-8", errors="replace")
+    lowered_source = source_text.lower()
+    declared_long_timeout = (
+        "// meta: timeout=long" in lowered_source
+        or (
+            (
+                "name=timeout" in lowered_source
+                or 'name="timeout"' in lowered_source
+                or "name='timeout'" in lowered_source
+            )
+            and (
+                "content=long" in lowered_source
+                or 'content="long"' in lowered_source
+                or "content='long'" in lowered_source
+            )
+        )
+    )
+    # WPT's `long` classification extends the harness deadline. The native
+    # process deadline must cover that same interval or a valid, progressing
+    # long test is misclassified as an engine hang by the outer runner.
+    process_timeout = timeout * 20 if declared_long_timeout else timeout
     if global_name not in {"window", "dedicatedworker", "sharedworker", "serviceworker"}:
         return {
             "id": identifier,
@@ -1038,7 +1091,7 @@ def run_case(
                 "--trace-out",
                 str(trace_path),
             ],
-            cwd=ROOT, text=True, capture_output=True, timeout=timeout,
+            cwd=ROOT, text=True, capture_output=True, timeout=process_timeout,
         )
         marker = "__ORYN_WPT_DONE__"
         payload = ""
@@ -1070,7 +1123,7 @@ def run_case(
                     "+'|frames='+JSON.stringify([...document.querySelectorAll('iframe')].map(frame=>{try{return {srcdoc:frame.srcdoc,document:frame.contentDocument?.documentElement?.outerHTML||null,origin:frame.contentWindow?.origin||null}}catch(error){return {error:String(error)}}}))"
                     "+'|document='+document.documentElement.outerHTML",
                 ],
-                cwd=ROOT, text=True, capture_output=True, timeout=timeout,
+                cwd=ROOT, text=True, capture_output=True, timeout=process_timeout,
             )
             recovered = probe_wpt_result(probe.stdout)
             if recovered is not None:
@@ -1136,7 +1189,7 @@ def run_case(
             record["diagnostics"] = diagnostics
         return record
     except subprocess.TimeoutExpired as error:
-        diagnostics = [f"timeout after {timeout}s"]
+        diagnostics = [f"timeout after {process_timeout}s"]
         partial = "\n".join(
             value.decode(errors="replace") if isinstance(value, bytes) else value
             for value in (error.stderr, error.stdout)

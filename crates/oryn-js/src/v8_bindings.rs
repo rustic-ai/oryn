@@ -423,6 +423,11 @@ enum PlatformObjectRecord {
         message: String,
         code: i32,
     },
+    QuotaExceededError {
+        message: String,
+        quota: Option<f64>,
+        requested: Option<f64>,
+    },
     Url(Url),
     Blob(BlobRecord),
     FileReader {
@@ -2674,11 +2679,12 @@ pub fn install_generated_bindings_with_root_for_global(
             // use only field zero.
             instance.set_internal_field_count(5);
             let prototype = template.prototype_template(scope);
-            prototype.set(
+            prototype.set_with_attr(
                 v8::Symbol::get_to_string_tag(scope).into(),
                 v8::String::new(scope, interface.name)
                     .ok_or(V8BindingError::Allocation("interface toStringTag"))?
                     .into(),
+                v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_ENUM,
             );
             for (member_position, member) in interface.members.iter().enumerate() {
                 if interface.members[..member_position]
@@ -5263,6 +5269,7 @@ fn is_platform_interface(interface: &str) -> bool {
             | "FormData"
             | "Headers"
             | "DOMException"
+            | "QuotaExceededError"
             | "URL"
             | "AbortSignal"
             | "AbortController"
@@ -5781,6 +5788,36 @@ fn initialize_platform_constructor<'s>(
                 name: exception_name,
                 message,
                 code,
+            },
+        );
+        bind_platform_object(scope, state, id, args.this());
+        return Ok(true);
+    }
+    if name == "QuotaExceededError" {
+        let message = if args.length() == 0 || args.get(0).is_undefined() {
+            String::new()
+        } else {
+            args.get(0).to_rust_string_lossy(scope)
+        };
+        let options = args.get(1).to_object(scope);
+        let numeric_option = |scope: &mut v8::PinScope,
+                              options: Option<v8::Local<v8::Object>>,
+                              name: &str|
+         -> Option<f64> {
+            let key = v8::String::new(scope, name)?;
+            let value = options?.get(scope, key.into())?;
+            (!value.is_undefined())
+                .then(|| value.number_value(scope))
+                .flatten()
+        };
+        let quota = numeric_option(scope, options, "quota");
+        let requested = numeric_option(scope, options, "requested");
+        let id = register_platform_object(
+            state,
+            PlatformObjectRecord::QuotaExceededError {
+                message,
+                quota,
+                requested,
             },
         );
         bind_platform_object(scope, state, id, args.this());
@@ -11956,6 +11993,29 @@ fn get_platform_attribute<'s>(
             "name" => v8_string(scope, name),
             "message" => v8_string(scope, message),
             "code" => Ok(v8::Integer::new(scope, *code).into()),
+            _ => Err(V8BindingError::Unsupported {
+                interface: interface.into(),
+                member: member.into(),
+            }),
+        },
+        (
+            PlatformObjectRecord::QuotaExceededError {
+                message,
+                quota,
+                requested,
+            },
+            "QuotaExceededError" | "DOMException",
+            member,
+        ) => match member {
+            "name" => v8_string(scope, "QuotaExceededError"),
+            "message" => v8_string(scope, message),
+            "code" => Ok(v8::Integer::new(scope, 22).into()),
+            "quota" => Ok(quota
+                .map(|value| v8::Number::new(scope, value).into())
+                .unwrap_or_else(|| v8::null(scope).into())),
+            "requested" => Ok(requested
+                .map(|value| v8::Number::new(scope, value).into())
+                .unwrap_or_else(|| v8::null(scope).into())),
             _ => Err(V8BindingError::Unsupported {
                 interface: interface.into(),
                 member: member.into(),
