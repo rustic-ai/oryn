@@ -1273,6 +1273,36 @@ pub const CUSTOM_EVENT_MEMBERS: &[GeneratedMember] = &[
         replaceable: false,
         put_forwards: None,
     },
+    GeneratedMember {
+        id: GeneratedMemberId(655361),
+        name: "detail",
+        kind: GeneratedMemberKind::Attribute,
+        arity: 0,
+        readonly: true,
+        constant_value: None,
+        type_name: Some("any"),
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(655362),
+        name: "initCustomEvent",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+        constant_value: None,
+        type_name: Some("undefined"),
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
 ];
 pub const D_O_M_EXCEPTION_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
@@ -12469,6 +12499,15 @@ pub const EVENT_INIT_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
     },
 ];
 #[allow(dead_code)]
+pub const CUSTOM_EVENT_INIT_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
+    GeneratedDictionaryMember {
+        name: "detail",
+        type_name: "any",
+        required: false,
+        default: Some("null"),
+    },
+];
+#[allow(dead_code)]
 pub const MOUSE_EVENT_INIT_DICTIONARY_MEMBERS: &[GeneratedDictionaryMember] = &[
     GeneratedDictionaryMember {
         name: "bubbles",
@@ -12763,6 +12802,11 @@ pub const GENERATED_DICTIONARIES: &[GeneratedDictionary] = &[
         name: "EventInit",
         parent: None,
         members: EVENT_INIT_DICTIONARY_MEMBERS,
+    },
+    GeneratedDictionary {
+        name: "CustomEventInit",
+        parent: Some("EventInit"),
+        members: CUSTOM_EVENT_INIT_DICTIONARY_MEMBERS,
     },
     GeneratedDictionary {
         name: "MouseEventInit",

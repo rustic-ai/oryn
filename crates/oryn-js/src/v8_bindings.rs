@@ -7100,6 +7100,26 @@ fn generated_operation<'s>(
         return_value.set(value);
         return;
     }
+    if interface == "CustomEvent" && member == "initCustomEvent" {
+        if args.length() == 0 {
+            throw_type_error(scope, "CustomEvent.initCustomEvent requires a type");
+            return;
+        }
+        let result =
+            call_event_operation(scope, &state, args.this(), "initEvent", &args).and_then(|_| {
+                let detail = if args.length() > 3 {
+                    args.get(3)
+                } else {
+                    v8::null(scope).into()
+                };
+                set_object_property(scope, args.this(), "detail", detail)
+            });
+        match result {
+            Ok(()) => return_value.set(v8::undefined(scope).into()),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if is_platform_interface(interface) {
         match call_platform_operation(scope, &state, args.this(), interface, member, &args) {
             Ok(Some(value)) => return_value.set(value),
@@ -18240,7 +18260,14 @@ fn call_operation<'s>(
             Ok(Some(wrap_node(scope, state, created)?.into()))
         }
         ("Document", "createEvent") => {
-            let event = create_event_object(scope, state, "", false, false)?;
+            let requested = required_string(scope, args, 0)?.to_ascii_lowercase();
+            let interface = if matches!(requested.as_str(), "customevent" | "customevents") {
+                "CustomEvent"
+            } else {
+                "Event"
+            };
+            let event =
+                create_event_object_with_interface(scope, state, interface, "", false, false)?;
             Ok(Some(event.into()))
         }
         (
@@ -20194,12 +20221,23 @@ fn create_event_object<'s>(
     bubbles: bool,
     cancelable: bool,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    create_event_object_with_interface(scope, state, "Event", event_type, bubbles, cancelable)
+}
+
+fn create_event_object_with_interface<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    interface: &str,
+    event_type: &str,
+    bubbles: bool,
+    cancelable: bool,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
     let template = state
         .instance_templates
         .borrow()
-        .get("Event")
+        .get(interface)
         .cloned()
-        .ok_or(V8BindingError::MissingInterface("Event"))?;
+        .ok_or(V8BindingError::Allocation("event interface template"))?;
     let object = v8::Local::new(scope, &template)
         .new_instance(scope)
         .ok_or(V8BindingError::Allocation("event object"))?;
@@ -20433,8 +20471,17 @@ fn dispatch_event(
     {
         return Ok(!state.events.borrow().get(&id).unwrap().default_prevented);
     }
+    invoke_global_event_phase(scope, object, true, 1)?;
     let ancestors = state.dom.borrow().arena().ancestors(target)?;
     for current in ancestors.iter().rev().copied() {
+        if state
+            .events
+            .borrow()
+            .get(&id)
+            .is_some_and(|event| event.propagation_stopped)
+        {
+            break;
+        }
         invoke_node_event_listeners(scope, state, current, object, id, 1, Some(true), false)?;
         if state
             .events
@@ -20474,12 +20521,47 @@ fn dispatch_event(
             }
             invoke_node_event_listeners(scope, state, current, object, id, 3, Some(false), true)?;
         }
+        if !state
+            .events
+            .borrow()
+            .get(&id)
+            .is_some_and(|event| event.propagation_stopped)
+        {
+            invoke_global_event_phase(scope, object, false, 3)?;
+        }
     }
     let mut events = state.events.borrow_mut();
     let event = events.get_mut(&id).unwrap();
     event.current_target = None;
     event.phase = 0;
     Ok(!event.default_prevented)
+}
+
+fn invoke_global_event_phase(
+    scope: &mut v8::PinScope,
+    object: v8::Local<v8::Object>,
+    capture: bool,
+    phase: u32,
+) -> Result<(), V8BindingError> {
+    let callback = global_property(scope, "__oryn_dispatch_global_phase")?;
+    let Ok(callback) = v8::Local::<v8::Function>::try_from(callback) else {
+        return Ok(());
+    };
+    let receiver = scope.get_current_context().global(scope);
+    callback
+        .call(
+            scope,
+            receiver.into(),
+            &[
+                object.into(),
+                v8::Boolean::new(scope, capture).into(),
+                v8::Integer::new_from_unsigned(scope, phase).into(),
+            ],
+        )
+        .ok_or_else(|| {
+            V8BindingError::EventCallback("global event listener raised an exception".into())
+        })?;
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
