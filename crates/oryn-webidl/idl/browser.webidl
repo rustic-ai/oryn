@@ -343,6 +343,7 @@ interface Attr : Node {
   readonly attribute DOMString localName;
   readonly attribute DOMString? namespaceURI;
   readonly attribute DOMString? prefix;
+  readonly attribute boolean specified;
   attribute DOMString value;
   readonly attribute Element? ownerElement;
 };

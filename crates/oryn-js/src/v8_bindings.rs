@@ -18008,6 +18008,7 @@ fn get_attribute_value<'s>(
             NodeKind::Attribute { .. } => v8::null(scope).into(),
             _ => return Err(DomError::StaleNode(node).into()),
         },
+        ("Attr", "specified") => v8::Boolean::new(scope, true).into(),
         ("Attr", "value") => match &record.kind {
             NodeKind::Attribute { value, .. } => v8_string(scope, value)?,
             _ => return Err(DomError::StaleNode(node).into()),
@@ -18036,10 +18037,12 @@ fn get_attribute_value<'s>(
             NodeKind::ProcessingInstruction { target, .. } => v8_string(scope, target)?,
             _ => return Err(DomError::StaleNode(node).into()),
         },
-        ("Attr", "textContent") => match &record.kind {
-            NodeKind::Attribute { value, .. } => v8_string(scope, value)?,
-            _ => return Err(DomError::StaleNode(node).into()),
-        },
+        (_, "textContent") if matches!(record.kind, NodeKind::Attribute { .. }) => {
+            match &record.kind {
+                NodeKind::Attribute { value, .. } => v8_string(scope, value)?,
+                _ => return Err(DomError::StaleNode(node).into()),
+            }
+        }
         (_, "textContent") | ("HTMLElement", "innerText") => {
             v8_string(scope, &dom.arena().text_content(node)?)?
         }
@@ -18403,7 +18406,9 @@ fn set_attribute_value(
     };
     let mut dom = state.dom.borrow_mut();
     match (interface, member) {
-        ("Attr", "textContent") => dom.set_attribute_node_value(node, value)?,
+        (_, "textContent") if matches!(dom.arena().get(node)?.kind, NodeKind::Attribute { .. }) => {
+            dom.set_attribute_node_value(node, value)?
+        }
         (_, "textContent") | ("HTMLElement", "innerText") => {
             dom.set_text_content(node, value)?;
             drop(dom);
