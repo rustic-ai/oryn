@@ -23,7 +23,7 @@ use crate::{
     bindings::{BindingError, InterfaceBrand, WrapperId, WrapperRegistry},
     generated::{
         GENERATED_INTERFACES, GeneratedMember, GeneratedMemberId, GeneratedMemberKind,
-        generated_member_by_id,
+        generated_interface, generated_member_by_id,
     },
     platform::{
         HostOperationId, IdbHostCommand, IdbHostResponse, IdbIndexDefinition,
@@ -5081,6 +5081,16 @@ fn get_computed_style_callback(
             .get(&key)
             .cloned()
             .unwrap_or_default();
+        // Preserve explicitly specified values that the bounded layout bridge
+        // does not yet materialize (notably physical insets). Stylo remains
+        // authoritative whenever it supplied a computed value.
+        if let Ok(record) = state.dom.borrow().arena().get(node)
+            && let Some(inline) = record.attributes.get("style")
+        {
+            for (name, value) in inline_style_entries(inline) {
+                styles.entry(name).or_insert(value);
+            }
+        }
         if let (Some(x), Some(y)) = (styles.get("overflow-x"), styles.get("overflow-y"))
             && x == y
         {
@@ -5102,7 +5112,20 @@ fn get_computed_style_callback(
         {
             object.set_prototype(scope, prototype);
         }
-        for (name, value) in styles {
+        let property_names = styles.keys().cloned().collect::<Vec<_>>();
+        for (index, name) in property_names.iter().enumerate() {
+            let value = v8_string(scope, name)?;
+            object.set_index(scope, index as u32, value);
+        }
+        set_object_property(
+            scope,
+            object,
+            "length",
+            v8::Integer::new_from_unsigned(scope, property_names.len() as u32).into(),
+        )?;
+        let empty_css_text = v8_string(scope, "")?;
+        set_object_property(scope, object, "cssText", empty_css_text)?;
+        for (name, value) in &styles {
             let mut idl_name = String::new();
             let mut uppercase = false;
             for character in name.trim_start_matches('-').chars() {
@@ -5115,14 +5138,27 @@ fn get_computed_style_callback(
                     idl_name.push(character);
                 }
             }
-            let Some(value) = v8::String::new(scope, &value) else {
+            let Some(value) = v8::String::new(scope, value) else {
                 continue;
             };
-            for property in [&name, &idl_name] {
+            for property in [name.as_str(), idl_name.as_str()] {
                 let Some(property) = v8::String::new(scope, property) else {
                     continue;
                 };
                 object.create_data_property(scope, property.into(), value.into());
+            }
+        }
+        if let Some(interface) = generated_interface("CSSStyleDeclaration") {
+            for member in interface.members {
+                if member.kind != GeneratedMemberKind::Attribute
+                    || matches!(member.name, "length" | "cssText")
+                {
+                    continue;
+                }
+                let property = css_property_name(member.name);
+                let value = styles.get(property).map_or("", String::as_str);
+                let value = v8_string(scope, value)?;
+                set_object_property(scope, object, member.name, value)?;
             }
         }
         let getter = v8::Function::builder(computed_style_get_property_value)
