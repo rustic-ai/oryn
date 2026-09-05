@@ -279,7 +279,9 @@ interface Node : EventTarget {
   boolean hasChildNodes();
   Node getRootNode();
   undefined append(DOMString node);
+  undefined prepend(optional any node);
   undefined replaceChildren(optional any node);
+  undefined replaceWith(optional any node);
   undefined before(Node node);
   undefined after(Node node);
   undefined remove();

@@ -19813,6 +19813,56 @@ fn call_operation<'s>(
             }
             Ok(None)
         }
+        ("Node", "prepend") => {
+            let reference = state
+                .dom
+                .borrow()
+                .arena()
+                .get(node)?
+                .children
+                .first()
+                .copied();
+            let owner = state
+                .node_documents
+                .borrow()
+                .get(&node)
+                .copied()
+                .unwrap_or_else(|| state.dom.borrow().document());
+            for index in 0..args.length() {
+                let value = args.get(index);
+                let child = if value.is_object() {
+                    optional_argument_node(scope, state, value)?.unwrap_or_else(|| {
+                        state
+                            .dom
+                            .borrow_mut()
+                            .create_text(value.to_rust_string_lossy(scope))
+                    })
+                } else {
+                    state
+                        .dom
+                        .borrow_mut()
+                        .create_text(value.to_rust_string_lossy(scope))
+                };
+                let children = {
+                    let dom = state.dom.borrow();
+                    if matches!(dom.arena().get(child)?.kind, NodeKind::DocumentFragment) {
+                        dom.arena().get(child)?.children.clone()
+                    } else {
+                        vec![child]
+                    }
+                };
+                for inserted in children {
+                    validate_tree_insertion(&state.dom.borrow(), node, inserted)?;
+                    state.node_documents.borrow_mut().insert(inserted, owner);
+                    state
+                        .dom
+                        .borrow_mut()
+                        .insert_before(node, inserted, reference)?;
+                    prepare_dynamic_script_subtree(scope, state, inserted)?;
+                }
+            }
+            Ok(None)
+        }
         ("Node", "replaceChildren") => {
             let owner = if matches!(
                 state.dom.borrow().arena().get(node)?.kind,
@@ -19933,6 +19983,61 @@ fn call_operation<'s>(
                     .borrow_mut()
                     .insert_before(parent, child, reference)?;
                 prepare_dynamic_script_subtree(scope, state, child)?;
+            }
+            Ok(None)
+        }
+        ("Node", "replaceWith") => {
+            let (parent, reference) = {
+                let dom = state.dom.borrow();
+                let Some(parent) = dom.arena().get(node)?.parent else {
+                    return Ok(None);
+                };
+                let siblings = &dom.arena().get(parent)?.children;
+                let index = siblings
+                    .iter()
+                    .position(|candidate| *candidate == node)
+                    .ok_or(DomError::StaleNode(node))?;
+                (parent, siblings.get(index + 1).copied())
+            };
+            let mut replacements = Vec::new();
+            for index in 0..args.length() {
+                let value = args.get(index);
+                let replacement = if value.is_object() {
+                    optional_argument_node(scope, state, value)?.unwrap_or_else(|| {
+                        state
+                            .dom
+                            .borrow_mut()
+                            .create_text(value.to_rust_string_lossy(scope))
+                    })
+                } else {
+                    state
+                        .dom
+                        .borrow_mut()
+                        .create_text(value.to_rust_string_lossy(scope))
+                };
+                let children = {
+                    let dom = state.dom.borrow();
+                    if matches!(
+                        dom.arena().get(replacement)?.kind,
+                        NodeKind::DocumentFragment
+                    ) {
+                        dom.arena().get(replacement)?.children.clone()
+                    } else {
+                        vec![replacement]
+                    }
+                };
+                replacements.extend(children);
+            }
+            for replacement in &replacements {
+                validate_tree_insertion(&state.dom.borrow(), parent, *replacement)?;
+            }
+            state.dom.borrow_mut().remove_child(parent, node)?;
+            for replacement in replacements {
+                state
+                    .dom
+                    .borrow_mut()
+                    .insert_before(parent, replacement, reference)?;
+                prepare_dynamic_script_subtree(scope, state, replacement)?;
             }
             Ok(None)
         }
@@ -23541,6 +23646,29 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "true|true|true|false|accepted|cancel:close");
+    }
+
+    #[test]
+    fn generated_parent_and_child_convenience_mutations_preserve_order() {
+        initialize_v8();
+        let parsed = html::parse("<main id='root'><span id='a'>a</span><span>b</span></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            "const root=document.getElementById('root'),a=document.getElementById('a');root.prepend('x');a.replaceWith('y',a);root.textContent+'|'+(a.parentNode===root)",
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "xyab|true");
     }
 
     #[test]
