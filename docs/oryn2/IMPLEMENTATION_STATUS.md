@@ -2,12 +2,13 @@
 
 > **Current status: proposal-v1 architecture implemented; exhaustive conformance
 > and exact-artifact attestation remain open.** The committed runtime baseline is
-> `964c426`. Production uses streaming navigation and correlated asynchronous
+> `4a2bbde`. Production uses streaming navigation and correlated asynchronous
 > resources, a shared Rust-owned `DomRuntime`, a persistent incremental semantic
 > graph, generated Rust/V8 interfaces for the declared API inventory, and native
 > Stylo computed values. Focused IndexedDB and editing diagnostics close at
-> 100/100 and corrected 40/40 respectively. This is not yet a release candidate:
-> closure of the complete 4,022-variant upstream inventory,
+> 100/100 and corrected 40/40 respectively. This is not yet a release candidate.
+> The exact clean-tree in-process inventory passes 1,957/4,022, improving 55
+> variants with zero regressions from the preceding exact run. Exhaustive closure,
 > semantic/accessibility and Stylo
 > differential evidence, Linux full/lite artifacts, four-profile equivalence,
 > exact security/performance validation and private release/model attestation
@@ -246,16 +247,21 @@ rewrite those historical payloads or present them as a new validation run.
   Python handlers, sidecar headers, redirects and substitutions no longer rely
   on SimpleHTTP approximations. A 20-case history rerun remains 9/20, proving
   that slice is an engine/lifecycle backlog; an IndexedDB dynamic-handler case
-  now terminates deterministically rather than timing out. The complete
-  `2763959` diagnostic is 1,607/4,022: generated-WebIDL 1,543/3,407,
-  semantic/accessibility 16/51 and Stylo 48/564. It records 1,741 assertion
-  failures, 284 harness failures, 66 timeouts and 324 unclassified outcomes.
-  That run predates the corrected worker completion boundary, so its 273
-  worker-global failures are diagnostic rather than an authoritative worker
-  total. Corrected `964c426` focused runs produce real results for all 265
-  DedicatedWorker variants (26 pass) and pass all four SharedWorker plus all
-  four ServiceWorker IndexedDB variants. The historical compact worker ledger
-  is superseded pending regeneration because it observed an eager placeholder.
+  now terminates deterministically rather than timing out. The complete,
+  clean-tree `4a2bbde` diagnostic executes all 4,022 variants and passes 1,957.
+  Exact root totals are IndexedDB 292/456, generated-WebIDL 7/58, Accessible
+  Name 11/19, CSS 48/564, DOM 198/662, editing 118/704, HTML 29/136, referrer
+  policy 1,233/1,391 and WAI-ARIA 21/32. The 2,065 failures comprise 1,706
+  assertion failures, 264 harness failures, 19 timeouts and 76 unclassified
+  results. Compared with exact run `a287d2f`, 55 variants changed from failing
+  to passing and none regressed. The tested binary is 53,038,864 bytes with
+  SHA-256 `1796a1b2f5f09312e217c1a990f2f1a9c42c6f5370665addcae68eec9cd4fd84`;
+  its run fingerprint is
+  `26cdff24763efca064db34e8f16bedf41f8d8b514f2efbb8046d0f8b0f3eb789`.
+  This remains in-process diagnostic evidence, not signed production-worker
+  attestation. The Observable surface now passes 47/52 exact WPT variants;
+  remaining failures isolate iterator-abort exception propagation,
+  abort/promise microtask ordering and detached-realm callback suppression.
 - Generated click/form default actions now cross a typed binding-to-page queue,
   named iframe targets resolve through the Rust frame registry, and dynamic
   nested frames retain their owning realm through navigation and page-wide
@@ -752,8 +758,10 @@ rewrite those historical payloads or present them as a new validation run.
 
 ## Next tracks
 
-- Run the complete 4,022-variant pinned upstream inventory and convert any
-  newly exposed failures into a concrete API-algorithm backlog.
+- Close the remaining 2,065 cases in the exact 4,022-variant inventory,
+  prioritizing shared harness/lifecycle causes over isolated assertions. The
+  current deficits are editing 586, CSS 516, DOM 464, IndexedDB 164, referrer
+  policy 158, HTML 107, generated-WebIDL 51, WAI-ARIA 11 and Accessible Name 8.
 - Complete semantic-graph/oracle, ARIA/Accessible Name and Stylo/Chromium
   differential evidence, then build and validate Linux full/lite profiles in
   CayVM alongside the macOS full/lite profiles.
