@@ -3345,19 +3345,32 @@ fn idb_key_range_static(
     args: v8::FunctionCallbackArguments,
     mut return_value: v8::ReturnValue,
 ) {
+    let mode = args.data().int32_value(scope).unwrap_or(0);
+    let required = if mode == 3 { 2 } else { 1 };
+    if args.length() < required {
+        throw_type_error(scope, "IDBKeyRange requires a key argument");
+        return;
+    }
     let result = (|| -> Result<v8::Local<v8::Object>, V8BindingError> {
         let state = scope
             .get_current_context()
             .get_slot::<V8BindingState>()
             .ok_or(V8BindingError::Allocation("IDB state"))?;
-        let mode = args.data().int32_value(scope).unwrap_or(0);
-        let first = idb_key_from_value(scope, args.get(0)).map(idb_key_to_json)?;
+        let first_key = idb_key_from_value(scope, args.get(0))?;
+        let first = idb_key_to_json(first_key.clone());
         let (lower, upper, lower_open, upper_open) = match mode {
             0 => (Some(first.clone()), Some(first), false, false),
             1 => (Some(first), None, args.get(1).boolean_value(scope), true),
             2 => (None, Some(first), true, args.get(1).boolean_value(scope)),
             _ => {
-                let second = idb_key_from_value(scope, args.get(1)).map(idb_key_to_json)?;
+                let second_key = idb_key_from_value(scope, args.get(1))?;
+                if compare_idb_keys(&first_key, &second_key).is_gt() {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "IDBKeyRange".into(),
+                        member: "DataError".into(),
+                    });
+                }
+                let second = idb_key_to_json(second_key);
                 (
                     Some(first),
                     Some(second),
@@ -6290,6 +6303,38 @@ fn string_sequence(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Vec
             .collect();
     }
     vec![value.to_rust_string_lossy(scope)]
+}
+
+fn idb_dom_string_sequence(
+    scope: &mut v8::PinScope,
+    value: v8::Local<v8::Value>,
+) -> Result<Vec<String>, V8BindingError> {
+    if value.is_null_or_undefined() {
+        return Ok(Vec::new());
+    }
+    let values = if let Ok(array) = v8::Local::<v8::Array>::try_from(value) {
+        (0..array.length())
+            .filter_map(|index| array.get_index(scope, index))
+            .collect::<Vec<_>>()
+    } else {
+        vec![value]
+    };
+    values
+        .into_iter()
+        .map(|value| {
+            value
+                .to_string(scope)
+                .ok_or(V8BindingError::Allocation("IndexedDB DOMString conversion"))
+                .and_then(|value| rust_string_preserving_utf16(scope, value))
+        })
+        .collect()
+}
+
+fn dom_string_sort_key(value: &str) -> Vec<u16> {
+    value
+        .strip_prefix(WTF16_STRING_PREFIX)
+        .and_then(|encoded| serde_json::from_str(encoded).ok())
+        .unwrap_or_else(|| value.encode_utf16().collect())
 }
 
 fn new_byte_stream_record(
@@ -11491,6 +11536,29 @@ fn get_platform_attribute<'s>(
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
     let id = stateful_id(scope, object)?;
+    if matches!(interface, "IDBObjectStore" | "IDBIndex") && member == "keyPath" {
+        let cache_key = "__oryn_same_object_key_path";
+        if let Some(key) = v8::String::new(scope, cache_key)
+            && let Some(value) = object.get(scope, key.into())
+            && !value.is_undefined()
+        {
+            return Ok(value);
+        }
+        let path = {
+            let record = platform_object(state, id)?;
+            match &*record {
+                PlatformObjectRecord::IdbObjectStore(store) => store.key_path.clone(),
+                PlatformObjectRecord::IdbIndex(index) => Some(index.key_path.clone()),
+                _ => None,
+            }
+        };
+        let value = match path {
+            Some(path) => idb_key_path_to_value(scope, &path)?,
+            None => v8::null(scope).into(),
+        };
+        set_object_property(scope, object, cache_key, value)?;
+        return Ok(value);
+    }
     if matches!(
         interface,
         "ReadableStreamDefaultReader" | "WritableStreamDefaultWriter"
@@ -11761,12 +11829,26 @@ fn get_platform_attribute<'s>(
             PlatformObjectRecord::IdbRequest(request),
             "IDBRequest" | "IDBOpenDBRequest",
             "result",
-        ) => Ok(request
-            .result
-            .as_ref()
-            .map(|value| v8::Local::new(scope, value))
-            .unwrap_or_else(|| v8::undefined(scope).into())),
+        ) => {
+            if !request.done {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBRequest".into(),
+                    member: "InvalidStateError".into(),
+                });
+            }
+            Ok(request
+                .result
+                .as_ref()
+                .map(|value| v8::Local::new(scope, value))
+                .unwrap_or_else(|| v8::undefined(scope).into()))
+        }
         (PlatformObjectRecord::IdbRequest(request), "IDBRequest" | "IDBOpenDBRequest", "error") => {
+            if !request.done {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBRequest".into(),
+                    member: "InvalidStateError".into(),
+                });
+            }
             match &request.error {
                 Some(error) => dom_exception_value(scope, error),
                 None => Ok(v8::null(scope).into()),
@@ -11814,7 +11896,10 @@ fn get_platform_attribute<'s>(
             Ok(v8::Number::new(scope, database.version as f64).into())
         }
         (PlatformObjectRecord::IdbDatabase(database), "IDBDatabase", "objectStoreNames") => {
-            string_array(scope, &database.object_stores)
+            let mut names = database.object_stores.clone();
+            names.sort_by_cached_key(|name| dom_string_sort_key(name));
+            names.dedup();
+            string_array(scope, &names)
         }
         (PlatformObjectRecord::IdbTransaction(transaction), "IDBTransaction", "mode") => {
             v8_string(scope, &transaction.mode)
@@ -11835,7 +11920,12 @@ fn get_platform_attribute<'s>(
             PlatformObjectRecord::IdbTransaction(transaction),
             "IDBTransaction",
             "objectStoreNames",
-        ) => string_array(scope, &transaction.object_stores),
+        ) => {
+            let mut names = transaction.object_stores.clone();
+            names.sort_by_cached_key(|name| dom_string_sort_key(name));
+            names.dedup();
+            string_array(scope, &names)
+        }
         (PlatformObjectRecord::IdbObjectStore(store), "IDBObjectStore", "name") => {
             v8_string(scope, &store.name)
         }
@@ -13011,7 +13101,9 @@ fn call_platform_operation<'s>(
             return Ok(None);
         }
         ("IDBDatabase", "transaction") => {
-            let names = string_sequence(scope, args.get(0));
+            let mut names = idb_dom_string_sequence(scope, args.get(0))?;
+            names.sort_by_cached_key(|name| dom_string_sort_key(name));
+            names.dedup();
             let mode = if args.get(1).is_undefined() {
                 "readonly".into()
             } else {
@@ -13085,7 +13177,7 @@ fn call_platform_operation<'s>(
         }
         ("IDBTransaction", "objectStore") => {
             let name = required_string(scope, args, 0)?;
-            let (active, in_scope, definition) = {
+            let (finished, in_scope, definition) = {
                 let record = platform_object(state, id)?;
                 let PlatformObjectRecord::IdbTransaction(transaction) = &*record else {
                     return Err(V8BindingError::Allocation("IDBTransaction record"));
@@ -13095,15 +13187,17 @@ fn call_platform_operation<'s>(
                     return Err(V8BindingError::Allocation("IDBDatabase record"));
                 };
                 (
-                    !transaction.aborted && transaction.active,
+                    transaction.aborted
+                        || transaction.completion_requested
+                        || transaction.explicit_commit,
                     transaction.object_stores.contains(&name),
                     database.object_store_definitions.get(&name).cloned(),
                 )
             };
-            if !active {
+            if finished {
                 return Err(V8BindingError::Unsupported {
                     interface: "IDBTransaction".into(),
-                    member: "TransactionInactiveError".into(),
+                    member: "InvalidStateError".into(),
                 });
             }
             if !in_scope {
@@ -13264,6 +13358,7 @@ fn call_platform_operation<'s>(
         }
         ("IDBObjectStore", "add" | "put") => {
             let (database, store, transaction_id) = idb_store_context(state, id)?;
+            ensure_idb_transaction_writable(state, transaction_id)?;
             let value = idb_value_to_json(scope, state, args.get(0))?;
             let explicit_key = !args.get(1).is_undefined();
             let mut key = if !explicit_key {
@@ -13337,6 +13432,7 @@ fn call_platform_operation<'s>(
         }
         ("IDBObjectStore", "delete" | "clear") => {
             let (database, store, transaction_id) = idb_store_context(state, id)?;
+            ensure_idb_transaction_writable(state, transaction_id)?;
             let command = if member == "clear" {
                 IdbHostCommand::Clear { database, store }
             } else {
@@ -13508,6 +13604,28 @@ fn call_platform_operation<'s>(
         }
         ("IDBObjectStore", "deleteIndex") => {
             let name = required_string(scope, args, 0)?;
+            let transaction_id = match &*platform_object(state, id)? {
+                PlatformObjectRecord::IdbObjectStore(store) => store.transaction_id,
+                _ => return Err(V8BindingError::Allocation("IDBObjectStore record")),
+            };
+            match &*platform_object(state, transaction_id)? {
+                PlatformObjectRecord::IdbTransaction(transaction) if !transaction.active => {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "IDBTransaction".into(),
+                        member: "TransactionInactiveError".into(),
+                    });
+                }
+                PlatformObjectRecord::IdbTransaction(transaction)
+                    if transaction.mode != "versionchange" =>
+                {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "IDBTransaction".into(),
+                        member: "InvalidStateError".into(),
+                    });
+                }
+                PlatformObjectRecord::IdbTransaction(_) => {}
+                _ => return Err(V8BindingError::Allocation("IDBTransaction record")),
+            }
             let (transaction_id, store_name) = {
                 let mut record = platform_object_mut(state, id)?;
                 let PlatformObjectRecord::IdbObjectStore(store) = &mut *record else {
@@ -14842,6 +14960,23 @@ fn idb_store_context(
     Ok((database, store, transaction_id))
 }
 
+fn ensure_idb_transaction_writable(
+    state: &V8BindingState,
+    transaction_id: u64,
+) -> Result<(), V8BindingError> {
+    let record = platform_object(state, transaction_id)?;
+    let PlatformObjectRecord::IdbTransaction(transaction) = &*record else {
+        return Err(V8BindingError::Allocation("IDBTransaction record"));
+    };
+    if transaction.mode == "readonly" {
+        return Err(V8BindingError::Unsupported {
+            interface: "IDBTransaction".into(),
+            member: "ReadOnlyError".into(),
+        });
+    }
+    Ok(())
+}
+
 fn form_data_entry_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &V8BindingState,
@@ -14966,6 +15101,12 @@ fn idb_source_request<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if matches!(member, "get" | "getKey") && args.length() == 0 {
+        return Err(V8BindingError::Unsupported {
+            interface: interface.into(),
+            member: "required query argument".into(),
+        });
+    }
     let (store_id, index) = if interface == "IDBIndex" {
         let record = platform_object(state, source_id)?;
         let PlatformObjectRecord::IdbIndex(index) = &*record else {
