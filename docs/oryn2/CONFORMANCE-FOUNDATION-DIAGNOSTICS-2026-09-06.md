@@ -116,3 +116,15 @@ remain outside this batch's closure claim. The stale-cache, namespace import,
 connected/detached expando and GC regressions pass. Locked checks: 104 V8 tests
 (two existing ignored), 33 DOM tests, 141 native runtime tests, generated bindings,
 formatting and strict Clippy. Signed DOM/CSS validation is pending.
+
+## Signed attribute ownership validation
+
+Clean source `a67666b`, worker SHA-256
+`fca22287bad3fa7eca76405ea21a56163e6a23c75f94836d03f8012224bbae39`:
+DOM selection 343/664 (341/662 DOM plus two accname), CSS selection 232/569
+(227/564 CSS plus five referrer). Exact selected IDs and all passing harness
+completions validated. No lost passes against the attribute-creation candidate.
+New passes: Attr-prefix, Document-importNode, Node-cloneNode-svg, and
+css/selectors/quirks-mode-import. Raw ledgers remain in local artifacts; hash-bound
+summaries are in CONFORMANCE-ATTRIBUTE-OWNERSHIP-2026-09-06.json.
+The complete full result remains 2501/4022; these selections are not a release gate.
