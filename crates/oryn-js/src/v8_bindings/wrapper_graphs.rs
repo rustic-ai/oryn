@@ -114,3 +114,65 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
     }
     released
 }
+
+// A single fresh detached leaf cannot change any existing traced tree.
+pub(super) fn attach_new_leaf(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    node: NodeId,
+    object: v8::Local<v8::Object>,
+) -> bool {
+    let Some(previous) = state.wrapper_graph_revision.get() else {
+        return false;
+    };
+    let Ok(dom) = state.dom.try_borrow() else {
+        return false;
+    };
+    let revision = dom.mutation_cursor().0;
+    if previous.checked_add(1) != Some(revision) {
+        return false;
+    }
+    let batch = dom.mutations_since(oryn_dom::MutationCursor(previous));
+    if batch.truncated
+        || !matches!(batch.mutations.as_slice(), [Mutation::Inserted { node: inserted, parent: None }] if *inserted == node)
+    {
+        return false;
+    }
+    let Ok(record) = dom.arena().get(node) else {
+        return false;
+    };
+    if record.parent.is_some()
+        || !record.children.is_empty()
+        || record.template_content.is_some()
+        || !matches!(
+            record.kind,
+            NodeKind::Element { .. }
+                | NodeKind::Text { .. }
+                | NodeKind::Comment { .. }
+                | NodeKind::CDataSection { .. }
+                | NodeKind::ProcessingInstruction { .. }
+        )
+    {
+        return false;
+    }
+    let (Ok(documents), Ok(wrappers), Ok(objects)) = (
+        state.node_documents.try_borrow(),
+        state.wrappers.try_borrow(),
+        state.objects.try_borrow(),
+    ) else {
+        return false;
+    };
+    let owner = documents
+        .get(&node)
+        .and_then(|owner| wrappers.lookup(state.realm, *owner))
+        .and_then(|id| objects.get(&id))
+        .and_then(|owner| owner.handle.to_local(scope));
+    drop(objects);
+    drop(wrappers);
+    drop(documents);
+    drop(dom);
+    let reference = owner.map_or_else(|| v8::undefined(scope).into(), |owner| owner.into());
+    object.set_internal_field(5, reference);
+    state.wrapper_graph_revision.set(Some(revision));
+    true
+}

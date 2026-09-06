@@ -161,6 +161,11 @@ impl WrapperRegistry {
         Ok(released)
     }
 
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn lookup(&self, realm: RealmId, node: NodeId) -> Option<WrapperId> {
+        self.by_identity.get(&(realm, node)).copied()
+    }
+
     pub fn metadata(&self, wrapper: WrapperId) -> Option<WrapperMetadata> {
         self.wrappers.get(&wrapper).copied()
     }

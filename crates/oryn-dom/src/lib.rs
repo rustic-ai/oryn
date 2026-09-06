@@ -508,13 +508,17 @@ impl MutationJournal {
         } else {
             cursor.0
         };
+        // Sequence numbers are ordered even after the deque wraps. Seek to
+        // this consumer's cursor without scanning unrelated older entries.
         MutationBatch {
             next: MutationCursor(self.next.saturating_sub(1)),
             truncated,
             mutations: self
                 .entries
-                .iter()
-                .filter(|(sequence, _)| *sequence > after)
+                .range(
+                    self.entries
+                        .partition_point(|(sequence, _)| *sequence <= after)..,
+                )
                 .map(|(_, mutation)| mutation.clone())
                 .collect(),
         }
@@ -2245,6 +2249,47 @@ mod tests {
         let mutations = dom.drain_mutations();
         dom.release_mutation_roots(&mutations).unwrap();
         assert_eq!(dom.arena().get(root), Err(DomError::StaleNode(root)));
+    }
+
+    #[test]
+    fn mutation_cursors_preserve_order_across_journal_wraparound() {
+        let mut journal = MutationJournal::default();
+        for index in 0..MutationJournal::MAX_ENTRIES + 7 {
+            journal.push(Mutation::Inserted {
+                node: NodeId {
+                    slot: index as u32,
+                    generation: 0,
+                },
+                parent: None,
+            });
+        }
+        for cursor in [
+            0,
+            6,
+            7,
+            8,
+            100,
+            MutationJournal::MAX_ENTRIES as u64 + 6,
+            MutationJournal::MAX_ENTRIES as u64 + 7,
+            u64::MAX,
+        ] {
+            let batch = journal.read_since(MutationCursor(cursor));
+            let expected = journal
+                .entries
+                .iter()
+                .filter(|(sequence, _)| *sequence > cursor)
+                .map(|(_, mutation)| mutation.clone())
+                .collect::<Vec<_>>();
+            assert_eq!(batch.mutations, expected, "cursor {cursor}");
+            assert_eq!(batch.truncated, cursor < 7, "cursor {cursor}");
+            assert_eq!(
+                batch.next,
+                MutationCursor(MutationJournal::MAX_ENTRIES as u64 + 7)
+            );
+        }
+        journal.clear();
+        assert!(journal.read_since(MutationCursor(0)).mutations.is_empty());
+        assert!(!journal.read_since(MutationCursor(0)).truncated);
     }
 
     #[test]

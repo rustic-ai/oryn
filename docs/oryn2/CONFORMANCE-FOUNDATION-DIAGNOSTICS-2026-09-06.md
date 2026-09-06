@@ -26,3 +26,11 @@ Expanded checks found that the unmodified library accepts duplicate namespace de
 The follow-up isolated parser patch preserves namespace attributes behind an explicit configuration option, rejects duplicate declarations and reserved-URI aliases, rejects xmlns-prefixed elements, and permits ordinary relative default namespace names. The expanded diagnostic cases and all 38 upstream library unit tests pass. This remains a candidate, not an integrated production parser. Namespace constraints were checked against [Namespaces in XML 1.0](https://www.w3.org/TR/xml-names/#ns-decl).
 
 Integration audit found another prerequisite: `DomRuntime::import_subtree` and `clone_node` copy the element attribute string map but do not reconstruct its namespace-bearing Attr records. XML document import must preserve these records and their owners; otherwise a correct parser would lose namespace information at activation. Add native import/clone namespace regressions before closing the XML workstream.
+
+
+After the clean baseline completed, the detached-leaf fast path and journal cursor
+lookup were integrated into the repository. Locked production-feature checks pass
+101 V8 binding tests (two existing ignored) and 29 DOM tests. The large-leaf test
+also verifies native reclamation after the last JavaScript reference is removed.
+Strict Clippy and formatting pass. Signed-worker results remain pending and must
+be recorded separately from the fbb2f29 baseline.

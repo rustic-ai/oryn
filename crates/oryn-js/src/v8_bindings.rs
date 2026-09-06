@@ -17875,7 +17875,7 @@ pub fn wrap_node<'s>(
     // Connected wrappers already have their individual embedder roots. Adding
     // one cannot change a detached tree's traced members; rebuilding all trees
     // here would make wrapping a large connected query result quadratic.
-    if detached {
+    if detached && !wrapper_graphs::attach_new_leaf(scope, state, node, object) {
         state.wrapper_graph_revision.set(None);
     }
     wrapper_graphs::refresh(scope, state);
@@ -25849,6 +25849,72 @@ mod tests {
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert!(script.run(scope).unwrap().boolean_value(scope));
+    }
+
+    #[test]
+    fn fresh_detached_leaves_preserve_owners_and_later_tree_edges() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            (() => {
+                const foreign = document.implementation.createHTMLDocument('owner');
+                foreign.marker = 91;
+                globalThis.leaves = Array.from({length: 4000}, (_, i) => {
+                    const leaf = foreign.createElement('i'); leaf.marker = i; return leaf;
+                });
+                const parent = foreign.createElement('section'); parent.marker = 92;
+                const sibling = foreign.createTextNode('sibling'); sibling.marker = 93;
+                parent.append(leaves[0], sibling);
+            })(); true
+        "#,
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            leaves.length === 4000 && leaves.every((leaf, i) =>
+                leaf.marker === i && leaf.ownerDocument.marker === 91) &&
+            leaves[0].parentNode.marker === 92 && leaves[0].nextSibling.marker === 93
+        "#,
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        let source = v8::String::new(scope, "delete globalThis.leaves; true").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        assert!(!dom.borrow().arena().iter().any(|(_, record)|
+            matches!(&record.kind, NodeKind::Element { name } if name.local.as_ref() == "i")));
     }
 
     #[test]

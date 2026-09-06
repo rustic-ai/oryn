@@ -36,10 +36,10 @@ NodeList fixes, qualified element names, native document MIME/quirks metadata,
 namespace validation and name reflection. It also includes the earlier template,
 wrapper/Range lifetime, IndexedDB queue and Stylo/Blitz adapter changes.
 
-W0's clean baseline is complete. The next resource batch addresses quadratic
-creation of detached wrappers and mutation-journal scans. Isolated diagnostics
-pass 101 V8 binding tests and 29 native DOM tests; they are not yet signed-worker
-conformance evidence. See the [foundation diagnostics](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
+W0's clean baseline is complete. The resource implementation now avoids quadratic
+creation of isolated detached wrappers and scans of older mutation-journal entries.
+Locked repository checks pass 101 V8 binding tests and 29 native DOM tests, plus
+strict Clippy. Signed-worker validation of this change is still pending. See the [foundation diagnostics](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 
 Remaining shared gaps include XML parsing and iframe MIME propagation, namespace
 preservation through import/clone, document ownership, table APIs, Range/editing,
