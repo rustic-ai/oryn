@@ -2,13 +2,13 @@
 
 > **Current status: proposal-v1 architecture implemented; exhaustive conformance
 > and exact-artifact attestation remain open.** The latest exact diagnostic
-> baseline is clean commit `efdc331`. Production uses streaming navigation and correlated asynchronous
+> baseline is clean commit `e1b97d7`. Production uses streaming navigation and correlated asynchronous
 > resources, a shared Rust-owned `DomRuntime`, a persistent incremental semantic
 > graph, generated Rust/V8 interfaces for the declared API inventory, and native
 > Stylo computed values. Focused IndexedDB and editing diagnostics close at
 > 100/100 and corrected 40/40 respectively. This is not yet a release candidate.
-> The exact clean-tree in-process inventory passes 2,204/4,022, improving 78
-> variants from the preceding exact run. Exhaustive closure,
+> The exact clean-tree in-process inventory passes 2,267/4,022, improving 20
+> variants from the immediately preceding 2,247/4,022 exact run. Exhaustive closure,
 > semantic/accessibility and Stylo
 > differential evidence, Linux full/lite artifacts, four-profile equivalence,
 > exact security/performance validation and private release/model attestation
@@ -248,17 +248,24 @@ rewrite those historical payloads or present them as a new validation run.
   on SimpleHTTP approximations. A 20-case history rerun remains 9/20, proving
   that slice is an engine/lifecycle backlog; an IndexedDB dynamic-handler case
   now terminates deterministically rather than timing out. The complete,
-  clean-tree `efdc331` diagnostic executes all 4,022 variants and passes 2,204.
-  Exact root totals are IndexedDB 304/456, generated-WebIDL 21/58, Accessible
-  Name 13/19, CSS 90/564, DOM 218/662, editing 118/704, HTML 30/136, referrer
-  policy 1,382/1,391 and WAI-ARIA 28/32. The 1,818 failures comprise 1,523
-  assertion failures, 224 harness failures, 40 timeouts and 31 unclassified
-  results. The tested binary is 53,122,288 bytes with
-  SHA-256 `3747403f652531d5286e7254f0b3c473bf618b6abcf1ebf79020de4f5099051d`;
+  clean-tree `e1b97d7` diagnostic executes all 4,022 variants and passes 2,267.
+  Exact root totals are IndexedDB 304/456, generated-WebIDL 26/58, Accessible
+  Name 13/19, CSS 113/564, DOM 269/662, editing 118/704, HTML 30/136, referrer
+  policy 1,366/1,391 and WAI-ARIA 28/32. The 1,755 failures comprise 1,527
+  assertion failures, 146 harness failures, 54 timeouts and 28 unclassified
+  results. The tested binary is 53,172,224 bytes with
+  SHA-256 `a42f8ebdd905d1fbebd368da7f2920e1803830e51c75cb584d755508c29dae42`;
   its run fingerprint is
-  `0db582452f364e6c5f6ebb78b8d9def9387061a67d0b93cd93ef03a35327ebd3`.
+  `549b792b132278f60512d4a98383d44dcd290c90aa3a33b0eb6bb3767e377833`.
   This remains in-process diagnostic evidence, not signed production-worker
-  attestation. The Observable surface now passes 47/52 exact WPT variants;
+  attestation. Relative to the preceding exact run, 32 cases became passing and
+  12 previously passing referrer-policy cases regressed, for a net gain of 20.
+  That churn makes referrer-policy attribution a priority regression slice, not
+  a closed subsystem. The release validator correctly rejects this diagnostic
+  execution mode; it also currently expands 3,462 static manifest IDs while the
+  pinned runner and prior exact ledger contain 4,022, so validator/runner
+  inventory equivalence must be repaired before release evidence publication.
+  The Observable surface now passes 47/52 exact WPT variants;
   remaining failures isolate iterator-abort exception propagation,
   abort/promise microtask ordering and detached-realm callback suppression.
 - Generated click/form default actions now cross a typed binding-to-page queue,
@@ -267,8 +274,9 @@ rewrite those historical payloads or present them as a new validation run.
   scheduler checkpoints. Focused top-level and nested named-frame regressions
   pass. The representative referrer-policy case now reaches a deterministic
   assertion instead of its former timeout, but its upstream result still loses
-  `sourceContextUrl`; referrer-result attribution and the full 4,022-case
-  recomputation therefore remain open.
+  `sourceContextUrl`. The full recomputation is now complete and exposes 25
+  referrer-policy failures, including 12 regressions from the preceding exact
+  run; referrer-result attribution therefore remains open.
 - Generated CSSOM now includes a Rust-backed constructable `CSSStyleSheet`, a
   live same-object `CSSRuleList`, indexed insert/delete and
   synchronous/asynchronous replacement. Its generated-binding tests pass, and
@@ -757,10 +765,10 @@ rewrite those historical payloads or present them as a new validation run.
 
 ## Next tracks
 
-- Close the remaining 1,818 cases in the exact 4,022-variant inventory,
+- Close the remaining 1,755 cases in the exact 4,022-variant inventory,
   prioritizing shared harness/lifecycle causes over isolated assertions. The
-  current deficits are editing 588, CSS 476, DOM 454, IndexedDB 153, referrer
-  policy 9, HTML 106, generated-WebIDL 37, WAI-ARIA 4 and Accessible Name 6.
+  current deficits are editing 586, CSS 451, DOM 393, IndexedDB 152, referrer
+  policy 25, HTML 106, generated-WebIDL 32, WAI-ARIA 4 and Accessible Name 6.
 - Complete semantic-graph/oracle, ARIA/Accessible Name and Stylo/Chromium
   differential evidence, then build and validate Linux full/lite profiles in
   CayVM alongside the macOS full/lite profiles.

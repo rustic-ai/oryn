@@ -3,7 +3,7 @@
 **Original assessment date:** 2026-08-28
 **Original assessed source:** `0b7a38b` (`refactor: replace phase labels with capability names`)
 **Current status update:** 2026-09-05
-**Latest exact diagnostic source:** `efdc331` (`Stabilize computed style snapshots`)
+**Latest exact diagnostic source:** `e1b97d7` (`Implement the Image legacy factory`)
 **Working-tree state at assessment:** clean
 
 **Proposal:** *Oryn2 Product Proposal & Technical Architecture v0.2*  
@@ -154,7 +154,7 @@ The dependency-ordered completion backlog is maintained in
 | F12 — untrusted content | **Mostly closed** | Semantic nodes carry `ContentTrust::PageAuthored`, inferred facts use heuristic provenance, and raw inspection is policy-audited without recording page content. Broader prompt-boundary evidence remains narrower than the proposal's full trust model. |
 | F13 — secret leakage | **Closed in software** | Secret sensitivity is stored independently on Rust DOM nodes, applies to text inputs, survives page-controlled attribute changes, and redacts observation and HTML extraction. |
 | F14 — generated WebIDL | **Partial; architecture closed, long-tail algorithms measured** | Deterministic generation, real prototypes, Rust callbacks, wrapper identity, brands, realms, origin and generation checks are authoritative in production. Cross-container Range operations, CharacterData/editing, generated Storage, Fetch/File/Streams/XHR/WebSocket, MessageChannel transfer and IndexedDB execute through Rust state and typed parent operations. Focused upstream regressions now cover atomic rollback, compound key paths, connection-close/versionchange ordering, failed-upgrade abort ordering, live cursor mutation and index-key re-entry, exact WTF-16 names, detached binary keys, and the bounded editing-command surface. The compatibility bootstrap is probe-only. The comparable editing/other slice passes after assertion-level upstream-defect accounting; exhaustive cross-realm/origin and long-tail API inventory execution remains open, so API conformance is not closed. |
-| F15 — production-path testing | **Partial; exact complete diagnostic measured, conformance open** | The v2 inventory contains 4,022 exact executions and the pinned runner is parallel, checkpointed and fingerprint-bound. The clean-tree `efdc331` in-process run passes 2,204/4,022. Exact root totals are IndexedDB 304/456, WebIDL 21/58, Accessible Name 13/19, CSS 90/564, DOM 218/662, editing 118/704, HTML 30/136, referrer policy 1,382/1,391 and WAI-ARIA 28/32. Its 1,818 failures are 1,523 assertions, 224 harness failures, 40 timeouts and 31 unclassified outcomes. The result remains failed and diagnostic; no signed production-worker aggregate is published as passing. Full production-worker execution, four-profile equivalence, Linux artifacts, performance and release attestation remain open. |
+| F15 — production-path testing | **Partial; exact complete diagnostic measured, conformance open** | The v2 inventory contains 4,022 exact executions and the pinned runner is parallel, checkpointed and fingerprint-bound. The clean-tree `e1b97d7` in-process run passes 2,267/4,022. Exact root totals are IndexedDB 304/456, WebIDL 26/58, Accessible Name 13/19, CSS 113/564, DOM 269/662, editing 118/704, HTML 30/136, referrer policy 1,366/1,391 and WAI-ARIA 28/32. Its 1,755 failures are 1,527 assertions, 146 harness failures, 54 timeouts and 28 unclassified outcomes. Compared with the preceding 2,247/4,022 exact run, 32 cases became passing and 12 referrer-policy cases regressed, for a net gain of 20. The result remains failed and diagnostic; the release validator rejects its in-process execution mode, and validator/runner inventory expansion must be reconciled before publication. No signed production-worker aggregate is published as passing. Full production-worker execution, four-profile equivalence, Linux artifacts, performance and release attestation remain open. |
 | F16 — Intent/API/MCP | **Closed in software; release evidence pending** | Agent contract v3 additively exposes semantic contract v6 and scoped/delta observation while accepting frozen v2 requests. Rust, OIL, worker protocol v8, Python and MCP use the same graph resolver/action engine. Upload, context-virtual clipboard and parent-owned secret-label behavior remain unchanged and values never enter argv, environment, OIL, JSON-RPC, traces, observations or worker initialization. |
 
 ### Current broader-gap status
@@ -209,27 +209,32 @@ The dependency-ordered completion backlog is maintained in
 
 ### Evidence and release status
 
-Commit `efdc331` is not release-attested as one bundle:
+Commit `e1b97d7` is not release-attested as one bundle:
 
 - No `runtime-completion-v1` compact result exists. Its validator must recompute
   every required assertion from the pinned raw ledger before publication.
 - The pinned WPT harness and focused Range, IndexedDB and editing slices run.
-  The latest complete **in-process diagnostic**, from clean commit `efdc331`,
-  executes all 4,022 required variants and passes 2,204. Exact root totals are
-  IndexedDB 304/456, WebIDL 21/58, Accessible Name 13/19, CSS 90/564, DOM
-  218/662, editing 118/704, HTML 30/136, referrer policy 1,382/1,391 and
-  WAI-ARIA 28/32. The remaining 1,818 cases are 1,523 assertion failures, 224
-  harness failures, 40 timeouts and 31 unclassified outcomes. The binary
-  hash is `3747403f652531d5286e7254f0b3c473bf618b6abcf1ebf79020de4f5099051d`
+  The latest complete **in-process diagnostic**, from clean commit `e1b97d7`,
+  executes all 4,022 required variants and passes 2,267. Exact root totals are
+  IndexedDB 304/456, WebIDL 26/58, Accessible Name 13/19, CSS 113/564, DOM
+  269/662, editing 118/704, HTML 30/136, referrer policy 1,366/1,391 and
+  WAI-ARIA 28/32. The remaining 1,755 cases are 1,527 assertion failures, 146
+  harness failures, 54 timeouts and 28 unclassified outcomes. The binary
+  hash is `a42f8ebdd905d1fbebd368da7f2920e1803830e51c75cb584d755508c29dae42`
   and the run fingerprint is
-  `0db582452f364e6c5f6ebb78b8d9def9387061a67d0b93cd93ef03a35327ebd3`.
+  `549b792b132278f60512d4a98383d44dcd290c90aa3a33b0eb6bb3767e377833`.
   This is still discovery evidence, not production-worker attestation.
+  It improves by a net 20 cases over the preceding exact run: 32 new passes and
+  12 referrer-policy regressions. The release validator correctly rejects the
+  in-process execution mode, while its static manifest expansion currently
+  differs from the runner's locked 4,022 execution IDs; that discrepancy must
+  be closed before production evidence can be validated.
   The root-relative `WebIDLParser.js` alias and missing pinned `storage` subtree
   discovered by the run are corrected. The controlled public loopback server
   now proxies non-Oryn routes to pinned upstream `wptserve` for dynamic Python
   handlers, sidecar headers, redirects and substitutions. A focused history
   rerun remains 9/20, while an IndexedDB dynamic-handler case changes from a
-  timeout to a deterministic harness result. A complete `efdc331` production-
+  timeout to a deterministic harness result. A complete `e1b97d7` production-
   worker rerun is still required before an authoritative aggregate can be
   published.
 - The official prebuilt macOS ARM64 rusty_v8 archive does not provide the
@@ -261,10 +266,10 @@ The current honest product statement is therefore:
 ### Remaining gaps and completion order
 
 1. **Triage and close the required upstream inventory.** The latest exact
-   clean-tree diagnostic is 2,204/4,022. Its 1,818 failures comprise 1,523
-   assertion failures, 224 harness failures, 40 timeouts and 31 unclassified
-   outcomes. Root deficits are editing 588, CSS 476, DOM 454, IndexedDB 153,
-   referrer policy 9, HTML 106, generated-WebIDL 37, WAI-ARIA 4 and
+   clean-tree diagnostic is 2,267/4,022. Its 1,755 failures comprise 1,527
+   assertion failures, 146 harness failures, 54 timeouts and 28 unclassified
+   outcomes. Root deficits are editing 586, CSS 451, DOM 393, IndexedDB 152,
+   referrer policy 25, HTML 106, generated-WebIDL 32, WAI-ARIA 4 and
    Accessible Name 6. Fix shared harness/lifecycle, editing selection, CSSOM,
    DOM realm/event and IndexedDB scheduling causes before working isolated
    assertions. Any newly exposed algorithm defect becomes software work;
