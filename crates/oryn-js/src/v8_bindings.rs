@@ -109,6 +109,7 @@ struct EventRecord {
     platform_current_target: Option<u64>,
     bubbles: bool,
     cancelable: bool,
+    composed: bool,
     is_trusted: bool,
     default_prevented: bool,
     propagation_stopped: bool,
@@ -789,6 +790,7 @@ pub struct V8BindingState {
     next_mutation_observer_id: Cell<u64>,
     mutation_observers: RefCell<BTreeMap<u64, MutationObserverEntry>>,
     mutation_record_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
+    error_event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     ranges: RefCell<BTreeMap<u64, RangeRecord>>,
     static_ranges: RefCell<BTreeSet<u64>>,
     range_objects: RefCell<BTreeMap<u64, RangeWrapper>>,
@@ -2718,6 +2720,7 @@ pub fn install_generated_bindings_with_root_for_global(
         next_mutation_observer_id: Cell::new(1),
         mutation_observers: RefCell::new(BTreeMap::new()),
         mutation_record_brand: RefCell::new(None),
+        error_event_brand: RefCell::new(None),
         ranges: RefCell::new(BTreeMap::new()),
         static_ranges: RefCell::new(BTreeSet::new()),
         range_objects: RefCell::new(BTreeMap::new()),
@@ -7221,6 +7224,149 @@ fn append_header(
     Ok(())
 }
 
+const ERROR_EVENT_FIELDS: &[&str] = &["message", "filename", "lineno", "colno", "error"];
+
+fn event_init_member<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    init: Option<v8::Local<'s, v8::Object>>,
+    name: &str,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let Some(init) = init else {
+        return Some(v8::undefined(scope).into());
+    };
+    let key = v8::String::new(scope, name)?;
+    init.get(scope, key.into())
+}
+
+fn initialize_error_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+    args: &v8::FunctionCallbackArguments<'s>,
+) -> Option<()> {
+    if args.length() == 0 {
+        throw_type_error(scope, "ErrorEvent constructor requires a type");
+        return None;
+    }
+    let event_type = args.get(0).to_string(scope)?;
+    let event_type = rust_string_preserving_utf16(scope, event_type).ok()?;
+    let init_value = args.get(1);
+    let init = if init_value.is_null_or_undefined() {
+        None
+    } else if init_value.is_object() {
+        Some(init_value.to_object(scope)?)
+    } else {
+        throw_type_error(
+            scope,
+            "ErrorEventInit must be an object, null, or undefined",
+        );
+        return None;
+    };
+    // WebIDL converts inherited dictionary members first, then members in
+    // lexicographic order. Complete all conversions before allocating native state.
+    let bubbles = event_init_member(scope, init, "bubbles")?.boolean_value(scope);
+    let cancelable = event_init_member(scope, init, "cancelable")?.boolean_value(scope);
+    let composed = event_init_member(scope, init, "composed")?.boolean_value(scope);
+    let colno = event_init_member(scope, init, "colno")?.uint32_value(scope)?;
+    let error = event_init_member(scope, init, "error")?;
+    let filename = event_init_member(scope, init, "filename")?;
+    let filename = if filename.is_undefined() {
+        v8::String::new(scope, "")?
+    } else {
+        // USVString replaces unpaired surrogates; DOMString message below does not.
+        let filename = filename.to_string(scope)?.to_rust_string_lossy(scope);
+        v8::String::new(scope, &filename)?
+    };
+    let lineno = event_init_member(scope, init, "lineno")?.uint32_value(scope)?;
+    let message = event_init_member(scope, init, "message")?;
+    let message = if message.is_undefined() {
+        v8::String::new(scope, "")?
+    } else {
+        message.to_string(scope)?
+    };
+    let data = v8::Array::new(scope, ERROR_EVENT_FIELDS.len() as i32);
+    data.set_index(scope, 0, message.into());
+    data.set_index(scope, 1, filename.into());
+    let lineno = v8::Integer::new_from_unsigned(scope, lineno);
+    data.set_index(scope, 2, lineno.into());
+    let colno = v8::Integer::new_from_unsigned(scope, colno);
+    data.set_index(scope, 3, colno.into());
+    data.set_index(scope, 4, error);
+    let brand = {
+        let mut brand = state.error_event_brand.borrow_mut();
+        if brand.is_none() {
+            let symbol = v8::Symbol::new(scope, None);
+            *brand = Some(v8::Global::new(scope, symbol));
+        }
+        v8::Local::new(scope, brand.as_ref().unwrap())
+    };
+    let event_id = state.next_event_id.get();
+    state.next_event_id.set(event_id.saturating_add(1));
+    state.events.borrow_mut().insert(
+        event_id,
+        EventRecord {
+            time_stamp: state.performance_now(),
+            event_type,
+            target: None,
+            current_target: None,
+            platform_target: None,
+            platform_current_target: None,
+            bubbles,
+            cancelable,
+            composed,
+            is_trusted: false,
+            default_prevented: false,
+            propagation_stopped: false,
+            immediate_stopped: false,
+            in_passive_listener: false,
+            dispatching: false,
+            initialized: true,
+            phase: 0,
+        },
+    );
+    let id = v8::Number::new(scope, event_id as f64);
+    args.this().set_internal_field(0, id.into());
+    // V8 traces payload edges, preserving arbitrary thrown values without a
+    // native strong-handle table that would retain the payload after collection.
+    args.this().set_internal_field(2, data.into());
+    args.this().set_internal_field(3, brand.into());
+    Some(())
+}
+
+fn error_event_property<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+    object: v8::Local<v8::Object>,
+    name: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    let invalid = || V8BindingError::Allocation("ErrorEvent receiver");
+    if object.internal_field_count() < 4 {
+        return Err(invalid());
+    }
+    let expected = state
+        .error_event_brand
+        .borrow()
+        .as_ref()
+        .map(|brand| v8::Local::new(scope, brand))
+        .ok_or_else(invalid)?;
+    let brand = object
+        .get_internal_field(scope, 3)
+        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+        .ok_or_else(invalid)?;
+    if !brand.strict_equals(expected.into()) {
+        return Err(invalid());
+    }
+    let data = object
+        .get_internal_field(scope, 2)
+        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+        .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
+        .ok_or_else(invalid)?;
+    let index = ERROR_EVENT_FIELDS
+        .iter()
+        .position(|field| *field == name)
+        .ok_or_else(invalid)?;
+    data.get_index(scope, index as u32).ok_or_else(invalid)
+}
+
 fn generated_constructor<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     args: v8::FunctionCallbackArguments<'s>,
@@ -7233,6 +7379,19 @@ fn generated_constructor<'s>(
     let name = interface
         .map(|interface| interface.name)
         .unwrap_or("interface");
+    if name == "ErrorEvent" {
+        if !args.is_construct_call() {
+            throw_type_error(scope, "ErrorEvent constructor requires new");
+            return;
+        }
+        if let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() {
+            // A failed WebIDL conversion leaves its original exception pending.
+            initialize_error_event(scope, &state, &args);
+        } else {
+            throw_type_error(scope, "generated binding state is unavailable");
+        }
+        return;
+    }
     if let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() {
         match initialize_platform_constructor(scope, &state, name, &args) {
             Ok(true) => return,
@@ -7262,23 +7421,34 @@ fn generated_constructor<'s>(
             throw_type_error(scope, "generated binding state is unavailable");
             return;
         };
-        let event_type = args.get(0).to_rust_string_lossy(scope);
+        let event_type = match required_string(scope, &args, 0) {
+            Ok(value) => value,
+            Err(error) => {
+                throw_binding_error(scope, &error);
+                return;
+            }
+        };
         let init_value = args.get(1);
-        let init = (!init_value.is_null_or_undefined())
-            .then(|| init_value.to_object(scope))
-            .flatten();
-        let bubbles = init
-            .and_then(|init| {
-                let key = v8::String::new(scope, "bubbles")?;
-                init.get(scope, key.into())
-            })
-            .is_some_and(|value| value.boolean_value(scope));
-        let cancelable = init
-            .and_then(|init| {
-                let key = v8::String::new(scope, "cancelable")?;
-                init.get(scope, key.into())
-            })
-            .is_some_and(|value| value.boolean_value(scope));
+        let init = if init_value.is_null_or_undefined() {
+            None
+        } else if init_value.is_object() {
+            init_value.to_object(scope)
+        } else {
+            throw_type_error(scope, "EventInit must be an object, null, or undefined");
+            return;
+        };
+        let Some(bubbles) = event_init_member(scope, init, "bubbles") else {
+            return;
+        };
+        let bubbles = bubbles.boolean_value(scope);
+        let Some(cancelable) = event_init_member(scope, init, "cancelable") else {
+            return;
+        };
+        let cancelable = cancelable.boolean_value(scope);
+        let Some(composed) = event_init_member(scope, init, "composed") else {
+            return;
+        };
+        let composed = composed.boolean_value(scope);
         let event_id = state.next_event_id.get();
         state.next_event_id.set(event_id.saturating_add(1));
         state.events.borrow_mut().insert(
@@ -7292,6 +7462,7 @@ fn generated_constructor<'s>(
                 platform_current_target: None,
                 bubbles,
                 cancelable,
+                composed,
                 is_trusted: false,
                 default_prevented: false,
                 propagation_stopped: false,
@@ -7313,17 +7484,6 @@ fn generated_constructor<'s>(
                 .unwrap_or_else(|| v8::null(scope).into());
             if let Some(key) = v8::String::new(scope, "detail") {
                 args.this().create_data_property(scope, key.into(), detail);
-            }
-            let composed = init
-                .and_then(|init| {
-                    let key = v8::String::new(scope, "composed")?;
-                    init.get(scope, key.into())
-                })
-                .is_some_and(|value| value.boolean_value(scope));
-            if let Some(key) = v8::String::new(scope, "composed") {
-                let value = v8::Boolean::new(scope, composed);
-                args.this()
-                    .create_data_property(scope, key.into(), value.into());
             }
         }
         if name == "InputEvent" {
@@ -7788,6 +7948,13 @@ fn generated_attribute_getter(
         match result {
             Ok(value) => return_value.set(value),
             Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if interface == "ErrorEvent" {
+        match error_event_property(scope, &state, args.this(), member) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_type_error(scope, &error.to_string()),
         }
         return;
     }
@@ -23989,6 +24156,7 @@ fn create_event_object_with_interface<'s>(
             platform_current_target: None,
             bubbles,
             cancelable,
+            composed: false,
             is_trusted: false,
             default_prevented: false,
             propagation_stopped: false,
@@ -24033,6 +24201,7 @@ fn create_input_event_object<'s>(
             platform_current_target: None,
             bubbles: true,
             cancelable,
+            composed: false,
             is_trusted: true,
             default_prevented: false,
             propagation_stopped: false,
@@ -24126,6 +24295,7 @@ fn get_event_attribute<'s>(
         "eventPhase" => Ok(v8::Integer::new_from_unsigned(scope, event.phase.into()).into()),
         "bubbles" => Ok(v8::Boolean::new(scope, event.bubbles).into()),
         "cancelable" => Ok(v8::Boolean::new(scope, event.cancelable).into()),
+        "composed" => Ok(v8::Boolean::new(scope, event.composed).into()),
         "isTrusted" => Ok(v8::Boolean::new(scope, event.is_trusted).into()),
         "defaultPrevented" => Ok(v8::Boolean::new(scope, event.default_prevented).into()),
         "returnValue" => Ok(v8::Boolean::new(scope, !event.default_prevented).into()),
@@ -27422,6 +27592,95 @@ mod tests {
             return true;
           })()
         "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
+    fn error_event_preserves_payload_conversions_and_native_brand() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            (() => {
+                function check(value, label) { if (!value) throw Error(label); }
+                function throwsType(fn) { try { fn(); } catch(e) { check(e instanceof TypeError, 'TypeError'); return; } throw Error('no TypeError'); }
+                const empty = new ErrorEvent('error');
+                check(empty instanceof Event && empty instanceof ErrorEvent, 'inheritance');
+                check(empty.message === '' && empty.filename === '' && empty.lineno === 0 && empty.colno === 0 && empty.error === undefined, 'defaults');
+                check(!empty.bubbles && !empty.cancelable && !empty.composed && !empty.isTrusted, 'flags');
+                for (const value of [undefined, null, 1, 'text', Symbol('error'), {a:1}])
+                    check(new ErrorEvent('error', {error:value}).error === value, 'identity');
+                class Derived extends ErrorEvent {}
+                const payload = {nested:{}};
+                const event = new Derived('\ud800', {message:'\ud800',filename:'a\ud800b',lineno:-1,colno:4294967298,error:payload,bubbles:1,cancelable:true,composed:true});
+                check(event instanceof Derived && Object.getPrototypeOf(event) === Derived.prototype, 'subclass');
+                check(event.type === '\ud800' && event.message === '\ud800' && event.filename === 'a\ufffdb', 'string conversion');
+                check(event.lineno === 4294967295 && event.colno === 2 && event.bubbles && event.cancelable && event.composed, 'numeric conversion');
+                const getError = Object.getOwnPropertyDescriptor(ErrorEvent.prototype, 'error').get;
+                check(getError.call(event) === payload && !Object.hasOwn(event,'error'), 'native getter');
+                for(const value of [{}, new Event('error'), Object.create(ErrorEvent.prototype)]) throwsType(()=>getError.call(value));
+                Object.setPrototypeOf(event, null); check(getError.call(event) === payload, 'brand survives prototype change');
+                throwsType(()=>ErrorEvent('error')); throwsType(()=>new ErrorEvent());
+                for(const value of [1,true,'x',Symbol()]) throwsType(()=>new ErrorEvent('error',value));
+                for(const name of ['message','filename','lineno','colno']) throwsType(()=>new ErrorEvent('error',{[name]:Symbol()}));
+                check(new ErrorEvent('error',null).error === undefined, 'null dictionary');
+                const order = [], marker = {};
+                const init = new Proxy({}, { get(_,name) { order.push(name); return undefined; } });
+                new ErrorEvent({toString(){order.push('type'); return 'error';}}, init);
+                check(order.join(',') === 'type,bubbles,cancelable,composed,colno,error,filename,lineno,message', 'dictionary order');
+                for(const name of ['bubbles','cancelable','composed','colno','error','filename','lineno','message']) {
+                    try { new ErrorEvent('error',new Proxy({}, {get(_,key){if(key===name)throw marker;}})); throw Error('getter did not throw'); }
+                    catch(e) { check(e === marker, 'getter exception identity'); }
+                }
+                check(new Event('x',{composed:true}).composed && new CustomEvent('x',{composed:true}).composed, 'shared composed');
+                globalThis.retainedError = new ErrorEvent('error',{error:payload});
+                globalThis.retainedPayload = payload;
+                return true;
+            })()
+        "#).unwrap();
+        {
+            v8::tc_scope!(let tc, scope);
+            let value = v8::Script::compile(tc, source, None).unwrap().run(tc);
+            assert!(
+                value.is_some_and(|value| value.is_true()),
+                "{:?}",
+                tc.exception().map(|e| e.to_rust_string_lossy(tc))
+            );
+            // The traced payload survives GC while its event remains reachable.
+            tc.low_memory_notification();
+            let source = v8::String::new(tc, "retainedError.error === retainedPayload").unwrap();
+            assert!(
+                v8::Script::compile(tc, source, None)
+                    .unwrap()
+                    .run(tc)
+                    .unwrap()
+                    .is_true()
+            );
+            assert!(state.events.borrow().values().any(|event| event.composed));
+        }
+        let key = v8::String::new(scope, "retainedError").unwrap();
+        let foreign_event = context.global(scope).get(scope, key.into()).unwrap();
+        let other = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, other);
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        install_generated_bindings(scope, other, dom, RealmId(1), 1).unwrap();
+        let key = v8::String::new(scope, "foreignEvent").unwrap();
+        other.global(scope).set(scope, key.into(), foreign_event);
+        let source = v8::String::new(scope, "Object.getOwnPropertyDescriptor(ErrorEvent.prototype,'error').get.call(foreignEvent) === foreignEvent.error").unwrap();
         assert!(
             v8::Script::compile(scope, source, None)
                 .unwrap()

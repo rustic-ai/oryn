@@ -156,6 +156,14 @@ Implement native exception/error-event reporting and verify that an uncaught
 parser exception makes an ordinary testharness run fail unless the test explicitly
 permits it. Keep original exception identity and realm behavior.
 
+The native `ErrorEvent` interface prerequisite is implemented with traced payload
+storage, receiver brands, WebIDL conversions and inherited `composed` state.
+[Validation](CONFORMANCE-NATIVE-ERROR-EVENTS-2026-09-06.json) records 118 passing
+V8 binding tests (two existing ignores), strict JS/native Clippy and registry
+validation. Parser/callback reporting, Window `onerror`, worker propagation and
+initial frame realms remain open; this interface alone does not close W0 or
+establish a new signed-worker conformance result.
+
 Create a reduced regression for each confirmed shared cause. Record its dependency
 contracts, affected IDs, expected behavior and decisive check. First failing assertions
 are a starting point: inspect later assertions after each fix, and track assertion-level

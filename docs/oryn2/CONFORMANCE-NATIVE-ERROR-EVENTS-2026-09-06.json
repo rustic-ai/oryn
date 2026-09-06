@@ -1,0 +1,47 @@
+{
+  "checks": {
+    "generated_registry_check": true,
+    "strict_clippy": {
+      "features": [
+        "v8-host",
+        "v8-sandbox"
+      ],
+      "packages": [
+        "oryn-js",
+        "oryn-native"
+      ],
+      "passed": true,
+      "warnings_denied": true
+    },
+    "v8_binding_tests": {
+      "failed": 0,
+      "ignored": 2,
+      "passed": 118
+    }
+  },
+  "coverage": [
+    "Default undefined error payload and explicit arbitrary thrown values",
+    "DOMString and USVString conversions, unsigned-long conversion",
+    "Inherited dictionary getter order and original getter/conversion exceptions",
+    "Subclass identity and native getter brand rejection",
+    "Cross-realm getters and reachable payload preservation under GC",
+    "Shared EventInit composed flag"
+  ],
+  "logs": {
+    "artifacts/native-error-events/oryn-error-event-bindings-tests.log": "fb8fe1657e1d1295ce900a0c7a8724ec82aab9f31c174efadd43b2b616a24463",
+    "artifacts/native-error-events/oryn-error-event-clippy.log": "2bba03fc7832760f0f91051bdcd2faeaed243ab9b562e778e8ebea950cc8fd29"
+  },
+  "remaining": [
+    "Native parser and callback exception reporting with preserved identity and source locations",
+    "Window onerror five-argument handling, cancellation and reentrancy",
+    "Initial frame realms and indexed child access for the cross-realm observer WPT",
+    "Worker error propagation and origin muting",
+    "Full event dispatch paths and lifecycle conformance"
+  ],
+  "scope": "Native ErrorEvent constructor and payload interface prerequisite; callback/parser exception reporting remains open. No new signed WPT score is claimed.",
+  "source_sha256": {
+    "crates/oryn-js/src/generated/browser.rs": "f1a04d7a1bdbaf9a1ffad791febfdd9bfc5b55861ad3e07f12aadaaeb096a376",
+    "crates/oryn-js/src/v8_bindings.rs": "85b35d81520f969f5505327caf0e81c7542b7becd685cf03f862fa13110fa6fb",
+    "crates/oryn-webidl/idl/browser.webidl": "ab596d409cf8754b4ee4925a64f6b413acf7569bb016cc35ea63adede856a9af"
+  }
+}

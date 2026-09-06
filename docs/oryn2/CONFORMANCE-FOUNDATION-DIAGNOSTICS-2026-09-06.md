@@ -476,3 +476,16 @@ the remaining twelve are absent from partial `Range-mutations-dataChange` and
 `Range-mutations-insertData` results. Both primary diagnostics report worker
 wall-time failures. This is unresolved coverage loss, not evidence of correctness.
 The baseline binds the detailed assertion audit by hash.
+
+## Native ErrorEvent interface prerequisite
+
+The native generated interface now preserves arbitrary error payload identity in
+V8-traced internal storage and validates receiver brands. Constructor conversions
+respect dictionary order, exceptions, DOMString/USVString differences and numeric
+conversion. Shared EventInit conversion exposes native `composed` state.
+
+The V8 suite passes 118 tests with two existing ignores, including cross-realm
+getters and GC preservation; strict JS/native Clippy and generated-registry checks
+pass. See [the evidence](CONFORMANCE-NATIVE-ERROR-EVENTS-2026-09-06.json).
+Exception reporting and Window/worker error delivery still require implementation.
+The signed full score remains the `eb54e11` baseline; no WPT gain is claimed here.

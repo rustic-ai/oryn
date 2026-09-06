@@ -99,6 +99,7 @@ interface Event {
   readonly attribute unsigned short eventPhase;
   readonly attribute boolean bubbles;
   readonly attribute boolean cancelable;
+  readonly attribute boolean composed;
   [LegacyUnforgeable] readonly attribute boolean isTrusted;
   readonly attribute boolean defaultPrevented;
   attribute boolean cancelBubble;
@@ -109,6 +110,24 @@ interface Event {
   undefined preventDefault();
   undefined stopPropagation();
   undefined stopImmediatePropagation();
+};
+
+[Exposed=(Window,Worker)]
+interface ErrorEvent : Event {
+  constructor(DOMString type, optional ErrorEventInit eventInitDict);
+  readonly attribute DOMString message;
+  readonly attribute USVString filename;
+  readonly attribute unsigned long lineno;
+  readonly attribute unsigned long colno;
+  readonly attribute any error;
+};
+
+dictionary ErrorEventInit : EventInit {
+  DOMString message = "";
+  USVString filename = "";
+  unsigned long lineno = 0;
+  unsigned long colno = 0;
+  any error;
 };
 
 [Exposed=(Window,Worker)]
