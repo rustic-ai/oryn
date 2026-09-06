@@ -489,3 +489,17 @@ getters and GC preservation; strict JS/native Clippy and generated-registry chec
 pass. See [the evidence](CONFORMANCE-NATIVE-ERROR-EVENTS-2026-09-06.json).
 Exception reporting and Window/worker error delivery still require implementation.
 The signed full score remains the `eb54e11` baseline; no WPT gain is claimed here.
+
+## Isolated global event and observer exception prototype
+
+Production remains at the native ErrorEvent interface prerequisite. An isolated
+checkout tests native global listeners, ErrorEvent handler calls, cancellation,
+reentrant error reporting and callback-realm exception delivery. It passes 122
+V8 binding tests with two existing ignores and strict JS Clippy. Focused tests
+found and corrected handler ordering and removed-registration snapshot defects.
+[Evidence](CONFORMANCE-GLOBAL-EVENT-PROTOTYPE-2026-09-06.json) binds the prototype
+source and patch to its logs and lists remaining validation explicitly.
+
+This prototype has not replaced production bootstrap dispatch. Parser/module
+reporting, other global handler attributes, cross-realm Event ownership and host
+integration still require work. No signed-worker WPT gain is attributed to it.

@@ -1,0 +1,61 @@
+{
+  "approval_review": {
+    "production_replacement_executed": false,
+    "reason": "Automatic review rejected broad untested replacement of shared global dispatch and cross-realm exception handling. Work continued as an isolated prototype with separate build artifacts."
+  },
+  "artifacts": {
+    "artifacts/native-global-event-prototype/oryn-global-event-prototype-clippy.log": "71399ff234fd16caa5565d972af32862fc720acf3a3d75134c8852094fccb4cf",
+    "artifacts/native-global-event-prototype/oryn-global-event-prototype-tests.log": "ce0af3d6a222ef0acd8879abaeb549591d31214509c2829da0a692e85da19de7",
+    "artifacts/native-global-event-prototype/prototype.patch": "5f167a3cde806b030a9209d20add7ca00d54bb60bfe4fb0b30e75804c6db88df"
+  },
+  "not_integrated": [
+    "Production bootstrap global listeners and global DOM phases",
+    "Production parser/module execution exception reporting",
+    "Worker propagation and origin muting"
+  ],
+  "production_base_commit": "006d1bfbadea214c4a069cda757f60531c880a33",
+  "prototype_directory": "/private/tmp/oryn-global-event-prototype",
+  "regressions_found_and_corrected_in_prototype": [
+    "Handler initially ran after later listeners",
+    "Removed/re-registered callback initially matched an old snapshot entry"
+  ],
+  "remaining_validation_and_design": [
+    "Complete handler bookkeeping, including add/removeEventListener with the same callback as onerror and noncallable handler objects",
+    "Cross-realm dispatch of Event objects needs explicit event-record owner and global target identity checks",
+    "Native accessors currently cover onerror; other global event handler attributes still need registration-order semantics",
+    "Callback-interface handleEvent conversion and getter exceptions need complete coverage",
+    "Validate host parser/module reporting and primary testharness failure behavior in the isolated checkout before production integration"
+  ],
+  "scope": "Isolated prototype only. Not integrated into the production runtime and not a new conformance score.",
+  "source_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "433a682e11e5fdaabf14fa6abb81081702be83a2f72ad2de165f72dcb43170aa",
+    "crates/oryn-js/src/v8_bindings/global_events.rs": "4565dc2000b233334be1ecab8564641709f27b4c896178a97f727deef1e9dd60"
+  },
+  "target_directory": "/private/tmp/oryn-global-event-prototype-target",
+  "validation": {
+    "strict_js_clippy": {
+      "features": [
+        "v8-host",
+        "v8-sandbox"
+      ],
+      "passed": true,
+      "warnings_denied": true
+    },
+    "v8_binding_tests": {
+      "failed": 0,
+      "ignored": 2,
+      "passed": 122
+    }
+  },
+  "verified_contracts": [
+    "Global event target/currentTarget/phase and cleanup",
+    "Capture, once, removal during dispatch, abort signals and passive cancellation",
+    "Global ErrorEvent handler five-argument convention and true-return cancellation",
+    "Listener exception reporting preserves thrown identity and continues dispatch",
+    "Reentrant error reporting is bounded",
+    "Native reported errors are trusted ErrorEvents",
+    "Handler registration position",
+    "Removed/re-registered listeners do not revive old snapshot entries",
+    "MutationObserver exceptions report to the callback realm, not the observer or Error-object realm"
+  ]
+}
