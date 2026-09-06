@@ -1,15 +1,15 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md) and its per-ID failure backlog.
-> The latest complete signed-worker development run passes **2,467/4,022**
-> executions, with **2 new passes and no regressions** versus the
-> preceding namespace candidate. **1,555 executions remain failing.**
+> Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
+> The clean signed-worker baseline at `fbb2f29` passes **2,501/4,022** executions:
+> **34 new passes, no lost passes**, and **1,521 remaining failures** versus the
+> previous full run at 2,467/4,022.
 
 Every required v2 execution ID and every reported passing testharness completion
-has been checked. The result is development evidence from the signed App Sandbox
-worker, with unchanged security, memory, and timeout limits. The dirty source
-and failed aggregate do not qualify a release.
+has been independently checked. Source stayed clean and the signed App Sandbox
+worker stayed fixed throughout the run. Security, memory and timeout limits are
+unchanged. The failing aggregate does not qualify a release.
 
 | Root | Passed / required |
 |---|---:|
@@ -17,52 +17,36 @@ and failed aggregate do not qualify a release.
 | WebIDL | 29/58 |
 | accname | 15/19 |
 | css | 226/564 |
-| dom | 297/662 |
+| dom | 331/662 |
 | editing | 118/704 |
 | html | 30/136 |
 | referrer-policy | 1,383/1,391 |
 | wai-aria | 28/32 |
 
-Stylo owns CSS parsing, cascade, computed values, and production DOM selector
-matching. The latest full run includes relational and filtered nth-child
-selectors, untransformed offset dimensions, the shared event/performance clock,
-compact IndexedDB Blob cloning, and the CSP header/meta confirmation fix.
-Parser text batching removed the widespread quadratic memory growth in the
-preceding candidate. Constructed stylesheet adoption remains Rust-owned.
+The full ledger is `artifacts/upstream-conformance/conformance-worker-full-clean-fbb2f29.json`;
+its adjacent summary records exact coverage, completion validation, root totals,
+gains, regressions and artifact hashes. Remaining outcomes comprise 1,327 assertion,
+54 runtime, 128 harness, 11 incomplete and one timeout failure.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) now uses only this
+single full run. Every open ID retains its evidence and provisional workstream routing.
 
-The full result also includes canonical template contents, Stylo `@scope`,
-native NodeList views, Range wrapper lifetime cleanup, collection cycle tracing,
-faster static reads, the selector alias, mutation-journal lease cleanup, and
-element namespace preservation. The latest full run also includes detached-tree
-and wrapper graph tracing, the per-database IndexedDB connection queue, the
-Blitz namespace case-sensitivity correction, and iframe clone owner-document
-preservation. The two new file passes recover IndexedDB open-request-queue and
-fix CSS attribute-value namespace sensitivity. The selector alias now passes
-668/669 assertions; document `:target` state remains missing.
+Stylo owns CSS parsing, cascade, computed values and production DOM selector
+matching. The baseline includes the previously focused HTMLCollection and static
+NodeList fixes, qualified element names, native document MIME/quirks metadata,
+namespace validation and name reflection. It also includes the earlier template,
+wrapper/Range lifetime, IndexedDB queue and Stylo/Blitz adapter changes.
 
-Newer source adds real indexed properties for static NodeList reads and native
-live HTMLCollection views with named properties, literal tag/class/namespace
-filters, and generated named-getter metadata. The newer signed worker passes all eight HTMLCollection files and all six
-NodeList stress files, with verified harness completion and unchanged limits.
-A subsequent qualified-name creation fix preserves case and prefixes. The
-complete DOM root now improves to 327/662 (30 gains, zero regressions), and CSS
-remains 226/564 with no regressions. WebIDL was unchanged at 29/58 in the
-collection candidate. A later native document-metadata candidate reaches 329/662 DOM with two more
-gains and zero regressions (32 gains since the full baseline). Parser quirks mode,
-created-document content types, and collection matching modes now survive in the
-native document model. All 100 V8, 28 DOM and 141 native runtime tests pass. These
-changes are not included in the full ledger above. A namespace-validation and
-reflection follow-up reaches 331/662 DOM (two more gains, zero passing-file losses),
-including all 434 createDocument assertions. The broad name-validation file still
-hits the worker wall-time limit; XML iframe parsing and missing HTML element
-interfaces keep createElementNS incomplete.
+W0's clean baseline is complete. The next resource batch addresses quadratic
+creation of detached wrappers and mutation-journal scans. Isolated diagnostics
+pass 101 V8 binding tests and 29 native DOM tests; they are not yet signed-worker
+conformance evidence. See the [foundation diagnostics](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 
-Remaining shared gaps include XML parsing and iframe document-mode handling,
-namespace validation and reflection, table APIs, editing algorithms, CSSOM and implicit/shadow scope integration, generated-content
-accessible names, iframe realms, and transaction scheduling. Exact clean-source
-release, platform, product, performance, and semantic-equivalence evidence also
-remain open. See the [conformance progress report](CONFORMANCE-PROGRESS-2026-09-05.md)
-and [completion plan](RUNTIME-COMPLETION-ACTION-PLAN.md).
+Remaining shared gaps include XML parsing and iframe MIME propagation, namespace
+preservation through import/clone, document ownership, table APIs, Range/editing,
+CSSOM and scope integration, generated-content names, iframe realms and transaction
+scheduling. Complete conformance requires two full 4,022/4,022 runs of the same
+frozen candidate plus the plan's validation gates. Broader product/platform release
+qualification remains separate.
 
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.

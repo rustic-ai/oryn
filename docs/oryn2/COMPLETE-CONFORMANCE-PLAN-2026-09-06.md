@@ -32,29 +32,28 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The latest **complete full run** is **2,467/4,022**, with 1,555 failures. It predates
-several committed fixes. The newer complete DOM root is **331/662**, versus 297/662
-in that full run: 34 gains and no previously passing DOM files lost across those
-candidates. These are separate results, not a newly measured full-run score.
+The clean **complete full baseline** at `fbb2f29` is **2,501/4,022**, with 1,521
+failures: 34 gains and no lost passes versus the preceding full run at 2,467/4,022.
+All gains are in DOM, now 331/662. All other root pass counts are unchanged.
+Exact inventory coverage and every reported passing completion were verified.
 
-The [planning backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) starts with the
-full run and replaces only the IDs observed in the later complete DOM run. It
-contains **1,521 open execution IDs**, each with its evidence source, failure domain,
-first observed failing assertion when available, and a workstream assignment.
-This mixed-candidate index is for planning only. Routing is provisional; it does
-not claim that first-error text proves the root cause. No ID is silently discarded.
+The [planning backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) now uses that
+single full ledger, replacing the original mixed-candidate planning index.
+Each open ID retains its source evidence, failure domain, first observed failing
+assertion when available, and workstream assignment. Routing remains provisional;
+first-error text does not establish a root cause. No ID is silently discarded.
 
 | Root | Latest evidence used for planning | Open executions |
 |---|---|---:|
-| DOM | Newer complete DOM candidate | 331 |
-| Editing | Latest full run | 586 |
-| CSS | Latest full run; subsequent CSS root unchanged | 338 |
-| IndexedDB | Latest full run | 115 |
-| HTML | Latest full run | 106 |
-| WebIDL | Latest full run; subsequent WebIDL root unchanged | 29 |
-| Referrer policy | Latest full run | 8 |
-| Accessible Name | Latest full run | 4 |
-| WAI-ARIA | Latest full run | 4 |
+| DOM | Clean full baseline | 331 |
+| Editing | Clean full baseline | 586 |
+| CSS | Clean full baseline | 338 |
+| IndexedDB | Clean full baseline | 115 |
+| HTML | Clean full baseline | 106 |
+| WebIDL | Clean full baseline | 29 |
+| Referrer policy | Clean full baseline | 8 |
+| Accessible Name | Clean full baseline | 4 |
+| WAI-ARIA | Clean full baseline | 4 |
 
 Important concentration and dependencies:
 
@@ -79,7 +78,13 @@ Important concentration and dependencies:
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 
-**First implementation milestone, before selecting another correctness batch.**
+**Baseline completed:** clean source `fbb2f29`, signed worker
+`5dfca3b4045278e27ec5ea5f279258feb19372b447f37a5508d22aa43359dd53`,
+ledger `conformance-worker-full-clean-fbb2f29.json`. All 4,022 IDs and passing
+completions verified; all 1,521 failures routed. The initial resource batch has
+reproducible scaling and GC diagnostics recorded in the
+[foundation report](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
+The procedure below remains required for subsequent complete candidates.
 
 Build the current clean commit and run the complete inventory. Keep the worker and
 parent binary fixed for the entire run. Archive source, toolchain, inventory, fixture,
