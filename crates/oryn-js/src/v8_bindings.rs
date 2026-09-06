@@ -2495,15 +2495,13 @@ impl V8BindingState {
                 return Ok(Vec::new());
             }
             let mut candidates = Vec::new();
-            if dom
-                .node_name(root)
-                .is_ok_and(|name| name.eq_ignore_ascii_case("script"))
-            {
+            if is_script_element(&dom, root) {
                 candidates.push(root);
             }
             candidates.extend(dom.query_selector_all(root, "script")?);
             candidates
                 .into_iter()
+                .filter(|script| is_script_element(&dom, *script))
                 .filter(|script| {
                     dom.attribute(*script, "src")
                         .ok()
@@ -7532,12 +7530,37 @@ fn generated_constructor<'s>(
         }
         return;
     }
-    if name == "Document" && args.is_construct_call() {
+    if matches!(name, "Document" | "Text" | "Comment" | "DocumentFragment")
+        && args.is_construct_call()
+    {
         let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
             throw_type_error(scope, "generated binding state is unavailable");
             return;
         };
-        let document = state.dom.borrow_mut().create(NodeKind::Document);
+        let data = if matches!(name, "Text" | "Comment") && !args.get(0).is_undefined() {
+            match required_string(scope, &args, 0) {
+                Ok(data) => data,
+                Err(error) => {
+                    throw_binding_error(scope, &error);
+                    return;
+                }
+            }
+        } else {
+            String::new()
+        };
+        let kind = match name {
+            "Text" => NodeKind::Text { data },
+            "Comment" => NodeKind::Comment { data },
+            "DocumentFragment" => NodeKind::DocumentFragment,
+            _ => NodeKind::Document,
+        };
+        let brand = most_derived_brand(&kind);
+        let document = state.dom.borrow_mut().create(kind);
+        let owner = if name == "Document" {
+            document
+        } else {
+            state.document
+        };
         let wrapper = {
             let mut dom = state.dom.borrow_mut();
             match state.wrappers.borrow_mut().get_or_create(
@@ -7545,7 +7568,7 @@ fn generated_constructor<'s>(
                 state.realm,
                 state.document_generation,
                 document,
-                InterfaceBrand::Document,
+                brand,
             ) {
                 Ok(wrapper) => wrapper,
                 Err(error) => {
@@ -7554,7 +7577,7 @@ fn generated_constructor<'s>(
                 }
             }
         };
-        state.node_documents.borrow_mut().insert(document, document);
+        state.node_documents.borrow_mut().insert(document, owner);
         args.this()
             .set_internal_field(0, v8::BigInt::new_from_u64(scope, wrapper.0).into());
         set_dom_wrapper_identity(
@@ -7581,6 +7604,10 @@ fn generated_constructor<'s>(
                 connected_root: None,
             },
         );
+        if !wrapper_graphs::attach_new_leaf(scope, &state, document, args.this()) {
+            state.wrapper_graph_revision.set(None);
+        }
+        wrapper_graphs::refresh(scope, &state);
         return;
     }
     if name == "DOMParser" && args.is_construct_call() {
@@ -19274,6 +19301,36 @@ fn get_attribute_value<'s>(
             });
         return optional_node(scope, state, doctype);
     }
+    if interface == "Text" && member == "wholeText" {
+        let dom = state.dom.borrow();
+        let record = dom.arena().get(node)?;
+        let siblings = record
+            .parent
+            .map(|parent| dom.children(parent))
+            .transpose()?;
+        let siblings = siblings.unwrap_or(std::slice::from_ref(&node));
+        let index = siblings
+            .iter()
+            .position(|candidate| *candidate == node)
+            .unwrap_or(0);
+        let text = |node| match &dom.arena().get(node).ok()?.kind {
+            NodeKind::Text { data } | NodeKind::CDataSection { data } => Some(data.as_str()),
+            _ => None,
+        };
+        let mut start = index;
+        while start > 0 && text(siblings[start - 1]).is_some() {
+            start -= 1;
+        }
+        let mut end = index;
+        while end < siblings.len() && text(siblings[end]).is_some() {
+            end += 1;
+        }
+        let value = siblings[start..end]
+            .iter()
+            .filter_map(|node| text(*node))
+            .collect::<String>();
+        return v8_string(scope, &value);
+    }
     if interface == "Node" && member == "ownerDocument" {
         let owner = if matches!(
             state.dom.borrow().arena().get(node)?.kind,
@@ -20988,13 +21045,9 @@ fn call_operation<'s>(
                 }
             }
         }
-        ("Document" | "ShadowRoot", "getElementById") => {
+        ("Document" | "ShadowRoot" | "DocumentFragment", "getElementById") => {
             let id = required_string(scope, args, 0)?;
-            let found = if interface == "Document" {
-                state.dom.borrow().find_by_id(&id)
-            } else {
-                state.dom.borrow().query_selector(node, &format!("#{id}"))?
-            };
+            let found = state.dom.borrow().get_element_by_id(node, &id)?;
             optional_node(scope, state, found).map(Some)
         }
         ("Document", "open") => {
@@ -22719,13 +22772,14 @@ fn execute_parser_inserted_scripts(
         let dom = state.dom.borrow();
         let mut scripts = Vec::new();
         for root in roots {
-            if dom.node_name(*root).is_ok_and(|name| name == "SCRIPT") {
+            if is_script_element(&dom, *root) {
                 scripts.push(*root);
             }
             scripts.extend(dom.query_selector_all(*root, "script")?);
         }
         scripts
             .into_iter()
+            .filter(|script| is_script_element(&dom, *script))
             .map(|script| {
                 dom.arena()
                     .text_content(script)
@@ -22761,6 +22815,11 @@ fn execute_parser_inserted_scripts(
 /// boundary and enqueue external/module scripts for the page resource
 /// scheduler. This preserves the observable `appendChild(script)` ordering
 /// without granting the bindings layer any network authority.
+fn is_script_element(dom: &DomRuntime, node: NodeId) -> bool {
+    dom.is_element(node, "http://www.w3.org/1999/xhtml", "script")
+        || dom.is_element(node, "http://www.w3.org/2000/svg", "script")
+}
+
 fn prepare_dynamic_script_subtree(
     scope: &mut v8::PinScope<'_, '_>,
     state: &Rc<V8BindingState>,
@@ -22829,10 +22888,7 @@ fn prepare_dynamic_referrer_meta(
         let mut policies = Vec::new();
         let mut refreshes = Vec::new();
         for node in candidates {
-            if !dom
-                .node_name(node)
-                .is_ok_and(|name| name.eq_ignore_ascii_case("meta"))
-            {
+            if !dom.is_element(node, "http://www.w3.org/1999/xhtml", "meta") {
                 continue;
             }
             let content = dom
@@ -22906,8 +22962,7 @@ fn prepare_dynamic_stylesheet_subtree(
                                 && data.to_ascii_lowercase().contains("href")
                     )
                 });
-                let name = dom.node_name(*node).unwrap_or_default();
-                let linked = name.eq_ignore_ascii_case("link")
+                let linked = dom.is_element(*node, "http://www.w3.org/1999/xhtml", "link")
                     && dom
                         .attribute(*node, "rel")
                         .ok()
@@ -22921,7 +22976,8 @@ fn prepare_dynamic_stylesheet_subtree(
                         .ok()
                         .flatten()
                         .is_some_and(|href| !href.trim().is_empty());
-                let embedded = name.eq_ignore_ascii_case("style")
+                let embedded = (dom.is_element(*node, "http://www.w3.org/1999/xhtml", "style")
+                    || dom.is_element(*node, "http://www.w3.org/2000/svg", "style"))
                     && dom
                         .arena()
                         .text_content(*node)
@@ -22978,14 +23034,14 @@ fn prepare_dynamic_image_subtree(
             return Ok(());
         }
         let mut images = Vec::new();
-        if dom
-            .node_name(root)
-            .is_ok_and(|name| name.eq_ignore_ascii_case("img"))
-        {
+        if dom.is_element(root, "http://www.w3.org/1999/xhtml", "img") {
             images.push(root);
         }
         images.extend(dom.query_selector_all(root, "img")?);
         images
+            .into_iter()
+            .filter(|node| dom.is_element(*node, "http://www.w3.org/1999/xhtml", "img"))
+            .collect::<Vec<_>>()
     };
     for node in images {
         let (source, cross_origin, referrer_policy) = {
@@ -23069,14 +23125,14 @@ fn prepare_dynamic_frame_subtree(
             return Ok(());
         }
         let mut frames = Vec::new();
-        if dom
-            .node_name(root)
-            .is_ok_and(|name| name.eq_ignore_ascii_case("iframe"))
-        {
+        if dom.is_element(root, "http://www.w3.org/1999/xhtml", "iframe") {
             frames.push(root);
         }
         frames.extend(dom.query_selector_all(root, "iframe")?);
         frames
+            .into_iter()
+            .filter(|node| dom.is_element(*node, "http://www.w3.org/1999/xhtml", "iframe"))
+            .collect::<Vec<_>>()
     };
     for frame in frames {
         state.schedule_dynamic_frame(frame);
@@ -26286,6 +26342,141 @@ mod tests {
         scope.low_memory_notification();
         state.process_weak_releases().unwrap();
         let source = v8::String::new(scope, "ownedAttribute.ownerElement === null && ownedAttribute.ownerDocument.marker === 47 && ownedAttribute.value === 'detached'").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
+    fn scoped_id_lookup_and_whole_text_follow_native_tree_order() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main id='same'></main>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            (() => {
+                const check = (ok, label) => { if (!ok) throw Error(label); };
+                const fragment = new DocumentFragment();
+                const a = document.createElement('i'), b = document.createElement('b');
+                a.id = b.id = 'literal: id'; fragment.append(a, b);
+                check(fragment.getElementById('literal: id') === a, 'first tree match');
+                fragment.insertBefore(b, a);
+                check(fragment.getElementById('literal: id') === b, 'reordered match');
+                b.id = ''; check(fragment.getElementById('') === null, 'empty id');
+                const other = document.implementation.createHTMLDocument('');
+                const scoped = other.createElement('p'); scoped.id = 'same'; other.body.appendChild(scoped);
+                check(other.getElementById('same') === scoped && document.getElementById('same') !== scoped, 'document scope');
+                const host = document.createElement('div'); document.body.append(host);
+                const shadow = host.attachShadow({mode:'open'}); const hidden = document.createElement('i'); hidden.id = 'hidden: id'; shadow.appendChild(hidden);
+                check(shadow.getElementById('hidden: id') === hidden && document.getElementById('hidden: id') === null, 'shadow boundary');
+                const xml = document.implementation.createDocument(null, 'root');
+                const first = xml.createTextNode('a'), middle = xml.createCDATASection('b'), last = xml.createTextNode('c');
+                xml.documentElement.append(first, middle, last);
+                check(first.wholeText === 'abc' && middle.wholeText === 'abc' && last.wholeText === 'abc', 'contiguous text');
+                xml.documentElement.insertBefore(xml.createComment('boundary'), last);
+                check(first.wholeText === 'ab' && last.wholeText === 'c', 'comment boundary');
+                last.remove(); check(last.wholeText === 'c', 'detached text');
+                return true;
+            })()
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
+    fn resource_activation_requires_the_elements_expanded_name() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            (() => {
+                globalThis.executed = 0;
+                for (const namespace of ['urn:xml', null]) {
+                    const root = document.createElementNS(namespace, 'root');
+                    const script = document.createElementNS(namespace, 'script');
+                    script.textContent = 'globalThis.executed += 100'; root.appendChild(script);
+                    const frame = document.createElementNS(namespace, 'iframe');
+                    frame.setAttribute('src', 'https://example.invalid/frame'); root.appendChild(frame);
+                    const meta = document.createElementNS(namespace, 'meta');
+                    meta.setAttribute('name', 'referrer'); meta.setAttribute('content', 'unsafe-url'); root.appendChild(meta);
+                    document.body.appendChild(root);
+                }
+                for (const namespace of ['http://www.w3.org/1999/xhtml', 'http://www.w3.org/2000/svg']) {
+                    const script = document.createElementNS(namespace, 'script');
+                    script.textContent = 'globalThis.executed += 1'; document.body.appendChild(script);
+                }
+                if (executed !== 2) throw Error('namespace execution: ' + executed);
+                return true;
+            })()
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        assert!(state.pending_dynamic_frames.borrow().is_empty());
+        assert!(state.pending_referrer_policies.borrow().is_empty());
+    }
+
+    #[test]
+    fn character_and_fragment_constructors_bind_native_identity() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            (() => {
+                const check = (ok, label) => { if (!ok) throw Error(label); };
+                for (const [Constructor, type] of [[Text, 3], [Comment, 8]]) {
+                    const node = new Constructor('a😀');
+                    check(node instanceof Constructor && node instanceof Node && node.nodeType === type, 'native interface');
+                    check(node.data === 'a😀' && node.length === 3 && node.ownerDocument === document && node.parentNode === null, 'initial state');
+                    check(new Constructor().data === '' && new Constructor(undefined).data === '' && new Constructor(null).data === 'null', 'default conversion');
+                    document.body.appendChild(node);
+                    check(document.body.lastChild === node, 'wrapper identity');
+                    class Derived extends Constructor {}
+                    check(new Derived('x') instanceof Derived, 'derived construction');
+                    const sentinel = {}; let caught;
+                    try { new Constructor({toString() {throw sentinel;}}); } catch (e) {caught = e;}
+                    check(caught === sentinel, 'conversion exception');
+                }
+                const fragment = new DocumentFragment();
+                const text = fragment.appendChild(new Text('fragment'));
+                check(fragment.ownerDocument === document && fragment.nodeType === 11, 'fragment identity');
+                document.body.appendChild(fragment);
+                check(fragment.childNodes.length === 0 && document.body.lastChild === text, 'fragment insertion');
+                return true;
+            })()
+        "#).unwrap();
         assert!(
             v8::Script::compile(scope, source, None)
                 .unwrap()

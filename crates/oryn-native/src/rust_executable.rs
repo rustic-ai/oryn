@@ -259,11 +259,17 @@ fn preload_module_graph(
     Ok(())
 }
 
+fn is_script_element(dom: &DomRuntime, node: NodeId) -> bool {
+    dom.is_element(node, "http://www.w3.org/1999/xhtml", "script")
+        || dom.is_element(node, "http://www.w3.org/2000/svg", "script")
+}
+
 fn collect_scripts(dom: &SharedDomRuntime) -> Result<Vec<ScriptRecord>, HostError> {
     let dom = dom.borrow();
     dom.query_selector_all(dom.document(), "script")
         .map_err(|error| HostError::Execution(error.to_string()))?
         .into_iter()
+        .filter(|node| is_script_element(&dom, *node))
         .map(|node| script_record(&dom, node))
         .collect()
 }
@@ -274,6 +280,7 @@ fn collect_frames(dom: &SharedDomRuntime) -> Result<Vec<(NodeId, Option<String>)
         .query_selector_all(dom.document(), "iframe")
         .map_err(|error| HostError::Execution(error.to_string()))?
         .into_iter()
+        .filter(|node| dom.is_element(*node, "http://www.w3.org/1999/xhtml", "iframe"))
         .map(|node| {
             (
                 node,
@@ -882,7 +889,12 @@ fn load_frame_style_resources(
         let NodeKind::Element { name } = &node.kind else {
             continue;
         };
-        if name.local.as_ref() == "style" {
+        if name.local.as_ref() == "style"
+            && matches!(
+                name.ns.as_ref(),
+                "http://www.w3.org/1999/xhtml" | "http://www.w3.org/2000/svg"
+            )
+        {
             let css = node
                 .children
                 .iter()
@@ -890,6 +902,7 @@ fn load_frame_style_resources(
                 .collect::<String>();
             load_inline_css_resources(client, page_id, document_url, referrer_policy, &css)?;
         } else if name.local.as_ref() == "link"
+            && name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
             && node.attributes.get("rel").is_some_and(|rel| {
                 rel.split_ascii_whitespace()
                     .any(|token| token.eq_ignore_ascii_case("stylesheet"))
@@ -2278,6 +2291,7 @@ impl RustExecutableDocument {
                 dom.query_selector_all(child_document, "script")
                     .map_err(|error| HostError::Execution(error.to_string()))?
                     .into_iter()
+                    .filter(|script| is_script_element(&dom, *script))
                     .map(|script| {
                         script_record(&dom, script)
                             .map(|record| resolve_script_record(record, frame_url.as_ref()))
@@ -3782,6 +3796,7 @@ impl RustExecutableDocument {
                     dom.query_selector_all(child_document, "script")
                         .map_err(|error| HostError::Execution(error.to_string()))?
                         .into_iter()
+                        .filter(|script| is_script_element(&dom, *script))
                         .map(|script| {
                             let record = dom.arena().get(script)?;
                             Ok(resolve_script_record(
@@ -4166,7 +4181,7 @@ impl RustExecutableDocument {
                 dom.arena().iter().find_map(|(frame, record)| {
                     let is_iframe = matches!(
                         &record.kind,
-                        NodeKind::Element { name } if name.local.as_ref() == "iframe"
+                        NodeKind::Element { name } if name.local.as_ref() == "iframe" && name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
                     );
                     (is_iframe
                         && dom.is_connected(frame).unwrap_or(false)

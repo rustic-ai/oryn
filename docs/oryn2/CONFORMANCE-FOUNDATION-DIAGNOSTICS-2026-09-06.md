@@ -182,3 +182,23 @@ Six DOM gains, no lost passes in either selection against the ownership candidat
 Exact selected execution IDs and every passing testharness completion validated.
 Hash-bound summaries: CONFORMANCE-XML-ACTIVATION-2026-09-06.json.
 The full baseline remains 2501/4022 until another complete run is recorded.
+
+## Native DOM constructors, lookup and resource activation
+
+Text, Comment and DocumentFragment constructors now allocate native nodes and bind
+the actual constructed wrapper (including subclass prototypes). Text and Comment
+reuse detached-leaf graph tracing. Defaults, string conversion exceptions, UTF-16
+length, insertion identity and fragment extraction are covered by V8 tests.
+Text.wholeText reads the contiguous native Text/CDATA sibling sequence.
+DocumentFragment.getElementById is inherited by ShadowRoot; Document and fragment
+lookups now search their own tree in order, excluding nested shadow trees and
+empty IDs, without interpreting the ID as CSS syntax.
+
+Static and dynamic script/frame collectors now check expanded names. Dynamic
+image, referrer-meta and stylesheet-link preparation requires HTML elements;
+script and embedded stylesheet activation accepts HTML/SVG elements. This closes an XML integration gap
+where matching only local tag names could activate generic XML elements as HTML.
+The regression checks generic XML and null namespaces against real HTML/SVG scripts.
+
+Native DOM tests: 38 pass. V8 tests: 108 pass, two existing ignored. Strict DOM and
+V8 Clippy pass; generated interfaces checked. Signed-worker evidence pending.

@@ -1123,6 +1123,8 @@ interface CSSStyleDeclaration {
 
 [Exposed=Window]
 interface DocumentFragment : Node {
+  constructor();
+  Element? getElementById(DOMString elementId);
   [SameObject] readonly attribute HTMLCollection children;
   readonly attribute unsigned long childElementCount;
   readonly attribute Element? firstElementChild;
@@ -1138,7 +1140,6 @@ interface ShadowRoot : DocumentFragment {
   readonly attribute DOMString mode;
   readonly attribute boolean clonable;
   readonly attribute Element host;
-  Element? getElementById(DOMString id);
 };
 
 [Exposed=Window]
@@ -1154,6 +1155,8 @@ interface CharacterData : Node {
 
 [Exposed=Window]
 interface Text : CharacterData {
+  constructor(optional DOMString data = "");
+  readonly attribute DOMString wholeText;
   Text splitText(unsigned long offset);
 };
 
@@ -1167,6 +1170,7 @@ interface ProcessingInstruction : CharacterData {
 
 [Exposed=Window]
 interface Comment : CharacterData {
+  constructor(optional DOMString data = "");
 };
 
 [Exposed=(Window,Worker)]

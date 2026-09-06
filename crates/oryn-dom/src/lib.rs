@@ -1674,6 +1674,55 @@ impl DomRuntime {
         Ok(())
     }
 
+    /// Exact expanded-name match, independent of document case folding.
+    pub fn is_element(&self, node: NodeId, namespace: &str, local_name: &str) -> bool {
+        self.arena.get(node).is_ok_and(|node| matches!(&node.kind,
+            NodeKind::Element { name } if name.ns.as_ref() == namespace && name.local.as_ref() == local_name))
+    }
+
+    /// Finds the first matching descendant in this tree, excluding shadow trees.
+    pub fn get_element_by_id(&self, root: NodeId, id: &str) -> Result<Option<NodeId>, DomError> {
+        let mut pending: Vec<_> = self
+            .arena
+            .get(root)?
+            .children
+            .iter()
+            .rev()
+            .copied()
+            .collect();
+        if id.is_empty() {
+            return Ok(None);
+        }
+        while let Some(node) = pending.pop() {
+            let record = self.arena.get(node)?;
+            if matches!(record.kind, NodeKind::ShadowRoot { .. }) {
+                continue;
+            }
+            if matches!(record.kind, NodeKind::Element { .. })
+                && record.attributes.get("id").is_some_and(|value| value == id)
+            {
+                let namespaced = self
+                    .arena
+                    .existing_attribute_node(node, "id")
+                    .and_then(|attr| self.arena.get(attr).ok())
+                    .is_some_and(|attr| {
+                        matches!(
+                            &attr.kind,
+                            NodeKind::Attribute {
+                                namespace: Some(_),
+                                ..
+                            }
+                        )
+                    });
+                if !namespaced {
+                    return Ok(Some(node));
+                }
+            }
+            pending.extend(record.children.iter().rev().copied());
+        }
+        Ok(None)
+    }
+
     pub fn find_by_id(&self, id: &str) -> Option<NodeId> {
         self.ids
             .get(id)
