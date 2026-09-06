@@ -330,6 +330,7 @@ interface Element : Node {
   readonly attribute DOMString tagName;
   readonly attribute DOMString localName;
   readonly attribute DOMString? namespaceURI;
+  readonly attribute DOMString? prefix;
   readonly attribute sequence<any> attributes;
   [SameObject] readonly attribute HTMLCollection children;
   readonly attribute unsigned long childElementCount;

@@ -792,3 +792,41 @@ are verified in `conformance-worker-document-mode-dom.json` and its summary.
 Failure domains: 283 assertion, 10 runtime, 9 incomplete and 31 harness. All
 141 native runtime tests also pass. These root results do not replace the last
 complete full-inventory ledger (2,467/4,022).
+
+## Committed baseline and namespace follow-up
+
+Commit `53914a5` records the accumulated conformance implementation, vendored
+Stylo/Blitz adapters, strict runner tooling and evidence notes. The working tree
+was clean immediately after that commit. Historical ledgers retain their original
+source fingerprints; committing source does not turn them into release evidence.
+
+New source applies current DOM element-local-name and namespace validation to
+createElement/createElementNS and DOMImplementation.createDocument. It exposes
+Element.prefix, returns null for absent namespaces, and reflects qualified node
+names with HTML-document casing. Undefined qualified names convert to the string
+"undefined" while legacy null-to-empty handling remains. Regression tests cover
+reserved namespaces, unusual valid names, exception precedence and reflection in
+HTML and XML documents. All 100 enabled V8 tests, production Clippy, generated
+bindings and formatting checks pass; signed validation is pending. The name rules
+were checked against https://dom.spec.whatwg.org/#validate-and-extract and the
+pinned Document-createElementNS fixture.
+
+Signed worker `819c2dd270a09ec8610eda1fd44c4df47b7bf43d5746c966f99a62ca77e5c1ca`
+passes DOMImplementation.createDocument with **434/434 assertions** and retains
+the content-type pass (two of two filtered files). The createElementNS file is
+195/596 assertions, still failing: 390 failures originate in XML/XHTML iframe
+fixtures parsed as HTML, and 11 involve missing HTMLSpanElement/HTMLUnknownElement
+interfaces. Exact selected IDs and every passing completion are verified in
+`conformance-worker-namespace-validation-creation.json` and `-element.json`.
+The complete DOM inventory is running; security and resource limits are unchanged.
+
+The namespace candidate completes the DOM filter at 333/664 (331/662 DOM plus
+two accname files), with two gains (`DOMImplementation-createDocument` and
+`Node-nodeName`) and zero previously passing files lost. Exact inventory and
+passing harness completion are verified in `conformance-worker-namespace-validation-dom.json`
+and its summary. Failure domains are 280 assertion, 11 runtime, nine incomplete,
+30 harness and one timeout. `name-validation.html` changes from assertion failure
+to the existing worker wall-time limit as valid-name loops progress further;
+`Element-classlist.html` changes from harness failure to timeout. Neither was a
+previously passing file. These remaining failures are not treated as conformance
+completion, and limits remain unchanged.

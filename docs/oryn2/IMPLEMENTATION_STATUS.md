@@ -50,7 +50,11 @@ collection candidate. A later native document-metadata candidate reaches 329/662
 gains and zero regressions (32 gains since the full baseline). Parser quirks mode,
 created-document content types, and collection matching modes now survive in the
 native document model. All 100 V8, 28 DOM and 141 native runtime tests pass. These
-changes are not included in the full ledger above.
+changes are not included in the full ledger above. A namespace-validation and
+reflection follow-up reaches 331/662 DOM (two more gains, zero passing-file losses),
+including all 434 createDocument assertions. The broad name-validation file still
+hits the worker wall-time limit; XML iframe parsing and missing HTML element
+interfaces keep createElementNS incomplete.
 
 Remaining shared gaps include XML parsing and iframe document-mode handling,
 namespace validation and reflection, table APIs, editing algorithms, CSSOM and implicit/shadow scope integration, generated-content

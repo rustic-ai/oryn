@@ -16647,7 +16647,7 @@ fn call_stateful_operation<'s>(
                 } else {
                     required_string(scope, args, 0)?
                 };
-                let qualified_name = if args.get(1).is_null_or_undefined() {
+                let qualified_name = if args.get(1).is_null() {
                     String::new()
                 } else {
                     required_string(scope, args, 1)?
@@ -16657,6 +16657,9 @@ fn call_stateful_operation<'s>(
                 } else {
                     Some(argument_node(scope, state, args.get(2))?)
                 };
+                if !qualified_name.is_empty() {
+                    validate_element_namespace(&namespace, &qualified_name)?;
+                }
                 let mut dom = state.dom.borrow_mut();
                 let document = dom.create(NodeKind::Document);
                 dom.arena_mut()
@@ -19120,7 +19123,7 @@ fn get_attribute_value<'s>(
     let dom = state.dom.borrow();
     let record = dom.arena().get(node)?;
     let value = match (interface, member) {
-        (_, "nodeName") => v8_string(scope, &dom.node_name(node)?)?,
+        (_, "nodeName") => v8_string(scope, &reflected_node_name(state, node)?)?,
         (_, "nodeType") => v8::Integer::new(scope, node_type(&record.kind)).into(),
         ("Node", "isConnected") => {
             let connected =
@@ -19198,13 +19201,22 @@ fn get_attribute_value<'s>(
         (_, "textContent") | ("HTMLElement", "innerText") => {
             v8_string(scope, &dom.arena().text_content(node)?)?
         }
-        ("Element", "tagName") => v8_string(scope, &dom.node_name(node)?)?,
+        ("Element", "tagName") => v8_string(scope, &reflected_node_name(state, node)?)?,
         ("Element", "localName") => match &record.kind {
             NodeKind::Element { name } => v8_string(scope, name.local.as_ref())?,
             _ => return Err(DomError::StaleNode(node).into()),
         },
+        ("Element", "prefix") => match &record.kind {
+            NodeKind::Element { name } => match &name.prefix {
+                Some(prefix) => v8_string(scope, prefix.as_ref())?,
+                None => v8::null(scope).into(),
+            },
+            _ => v8::null(scope).into(),
+        },
         ("Element", "namespaceURI") => match &record.kind {
-            NodeKind::Element { name } => v8_string(scope, name.ns.as_ref())?,
+            NodeKind::Element { name } if !name.ns.is_empty() => {
+                v8_string(scope, name.ns.as_ref())?
+            }
             _ => v8::null(scope).into(),
         },
         ("Element" | "DocumentFragment" | "ShadowRoot", "childElementCount") => {
@@ -20145,7 +20157,7 @@ fn call_operation<'s>(
         }
         ("Document", "createElement") => {
             let name = required_string(scope, args, 0)?;
-            if !is_valid_xml_name(&name) {
+            if !is_valid_element_local_name(&name) {
                 return Err(V8BindingError::Unsupported {
                     interface: "Document".into(),
                     member: "InvalidCharacterError".into(),
@@ -20181,6 +20193,7 @@ fn call_operation<'s>(
                 required_string(scope, args, 0)?
             };
             let name = required_string(scope, args, 1)?;
+            validate_element_namespace(&namespace, &name)?;
             let created = state.dom.borrow_mut().create_element_ns(&namespace, &name);
             state.node_documents.borrow_mut().insert(created, node);
             Ok(Some(wrap_node(scope, state, created)?.into()))
@@ -23479,21 +23492,79 @@ fn required_string(
     rust_string_preserving_utf16(scope, value)
 }
 
-fn is_valid_xml_name(value: &str) -> bool {
+// DOM name validation intentionally accepts names the HTML parser can create.
+fn is_valid_element_local_name(value: &str) -> bool {
     let mut characters = value.chars();
     let Some(first) = characters.next() else {
         return false;
     };
-    let valid_start =
-        |character: char| character == ':' || character == '_' || character.is_alphabetic();
-    let valid_continue = |character: char| {
-        valid_start(character)
-            || character.is_ascii_digit()
-            || matches!(character, '-' | '.' | '\u{00B7}')
-            || ('\u{0300}'..='\u{036F}').contains(&character)
-            || ('\u{203F}'..='\u{2040}').contains(&character)
+    if first.is_ascii_alphabetic() {
+        return !value
+            .chars()
+            .any(|c| matches!(c, '\0' | '\t' | '\n' | '\u{000C}' | '\r' | ' ' | '/' | '>'));
+    }
+    (matches!(first, ':' | '_') || first >= '\u{0080}')
+        && characters.all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | ':' | '_') || c >= '\u{0080}'
+        })
+}
+
+fn validate_element_namespace(namespace: &str, qualified: &str) -> Result<(), V8BindingError> {
+    let (prefix, local) = qualified
+        .split_once(':')
+        .map_or((None, qualified), |(prefix, local)| (Some(prefix), local));
+    let invalid_prefix = prefix.is_some_and(|prefix| {
+        prefix.is_empty()
+            || prefix
+                .chars()
+                .any(|c| matches!(c, '\0' | '\t' | '\n' | '\u{000C}' | '\r' | ' ' | '/' | '>'))
+    });
+    let error = if invalid_prefix || !is_valid_element_local_name(local) {
+        Some("InvalidCharacterError")
+    } else if (prefix.is_some() && namespace.is_empty())
+        || (prefix == Some("xml") && namespace != "http://www.w3.org/XML/1998/namespace")
+        || ((qualified == "xmlns" || prefix == Some("xmlns"))
+            && namespace != "http://www.w3.org/2000/xmlns/")
+        || (namespace == "http://www.w3.org/2000/xmlns/"
+            && qualified != "xmlns"
+            && prefix != Some("xmlns"))
+    {
+        Some("NamespaceError")
+    } else {
+        None
     };
-    valid_start(first) && characters.all(valid_continue)
+    match error {
+        Some(member) => Err(V8BindingError::Unsupported {
+            interface: "Document".into(),
+            member: member.into(),
+        }),
+        None => Ok(()),
+    }
+}
+
+fn reflected_node_name(state: &V8BindingState, node: NodeId) -> Result<String, V8BindingError> {
+    let document = owner_document_for_node(state, node)?;
+    let dom = state.dom.borrow();
+    let NodeKind::Element { name } = &dom.arena().get(node)?.kind else {
+        return Ok(dom.node_name(node)?);
+    };
+    let qualified = name.prefix.as_ref().map_or_else(
+        || name.local.to_string(),
+        |prefix| format!("{prefix}:{}", name.local),
+    );
+    let html = dom
+        .arena()
+        .get(document)?
+        .document_metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.is_html);
+    Ok(
+        if html && name.ns.as_ref() == "http://www.w3.org/1999/xhtml" {
+            qualified.to_ascii_uppercase()
+        } else {
+            qualified
+        },
+    )
 }
 
 const WTF16_STRING_PREFIX: &str = "\u{f0000}oryn-wtf16:";
@@ -26030,6 +26101,21 @@ mod tests {
             xml.documentElement.append(host);
             check(original.length===1 && original[0]===lower && host.getElementsByTagName('A')[0]===capital,'collection mode captured before adoption');
             check(xml.cloneNode(true).contentType==='application/xml' && document.cloneNode(false).compatMode==='BackCompat','clone metadata');
+            const ns='urn:test';
+            const qualified=document.createElementNS(ns,'0:AÇ');
+            check(qualified.prefix==='0' && qualified.localName==='AÇ' && qualified.nodeName==='0:AÇ' && qualified.tagName==='0:AÇ','qualified reflection');
+            const htmlQualified=document.createElementNS('http://www.w3.org/1999/xhtml','p:MiXeD');
+            check(htmlQualified.tagName==='P:MIXED' && htmlQualified.localName==='MiXeD','HTML qualified name');
+            const xmlQualified=xml.createElementNS('http://www.w3.org/1999/xhtml','p:MiXeD');
+            check(xmlQualified.tagName==='p:MiXeD' && xmlQualified.nodeName==='p:MiXeD','XML qualified name');
+            check(document.createElementNS(null,'x').namespaceURI===null && document.createElementNS('', 'x').prefix===null,'absent namespace');
+            for(const name of ['f}oo','f<oo','\u037Efoo','\uFFFFfoo','prefix::local']) check(document.createElementNS(ns,name).localName===name.split(':').slice(name.includes(':')?1:0).join(':'),'relaxed element name '+name);
+            const error=(namespace,name,expected)=>{let actual;try{document.createElementNS(namespace,name)}catch(e){actual=e.name}check(actual===expected,'namespace error '+name+': '+actual)};
+            for(const name of ['',':foo','foo:','fo o','a:0','foo>']) error(ns,name,'InvalidCharacterError');
+            for(const [namespace,name] of [[null,'p:x'],[ns,'xml:x'],[ns,'xmlns'],['http://www.w3.org/2000/xmlns/','other']]) error(namespace,name,'NamespaceError');
+            check(document.createElementNS('http://www.w3.org/XML/1998/namespace','xml:x').prefix==='xml','XML namespace');
+            check(document.createElementNS('http://www.w3.org/2000/xmlns/','xmlns:x').prefix==='xmlns','XMLNS namespace');
+            check(document.implementation.createDocument(null,undefined,null).documentElement.localName==='undefined','undefined qualified name conversion');
             const standard=document.implementation.createHTMLDocument();
             check(standard.contentType==='text/html' && standard.compatMode==='CSS1Compat','created HTML metadata');
             for(let i=0;i<128;i++) {
@@ -26410,12 +26496,12 @@ mod tests {
 
     #[test]
     fn xml_name_validation_rejects_empty_and_whitespace_names() {
-        assert!(is_valid_xml_name("section"));
-        assert!(is_valid_xml_name("svg:path"));
-        assert!(is_valid_xml_name("élément"));
-        assert!(!is_valid_xml_name(""));
-        assert!(!is_valid_xml_name("two words"));
-        assert!(!is_valid_xml_name("1section"));
+        assert!(is_valid_element_local_name("section"));
+        assert!(is_valid_element_local_name("svg:path"));
+        assert!(is_valid_element_local_name("élément"));
+        assert!(!is_valid_element_local_name(""));
+        assert!(!is_valid_element_local_name("two words"));
+        assert!(!is_valid_element_local_name("1section"));
     }
 
     #[test]

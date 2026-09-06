@@ -495,3 +495,15 @@ and DOMParser XML semantics without treating HTML parsing as XML support. Stylo
 quirks integration must consume native mode through its adapter and retain
 separate production evidence. Table row APIs, Range/editing, CSSOM and lifecycle
 work remain open as listed above.
+
+### Namespace validation and reflection outcome
+
+Current DOM element-name rules, reserved namespace validation, Element.prefix,
+null namespace reflection and document-aware qualified names are implemented.
+Signed DOM evidence is 331/662, two gains and zero passing-file losses versus
+the document-mode candidate; createDocument passes all 434 assertions.
+createElementNS remains 195/596 assertions: XML/XHTML iframe parsing accounts
+for 390 failures and missing HTMLSpanElement/HTMLUnknownElement for 11.
+The comprehensive name-validation file now reaches the unchanged worker wall
+time limit; profile its expanded successful creation loops before claiming it
+complete. Attribute/doctype name validation remains separate unfinished work.
