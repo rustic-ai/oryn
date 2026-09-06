@@ -1,0 +1,28 @@
+{
+  "complete": true,
+  "diagnostic_only": true,
+  "failure_messages": {
+    "HTMLSpanElement is not defined": 10,
+    "HTMLUnknownElement is not defined": 1,
+    "assert_equals: expected \"Dummy XHTML document\" but got \"Dummy XHTML document\\n\"": 195,
+    "assert_equals: expected \"Dummy XML document\" but got \"Dummy XML document\\n\"": 195
+  },
+  "harness": 0,
+  "ledger": "conformance-worker-xml-create-element-ns.json",
+  "ledger_sha256": "1b39923ccd9949f9422692e7f01027b91072306ce2eff12d93e66a899c2264ee",
+  "outcome": {
+    "required_finished": 1,
+    "required_passed": 0,
+    "required_total": 1,
+    "status": "failed"
+  },
+  "release_qualified": false,
+  "source": {
+    "commit": "d27f2b6339b5d9d579e7c4a4783377e1968681db",
+    "dirty": false,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_file_count": 0,
+    "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "worker_sha256": "9d27f05116bebcd52fe6f796757f16a95b158338b12e1c0998c2fdb922b9b283"
+}

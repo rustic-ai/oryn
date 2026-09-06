@@ -17717,6 +17717,165 @@ fn most_derived_brand(kind: &NodeKind) -> InterfaceBrand {
     }
 }
 
+// https://html.spec.whatwg.org/multipage/custom-elements.html#valid-custom-element-name
+fn is_valid_custom_element_name(name: &str) -> bool {
+    name.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        && name.contains('-')
+        && !name.bytes().any(|byte| byte.is_ascii_uppercase())
+        && is_valid_element_local_name(name)
+        && !matches!(
+            name,
+            "annotation-xml"
+                | "color-profile"
+                | "font-face"
+                | "font-face-src"
+                | "font-face-uri"
+                | "font-face-format"
+                | "font-face-name"
+                | "missing-glyph"
+        )
+}
+
+// Known elements whose more specific interfaces are not yet implemented retain
+// their existing HTMLElement behavior; unknown names use HTMLUnknownElement.
+fn is_known_html_element(name: &str) -> bool {
+    matches!(
+        name,
+        "a" | "abbr"
+            | "acronym"
+            | "address"
+            | "area"
+            | "article"
+            | "aside"
+            | "audio"
+            | "b"
+            | "base"
+            | "basefont"
+            | "bdi"
+            | "bdo"
+            | "big"
+            | "blockquote"
+            | "body"
+            | "br"
+            | "button"
+            | "canvas"
+            | "caption"
+            | "center"
+            | "cite"
+            | "code"
+            | "col"
+            | "colgroup"
+            | "data"
+            | "datalist"
+            | "dd"
+            | "del"
+            | "details"
+            | "dfn"
+            | "dialog"
+            | "dir"
+            | "div"
+            | "dl"
+            | "dt"
+            | "em"
+            | "embed"
+            | "fieldset"
+            | "figcaption"
+            | "figure"
+            | "font"
+            | "footer"
+            | "form"
+            | "frame"
+            | "frameset"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "head"
+            | "header"
+            | "hgroup"
+            | "hr"
+            | "html"
+            | "i"
+            | "iframe"
+            | "img"
+            | "input"
+            | "ins"
+            | "kbd"
+            | "label"
+            | "legend"
+            | "li"
+            | "link"
+            | "listing"
+            | "main"
+            | "map"
+            | "mark"
+            | "marquee"
+            | "menu"
+            | "meta"
+            | "meter"
+            | "nav"
+            | "nobr"
+            | "noembed"
+            | "noframes"
+            | "noscript"
+            | "object"
+            | "ol"
+            | "optgroup"
+            | "option"
+            | "output"
+            | "p"
+            | "param"
+            | "picture"
+            | "plaintext"
+            | "pre"
+            | "progress"
+            | "q"
+            | "rb"
+            | "rp"
+            | "rt"
+            | "rtc"
+            | "ruby"
+            | "s"
+            | "samp"
+            | "script"
+            | "search"
+            | "section"
+            | "select"
+            | "selectedcontent"
+            | "slot"
+            | "small"
+            | "source"
+            | "span"
+            | "strike"
+            | "strong"
+            | "style"
+            | "sub"
+            | "summary"
+            | "sup"
+            | "table"
+            | "tbody"
+            | "td"
+            | "template"
+            | "textarea"
+            | "tfoot"
+            | "th"
+            | "thead"
+            | "time"
+            | "title"
+            | "tr"
+            | "track"
+            | "tt"
+            | "u"
+            | "ul"
+            | "var"
+            | "video"
+            | "wbr"
+            | "xmp"
+    )
+}
+
 fn interface_for_node(kind: &NodeKind) -> &'static str {
     match kind {
         NodeKind::Document => "Document",
@@ -17733,6 +17892,7 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "Element"
         }
         NodeKind::Element { name } => match name.local.as_ref() {
+            "span" => "HTMLSpanElement",
             "html" => "HTMLHtmlElement",
             "head" => "HTMLHeadElement",
             "title" => "HTMLTitleElement",
@@ -17755,7 +17915,10 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "iframe" => "HTMLIFrameElement",
             "script" => "HTMLScriptElement",
             "dialog" => "HTMLDialogElement",
-            _ => "HTMLElement",
+            local if is_known_html_element(local) || is_valid_custom_element_name(local) => {
+                "HTMLElement"
+            }
+            _ => "HTMLUnknownElement",
         },
         NodeKind::Text { .. } => "Text",
         NodeKind::CDataSection { .. } => "CDATASection",
@@ -26146,6 +26309,18 @@ mod tests {
         let source = v8::String::new(scope, r#"
             (() => {
                 const check = (ok, label) => { if (!ok) throw Error(label); };
+                const ns = 'http://www.w3.org/1999/xhtml';
+                const span = document.createElementNS(ns, 'p:span');
+                check(span instanceof HTMLSpanElement && span.cloneNode() instanceof HTMLSpanElement, 'span interface');
+                check(document.createElementNS(ns, 'SPAN') instanceof HTMLUnknownElement, 'case-sensitive interface');
+                for (const name of ['madeup', 'applet', 'font-face', 'X-widget']) {
+                    check(document.createElementNS(ns, name) instanceof HTMLUnknownElement, 'unknown ' + name);
+                }
+                for (const name of ['div', 'acronym', 'x-widget', 'x-😍']) {
+                    const element = document.createElementNS(ns, name);
+                    check(element instanceof HTMLElement && !(element instanceof HTMLUnknownElement), 'known or custom ' + name);
+                }
+                check(!(document.createElementNS('urn:test', 'span') instanceof HTMLSpanElement), 'namespace-sensitive interface');
                 const parser = new DOMParser();
                 const xml = parser.parseFromString('<?before data?><p:Root xmlns:p="urn:test" p:Attr="v">a<![CDATA[b]]>c</p:Root>', 'application/xml');
                 check(xml.contentType === 'application/xml' && xml.compatMode === 'CSS1Compat', 'XML metadata');

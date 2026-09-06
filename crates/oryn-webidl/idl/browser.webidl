@@ -407,6 +407,12 @@ interface SVGAElement : SVGElement {
 };
 
 [Exposed=Window]
+interface HTMLSpanElement : HTMLElement {};
+
+[Exposed=Window]
+interface HTMLUnknownElement : HTMLElement {};
+
+[Exposed=Window]
 interface HTMLHtmlElement : HTMLElement {};
 
 [Exposed=Window]

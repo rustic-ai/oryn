@@ -551,6 +551,13 @@ type ScriptRecord = (
     bool,
 );
 
+#[derive(Clone)]
+struct LoadedFrameResource {
+    url: String,
+    source: String,
+    content_type: Option<String>,
+}
+
 #[cfg(unix)]
 enum ParserResourceCompletion {
     Script {
@@ -565,7 +572,7 @@ enum ParserResourceCompletion {
     },
     Frame {
         requested_url: String,
-        result: Result<(String, String), String>,
+        result: Result<LoadedFrameResource, String>,
     },
 }
 
@@ -678,8 +685,13 @@ impl ParserResourceScheduler {
                         url,
                         source,
                         destination,
+                        content_type,
                         ..
-                    } if destination == "frame" => Ok((url, source)),
+                    } if destination == "frame" => Ok(LoadedFrameResource {
+                        url,
+                        source,
+                        content_type,
+                    }),
                     _ => Err("parent returned an invalid frame response".into()),
                 });
             let _ = sender.send(ParserResourceCompletion::Frame {
@@ -934,7 +946,7 @@ fn apply_parser_resource_completion(
         oryn_common::v3::PageId,
         Option<oryn_common::v3::PageId>,
     )>,
-) -> Result<(), HostError> {
+) -> Result<Option<(String, LoadedFrameResource)>, HostError> {
     match completion {
         ParserResourceCompletion::Script {
             order,
@@ -985,15 +997,20 @@ fn apply_parser_resource_completion(
             requested_url,
             result,
         } => {
-            if let Ok((url, document)) = result {
-                resources.insert(requested_url, document.clone());
-                resources.insert(url, document);
+            if let Ok(frame) = result {
+                return Ok(Some((requested_url, frame)));
             }
             // Cross-origin, policy-denied, and failed frames remain opaque and
             // publish their capability diagnostics during realm construction.
         }
     }
-    Ok(())
+    Ok(None)
+}
+
+struct LiveParseResult {
+    document: ParsedDocument,
+    scripts: Vec<ScriptRecord>,
+    frames: BTreeMap<String, LoadedFrameResource>,
 }
 
 fn parse_live_document(
@@ -1007,9 +1024,10 @@ fn parse_live_document(
         oryn_common::v3::PageId,
         Option<oryn_common::v3::PageId>,
     )>,
-) -> Result<(ParsedDocument, Vec<ScriptRecord>), HostError> {
+) -> Result<LiveParseResult, HostError> {
     use std::collections::VecDeque;
 
+    let mut loaded_frames = BTreeMap::new();
     let mut parser = html::StreamingParser::with_runtime(live_dom.clone());
     let mut input = VecDeque::new();
     #[cfg(unix)]
@@ -1188,7 +1206,7 @@ fn parse_live_document(
 
         #[cfg(unix)]
         while let Some(completion) = resource_scheduler.try_next() {
-            apply_parser_resource_completion(
+            if let Some((requested, frame)) = apply_parser_resource_completion(
                 completion,
                 live_dom,
                 host,
@@ -1196,7 +1214,9 @@ fn parse_live_document(
                 &mut deferred_scripts,
                 diagnostics,
                 context,
-            )?;
+            )? {
+                loaded_frames.insert(requested, frame);
+            }
         }
 
         if let Some(event @ html::ParserEvent::ScriptReady { node, .. }) = progress.blocked_on {
@@ -1251,7 +1271,7 @@ fn parse_live_document(
     #[cfg(unix)]
     while resource_scheduler.pending > 0 {
         let completion = resource_scheduler.wait_next()?;
-        apply_parser_resource_completion(
+        if let Some((requested, frame)) = apply_parser_resource_completion(
             completion,
             live_dom,
             host,
@@ -1259,7 +1279,9 @@ fn parse_live_document(
             &mut deferred_scripts,
             diagnostics,
             context,
-        )?;
+        )? {
+            loaded_frames.insert(requested, frame);
+        }
     }
 
     host.set_parser_input_active(false)?;
@@ -1268,7 +1290,11 @@ fn parse_live_document(
     parsed.events = all_events;
     #[cfg(unix)]
     let ordered_scripts = deferred_scripts.into_values().collect();
-    Ok((parsed, ordered_scripts))
+    Ok(LiveParseResult {
+        document: parsed,
+        scripts: ordered_scripts,
+        frames: loaded_frames,
+    })
 }
 
 const RUST_RUNTIME_GLOBALS: &str = r#"
@@ -2041,8 +2067,13 @@ impl RustExecutableDocument {
             "__oryn_restore_storage(JSON.parse({local_storage}),JSON.parse({session_storage}))"
         ))?;
         let mut diagnostics = Vec::new();
+        let mut loaded_frames = BTreeMap::new();
         if let Some(source) = live_source {
-            let (parsed, ordered_scripts) = parse_live_document(
+            let LiveParseResult {
+                document: parsed,
+                scripts: ordered_scripts,
+                frames,
+            } = parse_live_document(
                 source,
                 &live_dom,
                 &mut host,
@@ -2051,6 +2082,7 @@ impl RustExecutableDocument {
                 #[cfg(unix)]
                 context_handle.as_ref(),
             )?;
+            loaded_frames = frames;
             quirks_mode = parsed.quirks_mode;
             parser_events = parsed.events;
             scripts = ordered_scripts;
@@ -2079,10 +2111,21 @@ impl RustExecutableDocument {
                 .as_ref()
                 .and_then(|base| base.join(&source).ok())
                 .or_else(|| Url::parse(&source).ok());
-            let mut loaded_frame = resources
+            let mut loaded_frame = loaded_frames
                 .get(&source)
-                .cloned()
-                .map(|body| (requested_url.clone(), body, None::<String>));
+                .map(|frame| {
+                    (
+                        Url::parse(&frame.url).ok().or(requested_url.clone()),
+                        frame.source.clone(),
+                        frame.content_type.clone(),
+                    )
+                })
+                .or_else(|| {
+                    resources
+                        .get(&source)
+                        .cloned()
+                        .map(|body| (requested_url.clone(), body, None::<String>))
+                });
             #[cfg(unix)]
             if loaded_frame.is_none()
                 && let Some((client, page_id, _)) = &context_handle

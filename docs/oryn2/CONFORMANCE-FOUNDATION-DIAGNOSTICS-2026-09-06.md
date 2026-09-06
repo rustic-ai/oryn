@@ -153,3 +153,21 @@ Production DOM tests: 38 pass; V8 tests: 105 pass, two existing ignored;
 native runtime tests: 141 pass. Network prototype tests: 11 pass. Strict production
 DOM/network/V8 Clippy and formatting pass. Vendored XML: 38 unit tests and 14
 doctests pass, two existing doctests ignored. Signed-worker XML evidence is pending.
+
+## Parser-prefetched XML frames and element interfaces
+
+The signed d27f2b6 Document-createElementNS diagnostic completed normally but still
+failed 390 XML/XHTML assertions: the parser scheduler had stripped MIME metadata
+before realm construction. The focused ledger is hash-bound in
+CONFORMANCE-XML-PREFETCH-DIAGNOSTIC-2026-09-06.json. The follow-up carries a typed
+LoadedFrameResource from asynchronous completion through LiveParseResult into
+initial frame construction, retaining final URL, body and Content-Type together.
+
+HTMLSpanElement and HTMLUnknownElement now have generated interfaces backed by
+native nodes. Interface selection distinguishes known, unknown and valid custom
+HTML names and remains namespace-sensitive. Existing known elements whose more
+specific interfaces are absent retain their previous HTMLElement implementation;
+this does not close the remaining HTML element-interface inventory.
+Selection follows https://html.spec.whatwg.org/multipage/dom.html#elements-in-the-dom
+and https://html.spec.whatwg.org/multipage/custom-elements.html#valid-custom-element-name .
+Production V8 tests: 105 pass, two existing ignored. Signed follow-up validation pending.
