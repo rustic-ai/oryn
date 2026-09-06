@@ -22,6 +22,7 @@ existing implementation cannot be adapted safely.
 | Native JS runtime and event loop | None | **New** |
 | Rust-owned DOM and WebIDL bindings | None | **New** |
 | Native HTML parser integration | None | **New**, using `html5ever` |
+| Native XML parser integration | Native DOM tree sink | Adapt the shared sink using the vendored `xml` event reader |
 | Native network broker, cookies, storage | None | **New** |
 | Native semantic projection and stable references | Scanner is a behavioral reference only | **New**, while reusing resolution semantics |
 | Native causal trace and replay envelope | Partial scanner action deltas only | **New** |

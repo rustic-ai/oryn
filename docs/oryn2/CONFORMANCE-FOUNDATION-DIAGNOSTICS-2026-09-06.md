@@ -128,3 +128,28 @@ New passes: Attr-prefix, Document-importNode, Node-cloneNode-svg, and
 css/selectors/quirks-mode-import. Raw ledgers remain in local artifacts; hash-bound
 summaries are in CONFORMANCE-ATTRIBUTE-OWNERSHIP-2026-09-06.json.
 The complete full result remains 2501/4022; these selections are not a release gate.
+
+## XML document activation implementation
+
+The native DOM now adapts the vendored xml 1.4.0 event reader into the existing
+HTML tree sink. DOMParser dispatches its XML MIME types; static and dynamic frame
+loading retain the response Content-Type through the parent broker. XML metadata,
+qualified names, namespace declaration attributes, CDATA, processing instructions,
+comments, doctype identifiers and internal entity text survive the native tree.
+Generic XML elements receive Element wrappers; SVG wrappers require the SVG namespace.
+Malformed input replaces the partial tree with a parsererror document and drops
+partial resource events. HTML/SVG resource discovery is namespace-aware.
+
+The network decoder recognizes XML encoding declarations and UTF-16 signatures,
+with existing BOM and HTTP charset precedence. See the XML 1.0 encoding discussion:
+https://www.w3.org/TR/xml/#sec-guessing-no-ext-info . DOMParser receives Unicode and
+therefore does not reinterpret its string using an encoding declaration.
+
+This is foundation implementation, not closure of XML conformance. External entity
+loading, DTD attribute defaults/validation, XML fragment parsing/serialization and
+full XHTML template behavior remain open. Top-level navigation MIME dispatch also
+requires a separate audit; this batch routes DOMParser and frame responses.
+Production DOM tests: 38 pass; V8 tests: 105 pass, two existing ignored;
+native runtime tests: 141 pass. Network prototype tests: 11 pass. Strict production
+DOM/network/V8 Clippy and formatting pass. Vendored XML: 38 unit tests and 14
+doctests pass, two existing doctests ignored. Signed-worker XML evidence is pending.

@@ -2082,7 +2082,7 @@ impl RustExecutableDocument {
             let mut loaded_frame = resources
                 .get(&source)
                 .cloned()
-                .map(|body| (requested_url.clone(), body));
+                .map(|body| (requested_url.clone(), body, None::<String>));
             #[cfg(unix)]
             if loaded_frame.is_none()
                 && let Some((client, page_id, _)) = &context_handle
@@ -2100,14 +2100,17 @@ impl RustExecutableDocument {
                         url,
                         source: body,
                         destination,
+                        content_type,
                         ..
-                    }) if destination == "frame" => {
-                        Some((Url::parse(&url).ok().or(requested_url.clone()), body))
-                    }
+                    }) if destination == "frame" => Some((
+                        Url::parse(&url).ok().or(requested_url.clone()),
+                        body,
+                        content_type,
+                    )),
                     _ => None,
                 };
             }
-            let Some((frame_url, frame_html)) = loaded_frame else {
+            let Some((frame_url, frame_html, content_type)) = loaded_frame else {
                 diagnostics.push(oryn_common::v3::CapabilityDiagnostic {
                     capability: "html.frame.load".into(),
                     support: oryn_common::v3::SupportLevel::Unsupported,
@@ -2134,7 +2137,7 @@ impl RustExecutableDocument {
                     )),
                 });
             }
-            let child = html::parse_streamed(&frame_html, 4 * 1024);
+            let child = oryn_dom::xml::parse_by_mime(&frame_html, content_type.as_deref());
             let child_referrer_policy = child
                 .events
                 .iter()
@@ -3425,6 +3428,7 @@ impl RustExecutableDocument {
                             .clone()
                             .unwrap_or_else(|| "strict-origin-when-cross-origin".into()),
                         None,
+                        None::<String>,
                     ))
                 } else if let (Some(requested), Some((client, page_id, _))) =
                     (requested.as_ref(), &self.context)
@@ -3452,9 +3456,15 @@ impl RustExecutableDocument {
                             document_referrer,
                             referrer_policy,
                             refresh_url,
-                        }) if destination == "frame" => {
-                            Some((url, source, document_referrer, referrer_policy, refresh_url))
-                        }
+                            content_type,
+                        }) if destination == "frame" => Some((
+                            url,
+                            source,
+                            document_referrer,
+                            referrer_policy,
+                            refresh_url,
+                            content_type,
+                        )),
                         Ok(_) => {
                             return Err(HostError::Execution(
                                 "parent returned an invalid dynamic-frame response".into(),
@@ -3480,6 +3490,7 @@ impl RustExecutableDocument {
                             parent_url.as_ref().map_or_else(String::new, Url::to_string),
                             "strict-origin-when-cross-origin".into(),
                             None,
+                            None::<String>,
                         )
                     })
                 } else {
@@ -3495,6 +3506,7 @@ impl RustExecutableDocument {
                             .clone()
                             .unwrap_or_else(|| "strict-origin-when-cross-origin".into()),
                         None,
+                        None::<String>,
                     ))
                 } else if let Some(requested) = requested.as_ref() {
                     self.resources.get(requested).cloned().map(|source| {
@@ -3508,13 +3520,20 @@ impl RustExecutableDocument {
                             parent_url.as_ref().map_or_else(String::new, Url::to_string),
                             "strict-origin-when-cross-origin".into(),
                             None,
+                            None::<String>,
                         )
                     })
                 } else {
                     None
                 };
-                let Some((url, source, document_referrer, mut child_referrer_policy, refresh_url)) =
-                    fetched
+                let Some((
+                    url,
+                    source,
+                    document_referrer,
+                    mut child_referrer_policy,
+                    refresh_url,
+                    content_type,
+                )) = fetched
                 else {
                     continue;
                 };
@@ -3550,7 +3569,7 @@ impl RustExecutableDocument {
                         )),
                     });
                 }
-                let parsed = html::parse_streamed(&source, 4 * 1024);
+                let parsed = oryn_dom::xml::parse_by_mime(&source, content_type.as_deref());
                 if let Some(content) = parsed
                     .events
                     .iter()

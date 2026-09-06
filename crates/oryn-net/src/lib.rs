@@ -268,6 +268,7 @@ pub fn decode_text(bytes: &[u8], content_type: Option<&str>) -> (String, &'stati
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextResourceKind {
     Html,
+    Xml,
     Css,
     JavaScript,
     Fetch,
@@ -362,10 +363,14 @@ fn select_encoding(
                 .then(|| value.trim().trim_matches(['\'', '"']))
         })
     });
+    let xml_encoding = matches!(kind, TextResourceKind::Xml)
+        .then(|| xml_decl_encoding(bytes))
+        .flatten();
     let html_meta = matches!(kind, TextResourceKind::Html)
         .then(|| html_meta_charset(bytes))
         .flatten();
     bom.or_else(|| header.and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes())))
+        .or(xml_encoding)
         .or_else(|| {
             html_meta
                 .as_deref()
@@ -374,6 +379,44 @@ fn select_encoding(
         .or_else(|| matches!(kind, TextResourceKind::Css).then_some(encoding_rs::UTF_8))
         .or_else(|| matches!(kind, TextResourceKind::JavaScript).then_some(encoding_rs::UTF_8))
         .unwrap_or(encoding_rs::UTF_8)
+}
+
+// XML declarations are ASCII-compatible until the encoding name. UTF-16
+// signatures must be recognized before attempting that ASCII prescan.
+fn xml_decl_encoding(bytes: &[u8]) -> Option<&'static encoding_rs::Encoding> {
+    if bytes.starts_with(&[0, b'<', 0, b'?']) {
+        return Some(encoding_rs::UTF_16BE);
+    }
+    if bytes.starts_with(&[b'<', 0, b'?', 0]) {
+        return Some(encoding_rs::UTF_16LE);
+    }
+    let rest = bytes.strip_prefix(b"<?xml")?;
+    if !rest.first().is_some_and(u8::is_ascii_whitespace) {
+        return None;
+    }
+    let end = rest.windows(2).position(|pair| pair == b"?>")?;
+    let declaration = std::str::from_utf8(&rest[..end]).ok()?;
+    let mut remaining = declaration.trim_start();
+    while !remaining.is_empty() {
+        let split = remaining.find(|ch: char| ch.is_ascii_whitespace() || ch == '=')?;
+        let name = &remaining[..split];
+        remaining = remaining[split..]
+            .trim_start()
+            .strip_prefix('=')?
+            .trim_start();
+        let quote = remaining.chars().next()?;
+        if !matches!(quote, '\'' | '"') {
+            return None;
+        }
+        remaining = &remaining[1..];
+        let close = remaining.find(quote)?;
+        let value = &remaining[..close];
+        if name == "encoding" {
+            return encoding_rs::Encoding::for_label(value.as_bytes());
+        }
+        remaining = remaining[close + 1..].trim_start();
+    }
+    None
 }
 
 fn html_meta_charset(bytes: &[u8]) -> Option<String> {
@@ -499,6 +542,53 @@ mod tests {
     use std::io::{Read as _, Write as _};
 
     #[test]
+    fn xml_decoding_uses_declarations_and_transport_precedence() {
+        let bytes = b"<?xml version='1.0' encoding = 'windows-1252'?><a>\x80</a>";
+        let (text, encoding) = decode_resource_text(bytes, Some("text/xml"), TextResourceKind::Xml);
+        assert_eq!(encoding, "windows-1252");
+        assert!(text.contains('€'));
+        let (_, encoding) = decode_resource_text(
+            bytes,
+            Some("text/xml; charset=utf-8"),
+            TextResourceKind::Xml,
+        );
+        assert_eq!(encoding, "UTF-8");
+        let source = "<?xml version='1.0'?><a>水</a>";
+        for big_endian in [false, true] {
+            let bytes: Vec<u8> = source
+                .encode_utf16()
+                .flat_map(|unit| {
+                    if big_endian {
+                        unit.to_be_bytes()
+                    } else {
+                        unit.to_le_bytes()
+                    }
+                })
+                .collect();
+            assert_eq!(
+                decode_resource_text(&bytes, None, TextResourceKind::Xml).0,
+                source
+            );
+            for split in 0..=bytes.len() {
+                let mut decoder = IncrementalTextDecoder::new(None, TextResourceKind::Xml);
+                let text = decoder.push(&bytes[..split])
+                    + &decoder.push(&bytes[split..])
+                    + &decoder.finish();
+                assert_eq!(text, source);
+            }
+        }
+        assert_eq!(
+            decode_resource_text(
+                b"<a charset='windows-1252'>ok</a>",
+                None,
+                TextResourceKind::Xml
+            )
+            .1,
+            "UTF-8"
+        );
+    }
+
+    #[test]
     fn charset_decoding_is_explicit() {
         let (decoded, encoding) = decode_text(
             &[0x63, 0x61, 0x66, 0xe9],
@@ -575,7 +665,7 @@ mod tests {
                 .unwrap();
             String::from_utf8_lossy(&bytes[..size]).into_owned()
         });
-        let transport = RustlsTransport::new(Duration::from_secs(2), 1024);
+        let transport = RustlsTransport::new(Duration::from_secs(2), 1024).unwrap();
         let response = transport
             .start(HttpRequest {
                 operation_id: 1,

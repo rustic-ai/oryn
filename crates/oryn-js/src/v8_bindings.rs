@@ -3884,19 +3884,18 @@ fn parse_detached_document<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
     markup: &str,
+    media_type: &str,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
-    let parsed = oryn_dom::html::parse_streamed(markup, 4096);
+    let parsed = if media_type == "text/html" {
+        oryn_dom::html::parse_streamed(markup, 4096)
+    } else {
+        oryn_dom::xml::parse(markup, media_type)
+    };
     let document = state
         .dom
         .borrow_mut()
         .import_subtree(&parsed.dom, parsed.document)?;
-    let mut pending = vec![document];
-    let mut owned = Vec::new();
-    while let Some(node) = pending.pop() {
-        owned.push(node);
-        let children = state.dom.borrow().arena().get(node)?.children.clone();
-        pending.extend(children);
-    }
+    let owned = owned_subtree_nodes(&state.dom.borrow(), document)?;
     let mut documents = state.node_documents.borrow_mut();
     for node in owned {
         documents.insert(node, document);
@@ -3915,7 +3914,12 @@ fn document_parse_html_unsafe_static<'s>(
             .get_current_context()
             .get_slot::<V8BindingState>()
             .ok_or(V8BindingError::Allocation("Document state"))?;
-        parse_detached_document(scope, &state, &args.get(0).to_rust_string_lossy(scope))
+        parse_detached_document(
+            scope,
+            &state,
+            &args.get(0).to_rust_string_lossy(scope),
+            "text/html",
+        )
     })();
     match result {
         Ok(value) => return_value.set(value.into()),
@@ -16626,7 +16630,9 @@ fn call_stateful_operation<'s>(
             });
         }
         let markup = args.get(0).to_rust_string_lossy(scope);
-        return Ok(Some(parse_detached_document(scope, state, &markup)?.into()));
+        return Ok(Some(
+            parse_detached_document(scope, state, &markup, &media_type)?.into(),
+        ));
     }
     if interface == "Storage" {
         return call_storage_operation(scope, state, object, member, args);
@@ -17703,7 +17709,10 @@ fn validate_interface_node(
 fn most_derived_brand(kind: &NodeKind) -> InterfaceBrand {
     match kind {
         NodeKind::Document => InterfaceBrand::Document,
-        NodeKind::Element { .. } => InterfaceBrand::HtmlElement,
+        NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" => {
+            InterfaceBrand::HtmlElement
+        }
+        NodeKind::Element { .. } => InterfaceBrand::Element,
         _ => InterfaceBrand::Node,
     }
 }
@@ -17713,12 +17722,15 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
         NodeKind::Document => "Document",
         NodeKind::Attribute { .. } => "Attr",
         NodeKind::Element { name }
-            if name.ns.as_ref() != "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "a" =>
+            if name.ns.as_ref() == "http://www.w3.org/2000/svg" && name.local.as_ref() == "a" =>
         {
             "SVGAElement"
         }
-        NodeKind::Element { name } if name.ns.as_ref() != "http://www.w3.org/1999/xhtml" => {
+        NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/2000/svg" => {
             "SVGElement"
+        }
+        NodeKind::Element { name } if name.ns.as_ref() != "http://www.w3.org/1999/xhtml" => {
+            "Element"
         }
         NodeKind::Element { name } => match name.local.as_ref() {
             "html" => "HTMLHtmlElement",
@@ -26111,6 +26123,45 @@ mod tests {
         scope.low_memory_notification();
         state.process_weak_releases().unwrap();
         let source = v8::String::new(scope, "ownedAttribute.ownerElement === null && ownedAttribute.ownerDocument.marker === 47 && ownedAttribute.value === 'detached'").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
+    fn dom_parser_preserves_xml_document_mode_and_native_nodes() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            (() => {
+                const check = (ok, label) => { if (!ok) throw Error(label); };
+                const parser = new DOMParser();
+                const xml = parser.parseFromString('<?before data?><p:Root xmlns:p="urn:test" p:Attr="v">a<![CDATA[b]]>c</p:Root>', 'application/xml');
+                check(xml.contentType === 'application/xml' && xml.compatMode === 'CSS1Compat', 'XML metadata');
+                const root = xml.documentElement;
+                check(root.nodeName === 'p:Root' && root.localName === 'Root' && root.namespaceURI === 'urn:test', 'XML element');
+                check(xml.createElement('MiXeD').nodeName === 'MiXeD', 'XML createElement');
+                check(root instanceof Element && !(root instanceof SVGElement) && !(root instanceof HTMLElement), 'XML element interface');
+                check(root.ownerDocument === xml && root.getAttributeNodeNS('urn:test', 'Attr').ownerDocument === xml, 'native ownership');
+                check(xml.firstChild.nodeType === 7 && root.childNodes[1].nodeType === 4 && root.textContent === 'abc', 'XML character nodes');
+                const invalid = parser.parseFromString('<a><b></a>', 'text/xml');
+                check(invalid.contentType === 'text/xml' && invalid.documentElement.localName === 'parsererror', 'parse error');
+                const html = parser.parseFromString('<P>hello', 'text/html');
+                check(html.contentType === 'text/html' && html.body.firstChild.nodeName === 'P', 'HTML dispatch');
+                return true;
+            })()
+        "#).unwrap();
         assert!(
             v8::Script::compile(scope, source, None)
                 .unwrap()

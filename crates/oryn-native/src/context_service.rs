@@ -308,6 +308,8 @@ pub enum ContextServiceResponse {
         source: String,
         destination: String,
         #[serde(default)]
+        content_type: Option<String>,
+        #[serde(default)]
         document_referrer: String,
         #[serde(default)]
         referrer_policy: String,
@@ -2106,12 +2108,16 @@ impl ParentContextService {
                         resource: format!("decoded {destination} data URL"),
                     });
                 }
-                let (source, _) =
-                    oryn_net::decode_resource_text(&body, media_type.as_deref(), text_kind);
+                let (source, _) = oryn_net::decode_resource_text(
+                    &body,
+                    media_type.as_deref(),
+                    page_resource_text_kind(text_kind, media_type.as_deref()),
+                );
                 return Ok(ContextServiceResponse::PageResource {
                     url: url.to_string(),
                     source,
                     destination: destination.into(),
+                    content_type: media_type,
                     document_referrer: String::new(),
                     referrer_policy: crate::referrer::ReferrerPolicy::default().as_str().into(),
                     refresh_url: None,
@@ -2167,8 +2173,11 @@ impl ParentContextService {
                 .iter()
                 .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
                 .map(|(_, value)| value.as_str());
-            let (source, _) =
-                oryn_net::decode_resource_text(&response.body, content_type, text_kind);
+            let (source, _) = oryn_net::decode_resource_text(
+                &response.body,
+                content_type,
+                page_resource_text_kind(text_kind, content_type),
+            );
             let document_referrer = policy
                 .header(
                     &source_url.parse().map_err(|error| {
@@ -2207,6 +2216,7 @@ impl ParentContextService {
                 url: url.to_string(),
                 source,
                 destination: destination.into(),
+                content_type: content_type.map(str::to_owned),
                 document_referrer,
                 referrer_policy: response_policy.as_str().into(),
                 refresh_url,
@@ -2735,6 +2745,26 @@ fn enforce_cors_preflight(
         ));
     }
     Ok(())
+}
+
+fn page_resource_text_kind(
+    default: oryn_net::TextResourceKind,
+    content_type: Option<&str>,
+) -> oryn_net::TextResourceKind {
+    let essence = content_type
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if default == oryn_net::TextResourceKind::Html
+        && (matches!(essence.as_str(), "text/xml" | "application/xml") || essence.ends_with("+xml"))
+    {
+        oryn_net::TextResourceKind::Xml
+    } else {
+        default
+    }
 }
 
 #[cfg(all(test, feature = "in-process-probe"))]

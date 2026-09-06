@@ -234,7 +234,7 @@ impl StreamingParser {
     }
 }
 
-struct OrynTreeSink {
+pub(crate) struct OrynTreeSink {
     dom: SharedDomRuntime,
     document: NodeId,
     errors: RefCell<Vec<String>>,
@@ -263,6 +263,30 @@ impl OrynTreeSink {
             quirks_mode: Cell::new(QuirksMode::NoQuirks),
             events: RefCell::new(Vec::new()),
             pending_text: RefCell::new(None),
+        }
+    }
+
+    pub(crate) fn for_xml(content_type: &str) -> Self {
+        let sink = Self::new();
+        sink.dom
+            .borrow_mut()
+            .arena_mut()
+            .get_mut(sink.document)
+            .unwrap()
+            .document_metadata = Some(Box::new(crate::DocumentMetadata {
+            content_type: content_type.into(),
+            is_html: false,
+            quirks: false,
+        }));
+        sink
+    }
+
+    pub(crate) fn xml_character_node(&self, data: String, target: Option<String>) -> NodeId {
+        self.flush_text();
+        let mut dom = self.dom.borrow_mut();
+        match target {
+            Some(target) => dom.create_processing_instruction(target, data),
+            None => dom.create_cdata_section(data),
         }
     }
 
@@ -318,7 +342,7 @@ impl OrynTreeSink {
     }
 }
 
-struct OrynElemName<'a> {
+pub(crate) struct OrynElemName<'a> {
     node: Ref<'a, crate::Node>,
 }
 
@@ -406,6 +430,7 @@ impl TreeSink for OrynTreeSink {
         }
         if let Ok(node) = dom.arena().get(element)
             && let NodeKind::Element { name } = &node.kind
+            && name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
         {
             match name.local.as_ref() {
                 "link"
@@ -474,6 +499,12 @@ impl TreeSink for OrynTreeSink {
         let NodeKind::Element { name } = &node_record.kind else {
             return;
         };
+        if !matches!(
+            name.ns.as_ref(),
+            "http://www.w3.org/1999/xhtml" | "http://www.w3.org/2000/svg"
+        ) {
+            return;
+        }
         if name.local.as_ref() == "style" {
             self.events
                 .borrow_mut()

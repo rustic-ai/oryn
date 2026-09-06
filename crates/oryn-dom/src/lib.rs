@@ -12,6 +12,7 @@ use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use serde::{Deserialize, Serialize};
 
 pub mod html;
+pub mod xml;
 
 /// Thread-affine ownership shared by html5ever and the page's V8 isolate.
 ///
