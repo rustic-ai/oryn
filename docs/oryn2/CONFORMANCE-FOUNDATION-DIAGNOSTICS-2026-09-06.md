@@ -72,3 +72,14 @@ fast path, with owner-document GC coverage for Attr.
 Locked checks pass 102 V8 binding tests (two existing ignored), 30 native DOM
 tests, generated-binding verification and strict Clippy. Signed conformance
 validation is pending; this does not change the recorded full baseline score.
+
+
+Signed validation at `fba789e`, worker
+`3aa9da604e334c8bca0e6d22571eefe0456ebf127558522363ef2bf769fcf36b`:
+name validation passes all five groups; complete DOM selection passes 340/664
+(338/662 DOM plus two accname files), seven gains and no lost passes; complete
+CSS selection passes 231/569 (226/564 CSS plus five referrer files), unchanged.
+Exact selected IDs and every passing harness completion were verified.
+The seven new DOM file passes are historical interfaces, Document-createAttribute,
+Element-hasAttribute, Element-setAttribute-crbug-1138487, case, name-validation,
+and querySelector-mixed-case. The clean full baseline remains 2,501/4,022.

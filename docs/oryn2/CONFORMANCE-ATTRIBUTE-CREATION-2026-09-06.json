@@ -1,0 +1,173 @@
+{
+  "css": {
+    "baseline_ledger": "conformance-worker-full-clean-fbb2f29.json",
+    "diagnostic_only": true,
+    "exact_filtered_inventory_and_pass_completion_verified": true,
+    "failure_domains": {
+      "assertion": 296,
+      "harness": 35,
+      "incomplete": 1,
+      "runtime": 6
+    },
+    "failure_mode_changes": [],
+    "ledger": "conformance-worker-attribute-creation-css.json",
+    "ledger_sha256": "9f85a1eac1ac05237033dfc939310c2750d5b0c8d1850b4e3078949e9f5b2e27",
+    "newly_passing": [],
+    "outcome": {
+      "required_finished": 569,
+      "required_passed": 231,
+      "required_total": 569,
+      "status": "failed"
+    },
+    "regressions": [],
+    "release_qualified": false,
+    "roots": {
+      "css": {
+        "failed": 338,
+        "passed": 226,
+        "required": 564
+      },
+      "referrer-policy": {
+        "failed": 0,
+        "passed": 5,
+        "required": 5
+      }
+    },
+    "source": {
+      "commit": "fba789e9f60f2f3b1cc34282d3d39058f423937d",
+      "dirty": false,
+      "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "untracked_file_count": 0,
+      "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "worker_sha256": "3aa9da604e334c8bca0e6d22571eefe0456ebf127558522363ef2bf769fcf36b"
+  },
+  "dom": {
+    "baseline_ledger": "conformance-worker-detached-leaf-dom.json",
+    "diagnostic_only": true,
+    "exact_filtered_inventory_and_pass_completion_verified": true,
+    "failure_domains": {
+      "assertion": 275,
+      "harness": 31,
+      "incomplete": 8,
+      "runtime": 10
+    },
+    "failure_mode_changes": [
+      {
+        "after": null,
+        "before": "assertion",
+        "id": "dom/historical.html|window|"
+      },
+      {
+        "after": null,
+        "before": "assertion",
+        "id": "dom/nodes/Document-createAttribute.html|window|"
+      },
+      {
+        "after": null,
+        "before": "assertion",
+        "id": "dom/nodes/Element-hasAttribute.html|window|"
+      },
+      {
+        "after": null,
+        "before": "assertion",
+        "id": "dom/nodes/Element-setAttribute-crbug-1138487.html|window|"
+      },
+      {
+        "after": null,
+        "before": "assertion",
+        "id": "dom/nodes/case.html|window|"
+      },
+      {
+        "after": null,
+        "before": "assertion",
+        "id": "dom/nodes/name-validation.html|window|"
+      },
+      {
+        "after": null,
+        "before": "assertion",
+        "id": "dom/nodes/querySelector-mixed-case.html|window|"
+      }
+    ],
+    "ledger": "conformance-worker-attribute-creation-dom.json",
+    "ledger_sha256": "bae34c2b0f024e24596451edf0d861e2c8dbb2b7bc042af05dbec6ded53dbf97",
+    "newly_passing": [
+      "dom/historical.html|window|",
+      "dom/nodes/Document-createAttribute.html|window|",
+      "dom/nodes/Element-hasAttribute.html|window|",
+      "dom/nodes/Element-setAttribute-crbug-1138487.html|window|",
+      "dom/nodes/case.html|window|",
+      "dom/nodes/name-validation.html|window|",
+      "dom/nodes/querySelector-mixed-case.html|window|"
+    ],
+    "outcome": {
+      "required_finished": 664,
+      "required_passed": 340,
+      "required_total": 664,
+      "status": "failed"
+    },
+    "regressions": [],
+    "release_qualified": false,
+    "roots": {
+      "accname": {
+        "failed": 0,
+        "passed": 2,
+        "required": 2
+      },
+      "dom": {
+        "failed": 324,
+        "passed": 338,
+        "required": 662
+      }
+    },
+    "source": {
+      "commit": "fba789e9f60f2f3b1cc34282d3d39058f423937d",
+      "dirty": false,
+      "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "untracked_file_count": 0,
+      "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "worker_sha256": "3aa9da604e334c8bca0e6d22571eefe0456ebf127558522363ef2bf769fcf36b"
+  },
+  "name-validation": {
+    "baseline_ledger": "conformance-worker-detached-leaf-dom.json",
+    "diagnostic_only": true,
+    "exact_filtered_inventory_and_pass_completion_verified": true,
+    "failure_domains": {},
+    "failure_mode_changes": [
+      {
+        "after": null,
+        "before": "assertion",
+        "id": "dom/nodes/name-validation.html|window|"
+      }
+    ],
+    "ledger": "conformance-worker-attribute-creation-name-validation.json",
+    "ledger_sha256": "242f509b99dc4cbc6e21aecbb30fed12aeafcd44f6ca12441aefcd55f76a6b7b",
+    "newly_passing": [
+      "dom/nodes/name-validation.html|window|"
+    ],
+    "outcome": {
+      "required_finished": 1,
+      "required_passed": 1,
+      "required_total": 1,
+      "status": "passed"
+    },
+    "regressions": [],
+    "release_qualified": false,
+    "roots": {
+      "dom": {
+        "failed": 0,
+        "passed": 1,
+        "required": 1
+      }
+    },
+    "source": {
+      "commit": "fba789e9f60f2f3b1cc34282d3d39058f423937d",
+      "dirty": false,
+      "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "untracked_file_count": 0,
+      "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "worker_sha256": "3aa9da604e334c8bca0e6d22571eefe0456ebf127558522363ef2bf769fcf36b"
+  }
+}

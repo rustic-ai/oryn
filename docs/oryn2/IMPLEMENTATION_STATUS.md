@@ -44,6 +44,15 @@ Name validation now finishes with two passing assertion groups and three semanti
 failures, replacing its prior worker wall-time failure. The latest full score
 remains the separate fbb2f29 baseline above. See the [foundation diagnostics](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 
+The newer signed attribute candidate at `fba789e` reaches **338/662 DOM**
+(seven gains, no lost passes) and retains **226/564 CSS** with no lost passes.
+All five name-validation assertion groups now pass under the original limits.
+It adds native Attr creation, attribute namespace/name validation, correct
+HTML/XML lookup case, namespace-preserving value updates and original exception
+propagation. These focused results are recorded in
+[the attribute evidence](CONFORMANCE-ATTRIBUTE-CREATION-2026-09-06.json); they do
+not replace the separate full-run score above.
+
 Remaining shared gaps include XML parsing and iframe MIME propagation, namespace
 preservation through import/clone, document ownership, table APIs, Range/editing,
 CSSOM and scope integration, generated-content names, iframe realms and transaction
