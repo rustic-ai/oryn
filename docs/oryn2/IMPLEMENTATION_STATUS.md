@@ -2,15 +2,13 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> The clean signed-worker baseline at `fbb2f29` passes **2,501/4,022** executions:
-> **34 new passes, no lost passes**, and **1,521 remaining failures** versus the
-> previous full run at 2,467/4,022.
+> The clean signed-worker baseline at `73ee49b` passes **2,527/4,022** executions:
+> **26 new passes, no lost passes**, and **1,495 remaining failures** versus the
+> previous full run at 2,501/4,022.
 
-The newer clean `9ffc345` candidate passes **347/662 DOM** and **227/564 CSS**
-executions in separate root selections. XML activation gains six DOM files with
-no lost passes; CSS remains unchanged from the preceding ownership candidate.
-See the [XML activation evidence](CONFORMANCE-XML-ACTIVATION-2026-09-06.json).
-These focused results do not replace the full baseline above.
+This complete run includes the attribute ownership, XML activation, native DOM
+constructor, scoped ID lookup and namespace-aware resource changes. It supersedes
+the separate DOM/CSS root results at `9ffc345` for current planning.
 
 Every required v2 execution ID and every reported passing testharness completion
 has been independently checked. Source stayed clean and the signed App Sandbox
@@ -22,17 +20,17 @@ unchanged. The failing aggregate does not qualify a release.
 | IndexedDB | 341/456 |
 | WebIDL | 29/58 |
 | accname | 15/19 |
-| css | 226/564 |
-| dom | 331/662 |
+| css | 227/564 |
+| dom | 356/662 |
 | editing | 118/704 |
 | html | 30/136 |
 | referrer-policy | 1,383/1,391 |
 | wai-aria | 28/32 |
 
-The full ledger is `artifacts/upstream-conformance/conformance-worker-full-clean-fbb2f29.json`;
+The full ledger is `artifacts/upstream-conformance/conformance-worker-full-dom-primitives-73ee49b.json`;
 its adjacent summary records exact coverage, completion validation, root totals,
-gains, regressions and artifact hashes. Remaining outcomes comprise 1,327 assertion,
-54 runtime, 128 harness, 11 incomplete and one timeout failure.
+gains, regressions and artifact hashes. Remaining outcomes comprise 1,303 assertion,
+50 runtime, 131 harness, 9 incomplete and 2 timeout failures.
 The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) now uses only this
 single full run. Every open ID retains its evidence and provisional workstream routing.
 

@@ -201,4 +201,18 @@ where matching only local tag names could activate generic XML elements as HTML.
 The regression checks generic XML and null namespaces against real HTML/SVG scripts.
 
 Native DOM tests: 38 pass. V8 tests: 108 pass, two existing ignored. Strict DOM and
-V8 Clippy pass; generated interfaces checked. Signed-worker evidence pending.
+V8 Clippy pass; generated interfaces checked. Complete signed-worker evidence follows.
+
+## Complete DOM-primitives baseline
+
+Clean `73ee49b`, signed worker `3f198e05549dbbff88403eba4854ab40b9456a3f75f3cf53d9982443030a0436`:
+**2527/4022** with 26 gains and no lost passes versus `fbb2f29`.
+DOM passes 356/662; CSS passes 227/564. Other roots are unchanged.
+Exact inventory IDs and every passing completion were independently verified.
+The complete baseline and failure backlog now use this run. This remains a failing
+conformance result, with 1495 open executions; it does not qualify a release.
+
+Two still-failing executions changed failure domain: history_forward.html changed
+from harness to runtime, and iframe-upgrade-request-to-cross-origin.sub.html
+changed from runtime to timeout. Both remain open in the single-run backlog;
+no successful execution was lost. These transitions need navigation/task diagnosis.

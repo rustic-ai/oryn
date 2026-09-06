@@ -32,9 +32,9 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The clean **complete full baseline** at `fbb2f29` is **2,501/4,022**, with 1,521
-failures: 34 gains and no lost passes versus the preceding full run at 2,467/4,022.
-All gains are in DOM, now 331/662. All other root pass counts are unchanged.
+The clean **complete full baseline** at `73ee49b` is **2,527/4,022**, with 1,495
+failures: 26 gains and no lost passes versus the preceding full run at 2,501/4,022.
+DOM now passes 356/662 and CSS 227/564. Other root pass counts are unchanged.
 Exact inventory coverage and every reported passing completion were verified.
 
 The [planning backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) now uses that
@@ -45,9 +45,9 @@ first-error text does not establish a root cause. No ID is silently discarded.
 
 | Root | Latest evidence used for planning | Open executions |
 |---|---|---:|
-| DOM | Clean full baseline | 331 |
+| DOM | Clean full baseline | 306 |
 | Editing | Clean full baseline | 586 |
-| CSS | Clean full baseline | 338 |
+| CSS | Clean full baseline | 337 |
 | IndexedDB | Clean full baseline | 115 |
 | HTML | Clean full baseline | 106 |
 | WebIDL | Clean full baseline | 29 |
@@ -60,28 +60,28 @@ Important concentration and dependencies:
 - Editing's 586 failing executions cover 133 source files. Three whitespace-joining
   files account for 180 variants; two paragraph-insertion files account for another
   88. These are high-priority shared algorithms, not hundreds of independent fixes.
-- CSS splits into 159 CSSOM, 125 selector and 54 cascade failures. Stylo already owns
+- CSS splits into 159 CSSOM, 124 selector and 54 cascade failures. Stylo already owns
   CSS parsing/cascade/computed values and selector matching. Investigate native
   adapter state, stylesheet ownership and invalidation before attributing failures
   to missing Stylo capability.
 - All 106 HTML failures are history/browsing-context tests. Treat them together with
   frame activation, navigation tasks and the eight referrer-inheritance failures.
-- The 390 XML/XHTML iframe failures inside createElementNS expose the HTML parser
-  being used for XML documents. They are assertions within one file, not 390 gains
-  in the inventory. Eleven other assertions involve missing element interfaces.
-- DOM includes 93 event files, 35 Range files and 16 traversal files. Several event
+- The XML/XHTML iframe parser and missing interfaces exposed by createElementNS
+  are fixed; that file now passes all 596 assertions. Broader XML navigation,
+  fragment parsing, serialization and template ownership remain open.
+- DOM failures include 91 event files, 35 Range files and 16 traversal files. Several event
   cases cannot reach their target assertion because required APIs, such as animation,
   are absent. A "harness" classification is not automatically a runner defect.
-- `Range-insertNode` still exceeds RSS; the expanded `name-validation` loops reach
-  the command wall limit. Both need profiles of native work, V8 callbacks and retained
-  objects. Correct acceptance of more inputs can expose previously hidden costs.
+- `Range-insertNode` still needs resource diagnosis. The expanded `name-validation`
+  loops now finish and pass after detached-wrapper performance and native name fixes.
+  Profile native work, V8 callbacks and retained objects for remaining resource failures.
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 
-**Baseline completed:** clean source `fbb2f29`, signed worker
-`5dfca3b4045278e27ec5ea5f279258feb19372b447f37a5508d22aa43359dd53`,
-ledger `conformance-worker-full-clean-fbb2f29.json`. All 4,022 IDs and passing
-completions verified; all 1,521 failures routed. The initial resource batch has
+**Baseline completed:** clean source `73ee49b`, signed worker
+`3f198e05549dbbff88403eba4854ab40b9456a3f75f3cf53d9982443030a0436`,
+ledger `conformance-worker-full-dom-primitives-73ee49b.json`. All 4,022 IDs and passing
+completions verified; all 1,495 failures routed. The initial resource batch has
 reproducible scaling and GC diagnostics recorded in the
 [foundation report](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 The procedure below remains required for subsequent complete candidates.

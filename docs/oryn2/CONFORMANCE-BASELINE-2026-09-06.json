@@ -1,60 +1,52 @@
 {
-  "baseline_ledger": "conformance-worker-full-gc-queue-css-clones.json",
+  "baseline_ledger": "conformance-worker-full-clean-fbb2f29.json",
   "binary": {
-    "sha256": "04d0891ef837f615955fbcab3d21115d6bc658c7b409e70450763310369e6d5e",
-    "size_bytes": 6974832
+    "sha256": "6a53449acb5ead40951f59e75ddd2cfffb5ec143ebaadc54695dbfee3a429bb7",
+    "size_bytes": 6991424
   },
   "diagnostic_only": true,
   "exact_filtered_inventory_and_pass_completion_verified": true,
   "failure_domains": {
-    "assertion": 1327,
-    "harness": 128,
-    "incomplete": 11,
-    "runtime": 54,
-    "timeout": 1
+    "assertion": 1303,
+    "harness": 131,
+    "incomplete": 9,
+    "runtime": 50,
+    "timeout": 2
   },
   "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
-  "ledger": "conformance-worker-full-clean-fbb2f29.json",
-  "ledger_sha256": "138b53f327261bde2d2d7a15abbffa5eb37c3d7133775d754e25eeda72f22e0b",
+  "ledger": "conformance-worker-full-dom-primitives-73ee49b.json",
+  "ledger_sha256": "ee0fbde562a8c2a3fbc47ceb6522706f0357b9ccc2195b1955d02ac9e13ef28e",
   "newly_passing": [
-    "dom/collections/HTMLCollection-as-prototype.html|window|",
-    "dom/collections/HTMLCollection-delete.html|window|",
-    "dom/collections/HTMLCollection-empty-name.html|window|",
-    "dom/collections/HTMLCollection-iterator.html|window|",
-    "dom/collections/HTMLCollection-live-mutations.window.js|window|",
-    "dom/collections/HTMLCollection-own-props.html|window|",
-    "dom/collections/HTMLCollection-supported-property-indices.html|window|",
-    "dom/collections/HTMLCollection-supported-property-names.html|window|",
-    "dom/nodes/DOMImplementation-createDocument.html|window|",
-    "dom/nodes/Document-contentType/contentType/createDocument.html|window|",
-    "dom/nodes/Document-getElementsByClassName.html|window|",
-    "dom/nodes/Document-getElementsByTagName.html|window|",
-    "dom/nodes/Document-getElementsByTagNameNS.html|window|",
-    "dom/nodes/Element-children.html|window|",
-    "dom/nodes/Element-firstElementChild-namespace.html|window|",
-    "dom/nodes/Element-getElementsByClassName.html|window|",
-    "dom/nodes/Element-getElementsByTagName.html|window|",
-    "dom/nodes/Element-getElementsByTagNameNS.html|window|",
-    "dom/nodes/Node-nodeName.html|window|",
-    "dom/nodes/NodeList-static-length-getter-tampered-1.html|window|",
-    "dom/nodes/NodeList-static-length-getter-tampered-2.html|window|",
-    "dom/nodes/NodeList-static-length-getter-tampered-3.html|window|",
-    "dom/nodes/NodeList-static-length-getter-tampered-indexOf-1.html|window|",
-    "dom/nodes/NodeList-static-length-getter-tampered-indexOf-2.html|window|",
-    "dom/nodes/NodeList-static-length-getter-tampered-indexOf-3.html|window|",
-    "dom/nodes/ParentNode-children.html|window|",
-    "dom/nodes/getElementsByClassName-03.htm|window|",
-    "dom/nodes/getElementsByClassName-05.htm|window|",
-    "dom/nodes/getElementsByClassName-06.htm|window|",
-    "dom/nodes/getElementsByClassName-13.htm|window|",
-    "dom/nodes/getElementsByClassName-14.htm|window|",
-    "dom/nodes/getElementsByClassName-16.htm|window|",
-    "dom/nodes/getElementsByClassName-18.htm|window|",
-    "dom/nodes/getElementsByClassName-whitespace-class-names.html|window|"
+    "css/selectors/quirks-mode-import.html|window|",
+    "dom/events/Event-dispatch-bubbles-false.html|window|",
+    "dom/events/Event-dispatch-bubbles-true.html|window|",
+    "dom/historical.html|window|",
+    "dom/nodes/Attr-prefix.html|window|",
+    "dom/nodes/Comment-constructor.html|window|",
+    "dom/nodes/Document-contentType/contentType/contenttype_mimeheader_01.html|window|",
+    "dom/nodes/Document-contentType/contentType/contenttype_xml.html|window|",
+    "dom/nodes/Document-createAttribute.html|window|",
+    "dom/nodes/Document-createElement-namespace.html|window|",
+    "dom/nodes/Document-createElement.html|window|",
+    "dom/nodes/Document-createElementNS.html|window|",
+    "dom/nodes/Document-importNode.html|window|",
+    "dom/nodes/DocumentFragment-constructor.html|window|",
+    "dom/nodes/DocumentFragment-getElementById.html|window|",
+    "dom/nodes/Element-hasAttribute.html|window|",
+    "dom/nodes/Element-setAttribute-crbug-1138487.html|window|",
+    "dom/nodes/Element-tagName.html|window|",
+    "dom/nodes/Node-cloneNode-svg.html|window|",
+    "dom/nodes/Text-constructor.html|window|",
+    "dom/nodes/Text-wholeText.html|window|",
+    "dom/nodes/case.html|window|",
+    "dom/nodes/insertion-removing-steps/Node-append-meta-referrer-and-script-from-fragment.html|window|",
+    "dom/nodes/insertion-removing-steps/Node-appendChild-script-and-style.html|window|",
+    "dom/nodes/name-validation.html|window|",
+    "dom/nodes/querySelector-mixed-case.html|window|"
   ],
   "outcome": {
     "required_finished": 4022,
-    "required_passed": 2501,
+    "required_passed": 2527,
     "required_total": 4022,
     "status": "failed"
   },
@@ -77,13 +69,13 @@
       "required": 19
     },
     "css": {
-      "failed": 338,
-      "passed": 226,
+      "failed": 337,
+      "passed": 227,
       "required": 564
     },
     "dom": {
-      "failed": 331,
-      "passed": 331,
+      "failed": 306,
+      "passed": 356,
       "required": 662
     },
     "editing": {
@@ -107,7 +99,7 @@
       "required": 32
     }
   },
-  "run_fingerprint": "0631b9fd0ab03e639f10fea61c7d2b205def7950a2a0bdca534dd0bd7cf20dae",
+  "run_fingerprint": "50196391291e4210be7b398740623cc40eaf32d215431b4541e5dd85489552b0",
   "runtime_metadata": {
     "binding_abi_version": 3,
     "box_engine_version": "taffy-0.14",
@@ -174,20 +166,20 @@
     "transport_mode": "async_streaming_parent_broker",
     "v8_heap_sandbox": true,
     "v8_version": "15.0.245.2-rusty",
-    "webidl_manifest_sha256": "1a86c2b14c978814727440b21f17a2eb6552674cec18cb538ab14a7c68540133",
-    "worker_binary_sha256": "5dfca3b4045278e27ec5ea5f279258feb19372b447f37a5508d22aa43359dd53",
+    "webidl_manifest_sha256": "7185cc4bf1485bb7841ae419629151e90916f36ff68c127fe7b1f0f3772e09d8",
+    "worker_binary_sha256": "3f198e05549dbbff88403eba4854ab40b9456a3f75f3cf53d9982443030a0436",
     "worker_bundle_id": "ai.rustic.oryn.page-worker",
     "worker_protocol_version": 8,
     "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
     "worker_team_id": "5HVA9VFF8K"
   },
   "source": {
-    "commit": "fbb2f29cbc9b492662b82441bd926e144f4f2248",
+    "commit": "73ee49b7bb78052e9dacc311f165030e04243c1b",
     "dirty": false,
     "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "untracked_file_count": 0,
     "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
-  "worker_sha256": "5dfca3b4045278e27ec5ea5f279258feb19372b447f37a5508d22aa43359dd53"
+  "worker_sha256": "3f198e05549dbbff88403eba4854ab40b9456a3f75f3cf53d9982443030a0436"
 }
