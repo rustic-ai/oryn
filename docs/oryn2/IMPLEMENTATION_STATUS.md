@@ -2,24 +2,20 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> The clean signed-worker baseline at `73ee49b` passes **2,527/4,022** executions:
-> **26 new passes, no lost passes**, and **1,495 remaining failures** versus the
-> previous full run at 2,501/4,022.
+> Clean signed-worker baseline `c12167f`: **2,539/4,022**, with
+> **16 new passes, 4 lost pass(es), and 1,483 remaining failures** versus
+> the previous complete run at 2,527/4,022.
 
-This complete run includes the attribute ownership, XML activation, native DOM
-constructor, scoped ID lookup and namespace-aware resource changes. It supersedes
-the separate DOM/CSS root results at `9ffc345` for current planning.
+This full run includes native document constructors and XML frame activation,
+attribute ownership, observer registration/record lifecycles, event dispatch,
+mutation sibling snapshots, live Range-aware text normalization, and assignment
+shadowing of Window named properties. It supersedes the separate root evidence
+at `f4512fb` for current planning.
 
-The newer clean `f4512fb` candidate passes **366/662 DOM**, **228/564 CSS**,
-and **341/456 IndexedDB** in separate root selections. The observer/event batch
-has 10 DOM gains and 1 CSS gain; no lost passes in any checked root.
-See [lifecycle evidence](CONFORMANCE-OBSERVER-EVENT-LIFECYCLE-2026-09-06.json).
-These focused results do not replace the complete baseline or its failure backlog.
-
-Every required v2 execution ID and every reported passing testharness completion
-has been independently checked. Source stayed clean and the signed App Sandbox
-worker stayed fixed throughout the run. Security, memory and timeout limits are
-unchanged. The failing aggregate does not qualify a release.
+Every required execution ID and every reported passing testharness completion was
+independently checked. Source and the signed worker stayed fixed throughout the run.
+The 256 MiB heap, 512 MiB RSS, 10 s command and 30 s navigation limits, App Sandbox
+and V8 heap sandbox are unchanged. The failing result does not qualify a release.
 
 | Root | Passed / required |
 |---|---:|
@@ -27,48 +23,43 @@ unchanged. The failing aggregate does not qualify a release.
 | WebIDL | 29/58 |
 | accname | 15/19 |
 | css | 227/564 |
-| dom | 356/662 |
+| dom | 371/662 |
 | editing | 118/704 |
-| html | 30/136 |
+| html | 27/136 |
 | referrer-policy | 1,383/1,391 |
 | wai-aria | 28/32 |
 
-The full ledger is `artifacts/upstream-conformance/conformance-worker-full-dom-primitives-73ee49b.json`;
-its adjacent summary records exact coverage, completion validation, root totals,
-gains, regressions and artifact hashes. Remaining outcomes comprise 1,303 assertion,
-50 runtime, 131 harness, 9 incomplete and 2 timeout failures.
-The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) now uses only this
-single full run. Every open ID retains its evidence and provisional workstream routing.
+The full ledger is `artifacts/upstream-conformance/conformance-worker-full-normalize-window-c12167f.json`.
+The [baseline evidence](CONFORMANCE-BASELINE-2026-09-06.json) binds exact coverage,
+passing completions, gains, regressions and changed failure domains to artifact hashes.
+Remaining outcomes comprise 1,292 assertion, 51 runtime,
+127 harness, 12 incomplete and 1 timeout failures.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) uses this single
+full run; every open ID retains its evidence and provisional workstream routing.
 
-Stylo owns CSS parsing, cascade, computed values and production DOM selector
-matching. The baseline includes the previously focused HTMLCollection and static
-NodeList fixes, qualified element names, native document MIME/quirks metadata,
-namespace validation and name reflection. It also includes the earlier template,
-wrapper/Range lifetime, IndexedDB queue and Stylo/Blitz adapter changes.
+The lost CSS pass, `focus-within-009`, now reaches 12 assertions instead of one.
+Those additional assertions expose missing focus state in the Stylo mirror and
+focus retained across removal/moves. History cases `008`, `011`, and `012` retain
+passing assertions in an isolated diagnostic probe, but their primary runs lack
+verified harness completion. All four remain failures in this baseline; neither
+expanded coverage nor passing partial assertions erase the regressions.
+All three history cases passed isolated rechecks on the unchanged signed worker.
+Their full-run failures remain in the baseline; completion intermittency is unresolved.
 
-W0's clean baseline is complete. The resource implementation now avoids quadratic
-creation of isolated detached wrappers and scans of older mutation-journal entries.
-Locked repository checks pass 101 V8 binding tests and 29 native DOM tests, plus
-strict Clippy. The signed worker at `038f7aa` preserves 331/662 DOM passes with no lost passes.
-Name validation now finishes with two passing assertion groups and three semantic
-failures, replacing its prior worker wall-time failure. The latest full score
-remains the separate fbb2f29 baseline above. See the [foundation diagnostics](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
+Stylo owns CSS parsing, cascade, computed values and production selector matching.
+Current shared gaps include compound DOM mutation records and observer microtask
+ordering, document adoption and template ownership, top-level XML navigation and
+XML fragments, table/traversal APIs, Range/editing, CSSOM and style-state integration,
+generated-content names, history/iframe realms and IndexedDB transaction scheduling.
 
-The newer signed attribute candidate at `fba789e` reaches **338/662 DOM**
-(seven gains, no lost passes) and retains **226/564 CSS** with no lost passes.
-All five name-validation assertion groups now pass under the original limits.
-It adds native Attr creation, attribute namespace/name validation, correct
-HTML/XML lookup case, namespace-preserving value updates and original exception
-propagation. These focused results are recorded in
-[the attribute evidence](CONFORMANCE-ATTRIBUTE-CREATION-2026-09-06.json); they do
-not replace the separate full-run score above.
+The candidate passed 111 V8 binding tests (two existing environment-dependent tests
+ignored), 41 native DOM tests, strict relevant Clippy, generated binding validation,
+and native V8 compilation. The Window assignment changes also passed two native
+integration tests. Detailed batch history and validation are in the
+[foundation diagnostics](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 
-Remaining shared gaps include XML parsing and iframe MIME propagation, namespace
-preservation through import/clone, document ownership, table APIs, Range/editing,
-CSSOM and scope integration, generated-content names, iframe realms and transaction
-scheduling. Complete conformance requires two full 4,022/4,022 runs of the same
-frozen candidate plus the plan's validation gates. Broader product/platform release
-qualification remains separate.
+Complete conformance requires two full 4,022/4,022 runs of the same frozen candidate
+plus the execution plan's validation gates. Broader release qualification is separate.
 
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.

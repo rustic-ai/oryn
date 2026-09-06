@@ -32,10 +32,19 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The clean **complete full baseline** at `73ee49b` is **2,527/4,022**, with 1,495
-failures: 26 gains and no lost passes versus the preceding full run at 2,501/4,022.
-DOM now passes 356/662 and CSS 227/564. Other root pass counts are unchanged.
-Exact inventory coverage and every reported passing completion were verified.
+The clean **complete full baseline** at `c12167f` is **2,539/4,022**, with 1,483
+failures: 16 gains and 4 lost pass(es) versus the preceding full run at 2,527/4,022.
+DOM passes 371/662 and CSS 227/564. Exact inventory coverage and every reported
+passing completion were verified. The baseline records all failure-domain changes.
+
+The lost CSS pass, `focus-within-009`, now reaches 12 assertions instead of one.
+Those additional assertions expose missing focus state in the Stylo mirror and
+focus retained across removal/moves. History cases `008`, `011`, and `012` retain
+passing assertions in an isolated diagnostic probe, but their primary runs lack
+verified harness completion. All four remain failures in this baseline; neither
+expanded coverage nor passing partial assertions erase the regressions.
+All three history cases passed isolated rechecks on the unchanged signed worker.
+Their full-run failures remain in the baseline; completion intermittency is unresolved.
 
 The [planning backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) now uses that
 single full ledger, replacing the original mixed-candidate planning index.
@@ -45,11 +54,11 @@ first-error text does not establish a root cause. No ID is silently discarded.
 
 | Root | Latest evidence used for planning | Open executions |
 |---|---|---:|
-| DOM | Clean full baseline | 306 |
+| DOM | Clean full baseline | 291 |
 | Editing | Clean full baseline | 586 |
 | CSS | Clean full baseline | 337 |
 | IndexedDB | Clean full baseline | 115 |
-| HTML | Clean full baseline | 106 |
+| HTML | Clean full baseline | 109 |
 | WebIDL | Clean full baseline | 29 |
 | Referrer policy | Clean full baseline | 8 |
 | Accessible Name | Clean full baseline | 4 |
@@ -64,7 +73,7 @@ Important concentration and dependencies:
   CSS parsing/cascade/computed values and selector matching. Investigate native
   adapter state, stylesheet ownership and invalidation before attributing failures
   to missing Stylo capability.
-- All 106 HTML failures are history/browsing-context tests. Treat them together with
+- All 109 HTML failures are history/browsing-context tests. Treat them together with
   frame activation, navigation tasks and the eight referrer-inheritance failures.
 - The XML/XHTML iframe parser and missing interfaces exposed by createElementNS
   are fixed; that file now passes all 596 assertions. Broader XML navigation,
@@ -78,10 +87,10 @@ Important concentration and dependencies:
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 
-**Baseline completed:** clean source `73ee49b`, signed worker
-`3f198e05549dbbff88403eba4854ab40b9456a3f75f3cf53d9982443030a0436`,
-ledger `conformance-worker-full-dom-primitives-73ee49b.json`. All 4,022 IDs and passing
-completions verified; all 1,495 failures routed. The initial resource batch has
+**Baseline completed:** clean source `c12167f`, signed worker
+`15d09a52d087bf38138bca64241874ef6f9a4fb930ced54f1fc0b368913c5f34`,
+ledger `conformance-worker-full-normalize-window-c12167f.json`. All 4,022 IDs and passing
+completions verified; all 1,483 failures routed. The initial resource batch has
 reproducible scaling and GC diagnostics recorded in the
 [foundation report](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 The procedure below remains required for subsequent complete candidates.
@@ -96,6 +105,14 @@ owner component. Separate runner/fixture defects, missing required APIs, runtime
 algorithm failures, and resource/lifetime failures. Preserve exceptions, task traces,
 completion state and resource reasons. Keep variants/global environments distinct.
 Do not group unrelated failures solely because both mention `TypeError`.
+
+Audit uncaught script and callback exception reporting before declaring completion.
+The focus-within regression exposed an earlier one-assertion pass while parser
+script exceptions are retained as host diagnostics without Window error delivery.
+A successful reported harness completion can therefore miss later registrations.
+Implement native exception/error-event reporting and verify that an uncaught
+parser exception makes an ordinary testharness run fail unless the test explicitly
+permits it. Keep original exception identity and realm behavior.
 
 Create a reduced regression for each confirmed shared cause. Record its dependency
 contracts, affected IDs, expected behavior and decisive check. First failing assertions
@@ -115,11 +132,11 @@ single patch. Shared prerequisites may resolve failures in several workstreams.
 
 | Workstream | Routed open IDs | Primary owner | Required result |
 |---|---:|---|---|
-| W1: native documents, DOM, Range and traversal | 224 | `oryn-dom`, native parser; `oryn-js` bindings | Correct document/tree ownership, node APIs and live boundary behavior, with bounded lifetimes |
-| W2: bindings, interfaces and realms | 41 | `oryn-webidl`, `oryn-js` generated registry | Real required interfaces with correct conversions, brands, descriptors and realm behavior |
-| W3: events, input and task scheduling | 95 | `oryn-js`, native scheduler/default actions | Correct event paths, ordering, activation and cancellation across required environments |
-| W4: browsing contexts, history and referrer | 114 | Native runtime/context service and bindings | Document activation and session history with correct origin, realm and policy behavior |
-| W5: CSSOM | 159 | Native stylesheet owner, generated CSSOM bindings, Stylo adapter | Live rule objects, editing, serialization, ownership and exceptions |
+| W1: native documents, DOM, Range and traversal | 194 | `oryn-dom`, native parser; `oryn-js` bindings | Correct document/tree ownership, node APIs and live boundary behavior, with bounded lifetimes |
+| W2: bindings, interfaces and realms | 40 | `oryn-webidl`, `oryn-js` generated registry | Real required interfaces with correct conversions, brands, descriptors and realm behavior |
+| W3: events, input and task scheduling | 86 | `oryn-js`, native scheduler/default actions | Correct event paths, ordering, activation and cancellation across required environments |
+| W4: browsing contexts, history and referrer | 117 | Native runtime/context service and bindings | Document activation and session history with correct origin, realm and policy behavior |
+| W5: CSSOM | 158 | Native stylesheet owner, generated CSSOM bindings, Stylo adapter | Live rule objects, editing, serialization, ownership and exceptions |
 | W6: selectors and cascade | 179 | `oryn-layout`, Stylo/Blitz adapters | Correct tree/state/mode inputs, scope/cascade semantics and mutation invalidation |
 | W7: editing | 586 | Native editing algorithms, Range/Selection and input | Correct DOM transformations, selection and input-event behavior across every variant |
 | W8: IndexedDB | 115 | Storage host, structured clone, JS transaction/task bridge | Correct keys, transactions, cursor scheduling, abort/upgrade and origin isolation |

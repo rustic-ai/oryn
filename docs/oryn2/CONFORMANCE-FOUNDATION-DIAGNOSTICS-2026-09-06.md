@@ -306,3 +306,29 @@ features enabled. Combined repository checks pass 111 V8 tests (two existing
 ignored), 41 native DOM tests, strict DOM/V8 Clippy, generated bindings and
 formatting. The V8-enabled native compile check passes. Signed-worker validation
 remains pending.
+
+## Complete normalization and Window baseline
+
+Clean `c12167f`, signed worker `15d09a52d087bf38138bca64241874ef6f9a4fb930ced54f1fc0b368913c5f34`:
+**2539/4022**, 16 gains and 4 lost pass(es) versus `73ee49b`.
+DOM passes 371/662; CSS 227/564. Exact IDs and every passing completion were
+independently validated. The full baseline and failure backlog now use this run.
+
+The lost CSS pass, `focus-within-009`, now reaches 12 assertions instead of one.
+Those additional assertions expose missing focus state in the Stylo mirror and
+focus retained across removal/moves. History cases `008`, `011`, and `012` retain
+passing assertions in an isolated diagnostic probe, but their primary runs lack
+verified harness completion. All four remain failures in this baseline; neither
+expanded coverage nor passing partial assertions erase the regressions.
+All three history cases passed isolated rechecks on the unchanged signed worker.
+Their full-run failures remain in the baseline; completion intermittency is unresolved.
+
+Parser script errors are currently retained as host diagnostics without Window
+error-event delivery. The earlier one-assertion result demonstrates why reported
+harness completions alone cannot establish exhaustive assertion registration.
+Native exception reporting is an explicit W0/W3 completion prerequisite; this
+baseline remains a diagnostic measure of reported outcomes.
+
+The [baseline evidence](CONFORMANCE-BASELINE-2026-09-06.json) retains changed failure
+domains and regression assertion counts. This is a failing conformance result with
+1483 open executions, not release qualification.
