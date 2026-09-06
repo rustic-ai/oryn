@@ -21646,13 +21646,9 @@ fn call_operation<'s>(
                     validate_child_sequence(&dom, node, &proposed)?;
                 }
             }
-            // DomRuntime owns the live node and wrapper lease. Moving that
-            // same NodeId preserves JavaScript identity and all Rust-owned
-            // state; the mutation journal records the old and new parentage.
-            state
-                .dom
-                .borrow_mut()
-                .insert_before(node, moved, reference)?;
+            // Preserve native focus while reparenting the same NodeId. The
+            // journal still records the old/new parentage for other consumers.
+            state.dom.borrow_mut().move_before(node, moved, reference)?;
             Ok(None)
         }
         (_, "cloneNode") => {

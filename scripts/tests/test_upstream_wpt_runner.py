@@ -353,6 +353,26 @@ class UpstreamWptRunnerTests(unittest.TestCase):
         self.assertEqual(result["tests"][0]["name"], "one")
         self.assertIsNone(RUNNER.probe_wpt_result("results=[]|messages=[]"))
 
+    def test_recovered_probe_preserves_primary_failure_and_diagnostics(self) -> None:
+        probe_stdout = 'function|function|results=[{"name":"one","status":0}]|messages=[]'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "case.html").write_text("<html></html>")
+            for code, domain in [(1, "runtime"), (0, "incomplete")]:
+                with self.subTest(returncode=code), mock.patch.object(
+                    RUNNER.subprocess, "run", side_effect=[
+                        RUNNER.subprocess.CompletedProcess([], code, "", "primary diagnostic"),
+                        RUNNER.subprocess.CompletedProcess([], 0, probe_stdout, "probe diagnostic"),
+                    ],
+                ):
+                    result = RUNNER.run_case(Path("unused"), root, 8000, Path("case.html"),
+                                             "generated_webidl", "window", "", 30, False, None)
+                self.assertEqual(result["status"], "failed")
+                self.assertEqual(result["failure_domain"], domain)
+                self.assertFalse(result["result"]["complete"])
+                self.assertIn("primary diagnostic", result["diagnostics"][0])
+                self.assertIn("probe diagnostic", result["diagnostics"][0])
+
     def test_server_path_decodes_percent_encoded_wpt_directories(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             handler = object.__new__(RUNNER.Handler)

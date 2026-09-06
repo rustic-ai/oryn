@@ -395,3 +395,24 @@ Promise continuations perform three operations before delayed observer delivery.
 A separate scheduling prototype is under test; it is not part of this candidate.
 The full baseline remains 2539/4022 at c12167f. Hash-bound root and assertion deltas
 are in CONFORMANCE-COMPOUND-FOCUS-2026-09-06.json.
+
+## State-preserving focus correction and Range diagnostics
+
+The assertion-level audit found four moveBefore focus regressions inside files
+that were already failing. Native insertion now has a distinct state-preserving
+path: ordinary removal/reparenting clears focus, while moveBefore preserves it
+without queuing synthetic focus transitions during internal connectedness updates.
+The existing binding validation still enforces moveBefore's tree constraints.
+
+Retained primary diagnostics identify wall-time failures in both
+Range-mutations-deleteData and Range-mutations-insertData. Their shorter recovered
+probe payloads cannot establish a new semantic regression or completion. The runner
+now preserves a primary nonzero runtime outcome even when a separate probe recovers
+partial assertions; it no longer categorizes that primary runtime failure solely
+as incomplete. Existing historical ledgers remain unchanged. Resource diagnosis
+continues under the original limits.
+
+The correction passes 44 native DOM tests, 113 production V8 tests (two existing
+ignored), the extended native V8 focus/Stylo integration test, strict DOM/V8 Clippy,
+28 runner tests, formatting, documentation truth, and diff checks. Signed
+moveBefore and CSS regression selections follow on the committed candidate.

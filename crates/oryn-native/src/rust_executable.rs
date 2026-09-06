@@ -4485,7 +4485,12 @@ mod tests {
             if(target.matches(':focus') || parent.querySelectorAll(':focus-within').length) return 'detached';
             document.body.appendChild(parent); target.focus();
             if(getComputedStyle(parent).color !== 'rgb(255, 0, 0)') return 'refocus';
-            document.querySelector('section').appendChild(target);
+            const section = document.querySelector('section');
+            section.moveBefore(parent, null);
+            if(document.activeElement !== target || getComputedStyle(parent).color !== 'rgb(255, 0, 0)') return 'preserving move';
+            section.moveBefore(target, parent);
+            if(document.activeElement !== target || getComputedStyle(parent).color !== 'rgb(0, 0, 0)') return 'preserving direct move';
+            section.appendChild(target);
             if(target.matches(':focus') || getComputedStyle(parent).color !== 'rgb(0, 0, 0)') return 'move';
             return 'ok';
         })()"#).unwrap(), "ok");

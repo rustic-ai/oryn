@@ -1159,7 +1159,7 @@ def run_case(
                     "global": global_name,
                     "variant": variant,
                     "status": "failed",
-                    "failure_domain": "incomplete",
+                    "failure_domain": "runtime" if completed.returncode else "incomplete",
                     "result": recovered,
                     "result_transport": "isolated_dom_probe",
                     "diagnostics": [bounded_diagnostic(

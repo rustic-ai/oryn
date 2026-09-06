@@ -1037,6 +1037,27 @@ impl DomRuntime {
         child: NodeId,
         reference: Option<NodeId>,
     ) -> Result<(), DomError> {
+        self.insert_before_with_focus(parent, child, reference, false)
+    }
+
+    /// Reparent through the state-preserving moveBefore path. Bindings validate
+    /// its document/connectedness constraints before calling this operation.
+    pub fn move_before(
+        &mut self,
+        parent: NodeId,
+        child: NodeId,
+        reference: Option<NodeId>,
+    ) -> Result<(), DomError> {
+        self.insert_before_with_focus(parent, child, reference, true)
+    }
+
+    fn insert_before_with_focus(
+        &mut self,
+        parent: NodeId,
+        child: NodeId,
+        reference: Option<NodeId>,
+        preserve_focus: bool,
+    ) -> Result<(), DomError> {
         self.arena.get(parent)?;
         self.arena.get(child)?;
         // The DOM insertion algorithms define inserting a node immediately
@@ -1066,7 +1087,10 @@ impl DomRuntime {
         let inserted_siblings = self.mutation_siblings_at(parent, inserted_index)?;
         self.adjust_ranges_for_insertion(parent, inserted_index, 1)?;
         if was_connected {
-            self.mark_disconnected(child)?;
+            self.mark_disconnected_with_focus(
+                child,
+                preserve_focus && self.connected.contains(&parent),
+            )?;
         }
         if self.connected.contains(&parent) {
             self.mark_connected(child)?;
@@ -2203,8 +2227,16 @@ impl DomRuntime {
     }
 
     fn mark_disconnected(&mut self, node: NodeId) -> Result<(), DomError> {
+        self.mark_disconnected_with_focus(node, false)
+    }
+
+    fn mark_disconnected_with_focus(
+        &mut self,
+        node: NodeId,
+        preserve_focus: bool,
+    ) -> Result<(), DomError> {
         self.connected.remove(&node);
-        if self.focused == Some(node) {
+        if !preserve_focus && self.focused == Some(node) {
             self.focus(None)?;
         }
         if let Some(id) = self.arena.get(node)?.attributes.get("id")
@@ -2213,7 +2245,7 @@ impl DomRuntime {
             self.ids.remove(id);
         }
         for child in self.arena.get(node)?.children.clone() {
-            self.mark_disconnected(child)?;
+            self.mark_disconnected_with_focus(child, preserve_focus)?;
         }
         Ok(())
     }
@@ -2736,6 +2768,31 @@ mod tests {
         dom.focus(Some(input)).unwrap();
         assert_eq!(dom.focused(), Some(input));
         dom.append_child(other, input).unwrap();
+        assert_eq!(dom.focused(), None);
+    }
+
+    #[test]
+    fn state_preserving_moves_keep_focus_without_focus_mutations() {
+        let mut dom = html::parse("<body><div><input></div><section></section></body>")
+            .into_runtime()
+            .unwrap();
+        let root = dom.document();
+        let input = dom.query_selector(root, "input").unwrap().unwrap();
+        let parent = dom.query_selector(root, "div").unwrap().unwrap();
+        let other = dom.query_selector(root, "section").unwrap().unwrap();
+        dom.focus(Some(input)).unwrap();
+        let cursor = dom.mutation_cursor();
+        dom.move_before(other, parent, None).unwrap();
+        dom.move_before(parent, input, None).unwrap();
+        dom.move_before(other, input, Some(parent)).unwrap();
+        assert_eq!(dom.focused(), Some(input));
+        assert!(
+            !dom.mutations_since(cursor)
+                .mutations
+                .iter()
+                .any(|mutation| matches!(mutation, Mutation::Focus { .. }))
+        );
+        dom.append_child(parent, input).unwrap();
         assert_eq!(dom.focused(), None);
     }
 
