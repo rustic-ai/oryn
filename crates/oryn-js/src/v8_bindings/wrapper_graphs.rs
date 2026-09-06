@@ -147,6 +147,8 @@ pub(super) fn attach_new_leaf(
         || !matches!(
             record.kind,
             NodeKind::Element { .. }
+                | NodeKind::Attribute { owner: None, .. }
+                | NodeKind::DocumentType { .. }
                 | NodeKind::Text { .. }
                 | NodeKind::Comment { .. }
                 | NodeKind::CDataSection { .. }

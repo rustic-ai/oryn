@@ -1004,7 +1004,18 @@ impl DomRuntime {
         name: impl Into<String>,
         value: impl Into<String>,
     ) -> Result<(), DomError> {
-        self.set_attribute_ns(node, None, name, value)
+        let name = name.into();
+        // A qualified-name update changes the value of an existing attribute;
+        // it must not replace that attribute's expanded name.
+        let namespace = self
+            .attribute_nodes
+            .get(&(node, name.clone()))
+            .and_then(|attribute| self.arena.get(*attribute).ok())
+            .and_then(|record| match &record.kind {
+                NodeKind::Attribute { namespace, .. } => namespace.clone(),
+                _ => None,
+            });
+        self.set_attribute_ns(node, namespace, name, value)
     }
 
     pub fn set_attribute_ns(
@@ -1015,11 +1026,14 @@ impl DomRuntime {
         value: impl Into<String>,
     ) -> Result<(), DomError> {
         let name = name.into();
-        let (prefix, local_name) = name
-            .split_once(':')
-            .map_or((None, name.clone()), |(prefix, local)| {
-                (Some(prefix.to_string()), local.to_string())
-            });
+        let (prefix, local_name) = if namespace.is_some() {
+            name.split_once(':')
+                .map_or((None, name.clone()), |(prefix, local)| {
+                    (Some(prefix.to_string()), local.to_string())
+                })
+        } else {
+            (None, name.clone())
+        };
         let value = value.into();
         let old_value = self
             .arena
@@ -1113,7 +1127,7 @@ impl DomRuntime {
         if !matches!(self.arena.get(element)?.kind, NodeKind::Element { .. }) {
             return Err(DomError::NotAnElement(element));
         }
-        let normalized = name.to_ascii_lowercase();
+        let normalized = name.to_string();
         let Some(value) = self
             .arena
             .get(element)?
@@ -1132,13 +1146,9 @@ impl DomRuntime {
         }
         let attribute = self.create(NodeKind::Attribute {
             name: normalized.clone(),
-            local_name: normalized
-                .rsplit_once(':')
-                .map_or_else(|| normalized.clone(), |(_, local)| local.to_string()),
+            local_name: normalized.clone(),
             namespace: None,
-            prefix: normalized
-                .split_once(':')
-                .map(|(prefix, _)| prefix.to_string()),
+            prefix: None,
             value,
             owner: Some(element),
         });
@@ -2290,6 +2300,29 @@ mod tests {
         journal.clear();
         assert!(journal.read_since(MutationCursor(0)).mutations.is_empty());
         assert!(!journal.read_since(MutationCursor(0)).truncated);
+    }
+
+    #[test]
+    fn attribute_nodes_preserve_literal_names_case_and_namespace_updates() {
+        let mut dom = DomRuntime::new();
+        let element = dom.create_element("root");
+        dom.set_attribute(element, "P:FLAG", "plain").unwrap();
+        let literal = dom.attribute_node(element, "P:FLAG").unwrap().unwrap();
+        assert!(dom.attribute_node(element, "p:flag").unwrap().is_none());
+        assert!(matches!(&dom.arena().get(literal).unwrap().kind,
+            NodeKind::Attribute { name, local_name, prefix: None, namespace: None, .. }
+                if name == "P:FLAG" && local_name == "P:FLAG"));
+        dom.set_attribute_ns(element, Some("urn:test".into()), "n:Value", "first")
+            .unwrap();
+        let namespaced = dom.attribute_node(element, "n:Value").unwrap().unwrap();
+        dom.set_attribute(element, "n:Value", "second").unwrap();
+        assert_eq!(
+            dom.attribute_node(element, "n:Value").unwrap(),
+            Some(namespaced)
+        );
+        assert!(matches!(&dom.arena().get(namespaced).unwrap().kind,
+            NodeKind::Attribute { local_name, prefix: Some(prefix), namespace: Some(namespace), value, .. }
+                if local_name == "Value" && prefix == "n" && namespace == "urn:test" && value == "second"));
     }
 
     #[test]

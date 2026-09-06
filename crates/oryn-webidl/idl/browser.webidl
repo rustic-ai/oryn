@@ -713,6 +713,8 @@ interface Document : Node {
   readonly attribute HTMLElement? currentScript;
   readonly attribute sequence<CSSStyleSheet> styleSheets;
   attribute DOMString designMode;
+  Attr createAttribute(DOMString localName);
+  Attr createAttributeNS(DOMString? namespace, DOMString qualifiedName);
   Element createElement(DOMString localName);
   Element createElementNS(DOMString? namespace, DOMString qualifiedName);
   Text createTextNode(DOMString data);

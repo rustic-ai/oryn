@@ -55,3 +55,20 @@ half. Release processing took 1.220, 3.548, 11.882 and 45.857 ms for 2,000, 4,00
 8,000 and 16,000 wrappers respectively. Queue cancellation scans once per live
 wrapper, so this identifies another quadratic path for a future bounded fix;
 it is not proof of the cause of any particular remaining WPT failure.
+
+
+## Attribute creation and validation batch
+
+The next implementation adds native `Document.createAttribute` and
+`createAttributeNS`, shares namespace extraction with element creation while
+using attribute-specific local-name rules, and rejects NUL in doctype names.
+Attribute getters/mutations apply HTML case folding at the binding boundary;
+XML names remain case-sensitive. Native Attr materialization preserves literal
+colon names, and qualified-name value updates preserve existing namespace
+metadata and object identity. String conversion failures preserve the original
+JavaScript exception. Fresh detached Attr/doctype wrappers use the verified leaf
+fast path, with owner-document GC coverage for Attr.
+
+Locked checks pass 102 V8 binding tests (two existing ignored), 30 native DOM
+tests, generated-binding verification and strict Clippy. Signed conformance
+validation is pending; this does not change the recorded full baseline score.

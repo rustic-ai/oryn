@@ -74,6 +74,8 @@ pub enum PendingDefaultAction {
 
 #[derive(Debug, thiserror::Error)]
 pub enum V8BindingError {
+    #[error("JavaScript argument conversion threw")]
+    JavaScriptException,
     #[error("generated interface {0} is unavailable")]
     MissingInterface(&'static str),
     #[error("V8 failed to allocate {0}")]
@@ -16748,7 +16750,10 @@ fn call_stateful_operation<'s>(
                     required_string(scope, args, 2)?
                 };
                 if qualified_name.chars().any(|character| {
-                    matches!(character, '\t' | '\n' | '\u{000c}' | '\r' | ' ' | '>')
+                    matches!(
+                        character,
+                        '\0' | '\t' | '\n' | '\u{000c}' | '\r' | ' ' | '>'
+                    )
                 }) {
                     return Err(V8BindingError::Unsupported {
                         interface: "DOMImplementation".into(),
@@ -20155,6 +20160,53 @@ fn call_operation<'s>(
             }
             Ok(Some(v8::Boolean::new(scope, accepted).into()))
         }
+        ("Document", "createAttribute" | "createAttributeNS") => {
+            let (namespace, prefix, local_name, name) = if member == "createAttributeNS" {
+                let namespace = if args.get(0).is_null_or_undefined() {
+                    String::new()
+                } else {
+                    required_string(scope, args, 0)?
+                };
+                let name = required_string(scope, args, 1)?;
+                validate_node_namespace(&namespace, &name, is_valid_attribute_local_name)?;
+                let (prefix, local) = name
+                    .split_once(':')
+                    .map_or((None, name.clone()), |(prefix, local)| {
+                        (Some(prefix.to_string()), local.to_string())
+                    });
+                (
+                    (!namespace.is_empty()).then_some(namespace),
+                    prefix,
+                    local,
+                    name,
+                )
+            } else {
+                let mut name = required_string(scope, args, 0)?;
+                validate_attribute_local_name(&name)?;
+                if state
+                    .dom
+                    .borrow()
+                    .arena()
+                    .get(node)?
+                    .document_metadata
+                    .as_ref()
+                    .is_some_and(|m| m.is_html)
+                {
+                    name.make_ascii_lowercase();
+                }
+                (None, None, name.clone(), name)
+            };
+            let created = state.dom.borrow_mut().create(NodeKind::Attribute {
+                name,
+                local_name,
+                namespace,
+                prefix,
+                value: String::new(),
+                owner: None,
+            });
+            state.node_documents.borrow_mut().insert(created, node);
+            Ok(Some(wrap_node(scope, state, created)?.into()))
+        }
         ("Document", "createElement") => {
             let name = required_string(scope, args, 0)?;
             if !is_valid_element_local_name(&name) {
@@ -20652,7 +20704,7 @@ fn call_operation<'s>(
             Ok(Some(wrap_node(scope, state, created)?.into()))
         }
         ("Element", "getAttributeNode") => {
-            let name = required_string(scope, args, 0)?;
+            let name = normalized_attribute_name(state, node, required_string(scope, args, 0)?)?;
             let attribute = state.dom.borrow_mut().attribute_node(node, &name)?;
             optional_node(scope, state, attribute).map(Some)
         }
@@ -21270,7 +21322,7 @@ fn call_operation<'s>(
             Ok(Some(wrap_node(scope, state, root)?.into()))
         }
         ("Element", "getAttribute") => {
-            let name = required_string(scope, args, 0)?;
+            let name = normalized_attribute_name(state, node, required_string(scope, args, 0)?)?;
             match state.dom.borrow().attribute(node, &name)? {
                 Some(value) => Ok(Some(v8_string(scope, value)?)),
                 None => Ok(Some(v8::null(scope).into())),
@@ -21311,7 +21363,7 @@ fn call_operation<'s>(
             Ok(Some(v8::Array::new_with_elements(scope, &values).into()))
         }
         ("Element", "setAttribute") => {
-            let name = required_string(scope, args, 0)?;
+            let name = normalized_attribute_name(state, node, required_string(scope, args, 0)?)?;
             let tag = state.dom.borrow().node_name(node)?.to_ascii_lowercase();
             let required = if tag == "script" && name.eq_ignore_ascii_case("src") {
                 Some(TrustedKind::ScriptUrl)
@@ -21332,6 +21384,7 @@ fn call_operation<'s>(
                 )?,
                 None => required_string(scope, args, 1)?,
             };
+            validate_attribute_local_name(&name)?;
             state.dom.borrow_mut().set_attribute(node, name, value)?;
             prepare_dynamic_script_subtree(scope, state, node)?;
             if tag == "iframe"
@@ -21352,13 +21405,19 @@ fn call_operation<'s>(
             Ok(None)
         }
         ("Element", "setAttributeNS") => {
-            let namespace = if args.get(0).is_null() {
+            let namespace = if args.get(0).is_null_or_undefined() {
                 None
             } else {
-                Some(args.get(0).to_rust_string_lossy(scope))
+                let value = required_string(scope, args, 0)?;
+                (!value.is_empty()).then_some(value)
             };
             let qualified_name = required_string(scope, args, 1)?;
             let value = required_string(scope, args, 2)?;
+            validate_node_namespace(
+                namespace.as_deref().unwrap_or(""),
+                &qualified_name,
+                is_valid_attribute_local_name,
+            )?;
             state
                 .dom
                 .borrow_mut()
@@ -21366,7 +21425,7 @@ fn call_operation<'s>(
             Ok(None)
         }
         ("Element", "removeAttribute") => {
-            let name = required_string(scope, args, 0)?;
+            let name = normalized_attribute_name(state, node, required_string(scope, args, 0)?)?;
             state.dom.borrow_mut().remove_attribute(node, &name)?;
             Ok(None)
         }
@@ -21384,7 +21443,7 @@ fn call_operation<'s>(
             Ok(None)
         }
         ("Element", "hasAttribute") => {
-            let name = required_string(scope, args, 0)?;
+            let name = normalized_attribute_name(state, node, required_string(scope, args, 0)?)?;
             let present = state.dom.borrow().attribute(node, &name)?.is_some();
             Ok(Some(v8::Boolean::new(scope, present).into()))
         }
@@ -21405,7 +21464,8 @@ fn call_operation<'s>(
             Ok(Some(v8::Boolean::new(scope, has_attributes).into()))
         }
         ("Element", "toggleAttribute") => {
-            let name = required_string(scope, args, 0)?;
+            let name = normalized_attribute_name(state, node, required_string(scope, args, 0)?)?;
+            validate_attribute_local_name(&name)?;
             let present = state.dom.borrow().attribute(node, &name)?.is_some();
             let force = (!args.get(1).is_undefined()).then(|| args.get(1).boolean_value(scope));
             let next = force.unwrap_or(!present);
@@ -23488,7 +23548,7 @@ fn required_string(
     let value = args
         .get(index)
         .to_string(scope)
-        .ok_or(V8BindingError::Allocation("string conversion"))?;
+        .ok_or(V8BindingError::JavaScriptException)?;
     rust_string_preserving_utf16(scope, value)
 }
 
@@ -23509,7 +23569,57 @@ fn is_valid_element_local_name(value: &str) -> bool {
         })
 }
 
+fn normalized_attribute_name(
+    state: &V8BindingState,
+    node: NodeId,
+    mut name: String,
+) -> Result<String, V8BindingError> {
+    let document = owner_document_for_node(state, node)?;
+    let dom = state.dom.borrow();
+    let html_element = matches!(&dom.arena().get(node)?.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml");
+    if html_element
+        && dom
+            .arena()
+            .get(document)?
+            .document_metadata
+            .as_ref()
+            .is_some_and(|m| m.is_html)
+    {
+        name.make_ascii_lowercase();
+    }
+    Ok(name)
+}
+
+fn is_valid_attribute_local_name(value: &str) -> bool {
+    !value.is_empty()
+        && !value.chars().any(|c| {
+            matches!(
+                c,
+                '\0' | '\t' | '\n' | '\u{000c}' | '\r' | ' ' | '/' | '=' | '>'
+            )
+        })
+}
+
+fn validate_attribute_local_name(value: &str) -> Result<(), V8BindingError> {
+    if is_valid_attribute_local_name(value) {
+        Ok(())
+    } else {
+        Err(V8BindingError::Unsupported {
+            interface: "Document".into(),
+            member: "InvalidCharacterError".into(),
+        })
+    }
+}
+
 fn validate_element_namespace(namespace: &str, qualified: &str) -> Result<(), V8BindingError> {
+    validate_node_namespace(namespace, qualified, is_valid_element_local_name)
+}
+
+fn validate_node_namespace(
+    namespace: &str,
+    qualified: &str,
+    valid_local: fn(&str) -> bool,
+) -> Result<(), V8BindingError> {
     let (prefix, local) = qualified
         .split_once(':')
         .map_or((None, qualified), |(prefix, local)| (Some(prefix), local));
@@ -23519,7 +23629,7 @@ fn validate_element_namespace(namespace: &str, qualified: &str) -> Result<(), V8
                 .chars()
                 .any(|c| matches!(c, '\0' | '\t' | '\n' | '\u{000C}' | '\r' | ' ' | '/' | '>'))
     });
-    let error = if invalid_prefix || !is_valid_element_local_name(local) {
+    let error = if invalid_prefix || !valid_local(local) {
         Some("InvalidCharacterError")
     } else if (prefix.is_some() && namespace.is_empty())
         || (prefix == Some("xml") && namespace != "http://www.w3.org/XML/1998/namespace")
@@ -23625,6 +23735,10 @@ fn throw_type_error(scope: &mut v8::PinScope, message: &str) {
 }
 
 fn throw_binding_error(scope: &mut v8::PinScope, error: &V8BindingError) {
+    // ToString can execute page code. Preserve its original thrown value.
+    if matches!(error, V8BindingError::JavaScriptException) {
+        return;
+    }
     let V8BindingError::Unsupported { member, .. } = error else {
         throw_type_error(scope, &error.to_string());
         return;
@@ -25852,6 +25966,67 @@ mod tests {
     }
 
     #[test]
+    fn attribute_creation_validates_namespaces_case_and_values() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            (() => {
+                const check = (ok, label) => { if (!ok) throw Error(label); };
+                const throws = (name, action) => {
+                    try { action(); } catch (error) { check(error.name === name, name); return; }
+                    throw Error('missing ' + name);
+                };
+                const attr = document.createAttribute('P:FLAG');
+                check(attr instanceof Attr && attr.nodeType === 2 && attr.name === 'p:flag' && attr.localName === 'p:flag', 'literal HTML attribute');
+                check(attr.prefix === null && attr.namespaceURI === null && attr.ownerElement === null && attr.ownerDocument === document, 'attribute ownership');
+                check(attr.value === '', 'initial value'); attr.value = 'changed';
+                check(attr.nodeValue === 'changed' && attr.textContent === 'changed', 'native value');
+                const xml = document.implementation.createDocument(null, 'root');
+                check(xml.createAttribute('P:FLAG').name === 'P:FLAG', 'XML case');
+                const namespaced = xml.createAttributeNS('urn:test', 'P:FLAG');
+                check(namespaced.name === 'P:FLAG' && namespaced.localName === 'FLAG' && namespaced.prefix === 'P' && namespaced.namespaceURI === 'urn:test' && namespaced.ownerDocument === xml, 'expanded name');
+                check(document.createAttributeNS('', 'A').namespaceURI === null, 'empty namespace');
+                for (const invalid of ['', 'x y', 'x/y', 'x=y', 'x>', '\0']) {
+                    throws('InvalidCharacterError', () => document.createAttribute(invalid));
+                    throws('InvalidCharacterError', () => document.body.setAttribute(invalid, 'v'));
+                    throws('InvalidCharacterError', () => document.body.toggleAttribute(invalid, false));
+                }
+                throws('NamespaceError', () => document.createAttributeNS(null, 'p:x'));
+                throws('NamespaceError', () => document.createAttributeNS('urn:x', 'xml:x'));
+                throws('InvalidCharacterError', () => document.createAttributeNS(null, ':'));
+                throws('InvalidCharacterError', () => document.implementation.createDocumentType('\0', '', ''));
+                const element = document.createElement('i'); element.setAttribute('DATA-X', 'v');
+                check(element.getAttribute('data-x') === 'v' && element.getAttribute('DATA-X') === 'v' && element.hasAttribute('DATA-X'), 'HTML lookup');
+                element.removeAttribute('DATA-X'); check(!element.hasAttribute('data-x'), 'HTML removal');
+                element.toggleAttribute('DATA-X'); check(element.getAttributeNames()[0] === 'data-x', 'HTML toggle');
+                const xmlElement = xml.createElement('i'); xmlElement.setAttribute('DATA-X', 'v');
+                check(xmlElement.getAttribute('data-x') === null && xmlElement.getAttribute('DATA-X') === 'v' && xmlElement.getAttributeNode('DATA-X').name === 'DATA-X', 'XML lookup');
+                xmlElement.setAttributeNS('urn:test', 'P:FLAG', 'first');
+                const existing = xmlElement.getAttributeNode('P:FLAG'); xmlElement.setAttribute('P:FLAG', 'second');
+                check(existing === xmlElement.getAttributeNode('P:FLAG') && existing.namespaceURI === 'urn:test' && existing.localName === 'FLAG' && existing.value === 'second', 'namespace-preserving update');
+                const sentinel = {}; let caught;
+                try { element.setAttribute('bad name', {toString() {throw sentinel;}}); } catch (error) {caught = error;}
+                check(caught === sentinel, 'conversion before validation');
+                return true;
+            })()
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
     fn fresh_detached_leaves_preserve_owners_and_later_tree_edges() {
         initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -25939,6 +26114,8 @@ mod tests {
                 globalThis.savedChild=child;
                 const foreign=document.implementation.createHTMLDocument('foreign');foreign.marker=29;
                 globalThis.savedOrphan=foreign.createElement('i');
+                const attributeDoc=document.implementation.createHTMLDocument('attribute');attributeDoc.marker=97;
+                globalThis.savedAttribute=attributeDoc.createAttribute('kept');savedAttribute.value='kept';
                 const liveRoot=document.createElement('ul');globalThis.liveOnly=liveRoot.childNodes;
                 const late=document.createElement('li');late.marker=23;liveRoot.append(late);
             })();true
@@ -25964,7 +26141,7 @@ mod tests {
         scope.low_memory_notification();
         state.process_weak_releases().unwrap();
         assert!(dom.borrow().arena().get(parent).is_ok());
-        let source = v8::String::new(scope, "savedChild.parentNode.marker===42 && savedChild.nextSibling.data==='sibling' && savedChild.nextSibling.marker===17 && savedOrphan.ownerDocument.marker===29 && liveOnly[0].marker===23").unwrap();
+        let source = v8::String::new(scope, "savedChild.parentNode.marker===42 && savedChild.nextSibling.data==='sibling' && savedChild.nextSibling.marker===17 && savedOrphan.ownerDocument.marker===29 && savedAttribute.ownerDocument.marker===97 && savedAttribute.value==='kept' && liveOnly[0].marker===23").unwrap();
         assert!(
             v8::Script::compile(scope, source, None)
                 .unwrap()
@@ -25972,7 +26149,7 @@ mod tests {
                 .unwrap()
                 .is_true()
         );
-        let source = v8::String::new(scope, "delete globalThis.savedChild;delete globalThis.savedOrphan;delete globalThis.liveOnly;true").unwrap();
+        let source = v8::String::new(scope, "delete globalThis.savedChild;delete globalThis.savedOrphan;delete globalThis.savedAttribute;delete globalThis.liveOnly;true").unwrap();
         v8::Script::compile(scope, source, None)
             .unwrap()
             .run(scope)
