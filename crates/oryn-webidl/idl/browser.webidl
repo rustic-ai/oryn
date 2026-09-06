@@ -305,6 +305,7 @@ interface Node : EventTarget {
   Node removeChild(Node child);
   Node replaceChild(Node child, Node replaced);
   undefined moveBefore(Node movedNode, Node? referenceNode);
+  undefined normalize();
   Node cloneNode(optional boolean deep = false);
   boolean contains(Node? other);
   boolean isEqualNode(Node? other);

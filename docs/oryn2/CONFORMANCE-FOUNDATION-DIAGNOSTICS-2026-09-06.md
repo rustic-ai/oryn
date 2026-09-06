@@ -269,3 +269,40 @@ could leave a variable resolving to an Element instead of CharacterData. A separ
 fix is being tested. This is not evidence that the existing appendData implementation
 is absent. Mutation siblings, compound records and microtask ordering also remain
 separate causes; first errors are not interchangeable with API inventory gaps.
+
+## Sibling snapshots and Window assignment preservation
+
+Native insertion/removal journal entries now snapshot previous and next siblings.
+Ordinary insertion reuses the child indices already computed for live Range updates;
+record getters do not reconstruct siblings from a later tree. Reparenting preserves
+both removal and insertion positions, and parser detach records carry the same
+metadata. MutationRecord exposes the original native sibling wrappers. Detached-leaf
+GC fast paths accept the richer journal entry without changing resource limits.
+
+The existing Window named-property adapter now lets assignments create ordinary
+writable properties and removes those names from generated-binding tracking. Refresh
+checks getter/setter identity before changing an existing property, preserving
+explicit page definitions. Tests exercise parser-time var assignment, ID changes,
+explicit defineProperty, element removal and subsequent refreshes. This fixes the
+confirmed observer-test variable loss; it does not complete Window named-property
+prototype placement, uninitialized var declarations, duplicate-name collections,
+name attributes or frame-name semantics.
+
+The standalone native-DOM/V8 diagnostic passes. Repository native DOM tests pass
+40 cases; broader repository and signed-worker checks follow.
+
+## Native normalization
+
+Node.normalize now traverses light-tree Text descendants in document order,
+removes empty nodes and merges adjacent exclusive Text nodes. CDATA and shadow
+boundaries remain separate. The native algorithm moves live Range boundaries from
+merged nodes and intervening parent offsets before removal; UTF-16 offsets and
+mutation ordering are covered by native and V8 regressions. The generated Node
+operation calls this shared Rust implementation. See the
+[DOM normalization algorithm](https://dom.spec.whatwg.org/#dom-node-normalize).
+
+The two parser-time Window integration tests pass with V8 and the V8 sandbox
+features enabled. Combined repository checks pass 111 V8 tests (two existing
+ignored), 41 native DOM tests, strict DOM/V8 Clippy, generated bindings and
+formatting. The V8-enabled native compile check passes. Signed-worker validation
+remains pending.

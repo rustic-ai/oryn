@@ -144,7 +144,7 @@ pub(super) fn attach_new_leaf(
     }
     let batch = dom.mutations_since(oryn_dom::MutationCursor(previous));
     if batch.truncated
-        || !matches!(batch.mutations.as_slice(), [Mutation::Inserted { node: inserted, parent: None }] if *inserted == node)
+        || !matches!(batch.mutations.as_slice(), [Mutation::Inserted { node: inserted, parent: None, .. }] if *inserted == node)
     {
         return false;
     }

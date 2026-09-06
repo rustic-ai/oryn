@@ -18577,6 +18577,7 @@ fn collect_observer_records(dom: &DomRuntime, observer: &mut MutationObserverEnt
             Mutation::Removed {
                 node,
                 former_parent,
+                ..
             } => {
                 parents.insert(*node, *former_parent);
             }
@@ -18612,6 +18613,7 @@ fn collect_observer_records(dom: &DomRuntime, observer: &mut MutationObserverEnt
             if let Mutation::Removed {
                 node,
                 former_parent: Some(parent),
+                ..
             } = mutation
                 && options.subtree
                 && observer_in_scope(dom, target, true, Some(parent), &parents)
@@ -18627,7 +18629,7 @@ fn collect_observer_records(dom: &DomRuntime, observer: &mut MutationObserverEnt
             });
         }
         match mutation {
-            Mutation::Inserted { node, parent } => {
+            Mutation::Inserted { node, parent, .. } => {
                 parents.insert(node, parent);
             }
             Mutation::Removed { node, .. } => {
@@ -18651,12 +18653,13 @@ fn mutation_record_array<'s>(
         let mutation = &queued.mutation;
         let object = new_mutation_record(scope, state)?;
         let (kind, target, attribute, old_value, added, removed) = match mutation {
-            Mutation::Inserted { node, parent } => {
+            Mutation::Inserted { node, parent, .. } => {
                 ("childList", *parent, None, None, Some(*node), None)
             }
             Mutation::Removed {
                 node,
                 former_parent,
+                ..
             } => ("childList", *former_parent, None, None, None, Some(*node)),
             Mutation::Attribute {
                 node,
@@ -18720,8 +18723,20 @@ fn mutation_record_array<'s>(
         let removed_value = node_lists::snapshot(scope, state, &removed_nodes)?;
         set_mutation_record_property(scope, object, "removedNodes", removed_value)?;
         let null = v8::null(scope).into();
-        set_mutation_record_property(scope, object, "previousSibling", null)?;
-        set_mutation_record_property(scope, object, "nextSibling", null)?;
+        let siblings = match mutation {
+            Mutation::Inserted { siblings, .. } | Mutation::Removed { siblings, .. } => *siblings,
+            _ => oryn_dom::MutationSiblings::default(),
+        };
+        let previous = match siblings.previous {
+            Some(node) => wrap_node(scope, state, node)?.into(),
+            None => null,
+        };
+        let next = match siblings.next {
+            Some(node) => wrap_node(scope, state, node)?.into(),
+            None => null,
+        };
+        set_mutation_record_property(scope, object, "previousSibling", previous)?;
+        set_mutation_record_property(scope, object, "nextSibling", next)?;
         let namespace = match mutation {
             Mutation::Attribute {
                 namespace: Some(namespace),
@@ -20501,6 +20516,10 @@ fn call_operation<'s>(
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     match (interface, member) {
+        ("Node", "normalize") => {
+            state.dom.borrow_mut().normalize(node)?;
+            Ok(None)
+        }
         ("CharacterData", "substringData") => {
             let offset = args.get(0).uint32_value(scope).unwrap_or(0);
             let count = args.get(1).uint32_value(scope).unwrap_or(0);
@@ -26748,6 +26767,48 @@ mod tests {
     }
 
     #[test]
+    fn normalization_preserves_native_ranges_shadow_boundaries_and_observers() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+          (() => {
+            const fragment = new DocumentFragment(), first = new Text('a'), empty = new Text(''), last = new Text('😀b');
+            fragment.append(first, empty, last);
+            const range = document.createRange(); range.setStart(last, 1); range.setEnd(fragment, 3);
+            const observer = new MutationObserver(() => {}); observer.observe(fragment, {childList:true, subtree:true, characterData:true, characterDataOldValue:true});
+            fragment.normalize();
+            if(fragment.childNodes.length !== 1 || first.data !== 'a😀b' || last.parentNode !== null) throw Error('text normalization');
+            if(range.startContainer !== first || range.startOffset !== 2 || range.endContainer !== fragment || range.endOffset !== 1) throw Error('normalized range');
+            const records = observer.takeRecords();
+            if(records.length !== 3 || records[0].type !== 'characterData' || records[0].oldValue !== 'a' || records[1].removedNodes[0] !== empty || records[2].removedNodes[0] !== last) throw Error('normalize mutation order');
+            const host = document.createElement('div'), shadow = host.attachShadow({mode:'open'});
+            host.append(new Text('a'), new Text('b')); shadow.append(new Text('x'), new Text('y'));
+            host.normalize();
+            if(host.childNodes.length !== 1 || shadow.childNodes.length !== 2) throw Error('normalize shadow boundary');
+            shadow.normalize(); if(shadow.childNodes.length !== 1 || shadow.firstChild.data !== 'xy') throw Error('normalize shadow root');
+            const xml = document.implementation.createDocument(null, 'root');
+            xml.documentElement.append(xml.createTextNode('a'), xml.createCDATASection('b'), xml.createTextNode('c'));
+            xml.normalize(); if(xml.documentElement.childNodes.length !== 3) throw Error('CDATA boundary');
+            return true;
+          })()
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
     fn event_reinitialization_and_dispatch_cleanup_preserve_flags() {
         initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -26900,6 +26961,15 @@ mod tests {
             observer.observe(target, {attributes:true}); child.setAttribute('registration-reset', 'yes');
             if (observer.takeRecords().length !== 0) throw Error('observe clears source transients');
             target.appendChild(child); observer.observe(target, {attributes:true, subtree:true}); child.remove();
+            var fragment = document.createDocumentFragment();
+            var a = document.createElement('a'), b = document.createElement('b'), c = document.createElement('c');
+            fragment.append(a, b);
+            var siblingObserver = new MutationObserver(() => {throw Error('drained sibling callback');});
+            siblingObserver.observe(fragment, {childList:true});
+            fragment.insertBefore(c, b); a.remove(); fragment.insertBefore(b, c);
+            var siblings = siblingObserver.takeRecords();
+            if (siblings.length !== 4 || siblings[0].previousSibling !== a || siblings[0].nextSibling !== b || siblings[1].nextSibling !== c || siblings[2].previousSibling !== c || siblings[3].previousSibling !== null || siblings[3].nextSibling !== c) throw Error('historical sibling identities');
+            siblingObserver.disconnect();
             target.setAttribute('delivered', 'yes');
             true;
         "#).unwrap();
@@ -27619,6 +27689,7 @@ mod tests {
                 mutation: Mutation::Inserted {
                     node: child,
                     parent: Some(main),
+                    siblings: oryn_dom::MutationSiblings::default(),
                 },
                 expose_old_value: false,
             }],

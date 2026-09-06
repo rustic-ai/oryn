@@ -11993,6 +11993,25 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(5373988),
+        name: "normalize",
+        kind: GeneratedMemberKind::Operation,
+        arity: 0,
+        readonly: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("undefined"),
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(5373989),
         name: "cloneNode",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -12011,7 +12030,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(5373989),
+        id: GeneratedMemberId(5373990),
         name: "contains",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -12030,7 +12049,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(5373990),
+        id: GeneratedMemberId(5373991),
         name: "isEqualNode",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -12049,7 +12068,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(5373991),
+        id: GeneratedMemberId(5373992),
         name: "compareDocumentPosition",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -12068,7 +12087,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(5373992),
+        id: GeneratedMemberId(5373993),
         name: "hasChildNodes",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -12087,7 +12106,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(5373993),
+        id: GeneratedMemberId(5373994),
         name: "getRootNode",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -12106,7 +12125,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(5373994),
+        id: GeneratedMemberId(5373995),
         name: "append",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -12125,7 +12144,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(5373995),
+        id: GeneratedMemberId(5373996),
         name: "prepend",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -12144,7 +12163,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(5373996),
+        id: GeneratedMemberId(5373997),
         name: "replaceChildren",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -12163,7 +12182,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(5373997),
+        id: GeneratedMemberId(5373998),
         name: "replaceWith",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -12182,7 +12201,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(5373998),
+        id: GeneratedMemberId(5373999),
         name: "before",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -12201,7 +12220,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(5373999),
+        id: GeneratedMemberId(5374000),
         name: "after",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -12220,7 +12239,7 @@ pub const NODE_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(5374000),
+        id: GeneratedMemberId(5374001),
         name: "remove",
         kind: GeneratedMemberKind::Operation,
         arity: 0,

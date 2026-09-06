@@ -129,7 +129,7 @@ impl SemanticGraph {
         let mut dependency_change = false;
         for mutation in mutations {
             match mutation {
-                Mutation::Inserted { node, parent } => {
+                Mutation::Inserted { node, parent, .. } => {
                     dirty.insert(*node);
                     dirty.extend(parent.iter().copied());
                     dependency_change = true;
@@ -137,6 +137,7 @@ impl SemanticGraph {
                 Mutation::Removed {
                     node,
                     former_parent,
+                    ..
                 } => {
                     self.remove_subtree(*node);
                     dirty.extend(former_parent.iter().copied());

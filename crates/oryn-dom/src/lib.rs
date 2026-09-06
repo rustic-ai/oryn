@@ -446,16 +446,26 @@ fn new_node(kind: NodeKind) -> Node {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MutationSiblings {
+    pub previous: Option<NodeId>,
+    pub next: Option<NodeId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Mutation {
     Inserted {
         node: NodeId,
         parent: Option<NodeId>,
+        #[serde(default)]
+        siblings: MutationSiblings,
     },
     Removed {
         node: NodeId,
         former_parent: Option<NodeId>,
+        #[serde(default)]
+        siblings: MutationSiblings,
     },
     Attribute {
         node: NodeId,
@@ -664,8 +674,11 @@ impl DomRuntime {
 
     pub fn create(&mut self, kind: NodeKind) -> NodeId {
         let node = self.arena.insert(kind);
-        self.mutations
-            .push(Mutation::Inserted { node, parent: None });
+        self.mutations.push(Mutation::Inserted {
+            node,
+            parent: None,
+            siblings: MutationSiblings::default(),
+        });
         node
     }
 
@@ -932,15 +945,34 @@ impl DomRuntime {
         Ok(())
     }
 
+    fn mutation_siblings_at(
+        &self,
+        parent: NodeId,
+        index: u32,
+    ) -> Result<MutationSiblings, DomError> {
+        let children = &self.arena.get(parent)?.children;
+        let index = index as usize;
+        Ok(MutationSiblings {
+            previous: index
+                .checked_sub(1)
+                .and_then(|index| children.get(index))
+                .copied(),
+            next: children.get(index + 1).copied(),
+        })
+    }
+
     pub fn append_child(&mut self, parent: NodeId, child: NodeId) -> Result<(), DomError> {
         let former_parent = self.arena.get(child)?.parent;
+        let mut removed_siblings = MutationSiblings::default();
         if let Some(former_parent) = former_parent {
             let former_index = self.child_index(former_parent, child)?;
+            removed_siblings = self.mutation_siblings_at(former_parent, former_index)?;
             self.adjust_ranges_for_removal(former_parent, former_index, child)?;
         }
         let was_connected = self.connected.contains(&child);
         self.arena.append_child(parent, child)?;
         let inserted_index = self.child_index(parent, child)?;
+        let inserted_siblings = self.mutation_siblings_at(parent, inserted_index)?;
         self.adjust_ranges_for_insertion(parent, inserted_index, 1)?;
         if was_connected {
             self.mark_disconnected(child)?;
@@ -953,11 +985,13 @@ impl DomRuntime {
             self.mutations.push(Mutation::Removed {
                 node: child,
                 former_parent,
+                siblings: removed_siblings,
             });
         }
         self.mutations.push(Mutation::Inserted {
             node: child,
             parent: Some(parent),
+            siblings: inserted_siblings,
         });
         Ok(())
     }
@@ -978,8 +1012,10 @@ impl DomRuntime {
             return Ok(());
         }
         let former_parent = self.arena.get(child)?.parent;
+        let mut removed_siblings = MutationSiblings::default();
         if let Some(former_parent) = former_parent {
             let former_index = self.child_index(former_parent, child)?;
+            removed_siblings = self.mutation_siblings_at(former_parent, former_index)?;
             self.adjust_ranges_for_removal(former_parent, former_index, child)?;
         }
         let was_connected = self.connected.contains(&child);
@@ -992,6 +1028,7 @@ impl DomRuntime {
             self.arena.append_child(parent, child)?;
         }
         let inserted_index = self.child_index(parent, child)?;
+        let inserted_siblings = self.mutation_siblings_at(parent, inserted_index)?;
         self.adjust_ranges_for_insertion(parent, inserted_index, 1)?;
         if was_connected {
             self.mark_disconnected(child)?;
@@ -1004,11 +1041,13 @@ impl DomRuntime {
             self.mutations.push(Mutation::Removed {
                 node: child,
                 former_parent,
+                siblings: removed_siblings,
             });
         }
         self.mutations.push(Mutation::Inserted {
             node: child,
             parent: Some(parent),
+            siblings: inserted_siblings,
         });
         Ok(())
     }
@@ -1281,6 +1320,81 @@ impl DomRuntime {
         Ok(())
     }
 
+    /// Normalize light-tree Text descendants using native live-Range updates.
+    pub fn normalize(&mut self, root: NodeId) -> Result<(), DomError> {
+        let mut pending = self
+            .arena
+            .get(root)?
+            .children
+            .iter()
+            .rev()
+            .copied()
+            .collect::<Vec<_>>();
+        while let Some(node) = pending.pop() {
+            let record = self.arena.get(node)?.clone();
+            let Some(parent) = record.parent else {
+                continue;
+            };
+            let NodeKind::Text { data } = record.kind else {
+                if !matches!(record.kind, NodeKind::ShadowRoot { .. }) {
+                    pending.extend(record.children.iter().rev().copied());
+                }
+                continue;
+            };
+            let mut length = utf16_len(&data);
+            if length == 0 {
+                self.remove(node)?;
+                continue;
+            }
+            let index = self.child_index(parent, node)? as usize;
+            let siblings = self.arena.get(parent)?.children[index + 1..]
+                .iter()
+                .copied()
+                .take_while(|sibling| {
+                    matches!(
+                        self.arena.get(*sibling).map(|r| &r.kind),
+                        Ok(NodeKind::Text { .. })
+                    )
+                })
+                .collect::<Vec<_>>();
+            let mut appended = String::new();
+            for sibling in &siblings {
+                if let NodeKind::Text { data } = &self.arena.get(*sibling)?.kind {
+                    appended.push_str(data);
+                }
+            }
+            self.replace_character_data(node, length, 0, appended)?;
+            for sibling in &siblings {
+                let index = self.child_index(parent, *sibling)?;
+                let mut root_changes = Vec::new();
+                for range in self.ranges.values_mut() {
+                    for boundary in [&mut range.start, &mut range.end] {
+                        if boundary.container == *sibling {
+                            root_changes.push((boundary.container, node));
+                            boundary.container = node;
+                            boundary.offset = boundary.offset.saturating_add(length);
+                        } else if boundary.container == parent && boundary.offset == index {
+                            root_changes.push((boundary.container, node));
+                            boundary.container = node;
+                            boundary.offset = length;
+                        }
+                    }
+                }
+                for (old, new) in root_changes {
+                    self.retain_native(new)?;
+                    self.release_native(old)?;
+                }
+                if let NodeKind::Text { data } = &self.arena.get(*sibling)?.kind {
+                    length = length.saturating_add(utf16_len(data));
+                }
+            }
+            for sibling in siblings {
+                self.remove(sibling)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn set_text(&mut self, node: NodeId, value: impl Into<String>) -> Result<(), DomError> {
         let value = value.into();
         let old_length = match &self.arena.get(node)?.kind {
@@ -1431,8 +1545,10 @@ impl DomRuntime {
 
     pub fn remove(&mut self, node: NodeId) -> Result<(), DomError> {
         let parent = self.arena.get(node)?.parent;
+        let mut siblings = MutationSiblings::default();
         if let Some(parent) = parent {
             let index = self.child_index(parent, node)?;
+            siblings = self.mutation_siblings_at(parent, index)?;
             self.adjust_ranges_for_removal(parent, index, node)?;
         }
         // Mutation delivery may expose the removed subtree to JavaScript.
@@ -1444,6 +1560,7 @@ impl DomRuntime {
         self.mutations.push(Mutation::Removed {
             node,
             former_parent: parent,
+            siblings,
         });
         self.reclaim_if_unrooted(node)
     }
@@ -1590,12 +1707,15 @@ impl DomRuntime {
         if parent.is_none() {
             return Ok(());
         }
+        let siblings =
+            self.mutation_siblings_at(parent.unwrap(), self.child_index(parent.unwrap(), node)?)?;
         self.arena.detach(node)?;
         self.mark_disconnected(node)?;
         self.retain_native(node)?;
         self.mutations.push(Mutation::Removed {
             node,
             former_parent: parent,
+            siblings,
         });
         Ok(())
     }
@@ -2383,6 +2503,123 @@ mod tests {
     }
 
     #[test]
+    fn normalization_moves_live_range_boundaries_and_preserves_record_order() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_fragment();
+        let empty = dom.create_text("");
+        let first = dom.create_text("ab");
+        let middle = dom.create_text("😀");
+        let last = dom.create_text("cd");
+        let comment = dom.create(NodeKind::Comment {
+            data: "barrier".into(),
+        });
+        for node in [empty, first, middle, last, comment] {
+            dom.append_child(root, node).unwrap();
+        }
+        let inside = dom
+            .create_live_range(
+                BoundaryPoint {
+                    container: middle,
+                    offset: 1,
+                },
+                BoundaryPoint {
+                    container: last,
+                    offset: 1,
+                },
+            )
+            .unwrap();
+        let between = dom
+            .create_live_range(
+                BoundaryPoint {
+                    container: root,
+                    offset: 2,
+                },
+                BoundaryPoint {
+                    container: root,
+                    offset: 4,
+                },
+            )
+            .unwrap();
+        let cursor = dom.mutation_cursor();
+        dom.normalize(root).unwrap();
+        assert_eq!(dom.children(root).unwrap(), vec![first, comment]);
+        assert_eq!(dom.arena().text_content(first).unwrap(), "ab😀cd");
+        let range = dom.live_range(inside).unwrap();
+        assert_eq!(
+            range.start,
+            BoundaryPoint {
+                container: first,
+                offset: 3
+            }
+        );
+        assert_eq!(
+            range.end,
+            BoundaryPoint {
+                container: first,
+                offset: 5
+            }
+        );
+        let range = dom.live_range(between).unwrap();
+        assert_eq!(
+            range.start,
+            BoundaryPoint {
+                container: first,
+                offset: 2
+            }
+        );
+        assert_eq!(
+            range.end,
+            BoundaryPoint {
+                container: root,
+                offset: 1
+            }
+        );
+        let changes = dom.mutations_since(cursor).mutations;
+        assert!(
+            matches!(changes.as_slice(), [Mutation::Removed { node: a, .. }, Mutation::CharacterData { node: b, .. }, Mutation::Removed { node: c, .. }, Mutation::Removed { node: d, .. }] if *a == empty && *b == first && *c == middle && *d == last)
+        );
+    }
+
+    #[test]
+    fn mutation_siblings_preserve_insertion_removal_and_move_positions() {
+        let mut dom = DomRuntime::new();
+        let parent = dom.create_fragment();
+        let a = dom.create_element("a");
+        let b = dom.create_element("b");
+        let c = dom.create_element("c");
+        dom.append_child(parent, a).unwrap();
+        let cursor = dom.mutation_cursor();
+        dom.append_child(parent, b).unwrap();
+        dom.insert_before(parent, c, Some(b)).unwrap();
+        dom.remove(a).unwrap();
+        dom.insert_before(parent, b, Some(c)).unwrap();
+        let snapshots = dom
+            .mutations_since(cursor)
+            .mutations
+            .into_iter()
+            .map(|mutation| match mutation {
+                Mutation::Inserted { node, siblings, .. } => {
+                    (true, node, siblings.previous, siblings.next)
+                }
+                Mutation::Removed { node, siblings, .. } => {
+                    (false, node, siblings.previous, siblings.next)
+                }
+                _ => panic!("unexpected mutation"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            snapshots,
+            vec![
+                (true, b, Some(a), None),
+                (true, c, Some(a), Some(b)),
+                (false, a, None, Some(c)),
+                (false, b, Some(c), None),
+                (true, b, None, Some(c)),
+            ]
+        );
+    }
+
+    #[test]
     fn attribute_mutations_snapshot_namespaces_before_detaching() {
         let mut dom = DomRuntime::new();
         let node = dom.create_element("div");
@@ -2501,6 +2738,7 @@ mod tests {
                     generation: 0,
                 },
                 parent: None,
+                siblings: MutationSiblings::default(),
             });
         }
         for cursor in [
@@ -2643,12 +2881,12 @@ mod tests {
         let mutations = dom.drain_mutations();
         assert!(mutations.iter().any(|mutation| matches!(
             mutation,
-            Mutation::Removed { node, former_parent: Some(parent) }
+            Mutation::Removed { node, former_parent: Some(parent), .. }
                 if *node == child && *parent == first
         )));
         assert!(mutations.iter().any(|mutation| matches!(
             mutation,
-            Mutation::Inserted { node, parent: Some(parent) }
+            Mutation::Inserted { node, parent: Some(parent), .. }
                 if *node == child && *parent == second
         )));
         dom.release_mutation_roots(&mutations).unwrap();
