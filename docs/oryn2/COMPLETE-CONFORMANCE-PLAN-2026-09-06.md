@@ -71,6 +71,17 @@ These selections do not replace the single full ledger used for the counts below
 Native observer scheduling/error reporting and the newly retained Range wall-time
 diagnostics remain immediate prerequisites for further conformance work.
 
+The next observer prerequisite now tracks native journal sequence, matching ancestor
+position, and registration order for ordinary registered observers within a realm.
+Updating `observe()` options preserves registration position; disconnect/re-observe
+creates a new position. Empty notifications after `takeRecords()` clear pending
+ordering state. Native regression tests cover these cases and historical ancestry
+when a mutated subtree is subsequently removed. This is a local delivery correction,
+not completion of the agent-wide pending-observer algorithm: cross-realm notification
+order, transient-registration insertion order, native microtask scheduling, and
+exception reporting still require integration and validation. No new signed WPT
+result or full-suite gain is attributed to this change.
+
 Important concentration and dependencies:
 
 - Editing's 586 failing executions cover 133 source files. Three whitespace-joining

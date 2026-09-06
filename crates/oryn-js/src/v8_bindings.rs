@@ -34,6 +34,8 @@ use crate::{
     trusted_types::{TrustedKind, TrustedTypesConfig, TrustedTypesRegistry, TrustedValue},
 };
 
+static NEXT_OBSERVER_REGISTRATION_ORDER: AtomicU64 = AtomicU64::new(1);
+
 static NEXT_BINDING_STATE_ID: AtomicU64 = AtomicU64::new(1);
 
 pub type SharedDom = oryn_dom::SharedDomRuntime;
@@ -138,6 +140,7 @@ type PlatformListenerMap = BTreeMap<(u64, String), Vec<PlatformEventListener>>;
 
 #[derive(Debug, Clone, Default)]
 struct MutationObserverOptions {
+    registration_order: u64,
     child_list: bool,
     attributes: bool,
     character_data: bool,
@@ -153,6 +156,7 @@ struct MutationObserverEntry {
     registrations: BTreeMap<NodeId, MutationObserverOptions>,
     transients: BTreeMap<(NodeId, NodeId), MutationObserverOptions>,
     records: Vec<QueuedMutation>,
+    pending_order: Option<(u64, usize, u64)>,
     cursor: oryn_dom::MutationCursor,
 }
 
@@ -7472,6 +7476,7 @@ fn generated_constructor<'s>(
                 registrations: BTreeMap::new(),
                 transients: BTreeMap::new(),
                 records: Vec::new(),
+                pending_order: None,
                 cursor: state.dom.borrow().mutation_cursor(),
             },
         );
@@ -18323,7 +18328,8 @@ fn call_mutation_observer_operation<'s>(
             let attributes = boolean(scope, "attributes")?;
             let character_data = boolean(scope, "characterData")?;
             let character_data_old_value = boolean(scope, "characterDataOldValue")?;
-            let options = MutationObserverOptions {
+            let mut options = MutationObserverOptions {
+                registration_order: 0,
                 child_list: boolean(scope, "childList")?.unwrap_or(false),
                 attributes: attributes
                     .unwrap_or(attribute_old_value.is_some() || attribute_filter.is_some()),
@@ -18355,6 +18361,11 @@ fn call_mutation_observer_operation<'s>(
             observer
                 .transients
                 .retain(|&(source, _), _| source != target);
+            // Updating options preserves this node's registered-observer list position.
+            options.registration_order = observer.registrations.get(&target).map_or_else(
+                || NEXT_OBSERVER_REGISTRATION_ORDER.fetch_add(1, AtomicOrdering::Relaxed),
+                |previous| previous.registration_order,
+            );
             observer.registrations.insert(target, options);
             Ok(None)
         }
@@ -18407,7 +18418,7 @@ fn observer_accepts(
     options: &MutationObserverOptions,
     mutation: &Mutation,
     parents: &BTreeMap<NodeId, Option<NodeId>>,
-) -> bool {
+) -> Option<usize> {
     let relevant = match mutation {
         Mutation::Inserted {
             parent: Some(_),
@@ -18433,9 +18444,9 @@ fn observer_accepts(
         _ => false,
     };
     if !relevant {
-        return false;
+        return None;
     }
-    observer_in_scope(
+    observer_scope_distance(
         dom,
         target,
         options.subtree,
@@ -18448,25 +18459,37 @@ fn observer_in_scope(
     dom: &DomRuntime,
     target: NodeId,
     subtree: bool,
-    mut current: Option<NodeId>,
+    current: Option<NodeId>,
     parents: &BTreeMap<NodeId, Option<NodeId>>,
 ) -> bool {
+    observer_scope_distance(dom, target, subtree, current, parents).is_some()
+}
+
+fn observer_scope_distance(
+    dom: &DomRuntime,
+    target: NodeId,
+    subtree: bool,
+    mut current: Option<NodeId>,
+    parents: &BTreeMap<NodeId, Option<NodeId>>,
+) -> Option<usize> {
+    let mut distance = 0;
     while let Some(node) = current {
         if node == target {
-            return true;
+            return Some(distance);
         }
         if !subtree {
-            return false;
+            return None;
         }
         let Ok(record) = dom.arena().get(node) else {
-            return false;
+            return None;
         };
         if matches!(record.kind, NodeKind::ShadowRoot { .. }) {
-            return false;
+            return None;
         }
         current = parents.get(&node).copied().unwrap_or(record.parent);
+        distance += 1;
     }
-    false
+    None
 }
 
 fn set_object_property(
@@ -18592,7 +18615,9 @@ fn collect_observer_records(dom: &DomRuntime, observer: &mut MutationObserverEnt
             _ => {}
         }
     }
-    for mutation in batch.mutations {
+    // Journal entries are contiguous, including when the bounded prefix was pruned.
+    let first_sequence = batch.next.0 + 1 - batch.mutations.len() as u64;
+    for (offset, mutation) in batch.mutations.into_iter().enumerate() {
         let mut accepted = false;
         let mut expose_old_value = false;
         let mut removed_registrations = Vec::new();
@@ -18607,7 +18632,14 @@ fn collect_observer_records(dom: &DomRuntime, observer: &mut MutationObserverEnt
                     .map(|(&(source, target), options)| (source, target, options)),
             );
         for (source, target, options) in registrations {
-            if observer_accepts(dom, target, options, &mutation, &parents) {
+            if let Some(distance) = observer_accepts(dom, target, options, &mutation, &parents) {
+                let order = (
+                    first_sequence + offset as u64,
+                    distance,
+                    options.registration_order,
+                );
+                observer.pending_order =
+                    Some(observer.pending_order.map_or(order, |old| old.min(order)));
                 accepted = true;
                 expose_old_value |= match mutation {
                     Mutation::Attribute { .. } => options.attribute_old_value,
@@ -18779,21 +18811,30 @@ pub fn deliver_mutation_observers(
             collect_observer_records(&dom, observer);
         }
     }
-    let ids = state
+    let mut ids = state
         .mutation_observers
         .borrow()
         .iter()
         .filter_map(|(id, observer)| {
-            (!observer.records.is_empty() || !observer.transients.is_empty()).then_some(*id)
+            (observer.pending_order.is_some() || !observer.transients.is_empty()).then_some((
+                observer
+                    .pending_order
+                    .unwrap_or((u64::MAX, usize::MAX, u64::MAX)),
+                *id,
+            ))
         })
         .collect::<Vec<_>>();
+    // Queue order is mutation order, then target-to-root ancestry, then the
+    // registered-observer list position; constructor IDs do not determine it.
+    ids.sort_unstable();
     let mut delivered = 0;
-    for id in ids {
+    for (_, id) in ids {
         let (callback, object, records) = {
             let mut observers = state.mutation_observers.borrow_mut();
             let observer = observers.get_mut(&id).expect("queued observer exists");
             collect_observer_records(&state.dom.borrow(), observer);
             observer.transients.clear();
+            observer.pending_order = None;
             (
                 observer.callback.clone(),
                 observer.object.clone(),
@@ -26932,6 +26973,98 @@ mod tests {
                 .unwrap()
                 .is_true()
         );
+    }
+
+    #[test]
+    fn observer_delivery_follows_mutation_ancestry_and_registration_order() {
+        initialize_v8();
+        for (setup, expected) in [
+            (
+                "b.observe(child, {attributes:true}); a.observe(child, {attributes:true}); child.id = 'changed';",
+                "B|A",
+            ),
+            (
+                "a.observe(parent, {attributes:true, subtree:true}); b.observe(child, {attributes:true}); child.id = 'changed';",
+                "B|A",
+            ),
+            (
+                "a.observe(parent, {attributes:true}); b.observe(child, {attributes:true}); child.id = 'changed'; parent.id = 'changed';",
+                "B|A",
+            ),
+            (
+                "b.observe(child, {attributes:true}); a.observe(child, {attributes:true}); b.observe(child, {attributeOldValue:true}); child.id = 'changed';",
+                "B|A",
+            ),
+            (
+                "b.observe(child, {attributes:true}); a.observe(child, {attributes:true}); b.disconnect(); b.observe(child, {attributes:true}); child.id = 'changed';",
+                "A|B",
+            ),
+            (
+                "a.observe(parent, {childList:true, subtree:true}); b.observe(child, {childList:true}); child.appendChild(document.createTextNode('x')); child.remove();",
+                "B|A",
+            ),
+        ] {
+            let dom = Rc::new(RefCell::new(
+                html::parse("<body><div><span></span></div></body>")
+                    .into_runtime()
+                    .unwrap(),
+            ));
+            let mut isolate = v8::Isolate::new(Default::default());
+            isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+            v8::scope!(let scope, &mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+            let script = format!(
+                r#"
+                globalThis.order = [];
+                const parent = document.querySelector('div'), child = parent.firstChild;
+                const a = new MutationObserver(() => order.push('A'));
+                const b = new MutationObserver(() => order.push('B'));
+                {setup}
+            "#
+            );
+            let source = v8::String::new(scope, &script).unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            assert_eq!(
+                deliver_mutation_observers(scope, &state, &[]).unwrap(),
+                2,
+                "{setup}"
+            );
+            let source = v8::String::new(scope, "order.join('|')").unwrap();
+            let actual = v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            assert_eq!(actual.to_rust_string_lossy(scope), expected, "{setup}");
+            // takeRecords empties the records, but the pending notification
+            // still has to reset its ordering state at the checkpoint.
+            let source = v8::String::new(scope, "a.disconnect(); b.disconnect(); order.length = 0; b.observe(child, {attributes:true}); child.id = 'discarded'; b.takeRecords();").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            assert_eq!(deliver_mutation_observers(scope, &state, &[]).unwrap(), 0);
+            let source = v8::String::new(scope, "a.observe(parent, {attributes:true}); parent.id = 'later-a'; child.id = 'later-b';").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            assert_eq!(deliver_mutation_observers(scope, &state, &[]).unwrap(), 2);
+            let source = v8::String::new(scope, "order.join('|')").unwrap();
+            let actual = v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            assert_eq!(
+                actual.to_rust_string_lossy(scope),
+                "A|B",
+                "pending state reset: {setup}"
+            );
+        }
     }
 
     #[test]
