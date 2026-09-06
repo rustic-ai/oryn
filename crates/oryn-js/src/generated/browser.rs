@@ -3505,6 +3505,25 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(1638428),
+        name: "importNode",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("Node"),
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(1638429),
         name: "createAttribute",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3523,7 +3542,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638429),
+        id: GeneratedMemberId(1638430),
         name: "createAttributeNS",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -3542,7 +3561,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638430),
+        id: GeneratedMemberId(1638431),
         name: "createElement",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3561,7 +3580,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638431),
+        id: GeneratedMemberId(1638432),
         name: "createElementNS",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -3580,7 +3599,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638432),
+        id: GeneratedMemberId(1638433),
         name: "createTextNode",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3599,7 +3618,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638433),
+        id: GeneratedMemberId(1638434),
         name: "createComment",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3618,7 +3637,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638434),
+        id: GeneratedMemberId(1638435),
         name: "createCDATASection",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3637,7 +3656,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638435),
+        id: GeneratedMemberId(1638436),
         name: "createProcessingInstruction",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -3656,7 +3675,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638436),
+        id: GeneratedMemberId(1638437),
         name: "createDocumentFragment",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -3675,7 +3694,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638437),
+        id: GeneratedMemberId(1638438),
         name: "createEvent",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3694,7 +3713,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638438),
+        id: GeneratedMemberId(1638439),
         name: "open",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -3713,7 +3732,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638439),
+        id: GeneratedMemberId(1638440),
         name: "write",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3732,7 +3751,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638440),
+        id: GeneratedMemberId(1638441),
         name: "writeln",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3751,7 +3770,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638441),
+        id: GeneratedMemberId(1638442),
         name: "close",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -3770,7 +3789,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638442),
+        id: GeneratedMemberId(1638443),
         name: "getElementById",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3789,7 +3808,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638443),
+        id: GeneratedMemberId(1638444),
         name: "querySelector",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3808,7 +3827,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638444),
+        id: GeneratedMemberId(1638445),
         name: "querySelectorAll",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3827,7 +3846,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638445),
+        id: GeneratedMemberId(1638446),
         name: "getElementsByTagName",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3846,7 +3865,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638446),
+        id: GeneratedMemberId(1638447),
         name: "getElementsByTagNameNS",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -3865,7 +3884,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638447),
+        id: GeneratedMemberId(1638448),
         name: "getElementsByClassName",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3884,7 +3903,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638448),
+        id: GeneratedMemberId(1638449),
         name: "getElementsByName",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3903,7 +3922,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638449),
+        id: GeneratedMemberId(1638450),
         name: "elementFromPoint",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -3922,7 +3941,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638450),
+        id: GeneratedMemberId(1638451),
         name: "elementsFromPoint",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -3941,7 +3960,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638451),
+        id: GeneratedMemberId(1638452),
         name: "createRange",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -3960,7 +3979,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638452),
+        id: GeneratedMemberId(1638453),
         name: "createNodeIterator",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3979,7 +3998,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638453),
+        id: GeneratedMemberId(1638454),
         name: "createTreeWalker",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -3998,7 +4017,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638454),
+        id: GeneratedMemberId(1638455),
         name: "getSelection",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -4017,7 +4036,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638455),
+        id: GeneratedMemberId(1638456),
         name: "execCommand",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4036,7 +4055,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638456),
+        id: GeneratedMemberId(1638457),
         name: "queryCommandEnabled",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4055,7 +4074,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638457),
+        id: GeneratedMemberId(1638458),
         name: "queryCommandIndeterm",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4074,7 +4093,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638458),
+        id: GeneratedMemberId(1638459),
         name: "queryCommandState",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4093,7 +4112,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638459),
+        id: GeneratedMemberId(1638460),
         name: "queryCommandSupported",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4112,7 +4131,7 @@ pub const DOCUMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1638460),
+        id: GeneratedMemberId(1638461),
         name: "queryCommandValue",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4708,6 +4727,25 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
     },
     GeneratedMember {
         id: GeneratedMemberId(1835029),
+        name: "getAttributeNodeNS",
+        kind: GeneratedMemberKind::Operation,
+        arity: 2,
+        readonly: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("Attr?"),
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(1835030),
         name: "getAttributeNames",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -4726,7 +4764,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835030),
+        id: GeneratedMemberId(1835031),
         name: "setAttribute",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -4745,7 +4783,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835031),
+        id: GeneratedMemberId(1835032),
         name: "setAttributeNS",
         kind: GeneratedMemberKind::Operation,
         arity: 3,
@@ -4764,7 +4802,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835032),
+        id: GeneratedMemberId(1835033),
         name: "removeAttribute",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4783,7 +4821,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835033),
+        id: GeneratedMemberId(1835034),
         name: "removeAttributeNS",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -4802,7 +4840,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835034),
+        id: GeneratedMemberId(1835035),
         name: "hasAttribute",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4821,7 +4859,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835035),
+        id: GeneratedMemberId(1835036),
         name: "hasAttributeNS",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -4840,7 +4878,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835036),
+        id: GeneratedMemberId(1835037),
         name: "hasAttributes",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -4859,7 +4897,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835037),
+        id: GeneratedMemberId(1835038),
         name: "toggleAttribute",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4878,7 +4916,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835038),
+        id: GeneratedMemberId(1835039),
         name: "querySelector",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4897,7 +4935,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835039),
+        id: GeneratedMemberId(1835040),
         name: "querySelectorAll",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4916,7 +4954,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835040),
+        id: GeneratedMemberId(1835041),
         name: "getElementsByTagName",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4935,7 +4973,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835041),
+        id: GeneratedMemberId(1835042),
         name: "getElementsByTagNameNS",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -4954,7 +4992,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835042),
+        id: GeneratedMemberId(1835043),
         name: "getElementsByClassName",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4973,7 +5011,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835043),
+        id: GeneratedMemberId(1835044),
         name: "matches",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -4992,7 +5030,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835044),
+        id: GeneratedMemberId(1835045),
         name: "webkitMatchesSelector",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -5011,7 +5049,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835045),
+        id: GeneratedMemberId(1835046),
         name: "closest",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -5030,7 +5068,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835046),
+        id: GeneratedMemberId(1835047),
         name: "insertAdjacentElement",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -5049,7 +5087,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835047),
+        id: GeneratedMemberId(1835048),
         name: "insertAdjacentText",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -5068,7 +5106,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835048),
+        id: GeneratedMemberId(1835049),
         name: "insertAdjacentHTML",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -5087,7 +5125,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835049),
+        id: GeneratedMemberId(1835050),
         name: "getBoundingClientRect",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -5106,7 +5144,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835050),
+        id: GeneratedMemberId(1835051),
         name: "getClientRects",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -5125,7 +5163,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835051),
+        id: GeneratedMemberId(1835052),
         name: "scrollLeft",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -5144,7 +5182,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835052),
+        id: GeneratedMemberId(1835053),
         name: "scrollTop",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -5163,7 +5201,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835053),
+        id: GeneratedMemberId(1835054),
         name: "scrollTo",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -5182,7 +5220,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835054),
+        id: GeneratedMemberId(1835055),
         name: "scrollIntoView",
         kind: GeneratedMemberKind::Operation,
         arity: 0,
@@ -5201,7 +5239,7 @@ pub const ELEMENT_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(1835055),
+        id: GeneratedMemberId(1835056),
         name: "remove",
         kind: GeneratedMemberKind::Operation,
         arity: 0,

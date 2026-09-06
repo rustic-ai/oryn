@@ -392,12 +392,14 @@ impl TreeSink for OrynTreeSink {
         let mut dom = self.dom.borrow_mut();
         let element = dom.create(NodeKind::Element { name });
         for attribute in attrs {
-            dom.set_attribute(
-                element,
-                attribute.name.local.to_string(),
-                attribute.value.to_string(),
-            )
-            .expect("new element");
+            let qualified = attribute.name.prefix.as_ref().map_or_else(
+                || attribute.name.local.to_string(),
+                |prefix| format!("{prefix}:{}", attribute.name.local),
+            );
+            let namespace =
+                (!attribute.name.ns.as_ref().is_empty()).then(|| attribute.name.ns.to_string());
+            dom.set_attribute_ns(element, namespace, qualified, attribute.value.to_string())
+                .expect("new element");
         }
         if is_template {
             dom.template_content(element).expect("new template");
@@ -659,6 +661,23 @@ impl TreeSink for OrynTreeSink {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn foreign_attribute_namespaces_survive_parser_snapshot_and_import() {
+        let mut dom = parse("<svg id='svg' xmlns:xlink='http://www.w3.org/1999/xlink' xlink:href='#target' xml:lang='en'></svg>").into_runtime().unwrap();
+        let svg = dom.find_by_id("svg").unwrap();
+        let href = dom.attribute_node(svg, "xlink:href").unwrap().unwrap();
+        assert!(matches!(&dom.arena().get(href).unwrap().kind,
+            NodeKind::Attribute { namespace: Some(namespace), prefix: Some(prefix), local_name, .. }
+                if namespace == "http://www.w3.org/1999/xlink" && prefix == "xlink" && local_name == "href"));
+        let (snapshot, _) = dom.snapshot();
+        let mut other = DomRuntime::new();
+        let imported = other.import_subtree(&snapshot, svg).unwrap();
+        let lang = other.attribute_node(imported, "xml:lang").unwrap().unwrap();
+        assert!(matches!(&other.arena().get(lang).unwrap().kind,
+            NodeKind::Attribute { namespace: Some(namespace), prefix: Some(prefix), local_name, value, .. }
+                if namespace == "http://www.w3.org/XML/1998/namespace" && prefix == "xml" && local_name == "lang" && value == "en"));
+    }
 
     #[test]
     fn parsed_template_scripts_and_styles_are_inert() {

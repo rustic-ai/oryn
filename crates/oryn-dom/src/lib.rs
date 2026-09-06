@@ -181,6 +181,7 @@ pub enum DomError {
 pub struct DomArena {
     slots: Vec<Slot>,
     free: Vec<u32>,
+    attribute_nodes: BTreeMap<(NodeId, String), NodeId>,
 }
 
 impl DomArena {
@@ -199,6 +200,7 @@ impl DomArena {
                 })
                 .collect(),
             free: Vec::new(),
+            attribute_nodes: BTreeMap::new(),
         };
         for id in retained {
             if let Some(slot) = arena.slots.get_mut(id.slot as usize) {
@@ -232,12 +234,28 @@ impl DomArena {
             return Err(DomError::StaleNode(id));
         }
         slot.node = Some(new_node(kind));
+        if let NodeKind::Attribute {
+            owner: Some(owner),
+            name,
+            ..
+        } = &self.get(id)?.kind
+        {
+            self.attribute_nodes.insert((*owner, name.clone()), id);
+        }
         Ok(())
     }
 
     pub fn insert(&mut self, kind: NodeKind) -> NodeId {
+        let attribute_key = match &kind {
+            NodeKind::Attribute {
+                owner: Some(owner),
+                name,
+                ..
+            } => Some((*owner, name.clone())),
+            _ => None,
+        };
         let node = new_node(kind);
-        if let Some(index) = self.free.pop() {
+        let id = if let Some(index) = self.free.pop() {
             let slot = &mut self.slots[index as usize];
             slot.node = Some(node);
             NodeId {
@@ -254,7 +272,11 @@ impl DomArena {
                 slot,
                 generation: 0,
             }
+        };
+        if let Some(key) = attribute_key {
+            self.attribute_nodes.insert(key, id);
         }
+        id
     }
 
     pub fn get(&self, id: NodeId) -> Result<&Node, DomError> {
@@ -315,7 +337,32 @@ impl DomArena {
         let node = slot.node.take().ok_or(DomError::StaleNode(id))?;
         slot.generation = slot.generation.wrapping_add(1);
         self.free.push(id.slot);
+        if let NodeKind::Attribute {
+            owner: Some(owner),
+            name,
+            ..
+        } = &node.kind
+        {
+            let key = (*owner, name.clone());
+            if self.attribute_nodes.get(&key) == Some(&id) {
+                self.attribute_nodes.remove(&key);
+            }
+        }
         Ok(node)
+    }
+
+    pub fn existing_attribute_node(&self, element: NodeId, name: &str) -> Option<NodeId> {
+        self.attribute_nodes
+            .get(&(element, name.to_string()))
+            .copied()
+    }
+
+    pub fn attribute_node_ids(&self, element: NodeId) -> Vec<NodeId> {
+        self.attribute_nodes
+            .range((element, String::new())..)
+            .take_while(|((owner, _), _)| *owner == element)
+            .map(|(_, attribute)| *attribute)
+            .collect()
     }
 
     pub fn ancestors(&self, id: NodeId) -> Result<Vec<NodeId>, DomError> {
@@ -544,7 +591,6 @@ pub struct DomRuntime {
     connected: BTreeSet<NodeId>,
     roots: BTreeMap<NodeId, NodeRoots>,
     ids: BTreeMap<String, NodeId>,
-    attribute_nodes: BTreeMap<(NodeId, String), NodeId>,
     mutations: MutationJournal,
     focused: Option<NodeId>,
     next_range: u64,
@@ -591,7 +637,6 @@ impl DomRuntime {
         self.connected.clear();
         self.roots.clear();
         self.ids.clear();
-        self.attribute_nodes.clear();
         self.mutations.clear();
         self.focused = None;
         self.next_range = 0;
@@ -711,7 +756,11 @@ impl DomRuntime {
 
     pub fn import_subtree(&mut self, source: &DomArena, node: NodeId) -> Result<NodeId, DomError> {
         let source_node = source.get(node)?;
-        let imported = self.create(source_node.kind.clone());
+        let mut kind = source_node.kind.clone();
+        if let NodeKind::Attribute { owner, .. } = &mut kind {
+            *owner = None;
+        }
+        let imported = self.create(kind);
         {
             let target = self.arena.get_mut(imported)?;
             target
@@ -720,6 +769,17 @@ impl DomRuntime {
             target.attributes.clone_from(&source_node.attributes);
             target.value.clone_from(&source_node.value);
             target.sensitive_value = source_node.sensitive_value;
+        }
+        for attribute in source.attribute_node_ids(node) {
+            if let NodeKind::Attribute {
+                namespace,
+                name,
+                value,
+                ..
+            } = &source.get(attribute)?.kind
+            {
+                self.set_attribute_ns(imported, namespace.clone(), name.clone(), value.clone())?;
+            }
         }
         if let Some(content) = source_node.template_content {
             let imported_content = self.import_subtree(source, content)?;
@@ -1008,6 +1068,7 @@ impl DomRuntime {
         // A qualified-name update changes the value of an existing attribute;
         // it must not replace that attribute's expanded name.
         let namespace = self
+            .arena
             .attribute_nodes
             .get(&(node, name.clone()))
             .and_then(|attribute| self.arena.get(*attribute).ok())
@@ -1050,7 +1111,11 @@ impl DomRuntime {
                 self.ids.insert(value.clone(), node);
             }
         }
-        if let Some(attribute) = self.attribute_nodes.get(&(node, name.clone())).copied()
+        if let Some(attribute) = self
+            .arena
+            .attribute_nodes
+            .get(&(node, name.clone()))
+            .copied()
             && let NodeKind::Attribute {
                 local_name: attribute_local_name,
                 namespace: attribute_namespace,
@@ -1064,7 +1129,12 @@ impl DomRuntime {
             attribute_prefix.clone_from(&prefix);
             attribute_value.clone_from(&value);
         }
-        if namespace.is_some() && !self.attribute_nodes.contains_key(&(node, name.clone())) {
+        if namespace.is_some()
+            && !self
+                .arena
+                .attribute_nodes
+                .contains_key(&(node, name.clone()))
+        {
             let attribute = self.create(NodeKind::Attribute {
                 name: name.clone(),
                 local_name,
@@ -1073,7 +1143,9 @@ impl DomRuntime {
                 value: value.clone(),
                 owner: Some(node),
             });
-            self.attribute_nodes.insert((node, name.clone()), attribute);
+            self.arena
+                .attribute_nodes
+                .insert((node, name.clone()), attribute);
         }
         self.mutations.push(Mutation::Attribute {
             node,
@@ -1089,7 +1161,7 @@ impl DomRuntime {
             return Err(DomError::NotAnElement(node));
         }
         let old_value = self.arena.get_mut(node)?.attributes.remove(name);
-        if let Some(attribute) = self.attribute_nodes.remove(&(node, name.to_string()))
+        if let Some(attribute) = self.arena.attribute_nodes.remove(&(node, name.to_string()))
             && let NodeKind::Attribute { owner, .. } = &mut self.arena.get_mut(attribute)?.kind
         {
             *owner = None;
@@ -1138,6 +1210,7 @@ impl DomRuntime {
             return Ok(None);
         };
         if let Some(attribute) = self
+            .arena
             .attribute_nodes
             .get(&(element, normalized.clone()))
             .copied()
@@ -1152,7 +1225,8 @@ impl DomRuntime {
             value,
             owner: Some(element),
         });
-        self.attribute_nodes
+        self.arena
+            .attribute_nodes
             .insert((element, normalized), attribute);
         Ok(Some(attribute))
     }
@@ -1289,13 +1363,34 @@ impl DomRuntime {
 
     pub fn clone_node(&mut self, node: NodeId, deep: bool) -> Result<NodeId, DomError> {
         let source = self.arena.get(node)?.clone();
-        let clone = self.create(source.kind);
+        let attributes = self
+            .arena
+            .attribute_node_ids(node)
+            .into_iter()
+            .map(|attribute| self.arena.get(attribute).map(|record| record.kind.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut kind = source.kind;
+        if let NodeKind::Attribute { owner, .. } = &mut kind {
+            *owner = None;
+        }
+        let clone = self.create(kind);
         {
             let record = self.arena.get_mut(clone)?;
             record.document_metadata = source.document_metadata;
             record.attributes = source.attributes;
             record.value = source.value;
             record.sensitive_value = source.sensitive_value;
+        }
+        for attribute in attributes {
+            if let NodeKind::Attribute {
+                namespace,
+                name,
+                value,
+                ..
+            } = attribute
+            {
+                self.set_attribute_ns(clone, namespace, name, value)?;
+            }
         }
         if let Some(content) = source.template_content {
             let cloned_content = self.clone_node(content, deep)?;
@@ -1867,6 +1962,20 @@ impl DomRuntime {
                 .is_some_and(|roots| roots.wrappers > 0 || roots.native > 0)
     }
 
+    pub fn retention_parent(&self, node: NodeId) -> Result<Option<NodeId>, DomError> {
+        let record = self.arena.get(node)?;
+        Ok(match record.kind {
+            NodeKind::Attribute { owner, .. } => owner,
+            _ => record.parent,
+        })
+    }
+
+    fn retention_children(&self, node: NodeId) -> Result<Vec<NodeId>, DomError> {
+        let mut children = self.arena.get(node)?.children.clone();
+        children.extend(self.arena.attribute_node_ids(node));
+        Ok(children)
+    }
+
     fn reclaim_if_unrooted(&mut self, node: NodeId) -> Result<(), DomError> {
         // A retained DOM node exposes both its ancestors and descendants.
         // Collection must not detach a retained child or erase an unwrapped
@@ -1877,23 +1986,23 @@ impl DomRuntime {
             if self.is_gc_root(root) {
                 return Ok(());
             }
-            match self.arena.get(root)?.parent {
+            match self.retention_parent(root)? {
                 Some(parent) => root = parent,
                 None => break,
             }
         }
-        let mut pending = self.arena.get(root)?.children.clone();
+        let mut pending = self.retention_children(root)?;
         while let Some(child) = pending.pop() {
             if self.is_gc_root(child) {
                 return Ok(());
             }
-            pending.extend(self.arena.get(child)?.children.iter().copied());
+            pending.extend(self.retention_children(child)?);
         }
         self.reclaim_unrooted_tree(root)
     }
 
     fn reclaim_unrooted_tree(&mut self, node: NodeId) -> Result<(), DomError> {
-        for child in self.arena.get(node)?.children.clone() {
+        for child in self.retention_children(node)? {
             self.reclaim_unrooted_tree(child)?;
         }
         let sheets = self
@@ -2300,6 +2409,64 @@ mod tests {
         journal.clear();
         assert!(journal.read_since(MutationCursor(0)).mutations.is_empty());
         assert!(!journal.read_since(MutationCursor(0)).truncated);
+    }
+
+    #[test]
+    fn retained_attribute_keeps_its_detached_owner_and_import_preserves_namespaces() {
+        let mut dom = DomRuntime::new();
+        let owner = dom.create_element("owner");
+        dom.set_attribute_ns(owner, Some("urn:test".into()), "p:FLAG", "value")
+            .unwrap();
+        let attribute = dom.attribute_node(owner, "p:FLAG").unwrap().unwrap();
+        dom.retain_wrapper(attribute).unwrap();
+        dom.retain_wrapper(owner).unwrap();
+        dom.release_wrapper(owner).unwrap();
+        assert!(dom.arena().get(owner).is_ok());
+        let cloned_owner = dom.clone_node(owner, true).unwrap();
+        let cloned_attribute = dom.attribute_node(cloned_owner, "p:FLAG").unwrap().unwrap();
+        assert_ne!(cloned_attribute, attribute);
+        let copied_attribute = dom.clone_node(attribute, true).unwrap();
+        assert!(matches!(
+            dom.arena().get(copied_attribute).unwrap().kind,
+            NodeKind::Attribute { owner: None, .. }
+        ));
+        let (snapshot, document) = dom.snapshot();
+        let mut restored = DomRuntime::from_parsed(snapshot.clone(), document).unwrap();
+        assert_eq!(
+            restored.attribute_node(owner, "p:FLAG").unwrap(),
+            Some(attribute)
+        );
+        let mut target = DomRuntime::new();
+        let imported = target.import_subtree(&snapshot, owner).unwrap();
+        let imported_attribute = target.attribute_node(imported, "p:FLAG").unwrap().unwrap();
+        assert!(
+            matches!(&target.arena().get(imported_attribute).unwrap().kind,
+            NodeKind::Attribute { owner: Some(element), namespace: Some(namespace), prefix: Some(prefix), local_name, value, .. }
+                if *element == imported && namespace == "urn:test" && prefix == "p" && local_name == "FLAG" && value == "value")
+        );
+        dom.release_wrapper(attribute).unwrap();
+        assert!(dom.arena().get(owner).is_err());
+        assert!(dom.arena().get(attribute).is_err());
+        assert!(
+            dom.arena()
+                .existing_attribute_node(owner, "p:FLAG")
+                .is_none()
+        );
+        assert!(dom.arena().get(cloned_owner).is_ok());
+    }
+
+    #[test]
+    fn connected_attribute_cache_survives_wrapper_collection() {
+        let mut dom = DomRuntime::new();
+        let element = dom.create_element("root");
+        dom.append_child(dom.document(), element).unwrap();
+        dom.set_attribute_ns(element, Some("urn:test".into()), "p:x", "value")
+            .unwrap();
+        let attribute = dom.attribute_node(element, "p:x").unwrap().unwrap();
+        dom.retain_wrapper(attribute).unwrap();
+        dom.release_wrapper(attribute).unwrap();
+        assert!(dom.arena().get(attribute).is_ok());
+        assert_eq!(dom.attribute_node(element, "p:x").unwrap(), Some(attribute));
     }
 
     #[test]

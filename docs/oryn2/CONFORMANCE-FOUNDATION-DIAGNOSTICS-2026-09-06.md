@@ -95,3 +95,24 @@ Locked repository checks pass 103 V8 tests (two existing ignored), including bul
 cancellation and native reclamation with half the wrappers retained; strict
 Clippy passes. This optimization has no separate signed ledger yet. It will be
 included in the next foundation candidate; no WPT gain is inferred from timings.
+
+
+## Native attribute ownership and namespace preservation
+
+A reduced native regression proved that releasing an Attr wrapper could free its
+record while its owner element remained connected, leaving a stale cache entry.
+The attribute index now lives in DomArena, survives snapshots, and is updated
+when records are inserted/restored/reclaimed. Native retention includes owner/Attr
+edges; V8 traces attached wrappers with their owner trees while preserving the
+DOM's null parentNode and false isConnected for attributes. Removal preserves the
+attribute's node document. Clone/import preserve namespace metadata, and cloning
+an Attr clears its ownerElement. html5ever's namespaced foreign attributes now
+retain their qualified names and namespaces at the native boundary.
+
+The batch also adds getAttributeNodeNS and the pinned boolean-depth importNode
+contract, with ownership assigned through children, attributes and template
+content. The newer scoped-registry import options are not implemented here and
+remain outside this batch's closure claim. The stale-cache, namespace import,
+connected/detached expando and GC regressions pass. Locked checks: 104 V8 tests
+(two existing ignored), 33 DOM tests, 141 native runtime tests, generated bindings,
+formatting and strict Clippy. Signed DOM/CSS validation is pending.

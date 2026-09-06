@@ -348,6 +348,7 @@ interface Element : Node {
   DOMString? getAttribute(DOMString name);
   DOMString? getAttributeNS(DOMString? namespace, DOMString localName);
   Attr? getAttributeNode(DOMString name);
+  Attr? getAttributeNodeNS(DOMString? namespace, DOMString localName);
   sequence<DOMString> getAttributeNames();
   undefined setAttribute(DOMString name, DOMString value);
   undefined setAttributeNS(DOMString? namespace, DOMString qualifiedName, DOMString value);
@@ -713,6 +714,7 @@ interface Document : Node {
   readonly attribute HTMLElement? currentScript;
   readonly attribute sequence<CSSStyleSheet> styleSheets;
   attribute DOMString designMode;
+  Node importNode(Node node, optional boolean deep = false);
   Attr createAttribute(DOMString localName);
   Attr createAttributeNS(DOMString? namespace, DOMString qualifiedName);
   Element createElement(DOMString localName);

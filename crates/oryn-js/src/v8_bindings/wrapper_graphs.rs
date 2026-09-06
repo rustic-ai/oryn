@@ -13,7 +13,7 @@ fn native_root(
             break *root;
         }
         path.push(current);
-        match dom.parent(current).ok()? {
+        match dom.retention_parent(current).ok()? {
             Some(parent) => current = parent,
             None => break current,
         }
@@ -22,6 +22,16 @@ fn native_root(
         roots.insert(node, root);
     }
     Some(root)
+}
+
+pub(super) fn retained_by_document(dom: &DomRuntime, node: NodeId) -> bool {
+    let owner = match dom.arena().get(node).map(|record| &record.kind) {
+        Ok(NodeKind::Attribute {
+            owner: Some(owner), ..
+        }) => *owner,
+        _ => node,
+    };
+    dom.is_connected(owner).unwrap_or(false)
 }
 
 pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
@@ -57,7 +67,7 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
             let Some(local) = object.handle.to_local(scope) else {
                 continue;
             };
-            let connected = dom.is_connected(metadata.node).unwrap_or(false);
+            let connected = retained_by_document(&dom, metadata.node);
             if connected {
                 if object.connected_root.is_none() {
                     object.connected_root = Some(v8::Global::new(scope, local));

@@ -17759,6 +17759,19 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
 ///
 /// Hosts use this only to seed task-local globals before invoking generated
 /// interface behavior; page code never receives a Rust pointer.
+fn owned_subtree_nodes(dom: &DomRuntime, root: NodeId) -> Result<Vec<NodeId>, DomError> {
+    let mut nodes = Vec::new();
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        let record = dom.arena().get(node)?;
+        pending.extend(record.children.iter().copied());
+        pending.extend(record.template_content);
+        pending.extend(dom.arena().attribute_node_ids(node));
+        nodes.push(node);
+    }
+    Ok(nodes)
+}
+
 fn owner_document_for_node(state: &V8BindingState, node: NodeId) -> Result<NodeId, V8BindingError> {
     let dom = state.dom.borrow();
     let owners = state.node_documents.borrow();
@@ -17767,6 +17780,13 @@ fn owner_document_for_node(state: &V8BindingState, node: NodeId) -> Result<NodeI
         let record = dom.arena().get(node)?;
         if matches!(record.kind, NodeKind::Document) {
             return Ok(node);
+        }
+        if let NodeKind::Attribute {
+            owner: Some(owner), ..
+        } = record.kind
+        {
+            current = Some(owner);
+            continue;
         }
         if let Some(owner) = owners.get(&node) {
             return Ok(*owner);
@@ -17782,6 +17802,13 @@ pub fn wrap_node<'s>(
     node: NodeId,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
     let kind = state.dom.borrow().arena().get(node)?.kind.clone();
+    if let NodeKind::Attribute {
+        owner: Some(owner), ..
+    } = kind
+    {
+        let document = owner_document_for_node(state, owner)?;
+        state.node_documents.borrow_mut().insert(node, document);
+    }
     let brand = most_derived_brand(&kind);
     let wrapper = {
         let mut dom = state.dom.borrow_mut();
@@ -17861,10 +17888,7 @@ pub fn wrap_node<'s>(
             }
         }),
     );
-    let connected_root = state
-        .dom
-        .borrow()
-        .is_connected(node)?
+    let connected_root = wrapper_graphs::retained_by_document(&state.dom.borrow(), node)
         .then(|| v8::Global::new(scope, object));
     let detached = connected_root.is_none();
     state.objects.borrow_mut().insert(
@@ -20157,6 +20181,27 @@ fn call_operation<'s>(
             }
             Ok(Some(v8::Boolean::new(scope, accepted).into()))
         }
+        ("Document", "importNode") => {
+            let source = argument_node(scope, state, args.get(0))?;
+            if matches!(
+                state.dom.borrow().arena().get(source)?.kind,
+                NodeKind::Document | NodeKind::ShadowRoot { .. }
+            ) {
+                return Err(V8BindingError::Unsupported {
+                    interface: "Document".into(),
+                    member: "NotSupportedError".into(),
+                });
+            }
+            let imported = state
+                .dom
+                .borrow_mut()
+                .clone_node(source, args.get(1).boolean_value(scope))?;
+            let owned = owned_subtree_nodes(&state.dom.borrow(), imported)?;
+            for owned in owned {
+                state.node_documents.borrow_mut().insert(owned, node);
+            }
+            Ok(Some(wrap_node(scope, state, imported)?.into()))
+        }
         ("Document", "createAttribute" | "createAttributeNS") => {
             let (namespace, prefix, local_name, name) = if member == "createAttributeNS" {
                 let namespace = if args.get(0).is_null_or_undefined() {
@@ -20700,6 +20745,20 @@ fn call_operation<'s>(
             };
             Ok(Some(wrap_node(scope, state, created)?.into()))
         }
+        ("Element", "getAttributeNodeNS") => {
+            let namespace = if args.get(0).is_null_or_undefined() {
+                None
+            } else {
+                Some(required_string(scope, args, 0)?)
+            };
+            let local_name = required_string(scope, args, 1)?;
+            let name = namespaced_attribute_name(state, node, namespace.as_deref(), &local_name)?;
+            let attribute = match name {
+                Some(name) => state.dom.borrow_mut().attribute_node(node, &name)?,
+                None => None,
+            };
+            optional_node(scope, state, attribute).map(Some)
+        }
         ("Element", "getAttributeNode") => {
             let name = normalized_attribute_name(state, node, required_string(scope, args, 0)?)?;
             let attribute = state.dom.borrow_mut().attribute_node(node, &name)?;
@@ -20995,7 +21054,7 @@ fn call_operation<'s>(
             // The arena is shared by iframe realms. Its primary document is
             // not necessarily the source node's document. Preserve ownership
             // for the whole clone, including descendants later detached from it.
-            let descendants = traversal_nodes(&state.dom.borrow(), clone)?;
+            let descendants = owned_subtree_nodes(&state.dom.borrow(), clone)?;
             for descendant in descendants {
                 state.node_documents.borrow_mut().insert(descendant, owner);
             }
@@ -21423,6 +21482,18 @@ fn call_operation<'s>(
         }
         ("Element", "removeAttribute") => {
             let name = normalized_attribute_name(state, node, required_string(scope, args, 0)?)?;
+            if let Some(attribute) = state
+                .dom
+                .borrow()
+                .arena()
+                .existing_attribute_node(node, &name)
+            {
+                let document = owner_document_for_node(state, node)?;
+                state
+                    .node_documents
+                    .borrow_mut()
+                    .insert(attribute, document);
+            }
             state.dom.borrow_mut().remove_attribute(node, &name)?;
             Ok(None)
         }
@@ -21435,6 +21506,18 @@ fn call_operation<'s>(
             let local_name = required_string(scope, args, 1)?;
             let name = namespaced_attribute_name(state, node, namespace.as_deref(), &local_name)?;
             if let Some(name) = name {
+                if let Some(attribute) = state
+                    .dom
+                    .borrow()
+                    .arena()
+                    .existing_attribute_node(node, &name)
+                {
+                    let document = owner_document_for_node(state, node)?;
+                    state
+                        .node_documents
+                        .borrow_mut()
+                        .insert(attribute, document);
+                }
                 state.dom.borrow_mut().remove_attribute(node, &name)?;
             }
             Ok(None)
@@ -25960,6 +26043,81 @@ mod tests {
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert!(script.run(scope).unwrap().boolean_value(scope));
+    }
+
+    #[test]
+    fn attached_attribute_wrappers_preserve_owners_namespaces_and_identity_through_gc() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            (() => {
+                const connected = document.createElement('i'); connected.id = 'attribute-owner';
+                connected.setAttributeNS('urn:test', 'p:flag', 'value');
+                document.body.append(connected); connected.getAttributeNode('p:flag').marker = 43;
+                const xml = document.implementation.createDocument(null, 'root'); xml.marker = 47;
+                const owner = xml.createElement('owner'); owner.marker = 44;
+                owner.setAttributeNS('urn:test', 'p:FLAG', 'detached');
+                owner.append(xml.createElement('kid'));
+                globalThis.ownedAttribute = owner.getAttributeNode('p:FLAG');
+                const clone = owner.cloneNode(true);
+                if (clone.getAttributeNode('p:FLAG').namespaceURI !== 'urn:test' || clone.getAttributeNode('p:FLAG').ownerElement !== clone) throw Error('clone namespace');
+                const imported = document.importNode(owner, true);
+                if (imported.attributes[0].namespaceURI !== 'urn:test' || imported.attributes[0].ownerDocument !== document || imported.firstChild.ownerDocument !== document) throw Error('import namespace/document');
+                if (document.importNode(owner).firstChild !== null) throw Error('shallow import');
+                const importedAttr = document.importNode(owner.getAttributeNodeNS('urn:test', 'FLAG'));
+                if (importedAttr.ownerElement !== null || importedAttr.ownerDocument !== document || importedAttr.prefix !== 'p') throw Error('attribute import');
+            })(); true
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        let source = v8::String::new(scope, r#"
+            document.getElementById('attribute-owner').getAttributeNode('p:flag').marker === 43 &&
+            ownedAttribute.ownerElement.marker === 44 && ownedAttribute.ownerDocument.marker === 47 &&
+            ownedAttribute.namespaceURI === 'urn:test' && ownedAttribute.parentNode === null && !ownedAttribute.isConnected
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        let source = v8::String::new(
+            scope,
+            "ownedAttribute.ownerElement.removeAttributeNS('urn:test', 'FLAG');true",
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        let source = v8::String::new(scope, "ownedAttribute.ownerElement === null && ownedAttribute.ownerDocument.marker === 47 && ownedAttribute.value === 'detached'").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
     }
 
     #[test]
