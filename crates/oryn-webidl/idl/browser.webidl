@@ -190,20 +190,20 @@ callback MutationCallback = undefined (sequence<MutationRecord> mutations, Mutat
 
 dictionary MutationObserverInit {
   boolean childList = false;
-  boolean attributes = false;
-  boolean characterData = false;
+  boolean attributes;
+  boolean characterData;
   boolean subtree = false;
-  boolean attributeOldValue = false;
-  boolean characterDataOldValue = false;
-  sequence<DOMString> attributeFilter = [];
+  boolean attributeOldValue;
+  boolean characterDataOldValue;
+  sequence<DOMString> attributeFilter;
 };
 
 [Exposed=Window]
 interface MutationRecord {
   readonly attribute DOMString type;
   readonly attribute Node target;
-  readonly attribute sequence<Node> addedNodes;
-  readonly attribute sequence<Node> removedNodes;
+  readonly attribute NodeList addedNodes;
+  readonly attribute NodeList removedNodes;
   readonly attribute Node? previousSibling;
   readonly attribute Node? nextSibling;
   readonly attribute DOMString? attributeName;

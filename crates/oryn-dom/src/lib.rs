@@ -460,6 +460,8 @@ pub enum Mutation {
     Attribute {
         node: NodeId,
         name: String,
+        #[serde(default)]
+        namespace: Option<String>,
         old_value: Option<String>,
         new_value: Option<String>,
     },
@@ -1139,7 +1141,7 @@ impl DomRuntime {
             let attribute = self.create(NodeKind::Attribute {
                 name: name.clone(),
                 local_name,
-                namespace,
+                namespace: namespace.clone(),
                 prefix,
                 value: value.clone(),
                 owner: Some(node),
@@ -1151,6 +1153,7 @@ impl DomRuntime {
         self.mutations.push(Mutation::Attribute {
             node,
             name,
+            namespace,
             old_value,
             new_value: Some(value),
         });
@@ -1162,9 +1165,15 @@ impl DomRuntime {
             return Err(DomError::NotAnElement(node));
         }
         let old_value = self.arena.get_mut(node)?.attributes.remove(name);
+        let mut namespace = None;
         if let Some(attribute) = self.arena.attribute_nodes.remove(&(node, name.to_string()))
-            && let NodeKind::Attribute { owner, .. } = &mut self.arena.get_mut(attribute)?.kind
+            && let NodeKind::Attribute {
+                owner,
+                namespace: attribute_namespace,
+                ..
+            } = &mut self.arena.get_mut(attribute)?.kind
         {
+            namespace.clone_from(attribute_namespace);
             *owner = None;
         }
         if name == "id"
@@ -1177,6 +1186,7 @@ impl DomRuntime {
             self.mutations.push(Mutation::Attribute {
                 node,
                 name: name.to_string(),
+                namespace,
                 old_value,
                 new_value: None,
             });
@@ -1238,10 +1248,14 @@ impl DomRuntime {
         value: impl Into<String>,
     ) -> Result<(), DomError> {
         let value = value.into();
-        let (name, owner, old_value) = match &self.arena.get(attribute)?.kind {
+        let (name, namespace, owner, old_value) = match &self.arena.get(attribute)?.kind {
             NodeKind::Attribute {
-                name, value, owner, ..
-            } => (name.clone(), *owner, value.clone()),
+                name,
+                namespace,
+                value,
+                owner,
+                ..
+            } => (name.clone(), namespace.clone(), *owner, value.clone()),
             _ => return Err(DomError::StaleNode(attribute)),
         };
         if let NodeKind::Attribute {
@@ -1259,6 +1273,7 @@ impl DomRuntime {
             self.mutations.push(Mutation::Attribute {
                 node: owner,
                 name,
+                namespace,
                 old_value: Some(old_value),
                 new_value: Some(value),
             });
@@ -2365,6 +2380,62 @@ mod tests {
             dom.arena().get(sheet),
             Err(DomError::StaleNode(_))
         ));
+    }
+
+    #[test]
+    fn attribute_mutations_snapshot_namespaces_before_detaching() {
+        let mut dom = DomRuntime::new();
+        let node = dom.create_element("div");
+        let cursor = dom.mutation_cursor();
+        dom.set_attribute_ns(node, Some("urn:test".into()), "p:item", "one")
+            .unwrap();
+        let attribute = dom.attribute_node(node, "p:item").unwrap().unwrap();
+        dom.set_attribute_node_value(attribute, "two").unwrap();
+        dom.remove_attribute(node, "p:item").unwrap();
+        dom.set_attribute(node, "p:item", "plain").unwrap();
+        let attributes = dom
+            .mutations_since(cursor)
+            .mutations
+            .into_iter()
+            .filter_map(|mutation| {
+                if let Mutation::Attribute {
+                    name,
+                    namespace,
+                    old_value,
+                    new_value,
+                    ..
+                } = mutation
+                {
+                    Some((name, namespace, old_value, new_value))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            attributes,
+            vec![
+                (
+                    "p:item".into(),
+                    Some("urn:test".into()),
+                    None,
+                    Some("one".into())
+                ),
+                (
+                    "p:item".into(),
+                    Some("urn:test".into()),
+                    Some("one".into()),
+                    Some("two".into())
+                ),
+                (
+                    "p:item".into(),
+                    Some("urn:test".into()),
+                    Some("two".into()),
+                    None
+                ),
+                ("p:item".into(), None, None, Some("plain".into())),
+            ]
+        );
     }
 
     #[test]

@@ -112,6 +112,8 @@ struct EventRecord {
     propagation_stopped: bool,
     immediate_stopped: bool,
     in_passive_listener: bool,
+    dispatching: bool,
+    initialized: bool,
     phase: u16,
 }
 
@@ -134,20 +136,29 @@ struct PlatformEventListener {
 
 type PlatformListenerMap = BTreeMap<(u64, String), Vec<PlatformEventListener>>;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 struct MutationObserverOptions {
     child_list: bool,
     attributes: bool,
     character_data: bool,
+    attribute_filter: Option<Vec<String>>,
+    attribute_old_value: bool,
+    character_data_old_value: bool,
     subtree: bool,
 }
 
 struct MutationObserverEntry {
     callback: v8::Global<v8::Function>,
     object: v8::Global<v8::Object>,
-    target: Option<NodeId>,
-    options: MutationObserverOptions,
-    records: Vec<Mutation>,
+    registrations: BTreeMap<NodeId, MutationObserverOptions>,
+    transients: BTreeMap<(NodeId, NodeId), MutationObserverOptions>,
+    records: Vec<QueuedMutation>,
+    cursor: oryn_dom::MutationCursor,
+}
+
+struct QueuedMutation {
+    mutation: Mutation,
+    expose_old_value: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -773,6 +784,7 @@ pub struct V8BindingState {
     event_handlers: RefCell<BTreeMap<(NodeId, String), v8::Global<v8::Value>>>,
     next_mutation_observer_id: Cell<u64>,
     mutation_observers: RefCell<BTreeMap<u64, MutationObserverEntry>>,
+    mutation_record_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     ranges: RefCell<BTreeMap<u64, RangeRecord>>,
     static_ranges: RefCell<BTreeSet<u64>>,
     range_objects: RefCell<BTreeMap<u64, RangeWrapper>>,
@@ -2692,6 +2704,7 @@ pub fn install_generated_bindings_with_root_for_global(
         event_handlers: RefCell::new(BTreeMap::new()),
         next_mutation_observer_id: Cell::new(1),
         mutation_observers: RefCell::new(BTreeMap::new()),
+        mutation_record_brand: RefCell::new(None),
         ranges: RefCell::new(BTreeMap::new()),
         static_ranges: RefCell::new(BTreeSet::new()),
         range_objects: RefCell::new(BTreeMap::new()),
@@ -7271,6 +7284,8 @@ fn generated_constructor<'s>(
                 propagation_stopped: false,
                 immediate_stopped: false,
                 in_passive_listener: false,
+                dispatching: false,
+                initialized: true,
                 phase: 0,
             },
         );
@@ -7454,9 +7469,10 @@ fn generated_constructor<'s>(
             MutationObserverEntry {
                 callback: v8::Global::new(scope, callback),
                 object: v8::Global::new(scope, args.this()),
-                target: None,
-                options: MutationObserverOptions::default(),
+                registrations: BTreeMap::new(),
+                transients: BTreeMap::new(),
                 records: Vec::new(),
+                cursor: state.dom.borrow().mutation_cursor(),
             },
         );
         let id = v8::Number::new(scope, observer_id as f64);
@@ -7761,6 +7777,13 @@ fn generated_attribute_getter(
         }
         return;
     }
+    if interface == "MutationRecord" {
+        match mutation_record_property(scope, &state, args.this(), member) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_type_error(scope, &error.to_string()),
+        }
+        return;
+    }
     if is_platform_interface(interface) {
         match get_platform_attribute(scope, &state, args.this(), interface, member) {
             Ok(value) => return_value.set(value),
@@ -8026,6 +8049,15 @@ fn generated_operation<'s>(
         }
         let result =
             call_event_operation(scope, &state, args.this(), "initEvent", &args).and_then(|_| {
+                let id = event_id(scope, args.this())?;
+                if state
+                    .events
+                    .borrow()
+                    .get(&id)
+                    .is_some_and(|event| event.dispatching)
+                {
+                    return Ok(());
+                }
                 let detail = if args.length() > 3 {
                     args.get(3)
                 } else {
@@ -8051,7 +8083,7 @@ fn generated_operation<'s>(
         match call_event_operation(scope, &state, args.this(), member, &args) {
             Ok(Some(value)) => return_value.set(value),
             Ok(None) => return_value.set(v8::undefined(scope).into()),
-            Err(error) => throw_type_error(scope, &error.to_string()),
+            Err(error) => throw_binding_error(scope, &error),
         }
         return;
     }
@@ -8059,7 +8091,7 @@ fn generated_operation<'s>(
         match call_mutation_observer_operation(scope, &state, args.this(), member, &args) {
             Ok(Some(value)) => return_value.set(value),
             Ok(None) => return_value.set(v8::undefined(scope).into()),
-            Err(error) => throw_type_error(scope, &error.to_string()),
+            Err(error) => throw_binding_error(scope, &error),
         }
         return;
     }
@@ -8336,6 +8368,9 @@ fn dispatch_platform_event_capturing(
         None => generated_event(scope, event_type)?,
     };
     let generated_event_id = event_id(scope, event).ok();
+    let _dispatch = generated_event_id
+        .map(|id| begin_event_dispatch(state, id))
+        .transpose()?;
     if let Some(event_id) = generated_event_id
         && let Some(record) = state.events.borrow_mut().get_mut(&event_id)
     {
@@ -18200,6 +18235,56 @@ fn mutation_observer_id(
         .ok_or(V8BindingError::Allocation("MutationObserver identity"))
 }
 
+// WebIDL sequence conversion uses the supplied iterator and propagates page exceptions.
+fn observer_attribute_filter(
+    scope: &mut v8::PinScope,
+    value: v8::Local<v8::Value>,
+) -> Result<Vec<String>, V8BindingError> {
+    let object = v8::Local::<v8::Object>::try_from(value)
+        .map_err(|_| V8BindingError::Allocation("attributeFilter must be iterable"))?;
+    let key = v8::Symbol::get_iterator(scope);
+    let method = object
+        .get(scope, key.into())
+        .ok_or(V8BindingError::JavaScriptException)?;
+    let method = v8::Local::<v8::Function>::try_from(method)
+        .map_err(|_| V8BindingError::Allocation("attributeFilter iterator must be callable"))?;
+    let iterator = method
+        .call(scope, object.into(), &[])
+        .ok_or(V8BindingError::JavaScriptException)?;
+    let iterator = v8::Local::<v8::Object>::try_from(iterator)
+        .map_err(|_| V8BindingError::Allocation("attributeFilter iterator must be an object"))?;
+    let key = v8::String::new(scope, "next").ok_or(V8BindingError::Allocation("next"))?;
+    let next = iterator
+        .get(scope, key.into())
+        .ok_or(V8BindingError::JavaScriptException)?;
+    let next = v8::Local::<v8::Function>::try_from(next)
+        .map_err(|_| V8BindingError::Allocation("iterator next must be callable"))?;
+    let done_key = v8::String::new(scope, "done").ok_or(V8BindingError::Allocation("done"))?;
+    let value_key = v8::String::new(scope, "value").ok_or(V8BindingError::Allocation("value"))?;
+    let mut result = Vec::new();
+    loop {
+        let step = next
+            .call(scope, iterator.into(), &[])
+            .ok_or(V8BindingError::JavaScriptException)?;
+        let step = v8::Local::<v8::Object>::try_from(step)
+            .map_err(|_| V8BindingError::Allocation("iterator result must be an object"))?;
+        if step
+            .get(scope, done_key.into())
+            .ok_or(V8BindingError::JavaScriptException)?
+            .boolean_value(scope)
+        {
+            return Ok(result);
+        }
+        let value = step
+            .get(scope, value_key.into())
+            .ok_or(V8BindingError::JavaScriptException)?;
+        let value = value
+            .to_string(scope)
+            .ok_or(V8BindingError::JavaScriptException)?;
+        result.push(value.to_rust_string_lossy(scope));
+    }
+}
+
 fn call_mutation_observer_operation<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
@@ -18211,21 +18296,51 @@ fn call_mutation_observer_operation<'s>(
     match member {
         "observe" => {
             let target = argument_node(scope, state, args.get(0))?;
-            let init = args
-                .get(1)
-                .to_object(scope)
-                .ok_or(V8BindingError::Allocation("MutationObserverInit"))?;
-            let boolean = |scope: &mut v8::PinScope<'s, '_>, name: &str| {
-                v8::String::new(scope, name)
-                    .and_then(|key| init.get(scope, key.into()))
-                    .is_some_and(|value| value.boolean_value(scope))
+            let init = v8::Local::<v8::Object>::try_from(args.get(1)).map_err(|_| {
+                V8BindingError::Allocation("MutationObserverInit must be a dictionary")
+            })?;
+            let boolean = |scope: &mut v8::PinScope<'s, '_>,
+                           name: &str|
+             -> Result<Option<bool>, V8BindingError> {
+                let key = v8::String::new(scope, name)
+                    .ok_or(V8BindingError::Allocation("option name"))?;
+                let value = init
+                    .get(scope, key.into())
+                    .ok_or(V8BindingError::JavaScriptException)?;
+                Ok((!value.is_undefined()).then(|| value.boolean_value(scope)))
             };
+            let key = v8::String::new(scope, "attributeFilter")
+                .ok_or(V8BindingError::Allocation("attributeFilter"))?;
+            let filter = init
+                .get(scope, key.into())
+                .ok_or(V8BindingError::JavaScriptException)?;
+            let attribute_filter = if filter.is_undefined() {
+                None
+            } else {
+                Some(observer_attribute_filter(scope, filter)?)
+            };
+            let attribute_old_value = boolean(scope, "attributeOldValue")?;
+            let attributes = boolean(scope, "attributes")?;
+            let character_data = boolean(scope, "characterData")?;
+            let character_data_old_value = boolean(scope, "characterDataOldValue")?;
             let options = MutationObserverOptions {
-                child_list: boolean(scope, "childList"),
-                attributes: boolean(scope, "attributes"),
-                character_data: boolean(scope, "characterData"),
-                subtree: boolean(scope, "subtree"),
+                child_list: boolean(scope, "childList")?.unwrap_or(false),
+                attributes: attributes
+                    .unwrap_or(attribute_old_value.is_some() || attribute_filter.is_some()),
+                attribute_filter,
+                character_data: character_data.unwrap_or(character_data_old_value.is_some()),
+                attribute_old_value: attribute_old_value.unwrap_or(false),
+                character_data_old_value: character_data_old_value.unwrap_or(false),
+                subtree: boolean(scope, "subtree")?.unwrap_or(false),
             };
+            if (!options.attributes
+                && (options.attribute_old_value || options.attribute_filter.is_some()))
+                || (!options.character_data && options.character_data_old_value)
+            {
+                return Err(V8BindingError::Allocation(
+                    "old-value option requires its mutation type",
+                ));
+            }
             if !options.child_list && !options.attributes && !options.character_data {
                 return Err(V8BindingError::Unsupported {
                     interface: "MutationObserver".into(),
@@ -18236,14 +18351,19 @@ fn call_mutation_observer_operation<'s>(
             let observer = observers
                 .get_mut(&observer_id)
                 .ok_or(V8BindingError::Allocation("MutationObserver record"))?;
-            observer.target = Some(target);
-            observer.options = options;
+            collect_observer_records(&state.dom.borrow(), observer);
+            observer
+                .transients
+                .retain(|&(source, _), _| source != target);
+            observer.registrations.insert(target, options);
             Ok(None)
         }
         "disconnect" => {
             if let Some(observer) = state.mutation_observers.borrow_mut().get_mut(&observer_id) {
-                observer.target = None;
+                observer.registrations.clear();
+                observer.transients.clear();
                 observer.records.clear();
+                observer.cursor = state.dom.borrow().mutation_cursor();
             }
             Ok(None)
         }
@@ -18252,7 +18372,10 @@ fn call_mutation_observer_operation<'s>(
                 .mutation_observers
                 .borrow_mut()
                 .get_mut(&observer_id)
-                .map(|observer| std::mem::take(&mut observer.records))
+                .map(|observer| {
+                    collect_observer_records(&state.dom.borrow(), observer);
+                    std::mem::take(&mut observer.records)
+                })
                 .unwrap_or_default();
             Ok(Some(mutation_record_array(scope, state, &records)?.into()))
         }
@@ -18280,29 +18403,65 @@ fn mutation_target(mutation: &Mutation) -> Option<NodeId> {
 fn observer_accepts(
     dom: &DomRuntime,
     target: NodeId,
-    options: MutationObserverOptions,
+    options: &MutationObserverOptions,
     mutation: &Mutation,
+    parents: &BTreeMap<NodeId, Option<NodeId>>,
 ) -> bool {
-    let Some(mutation_target) = mutation_target(mutation) else {
-        return false;
-    };
-    let in_scope = mutation_target == target
-        || (options.subtree
-            && dom
-                .arena()
-                .ancestors(mutation_target)
-                .is_ok_and(|ancestors| ancestors.contains(&target)));
-    in_scope
-        && match mutation {
-            Mutation::Inserted { .. }
-            | Mutation::Removed { .. }
-            | Mutation::ShadowAttached { .. } => options.child_list,
-            Mutation::Attribute { .. } | Mutation::FormState { .. } => options.attributes,
-            Mutation::CharacterData { .. } => options.character_data,
-            Mutation::Focus { .. }
-            | Mutation::EventListener { .. }
-            | Mutation::StyleSheets { .. } => false,
+    let relevant = match mutation {
+        Mutation::Inserted {
+            parent: Some(_), ..
         }
+        | Mutation::Removed {
+            former_parent: Some(_),
+            ..
+        } => options.child_list,
+        Mutation::Attribute {
+            name, namespace, ..
+        } => {
+            options.attributes
+                && options
+                    .attribute_filter
+                    .as_ref()
+                    .is_none_or(|filter| namespace.is_none() && filter.contains(name))
+        }
+        Mutation::CharacterData { .. } => options.character_data,
+        _ => false,
+    };
+    if !relevant {
+        return false;
+    }
+    observer_in_scope(
+        dom,
+        target,
+        options.subtree,
+        mutation_target(mutation),
+        parents,
+    )
+}
+
+fn observer_in_scope(
+    dom: &DomRuntime,
+    target: NodeId,
+    subtree: bool,
+    mut current: Option<NodeId>,
+    parents: &BTreeMap<NodeId, Option<NodeId>>,
+) -> bool {
+    while let Some(node) = current {
+        if node == target {
+            return true;
+        }
+        if !subtree {
+            return false;
+        }
+        let Ok(record) = dom.arena().get(node) else {
+            return false;
+        };
+        if matches!(record.kind, NodeKind::ShadowRoot { .. }) {
+            return false;
+        }
+        current = parents.get(&node).copied().unwrap_or(record.parent);
+    }
+    false
 }
 
 fn set_object_property(
@@ -18316,14 +18475,181 @@ fn set_object_property(
     Ok(())
 }
 
+const MUTATION_RECORD_FIELDS: &[&str] = &[
+    "type",
+    "target",
+    "addedNodes",
+    "removedNodes",
+    "previousSibling",
+    "nextSibling",
+    "attributeName",
+    "attributeNamespace",
+    "oldValue",
+];
+
+fn new_mutation_record<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let object = new_stateful_object(scope, state, "MutationRecord", 0)?;
+    let data = v8::Array::new(scope, MUTATION_RECORD_FIELDS.len() as i32);
+    object.set_internal_field(2, data.into());
+    let brand = {
+        let mut brand = state.mutation_record_brand.borrow_mut();
+        if brand.is_none() {
+            let symbol = v8::Symbol::new(scope, None);
+            *brand = Some(v8::Global::new(scope, symbol));
+        }
+        v8::Local::new(scope, brand.as_ref().unwrap())
+    };
+    object.set_internal_field(3, brand.into());
+    Ok(object)
+}
+
+fn set_mutation_record_property(
+    scope: &mut v8::PinScope,
+    object: v8::Local<v8::Object>,
+    name: &str,
+    value: v8::Local<v8::Value>,
+) -> Result<(), V8BindingError> {
+    let field = object
+        .get_internal_field(scope, 2)
+        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+        .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
+        .ok_or(V8BindingError::Allocation("MutationRecord fields"))?;
+    let index = MUTATION_RECORD_FIELDS
+        .iter()
+        .position(|field| *field == name)
+        .ok_or(V8BindingError::Allocation("MutationRecord property"))?;
+    field.set_index(scope, index as u32, value);
+    Ok(())
+}
+
+fn mutation_record_property<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+    object: v8::Local<v8::Object>,
+    name: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if object.internal_field_count() < 4 {
+        return Err(V8BindingError::Allocation("MutationRecord receiver"));
+    }
+    let expected = state
+        .mutation_record_brand
+        .borrow()
+        .as_ref()
+        .map(|brand| v8::Local::new(scope, brand))
+        .ok_or(V8BindingError::Allocation("MutationRecord receiver"))?;
+    let brand = object
+        .get_internal_field(scope, 3)
+        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+        .ok_or(V8BindingError::Allocation("MutationRecord receiver"))?;
+    if !brand.strict_equals(expected.into()) {
+        return Err(V8BindingError::Allocation("MutationRecord receiver"));
+    }
+    let data = object
+        .get_internal_field(scope, 2)
+        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+        .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
+        .ok_or(V8BindingError::Allocation("MutationRecord fields"))?;
+    let index = MUTATION_RECORD_FIELDS
+        .iter()
+        .position(|field| *field == name)
+        .ok_or(V8BindingError::Allocation("MutationRecord property"))?;
+    data.get_index(scope, index as u32)
+        .ok_or(V8BindingError::Allocation("MutationRecord value"))
+}
+
+fn collect_observer_records(dom: &DomRuntime, observer: &mut MutationObserverEntry) {
+    let batch = dom.mutations_since(observer.cursor);
+    observer.cursor = batch.next;
+    if observer.registrations.is_empty() {
+        return;
+    }
+    // Reconstruct the batch's initial tree, then replay parent changes in order.
+    // This excludes detached setup and preserves transient removed-subtree scope.
+    let mut parents = BTreeMap::new();
+    for mutation in batch.mutations.iter().rev() {
+        match mutation {
+            Mutation::Inserted { node, .. } => {
+                parents.insert(*node, None);
+            }
+            Mutation::Removed {
+                node,
+                former_parent,
+            } => {
+                parents.insert(*node, *former_parent);
+            }
+            Mutation::ShadowAttached { root, .. } => {
+                parents.insert(*root, None);
+            }
+            _ => {}
+        }
+    }
+    for mutation in batch.mutations {
+        let mut accepted = false;
+        let mut expose_old_value = false;
+        let mut removed_registrations = Vec::new();
+        let registrations = observer
+            .registrations
+            .iter()
+            .map(|(&target, options)| (target, target, options))
+            .chain(
+                observer
+                    .transients
+                    .iter()
+                    .map(|(&(source, target), options)| (source, target, options)),
+            );
+        for (source, target, options) in registrations {
+            if observer_accepts(dom, target, options, &mutation, &parents) {
+                accepted = true;
+                expose_old_value |= match mutation {
+                    Mutation::Attribute { .. } => options.attribute_old_value,
+                    Mutation::CharacterData { .. } => options.character_data_old_value,
+                    _ => false,
+                };
+            }
+            if let Mutation::Removed {
+                node,
+                former_parent: Some(parent),
+            } = mutation
+                && options.subtree
+                && observer_in_scope(dom, target, true, Some(parent), &parents)
+            {
+                removed_registrations.push(((source, node), options.clone()));
+            }
+        }
+        observer.transients.extend(removed_registrations);
+        if accepted {
+            observer.records.push(QueuedMutation {
+                mutation: mutation.clone(),
+                expose_old_value,
+            });
+        }
+        match mutation {
+            Mutation::Inserted { node, parent } => {
+                parents.insert(node, parent);
+            }
+            Mutation::Removed { node, .. } => {
+                parents.insert(node, None);
+            }
+            Mutation::ShadowAttached { root, .. } => {
+                parents.insert(root, None);
+            }
+            _ => {}
+        }
+    }
+}
+
 fn mutation_record_array<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
-    records: &[Mutation],
+    records: &[QueuedMutation],
 ) -> Result<v8::Local<'s, v8::Array>, V8BindingError> {
     let array = v8::Array::new(scope, records.len() as i32);
-    for (index, mutation) in records.iter().enumerate() {
-        let object = v8::Object::new(scope);
+    for (index, queued) in records.iter().enumerate() {
+        let mutation = &queued.mutation;
+        let object = new_mutation_record(scope, state)?;
         let (kind, target, attribute, old_value, added, removed) = match mutation {
             Mutation::Inserted { node, parent } => {
                 ("childList", *parent, None, None, Some(*node), None)
@@ -18335,12 +18661,17 @@ fn mutation_record_array<'s>(
             Mutation::Attribute {
                 node,
                 name,
+                namespace,
                 old_value,
                 ..
             } => (
                 "attributes",
                 Some(*node),
-                Some(name.as_str()),
+                Some(if namespace.is_some() {
+                    name.rsplit(':').next().unwrap_or(name)
+                } else {
+                    name.as_str()
+                }),
                 old_value.as_deref(),
                 None,
                 None,
@@ -18366,32 +18697,39 @@ fn mutation_record_array<'s>(
             | Mutation::StyleSheets { .. } => continue,
         };
         let kind_value = v8_string(scope, kind)?;
-        set_object_property(scope, object, "type", kind_value)?;
+        set_mutation_record_property(scope, object, "type", kind_value)?;
         let target_value = match target {
             Some(node) => wrap_node(scope, state, node)?.into(),
             None => v8::null(scope).into(),
         };
-        set_object_property(scope, object, "target", target_value)?;
+        set_mutation_record_property(scope, object, "target", target_value)?;
         let attribute_value = match attribute {
             Some(value) => v8_string(scope, value)?,
             None => v8::null(scope).into(),
         };
-        set_object_property(scope, object, "attributeName", attribute_value)?;
-        let old_value = match old_value {
+        set_mutation_record_property(scope, object, "attributeName", attribute_value)?;
+        let old_value = match old_value.filter(|_| queued.expose_old_value) {
             Some(value) => v8_string(scope, value)?,
             None => v8::null(scope).into(),
         };
-        set_object_property(scope, object, "oldValue", old_value)?;
+        set_mutation_record_property(scope, object, "oldValue", old_value)?;
         let added_nodes = added.map_or_else(Vec::new, |node| vec![node]);
         let removed_nodes = removed.map_or_else(Vec::new, |node| vec![node]);
         let added_value = node_lists::snapshot(scope, state, &added_nodes)?;
-        set_object_property(scope, object, "addedNodes", added_value)?;
+        set_mutation_record_property(scope, object, "addedNodes", added_value)?;
         let removed_value = node_lists::snapshot(scope, state, &removed_nodes)?;
-        set_object_property(scope, object, "removedNodes", removed_value)?;
+        set_mutation_record_property(scope, object, "removedNodes", removed_value)?;
         let null = v8::null(scope).into();
-        set_object_property(scope, object, "previousSibling", null)?;
-        set_object_property(scope, object, "nextSibling", null)?;
-        set_object_property(scope, object, "attributeNamespace", null)?;
+        set_mutation_record_property(scope, object, "previousSibling", null)?;
+        set_mutation_record_property(scope, object, "nextSibling", null)?;
+        let namespace = match mutation {
+            Mutation::Attribute {
+                namespace: Some(namespace),
+                ..
+            } => v8_string(scope, namespace)?,
+            _ => null,
+        };
+        set_mutation_record_property(scope, object, "attributeNamespace", namespace)?;
         array.set_index(scope, index as u32, object.into());
     }
     Ok(array)
@@ -18401,47 +18739,42 @@ fn mutation_record_array<'s>(
 pub fn deliver_mutation_observers(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
-    mutations: &[Mutation],
+    _mutations: &[Mutation],
 ) -> Result<usize, V8BindingError> {
     {
         let dom = state.dom.borrow();
         for observer in state.mutation_observers.borrow_mut().values_mut() {
-            let Some(target) = observer.target else {
-                continue;
-            };
-            observer.records.extend(
-                mutations
-                    .iter()
-                    .filter(|mutation| observer_accepts(&dom, target, observer.options, mutation))
-                    .cloned(),
-            );
+            collect_observer_records(&dom, observer);
         }
     }
     let ids = state
         .mutation_observers
         .borrow()
         .iter()
-        .filter_map(|(id, observer)| (!observer.records.is_empty()).then_some(*id))
+        .filter_map(|(id, observer)| {
+            (!observer.records.is_empty() || !observer.transients.is_empty()).then_some(*id)
+        })
         .collect::<Vec<_>>();
     let mut delivered = 0;
     for id in ids {
         let (callback, object, records) = {
             let mut observers = state.mutation_observers.borrow_mut();
             let observer = observers.get_mut(&id).expect("queued observer exists");
+            collect_observer_records(&state.dom.borrow(), observer);
+            observer.transients.clear();
             (
                 observer.callback.clone(),
                 observer.object.clone(),
                 std::mem::take(&mut observer.records),
             )
         };
+        if records.is_empty() {
+            continue;
+        }
         let callback = v8::Local::new(scope, &callback);
         let object = v8::Local::new(scope, &object);
         let array = mutation_record_array(scope, state, &records)?;
-        callback.call(
-            scope,
-            v8::undefined(scope).into(),
-            &[array.into(), object.into()],
-        );
+        callback.call(scope, object.into(), &[array.into(), object.into()]);
         delivered += 1;
     }
     Ok(delivered)
@@ -20566,6 +20899,8 @@ fn call_operation<'s>(
             };
             let event =
                 create_event_object_with_interface(scope, state, interface, "", false, false)?;
+            let id = event_id(scope, event)?;
+            state.events.borrow_mut().get_mut(&id).unwrap().initialized = false;
             Ok(Some(event.into()))
         }
         (
@@ -23360,6 +23695,8 @@ fn create_event_object_with_interface<'s>(
             propagation_stopped: false,
             immediate_stopped: false,
             in_passive_listener: false,
+            dispatching: false,
+            initialized: true,
             phase: 0,
         },
     );
@@ -23402,6 +23739,8 @@ fn create_input_event_object<'s>(
             propagation_stopped: false,
             immediate_stopped: false,
             in_passive_listener: false,
+            dispatching: false,
+            initialized: true,
             phase: 0,
         },
     );
@@ -23524,16 +23863,31 @@ fn call_event_operation<'s>(
         }
         return Ok(Some(path.into()));
     }
+    // Convert before borrowing native state: ToString can reenter event methods.
+    let init_type = if member == "initEvent" {
+        Some(required_string(scope, args, 0)?)
+    } else {
+        None
+    };
     let mut events = state.events.borrow_mut();
     let event = events
         .get_mut(&id)
         .ok_or(V8BindingError::Allocation("event record"))?;
     match member {
         "initEvent" => {
-            event.event_type = required_string(scope, args, 0)?;
+            if event.dispatching {
+                return Ok(None);
+            }
+            event.event_type = init_type.unwrap();
             event.bubbles = args.get(1).boolean_value(scope);
             event.cancelable = args.get(2).boolean_value(scope);
             event.default_prevented = false;
+            event.propagation_stopped = false;
+            event.immediate_stopped = false;
+            event.is_trusted = false;
+            event.target = None;
+            event.platform_target = None;
+            event.initialized = true;
         }
         "preventDefault" if event.cancelable && !event.in_passive_listener => {
             event.default_prevented = true
@@ -23548,6 +23902,43 @@ fn call_event_operation<'s>(
     Ok(None)
 }
 
+struct EventDispatchGuard<'a> {
+    state: &'a V8BindingState,
+    id: u64,
+}
+
+impl Drop for EventDispatchGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(event) = self.state.events.borrow_mut().get_mut(&self.id) {
+            event.dispatching = false;
+            event.phase = 0;
+            event.current_target = None;
+            event.platform_current_target = None;
+            event.propagation_stopped = false;
+            event.immediate_stopped = false;
+            event.in_passive_listener = false;
+        }
+    }
+}
+
+fn begin_event_dispatch(
+    state: &V8BindingState,
+    id: u64,
+) -> Result<EventDispatchGuard<'_>, V8BindingError> {
+    let mut events = state.events.borrow_mut();
+    let event = events
+        .get_mut(&id)
+        .ok_or(V8BindingError::Allocation("event record"))?;
+    if event.dispatching || !event.initialized {
+        return Err(V8BindingError::Unsupported {
+            interface: "EventTarget".into(),
+            member: "InvalidStateError".into(),
+        });
+    }
+    event.dispatching = true;
+    Ok(EventDispatchGuard { state, id })
+}
+
 fn dispatch_event(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
@@ -23556,6 +23947,7 @@ fn dispatch_event(
 ) -> Result<bool, V8BindingError> {
     v8::tc_scope!(let scope, scope);
     let id = event_id(scope, object)?;
+    let _dispatch = begin_event_dispatch(state, id)?;
     {
         let mut events = state.events.borrow_mut();
         let event = events
@@ -23574,8 +23966,11 @@ fn dispatch_event(
     {
         return Ok(!state.events.borrow().get(&id).unwrap().default_prevented);
     }
-    invoke_global_event_phase(scope, object, true, 1)?;
     let ancestors = state.dom.borrow().arena().ancestors(target)?;
+    let reaches_document = target == state.document || ancestors.contains(&state.document);
+    if reaches_document {
+        invoke_global_event_phase(scope, object, true, 1)?;
+    }
     for current in ancestors.iter().rev().copied() {
         if state
             .events
@@ -23624,11 +24019,12 @@ fn dispatch_event(
             }
             invoke_node_event_listeners(scope, state, current, object, id, 3, Some(false), true)?;
         }
-        if !state
-            .events
-            .borrow()
-            .get(&id)
-            .is_some_and(|event| event.propagation_stopped)
+        if reaches_document
+            && !state
+                .events
+                .borrow()
+                .get(&id)
+                .is_some_and(|event| event.propagation_stopped)
         {
             invoke_global_event_phase(scope, object, false, 3)?;
         }
@@ -26352,6 +26748,188 @@ mod tests {
     }
 
     #[test]
+    fn event_reinitialization_and_dispatch_cleanup_preserve_flags() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+          (() => {
+            const target = document.createElement('i');
+            const event = document.createEvent('Event');
+            let rejected = false;
+            try { target.dispatchEvent(event); } catch(e) {rejected = e.name === 'InvalidStateError';}
+            if (!rejected) throw Error('uninitialized event');
+            event.initEvent('go', true, true);
+            let hits = 0;
+            target.addEventListener('go', () => {
+              hits++;
+              event.initEvent('wrong', false, false);
+              if(event.type !== 'go' || !event.bubbles || !event.cancelable) throw Error('init during dispatch');
+              let rejected = false;
+              try {target.dispatchEvent(event);} catch(e) {rejected = e.name === 'InvalidStateError';}
+              if(!rejected) throw Error('recursive dispatch');
+            });
+            event.stopImmediatePropagation(); target.dispatchEvent(event);
+            if(hits !== 0 || event.cancelBubble || event.eventPhase !== 0) throw Error('stopped dispatch cleanup');
+            target.dispatchEvent(event);
+            if(hits !== 1 || event.currentTarget !== null) throw Error('redispatch');
+            event.preventDefault(); event.stopImmediatePropagation();
+            event.initEvent({toString(){event.preventDefault(); return 'go';}}, false, false);
+            if(event.defaultPrevented || event.cancelBubble || event.target !== null) throw Error('reinitialize flags');
+            const sentinel = {};
+            try {event.initEvent({toString(){throw sentinel;}}); throw Error('missing conversion exception');} catch(e) {if(e !== sentinel) throw Error('replaced conversion exception');}
+            const platform = new EventTarget(); const custom = new CustomEvent('custom', {detail:'before'});
+            platform.addEventListener('custom', () => {
+              custom.initCustomEvent('changed', false, false, 'after');
+              if(custom.type !== 'custom' || custom.detail !== 'before') throw Error('custom init while dispatching');
+            });
+            platform.dispatchEvent(custom);
+            const parent = document.querySelector('main'); parent.appendChild(target);
+            let ancestorHits = 0, globalHits = 0;
+            parent.addEventListener('path', () => ancestorHits++, true);
+            globalThis.__oryn_dispatch_global_phase = (event, capture) => {globalHits++; if(capture) parent.remove();};
+            target.dispatchEvent(new Event('path', {bubbles:true}));
+            if(ancestorHits !== 1 || globalHits !== 2) throw Error('frozen event path');
+            target.dispatchEvent(new Event('path', {bubbles:true}));
+            if(ancestorHits !== 2 || globalHits !== 2) throw Error('detached path excludes global');
+
+            return true;
+          })()
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
+    fn mutation_records_are_branded_snapshots_from_observation_time() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main id='root'></main>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            'use strict';
+            var observerHits = 0;
+            var target = document.getElementById('root');
+            var observer = new MutationObserver(function(records, self) {
+                if (this !== observer || self !== observer || arguments.length !== 2) throw Error('callback identity');
+                if (records.length !== 1 || !(records[0] instanceof MutationRecord) || records[0].attributeName !== 'delivered') throw Error('callback records');
+                observerHits++;
+            });
+            target.setAttribute('before', 'x');
+            observer.observe(target, {attributes:true, childList:true, subtree:true});
+            var child = document.createElement('i'); child.setAttribute('detached', 'x');
+            target.appendChild(child); target.setAttribute('after', 'x');
+            var records = observer.takeRecords();
+            if (records.length !== 2 || records[0].type !== 'childList' || records[1].attributeName !== 'after') throw Error('observation-time scope');
+            if (!(records[0] instanceof MutationRecord) || !(records[0].addedNodes instanceof NodeList) || records[0].addedNodes[0] !== child || records[0].target !== target) throw Error('record snapshots');
+            if (Reflect.set(records[0], 'type', 'fake')) throw Error('writable record');
+            var rejected = false;
+            try { Object.getOwnPropertyDescriptor(MutationRecord.prototype, 'type').get.call({}); } catch(e) {rejected = e instanceof TypeError;}
+            if (!rejected) throw Error('record brand');
+            var other = document.createElement('b');
+            observer.observe(other, {attributes:true});
+            target.setAttribute('first-target', 'yes'); other.setAttribute('second-target', 'yes');
+            records = observer.takeRecords();
+            if (records.length !== 2 || records[0].target !== target || records[1].target !== other) throw Error('multiple registrations');
+            observer.observe(child, {attributes:true}); child.setAttribute('once', 'yes');
+            if (observer.takeRecords().length !== 1) throw Error('overlapping registrations duplicate');
+            observer.observe(target, {childList:true}); target.setAttribute('ignored', 'yes'); other.setAttribute('retained', 'yes');
+            records = observer.takeRecords();
+            if (records.length !== 1 || records[0].target !== other) throw Error('replace only one registration');
+            observer.disconnect(); other.setAttribute('disconnected', 'yes');
+            if (observer.takeRecords().length !== 0) throw Error('disconnect all registrations');
+            observer.observe(target, {attributes:true});
+            target.setAttribute('old', 'one'); observer.takeRecords();
+            target.setAttribute('old', 'two');
+            if (observer.takeRecords()[0].oldValue !== null) throw Error('unrequested old value');
+            observer.observe(target, {attributeOldValue:true});
+            target.setAttribute('old', 'three');
+            observer.observe(target, {attributes:true});
+            target.setAttribute('old', 'four');
+            records = observer.takeRecords();
+            if (records.length !== 2 || records[0].oldValue !== 'two' || records[1].oldValue !== null) throw Error('queued old value options');
+            observer.observe(target, {attributeOldValue:false}); target.setAttribute('old', 'five');
+            if (observer.takeRecords().length !== 1) throw Error('implicit attributes false old-value');
+            var text = document.createTextNode('before'); observer.observe(text, {characterDataOldValue:true}); text.data = 'after';
+            if (observer.takeRecords()[0].oldValue !== 'before') throw Error('character old value');
+            rejected = false;
+            try {observer.observe(target, {attributes:false, attributeOldValue:true});} catch(e) {rejected = e instanceof TypeError;}
+            if (!rejected) throw Error('invalid old-value options');
+            var sentinel = {};
+            try {observer.observe(target, {get attributes(){throw sentinel;}}); throw Error('missing getter exception');} catch(e) {if(e !== sentinel) throw Error('replaced getter exception');}
+            observer.observe(target, {attributeFilter: new Set(['kept'])});
+            target.setAttribute('kept', 'one'); target.setAttribute('other', 'two'); target.setAttributeNS('urn:test', 'p:kept', 'three');
+            records = observer.takeRecords();
+            if (records.length !== 1 || records[0].attributeName !== 'kept') throw Error('iterable filter');
+            observer.observe(target, {attributes:true}); target.setAttributeNS('urn:test', 'p:kept', 'four'); target.removeAttributeNS('urn:test', 'kept');
+            records = observer.takeRecords();
+            if (records.length !== 2 || records.some(r => r.attributeName !== 'kept' || r.attributeNamespace !== 'urn:test')) throw Error('namespace snapshots');
+            Number.prototype.attributes = true;
+            rejected = false;
+            try {observer.observe(target, 1);} catch(e) {rejected = e instanceof TypeError;}
+            delete Number.prototype.attributes;
+            if (!rejected) throw Error('primitive dictionary accepted');
+            var order = [];
+            observer.observe(target, new Proxy({attributes:true}, {get(o,k){order.push(k); return o[k];}}));
+            if (order.join(',') !== 'attributeFilter,attributeOldValue,attributes,characterData,characterDataOldValue,childList,subtree') throw Error('dictionary member order');
+            try {observer.observe(target, {attributeFilter:{[Symbol.iterator](){return {next(){throw sentinel;}};}}}); throw Error('missing iterator exception');} catch(e) {if(e !== sentinel) throw Error('replaced iterator exception');}
+            observer.observe(target, {subtree:true, attributes:true});
+            child.remove(); child.setAttribute('detached-after-removal', 'yes');
+            records = observer.takeRecords();
+            if (records.length !== 1 || records[0].target !== child) throw Error('transient subtree observation');
+            child.setAttribute('still-before-delivery', 'yes');
+            if (observer.takeRecords().length !== 1) throw Error('takeRecords preserves transients');
+            observer.observe(target, {attributes:true}); child.setAttribute('registration-reset', 'yes');
+            if (observer.takeRecords().length !== 0) throw Error('observe clears source transients');
+            target.appendChild(child); observer.observe(target, {attributes:true, subtree:true}); child.remove();
+            target.setAttribute('delivered', 'yes');
+            true;
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        let mutations = dom.borrow_mut().drain_mutations();
+        assert_eq!(
+            deliver_mutation_observers(scope, &state, &mutations).unwrap(),
+            1
+        );
+        let source = v8::String::new(
+            scope,
+            "child.setAttribute('after-checkpoint', 'yes'); observerHits === 1 && observer.takeRecords().length === 0",
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
     fn scoped_id_lookup_and_whole_text_follow_native_tree_order() {
         initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -27037,9 +27615,12 @@ mod tests {
         let records = mutation_record_array(
             scope,
             &state,
-            &[Mutation::Inserted {
-                node: child,
-                parent: Some(main),
+            &[QueuedMutation {
+                mutation: Mutation::Inserted {
+                    node: child,
+                    parent: Some(main),
+                },
+                expose_old_value: false,
             }],
         )
         .unwrap();

@@ -216,3 +216,38 @@ Two still-failing executions changed failure domain: history_forward.html change
 from harness to runtime, and iframe-upgrade-request-to-cross-origin.sub.html
 changed from runtime to timeout. Both remain open in the single-run backlog;
 no successful execution was lost. These transitions need navigation/task diagnosis.
+
+## Native observer records and event dispatch lifecycles
+
+MutationObserver now keeps independent registrations per target, deduplicates
+matching registrations, reads the native journal synchronously for takeRecords,
+and uses observation-time tree ancestry rather than the final tree. Temporary
+registrations preserve removed-subtree observation until notification. Updating
+one target replaces only its registration; disconnect removes all registrations
+and queued records. Queued old-value visibility preserves the options in effect
+when each mutation was observed. Dictionary member order, presence-based defaults,
+iterable attribute filters and original page conversion exceptions are covered.
+Native attribute journal entries retain namespaces after mutation or removal.
+
+MutationRecord now has branded readonly generated getters and native NodeList
+snapshots. Its immutable binding payload retains actual native node wrappers.
+Callbacks receive the observer as both receiver and second argument. This batch
+follows the [DOM observer algorithms](https://dom.spec.whatwg.org/#mutation-observers)
+and [Web IDL sequence conversion](https://webidl.spec.whatwg.org/#es-sequence).
+Previous/next sibling snapshots, compound child-list coalescing, callback exception
+reporting across realms and bounded-journal overflow remain open; this does not
+claim complete MutationObserver conformance.
+
+Event records now distinguish initialized and actively dispatched states. A native
+scope guard clears dispatch/propagation state on exit, including suppressed dispatch
+and error paths. initEvent performs reentrant string conversion before borrowing
+native state, resets flags/targets when allowed, and cannot alter an event during
+its dispatch. initCustomEvent also preserves detail during dispatch. The native
+ancestor path is captured before global capture listeners run; disconnected trees
+do not dispatch through the global object. Recursive and uninitialized dispatch
+are rejected. Broader event interfaces, retargeting, composed paths, exception
+reporting and trusted-event integration remain open.
+
+Repository checks pass 110 V8 tests (two existing ignored), 39 native DOM tests,
+strict V8/DOM Clippy, generated bindings and formatting. The V8-enabled native
+compile check passes. Signed-worker validation remains pending.
