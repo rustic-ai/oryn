@@ -39,7 +39,10 @@ wrapper/Range lifetime, IndexedDB queue and Stylo/Blitz adapter changes.
 W0's clean baseline is complete. The resource implementation now avoids quadratic
 creation of isolated detached wrappers and scans of older mutation-journal entries.
 Locked repository checks pass 101 V8 binding tests and 29 native DOM tests, plus
-strict Clippy. Signed-worker validation of this change is still pending. See the [foundation diagnostics](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
+strict Clippy. The signed worker at `038f7aa` preserves 331/662 DOM passes with no lost passes.
+Name validation now finishes with two passing assertion groups and three semantic
+failures, replacing its prior worker wall-time failure. The latest full score
+remains the separate fbb2f29 baseline above. See the [foundation diagnostics](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 
 Remaining shared gaps include XML parsing and iframe MIME propagation, namespace
 preservation through import/clone, document ownership, table APIs, Range/editing,

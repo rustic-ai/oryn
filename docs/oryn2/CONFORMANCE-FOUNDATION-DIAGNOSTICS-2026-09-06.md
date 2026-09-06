@@ -34,3 +34,24 @@ lookup were integrated into the repository. Locked production-feature checks pas
 also verifies native reclamation after the last JavaScript reference is removed.
 Strict Clippy and formatting pass. Signed-worker results remain pending and must
 be recorded separately from the fbb2f29 baseline.
+
+
+## Signed validation of the detached-leaf fix
+
+Commit `038f7aa`, signed worker
+`a6ce0ceabc8e178de5ebe1af9480a258ddee421fdb7e43dc1ef93cbb313359ed`:
+complete DOM selection 333/664 (331/662 DOM plus two accname files), no file gains
+or lost passes versus the clean full baseline. Every selected ID and passing
+completion was verified. `name-validation.html` completes with harness status 0:
+two assertion groups pass; missing createAttribute/createAttributeNS and NUL
+acceptance in doctype names account for its three remaining semantic failures.
+This replaces the previous runtime wall-time outcome without changing limits.
+`Range-mutations-splitText` also reaches assertions from an incomplete outcome;
+`moveBefore/iframe-document-preserve` changes from incomplete to harness failure.
+These failure-mode changes remain open and are recorded in the signed summary.
+
+A separate mixed-lifetime GC diagnostic retained half the wrappers and reclaimed
+half. Release processing took 1.220, 3.548, 11.882 and 45.857 ms for 2,000, 4,000,
+8,000 and 16,000 wrappers respectively. Queue cancellation scans once per live
+wrapper, so this identifies another quadratic path for a future bounded fix;
+it is not proof of the cause of any particular remaining WPT failure.

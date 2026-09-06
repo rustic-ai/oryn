@@ -1,0 +1,59 @@
+{
+  "baseline_ledger": "conformance-worker-full-clean-fbb2f29.json",
+  "diagnostic_only": true,
+  "exact_filtered_inventory_and_pass_completion_verified": true,
+  "failure_domains": {
+    "assertion": 282,
+    "harness": 31,
+    "incomplete": 8,
+    "runtime": 10
+  },
+  "failure_mode_changes": [
+    {
+      "after": "harness",
+      "before": "incomplete",
+      "id": "dom/nodes/moveBefore/iframe-document-preserve.window.js|window|"
+    },
+    {
+      "after": "assertion",
+      "before": "runtime",
+      "id": "dom/nodes/name-validation.html|window|"
+    },
+    {
+      "after": "assertion",
+      "before": "incomplete",
+      "id": "dom/ranges/Range-mutations-splitText.html|window|"
+    }
+  ],
+  "ledger": "conformance-worker-detached-leaf-dom.json",
+  "ledger_sha256": "390556a6bf1e851bb027dcef0148855ee70f64ed31252c0da51059de40cdc230",
+  "newly_passing": [],
+  "outcome": {
+    "required_finished": 664,
+    "required_passed": 333,
+    "required_total": 664,
+    "status": "failed"
+  },
+  "regressions": [],
+  "release_qualified": false,
+  "roots": {
+    "accname": {
+      "failed": 0,
+      "passed": 2,
+      "required": 2
+    },
+    "dom": {
+      "failed": 331,
+      "passed": 331,
+      "required": 662
+    }
+  },
+  "source": {
+    "commit": "038f7aa242376bcef99313e1fedb930a550bbf94",
+    "dirty": false,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_file_count": 0,
+    "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "worker_sha256": "a6ce0ceabc8e178de5ebe1af9480a258ddee421fdb7e43dc1ef93cbb313359ed"
+}
