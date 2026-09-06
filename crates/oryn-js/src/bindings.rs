@@ -148,6 +148,14 @@ impl WrapperRegistry {
         self.pending_release.retain(|queued| *queued != wrapper);
     }
 
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn cancel_live_weak_releases(
+        &mut self,
+        live: &std::collections::BTreeSet<WrapperId>,
+    ) {
+        self.pending_release.retain(|queued| !live.contains(queued));
+    }
+
     pub fn process_weak_releases(&mut self, dom: &mut DomRuntime) -> Result<usize, BindingError> {
         let mut released = 0;
         while let Some(id) = self.pending_release.pop_front() {
@@ -289,6 +297,31 @@ mod tests {
         let mutations = dom.drain_mutations();
         dom.release_mutation_roots(&mutations).unwrap();
         assert_eq!(dom.arena().get(node), Err(DomError::StaleNode(node)));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn bulk_cancellation_keeps_live_wrappers_and_releases_only_dead_ones() {
+        let mut dom = DomRuntime::new();
+        let mut wrappers = WrapperRegistry::default();
+        let mut nodes = Vec::new();
+        let mut live = std::collections::BTreeSet::new();
+        for index in 0..32 {
+            let node = dom.create_text("node");
+            let wrapper = wrappers
+                .get_or_create(&mut dom, RealmId(0), 1, node, InterfaceBrand::Node)
+                .unwrap();
+            wrappers.enqueue_weak_release(wrapper);
+            if index % 2 == 0 {
+                live.insert(wrapper);
+            }
+            nodes.push((node, wrapper));
+        }
+        wrappers.cancel_live_weak_releases(&live);
+        assert_eq!(wrappers.process_weak_releases(&mut dom).unwrap(), 16);
+        for (node, wrapper) in nodes {
+            assert_eq!(dom.arena().get(node).is_ok(), live.contains(&wrapper));
+        }
     }
 
     #[test]

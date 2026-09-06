@@ -2364,15 +2364,12 @@ impl V8BindingState {
         let live_wrappers = {
             let mut objects = self.objects.borrow_mut();
             objects.retain(|_, object| !object.handle.is_empty());
-            objects.keys().copied().collect::<Vec<_>>()
+            objects.keys().copied().collect::<BTreeSet<_>>()
         };
         let mut wrappers = self.wrappers.borrow_mut();
-        for wrapper in live_wrappers {
-            // A callback from an older weak handle can race with recreation
-            // of the realm-local wrapper. Only an ID with no current V8
-            // object is eligible to release its Rust DOM lease.
-            wrappers.cancel_weak_release(wrapper);
-        }
+        // Discard stale finalizers in one pass. Rechecking the entire queue
+        // separately for every surviving wrapper makes mixed GC quadratic.
+        wrappers.cancel_live_weak_releases(&live_wrappers);
         let released = wrappers.process_weak_releases(&mut self.dom.borrow_mut())?;
         let dom = self.dom.borrow();
         self.node_documents
@@ -26078,6 +26075,22 @@ mod tests {
                 .unwrap()
                 .is_true()
         );
+        let source = v8::String::new(
+            scope,
+            "for(let i=1;i<leaves.length;i+=2)leaves[i]=null;true",
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        assert_eq!(dom.borrow().arena().iter().filter(|(_, record)|
+            matches!(&record.kind, NodeKind::Element { name } if name.local.as_ref() == "i")).count(), 2000);
         let source = v8::String::new(scope, "delete globalThis.leaves; true").unwrap();
         assert!(
             v8::Script::compile(scope, source, None)

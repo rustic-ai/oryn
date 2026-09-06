@@ -83,3 +83,15 @@ Exact selected IDs and every passing harness completion were verified.
 The seven new DOM file passes are historical interfaces, Document-createAttribute,
 Element-hasAttribute, Element-setAttribute-crbug-1138487, case, name-validation,
 and querySelector-mixed-case. The clean full baseline remains 2,501/4,022.
+
+
+## Mixed-lifetime release queue
+
+Release cancellation now filters the weak-release queue once against live wrapper
+IDs, preserving the existing stale-finalizer protection. Measured isolated timings
+for 2,000/4,000/8,000/16,000 wrappers were 0.624/0.933/1.939/3.959 ms, compared with
+1.220/3.548/11.882/45.857 ms before. Both runs released exactly half the wrappers.
+Locked repository checks pass 103 V8 tests (two existing ignored), including bulk
+cancellation and native reclamation with half the wrappers retained; strict
+Clippy passes. This optimization has no separate signed ledger yet. It will be
+included in the next foundation candidate; no WPT gain is inferred from timings.
