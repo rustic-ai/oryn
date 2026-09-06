@@ -9,13 +9,13 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     rc::{Rc, Weak as RcWeak},
     sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use oryn_dom::{
     BoundaryPoint, DomError, DomRuntime, LiveRange, LiveRangeId, Mutation, NodeId, NodeKind,
-    ShadowMode,
+    SelectorOperation, ShadowMode,
 };
 use url::Url;
 
@@ -97,6 +97,7 @@ struct WrapperObject {
 
 #[derive(Debug, Clone)]
 struct EventRecord {
+    time_stamp: f64,
     event_type: String,
     target: Option<NodeId>,
     current_target: Option<NodeId>,
@@ -153,6 +154,11 @@ struct RangeRecord {
     start_offset: u32,
     end_container: NodeId,
     end_offset: u32,
+}
+
+struct RangeWrapper {
+    handle: v8::Weak<v8::Object>,
+    selection_root: Option<v8::Global<v8::Object>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -377,6 +383,7 @@ struct IdbTransactionRecord {
 struct IdbObjectStoreRecord {
     transaction_id: u64,
     name: String,
+    upgrade_base_name: Option<String>,
     key_path: Option<String>,
     auto_increment: bool,
     indexes: BTreeMap<String, (String, bool, bool)>,
@@ -457,6 +464,11 @@ enum PlatformObjectRecord {
     IdbIndex(IdbIndexRecord),
     IdbCursor(IdbCursorRecord),
     IdbKeyRange(IdbKeyRangeRecord),
+    IdbRecord {
+        key: v8::Global<v8::Value>,
+        primary_key: v8::Global<v8::Value>,
+        value: v8::Global<v8::Value>,
+    },
     ReadableStream(ReadableStreamRecord),
     ReadableController {
         stream_id: u64,
@@ -537,6 +549,19 @@ enum PendingPlatformOperation {
     },
 }
 
+impl PendingPlatformOperation {
+    fn connection_request(&self) -> Option<(u64, &str)> {
+        match self {
+            Self::IndexedDb {
+                request_id,
+                action:
+                    IdbCompletionAction::Open { name } | IdbCompletionAction::DeleteDatabase { name },
+            } => Some((*request_id, name)),
+            _ => None,
+        }
+    }
+}
+
 struct QueuedIdbOperation {
     request: PlatformHostRequest,
     pending: PendingPlatformOperation,
@@ -576,6 +601,13 @@ enum DeferredPlatformTask {
     },
 }
 
+#[derive(Clone, Copy)]
+enum IdbBatchKind {
+    Values,
+    Keys,
+    Records,
+}
+
 #[derive(Clone)]
 enum IdbCompletionAction {
     Open {
@@ -586,11 +618,10 @@ enum IdbCompletionAction {
     },
     Value,
     Key,
-    Values {
+    Batch {
         count: Option<usize>,
-    },
-    Keys {
-        count: Option<usize>,
+        direction: String,
+        kind: IdbBatchKind,
     },
     Count,
     Cursor {
@@ -663,6 +694,7 @@ pub enum BindingGeometry {
 
 #[derive(Debug, Clone, Default)]
 pub struct BindingLayout {
+    pub offset_dimensions: BTreeMap<u64, (f64, f64)>,
     pub styles: BTreeMap<u64, BTreeMap<String, String>>,
     pub geometry: BTreeMap<u64, BindingGeometry>,
 }
@@ -673,14 +705,34 @@ pub struct BindingAccessibility {
     pub name: String,
 }
 
+mod adopted_stylesheets;
+mod node_lists;
+mod wrapper_graphs;
+
 /// Synchronous style/layout flush used by geometry WebIDL operations. The
 /// implementation lives in the page orchestrator so generated bindings keep
 /// using the same Rust DOM and Stylo/Taffy/Parley pipeline as observations.
 pub trait BindingLayoutProvider {
+    /// Opt in only when the revision covers every provider-owned layout input.
+    /// Providers with independently changing inputs keep the default uncached behavior.
+    fn layout_revision(&self) -> Option<u64> {
+        None
+    }
+
     fn compute_layout(
         &self,
         custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
     ) -> Result<BindingLayout, String>;
+
+    fn query_selector(
+        &self,
+        _node: NodeId,
+        _selector: &str,
+        _operation: SelectorOperation,
+        _custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
+    ) -> Option<Result<Vec<NodeId>, String>> {
+        None
+    }
 
     fn canonicalize_selector(&self, _selector: &str) -> Result<String, String> {
         Err("selector parser is unavailable".into())
@@ -689,6 +741,12 @@ pub trait BindingLayoutProvider {
     fn compute_accessibility(&self, _node: NodeId) -> Result<BindingAccessibility, String> {
         Err("accessible semantics provider is unavailable".into())
     }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct LayoutCacheKey {
+    revision: u64,
+    custom_states: BTreeMap<NodeId, BTreeSet<String>>,
 }
 
 /// Per-context binding state. The DOM may be shared with the page orchestrator,
@@ -701,9 +759,12 @@ pub struct V8BindingState {
     document_generation: u64,
     wrappers: Rc<RefCell<WrapperRegistry>>,
     objects: RefCell<BTreeMap<WrapperId, WrapperObject>>,
+    wrapper_graph_revision: Cell<Option<u64>>,
     instance_templates: RefCell<BTreeMap<&'static str, v8::Global<v8::ObjectTemplate>>>,
     associated_wrappers: RefCell<BTreeMap<(NodeId, &'static str), v8::Weak<v8::Object>>>,
     custom_states: RefCell<BTreeMap<NodeId, BTreeSet<String>>>,
+    clock_origin: Instant,
+    time_origin_ms: f64,
     next_event_id: Cell<u64>,
     events: RefCell<BTreeMap<u64, EventRecord>>,
     listeners: RefCell<BTreeMap<(NodeId, String), Vec<EventListener>>>,
@@ -712,6 +773,9 @@ pub struct V8BindingState {
     mutation_observers: RefCell<BTreeMap<u64, MutationObserverEntry>>,
     ranges: RefCell<BTreeMap<u64, RangeRecord>>,
     static_ranges: RefCell<BTreeSet<u64>>,
+    range_objects: RefCell<BTreeMap<u64, RangeWrapper>>,
+    range_memory_delta: Cell<i64>,
+    node_lists: node_lists::Store,
     selection_range: Cell<Option<u64>>,
     selection_anchor: Cell<Option<BoundaryPoint>>,
     selection_focus: Cell<Option<BoundaryPoint>>,
@@ -719,7 +783,7 @@ pub struct V8BindingState {
     delivered_selection_revision: Cell<u64>,
     text_control_selections: RefCell<BTreeMap<NodeId, (u32, u32, String)>>,
     selection_object: RefCell<Option<v8::Global<v8::Object>>>,
-    implementation_object: RefCell<Option<v8::Global<v8::Object>>>,
+    implementation_documents: RefCell<BTreeMap<u64, NodeId>>,
     history: RefCell<Option<HistoryRecord>>,
     pending_history_traversal: Cell<Option<i64>>,
     storage_fallback: RefCell<[BTreeMap<String, String>; 2]>,
@@ -730,6 +794,7 @@ pub struct V8BindingState {
     next_platform_operation_id: Cell<u64>,
     pending_platform_operations: RefCell<BTreeMap<HostOperationId, PendingPlatformOperation>>,
     queued_idb_operations: RefCell<VecDeque<QueuedIdbOperation>>,
+    active_idb_connections: RefCell<BTreeMap<u64, String>>,
     blocked_idb_completions: RefCell<VecDeque<(u64, IdbCompletionAction, IdbHostResponse)>>,
     deferred_platform_tasks: RefCell<VecDeque<DeferredPlatformTask>>,
     cancelled_platform_operations: RefCell<BTreeSet<HostOperationId>>,
@@ -743,11 +808,14 @@ pub struct V8BindingState {
     next_traversal_id: Cell<u64>,
     traversals: RefCell<BTreeMap<u64, TraversalRecord>>,
     layout: RefCell<BindingLayout>,
+    layout_cache_key: RefCell<Option<LayoutCacheKey>>,
     layout_provider: RefCell<Option<Rc<dyn BindingLayoutProvider>>>,
     frame_roots: RefCell<BTreeMap<NodeId, NodeId>>,
     frame_windows: RefCell<BTreeMap<NodeId, v8::Global<v8::Object>>>,
     frame_committed_windows: RefCell<BTreeMap<NodeId, v8::Global<v8::Object>>>,
-    template_contents: RefCell<BTreeMap<NodeId, NodeId>>,
+    intrinsic_reflect_set: v8::Global<v8::Function>,
+    constructed_stylesheets: RefCell<BTreeSet<NodeId>>,
+    adopted_stylesheets: RefCell<BTreeMap<NodeId, v8::Weak<v8::Proxy>>>,
     stylesheet_rule_lists: RefCell<BTreeMap<NodeId, v8::Global<v8::Array>>>,
     current_script: Cell<Option<NodeId>>,
     parser_input_active: Cell<bool>,
@@ -1041,7 +1109,10 @@ impl V8BindingState {
     }
 
     pub fn has_pending_platform_work(&self) -> bool {
-        !self.queued_idb_operations.borrow().is_empty()
+        self.queued_idb_operations
+            .borrow()
+            .iter()
+            .any(|queued| self.idb_operation_ready(&queued.pending))
             || !self.deferred_platform_tasks.borrow().is_empty()
             || self
                 .pending_platform_operations
@@ -1050,12 +1121,46 @@ impl V8BindingState {
                 .any(|pending| !matches!(pending, PendingPlatformOperation::WebSocketPoll { .. }))
     }
 
+    fn idb_operation_ready(&self, pending: &PendingPlatformOperation) -> bool {
+        pending.connection_request().is_none_or(|(_, name)| {
+            !self
+                .active_idb_connections
+                .borrow()
+                .values()
+                .any(|active| active == name)
+        })
+    }
+
     fn flush_queued_idb_operations(&self) -> Result<(), V8BindingError> {
         while self.pending_platform_operations.borrow().len() < 32 {
-            let Some(queued) = self.queued_idb_operations.borrow_mut().pop_front() else {
-                break;
+            let queued = {
+                let mut queue = self.queued_idb_operations.borrow_mut();
+                let Some(index) = queue
+                    .iter()
+                    .position(|queued| self.idb_operation_ready(&queued.pending))
+                else {
+                    break;
+                };
+                queue.remove(index).expect("queued operation index")
             };
-            submit_platform_operation(self, queued.request, queued.pending)?;
+            // Keep a connection request active through blocked/upgrade tasks,
+            // not merely until its first host response. Later requests for the
+            // same database must not reach storage before it finishes.
+            let connection = queued
+                .pending
+                .connection_request()
+                .map(|(id, name)| (id, name.to_owned()));
+            if let Some((id, name)) = &connection {
+                self.active_idb_connections
+                    .borrow_mut()
+                    .insert(*id, name.clone());
+            }
+            if let Err(error) = submit_platform_operation(self, queued.request, queued.pending) {
+                if let Some((id, _)) = connection {
+                    self.active_idb_connections.borrow_mut().remove(&id);
+                }
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -1087,7 +1192,7 @@ impl V8BindingState {
                 request.result = None;
                 request.error = Some("AbortError".into());
             }
-            dispatch_platform_event(scope, self, request_id, "error", None)
+            dispatch_platform_event(scope, self, request_id, "error", None)?;
         } else {
             let hidden = new_idb_request(self, None);
             submit_idb(
@@ -1099,8 +1204,9 @@ impl V8BindingState {
                 },
                 IdbCompletionAction::Unit,
             )?;
-            dispatch_platform_event(scope, self, request_id, "success", None)
+            dispatch_platform_event(scope, self, request_id, "success", None)?;
         }
+        finish_idb_request(self, request_id)
     }
 
     fn handle_platform_completion(
@@ -1789,6 +1895,7 @@ impl V8BindingState {
                                 )?;
                             }
                             dispatch_platform_event(scope, self, request_id, "error", None)?;
+                            finish_idb_request(self, request_id)?;
                             return Ok(());
                         }
                         if let Some(transaction_id) = transaction_id {
@@ -1862,34 +1969,41 @@ impl V8BindingState {
                         .map(|value| idb_json_to_value(scope, self, value))
                         .transpose()?
                         .unwrap_or_else(|| v8::undefined(scope).into()),
-                    IdbCompletionAction::Values { count } => {
-                        let values = if response.values.is_empty() {
-                            response
-                                .records
-                                .iter()
-                                .map(|record| record.value.clone())
-                                .collect()
-                        } else {
-                            response.values
-                        };
-                        let limit = count.unwrap_or(values.len()).min(values.len());
+                    IdbCompletionAction::Batch {
+                        count,
+                        direction,
+                        kind,
+                    } => {
+                        let records = normalize_idb_cursor_records(response.records, &direction);
+                        let limit = count
+                            .filter(|count| *count != 0)
+                            .unwrap_or(records.len())
+                            .min(records.len());
                         let array = v8::Array::new(scope, limit as i32);
-                        for (index, value) in values.iter().take(limit).enumerate() {
-                            let value = idb_json_to_value(scope, self, value)?;
-                            array.set_index(scope, index as u32, value);
-                        }
-                        array.into()
-                    }
-                    IdbCompletionAction::Keys { count } => {
-                        let values = response
-                            .records
-                            .iter()
-                            .map(|record| record.primary_key.clone())
-                            .collect::<Vec<_>>();
-                        let limit = count.unwrap_or(values.len()).min(values.len());
-                        let array = v8::Array::new(scope, limit as i32);
-                        for (index, value) in values.iter().take(limit).enumerate() {
-                            let value = idb_json_to_value(scope, self, value)?;
+                        for (index, record) in records.iter().take(limit).enumerate() {
+                            let value = match kind {
+                                IdbBatchKind::Values => {
+                                    idb_json_to_value(scope, self, &record.value)?
+                                }
+                                IdbBatchKind::Keys => {
+                                    idb_json_to_value(scope, self, &record.primary_key)?
+                                }
+                                IdbBatchKind::Records => {
+                                    let key = idb_json_to_value(scope, self, &record.key)?;
+                                    let primary_key =
+                                        idb_json_to_value(scope, self, &record.primary_key)?;
+                                    let value = idb_json_to_value(scope, self, &record.value)?;
+                                    let id = register_platform_object(
+                                        self,
+                                        PlatformObjectRecord::IdbRecord {
+                                            key: v8::Global::new(scope, key),
+                                            primary_key: v8::Global::new(scope, primary_key),
+                                            value: v8::Global::new(scope, value),
+                                        },
+                                    );
+                                    new_platform_object(scope, self, "IDBRecord", id)?.into()
+                                }
+                            };
                             array.set_index(scope, index as u32, value);
                         }
                         array.into()
@@ -2236,7 +2350,15 @@ impl V8BindingState {
         self.realm
     }
 
+    fn performance_now(&self) -> f64 {
+        // Non-isolated realms expose a coarsened monotonic time in milliseconds.
+        // Store the value on creation; reading an Event never advances its stamp.
+        (self.clock_origin.elapsed().as_micros() / 100) as f64 / 10.0
+    }
+
     pub fn process_weak_releases(&self) -> Result<usize, BindingError> {
+        collect_dead_ranges(self, true)?;
+        node_lists::collect(self)?;
         let live_wrappers = {
             let mut objects = self.objects.borrow_mut();
             objects.retain(|_, object| !object.handle.is_empty());
@@ -2249,7 +2371,15 @@ impl V8BindingState {
             // object is eligible to release its Rust DOM lease.
             wrappers.cancel_weak_release(wrapper);
         }
-        wrappers.process_weak_releases(&mut self.dom.borrow_mut())
+        let released = wrappers.process_weak_releases(&mut self.dom.borrow_mut())?;
+        let dom = self.dom.borrow();
+        self.node_documents
+            .borrow_mut()
+            .retain(|node, _| dom.arena().get(*node).is_ok());
+        self.implementation_documents
+            .borrow_mut()
+            .retain(|_, document| dom.arena().get(*document).is_ok());
+        Ok(released)
     }
 
     /// Keep wrappers for connected nodes alive and release that embedder root
@@ -2259,33 +2389,20 @@ impl V8BindingState {
     /// Returns the number of roots released so the host can request GC only
     /// when it can reclaim detached wrapper graphs.
     pub fn refresh_connected_wrapper_roots(&self, scope: &mut v8::PinScope<'_, '_>) -> usize {
-        let dom = self.dom.borrow();
-        let wrappers = self.wrappers.borrow();
-        let mut objects = self.objects.borrow_mut();
-        let mut released = 0;
-        for (wrapper, object) in objects.iter_mut() {
-            let connected = wrappers
-                .metadata(*wrapper)
-                .is_some_and(|metadata| dom.is_connected(metadata.node).unwrap_or(false));
-            if connected {
-                if object.connected_root.is_none()
-                    && let Some(local) = object.handle.to_local(scope)
-                {
-                    object.connected_root = Some(v8::Global::new(scope, local));
-                }
-            } else if object.connected_root.take().is_some() {
-                released += 1;
-            }
-        }
-        released
+        let released = refresh_range_wrapper_roots(scope, self);
+        apply_range_memory_accounting(scope, self);
+        node_lists::account_memory(scope, self);
+        released + wrapper_graphs::refresh(scope, self)
     }
 
     pub fn set_layout(&self, layout: BindingLayout) {
         *self.layout.borrow_mut() = layout;
+        self.layout_cache_key.borrow_mut().take();
     }
 
     pub fn set_layout_provider(&self, provider: Rc<dyn BindingLayoutProvider>) {
         *self.layout_provider.borrow_mut() = Some(provider);
+        self.layout_cache_key.borrow_mut().take();
     }
 
     pub fn set_frame_document(&self, frame: NodeId, document: NodeId) {
@@ -2478,6 +2595,15 @@ fn dom_exception_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     name: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if matches!(name, "TypeError" | "RangeError") {
+        let message =
+            v8::String::new(scope, name).ok_or(V8BindingError::Allocation("exception name"))?;
+        return Ok(if name == "TypeError" {
+            v8::Exception::type_error(scope, message)
+        } else {
+            v8::Exception::range_error(scope, message)
+        });
+    }
     let context = scope.get_current_context();
     let global = context.global(scope);
     if let Some(constructor_key) = v8::String::new(scope, "DOMException")
@@ -2554,9 +2680,15 @@ pub fn install_generated_bindings_with_root_for_global(
         document_generation,
         wrappers: Rc::new(RefCell::new(WrapperRegistry::default())),
         objects: RefCell::new(BTreeMap::new()),
+        wrapper_graph_revision: Cell::new(None),
         instance_templates: RefCell::new(BTreeMap::new()),
         associated_wrappers: RefCell::new(BTreeMap::new()),
         custom_states: RefCell::new(BTreeMap::new()),
+        clock_origin: Instant::now(),
+        time_origin_ms: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as f64,
         next_event_id: Cell::new(1),
         events: RefCell::new(BTreeMap::new()),
         listeners: RefCell::new(BTreeMap::new()),
@@ -2565,6 +2697,9 @@ pub fn install_generated_bindings_with_root_for_global(
         mutation_observers: RefCell::new(BTreeMap::new()),
         ranges: RefCell::new(BTreeMap::new()),
         static_ranges: RefCell::new(BTreeSet::new()),
+        range_objects: RefCell::new(BTreeMap::new()),
+        range_memory_delta: Cell::new(0),
+        node_lists: node_lists::Store::default(),
         selection_range: Cell::new(None),
         selection_anchor: Cell::new(None),
         selection_focus: Cell::new(None),
@@ -2572,7 +2707,7 @@ pub fn install_generated_bindings_with_root_for_global(
         delivered_selection_revision: Cell::new(0),
         text_control_selections: RefCell::new(BTreeMap::new()),
         selection_object: RefCell::new(None),
-        implementation_object: RefCell::new(None),
+        implementation_documents: RefCell::new(BTreeMap::new()),
         history: RefCell::new(None),
         pending_history_traversal: Cell::new(None),
         storage_fallback: RefCell::new([BTreeMap::new(), BTreeMap::new()]),
@@ -2583,6 +2718,7 @@ pub fn install_generated_bindings_with_root_for_global(
         next_platform_operation_id: Cell::new(1),
         pending_platform_operations: RefCell::new(BTreeMap::new()),
         queued_idb_operations: RefCell::new(VecDeque::new()),
+        active_idb_connections: RefCell::new(BTreeMap::new()),
         blocked_idb_completions: RefCell::new(VecDeque::new()),
         deferred_platform_tasks: RefCell::new(VecDeque::new()),
         cancelled_platform_operations: RefCell::new(BTreeSet::new()),
@@ -2596,11 +2732,14 @@ pub fn install_generated_bindings_with_root_for_global(
         next_traversal_id: Cell::new(1),
         traversals: RefCell::new(BTreeMap::new()),
         layout: RefCell::new(BindingLayout::default()),
+        layout_cache_key: RefCell::new(None),
         layout_provider: RefCell::new(None),
         frame_roots: RefCell::new(BTreeMap::new()),
         frame_windows: RefCell::new(BTreeMap::new()),
         frame_committed_windows: RefCell::new(BTreeMap::new()),
-        template_contents: RefCell::new(BTreeMap::new()),
+        intrinsic_reflect_set: adopted_stylesheets::capture_reflect_set(scope)?,
+        constructed_stylesheets: RefCell::new(BTreeSet::new()),
+        adopted_stylesheets: RefCell::new(BTreeMap::new()),
         stylesheet_rule_lists: RefCell::new(BTreeMap::new()),
         current_script: Cell::new(None),
         parser_input_active: Cell::new(false),
@@ -2653,6 +2792,7 @@ pub fn install_generated_bindings_with_root_for_global(
 
     let mut templates = BTreeMap::<&'static str, v8::Global<v8::FunctionTemplate>>::new();
     let mut constructors = BTreeMap::<&'static str, v8::Global<v8::Function>>::new();
+    let mut unforgeable_getters = BTreeMap::<u32, v8::Global<v8::FunctionTemplate>>::new();
     let mut remaining = GENERATED_INTERFACES.iter().enumerate().collect::<Vec<_>>();
     while !remaining.is_empty() {
         let before = remaining.len();
@@ -2688,7 +2828,13 @@ pub fn install_generated_bindings_with_root_for_global(
             // generation-checked Rust identity required for same-origin
             // cross-realm argument conversion. Stateful non-node interfaces
             // use only field zero.
-            instance.set_internal_field_count(5);
+            instance.set_internal_field_count(6);
+            if matches!(interface.name, "NodeList" | "HTMLCollection") {
+                node_lists::configure(instance);
+            }
+            if interface.name == "HTMLCollection" {
+                node_lists::configure_named(instance);
+            }
             let prototype = template.prototype_template(scope);
             prototype.set_with_attr(
                 v8::Symbol::get_to_string_tag(scope).into(),
@@ -2697,8 +2843,26 @@ pub fn install_generated_bindings_with_root_for_global(
                     .into(),
                 v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_ENUM,
             );
-            for (member_position, member) in interface.members.iter().enumerate() {
-                if interface.members[..member_position]
+            let mut members = interface.members.iter().collect::<Vec<_>>();
+            let mut parent = interface.parent;
+            while let Some(name) = parent {
+                let inherited = GENERATED_INTERFACES
+                    .iter()
+                    .find(|item| item.name == name)
+                    .ok_or(V8BindingError::MissingInterface(name))?;
+                members.extend(inherited.members.iter().filter(|member| member.unforgeable));
+                parent = inherited.parent;
+            }
+            let has_indexed_getter = members.iter().any(|member| member.indexed_getter);
+            if has_indexed_getter {
+                prototype.set_intrinsic_data_property(
+                    v8::Symbol::get_iterator(scope).into(),
+                    v8::Intrinsic::ArrayProtoValues,
+                    v8::PropertyAttribute::DONT_ENUM,
+                );
+            }
+            for (member_position, member) in members.iter().enumerate() {
+                if members[..member_position]
                     .iter()
                     .any(|previous| previous.name == member.name && previous.kind == member.kind)
                 {
@@ -2709,15 +2873,24 @@ pub fn install_generated_bindings_with_root_for_global(
                     .ok_or(V8BindingError::Allocation("member name"))?;
                 match member.kind {
                     GeneratedMemberKind::Attribute => {
-                        let getter = v8::FunctionTemplate::builder(generated_attribute_getter)
-                            .data(data.into())
-                            .length(0)
-                            .constructor_behavior(v8::ConstructorBehavior::Throw)
-                            .build(scope);
-                        getter.set_class_name(
-                            v8::String::new(scope, &format!("get {}", member.name))
-                                .ok_or(V8BindingError::Allocation("attribute getter name"))?,
-                        );
+                        let getter = if let Some(getter) = unforgeable_getters.get(&member.id.0) {
+                            v8::Local::new(scope, getter)
+                        } else {
+                            let getter = v8::FunctionTemplate::builder(generated_attribute_getter)
+                                .data(data.into())
+                                .length(0)
+                                .constructor_behavior(v8::ConstructorBehavior::Throw)
+                                .build(scope);
+                            getter.set_class_name(
+                                v8::String::new(scope, &format!("get {}", member.name))
+                                    .ok_or(V8BindingError::Allocation("attribute getter name"))?,
+                            );
+                            if member.unforgeable {
+                                unforgeable_getters
+                                    .insert(member.id.0, v8::Global::new(scope, getter));
+                            }
+                            getter
+                        };
                         let setter = (!member.readonly
                             || member.replaceable
                             || member.put_forwards.is_some())
@@ -2743,7 +2916,11 @@ pub fn install_generated_bindings_with_root_for_global(
                             name.into(),
                             Some(getter),
                             setter,
-                            v8::PropertyAttribute::NONE,
+                            if member.unforgeable {
+                                v8::PropertyAttribute::DONT_DELETE
+                            } else {
+                                v8::PropertyAttribute::NONE
+                            },
                         );
                     }
                     GeneratedMemberKind::Operation => {
@@ -2778,6 +2955,25 @@ pub fn install_generated_bindings_with_root_for_global(
                         );
                     }
                     GeneratedMemberKind::Iterable => {
+                        if member.value_iterable && has_indexed_getter {
+                            // Web IDL value iterators use the realm's original
+                            // Array intrinsics: https://webidl.spec.whatwg.org/#es-iterators
+                            for (name, intrinsic) in [
+                                ("entries", v8::Intrinsic::ArrayProtoEntries),
+                                ("keys", v8::Intrinsic::ArrayProtoKeys),
+                                ("values", v8::Intrinsic::ArrayProtoValues),
+                                ("forEach", v8::Intrinsic::ArrayProtoForEach),
+                            ] {
+                                let name = v8::String::new(scope, name)
+                                    .ok_or(V8BindingError::Allocation("iterator method name"))?;
+                                prototype.set_intrinsic_data_property(
+                                    name.into(),
+                                    intrinsic,
+                                    v8::PropertyAttribute::NONE,
+                                );
+                            }
+                            continue;
+                        }
                         let function = v8::FunctionTemplate::builder(generated_operation)
                             .data(data.into())
                             .length(0)
@@ -2788,6 +2984,9 @@ pub fn install_generated_bindings_with_root_for_global(
                     GeneratedMemberKind::Constructor => {}
                 }
             }
+            if interface.callback {
+                template.remove_prototype();
+            }
             let constructor = template
                 .get_function(scope)
                 .ok_or(V8BindingError::MissingInterface(interface.name))?;
@@ -2796,14 +2995,16 @@ pub fn install_generated_bindings_with_root_for_global(
             let interface_prototype = constructor
                 .get(scope, prototype_name.into())
                 .ok_or(V8BindingError::Allocation("interface prototype"))?;
-            constructor.define_own_property(
-                scope,
-                prototype_name.into(),
-                interface_prototype,
-                v8::PropertyAttribute::READ_ONLY
-                    | v8::PropertyAttribute::DONT_ENUM
-                    | v8::PropertyAttribute::DONT_DELETE,
-            );
+            if !interface.callback {
+                constructor.define_own_property(
+                    scope,
+                    prototype_name.into(),
+                    interface_prototype,
+                    v8::PropertyAttribute::READ_ONLY
+                        | v8::PropertyAttribute::DONT_ENUM
+                        | v8::PropertyAttribute::DONT_DELETE,
+                );
+            }
             if let Some(parent) = interface.parent {
                 // A child exposed in Worker can inherit from a parent whose
                 // constructor is intentionally not exposed on that global.
@@ -2934,6 +3135,20 @@ pub fn install_generated_bindings_with_root_for_global(
     context
         .global(scope)
         .set(scope, name.into(), factory.into());
+    let now = v8::Function::new(scope, performance_now_callback)
+        .ok_or(V8BindingError::Allocation("performance clock"))?;
+    let now_name = v8::String::new(scope, "__oryn_performance_now")
+        .ok_or(V8BindingError::Allocation("performance clock name"))?;
+    context
+        .global(scope)
+        .set(scope, now_name.into(), now.into());
+    let origin_name = v8::String::new(scope, "__oryn_performance_time_origin")
+        .ok_or(V8BindingError::Allocation("performance origin name"))?;
+    context.global(scope).set(
+        scope,
+        origin_name.into(),
+        v8::Number::new(scope, state.time_origin_ms).into(),
+    );
     install_dom_exception_intrinsics(scope, context)?;
     install_idb_key_range_statics(scope, context)?;
     install_abort_signal_statics(scope, context)?;
@@ -4128,7 +4343,7 @@ fn idb_value_to_json_inner(
     {
         if let PlatformObjectRecord::Blob(blob) = &*record {
             return Ok(
-                serde_json::json!({"__oryn_clone_type":"blob","bytes":blob.bytes,"type":blob.media_type,"name":blob.file.as_ref().map(|file| &file.name),"lastModified":blob.file.as_ref().map(|file| file.last_modified)}),
+                serde_json::json!({"__oryn_clone_type":"blob","bodyBase64":BASE64.encode(&blob.bytes),"type":blob.media_type,"name":blob.file.as_ref().map(|file| &file.name),"lastModified":blob.file.as_ref().map(|file| file.last_modified)}),
             );
         }
         if let PlatformObjectRecord::IdbKeyRange(range) = &*record {
@@ -4413,17 +4628,29 @@ fn idb_json_to_value<'s>(
         .and_then(serde_json::Value::as_str)
         == Some("blob")
     {
-        let bytes = value
-            .get("bytes")
-            .and_then(serde_json::Value::as_array)
-            .map(|bytes| {
-                bytes
-                    .iter()
-                    .filter_map(serde_json::Value::as_u64)
-                    .map(|byte| byte as u8)
-                    .collect()
-            })
-            .unwrap_or_default();
+        // Keep binary payloads compact across the typed JSON host protocol.
+        // Accept the old array representation for already-persisted records.
+        let bytes =
+            if let Some(encoded) = value.get("bodyBase64").and_then(serde_json::Value::as_str) {
+                BASE64
+                    .decode(encoded)
+                    .map_err(|_| V8BindingError::Unsupported {
+                        interface: "IndexedDB".into(),
+                        member: "DataCloneError".into(),
+                    })?
+            } else {
+                value
+                    .get("bytes")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|bytes| {
+                        bytes
+                            .iter()
+                            .filter_map(serde_json::Value::as_u64)
+                            .map(|byte| byte as u8)
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
         let file = value
             .get("name")
             .and_then(serde_json::Value::as_str)
@@ -4645,7 +4872,7 @@ fn submit_idb(
     };
     let request = PlatformHostRequest::IndexedDb { origin, command };
     let pending = PendingPlatformOperation::IndexedDb { request_id, action };
-    if state.pending_platform_operations.borrow().len() >= 32 {
+    {
         let mut queue = state.queued_idb_operations.borrow_mut();
         if queue.len() >= 16_384 {
             return Err(V8BindingError::Unsupported {
@@ -4654,9 +4881,8 @@ fn submit_idb(
             });
         }
         queue.push_back(QueuedIdbOperation { request, pending });
-    } else {
-        submit_platform_operation(state, request, pending)?;
     }
+    state.flush_queued_idb_operations()?;
     if let Some(transaction_id) = transaction_id
         && let PlatformObjectRecord::IdbTransaction(transaction) =
             &mut *platform_object_mut(state, transaction_id)?
@@ -4733,6 +4959,14 @@ fn cursor_source_transaction_id(
 }
 
 fn finish_idb_request(state: &V8BindingState, request_id: u64) -> Result<(), V8BindingError> {
+    let finished_connection = state
+        .active_idb_connections
+        .borrow_mut()
+        .remove(&request_id)
+        .is_some();
+    if finished_connection {
+        state.flush_queued_idb_operations()?;
+    }
     let transaction_id = match &*platform_object(state, request_id)? {
         PlatformObjectRecord::IdbRequest(request) => request.transaction_id,
         _ => None,
@@ -4877,7 +5111,8 @@ fn finalize_failed_idb_upgrade(
         request.transaction_id = None;
         request.done = true;
     }
-    dispatch_platform_event(scope, state, request_id, "error", None)
+    dispatch_platform_event(scope, state, request_id, "error", None)?;
+    finish_idb_request(state, request_id)
 }
 
 fn install_trusted_types(
@@ -5228,6 +5463,16 @@ const fn kind_token(kind: TrustedKind) -> u64 {
     }
 }
 
+fn performance_now_callback(
+    scope: &mut v8::PinScope,
+    _: v8::FunctionCallbackArguments,
+    mut return_value: v8::ReturnValue,
+) {
+    if let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() {
+        return_value.set(v8::Number::new(scope, state.performance_now()).into());
+    }
+}
+
 fn get_computed_style_callback(
     scope: &mut v8::PinScope,
     args: v8::FunctionCallbackArguments,
@@ -5446,13 +5691,28 @@ fn geometry_for_node(
 
 fn refresh_layout(state: &V8BindingState) -> Result<(), V8BindingError> {
     if let Some(provider) = state.layout_provider.borrow().as_ref() {
-        let layout = provider
-            .compute_layout(&state.custom_states.borrow())
-            .map_err(|member| V8BindingError::Unsupported {
+        let revision = provider.layout_revision();
+        let custom_states = state.custom_states.borrow();
+        if revision.is_some_and(|revision| {
+            state
+                .layout_cache_key
+                .borrow()
+                .as_ref()
+                .is_some_and(|key| key.revision == revision && key.custom_states == *custom_states)
+        }) {
+            return Ok(());
+        }
+        let layout = provider.compute_layout(&custom_states).map_err(|member| {
+            V8BindingError::Unsupported {
                 interface: "Element".into(),
                 member,
-            })?;
+            }
+        })?;
         *state.layout.borrow_mut() = layout;
+        *state.layout_cache_key.borrow_mut() = revision.map(|revision| LayoutCacheKey {
+            revision,
+            custom_states: custom_states.clone(),
+        });
     }
     Ok(())
 }
@@ -5517,6 +5777,7 @@ fn is_platform_interface(interface: &str) -> bool {
             | "IDBDatabase"
             | "IDBTransaction"
             | "IDBKeyRange"
+            | "IDBRecord"
             | "IDBCursor"
             | "IDBCursorWithValue"
             | "IDBIndex"
@@ -6093,6 +6354,12 @@ fn initialize_platform_constructor<'s>(
             state.realm,
             state.document_generation,
         );
+        adopted_stylesheets::mark_sheet(scope, state, args.this(), true)?;
+        state.constructed_stylesheets.borrow_mut().insert(node);
+        state
+            .associated_wrappers
+            .borrow_mut()
+            .insert((node, "CSSStyleSheet"), v8::Weak::new(scope, args.this()));
         return Ok(true);
     }
     if name == "AbortController" {
@@ -6990,6 +7257,7 @@ fn generated_constructor<'s>(
         state.events.borrow_mut().insert(
             event_id,
             EventRecord {
+                time_stamp: state.performance_now(),
                 event_type,
                 target: None,
                 current_target: None,
@@ -7007,13 +7275,6 @@ fn generated_constructor<'s>(
         );
         let id = v8::Number::new(scope, event_id as f64);
         args.this().set_internal_field(0, id.into());
-        if let Some(key) = v8::String::new(scope, "isTrusted") {
-            args.this().create_data_property(
-                scope,
-                key.into(),
-                v8::Boolean::new(scope, false).into(),
-            );
-        }
         if name == "CustomEvent" {
             let detail = init
                 .and_then(|init| {
@@ -7219,6 +7480,7 @@ fn generated_constructor<'s>(
             Ok(id) => {
                 args.this()
                     .set_internal_field(0, v8::Number::new(scope, id as f64).into());
+                track_range_wrapper(scope, &state, args.this(), id);
             }
             Err(error) => throw_type_error(scope, &error.to_string()),
         }
@@ -7261,6 +7523,7 @@ fn generated_constructor<'s>(
             Ok(id) => {
                 args.this()
                     .set_internal_field(0, v8::Number::new(scope, id as f64).into());
+                track_range_wrapper(scope, &state, args.this(), id);
             }
             Err(error) => throw_binding_error(scope, &error),
         }
@@ -7378,6 +7641,8 @@ fn generated_constructor<'s>(
                 connected_root,
             },
         );
+        state.wrapper_graph_revision.set(None);
+        wrapper_graphs::refresh(scope, &state);
         return;
     }
     throw_type_error(scope, &format!("Illegal constructor: {name}"));
@@ -7446,10 +7711,26 @@ fn generated_attribute_getter(
         );
         return;
     }
+    if interface == "NodeList"
+        && member == "length"
+        && let Some(length) = node_lists::static_length(scope, args.this())
+    {
+        return_value.set_uint32(length);
+        return;
+    }
     let Some(state) = binding_state_for_receiver(scope, args.this()) else {
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if matches!(interface, "NodeList" | "HTMLCollection") && member == "length" {
+        let result = node_lists::length(scope, &state, args.this(), interface);
+        node_lists::account_memory(scope, &state);
+        match result {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if is_platform_interface(interface) {
         match get_platform_attribute(scope, &state, args.this(), interface, member) {
             Ok(value) => return_value.set(value),
@@ -7494,7 +7775,7 @@ fn generated_attribute_getter(
         .and_then(|node| get_attribute_value(scope, &state, node, interface, member));
     match result {
         Ok(value) => return_value.set(value),
-        Err(error) => throw_type_error(scope, &format!("{interface}.{member}: {error}")),
+        Err(error) => throw_binding_error(scope, &error),
     }
 }
 
@@ -7567,13 +7848,10 @@ fn generated_attribute_setter(
             return;
         };
         let Some(target) = args.this().get(scope, attribute_name.into()) else {
-            throw_type_error(
-                scope,
-                &format!("{interface}.{member}: target is unavailable"),
-            );
+            // Preserve an exception thrown by the original attribute getter.
             return;
         };
-        let Some(target) = target.to_object(scope) else {
+        let Ok(target) = v8::Local::<v8::Object>::try_from(target) else {
             throw_type_error(
                 scope,
                 &format!("{interface}.{member}: target is not an object"),
@@ -7584,11 +7862,12 @@ fn generated_attribute_setter(
             throw_type_error(scope, "forwarded attribute name allocation failed");
             return;
         };
-        if !target
-            .set(scope, forwarded_name.into(), args.get(0))
-            .unwrap_or(false)
-        {
-            throw_type_error(scope, &format!("{interface}.{member}: forwarding failed"));
+        match target.set(scope, forwarded_name.into(), args.get(0)) {
+            None => {} // Preserve a user setter's exception.
+            Some(false) => {
+                throw_type_error(scope, &format!("{interface}.{member}: forwarding failed"))
+            }
+            Some(true) => {}
         }
         return;
     }
@@ -7639,7 +7918,7 @@ fn generated_attribute_setter(
     let result = resolve_receiver(scope, &state, args.this(), interface)
         .and_then(|node| set_attribute_value(scope, &state, node, interface, member, args.get(0)));
     if let Err(error) = result {
-        throw_type_error(scope, &format!("{interface}.{member}: {error}"));
+        throw_binding_error(scope, &error);
     }
 }
 
@@ -7671,6 +7950,23 @@ fn generated_operation<'s>(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if matches!(interface, "NodeList" | "HTMLCollection") && member == "item" {
+        let result = node_lists::item(scope, &state, args.this(), interface, args.get(0));
+        node_lists::account_memory(scope, &state);
+        match result {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if interface == "HTMLCollection" && member == "namedItem" {
+        match node_lists::named_item(scope, &state, args.this(), args.get(0)) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        node_lists::account_memory(scope, &state);
+        return;
+    }
     if interface == "IDBFactory" && member == "cmp" && args.length() < 2 {
         throw_type_error(scope, "IDBFactory.cmp requires two keys");
         return;
@@ -7754,6 +8050,8 @@ fn generated_operation<'s>(
             Ok(None) => return_value.set(v8::undefined(scope).into()),
             Err(error) => throw_binding_error(scope, &error),
         }
+        refresh_range_wrapper_roots(scope, &state);
+        apply_range_memory_accounting(scope, &state);
         return;
     }
     let result = resolve_receiver(scope, &state, args.this(), interface)
@@ -8020,6 +8318,15 @@ fn dispatch_platform_event_capturing(
         record.immediate_stopped = false;
         if existing.is_none() {
             record.is_trusted = true;
+            if event_type == "error"
+                && matches!(
+                    &*platform_object(state, id)?,
+                    PlatformObjectRecord::IdbRequest(_)
+                )
+            {
+                record.bubbles = true;
+                record.cancelable = true;
+            }
         }
     }
     let default_prevented = v8::String::new(scope, "defaultPrevented")
@@ -8262,6 +8569,16 @@ fn new_stateful_object<'s>(
     interface: &'static str,
     id: u64,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    if matches!(interface, "Range" | "StaticRange") {
+        let cached = state
+            .range_objects
+            .borrow()
+            .get(&id)
+            .and_then(|object| object.handle.to_local(scope));
+        if let Some(object) = cached {
+            return Ok(object);
+        }
+    }
     let template = state
         .instance_templates
         .borrow()
@@ -8273,6 +8590,9 @@ fn new_stateful_object<'s>(
         .ok_or(V8BindingError::Allocation("stateful interface object"))?;
     object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
     object.set_internal_field(1, v8::BigInt::new_from_u64(scope, state.instance_id).into());
+    if matches!(interface, "Range" | "StaticRange") {
+        track_range_wrapper(scope, state, object, id);
+    }
     Ok(object)
 }
 
@@ -8987,7 +9307,110 @@ fn persist_live_range(state: &V8BindingState, id: u64) -> Result<(), V8BindingEr
     Ok(())
 }
 
+fn range_payload_bytes(is_static: bool) -> i64 {
+    (std::mem::size_of::<RangeRecord>()
+        + if is_static {
+            0
+        } else {
+            std::mem::size_of::<LiveRange>()
+        }) as i64
+}
+
+fn apply_range_memory_accounting(scope: &mut v8::PinScope, state: &V8BindingState) {
+    let delta = state.range_memory_delta.replace(0);
+    if delta != 0 {
+        scope.adjust_amount_of_external_allocated_memory(delta);
+    }
+}
+
+fn track_range_wrapper(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    object: v8::Local<v8::Object>,
+    id: u64,
+) {
+    object.set_internal_field(1, v8::BigInt::new_from_u64(scope, state.instance_id).into());
+    state.range_objects.borrow_mut().insert(
+        id,
+        RangeWrapper {
+            handle: v8::Weak::new(scope, object),
+            selection_root: (state.selection_range.get() == Some(id))
+                .then(|| v8::Global::new(scope, object)),
+        },
+    );
+    apply_range_memory_accounting(scope, state);
+}
+
+fn refresh_range_wrapper_roots(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
+    let selected = state.selection_range.get();
+    let mut released = 0;
+    for (id, object) in state.range_objects.borrow_mut().iter_mut() {
+        if selected == Some(*id) {
+            if object.selection_root.is_none()
+                && let Some(local) = object.handle.to_local(scope)
+            {
+                object.selection_root = Some(v8::Global::new(scope, local));
+            }
+        } else if object.selection_root.take().is_some() {
+            released += 1;
+        }
+    }
+    released
+}
+
+/// Weak handles only identify dead wrappers. Mutate the canonical DOM at a
+/// safe checkpoint, or between allocations when no range operation holds it.
+/// Unexposed temporary records are collected only at the outer checkpoint.
+fn collect_dead_ranges(
+    state: &V8BindingState,
+    include_unwrapped: bool,
+) -> Result<usize, BindingError> {
+    let (Ok(mut objects), Ok(mut ranges), Ok(mut statics), Ok(mut dom)) = (
+        state.range_objects.try_borrow_mut(),
+        state.ranges.try_borrow_mut(),
+        state.static_ranges.try_borrow_mut(),
+        state.dom.try_borrow_mut(),
+    ) else {
+        return Ok(0);
+    };
+    let selected = state.selection_range.get();
+    for (id, object) in objects.iter_mut() {
+        if selected != Some(*id) {
+            object.selection_root.take();
+        }
+    }
+    let dead = ranges
+        .keys()
+        .copied()
+        .filter(|id| {
+            selected != Some(*id)
+                && objects
+                    .get(id)
+                    .map_or(include_unwrapped, |object| object.handle.is_empty())
+        })
+        .collect::<Vec<_>>();
+    for id in &dead {
+        let record = ranges.remove(id).expect("enumerated live range record");
+        let is_static = statics.remove(id);
+        if is_static {
+            dom.release_native(record.start_container)?;
+            dom.release_native(record.end_container)?;
+        } else {
+            dom.drop_live_range(LiveRangeId(*id))?;
+        }
+        objects.remove(id);
+        state
+            .range_memory_delta
+            .set(state.range_memory_delta.get() - range_payload_bytes(is_static));
+    }
+    Ok(dead.len())
+}
+
 fn register_live_range(state: &V8BindingState, range: RangeRecord) -> Result<u64, V8BindingError> {
+    let range_count = state.ranges.borrow().len();
+    if range_count >= 64 && range_count.is_multiple_of(64) {
+        collect_dead_ranges(state, false)?;
+    }
     let live = LiveRange::from(&range);
     let id = state
         .dom
@@ -8995,6 +9418,9 @@ fn register_live_range(state: &V8BindingState, range: RangeRecord) -> Result<u64
         .create_live_range(live.start, live.end)?
         .0;
     state.ranges.borrow_mut().insert(id, range);
+    state
+        .range_memory_delta
+        .set(state.range_memory_delta.get() + range_payload_bytes(false));
     Ok(id)
 }
 
@@ -9002,18 +9428,31 @@ fn register_static_range(
     state: &V8BindingState,
     range: RangeRecord,
 ) -> Result<u64, V8BindingError> {
+    let range_count = state.ranges.borrow().len();
+    if range_count >= 64 && range_count.is_multiple_of(64) {
+        collect_dead_ranges(state, false)?;
+    }
     // StaticRange is a frozen boundary record, not a live range. Allocate its
     // collision-free identifier through DomRuntime, then immediately release
-    // the native live-range roots so later DOM mutations cannot move it.
+    // the live range so later DOM mutations cannot move it. The frozen record
+    // separately owns both endpoint roots for its JavaScript lifetime.
     let live = LiveRange::from(&range);
     let id = state
         .dom
         .borrow_mut()
         .create_live_range(live.start, live.end)?
         .0;
-    state.dom.borrow_mut().drop_live_range(LiveRangeId(id))?;
+    {
+        let mut dom = state.dom.borrow_mut();
+        dom.retain_native(range.start_container)?;
+        dom.retain_native(range.end_container)?;
+        dom.drop_live_range(LiveRangeId(id))?;
+    }
     state.ranges.borrow_mut().insert(id, range);
     state.static_ranges.borrow_mut().insert(id);
+    state
+        .range_memory_delta
+        .set(state.range_memory_delta.get() + range_payload_bytes(true));
     Ok(id)
 }
 
@@ -12562,6 +13001,15 @@ fn get_platform_attribute<'s>(
         (PlatformObjectRecord::IdbObjectStore(store), "IDBObjectStore", "autoIncrement") => {
             Ok(v8::Boolean::new(scope, store.auto_increment).into())
         }
+        (PlatformObjectRecord::IdbRecord { key, .. }, "IDBRecord", "key") => {
+            Ok(v8::Local::new(scope, key))
+        }
+        (PlatformObjectRecord::IdbRecord { primary_key, .. }, "IDBRecord", "primaryKey") => {
+            Ok(v8::Local::new(scope, primary_key))
+        }
+        (PlatformObjectRecord::IdbRecord { value, .. }, "IDBRecord", "value") => {
+            Ok(v8::Local::new(scope, value))
+        }
         (PlatformObjectRecord::IdbIndex(index), "IDBIndex", "name") => {
             v8_string(scope, &index.name)
         }
@@ -13046,6 +13494,93 @@ fn set_platform_attribute(
             .platform_handlers
             .borrow_mut()
             .insert((id, event_type.into()), v8::Global::new(scope, value));
+        return Ok(());
+    }
+    if interface == "IDBObjectStore" && member == "name" {
+        let Some(new_name) = value.to_string(scope) else {
+            return Ok(());
+        };
+        let new_name = rust_string_preserving_utf16(scope, new_name)?;
+        let (transaction_id, old_name, deleted) = match &*platform_object(state, id)? {
+            PlatformObjectRecord::IdbObjectStore(store) => {
+                (store.transaction_id, store.name.clone(), store.deleted)
+            }
+            _ => return Err(V8BindingError::Allocation("IDBObjectStore record")),
+        };
+        let (database_id, mode, active) = match &*platform_object(state, transaction_id)? {
+            PlatformObjectRecord::IdbTransaction(transaction) => (
+                transaction.database_id,
+                transaction.mode.clone(),
+                transaction.active && !transaction.aborted && !transaction.finished,
+            ),
+            _ => return Err(V8BindingError::Allocation("IDBTransaction record")),
+        };
+        let error = if deleted || mode != "versionchange" {
+            Some("InvalidStateError")
+        } else if !active {
+            Some("TransactionInactiveError")
+        } else {
+            None
+        };
+        if let Some(error) = error {
+            return Err(V8BindingError::Unsupported {
+                interface: "IDBObjectStore".into(),
+                member: error.into(),
+            });
+        }
+        if old_name == new_name {
+            return Ok(());
+        }
+        let database = {
+            let mut record = platform_object_mut(state, database_id)?;
+            let PlatformObjectRecord::IdbDatabase(database) = &mut *record else {
+                return Err(V8BindingError::Allocation("IDBDatabase record"));
+            };
+            if database.object_store_definitions.contains_key(&new_name) {
+                return Err(V8BindingError::Unsupported {
+                    interface: "IDBObjectStore".into(),
+                    member: "ConstraintError".into(),
+                });
+            }
+            let mut definition = database
+                .object_store_definitions
+                .remove(&old_name)
+                .ok_or(V8BindingError::Allocation("object store definition"))?;
+            definition.name = new_name.clone();
+            database
+                .object_store_definitions
+                .insert(new_name.clone(), definition);
+            for name in &mut database.object_stores {
+                if *name == old_name {
+                    *name = new_name.clone();
+                }
+            }
+            database.name.clone()
+        };
+        if let PlatformObjectRecord::IdbTransaction(transaction) =
+            &mut *platform_object_mut(state, transaction_id)?
+        {
+            for name in &mut transaction.object_stores {
+                if *name == old_name {
+                    *name = new_name.clone();
+                }
+            }
+        }
+        if let PlatformObjectRecord::IdbObjectStore(store) = &mut *platform_object_mut(state, id)? {
+            store.name = new_name.clone();
+        }
+        let hidden = new_idb_request(state, Some(transaction_id));
+        submit_idb(
+            scope,
+            state,
+            hidden,
+            IdbHostCommand::RenameObjectStore {
+                database,
+                store: old_name,
+                new_name,
+            },
+            IdbCompletionAction::Unit,
+        )?;
         return Ok(());
     }
     if interface == "IDBIndex" && member == "name" {
@@ -13637,6 +14172,7 @@ fn call_platform_operation<'s>(
                 PlatformObjectRecord::IdbObjectStore(IdbObjectStoreRecord {
                     transaction_id,
                     name: name.clone(),
+                    upgrade_base_name: None,
                     key_path: key_path.clone(),
                     auto_increment,
                     indexes: BTreeMap::new(),
@@ -13856,11 +14392,45 @@ fn call_platform_operation<'s>(
                     member: "NotFoundError".into(),
                 });
             }
+            if let Some(existing_id) =
+                state
+                    .platform_objects
+                    .borrow()
+                    .iter()
+                    .find_map(|(candidate_id, candidate)| match candidate {
+                        PlatformObjectRecord::IdbObjectStore(store)
+                            if store.transaction_id == id
+                                && store.name == name
+                                && !store.deleted =>
+                        {
+                            Some(*candidate_id)
+                        }
+                        _ => None,
+                    })
+            {
+                return Ok(Some(
+                    new_platform_object(scope, state, "IDBObjectStore", existing_id)?.into(),
+                ));
+            }
+            let upgrade_base_name = {
+                let database_id = match &*platform_object(state, id)? {
+                    PlatformObjectRecord::IdbTransaction(transaction) => transaction.database_id,
+                    _ => return Err(V8BindingError::Allocation("IDBTransaction record")),
+                };
+                match &*platform_object(state, database_id)? {
+                    PlatformObjectRecord::IdbDatabase(database) => database
+                        .upgrade_base_definitions
+                        .get(&name)
+                        .map(|definition| definition.name.clone()),
+                    _ => None,
+                }
+            };
             let store_id = register_platform_object(
                 state,
                 PlatformObjectRecord::IdbObjectStore(IdbObjectStoreRecord {
                     transaction_id: id,
                     name,
+                    upgrade_base_name,
                     key_path: definition.as_ref().and_then(|value| value.key_path.clone()),
                     auto_increment: definition
                         .as_ref()
@@ -13921,6 +14491,11 @@ fn call_platform_operation<'s>(
                         database.upgrade_base_definitions.clone(),
                     )
                 };
+                if let PlatformObjectRecord::IdbTransaction(transaction) =
+                    &mut *platform_object_mut(state, id)?
+                {
+                    transaction.object_stores = base_definitions.keys().cloned().collect();
+                }
                 let transaction_store_ids = state
                     .platform_objects
                     .borrow()
@@ -13939,8 +14514,17 @@ fn call_platform_operation<'s>(
                         PlatformObjectRecord::IdbObjectStore(store)
                             if store.transaction_id == id =>
                         {
-                            let definition = base_definitions.get(&store.name);
+                            let definition = store
+                                .upgrade_base_name
+                                .as_ref()
+                                .and_then(|name| base_definitions.get(name));
+                            if let Some(definition) = definition {
+                                store.name = definition.name.clone();
+                            }
                             store.deleted = definition.is_none();
+                            if definition.is_none() {
+                                store.indexes.clear();
+                            }
                             if let Some(definition) = definition {
                                 store.indexes = definition
                                     .indexes
@@ -14076,7 +14660,8 @@ fn call_platform_operation<'s>(
         }
         (
             "IDBObjectStore" | "IDBIndex",
-            "get" | "getKey" | "getAll" | "getAllKeys" | "count" | "openCursor" | "openKeyCursor",
+            "get" | "getKey" | "getAll" | "getAllKeys" | "getAllRecords" | "count" | "openCursor"
+            | "openKeyCursor",
         ) => {
             return idb_source_request(scope, state, id, interface, member, args);
         }
@@ -14182,7 +14767,10 @@ fn call_platform_operation<'s>(
                 let PlatformObjectRecord::IdbObjectStore(store) = &*record else {
                     return Err(V8BindingError::Allocation("IDBObjectStore record"));
                 };
-                if store.deleted {
+                let finished = matches!(&*platform_object(state, store.transaction_id)?,
+                    PlatformObjectRecord::IdbTransaction(transaction)
+                        if transaction.finished || transaction.aborted);
+                if store.deleted || finished {
                     return Err(V8BindingError::Unsupported {
                         interface: "IDBObjectStore".into(),
                         member: "InvalidStateError".into(),
@@ -14254,23 +14842,25 @@ fn call_platform_operation<'s>(
         }
         ("IDBObjectStore", "deleteIndex") => {
             let name = required_string(scope, args, 0)?;
-            let transaction_id = match &*platform_object(state, id)? {
-                PlatformObjectRecord::IdbObjectStore(store) => store.transaction_id,
+            let (transaction_id, deleted) = match &*platform_object(state, id)? {
+                PlatformObjectRecord::IdbObjectStore(store) => {
+                    (store.transaction_id, store.deleted)
+                }
                 _ => return Err(V8BindingError::Allocation("IDBObjectStore record")),
             };
             match &*platform_object(state, transaction_id)? {
+                PlatformObjectRecord::IdbTransaction(transaction)
+                    if transaction.mode != "versionchange" || deleted =>
+                {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "IDBObjectStore".into(),
+                        member: "InvalidStateError".into(),
+                    });
+                }
                 PlatformObjectRecord::IdbTransaction(transaction) if !transaction.active => {
                     return Err(V8BindingError::Unsupported {
                         interface: "IDBTransaction".into(),
                         member: "TransactionInactiveError".into(),
-                    });
-                }
-                PlatformObjectRecord::IdbTransaction(transaction)
-                    if transaction.mode != "versionchange" =>
-                {
-                    return Err(V8BindingError::Unsupported {
-                        interface: "IDBTransaction".into(),
-                        member: "InvalidStateError".into(),
                     });
                 }
                 PlatformObjectRecord::IdbTransaction(_) => {}
@@ -15787,31 +16377,73 @@ fn idb_source_request<'s>(
         (source_id, None)
     };
     let (database, store, transaction_id) = idb_store_context(state, store_id)?;
-    // IndexedDB applies WebIDL [EnforceRange] to the optional count before
-    // converting the query union. This ordering is observable when both
-    // arguments are invalid.
-    let count = if matches!(member, "getAll" | "getAllKeys") {
-        idb_optional_count(scope, args.get(1))?
+    let all = matches!(member, "getAll" | "getAllKeys" | "getAllRecords");
+    let first = args.get(0);
+    let is_range = v8::Local::<v8::Object>::try_from(first)
+        .ok()
+        .and_then(|object| stateful_id(scope, object).ok())
+        .is_some_and(|id| {
+            platform_object(state, id)
+                .is_ok_and(|record| matches!(&*record, PlatformObjectRecord::IdbKeyRange(_)))
+        });
+    let dictionary = member == "getAllRecords"
+        || (all
+            && first.is_object()
+            && !first.is_array()
+            && !first.is_date()
+            && !first.is_array_buffer()
+            && !first.is_array_buffer_view()
+            && !is_range);
+    if member == "getAllRecords" && !first.is_null_or_undefined() && !first.is_object() {
+        return Err(V8BindingError::Unsupported {
+            interface: interface.into(),
+            member: "TypeError: options must be a dictionary".into(),
+        });
+    }
+    // Dictionary members are converted in WebIDL order: count, direction, query.
+    let count = if all {
+        let count_value = if dictionary {
+            option_value(scope, first, "count").unwrap_or_else(|| v8::undefined(scope).into())
+        } else {
+            args.get(1)
+        };
+        idb_optional_count(scope, count_value)?
     } else {
         None
     };
-    let query_value = args.get(0);
-    let null_is_unbounded = matches!(
-        member,
-        "getAll" | "getAllKeys" | "count" | "openCursor" | "openKeyCursor"
-    );
+    let direction_value = if dictionary {
+        option_value(scope, first, "direction").unwrap_or_else(|| v8::undefined(scope).into())
+    } else if member.starts_with("open") {
+        args.get(1)
+    } else {
+        v8::undefined(scope).into()
+    };
+    let direction = if direction_value.is_undefined() {
+        "next".into()
+    } else {
+        direction_value.to_rust_string_lossy(scope)
+    };
+    if !matches!(
+        direction.as_str(),
+        "next" | "prev" | "nextunique" | "prevunique"
+    ) {
+        return Err(V8BindingError::Unsupported {
+            interface: interface.into(),
+            member: "TypeError: invalid cursor direction".into(),
+        });
+    }
+    let query_value = if dictionary {
+        option_value(scope, first, "query").unwrap_or_else(|| v8::undefined(scope).into())
+    } else {
+        first
+    };
+    let null_is_unbounded = all || matches!(member, "count" | "openCursor" | "openKeyCursor");
     let query = if query_value.is_undefined() || (null_is_unbounded && query_value.is_null()) {
         None
     } else {
         Some(idb_query_to_json(scope, state, query_value)?)
     };
     let request_id = new_idb_request_for_source(state, Some(transaction_id), Some(source_id));
-    let direction_index = if member.starts_with("open") { 1 } else { 0 };
-    let direction = if args.get(direction_index).is_undefined() {
-        "next".into()
-    } else {
-        args.get(direction_index).to_rust_string_lossy(scope)
-    };
     let (command, action) = match member {
         "get" if index.is_none() => (
             IdbHostCommand::Get {
@@ -15820,10 +16452,6 @@ fn idb_source_request<'s>(
                 key: query.unwrap_or(serde_json::Value::Null),
             },
             IdbCompletionAction::Value,
-        ),
-        "getAll" if index.is_none() && query.is_none() => (
-            IdbHostCommand::GetAll { database, store },
-            IdbCompletionAction::Values { count },
         ),
         "count" if index.is_none() && query.is_none() => (
             IdbHostCommand::Count { database, store },
@@ -15844,25 +16472,23 @@ fn idb_source_request<'s>(
                 with_value: member == "openCursor",
             },
         ),
-        "getAll" => (
+        "getAll" | "getAllKeys" | "getAllRecords" => (
             IdbHostCommand::Cursor {
                 database,
                 store,
                 index,
                 query,
-                reverse: false,
+                reverse: direction.starts_with("prev"),
             },
-            IdbCompletionAction::Values { count },
-        ),
-        "getAllKeys" => (
-            IdbHostCommand::Cursor {
-                database,
-                store,
-                index,
-                query,
-                reverse: false,
+            IdbCompletionAction::Batch {
+                count,
+                direction,
+                kind: match member {
+                    "getAll" => IdbBatchKind::Values,
+                    "getAllKeys" => IdbBatchKind::Keys,
+                    _ => IdbBatchKind::Records,
+                },
             },
-            IdbCompletionAction::Keys { count },
         ),
         "count" => (
             IdbHostCommand::Cursor {
@@ -16014,6 +16640,7 @@ fn call_stateful_operation<'s>(
     }
     if interface == "DOMImplementation" {
         match member {
+            "hasFeature" => return Ok(Some(v8::Boolean::new(scope, true).into())),
             "createDocument" => {
                 let namespace = if args.get(0).is_null_or_undefined() {
                     String::new()
@@ -16032,6 +16659,17 @@ fn call_stateful_operation<'s>(
                 };
                 let mut dom = state.dom.borrow_mut();
                 let document = dom.create(NodeKind::Document);
+                dom.arena_mut()
+                    .get_mut(document)?
+                    .document_metadata
+                    .as_mut()
+                    .unwrap()
+                    .content_type = match namespace.as_str() {
+                    "http://www.w3.org/1999/xhtml" => "application/xhtml+xml",
+                    "http://www.w3.org/2000/svg" => "image/svg+xml",
+                    _ => "application/xml",
+                }
+                .into();
                 if let Some(doctype) = requested_doctype {
                     if !matches!(
                         dom.arena().get(doctype)?.kind,
@@ -16051,16 +16689,21 @@ fn call_stateful_operation<'s>(
                 }
                 drop(dom);
                 state.node_documents.borrow_mut().insert(document, document);
+                if let Some(doctype) = requested_doctype {
+                    state.node_documents.borrow_mut().insert(doctype, document);
+                }
                 return Ok(Some(wrap_node(scope, state, document)?.into()));
             }
             "createHTMLDocument" => {
                 let title = if args.get(0).is_undefined() {
-                    String::new()
+                    None
                 } else {
-                    required_string(scope, args, 0)?
+                    Some(required_string(scope, args, 0)?)
                 };
                 let mut dom = state.dom.borrow_mut();
                 let document = dom.create(NodeKind::Document);
+                dom.arena_mut().get_mut(document)?.document_metadata =
+                    Some(Box::new(oryn_dom::DocumentMetadata::html()));
                 let doctype = dom.create(NodeKind::DocumentType {
                     name: "html".into(),
                     public_id: String::new(),
@@ -16068,19 +16711,23 @@ fn call_stateful_operation<'s>(
                 });
                 let html = dom.create_element("html");
                 let head = dom.create_element("head");
-                let title_element = dom.create_element("title");
-                let title_text = dom.create_text(title);
                 let body = dom.create_element("body");
                 dom.append_child(document, doctype)?;
                 dom.append_child(document, html)?;
                 dom.append_child(html, head)?;
-                dom.append_child(head, title_element)?;
-                dom.append_child(title_element, title_text)?;
                 dom.append_child(html, body)?;
+                let mut owned = vec![doctype, html, head, body];
+                if let Some(title) = title {
+                    let title_element = dom.create_element("title");
+                    let title_text = dom.create_text(title);
+                    dom.append_child(head, title_element)?;
+                    dom.append_child(title_element, title_text)?;
+                    owned.extend([title_element, title_text]);
+                }
                 drop(dom);
                 let mut owners = state.node_documents.borrow_mut();
                 owners.insert(document, document);
-                for owned in [doctype, html, head, title_element, title_text, body] {
+                for owned in owned {
                     owners.insert(owned, document);
                 }
                 return Ok(Some(wrap_node(scope, state, document)?.into()));
@@ -16097,17 +16744,29 @@ fn call_stateful_operation<'s>(
                 } else {
                     required_string(scope, args, 2)?
                 };
-                if qualified_name.is_empty() || qualified_name.chars().any(char::is_whitespace) {
+                if qualified_name.chars().any(|character| {
+                    matches!(character, '\t' | '\n' | '\u{000c}' | '\r' | ' ' | '>')
+                }) {
                     return Err(V8BindingError::Unsupported {
                         interface: "DOMImplementation".into(),
                         member: "InvalidCharacterError".into(),
                     });
                 }
+                let implementation = stateful_id(scope, object)?;
+                let owner = state
+                    .implementation_documents
+                    .borrow()
+                    .get(&implementation)
+                    .copied()
+                    .ok_or(V8BindingError::Allocation(
+                        "DOMImplementation owner document",
+                    ))?;
                 let node = state.dom.borrow_mut().create(NodeKind::DocumentType {
                     name: qualified_name,
                     public_id,
                     system_id,
                 });
+                state.node_documents.borrow_mut().insert(node, owner);
                 return Ok(Some(wrap_node(scope, state, node)?.into()));
             }
             _ => {}
@@ -17057,6 +17716,9 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
             "SVGElement"
         }
         NodeKind::Element { name } => match name.local.as_ref() {
+            "html" => "HTMLHtmlElement",
+            "head" => "HTMLHeadElement",
+            "title" => "HTMLTitleElement",
             "body" => "HTMLBodyElement",
             "template" => "HTMLTemplateElement",
             "audio" | "video" => "HTMLMediaElement",
@@ -17092,6 +17754,23 @@ fn interface_for_node(kind: &NodeKind) -> &'static str {
 ///
 /// Hosts use this only to seed task-local globals before invoking generated
 /// interface behavior; page code never receives a Rust pointer.
+fn owner_document_for_node(state: &V8BindingState, node: NodeId) -> Result<NodeId, V8BindingError> {
+    let dom = state.dom.borrow();
+    let owners = state.node_documents.borrow();
+    let mut current = Some(node);
+    while let Some(node) = current {
+        let record = dom.arena().get(node)?;
+        if matches!(record.kind, NodeKind::Document) {
+            return Ok(node);
+        }
+        if let Some(owner) = owners.get(&node) {
+            return Ok(*owner);
+        }
+        current = record.parent;
+    }
+    Ok(state.document)
+}
+
 pub fn wrap_node<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
@@ -17109,9 +17788,13 @@ pub fn wrap_node<'s>(
             brand,
         )?
     };
-    if let Some(object) = state.objects.borrow().get(&wrapper)
-        && let Some(local) = object.handle.to_local(scope)
-    {
+    let cached = state
+        .objects
+        .borrow()
+        .get(&wrapper)
+        .and_then(|object| object.handle.to_local(scope));
+    if let Some(local) = cached {
+        wrapper_graphs::refresh(scope, state);
         return Ok(local);
     }
     let interface = interface_for_node(&kind);
@@ -17178,6 +17861,7 @@ pub fn wrap_node<'s>(
         .borrow()
         .is_connected(node)?
         .then(|| v8::Global::new(scope, object));
+    let detached = connected_root.is_none();
     state.objects.borrow_mut().insert(
         wrapper,
         WrapperObject {
@@ -17185,6 +17869,13 @@ pub fn wrap_node<'s>(
             connected_root,
         },
     );
+    // Connected wrappers already have their individual embedder roots. Adding
+    // one cannot change a detached tree's traced members; rebuilding all trees
+    // here would make wrapping a large connected query result quadratic.
+    if detached {
+        state.wrapper_graph_revision.set(None);
+    }
+    wrapper_graphs::refresh(scope, state);
     Ok(object)
 }
 
@@ -17249,30 +17940,10 @@ fn receiver_wrapper_id(
     scope: &mut v8::PinScope,
     object: v8::Local<v8::Object>,
 ) -> Option<WrapperId> {
-    receiver_wrapper_id_at_depth(scope, object, 0)
-}
-
-fn receiver_wrapper_id_at_depth(
-    scope: &mut v8::PinScope,
-    object: v8::Local<v8::Object>,
-    depth: u8,
-) -> Option<WrapperId> {
-    // Framework reactivity layers can place transparent JavaScript Proxies
-    // around host objects. Web-platform receivers retain the target's DOM
-    // identity in that case; never treat the Proxy object itself as a wrapper
-    // and never invoke its traps a second time while performing the brand
-    // check. Bound the chain so adversarial nested proxies cannot turn a DOM
-    // access into unbounded host work.
+    // A JavaScript Proxy does not acquire its target's WebIDL interface brand.
+    // Brand checks must not unwrap targets or invoke user traps.
     if object.internal_field_count() == 0 {
-        if depth >= 8 || !object.is_proxy() {
-            return None;
-        }
-        let proxy = v8::Local::<v8::Proxy>::try_from(v8::Local::<v8::Value>::from(object)).ok()?;
-        if proxy.is_revoked() {
-            return None;
-        }
-        let target = v8::Local::<v8::Object>::try_from(proxy.get_target(scope)).ok()?;
-        return receiver_wrapper_id_at_depth(scope, target, depth + 1);
+        return None;
     }
     let field = object.get_internal_field(scope, 0)?;
     let value = v8::Local::<v8::Value>::try_from(field).ok()?;
@@ -17368,6 +18039,7 @@ fn mutation_target(mutation: &Mutation) -> Option<NodeId> {
         Mutation::Attribute { node, .. }
         | Mutation::CharacterData { node, .. }
         | Mutation::FormState { node }
+        | Mutation::StyleSheets { node }
         | Mutation::EventListener { node, .. } => Some(*node),
         Mutation::Focus { current, previous } => current.or(*previous),
         Mutation::ShadowAttached { host, .. } => Some(*host),
@@ -17396,7 +18068,9 @@ fn observer_accepts(
             | Mutation::ShadowAttached { .. } => options.child_list,
             Mutation::Attribute { .. } | Mutation::FormState { .. } => options.attributes,
             Mutation::CharacterData { .. } => options.character_data,
-            Mutation::Focus { .. } | Mutation::EventListener { .. } => false,
+            Mutation::Focus { .. }
+            | Mutation::EventListener { .. }
+            | Mutation::StyleSheets { .. } => false,
         }
 }
 
@@ -17456,7 +18130,9 @@ fn mutation_record_array<'s>(
             Mutation::ShadowAttached { host, root, .. } => {
                 ("childList", Some(*host), None, None, Some(*root), None)
             }
-            Mutation::Focus { .. } | Mutation::EventListener { .. } => continue,
+            Mutation::Focus { .. }
+            | Mutation::EventListener { .. }
+            | Mutation::StyleSheets { .. } => continue,
         };
         let kind_value = v8_string(scope, kind)?;
         set_object_property(scope, object, "type", kind_value)?;
@@ -17477,9 +18153,9 @@ fn mutation_record_array<'s>(
         set_object_property(scope, object, "oldValue", old_value)?;
         let added_nodes = added.map_or_else(Vec::new, |node| vec![node]);
         let removed_nodes = removed.map_or_else(Vec::new, |node| vec![node]);
-        let added_value = node_array(scope, state, &added_nodes)?;
+        let added_value = node_lists::snapshot(scope, state, &added_nodes)?;
         set_object_property(scope, object, "addedNodes", added_value)?;
-        let removed_value = node_array(scope, state, &removed_nodes)?;
+        let removed_value = node_lists::snapshot(scope, state, &removed_nodes)?;
         set_object_property(scope, object, "removedNodes", removed_value)?;
         let null = v8::null(scope).into();
         set_object_property(scope, object, "previousSibling", null)?;
@@ -17773,6 +18449,52 @@ fn delete_cached_stylesheet_rule(
     Ok(())
 }
 
+fn query_selector_nodes(
+    state: &V8BindingState,
+    node: NodeId,
+    selector: &str,
+    operation: SelectorOperation,
+) -> Result<Vec<NodeId>, V8BindingError> {
+    if let Some(provider) = state.layout_provider.borrow().as_ref()
+        && let Some(result) =
+            provider.query_selector(node, selector, operation, &state.custom_states.borrow())
+    {
+        return result.map_err(|_| V8BindingError::Unsupported {
+            interface: "Selectors".into(),
+            member: "SyntaxError".into(),
+        });
+    }
+    validate_css_selector(state, selector)?;
+    let dom = state.dom.borrow();
+    Ok(match operation {
+        SelectorOperation::First => dom.query_selector(node, selector)?.into_iter().collect(),
+        SelectorOperation::All => dom.query_selector_all(node, selector)?,
+        SelectorOperation::Matches => {
+            let matched = match selector.trim() {
+                ":modal" => dom.attribute(node, "data-oryn-modal")?.is_some(),
+                ":open" => dom.attribute(node, "open")?.is_some(),
+                _ => dom.matches_selector(node, selector)?,
+            };
+            if matched { vec![node] } else { vec![] }
+        }
+        SelectorOperation::Closest => {
+            let mut current = Some(node);
+            let mut found = Vec::new();
+            while let Some(candidate) = current {
+                if !matches!(dom.arena().get(candidate)?.kind, NodeKind::Element { .. }) {
+                    break;
+                }
+                if dom.matches_selector(candidate, selector)? {
+                    found.push(candidate);
+                    break;
+                }
+                current = dom.parent(candidate)?;
+            }
+            found
+        }
+    })
+}
+
 fn validate_css_selector(state: &V8BindingState, selector: &str) -> Result<(), V8BindingError> {
     if let Some(provider) = state.layout_provider.borrow().as_ref() {
         provider
@@ -17857,24 +18579,7 @@ fn template_content(
     state: &Rc<V8BindingState>,
     template: NodeId,
 ) -> Result<NodeId, V8BindingError> {
-    if let Some(content) = state.template_contents.borrow().get(&template).copied() {
-        return Ok(content);
-    }
-    let content = {
-        let mut dom = state.dom.borrow_mut();
-        let content = dom.create_fragment();
-        let children = dom.arena().get(template)?.children.clone();
-        for child in children {
-            dom.remove_child(template, child)?;
-            dom.append_child(content, child)?;
-        }
-        content
-    };
-    state
-        .template_contents
-        .borrow_mut()
-        .insert(template, content);
-    Ok(content)
+    Ok(state.dom.borrow_mut().template_content(template)?)
 }
 
 fn get_attribute_value<'s>(
@@ -17884,6 +18589,9 @@ fn get_attribute_value<'s>(
     interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if member == "adoptedStyleSheets" && matches!(interface, "Document" | "ShadowRoot") {
+        return adopted_stylesheets::get(scope, state, node).map(Into::into);
+    }
     if interface == "HTMLElement" && member.starts_with("on") {
         return Ok(state
             .event_handlers
@@ -18049,6 +18757,16 @@ fn get_attribute_value<'s>(
         }
         return Ok(rules.into());
     }
+    // Documents made by DOMImplementation have no browsing context. Their
+    // metadata must not alias the location or Window of the creating realm.
+    if interface == "Document" && node != state.document {
+        match member {
+            "defaultView" | "location" => return Ok(v8::null(scope).into()),
+            "URL" | "documentURI" | "baseURI" => return v8_string(scope, "about:blank"),
+
+            _ => {}
+        }
+    }
     if interface == "Document" && member == "defaultView" {
         return Ok(scope.get_current_context().global(scope).into());
     }
@@ -18060,7 +18778,7 @@ fn get_attribute_value<'s>(
             .get(scope, location.into())
             .ok_or(V8BindingError::Allocation("location object"));
     }
-    if interface == "Document" && matches!(member, "URL" | "baseURI") {
+    if interface == "Document" && matches!(member, "URL" | "documentURI" | "baseURI") {
         let global = scope.get_current_context().global(scope);
         let location_key =
             v8::String::new(scope, "location").ok_or(V8BindingError::Allocation("location key"))?;
@@ -18086,8 +18804,24 @@ fn get_attribute_value<'s>(
     if interface == "Document" && matches!(member, "characterSet" | "charset" | "inputEncoding") {
         return v8_string(scope, "UTF-8");
     }
-    if interface == "Document" && member == "contentType" {
-        return v8_string(scope, "text/html");
+    if interface == "Document" && matches!(member, "contentType" | "compatMode") {
+        let dom = state.dom.borrow();
+        let metadata = dom
+            .arena()
+            .get(node)?
+            .document_metadata
+            .as_ref()
+            .expect("document metadata");
+        return v8_string(
+            scope,
+            if member == "contentType" {
+                &metadata.content_type
+            } else if metadata.quirks {
+                "BackCompat"
+            } else {
+                "CSS1Compat"
+            },
+        );
     }
     if interface == "Document" && member == "currentScript" {
         return optional_node(scope, state, state.current_script.get());
@@ -18098,6 +18832,44 @@ fn get_attribute_value<'s>(
     }
     if interface == "Document" && member == "designMode" {
         return v8_string(scope, if state.design_mode.get() { "on" } else { "off" });
+    }
+    if interface == "HTMLElement" && matches!(member, "offsetWidth" | "offsetHeight") {
+        if !state.dom.borrow().is_connected(node)? {
+            return Ok(v8::Integer::new(scope, 0).into());
+        }
+        refresh_layout(state)?;
+        let dimensions = state
+            .layout
+            .borrow()
+            .offset_dimensions
+            .get(&node_key(node))
+            .copied();
+        let (width, height) = match dimensions {
+            Some(dimensions) => dimensions,
+            None => match geometry_for_node(state, node)? {
+                BindingGeometry::Hidden => (0.0, 0.0),
+                BindingGeometry::Unsupported(detail) => {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "HTMLElement".into(),
+                        member: detail,
+                    });
+                }
+                BindingGeometry::Available(_) => {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "HTMLElement".into(),
+                        member: "untransformed offset dimensions are unavailable".into(),
+                    });
+                }
+            },
+        };
+        let value = if member == "offsetWidth" {
+            width
+        } else {
+            height
+        };
+        return Ok(
+            v8::Integer::new(scope, value.round().clamp(0.0, f64::from(i32::MAX)) as i32).into(),
+        );
     }
     if interface == "HTMLSelectElement" && member == "options" {
         let options = state.dom.borrow().query_selector_all(node, "option")?;
@@ -18230,46 +19002,44 @@ fn get_attribute_value<'s>(
         return optional_node(scope, state, related);
     }
     if member == "childNodes" {
-        let children = light_children(&state.dom.borrow(), node)?;
-        return node_array(scope, state, &children);
+        return node_lists::children(scope, state, node);
     }
-    if matches!(interface, "Element" | "DocumentFragment" | "ShadowRoot") && member == "children" {
-        let children = state
-            .dom
-            .borrow()
-            .arena()
-            .get(node)?
-            .children
-            .iter()
-            .copied()
-            .filter(|child| {
-                matches!(
-                    state
-                        .dom
-                        .borrow()
-                        .arena()
-                        .get(*child)
-                        .ok()
-                        .map(|record| &record.kind),
-                    Some(NodeKind::Element { .. })
-                )
-            })
-            .collect::<Vec<_>>();
-        return node_array(scope, state, &children);
+    if matches!(
+        interface,
+        "Document" | "Element" | "DocumentFragment" | "ShadowRoot"
+    ) && member == "children"
+    {
+        return node_lists::elements(scope, state, node, node_lists::ElementFilter::Children);
     }
     if interface == "Document" && member == "documentElement" {
         let document_element = state.dom.borrow().first_element_child(node)?;
         return optional_node(scope, state, document_element);
     }
     if interface == "Document" && member == "implementation" {
-        if let Some(object) = state.implementation_object.borrow().as_ref() {
-            return Ok(v8::Local::new(scope, object).into());
+        let document = wrap_node(scope, state, node)?;
+        let cache_name = v8::String::new(scope, "oryn.document.implementation")
+            .ok_or(V8BindingError::Allocation("implementation cache key"))?;
+        let cache_key = v8::Private::for_api(scope, Some(cache_name));
+        if let Some(cached) = document.get_private(scope, cache_key)
+            && cached.is_object()
+        {
+            return Ok(cached);
         }
-        let object = new_stateful_object(scope, state, "DOMImplementation", 1)?;
-        state
-            .implementation_object
-            .borrow_mut()
-            .replace(v8::Global::new(scope, object));
+        let id = state
+            .implementation_documents
+            .borrow()
+            .last_key_value()
+            .map_or(1, |(id, _)| id + 1);
+        let object = new_stateful_object(scope, state, "DOMImplementation", id)?;
+        let owner_name = v8::String::new(scope, "oryn.implementation.document")
+            .ok_or(V8BindingError::Allocation("implementation owner key"))?;
+        let owner_key = v8::Private::for_api(scope, Some(owner_name));
+        // Trace both directions through V8. A saved implementation keeps its
+        // document alive, while an unreachable document/implementation cycle
+        // can be collected instead of being pinned by a realm-global cache.
+        object.set_private(scope, owner_key, document.into());
+        document.set_private(scope, cache_key, object.into());
+        state.implementation_documents.borrow_mut().insert(id, node);
         return Ok(object.into());
     }
     if interface == "Document" && matches!(member, "head" | "body") {
@@ -18301,26 +19071,13 @@ fn get_attribute_value<'s>(
         return optional_node(scope, state, doctype);
     }
     if interface == "Node" && member == "ownerDocument" {
-        let owner = {
-            let dom = state.dom.borrow();
-            if matches!(dom.arena().get(node)?.kind, NodeKind::Document) {
-                None
-            } else {
-                if let Some(owner) = state.node_documents.borrow().get(&node).copied() {
-                    Some(owner)
-                } else {
-                    dom.arena()
-                        .ancestors(node)?
-                        .into_iter()
-                        .find(|ancestor| {
-                            matches!(
-                                dom.arena().get(*ancestor).map(|record| &record.kind),
-                                Ok(NodeKind::Document)
-                            )
-                        })
-                        .or(Some(dom.document()))
-                }
-            }
+        let owner = if matches!(
+            state.dom.borrow().arena().get(node)?.kind,
+            NodeKind::Document
+        ) {
+            None
+        } else {
+            Some(owner_document_for_node(state, node)?)
         };
         return optional_node(scope, state, owner);
     }
@@ -18754,6 +19511,9 @@ fn set_attribute_value(
     member: &str,
     value: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
+    if member == "adoptedStyleSheets" && matches!(interface, "Document" | "ShadowRoot") {
+        return adopted_stylesheets::assign(scope, state, node, value);
+    }
     if interface == "Document" && member == "designMode" {
         state
             .design_mode
@@ -19391,10 +20151,26 @@ fn call_operation<'s>(
                     member: "InvalidCharacterError".into(),
                 });
             }
-            let created = state
-                .dom
-                .borrow_mut()
-                .create_element(&name.to_ascii_lowercase());
+            let mut dom = state.dom.borrow_mut();
+            let metadata = dom
+                .arena()
+                .get(node)?
+                .document_metadata
+                .as_ref()
+                .expect("document metadata");
+            let html = metadata.is_html;
+            let namespace = if html || metadata.content_type == "application/xhtml+xml" {
+                "http://www.w3.org/1999/xhtml"
+            } else {
+                ""
+            };
+            let local_name = if html {
+                name.to_ascii_lowercase()
+            } else {
+                name
+            };
+            let created = dom.create_element_with_local_name(namespace, &local_name);
+            drop(dom);
             state.node_documents.borrow_mut().insert(created, node);
             Ok(Some(wrap_node(scope, state, created)?.into()))
         }
@@ -19405,10 +20181,7 @@ fn call_operation<'s>(
                 required_string(scope, args, 0)?
             };
             let name = required_string(scope, args, 1)?;
-            let created = state
-                .dom
-                .borrow_mut()
-                .create_element_ns(&namespace, &name.to_ascii_lowercase());
+            let created = state.dom.borrow_mut().create_element_ns(&namespace, &name);
             state.node_documents.borrow_mut().insert(created, node);
             Ok(Some(wrap_node(scope, state, created)?.into()))
         }
@@ -20147,14 +20920,23 @@ fn call_operation<'s>(
         }
         (_, "cloneNode") => {
             let deep = args.get(0).boolean_value(scope);
+            let owner = owner_document_for_node(state, node)?;
             let clone = state.dom.borrow_mut().clone_node(node, deep)?;
-            let owner = state
-                .node_documents
-                .borrow()
-                .get(&node)
-                .copied()
-                .unwrap_or_else(|| state.dom.borrow().document());
-            state.node_documents.borrow_mut().insert(clone, owner);
+            let owner = if matches!(
+                state.dom.borrow().arena().get(clone)?.kind,
+                NodeKind::Document
+            ) {
+                clone
+            } else {
+                owner
+            };
+            // The arena is shared by iframe realms. Its primary document is
+            // not necessarily the source node's document. Preserve ownership
+            // for the whole clone, including descendants later detached from it.
+            let descendants = traversal_nodes(&state.dom.borrow(), clone)?;
+            for descendant in descendants {
+                state.node_documents.borrow_mut().insert(descendant, owner);
+            }
             Ok(Some(wrap_node(scope, state, clone)?.into()))
         }
         ("Node", "append") => {
@@ -20625,42 +21407,76 @@ fn call_operation<'s>(
         }
         (_, "querySelector") => {
             let selector = required_string(scope, args, 0)?;
-            validate_css_selector(state, &selector)?;
-            let found = state.dom.borrow().query_selector(node, &selector)?;
-            optional_node(scope, state, found).map(Some)
+            let found = query_selector_nodes(state, node, &selector, SelectorOperation::First)?;
+            optional_node(scope, state, found.first().copied()).map(Some)
         }
         (_, "querySelectorAll") => {
             let selector = required_string(scope, args, 0)?;
-            validate_css_selector(state, &selector)?;
-            let found = state.dom.borrow().query_selector_all(node, &selector)?;
-            node_array(scope, state, &found).map(Some)
+            let found = query_selector_nodes(state, node, &selector, SelectorOperation::All)?;
+            node_lists::snapshot(scope, state, &found).map(Some)
         }
         ("Document" | "Element", "getElementsByTagName") => {
             let name = required_string(scope, args, 0)?;
-            let found = state.dom.borrow().query_selector_all(node, &name)?;
-            node_array(scope, state, &found).map(Some)
-        }
-        ("Document" | "Element", "getElementsByClassName") => {
-            let classes = required_string(scope, args, 0)?;
-            let selector = classes
-                .split_ascii_whitespace()
-                .filter(|class| !class.is_empty())
-                .map(|class| format!(".{class}"))
-                .collect::<String>();
-            let found = if selector.is_empty() {
-                Vec::new()
-            } else {
-                state.dom.borrow().query_selector_all(node, &selector)?
-            };
-            node_array(scope, state, &found).map(Some)
-        }
-        ("Document", "getElementsByName") => {
-            let name = required_string(scope, args, 0)?.replace('"', "\\\"");
-            let found = state
+            let document = owner_document_for_node(state, node)?;
+            let html = state
                 .dom
                 .borrow()
-                .query_selector_all(node, &format!("[name=\"{name}\"]"))?;
-            node_array(scope, state, &found).map(Some)
+                .arena()
+                .get(document)?
+                .document_metadata
+                .as_ref()
+                .is_some_and(|metadata| metadata.is_html);
+            node_lists::elements(
+                scope,
+                state,
+                node,
+                node_lists::ElementFilter::Tag { name, html },
+            )
+            .map(Some)
+        }
+        ("Document" | "Element", "getElementsByTagNameNS") => {
+            let namespace = if args.get(0).is_null_or_undefined() {
+                None
+            } else {
+                Some(required_string(scope, args, 0)?)
+            };
+            let local = required_string(scope, args, 1)?;
+            node_lists::elements(
+                scope,
+                state,
+                node,
+                node_lists::ElementFilter::Namespace { namespace, local },
+            )
+            .map(Some)
+        }
+        ("Document" | "Element", "getElementsByClassName") => {
+            let classes = required_string(scope, args, 0)?
+                .split_ascii_whitespace()
+                .map(str::to_owned)
+                .collect();
+            let document = owner_document_for_node(state, node)?;
+            let quirks = state
+                .dom
+                .borrow()
+                .arena()
+                .get(document)?
+                .document_metadata
+                .as_ref()
+                .is_some_and(|metadata| metadata.quirks);
+            node_lists::elements(
+                scope,
+                state,
+                node,
+                node_lists::ElementFilter::Classes {
+                    names: classes,
+                    quirks,
+                },
+            )
+            .map(Some)
+        }
+        ("Document", "getElementsByName") => {
+            let name = required_string(scope, args, 0)?;
+            node_lists::named(scope, state, node, name).map(Some)
         }
         ("Document", "elementFromPoint" | "elementsFromPoint") => {
             let x = args.get(0).number_value(scope).unwrap_or(f64::NAN);
@@ -20733,31 +21549,15 @@ fn call_operation<'s>(
             state.dom.borrow_mut().remove(node)?;
             Ok(None)
         }
-        ("Element", "matches") => {
+        ("Element", "matches" | "webkitMatchesSelector") => {
             let selector = required_string(scope, args, 0)?;
-            validate_css_selector(state, &selector)?;
-            let matched = match selector.trim() {
-                ":modal" => state
-                    .dom
-                    .borrow()
-                    .attribute(node, "data-oryn-modal")?
-                    .is_some(),
-                ":open" => state.dom.borrow().attribute(node, "open")?.is_some(),
-                _ => state.dom.borrow().matches_selector(node, &selector)?,
-            };
-            Ok(Some(v8::Boolean::new(scope, matched).into()))
+            let found = query_selector_nodes(state, node, &selector, SelectorOperation::Matches)?;
+            Ok(Some(v8::Boolean::new(scope, !found.is_empty()).into()))
         }
         ("Element", "closest") => {
             let selector = required_string(scope, args, 0)?;
-            validate_css_selector(state, &selector)?;
-            let mut current = Some(node);
-            while let Some(candidate) = current {
-                if state.dom.borrow().matches_selector(candidate, &selector)? {
-                    return Ok(Some(wrap_node(scope, state, candidate)?.into()));
-                }
-                current = state.dom.borrow().parent(candidate)?;
-            }
-            Ok(Some(v8::null(scope).into()))
+            let found = query_selector_nodes(state, node, &selector, SelectorOperation::Closest)?;
+            optional_node(scope, state, found.first().copied()).map(Some)
         }
         ("Element", "getBoundingClientRect") => {
             let rect = match geometry_for_node(state, node)? {
@@ -21987,6 +22787,10 @@ fn associated_wrapper<'s>(
         .new_instance(scope)
         .ok_or(V8BindingError::Allocation("associated wrapper object"))?;
     object.set_internal_field(0, v8::BigInt::new_from_u64(scope, wrapper.0).into());
+    if interface == "CSSStyleSheet" {
+        let constructed = state.constructed_stylesheets.borrow().contains(&node);
+        adopted_stylesheets::mark_sheet(scope, state, object, constructed)?;
+    }
     state
         .associated_wrappers
         .borrow_mut()
@@ -22159,6 +22963,7 @@ fn create_event_object_with_interface<'s>(
     state.events.borrow_mut().insert(
         id,
         EventRecord {
+            time_stamp: state.performance_now(),
             event_type: event_type.into(),
             target: None,
             current_target: None,
@@ -22200,6 +23005,7 @@ fn create_input_event_object<'s>(
     state.events.borrow_mut().insert(
         id,
         EventRecord {
+            time_stamp: state.performance_now(),
             event_type: event_type.into(),
             target: None,
             current_target: None,
@@ -22216,8 +23022,6 @@ fn create_input_event_object<'s>(
         },
     );
     object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
-    let trusted = v8::Boolean::new(scope, true);
-    set_object_property(scope, object, "isTrusted", trusted.into())?;
     let input_type_value = v8_string(scope, input_type)?;
     set_object_property(scope, object, "__oryn_inputType", input_type_value)?;
     let data = match data {
@@ -22304,7 +23108,7 @@ fn get_event_attribute<'s>(
         "defaultPrevented" => Ok(v8::Boolean::new(scope, event.default_prevented).into()),
         "returnValue" => Ok(v8::Boolean::new(scope, !event.default_prevented).into()),
         "cancelBubble" => Ok(v8::Boolean::new(scope, event.propagation_stopped).into()),
-        "timeStamp" => Ok(v8::Number::new(scope, 1.0).into()),
+        "timeStamp" => Ok(v8::Number::new(scope, event.time_stamp).into()),
         _ => Ok(v8::undefined(scope).into()),
     }
 }
@@ -22849,12 +23653,40 @@ mod tests {
                 PlatformHostRequest::IndexedDb {
                     command:
                         IdbHostCommand::CreateObjectStore { .. }
+                        | IdbHostCommand::DeleteDatabase { .. }
+                        | IdbHostCommand::RenameObjectStore { .. }
                         | IdbHostCommand::AbortUpgrade { .. }
                         | IdbHostCommand::CommitUpgrade { .. },
                     ..
                 } => PlatformHostResult::IndexedDb {
                     response: Default::default(),
                 },
+                PlatformHostRequest::IndexedDb {
+                    command: IdbHostCommand::Cursor { reverse, .. },
+                    ..
+                } => {
+                    let mut records = vec![
+                        crate::platform::IdbHostRecord {
+                            key: serde_json::json!("a"),
+                            primary_key: serde_json::json!(1),
+                            value: serde_json::json!({"label": "first"}),
+                        },
+                        crate::platform::IdbHostRecord {
+                            key: serde_json::json!("b"),
+                            primary_key: serde_json::json!(2),
+                            value: serde_json::json!({"label": "second"}),
+                        },
+                    ];
+                    if reverse {
+                        records.reverse();
+                    }
+                    PlatformHostResult::IndexedDb {
+                        response: crate::platform::IdbHostResponse {
+                            records,
+                            ..Default::default()
+                        },
+                    }
+                }
                 PlatformHostRequest::IndexedDb {
                     command: IdbHostCommand::ListDatabases,
                     ..
@@ -22929,7 +23761,7 @@ mod tests {
     }
 
     #[test]
-    fn transparent_proxy_receivers_preserve_generated_dom_branding() {
+    fn proxy_receivers_do_not_acquire_the_targets_dom_brand() {
         initialize_v8();
         let parsed = html::parse("<main id='root'></main>");
         let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
@@ -22938,27 +23770,68 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
-        let source = v8::String::new(
-            scope,
-            "const element=document.getElementById('root');const proxy=new Proxy(new Proxy(element,{}),{});proxy.setAttribute('data-proxy','yes');proxy.tagName+'|'+proxy.id+'|'+proxy.getAttribute('data-proxy')",
-        )
-        .unwrap();
+        let source = v8::String::new(scope, r#"
+            const element=document.getElementById('root');
+            const proxy=new Proxy(new Proxy(element,{}),{});
+            const operations=[()=>proxy.tagName, ()=>proxy.id='changed',
+                ()=>proxy.setAttribute('data-proxy','yes'),
+                ()=>Element.prototype.getAttribute.call(proxy,'id')];
+            operations.every(operation=>{try{operation();return false}catch(e){return e instanceof TypeError}})
+                && element.id==='root' && !element.hasAttribute('data-proxy')
+        "#).unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
-        assert_eq!(
-            script.run(scope).unwrap().to_rust_string_lossy(scope),
-            "MAIN|root|yes"
-        );
-        let root = dom.borrow().find_by_id("root").unwrap();
-        assert_eq!(
-            dom.borrow()
-                .arena()
-                .get(root)
-                .unwrap()
-                .attributes
-                .get("data-proxy")
-                .map(String::as_str),
-            Some("yes")
-        );
+        assert!(script.run(scope).unwrap().is_true());
+    }
+
+    #[test]
+    fn legacy_callback_interface_has_no_prototype_or_constructor_behavior() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            let thrown=0;
+            for(const operation of [()=>NodeFilter(),()=>new NodeFilter(),()=>({}) instanceof NodeFilter]) {
+                try{operation()}catch(e){if(e instanceof TypeError)thrown++}
+            }
+            thrown===3 && typeof NodeFilter==='function' && NodeFilter.name==='NodeFilter'
+              && NodeFilter.length===0 && !Object.hasOwn(NodeFilter,'prototype')
+              && Object.getPrototypeOf(NodeFilter)===Function.prototype
+              && NodeFilter.SHOW_ELEMENT===1 && !(5 instanceof NodeFilter)
+        "#).unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().is_true());
+    }
+
+    #[test]
+    fn put_forwards_preserves_user_exceptions_and_rejects_primitives() {
+        initialize_v8();
+        let parsed = html::parse("<main id='root'></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const element=document.getElementById('root');
+            const setter=Object.getOwnPropertyDescriptor(HTMLElement.prototype,'style').set;
+            const marker=new SyntaxError('original');
+            let ok=0;
+            Object.defineProperty(element,'style',{configurable:true,get(){throw marker}});
+            try{setter.call(element,'color:green')}catch(e){if(e===marker)ok++}
+            Object.defineProperty(element,'style',{configurable:true,value:{set cssText(value){throw marker}}});
+            try{setter.call(element,'color:green')}catch(e){if(e===marker)ok++}
+            Object.defineProperty(element,'style',{configurable:true,value:42});
+            try{setter.call(element,'color:green')}catch(e){if(e instanceof TypeError)ok++}
+            ok===3
+        "#).unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().is_true());
     }
 
     #[test]
@@ -23233,6 +24106,57 @@ mod tests {
     }
 
     #[test]
+    fn generated_indexeddb_bulk_reads_preserve_options_and_record_identity() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source = v8::String::new(scope, r#"
+            globalThis.location={href:'https://example.test/',origin:'https://example.test'};
+            let result=[];
+            const open=indexedDB.open('bulk',1);
+            open.onupgradeneeded=()=>{
+                const store=open.result.createObjectStore('records');
+                const records=store.getAllRecords({direction:'prev',count:1});
+                records.onsuccess=()=>{
+                    const row=records.result[0];
+                    result.push('records:'+records.result.length+':'+row.key+':'+row.primaryKey+':'+row.value.label+':'+(row instanceof IDBRecord)+':'+(row.value===row.value));
+                };
+                const values=store.getAll({count:0});
+                values.onsuccess=()=>result.push('values:'+values.result.length);
+                const keys=store.getAllKeys({direction:'prev'});
+                keys.onsuccess=()=>result.push('keys:'+keys.result.join(','));
+                try { store.getAllRecords({count:-1}); } catch(e) { result.push('count:'+e.name); }
+                try { store.getAllRecords({direction:'invalid'}); } catch(e) { result.push('direction:'+e.name); }
+            };
+        "#).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        for _ in 0..8 {
+            state.drain_platform_completions(scope, 32).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        let source = v8::String::new(scope, "result.sort().join('|')").unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            result,
+            "count:TypeError|direction:TypeError|keys:2,1|records:1:b:2:second:true:true|values:2"
+        );
+    }
+
+    #[test]
     fn generated_indexeddb_lists_parent_owned_origin_databases() {
         initialize_v8();
         let parsed = html::parse("<main></main>");
@@ -23422,6 +24346,51 @@ mod tests {
     }
 
     #[test]
+    fn generated_indexeddb_store_rename_keeps_transaction_identity() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source = v8::String::new(scope, r#"
+            globalThis.location={href:'https://example.test/',origin:'https://example.test'};
+            let result=''; const request=indexedDB.open('rename',1);
+            request.onupgradeneeded=()=>{
+                const db=request.result, tx=request.transaction, store=db.createObjectStore('books');
+                store.name='renamed';
+                result=[store.name, tx.objectStore('renamed')===store, Array.from(db.objectStoreNames), Array.from(tx.objectStoreNames)].join('|');
+                try { tx.objectStore('books'); } catch(e) { result+='|'+e.name; }
+                const thrown={}; try {store.name={toString(){throw thrown}}}catch(e){result+='|'+(e===thrown)}
+                tx.abort(); result+='|'+store.name+'|'+tx.objectStoreNames.length;
+                try {store.name='invalid'}catch(e){result+='|'+e.name}
+            };
+        "#).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        for _ in 0..8 {
+            state.drain_platform_completions(scope, 8).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        let source = v8::String::new(scope, "result").unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            result,
+            "renamed|true|renamed|renamed|NotFoundError|true|renamed|0|InvalidStateError"
+        );
+    }
+
+    #[test]
     fn generated_indexeddb_close_during_upgrade_completes_then_aborts_open() {
         initialize_v8();
         let parsed = html::parse("<main></main>");
@@ -23434,7 +24403,7 @@ mod tests {
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(
             scope,
-            "globalThis.location={href:'https://example.test/',origin:'https://example.test'};let result='',db;const request=indexedDB.open('close-me',1);request.onupgradeneeded=e=>{db=e.target.result;db.createObjectStore('items');db.close();e.target.transaction.oncomplete=()=>result+='complete|'};request.onsuccess=()=>result+='success';request.onerror=e=>{result+='error:'+e.target.error.name;try{db.transaction('items')}catch(error){result+='|'+error.name}}",
+            "globalThis.location={href:'https://example.test/',origin:'https://example.test'};let result='',db;const request=indexedDB.open('close-me',1);request.onupgradeneeded=e=>{db=e.target.result;db.createObjectStore('items');db.close();e.target.transaction.oncomplete=()=>result+='complete|'};request.onsuccess=()=>result+='success';request.onerror=e=>{result+='error:'+e.target.error.name+'|'+e.bubbles+'|'+e.cancelable+'|'+e.isTrusted;try{db.transaction('items')}catch(error){result+='|'+error.name}}",
         )
         .unwrap();
         v8::Script::compile(scope, source, None)
@@ -23451,7 +24420,137 @@ mod tests {
             .run(scope)
             .unwrap()
             .to_rust_string_lossy(scope);
-        assert_eq!(result, "complete|error:AbortError|InvalidStateError");
+        assert_eq!(
+            result,
+            "complete|error:AbortError|true|true|true|InvalidStateError"
+        );
+    }
+
+    #[test]
+    fn indexeddb_connection_queue_waits_for_blocked_requests_and_allows_other_databases() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let script = v8::String::new(
+            scope,
+            r#"
+            globalThis.location = {href:'https://example.test/',origin:'https://example.test'};
+            globalThis.events = []; globalThis.connections = [];
+            function open(version) {
+                const request = indexedDB.open('queue', version);
+                request.onsuccess = () => {
+                    events.push('open' + version);
+                    connections.push(request.result);
+                    request.result.onversionchange = () => events.push('change' + version);
+                };
+            }
+            function remove(version) {
+                const request = indexedDB.deleteDatabase('queue');
+                request.onblocked = () => events.push('blocked' + version);
+                request.onsuccess = () => events.push('deleted' + version);
+            }
+            open(1); remove(1); open(2); remove(2);
+            indexedDB.open('independent', 1).onsuccess = () => globalThis.independentDone = true;
+        "#,
+        )
+        .unwrap();
+        v8::Script::compile(scope, script, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        for phase in 0..3 {
+            for _ in 0..20 {
+                state.drain_platform_completions(scope, 32).unwrap();
+                scope.perform_microtask_checkpoint();
+            }
+            let script = v8::String::new(scope, "events.join('|')").unwrap();
+            let events = v8::Script::compile(scope, script, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .to_rust_string_lossy(scope);
+            assert_eq!(
+                events,
+                [
+                    "open1|change1|blocked1",
+                    "open1|change1|blocked1|deleted1|open2|change2|blocked2",
+                    "open1|change1|blocked1|deleted1|open2|change2|blocked2|deleted2",
+                ][phase]
+            );
+            let script = v8::String::new(scope, "independentDone").unwrap();
+            assert!(
+                v8::Script::compile(scope, script, None)
+                    .unwrap()
+                    .run(scope)
+                    .unwrap()
+                    .is_true()
+            );
+            assert!(
+                !state.has_pending_platform_work(),
+                "blocked queue must remain dormant"
+            );
+            if phase < 2 {
+                let script = v8::String::new(scope, "connections.shift().close()").unwrap();
+                v8::Script::compile(scope, script, None)
+                    .unwrap()
+                    .run(scope)
+                    .unwrap();
+            }
+        }
+        assert!(state.active_idb_connections.borrow().is_empty());
+        assert!(state.queued_idb_operations.borrow().is_empty());
+    }
+
+    #[test]
+    fn cloned_nodes_keep_their_iframe_document_in_a_shared_arena() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let frame_document = {
+            let mut dom = dom.borrow_mut();
+            let document = dom.create(NodeKind::Document);
+            let root = dom.create_element("div");
+            let child = dom.create_element("span");
+            dom.append_child(document, root).unwrap();
+            dom.append_child(root, child).unwrap();
+            document
+        };
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings_with_root(scope, context, dom, RealmId(1), 1, frame_document)
+            .unwrap();
+        let script = v8::String::new(
+            scope,
+            r#"
+            const clone = document.documentElement.cloneNode(true);
+            const child = clone.firstChild;
+            const copiedDocument = document.cloneNode(true);
+            const before = child.ownerDocument === document;
+            child.remove();
+            [clone.ownerDocument === document, before, child.ownerDocument === document,
+             clone.ownerDocument.defaultView === globalThis,
+             copiedDocument.ownerDocument === null,
+             copiedDocument.documentElement.ownerDocument === copiedDocument,
+             copiedDocument.documentElement.firstChild.ownerDocument === copiedDocument].join('|')
+        "#,
+        )
+        .unwrap();
+        let value = v8::Script::compile(scope, script, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(value, "true|true|true|true|true|true|true");
     }
 
     #[test]
@@ -23994,6 +25093,57 @@ mod tests {
     }
 
     #[test]
+    fn dom_implementation_is_document_scoped_and_preserves_doctype_ownership() {
+        initialize_v8();
+        let parsed = html::parse("<!doctype html><html><body></body></html>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            const other = document.implementation.createHTMLDocument('other');
+            const implementation = other.implementation;
+            const type = implementation.createDocumentType('', '', '');
+            const results = [implementation === other.implementation,
+                implementation !== document.implementation, type.ownerDocument === other,
+                type.name === '', implementation.hasFeature({toString(){throw Error('unused')}})];
+            const withoutTitle = document.implementation.createHTMLDocument();
+            results.push(other.documentElement instanceof HTMLHtmlElement,
+                other.head instanceof HTMLHeadElement,
+                other.head.firstChild instanceof HTMLTitleElement,
+                withoutTitle.head.childNodes.length === 0,
+                other.head.firstChild.textContent === 'other',
+                other.URL === 'about:blank', other.documentURI === other.URL,
+                other.compatMode === 'CSS1Compat', other.location === null,
+                other.defaultView === null);
+            globalThis.savedImplementation = (() => {
+                const owner = document.implementation.createHTMLDocument('kept');
+                return owner.implementation;
+            })();
+            const adopted = document.implementation.createDocument(null, null, type);
+            results.push(type.ownerDocument === adopted);
+            for (const name of ['bad name', 'bad>', 'bad\tname']) {
+                try { implementation.createDocumentType(name); results.push(false); }
+                catch (error) { results.push(error.name === 'InvalidCharacterError'); }
+            }
+            results.every(Boolean)
+        "#,
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().is_true());
+        scope.low_memory_notification();
+        let source = v8::String::new(scope,
+            "savedImplementation.createDocumentType('kept').ownerDocument.head.firstChild.textContent === 'kept'").unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert!(script.run(scope).unwrap().is_true());
+    }
+
+    #[test]
     #[ignore = "requires ORYN_WPT_COMMON_JS pointing at a pinned WPT checkout"]
     fn pinned_wpt_range_common_bootstrap_reaches_assertion_registration() {
         initialize_v8();
@@ -24085,6 +25235,7 @@ mod tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.set_layout(BindingLayout {
+            offset_dimensions: BTreeMap::new(),
             styles: BTreeMap::from([(
                 node_key(probe),
                 BTreeMap::from([("display".to_string(), "block".to_string())]),
@@ -24101,6 +25252,180 @@ mod tests {
     }
 
     #[test]
+    fn adopted_stylesheets_observe_mutations_and_protect_the_backing_array() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main><style></style>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            let checks=0;const check=(condition)=>{checks++;if(!condition)throw Error('adoption regression '+checks);};
+            const throws=(name,fn)=>{try{fn()}catch(e){if(e.name!==name)throw Error('expected '+name+' got '+e.name+' in '+fn+' detail '+e.message);if(name==='TypeError')check(e instanceof TypeError);return}throw Error('missing '+name)};
+            const a=new CSSStyleSheet(),b=new CSSStyleSheet();
+            a.replaceSync('main { color: red }'); b.replaceSync('main { color: blue }');
+            const list=document.adoptedStyleSheets;
+            check(Array.isArray(list) && list.length===0);
+            document.adoptedStyleSheets=new Set([a,b]);
+            check(list===document.adoptedStyleSheets && list[0]===a && list[1]===b);
+            list.reverse(); check(list[0]===b); list.splice(0,1); check(list[0]===a);
+            list.push(b);check(list.pop()===b);
+            throws('TypeError',()=>list.push('bad'));
+            throws('NotAllowedError',()=>list.push(document.querySelector('style').sheet));
+            throws('NotAllowedError',()=>document.implementation.createHTMLDocument().adoptedStyleSheets=[a]);
+            check(!Reflect.set(list,'3',a)); check(!Reflect.set(list,'length',5));
+            check(!Reflect.defineProperty(list,'0',{writable:false}));
+            check(!Reflect.preventExtensions(list));
+            list.push(b);check(!Reflect.deleteProperty(list,'0'));check(Reflect.deleteProperty(list,'1'));
+            let leaked=null;Object.defineProperty(Array.prototype,'1',{configurable:true,set(){leaked=this}});
+            document.adoptedStyleSheets=[a,b];delete Array.prototype['1'];check(leaked===null);
+            Object.defineProperty(Object.prototype,'getPrototypeOf',{configurable:true,get(){leaked=this;return()=>null}});
+            Object.getPrototypeOf(list);delete Object.prototype.getPrototypeOf;check(leaked===null);
+            let closed=false;throws('TypeError',()=>document.adoptedStyleSheets={*[Symbol.iterator](){try{yield 'bad'}finally{closed=true}}});check(closed);
+            const sentinel={};try{document.adoptedStyleSheets={get [Symbol.iterator](){throw sentinel}}}catch(e){check(e===sentinel)}
+            Object.defineProperty(Array.prototype,'observed',{configurable:true,set(v){check(this===list && v===7)},get(){return this}});
+            list.observed=7;check(list.observed===list);delete Array.prototype.observed;
+            list.zzz=true;list.aaa=true;if(Object.getOwnPropertyNames(list).join('|')!=='0|1|length|zzz|aaa')throw Error('keys '+Object.getOwnPropertyNames(list).join('|'));
+            'ok'
+        "#).unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "ok");
+        let sheets = adopted_stylesheets::styles(scope, &state).unwrap();
+        assert_eq!(
+            sheets[&state.document],
+            ["main { color: red }", "main { color: blue }"]
+        );
+    }
+
+    #[test]
+    fn adopted_stylesheets_survive_shadow_wrapper_collection() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            globalThis.host=document.createElement('div');document.body.appendChild(host);
+            (()=>{const root=host.attachShadow({mode:'open'});const sheet=new CSSStyleSheet();sheet.replaceSync('div {color:red}');root.adoptedStyleSheets=[sheet]})();
+        "#).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        scope.low_memory_notification();
+        let source = v8::String::new(scope, "host.shadowRoot.adoptedStyleSheets[0] instanceof CSSStyleSheet && host.shadowRoot.adoptedStyleSheets[0].cssRules.length===1").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .boolean_value(scope)
+        );
+        assert_eq!(
+            state
+                .dom
+                .borrow()
+                .arena()
+                .iter()
+                .filter(|(_, node)| !node.adopted_stylesheets.is_empty())
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn layout_flush_cache_tracks_mutations_custom_states_and_provider_replacement() {
+        struct CountingProvider {
+            dom: SharedDom,
+            calls: Rc<Cell<usize>>,
+            cache: bool,
+        }
+        impl BindingLayoutProvider for CountingProvider {
+            fn layout_revision(&self) -> Option<u64> {
+                self.cache.then(|| self.dom.borrow().mutation_cursor().0)
+            }
+            fn compute_layout(
+                &self,
+                _: &BTreeMap<NodeId, BTreeSet<String>>,
+            ) -> Result<BindingLayout, String> {
+                self.calls.set(self.calls.get() + 1);
+                Ok(BindingLayout::default())
+            }
+        }
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main id='probe'></main>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let node = dom.borrow().find_by_id("probe").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let calls = Rc::new(Cell::new(0));
+        state.set_layout_provider(Rc::new(CountingProvider {
+            dom: dom.clone(),
+            calls: calls.clone(),
+            cache: true,
+        }));
+        let source = v8::String::new(scope, "const target=document.getElementById('probe');for(let i=0;i<100;i++)getComputedStyle(target).getPropertyValue('color')").unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert_eq!(calls.get(), 1, "unchanged style reads share one flush");
+        dom.borrow_mut()
+            .set_attribute(node, "style", "color:red")
+            .unwrap();
+        refresh_layout(&state).unwrap();
+        assert_eq!(calls.get(), 2);
+        dom.borrow_mut().focus(Some(node)).unwrap();
+        refresh_layout(&state).unwrap();
+        assert_eq!(calls.get(), 3);
+        state
+            .custom_states
+            .borrow_mut()
+            .insert(node, BTreeSet::from(["--ready".into()]));
+        refresh_layout(&state).unwrap();
+        assert_eq!(calls.get(), 4);
+        refresh_layout(&state).unwrap();
+        assert_eq!(calls.get(), 4);
+        let document = dom.borrow().document();
+        let sheet = dom.borrow_mut().create_element("style");
+        dom.borrow_mut()
+            .set_adopted_stylesheets(document, vec![sheet])
+            .unwrap();
+        refresh_layout(&state).unwrap();
+        assert_eq!(calls.get(), 5);
+        state.set_layout(BindingLayout::default());
+        refresh_layout(&state).unwrap();
+        assert_eq!(calls.get(), 6);
+        state.set_layout_provider(Rc::new(CountingProvider {
+            dom: dom.clone(),
+            calls: calls.clone(),
+            cache: false,
+        }));
+        refresh_layout(&state).unwrap();
+        refresh_layout(&state).unwrap();
+        assert_eq!(calls.get(), 8, "providers must explicitly opt in");
+    }
+
+    #[test]
     fn computed_style_flushes_the_live_layout_provider() {
         struct TestLayoutProvider {
             node: NodeId,
@@ -24112,6 +25437,7 @@ mod tests {
                 _custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
             ) -> Result<BindingLayout, String> {
                 Ok(BindingLayout {
+                    offset_dimensions: BTreeMap::new(),
                     styles: BTreeMap::from([(
                         node_key(self.node),
                         BTreeMap::from([("font-size".to_string(), "18px".to_string())]),
@@ -24320,6 +25646,78 @@ mod tests {
     }
 
     #[test]
+    fn indexeddb_blob_clones_are_compact_and_read_legacy_records() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(DomRuntime::new()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, "new File([new Uint8Array(262144).fill(173)],'payload',{type:'text/plain',lastModified:42})").unwrap();
+        let value = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let encoded = idb_value_to_json(scope, &state, value).unwrap();
+        assert!(encoded.get("bytes").is_none());
+        assert!(serde_json::to_vec(&encoded).unwrap().len() < 262144 * 2);
+        let decoded = idb_json_to_value(scope, &state, &encoded)
+            .unwrap()
+            .to_object(scope)
+            .unwrap();
+        let id = stateful_id(scope, decoded).unwrap();
+        let record = platform_object(&state, id).unwrap();
+        let PlatformObjectRecord::Blob(blob) = &*record else {
+            panic!("expected Blob record")
+        };
+        assert_eq!(blob.bytes, vec![173; 262144]);
+        assert_eq!(blob.media_type, "text/plain");
+        assert_eq!(blob.file.as_ref().unwrap().name, "payload");
+        assert_eq!(blob.file.as_ref().unwrap().last_modified, 42);
+        drop(record);
+        let legacy = serde_json::json!({"__oryn_clone_type":"blob","bytes":[0,128,255],"type":"application/octet-stream"});
+        let decoded = idb_json_to_value(scope, &state, &legacy)
+            .unwrap()
+            .to_object(scope)
+            .unwrap();
+        let id = stateful_id(scope, decoded).unwrap();
+        let record = platform_object(&state, id).unwrap();
+        let PlatformObjectRecord::Blob(blob) = &*record else {
+            panic!("expected legacy Blob record")
+        };
+        assert_eq!(blob.bytes, [0, 128, 255]);
+    }
+
+    #[test]
+    fn event_timestamps_are_creation_times_on_the_performance_clock() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(DomRuntime::new()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, "globalThis.before=__oryn_performance_now();globalThis.first=new Event('first');globalThis.stamp=first.timeStamp;stamp>=before&&stamp<=__oryn_performance_now()&&__oryn_performance_time_origin>0").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .boolean_value(scope)
+        );
+        std::thread::sleep(Duration::from_millis(2));
+        let source = v8::String::new(scope, "const second=new Event('second');first.timeStamp===stamp&&second.timeStamp>stamp&&second.timeStamp<=__oryn_performance_now()&&Math.round(second.timeStamp*1000)%100===0").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .boolean_value(scope)
+        );
+    }
+
+    #[test]
     fn generated_geometry_distinguishes_hidden_from_unsupported() {
         initialize_v8();
         let parsed = html::parse(
@@ -24335,6 +25733,7 @@ mod tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.set_layout(BindingLayout {
+            offset_dimensions: BTreeMap::from([(node_key(visible), (3.4, 4.6))]),
             styles: BTreeMap::new(),
             geometry: BTreeMap::from([
                 (
@@ -24355,7 +25754,7 @@ mod tests {
         });
         let source = v8::String::new(
             scope,
-            "const hidden=document.getElementById('hidden'),visible=document.getElementById('visible');const rect=hidden.getBoundingClientRect();let rejected=false;try{document.getElementById('unsupported').getClientRects()}catch(error){rejected=error instanceof TypeError&&String(error).includes('table geometry is unavailable')}rect.width===0&&rect.height===0&&hidden.getClientRects().length===0&&visible.getClientRects().length===1&&visible.getClientRects()[0].width===3&&rejected",
+            "const hidden=document.getElementById('hidden'),visible=document.getElementById('visible');const rect=hidden.getBoundingClientRect();let rejected=false;try{document.getElementById('unsupported').getClientRects()}catch(error){rejected=error instanceof TypeError&&String(error).includes('table geometry is unavailable')}rect.width===0&&rect.height===0&&hidden.getClientRects().length===0&&visible.getClientRects().length===1&&visible.getClientRects()[0].width===3&&visible.offsetWidth===3&&visible.offsetHeight===5&&hidden.offsetWidth===0&&document.createElement('div').offsetWidth===0&&Object.getOwnPropertyDescriptor(HTMLElement.prototype,'offsetWidth').set===undefined&&rejected",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
@@ -24382,9 +25781,445 @@ mod tests {
     }
 
     #[test]
+    fn detached_node_wrappers_trace_parent_and_sibling_identity() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            (() => {
+                const parent=document.createElement('section');parent.marker=42;
+                const child=document.createElement('button');
+                const sibling=document.createTextNode('sibling');sibling.marker=17;
+                parent.append(child,sibling);
+                globalThis.savedChild=child;
+                const foreign=document.implementation.createHTMLDocument('foreign');foreign.marker=29;
+                globalThis.savedOrphan=foreign.createElement('i');
+                const liveRoot=document.createElement('ul');globalThis.liveOnly=liveRoot.childNodes;
+                const late=document.createElement('li');late.marker=23;liveRoot.append(late);
+            })();true
+        "#,
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        let parent = dom
+            .borrow()
+            .arena()
+            .iter()
+            .find_map(|(id, node)| {
+                matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref()=="section")
+                    .then_some(id)
+            })
+            .unwrap();
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        assert!(dom.borrow().arena().get(parent).is_ok());
+        let source = v8::String::new(scope, "savedChild.parentNode.marker===42 && savedChild.nextSibling.data==='sibling' && savedChild.nextSibling.marker===17 && savedOrphan.ownerDocument.marker===29 && liveOnly[0].marker===23").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        let source = v8::String::new(scope, "delete globalThis.savedChild;delete globalThis.savedOrphan;delete globalThis.liveOnly;true").unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        assert!(matches!(
+            dom.borrow().arena().get(parent),
+            Err(DomError::StaleNode(_))
+        ));
+    }
+
+    #[test]
+    fn node_lists_are_live_or_static_branded_and_collectable() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            (() => {
+                const check=(ok,label)=>{if(!ok)throw Error(label)};
+                const throws=fn=>{try{fn()}catch(e){check(e instanceof TypeError,'TypeError');return}throw Error('missing exception')};
+                const named=document.getElementsByName('a"\\b');
+                const input=document.createElement('input');input.setAttribute('name','a"\\b');document.body.append(input);
+                check(named instanceof NodeList&&named.length===1&&named.item(0)===input,'live name insertion');
+                input.setAttribute('name','changed');check(named.length===0,'live name attribute');
+                input.setAttribute('name','');check(document.getElementsByName('')[0]===input,'empty name');
+                input.remove();
+                const root=document.createElement('div');root.marker=42;
+                const list=root.childNodes;
+                check(list instanceof NodeList && !Array.isArray(list) && list===root.childNodes,'live brand/identity');
+                check(list.length===0&&list.item(0)===null&&list[0]===undefined,'empty');
+                const first=document.createElement('b');first.marker=37;root.append(first,document.createTextNode('text'));
+                check(list.length===2&&list.item(0)===first&&list[1].data==='text','insertion');
+                check(Object.keys(list).join(',')==='0,1','keys');
+                const d=Object.getOwnPropertyDescriptor(list,'0');
+                check(d.value===first&&!d.writable&&d.enumerable&&d.configurable,'index descriptor');
+                check(!Reflect.set(list,'0',null)&&!Reflect.set(list,'10',null),'readonly set');
+                check(!Reflect.defineProperty(list,'0',{value:null})&&!Reflect.deleteProperty(list,'0')&&Reflect.deleteProperty(list,'10'),'readonly define/delete');
+                throws(()=>{'use strict';list[0]=null});
+                throws(()=>NodeList.prototype.item.call({} ,0));
+                throws(()=>NodeList.prototype.item.call(new Proxy(list,{}),0));
+                throws(()=>Object.getOwnPropertyDescriptor(NodeList.prototype,'length').get.call(new Proxy(list,{})));
+                throws(()=>new NodeList());
+                const marker={};let didThrow=false;try{list.item({valueOf(){throw marker}})}catch(e){didThrow=true;check(e===marker,'conversion exception')}check(didThrow,'conversion must throw');
+                check(NodeList.prototype.values===Array.prototype.values&&NodeList.prototype.forEach===Array.prototype.forEach,'intrinsics');
+                check(list[Symbol.iterator]===list.values&&!Object.getOwnPropertyDescriptor(NodeList.prototype,Symbol.iterator).enumerable,'iterator descriptor');
+                check([...list.keys()].join(',')==='0,1'&&[...list.entries()][0][1]===first,'keys/entries');
+                const snapshot=root.querySelectorAll('*');
+                check(snapshot instanceof NodeList&&snapshot!==root.querySelectorAll('*')&&snapshot.item(0)===first,'static brand/identity');
+                root.append(document.createElement('i'));
+                check(snapshot.length===1&&list.length===3,'static membership');
+                const reordered=document.createElement('section');
+                const a=document.createElement('a'),b=document.createElement('b');reordered.append(b,a);
+                const ordered=reordered.querySelectorAll('*');
+                check(ordered[0]===b&&ordered[1]===a&&ordered.item(0)===b,'static tree order');
+                const tampered=root.querySelectorAll('*');
+                Object.defineProperty(tampered,'length',{get(){return 0}});
+                check(tampered.length===0&&tampered[0]===first&&[...tampered].length===0,'shadowed static length');
+                check(first.webkitMatchesSelector('b')===first.matches('b'),'selector alias');
+                root.removeChild(first);
+                check(list.length===2&&list[0].data==='text'&&snapshot[0]===first,'removal');
+                let count=0;for(const child of list){if(count++===0)root.append(document.createElement('em'))}
+                check(count===3,'live iteration');
+                list.extra=1;check(Object.keys(list).join(',')==='0,1,2,extra','expando order');
+                for(let i=0;i<1024;i++)root.querySelectorAll('*');
+                for(let i=0;i<128;i++) {
+                    const cycle=document.createElement('section');
+                    cycle.savedList=cycle.childNodes;
+                    const child=document.createElement('i');cycle.append(child);
+                    child.savedSnapshot=cycle.querySelectorAll('*');
+                }
+                globalThis.liveList=list;globalThis.staticList=snapshot;
+            })();true
+        "#).unwrap();
+        {
+            v8::tc_scope!(let catch, scope);
+            let script = v8::Script::compile(catch, source, None).unwrap();
+            let result = script.run(catch);
+            let error = catch
+                .exception()
+                .map(|e| e.to_rust_string_lossy(catch))
+                .unwrap_or_default();
+            assert!(result.is_some(), "{error}");
+        }
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        assert_eq!(node_lists::retained_count(&state), 2);
+        let source = v8::String::new(
+            scope,
+            "liveList[0].parentNode.marker===42&&staticList[0].marker===37&&staticList.length===1",
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        let source = v8::String::new(
+            scope,
+            "delete globalThis.liveList;delete globalThis.staticList;true",
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        node_lists::account_memory(scope, &state);
+        assert_eq!(node_lists::retained_count(&state), 0);
+    }
+
+    #[test]
+    fn html_collections_are_live_named_branded_and_literal() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<html><body><main id='root'><span id='first' name='alias' class='a odd:name'></span>text<span id='second' class='a'></span></main></body></html>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let script = v8::String::new(scope, r#"(()=>{
+            const check = (value, label) => {if(!value) throw new Error(label)};
+            const throws = (fn, label) => {let ok=false;try{fn()}catch(e){ok=e instanceof TypeError}check(ok,label)};
+            const root=document.getElementById('root'), first=root.firstElementChild, second=root.lastElementChild;
+            const list=root.children;
+            check(list instanceof HTMLCollection && !Array.isArray(list), 'brand');
+            check(root.children===list && document.children===document.children, 'SameObject');
+            check(list.length===2 && list[0]===first && list.item(2)===null && list[2]===undefined, 'indices');
+            check(list.first===first && list.alias===first && list.namedItem('second')===second && list.namedItem('')===null, 'names');
+            const descriptor=Object.getOwnPropertyDescriptor(list,'first');
+            check(descriptor.value===first && !descriptor.writable && !descriptor.enumerable && descriptor.configurable, 'named descriptor');
+            check(Object.keys(list).join(',')==='0,1', 'enumerability');
+            check(Object.getOwnPropertyNames(list).join(',')==='0,1,first,alias,second', 'own names');
+            check(!Reflect.set(list,'first',1) && !Reflect.defineProperty(list,'first',{value:1}) && !Reflect.deleteProperty(list,'first'), 'readonly name');
+            check(!Reflect.set(list,'0',1) && !Reflect.defineProperty(list,'0',{value:1}) && !Reflect.deleteProperty(list,'0'), 'readonly index');
+            const inherited=Object.create(list);
+            throws(()=>inherited.length, 'inherited length');
+            check(inherited.first===first, 'inherited named read');
+            inherited.first='mine';
+            check(inherited.first==='mine' && list.first===first, 'inherited named write');
+            list.user=17; second.id='user';
+            check(list.user===17 && list.namedItem('user')===second, 'own property visibility');
+            check(delete list.user && list.user===second, 'delete own property reveals name');
+            second.id='item';
+            check(typeof list.item==='function' && list.namedItem('item')===second, 'prototype visibility');
+            check(!Reflect.defineProperty(list,'item',{value:1}), 'supported prototype name define');
+            second.id='0';
+            check(list[0]===first && list.namedItem('0')===second, 'numeric precedence');
+            check(root.getElementsByClassName('odd:name')[0]===first && root.getElementsByClassName('a odd:name').length===1, 'literal classes');
+            const classes=root.getElementsByClassName('a');
+            const svg=document.createElementNS('http://www.w3.org/2000/svg','a');svg.id='svg-id';svg.setAttribute('name','svg-alias');root.append(svg);
+            check(list.length===3 && list['svg-id']===svg && list.namedItem('svg-alias')===null, 'SVG names');
+            check(root.getElementsByTagNameNS('http://www.w3.org/2000/svg','a')[0]===svg && root.getElementsByTagNameNS('*','a').length===1, 'namespace filters');
+            check(root.getElementsByTagName('SPAN').length===2, 'HTML tag case');
+            const upper=document.createElementNS('http://www.w3.org/1999/xhtml','SPAN');root.append(upper);
+            check(upper.localName==='SPAN' && root.getElementsByTagName('SPAN').length===2 && root.getElementsByTagNameNS('*','SPAN')[0]===upper,'namespace creation preserves case');
+            const prefixed=document.createElementNS('urn:test','test:AÇ');root.append(prefixed);
+            check(prefixed.localName==='AÇ' && root.getElementsByTagName('test:AÇ')[0]===prefixed && root.getElementsByTagNameNS('urn:test','AÇ')[0]===prefixed,'qualified name separates prefix');
+            upper.remove();prefixed.remove();
+            first.className='other';check(classes.length===1 && classes[0]===second,'live class mutation');
+            second.remove();check(list.length===2 && [...list][1]===svg,'live removal iteration');
+            const fragment=document.createDocumentFragment();const children=fragment.children;fragment.append(document.createElement('b'));
+            check(fragment.children===children && children.length===1,'fragment children');
+            throws(()=>HTMLCollection.prototype.item.call({},0),'item brand');
+            throws(()=>Object.getOwnPropertyDescriptor(HTMLCollection.prototype,'length').get.call(root.childNodes),'collection versus NodeList brand');
+            throws(()=>Object.getOwnPropertyDescriptor(NodeList.prototype,'length').get.call(list),'NodeList versus collection brand');
+            throws(()=>HTMLCollection.prototype.item.call(new Proxy(list,{}),0),'proxy brand');
+            const sentinel={};let observed;try{list.namedItem({toString(){throw sentinel}})}catch(e){observed=e}check(observed===sentinel,'name conversion exception');
+            check(document.compatMode==='BackCompat','parser quirks mode');
+            const quirksNode=document.createElement('div');quirksNode.className='Mixed Ç';root.append(quirksNode);
+            check(root.getElementsByClassName('mixed').length===1 && root.getElementsByClassName('ç').length===0,'ASCII quirks class matching');
+            const xml=document.implementation.createDocument(null,'root',null);
+            check(xml.contentType==='application/xml' && xml.compatMode==='CSS1Compat','XML metadata');
+            check(xml.createElement('MiXeD').localName==='MiXeD' && xml.createElement('a:b').localName==='a:b','XML createElement case and literal colon');
+            const xhtml=document.implementation.createDocument('http://www.w3.org/1999/xhtml','html',null);
+            check(xhtml.contentType==='application/xhtml+xml' && xhtml.createElement('MiXeD').localName==='MiXeD','XHTML is XML');
+            const host=document.createElement('div');
+            const lower=document.createElementNS('http://www.w3.org/1999/xhtml','a'), capital=document.createElementNS('http://www.w3.org/1999/xhtml','A');host.append(lower,capital);
+            const original=host.getElementsByTagName('A');
+            xml.documentElement.append(host);
+            check(original.length===1 && original[0]===lower && host.getElementsByTagName('A')[0]===capital,'collection mode captured before adoption');
+            check(xml.cloneNode(true).contentType==='application/xml' && document.cloneNode(false).compatMode==='BackCompat','clone metadata');
+            const standard=document.implementation.createHTMLDocument();
+            check(standard.contentType==='text/html' && standard.compatMode==='CSS1Compat','created HTML metadata');
+            for(let i=0;i<128;i++) {
+                const detached=document.createElement('section');
+                detached.savedCollection=detached.children;
+                detached.append(document.createElement('i'));
+            }
+            return true;
+        })()"#).unwrap();
+        v8::tc_scope!(let scope, scope);
+        let result = v8::Script::compile(scope, script, None).and_then(|script| script.run(scope));
+        if result.is_none() {
+            panic!("{}", scope.exception().unwrap().to_rust_string_lossy(scope));
+        }
+        assert!(result.unwrap().is_true());
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        node_lists::account_memory(scope, &state);
+        assert_eq!(node_lists::retained_count(&state), 0);
+    }
+
+    #[test]
+    #[ignore = "requires ORYN_WPT_NODELIST_DIRECTORY pointing at pinned WPT dom/nodes"]
+    fn pinned_static_nodelist_stress_scripts_preserve_indexed_semantics() {
+        initialize_v8();
+        let directory =
+            std::path::PathBuf::from(std::env::var("ORYN_WPT_NODELIST_DIRECTORY").unwrap());
+        // Each upstream file has its own realm: one case changes NodeList.prototype.
+        for suffix in ["1", "2", "3", "indexOf-1", "indexOf-2", "indexOf-3"] {
+            let dom = Rc::new(RefCell::new(
+                html::parse("<html><body></body></html>")
+                    .into_runtime()
+                    .unwrap(),
+            ));
+            let mut isolate = v8::Isolate::new(Default::default());
+            v8::scope!(let scope, &mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+            install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+            let support = std::fs::read_to_string(
+                directory.join("support/NodeList-static-length-tampered.js"),
+            )
+            .unwrap();
+            let support = format!(
+                "globalThis.test=fn=>fn();globalThis.assert_equals=(actual,expected)=>{{if(actual!==expected)throw new Error('expected '+expected+', got '+actual)}};{support}"
+            );
+            let source = v8::String::new(scope, &support).unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            let file = format!("NodeList-static-length-getter-tampered-{suffix}.html");
+            let html = std::fs::read_to_string(directory.join(&file)).unwrap();
+            let script = html
+                .rsplit_once("<script>")
+                .unwrap()
+                .1
+                .split_once("</script>")
+                .unwrap()
+                .0;
+            let source = v8::String::new(scope, &format!("(()=>{{{script}}})()")).unwrap();
+            let started = Instant::now();
+            v8::tc_scope!(let scope, scope);
+            let result =
+                v8::Script::compile(scope, source, None).and_then(|script| script.run(scope));
+            if result.is_none() {
+                let exception = scope.exception().map(|e| e.to_rust_string_lossy(scope));
+                panic!("{file}: {exception:?}");
+            }
+            eprintln!("{file}: {:?}", started.elapsed());
+        }
+    }
+
+    #[test]
+    fn mutation_record_node_lists_are_static_snapshots() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main>x</main>").into_runtime().unwrap(),
+        ));
+        let root = dom.borrow().document();
+        let main = dom.borrow().query_selector(root, "main").unwrap().unwrap();
+        let child = dom.borrow().children(main).unwrap()[0];
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let records = mutation_record_array(
+            scope,
+            &state,
+            &[Mutation::Inserted {
+                node: child,
+                parent: Some(main),
+            }],
+        )
+        .unwrap();
+        let global = context.global(scope);
+        set_object_property(scope, global, "records", records.into()).unwrap();
+        dom.borrow_mut().remove(child).unwrap();
+        let source = v8::String::new(scope, "records[0].addedNodes instanceof NodeList && records[0].addedNodes.length===1 && records[0].addedNodes.item(0).data==='x' && records[0].removedNodes instanceof NodeList && records[0].removedNodes.length===0").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
+    fn range_wrappers_preserve_selection_identity_and_release_collected_native_records() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main>text</main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            (() => {
+                const selected = new Range();
+                selected.marker = 'kept';
+                document.getSelection().addRange(selected);
+                if (document.getSelection().getRangeAt(0) !== selected) throw Error('range identity');
+                const text = document.createTextNode('detached');
+                globalThis.frozen = new StaticRange({startContainer:text,startOffset:1,endContainer:text,endOffset:3});
+                for (let i=0;i<4096;i++) { new Range(); document.createRange(); }
+            })();
+            true
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        assert_eq!(state.ranges.borrow().len(), 2);
+        assert_eq!(state.range_objects.borrow().len(), 2);
+        let source = v8::String::new(scope, r#"
+            document.getSelection().getRangeAt(0).marker === 'kept' &&
+            document.getSelection().getRangeAt(0) === document.getSelection().getRangeAt(0) &&
+            frozen.startContainer.data === 'detached' && frozen.startOffset === 1 && frozen.endOffset === 3
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        let selected = state.selection_range.get().unwrap();
+        let source = v8::String::new(
+            scope,
+            "document.getSelection().removeAllRanges();delete globalThis.frozen;true",
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        apply_range_memory_accounting(scope, &state);
+        assert!(state.ranges.borrow().is_empty());
+        assert!(state.static_ranges.borrow().is_empty());
+        assert!(state.range_objects.borrow().is_empty());
+        assert!(
+            state
+                .dom
+                .borrow()
+                .live_range(LiveRangeId(selected))
+                .is_err()
+        );
+        assert_eq!(state.range_memory_delta.get(), 0);
+    }
+
+    #[test]
     fn template_content_and_fragment_insertion_match_framework_expectations() {
         initialize_v8();
-        let parsed = html::parse("<main id='root'></main><video id='media'></video>");
+        let parsed = html::parse(
+            "<main id='root'></main><video id='media'></video><template id='parsed'><button class='from-parser'>parsed</button><template><span>nested</span></template></template>",
+        );
         let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
         let mut isolate = v8::Isolate::new(Default::default());
         v8::scope!(let scope, &mut isolate);
@@ -24393,7 +26228,7 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "const root=document.getElementById('root');const template=document.createElement('template');template.innerHTML='<button>Add</button><span>ready</span>';const content=template.content;const clone=content.cloneNode(true);const first=Object.getOwnPropertyDescriptor(Node.prototype,'firstChild').get.call(clone);root.appendChild(clone);first.tagName==='BUTTON'&&root.children.length===2&&content.childNodes.length===2&&document.getElementById('media') instanceof HTMLMediaElement",
+            "const parsed=document.getElementById('parsed');const parsedContent=parsed.content;const copied=parsed.cloneNode(true);if(parsedContent.childNodes.length!==2||parsed.childNodes.length!==0||copied.content.firstChild.textContent!=='parsed'||copied.content.lastChild.content.firstChild.textContent!=='nested'||parsed.cloneNode(false).content.childNodes.length!==0)throw Error('parsed template ownership');const root=document.getElementById('root');const template=document.createElement('template');template.innerHTML='<button>Add</button><span>ready</span>';const content=template.content;const clone=content.cloneNode(true);const first=Object.getOwnPropertyDescriptor(Node.prototype,'firstChild').get.call(clone);root.appendChild(clone);first.tagName==='BUTTON'&&root.children.length===2&&content.childNodes.length===2&&document.getElementById('media') instanceof HTMLMediaElement",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();

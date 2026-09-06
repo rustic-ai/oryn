@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "benchmarks/conformance/runtime-api-style-semantics-v1.json"
+MANIFEST = ROOT / "benchmarks/conformance/runtime-api-style-semantics-v2.json"
 HEX = re.compile(r"^[0-9a-f]{64}$")
 
 

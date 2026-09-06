@@ -2,8 +2,9 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-worker="$repo_root/target/release/oryn-page-worker"
-app="$repo_root/target/release/OrynPageWorker.app"
+build_output="${CARGO_TARGET_DIR:-$repo_root/target}/release"
+worker="$build_output/oryn-page-worker"
+app="$build_output/OrynPageWorker.app"
 app_worker="$app/Contents/MacOS/oryn-page-worker"
 resources="$app/Contents/Resources"
 manifest="$resources/worker-manifest.json"
@@ -185,7 +186,7 @@ if ! jq -e '
 fi
 
 runtime_report="$(
-  ORYN_PAGE_WORKER="$app_worker" "$repo_root/target/release/oryn" native --runtime-info
+  ORYN_PAGE_WORKER="$app_worker" "$build_output/oryn" native --runtime-info
 )"
 if ! jq -e '
   .native_v8 == true and
@@ -203,7 +204,7 @@ fi
 
 mutation_output="$(
   printf '%s\n' 'observe' 'click "Mutate"' 'observe' 'exit' |
-    ORYN_PAGE_WORKER="$app_worker" "$repo_root/target/release/oryn" native \
+    ORYN_PAGE_WORKER="$app_worker" "$build_output/oryn" native \
       --html "$repo_root/benchmarks/conformance/javascript-mutation-smoke.html"
 )"
 if ! jq -Rse '
@@ -242,7 +243,7 @@ done
 server_port="$(cat "$server_port_file")"
 broker_output="$(
   printf '%s\n' exit |
-    ORYN_PAGE_WORKER="$app_worker" "$repo_root/target/release/oryn" native \
+    ORYN_PAGE_WORKER="$app_worker" "$build_output/oryn" native \
       --allow-loopback --url "http://127.0.0.1:$server_port/" \
       --evaluate 'document.title'
 )"

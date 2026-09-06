@@ -216,8 +216,13 @@ impl CspPolicySet {
         self.policies.is_empty()
     }
 
-    pub fn equivalent_policy(&self, other: &Self) -> bool {
-        self.policies == other.policies
+    /// Confirm the response policy independently of meta policies already observed
+    /// by the parent while response body chunks were in flight.
+    pub fn equivalent_response_policy(&self, other: &Self) -> bool {
+        self.policies
+            .iter()
+            .filter(|policy| policy.source == "header")
+            .eq(other.policies.iter())
             && self.reporting_endpoints == other.reporting_endpoints
             && (self.policies.is_empty()
                 || Url::parse(&self.document_url).ok().map(|url| url.origin())
@@ -799,6 +804,52 @@ mod tests {
             parser_inserted: true,
             initiated_by_trusted_script: false,
         }
+    }
+
+    #[test]
+    fn response_confirmation_preserves_meta_enforcement_and_rejects_forgery() {
+        let url = "https://app.example/index";
+        let headers = vec![("Content-Security-Policy".into(), "script-src 'self'".into())];
+        let response = CspPolicySet::from_headers(url, &headers);
+        let mut installed = response.clone();
+        installed.install_meta("script-src 'none'");
+        assert!(installed.equivalent_response_policy(&response));
+        assert!(
+            !installed
+                .authorize(&request(CspDestination::Script, "https://app.example/a.js"))
+                .allowed
+        );
+        assert!(!installed.equivalent_response_policy(&CspPolicySet::new(url)));
+        for (name, value) in [
+            ("Content-Security-Policy", "script-src *"),
+            ("Content-Security-Policy-Report-Only", "script-src 'self'"),
+        ] {
+            let forged = CspPolicySet::from_headers(url, &[(name.into(), value.into())]);
+            assert!(!installed.equivalent_response_policy(&forged));
+        }
+        let mut forged = response.clone();
+        forged
+            .reporting_endpoints
+            .insert("default".into(), "https://evil.example/report".into());
+        assert!(!installed.equivalent_response_policy(&forged));
+        let other_origin = CspPolicySet::from_headers("https://evil.example/", &headers);
+        assert!(!installed.equivalent_response_policy(&other_origin));
+    }
+
+    #[test]
+    fn meta_only_response_confirmation_does_not_remove_policy() {
+        let url = "https://app.example/";
+        let response = CspPolicySet::new(url);
+        let mut installed = response.clone();
+        installed.install_meta("script-src 'none'");
+        assert!(installed.equivalent_response_policy(&response));
+        assert!(installed.contains_meta("script-src 'none'"));
+        assert!(
+            !installed
+                .authorize(&request(CspDestination::Script, "https://app.example/a.js"))
+                .allowed
+        );
+        assert!(!installed.equivalent_response_policy(&CspPolicySet::new("https://evil.example/")));
     }
 
     #[test]

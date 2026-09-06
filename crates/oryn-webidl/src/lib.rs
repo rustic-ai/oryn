@@ -32,6 +32,7 @@ pub struct Enumeration {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Interface {
+    pub callback: bool,
     pub name: String,
     pub inherits: Option<String>,
     pub partial: bool,
@@ -74,6 +75,7 @@ pub enum TypeDescriptor {
     Sequence(Box<TypeDescriptor>),
     Promise(Box<TypeDescriptor>),
     FrozenArray(Box<TypeDescriptor>),
+    ObservableArray(Box<TypeDescriptor>),
     Record(Box<TypeDescriptor>, Box<TypeDescriptor>),
     Union(Vec<TypeDescriptor>),
 }
@@ -88,6 +90,8 @@ pub enum Member {
         extended_attributes: Vec<ExtendedAttribute>,
     },
     Operation {
+        indexed_getter: bool,
+        named_getter: bool,
         name: String,
         return_type: String,
         return_type_descriptor: TypeDescriptor,
@@ -138,6 +142,7 @@ pub enum ParseError {
 pub fn parse_interface(input: &str) -> Result<Interface, ParseError> {
     let source = strip_line_comments(input);
     let (extended_attributes, source) = take_extended_attributes(source.trim())?;
+    let callback = source.trim_start().starts_with("callback interface");
     let partial = source.trim_start().starts_with("partial interface");
     let declaration = source
         .split_once("interface")
@@ -168,6 +173,7 @@ pub fn parse_interface(input: &str) -> Result<Interface, ParseError> {
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Interface {
+        callback,
         name: name.to_string(),
         inherits,
         partial,
@@ -185,6 +191,7 @@ pub fn parse_definitions(input: &str) -> Result<Vec<Definition>, ParseError> {
             if declaration.starts_with("interface mixin ") {
                 parse_interface_mixin(trimmed).map(Definition::InterfaceMixin)
             } else if declaration.starts_with("interface ")
+                || declaration.starts_with("callback interface ")
                 || declaration.starts_with("partial interface ")
             {
                 parse_interface(trimmed).map(Definition::Interface)
@@ -329,6 +336,9 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
              pub kind: GeneratedMemberKind,\n\
              pub arity: u8,\n\
              pub readonly: bool,\n\
+             pub indexed_getter: bool,\n\
+             pub named_getter: bool,\n\
+             pub value_iterable: bool,\n\
              pub constant_value: Option<&'static str>,\n\
              pub type_name: Option<&'static str>,\n\
              pub same_object: bool,\n\
@@ -345,6 +355,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
              pub parent: Option<&'static str>,\n\
              pub exposed: &'static [&'static str],\n\
              pub constructible: bool,\n\
+             pub callback: bool,\n\
              pub members: &'static [GeneratedMember],\n\
          }\n\n",
     );
@@ -438,6 +449,21 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
                     extended_attributes,
                 ),
             };
+            let indexed_getter = matches!(
+                member,
+                Member::Operation {
+                    indexed_getter: true,
+                    ..
+                }
+            );
+            let named_getter = matches!(
+                member,
+                Member::Operation {
+                    named_getter: true,
+                    ..
+                }
+            );
+            let value_iterable = matches!(member, Member::Iterable { key: None, .. });
             let same_object = has_extended_attribute(attributes, "SameObject");
             let new_object = has_extended_attribute(attributes, "NewObject");
             let ce_reactions = has_extended_attribute(attributes, "CEReactions");
@@ -447,7 +473,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
             let replaceable = has_extended_attribute(attributes, "Replaceable");
             let put_forwards = extended_attribute_value(attributes, "PutForwards");
             output.push_str(&format!(
-                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, constant_value: {constant_value:?}, type_name: {type_name:?}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, put_forwards: {put_forwards:?} }},",
+                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, indexed_getter: {indexed_getter}, named_getter: {named_getter}, value_iterable: {value_iterable}, constant_value: {constant_value:?}, type_name: {type_name:?}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, put_forwards: {put_forwards:?} }},",
                 token = ((interface_index as u32) << 16) | member_index as u32,
             ));
         }
@@ -462,7 +488,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
             .any(|member| matches!(member, Member::Constructor { .. }))
             || has_extended_attribute(&interface.extended_attributes, "Constructor");
         output.push_str(&format!(
-            "    GeneratedInterface {{ name: {:?}, parent: {}, exposed: &{:?}, constructible: {}, members: {}_MEMBERS }},\n",
+            "    GeneratedInterface {{ name: {:?}, parent: {}, exposed: &{:?}, constructible: {}, callback: {}, members: {}_MEMBERS }},\n",
             interface.name,
             interface
                 .inherits
@@ -471,6 +497,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
                 .unwrap_or_else(|| "None".into()),
             exposed,
             constructible,
+            interface.callback,
             rust_constant(&interface.name)
         ));
     }
@@ -642,6 +669,9 @@ fn parse_member(member: &str) -> Result<Member, ParseError> {
         });
     }
 
+    let (getter, member) = member
+        .strip_prefix("getter ")
+        .map_or((false, member), |member| (true, member));
     if !readonly
         && let Some((head, tail)) = member.split_once('(')
         && let Some(arguments) = tail.strip_suffix(')')
@@ -649,7 +679,19 @@ fn parse_member(member: &str) -> Result<Member, ParseError> {
     {
         validate_identifier(name)?;
         let arguments = parse_arguments(arguments)?;
+        if getter
+            && (arguments.len() != 1
+                || !matches!(
+                    arguments[0].type_name.as_str(),
+                    "unsigned long" | "DOMString"
+                )
+                || arguments[0].optional)
+        {
+            return Err(ParseError::UnsupportedMember(member.into()));
+        }
         return Ok(Member::Operation {
+            indexed_getter: getter && arguments[0].type_name == "unsigned long",
+            named_getter: getter && arguments[0].type_name == "DOMString",
             name: name.to_string(),
             return_type: return_type.to_string(),
             return_type_descriptor: parse_type(return_type)?,
@@ -818,6 +860,7 @@ fn parse_type(input: &str) -> Result<TypeDescriptor, ParseError> {
         ),
         ("Promise<", TypeDescriptor::Promise),
         ("FrozenArray<", TypeDescriptor::FrozenArray),
+        ("ObservableArray<", TypeDescriptor::ObservableArray),
     ] {
         if let Some(inner) = input
             .strip_prefix(prefix)
@@ -1024,6 +1067,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn named_getters_are_distinct_from_indexed_getters() {
+        let definitions = parse_definitions("[Exposed=Window, LegacyUnenumerableNamedProperties] interface HTMLCollection { getter Element? item(unsigned long index); getter Element? namedItem(DOMString name); };").unwrap();
+        let interfaces = merge_partial_interfaces(&definitions).unwrap();
+        assert!(matches!(
+            interfaces[0].members[0],
+            Member::Operation {
+                indexed_getter: true,
+                named_getter: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            interfaces[0].members[1],
+            Member::Operation {
+                indexed_getter: false,
+                named_getter: true,
+                ..
+            }
+        ));
+        let output = emit_binding_registry(&definitions).unwrap();
+        assert!(output.contains("named_getter: true"));
+        assert!(parse_interface("interface Bad { getter Element? bad(boolean key); };").is_err());
+    }
+
+    #[test]
     fn parses_initial_interface_subset() {
         let interface = parse_interface(
             r#"
@@ -1040,6 +1108,31 @@ mod tests {
         assert_eq!(interface.inherits.as_deref(), Some("EventTarget"));
         assert_eq!(interface.members.len(), 3);
         assert!(emit_rust_metadata(&interface).contains("appendChild"));
+    }
+
+    #[test]
+    fn indexed_getter_and_value_iteration_metadata_are_preserved() {
+        let interface = parse_interface("interface Nodes { getter Node? item(unsigned long index); readonly attribute unsigned long length; iterable<Node>; };").unwrap();
+        assert!(matches!(
+            &interface.members[0],
+            Member::Operation {
+                indexed_getter: true,
+                ..
+            }
+        ));
+        let output = emit_binding_registry(&[Definition::Interface(interface)]).unwrap();
+        assert!(output.contains("indexed_getter: true"));
+        assert!(output.contains("value_iterable: true"));
+        assert!(
+            parse_interface(
+                "interface Bad { getter Node? item(unsigned long index, DOMString name); };"
+            )
+            .is_err()
+        );
+        assert!(
+            parse_interface("interface Bad { getter Node? item(optional unsigned long index); };")
+                .is_err()
+        );
     }
 
     #[test]

@@ -251,7 +251,6 @@ dependencies = [
 [[package]]
 name = "blitz-dom"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=9d5cef2fa3d01423081681843d91b76ef593443e#9d5cef2fa3d01423081681843d91b76ef593443e"
 dependencies = [
  "app_units",
  "atomic_refcell",
@@ -975,7 +974,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2379,6 +2378,7 @@ dependencies = [
  "cssparser",
  "fontique",
  "oryn-common",
+ "oryn-dom",
  "parley",
  "regex",
  "selectors",
@@ -2841,7 +2841,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3189,7 +3189,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3651,8 +3651,6 @@ dependencies = [
 [[package]]
 name = "stylo"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebaeb0b51f5e574bf36606c4dc982430a20d7a17175bdc0deab4d43d2063040b"
 dependencies = [
  "app_units",
  "arrayvec",
@@ -3889,7 +3887,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.3",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4690,7 +4688,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

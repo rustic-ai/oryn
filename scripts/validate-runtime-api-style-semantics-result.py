@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-INVENTORY = ROOT / "benchmarks/conformance/runtime-api-style-semantics-v1-inventory.json"
+INVENTORY = ROOT / "benchmarks/conformance/runtime-api-style-semantics-v2-inventory.json"
 HEX = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -30,6 +30,25 @@ def expected_assertions(inventory: dict[str, object]) -> set[str]:
             for variant in test["variants"]:
                 expected.add(f"{test['path']}|{global_name}|{variant}")
     return expected
+
+
+def validate_passed_assertion(assertion: dict[str, object], context: str) -> None:
+    if assertion.get("status") != "passed":
+        return
+    result = assertion.get("result")
+    require(isinstance(result, dict), f"{context}: passing assertion lacks testharness result")
+    require(result.get("complete") is True, f"{context}: testharness completion unverified")
+    require(result.get("harness") == 0, f"{context}: testharness did not succeed")
+    tests = result.get("tests")
+    require(isinstance(tests, list) and tests, f"{context}: no testharness assertions")
+    require(
+        all(isinstance(test, dict) and test.get("status") == 0 for test in tests),
+        f"{context}: failing testharness assertion reported as passed",
+    )
+    require(
+        assertion.get("result_transport") != "isolated_dom_probe",
+        f"{context}: diagnostic probe cannot establish conformance",
+    )
 
 
 def main() -> int:
@@ -101,6 +120,7 @@ def main() -> int:
             require(identifier in expected, f"{path}: unexpected assertion {identifier}")
             require(identifier not in assertions, f"{path}: duplicate assertion {identifier}")
             require(assertion.get("status") in {"passed", "failed"}, f"{path}: invalid status for {identifier}")
+            validate_passed_assertion(assertion, f"{path}: {identifier}")
             assertions[identifier] = assertion
     require(shard_count is not None, "no shards supplied")
     require(shard_indices == set(range(shard_count)), "shard set is incomplete")

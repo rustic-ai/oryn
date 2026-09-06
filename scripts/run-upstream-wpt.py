@@ -26,15 +26,15 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "benchmarks/conformance/runtime-completion-v1.json"
-EXPANDED_MANIFEST = ROOT / "benchmarks/conformance/runtime-api-style-semantics-v1.json"
-EXPANDED_INVENTORY = ROOT / "benchmarks/conformance/runtime-api-style-semantics-v1-inventory.json"
+EXPANDED_MANIFEST = ROOT / "benchmarks/conformance/runtime-api-style-semantics-v2.json"
+EXPANDED_INVENTORY = ROOT / "benchmarks/conformance/runtime-api-style-semantics-v2-inventory.json"
 COMPLETION = r"""
 <script>
 setup({output:false});
 globalThis.__oryn_wpt_results=[];
 let __oryn_wpt_result_generation=0;
 function __oryn_publish_wpt(harness, complete) {
-  var value = {complete:!!complete,harness:harness && typeof harness.status === 'number' ? harness.status : 0,harnessMessage:harness && harness.message ? String(harness.message) : '',harnessStack:harness && harness.stack ? String(harness.stack) : '',tests:globalThis.__oryn_wpt_results,testdriver:globalThis.__oryn_testdriver_log || []};
+  var value = {complete:!!complete,harness:harness && typeof harness.status === 'number' ? harness.status : 0,harnessMessage:harness && harness.message ? String(harness.message) : '',harnessStack:harness && harness.stack ? String(harness.stack) : '',tests:globalThis.__oryn_wpt_results,testdriver:globalThis.__oryn_testdriver_log || [],range_total:globalThis.__oryn_wpt_range_total};
   var output = document.getElementById('oryn-wpt-result');
   if (!output) {
     output = document.createElement('pre');
@@ -86,6 +86,7 @@ EDITING_SUBSET_BOOTSTRAP = r"""
     if(high>=first&&low<=last){if(!found){firstSelected=cursor;found=true}selected.push(entry)}
     cursor=high;
   }
+  globalThis.__oryn_wpt_range_total=cursor;
   browserTests=selected;
   let current=firstSelected;
   globalThis.subsetTest=function(testFunc,...args){
@@ -307,7 +308,7 @@ def outcome(assertions: list[dict[str, object]], expected_total: int, complete: 
 
 
 def probe_wpt_result(stdout: str) -> dict[str, Any] | None:
-    """Recover typed testharness assertions from the isolated DOM probe."""
+    """Recover partial assertions for diagnosis, never infer harness completion."""
     match = re.search(r"\|results=(\[.*?\])\|messages=", stdout, re.DOTALL)
     if not match:
         return None
@@ -318,13 +319,20 @@ def probe_wpt_result(stdout: str) -> dict[str, Any] | None:
     if not isinstance(tests, list) or not tests:
         return None
     return {
-        "complete": True,
-        "harness": 0,
-        "harnessMessage": "recovered from isolated DOM probe",
+        "complete": False,
+        "harness": None,
+        "harnessMessage": "partial assertions from isolated DOM probe; completion unverified",
         "harnessStack": "",
         "tests": tests,
         "testdriver": [],
     }
+
+
+class ConformanceHTTPServer(http.server.ThreadingHTTPServer):
+    # Four page processes can each start dozens of correlated resources. The
+    # default five-connection accept queue creates fixture-server failures under
+    # that load; match the bounded broker concurrency without changing timeouts.
+    request_queue_size = 256
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -835,6 +843,21 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             sys.stderr.write("WPT_REQUEST " + (message_format % args) + "\n")
 
 
+def untracked_source_digest(root: Path) -> tuple[str, int]:
+    """Include new files in candidate identity without modifying Git's index."""
+    paths = subprocess.check_output(
+        ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard", "-z"]
+    ).split(b"\0")
+    digest = hashlib.sha256()
+    count = 0
+    for encoded in sorted(path for path in paths if path):
+        path = root / os.fsdecode(encoded)
+        payload = os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes()
+        digest.update(encoded + b"\0" + hashlib.sha256(payload).digest())
+        count += 1
+    return digest.hexdigest(), count
+
+
 def is_testharness_html(path: Path) -> bool:
     """Return whether an HTML file is an independently runnable WPT test.
 
@@ -894,10 +917,8 @@ def inventoried_tests(checkout: Path, inventory_path: Path) -> list[tuple[Path, 
         if actual != record["sha256"]:
             raise SystemExit(f"WPT source digest mismatch: {record['path']}")
         variants = record["variants"]
-        if variants == [""] and source.suffix in {".html", ".htm"}:
-            variants = declared_html_variants(
-                source.read_text(encoding="utf-8", errors="replace")
-            ) or variants
+        # A locked inventory is authoritative. Source discovery belongs in the
+        # inventory builder, never in execution: validators must see identical IDs.
         for global_name in record["globals"]:
             for variant in variants:
                 tests.append((Path(record["path"]), record["workstream"], global_name, variant))
@@ -970,15 +991,13 @@ def run_case(
         and test.as_posix().startswith("editing/run/")
     ):
         start = int(large_variant.group(1))
-        end = (
-            int(large_variant.group(2))
-            if large_variant.group(2) != "last"
-            else start + 999
-        )
-        if end - start + 1 > 100:
+        open_ended = large_variant.group(2) == "last"
+        end = int(large_variant.group(2)) if not open_ended else None
+        if open_ended or end - start + 1 > 100:
             parts = []
-            for part_start in range(start, end + 1, 100):
-                part_end = min(part_start + 99, end)
+            part_start = start
+            while end is None or part_start <= end:
+                part_end = min(part_start + 99, end) if end is not None else part_start + 99
                 part = run_case(
                         binary,
                         checkout,
@@ -992,12 +1011,18 @@ def run_case(
                         script_wall_ms,
                         True,
                     )
-                if (
-                    large_variant.group(2) == "last"
-                    and not (part.get("result") or {}).get("tests")
-                ):
-                    break
                 parts.append(part)
+                if end is None:
+                    total = (part.get("result") or {}).get("range_total")
+                    if not isinstance(total, int) or total < start:
+                        part["status"] = "failed"
+                        part["failure_domain"] = part.get("failure_domain") or "incomplete"
+                        part.setdefault("diagnostics", []).append(
+                            "open-ended editing range lacks a verified assertion count"
+                        )
+                        break
+                    end = total
+                part_start = part_end + 1
             tests = [
                 assertion
                 for part in parts
@@ -1127,15 +1152,14 @@ def run_case(
             )
             recovered = probe_wpt_result(probe.stdout)
             if recovered is not None:
-                failed = any(item.get("status") != 0 for item in recovered["tests"])
                 return {
                     "id": identifier,
                     "path": test.as_posix(),
                     "classification": classification,
                     "global": global_name,
                     "variant": variant,
-                    "status": "failed" if failed else "passed",
-                    "failure_domain": "assertion" if failed else None,
+                    "status": "failed",
+                    "failure_domain": "incomplete",
                     "result": recovered,
                     "result_transport": "isolated_dom_probe",
                 }
@@ -1150,7 +1174,7 @@ def run_case(
                 + "\n"
                 + probe.stderr
             )
-            return {"id":identifier,"path":test.as_posix(),"classification":classification,"global":global_name,"variant":variant,"status":"failed","diagnostics":[detail or "missing WPT completion payload"]}
+            return {"id":identifier,"path":test.as_posix(),"classification":classification,"global":global_name,"variant":variant,"status":"failed","failure_domain":"runtime" if completed.returncode else "incomplete","diagnostics":[detail or "missing WPT completion payload"]}
         failed = (
             not result.get("complete", False)
             or result.get("harness") not in (0, None)
@@ -1297,21 +1321,28 @@ def main() -> int:
         runtime_metadata = json.loads(runtime_probe.stdout)
     except json.JSONDecodeError as error:
         raise SystemExit(f"runtime preflight returned invalid JSON: {error}") from error
+    if not args.in_process_probe and not (
+        runtime_metadata.get("execution_mode") == "sandboxed_worker"
+        and runtime_metadata.get("sandboxed") is True
+        and runtime_metadata.get("v8_heap_sandbox") is True
+    ):
+        raise SystemExit("runtime preflight requires the hardened sandboxed worker; use --in-process-probe only for diagnostics")
     source_commit = subprocess.check_output(
         ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True
     ).strip()
     source_tree_dirty = bool(
         subprocess.check_output(
-            ["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=no"],
+            ["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=normal"],
             text=True,
         ).strip()
     )
     source_patch = subprocess.check_output(
         ["git", "-C", str(ROOT), "diff", "--binary", "HEAD"],
     )
+    untracked_sha256, untracked_count = untracked_source_digest(ROOT)
     Handler.root = args.checkout.resolve()
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    secure_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ConformanceHTTPServer(("127.0.0.1", 0), Handler)
+    secure_server = ConformanceHTTPServer(("127.0.0.1", 0), Handler)
     Handler.public_http_port = server.server_port
     Handler.public_https_port = secure_server.server_port
     certificate_root = args.checkout / "tools/certs"
@@ -1438,6 +1469,7 @@ def main() -> int:
         "runtime_metadata": runtime_metadata,
         "source_commit": source_commit,
         "source_patch_sha256": sha256_bytes(source_patch),
+        "source_untracked_sha256": untracked_sha256,
         "selection": selection,
     }
     run_fingerprint = sha256_bytes(
@@ -1473,6 +1505,8 @@ def main() -> int:
                 "commit": source_commit,
                 "dirty": source_tree_dirty,
                 "patch_sha256": fingerprint_input["source_patch_sha256"],
+                "untracked_sha256": untracked_sha256,
+                "untracked_file_count": untracked_count,
             },
             "selection": selection,
             "shard": {"index": args.shard_index, "count": args.shard_count},

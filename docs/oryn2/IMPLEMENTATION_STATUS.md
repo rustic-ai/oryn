@@ -1,21 +1,63 @@
 # Oryn2 implementation status
 
-> **Current status: proposal-v1 architecture implemented; exhaustive conformance
-> and exact-artifact attestation remain open.** The latest exact diagnostic
-> baseline is clean commit `e1b97d7`. Production uses streaming navigation and correlated asynchronous
-> resources, a shared Rust-owned `DomRuntime`, a persistent incremental semantic
-> graph, generated Rust/V8 interfaces for the declared API inventory, and native
-> Stylo computed values. Focused IndexedDB and editing diagnostics close at
-> 100/100 and corrected 40/40 respectively. This is not yet a release candidate.
-> The exact clean-tree in-process inventory passes 2,267/4,022, improving 20
-> variants from the immediately preceding 2,247/4,022 exact run. Exhaustive closure,
-> semantic/accessibility and Stylo
-> differential evidence, Linux full/lite artifacts, four-profile equivalence,
-> exact security/performance validation and private release/model attestation
-> remain. Historical evidence stays bound to the
-> commits and binaries that produced it. See
-> `ORYN2-PROPOSAL-VS-IMPLEMENTATION-REVIEW.md` and
-> `RUNTIME-COMPLETION-ACTION-PLAN.md`.
+> **Current priority: complete conformance. Not a release candidate.**
+> The latest complete signed-worker development run passes **2,467/4,022**
+> executions, with **2 new passes and no regressions** versus the
+> preceding namespace candidate. **1,555 executions remain failing.**
+
+Every required v2 execution ID and every reported passing testharness completion
+has been checked. The result is development evidence from the signed App Sandbox
+worker, with unchanged security, memory, and timeout limits. The dirty source
+and failed aggregate do not qualify a release.
+
+| Root | Passed / required |
+|---|---:|
+| IndexedDB | 341/456 |
+| WebIDL | 29/58 |
+| accname | 15/19 |
+| css | 226/564 |
+| dom | 297/662 |
+| editing | 118/704 |
+| html | 30/136 |
+| referrer-policy | 1,383/1,391 |
+| wai-aria | 28/32 |
+
+Stylo owns CSS parsing, cascade, computed values, and production DOM selector
+matching. The latest full run includes relational and filtered nth-child
+selectors, untransformed offset dimensions, the shared event/performance clock,
+compact IndexedDB Blob cloning, and the CSP header/meta confirmation fix.
+Parser text batching removed the widespread quadratic memory growth in the
+preceding candidate. Constructed stylesheet adoption remains Rust-owned.
+
+The full result also includes canonical template contents, Stylo `@scope`,
+native NodeList views, Range wrapper lifetime cleanup, collection cycle tracing,
+faster static reads, the selector alias, mutation-journal lease cleanup, and
+element namespace preservation. The latest full run also includes detached-tree
+and wrapper graph tracing, the per-database IndexedDB connection queue, the
+Blitz namespace case-sensitivity correction, and iframe clone owner-document
+preservation. The two new file passes recover IndexedDB open-request-queue and
+fix CSS attribute-value namespace sensitivity. The selector alias now passes
+668/669 assertions; document `:target` state remains missing.
+
+Newer source adds real indexed properties for static NodeList reads and native
+live HTMLCollection views with named properties, literal tag/class/namespace
+filters, and generated named-getter metadata. The newer signed worker passes all eight HTMLCollection files and all six
+NodeList stress files, with verified harness completion and unchanged limits.
+A subsequent qualified-name creation fix preserves case and prefixes. The
+complete DOM root now improves to 327/662 (30 gains, zero regressions), and CSS
+remains 226/564 with no regressions. WebIDL was unchanged at 29/58 in the
+collection candidate. A later native document-metadata candidate reaches 329/662 DOM with two more
+gains and zero regressions (32 gains since the full baseline). Parser quirks mode,
+created-document content types, and collection matching modes now survive in the
+native document model. All 100 V8, 28 DOM and 141 native runtime tests pass. These
+changes are not included in the full ledger above.
+
+Remaining shared gaps include XML parsing and iframe document-mode handling,
+namespace validation and reflection, table APIs, editing algorithms, CSSOM and implicit/shadow scope integration, generated-content
+accessible names, iframe realms, and transaction scheduling. Exact clean-source
+release, platform, product, performance, and semantic-equivalence evidence also
+remain open. See the [conformance progress report](CONFORMANCE-PROGRESS-2026-09-05.md)
+and [completion plan](RUNTIME-COMPLETION-ACTION-PLAN.md).
 
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.
@@ -765,10 +807,10 @@ rewrite those historical payloads or present them as a new validation run.
 
 ## Next tracks
 
-- Close the remaining 1,755 cases in the exact 4,022-variant inventory,
+- Close the remaining 1,659 cases in the exact 4,022-variant inventory,
   prioritizing shared harness/lifecycle causes over isolated assertions. The
-  current deficits are editing 586, CSS 451, DOM 393, IndexedDB 152, referrer
-  policy 25, HTML 106, generated-WebIDL 32, WAI-ARIA 4 and Accessible Name 6.
+  current deficits are editing 586, CSS 429, DOM 373, IndexedDB 119, referrer
+  policy 9, HTML 106, generated-WebIDL 29, WAI-ARIA 4 and Accessible Name 4.
 - Complete semantic-graph/oracle, ARIA/Accessible Name and Stylo/Chromium
   differential evidence, then build and validate Linux full/lite profiles in
   CayVM alongside the macOS full/lite profiles.

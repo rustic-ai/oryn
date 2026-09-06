@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::rc::Rc;
 
-use markup5ever::{LocalName, Namespace, QualName, ns};
+use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use serde::{Deserialize, Serialize};
 
 pub mod html;
@@ -25,6 +25,15 @@ pub type SharedDomRuntime = Rc<RefCell<DomRuntime>>;
 pub struct NodeId {
     pub slot: u32,
     pub generation: u32,
+}
+
+/// The four DOM selector operations, evaluated by the worker's Stylo adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectorOperation {
+    First,
+    All,
+    Matches,
+    Closest,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -90,15 +99,48 @@ pub enum NodeKind {
     },
 }
 
+/// Native document identity and parser mode, preserved by cloning and import.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentMetadata {
+    pub content_type: String,
+    pub is_html: bool,
+    pub quirks: bool,
+}
+
+impl Default for DocumentMetadata {
+    fn default() -> Self {
+        Self {
+            content_type: "application/xml".into(),
+            is_html: false,
+            quirks: false,
+        }
+    }
+}
+
+impl DocumentMetadata {
+    pub fn html() -> Self {
+        Self {
+            content_type: "text/html".into(),
+            is_html: true,
+            quirks: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node {
     pub kind: NodeKind,
+    pub document_metadata: Option<Box<DocumentMetadata>>,
     pub parent: Option<NodeId>,
     pub children: Vec<NodeId>,
     pub attributes: BTreeMap<String, String>,
     /// Listener types registered through `addEventListener`. This internal
     /// semantic state is never serialized as an HTML attribute.
     pub event_listeners: BTreeSet<String>,
+    /// Constructed stylesheets adopted by this document or shadow root, in cascade order.
+    pub adopted_stylesheets: Vec<NodeId>,
+    /// Inert template contents, outside the light DOM tree.
+    pub template_content: Option<NodeId>,
     pub value: Option<String>,
     pub sensitive_value: bool,
 }
@@ -340,12 +382,17 @@ impl DomArena {
 }
 
 fn new_node(kind: NodeKind) -> Node {
+    let document_metadata =
+        matches!(kind, NodeKind::Document).then(|| Box::new(DocumentMetadata::default()));
     Node {
+        document_metadata,
         kind,
         parent: None,
         children: Vec::new(),
         attributes: BTreeMap::new(),
         event_listeners: BTreeSet::new(),
+        adopted_stylesheets: Vec::new(),
+        template_content: None,
         value: None,
         sensitive_value: false,
     }
@@ -372,6 +419,9 @@ pub enum Mutation {
         node: NodeId,
         old_value: String,
         new_value: String,
+    },
+    StyleSheets {
+        node: NodeId,
     },
     FormState {
         node: NodeId,
@@ -410,6 +460,7 @@ struct MutationJournal {
     entries: VecDeque<(u64, Mutation)>,
     next: u64,
     observer: MutationCursor,
+    discarded_removed_roots: Vec<NodeId>,
 }
 
 impl Default for MutationJournal {
@@ -418,6 +469,7 @@ impl Default for MutationJournal {
             entries: VecDeque::new(),
             next: 1,
             observer: MutationCursor::default(),
+            discarded_removed_roots: Vec::new(),
         }
     }
 }
@@ -430,7 +482,14 @@ impl MutationJournal {
         self.next = self.next.saturating_add(1);
         self.entries.push_back((sequence, mutation));
         while self.entries.len() > Self::MAX_ENTRIES {
-            self.entries.pop_front();
+            if let Some((sequence, Mutation::Removed { node, .. })) = self.entries.pop_front()
+                && sequence > self.observer.0
+            {
+                // The bounded journal no longer exposes this entry, but its
+                // lease must still be released at a safe delivery checkpoint.
+                // Entries already drained transfer that lease to their batch.
+                self.discarded_removed_roots.push(node);
+            }
         }
     }
 
@@ -492,6 +551,11 @@ impl DomRuntime {
     pub fn new() -> Self {
         let mut runtime = Self::default();
         let document = runtime.arena.insert(NodeKind::Document);
+        runtime
+            .arena
+            .get_mut(document)
+            .expect("new document")
+            .document_metadata = Some(Box::new(DocumentMetadata::html()));
         runtime.document = Some(document);
         runtime.connected.insert(document);
         runtime
@@ -507,6 +571,7 @@ impl DomRuntime {
             document: Some(document),
             ..Self::default()
         };
+        runtime.restore_template_roots()?;
         runtime.rebuild_document_indexes()?;
         Ok(runtime)
     }
@@ -527,6 +592,7 @@ impl DomRuntime {
         self.focused = None;
         self.next_range = 0;
         self.ranges.clear();
+        self.restore_template_roots()?;
         self.rebuild_document_indexes()
     }
 
@@ -552,15 +618,30 @@ impl DomRuntime {
     }
 
     pub fn create_element(&mut self, local_name: &str) -> NodeId {
-        self.create(NodeKind::Element {
-            name: QualName::new(None, ns!(html), LocalName::from(local_name)),
-        })
+        self.create_element_with_local_name("http://www.w3.org/1999/xhtml", local_name)
     }
 
-    pub fn create_element_ns(&mut self, namespace: &str, local_name: &str) -> NodeId {
+    /// Create with a literal local name, as Document.createElement requires.
+    /// Unlike qualified-name creation, a colon here does not introduce a prefix.
+    pub fn create_element_with_local_name(&mut self, namespace: &str, local_name: &str) -> NodeId {
         self.create(NodeKind::Element {
             name: QualName::new(
                 None,
+                Namespace::from(namespace),
+                LocalName::from(local_name),
+            ),
+        })
+    }
+
+    pub fn create_element_ns(&mut self, namespace: &str, qualified_name: &str) -> NodeId {
+        let (prefix, local_name) = qualified_name
+            .split_once(':')
+            .map_or((None, qualified_name), |(prefix, local)| {
+                (Some(Prefix::from(prefix)), local)
+            });
+        self.create(NodeKind::Element {
+            name: QualName::new(
+                prefix,
                 Namespace::from(namespace),
                 LocalName::from(local_name),
             ),
@@ -594,14 +675,52 @@ impl DomRuntime {
         self.create(NodeKind::DocumentFragment)
     }
 
+    /// Keep the inert fragment attached to its template owner without making
+    /// its descendants connected or visible to document selector queries.
+    pub fn template_content(&mut self, template: NodeId) -> Result<NodeId, DomError> {
+        let record = self.arena.get(template)?;
+        if !matches!(&record.kind, NodeKind::Element { name }
+            if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "template")
+        {
+            return Err(DomError::NotAnElement(template));
+        }
+        if let Some(content) = record.template_content {
+            return Ok(content);
+        }
+        let content = self.create_fragment();
+        self.retain_native(content)?;
+        self.arena.get_mut(template)?.template_content = Some(content);
+        Ok(content)
+    }
+
+    fn restore_template_roots(&mut self) -> Result<(), DomError> {
+        let contents = self
+            .arena
+            .iter()
+            .filter_map(|(_, node)| node.template_content)
+            .collect::<Vec<_>>();
+        for content in contents {
+            self.retain_native(content)?;
+        }
+        Ok(())
+    }
+
     pub fn import_subtree(&mut self, source: &DomArena, node: NodeId) -> Result<NodeId, DomError> {
         let source_node = source.get(node)?;
         let imported = self.create(source_node.kind.clone());
         {
             let target = self.arena.get_mut(imported)?;
+            target
+                .document_metadata
+                .clone_from(&source_node.document_metadata);
             target.attributes.clone_from(&source_node.attributes);
             target.value.clone_from(&source_node.value);
             target.sensitive_value = source_node.sensitive_value;
+        }
+        if let Some(content) = source_node.template_content {
+            let imported_content = self.import_subtree(source, content)?;
+            self.retain_native(imported_content)?;
+            self.arena.get_mut(imported)?.template_content = Some(imported_content);
         }
         for child in &source_node.children {
             let imported_child = self.import_subtree(source, *child)?;
@@ -716,6 +835,8 @@ impl DomRuntime {
     pub fn replace_document_contents(&mut self, markup: &str) -> Result<(), DomError> {
         let parsed = html::parse(markup);
         let document = self.document();
+        self.arena.get_mut(document)?.document_metadata =
+            parsed.dom.get(parsed.document)?.document_metadata.clone();
         for child in self.arena.get(document)?.children.clone() {
             self.remove_child(document, child)?;
         }
@@ -843,6 +964,34 @@ impl DomRuntime {
         }
         self.insert_before(parent, replacement, Some(child))?;
         self.remove_child(parent, child)
+    }
+
+    /// Update internal CSSOM state without exposing a synthetic HTML attribute
+    /// or a DOM MutationObserver record. Native roots preserve adopted sheets
+    /// independently of wrapper collection, including repeated adoption.
+    pub fn set_adopted_stylesheets(
+        &mut self,
+        node: NodeId,
+        sheets: Vec<NodeId>,
+    ) -> Result<(), DomError> {
+        let previous = self.arena.get(node)?.adopted_stylesheets.clone();
+        if previous == sheets {
+            return Ok(());
+        }
+        for sheet in &sheets {
+            self.arena.get(*sheet)?;
+        }
+        let old = previous.into_iter().collect::<BTreeSet<_>>();
+        let new = sheets.iter().copied().collect::<BTreeSet<_>>();
+        for sheet in new.difference(&old) {
+            self.retain_native(*sheet)?;
+        }
+        self.arena.get_mut(node)?.adopted_stylesheets = sheets;
+        for sheet in old.difference(&new) {
+            self.release_native(*sheet)?;
+        }
+        self.mutations.push(Mutation::StyleSheets { node });
+        Ok(())
     }
 
     pub fn set_attribute(
@@ -1129,9 +1278,15 @@ impl DomRuntime {
         let clone = self.create(source.kind);
         {
             let record = self.arena.get_mut(clone)?;
+            record.document_metadata = source.document_metadata;
             record.attributes = source.attributes;
             record.value = source.value;
             record.sensitive_value = source.sensitive_value;
+        }
+        if let Some(content) = source.template_content {
+            let cloned_content = self.clone_node(content, deep)?;
+            self.retain_native(cloned_content)?;
+            self.arena.get_mut(clone)?.template_content = Some(cloned_content);
         }
         if deep {
             for child in source.children {
@@ -1302,9 +1457,9 @@ impl DomRuntime {
 
     /// Detach a node for an html5ever tree-builder reparenting operation.
     ///
-    /// Unlike a script-visible removal, the parser continues to own the
-    /// handle and may immediately insert it elsewhere, so reclamation and a
-    /// temporary native lease would both be incorrect.
+    /// The parser may immediately insert the handle elsewhere. Preserve it
+    /// with the removal journal's lease until the normal delivery checkpoint,
+    /// without attempting reclamation during the tree-builder operation.
     pub(crate) fn parser_detach(&mut self, node: NodeId) -> Result<(), DomError> {
         let parent = self.arena.get(node)?.parent;
         if parent.is_none() {
@@ -1608,7 +1763,11 @@ impl DomRuntime {
                     output.push('"');
                 }
                 output.push('>');
-                for child in &record.children {
+                let children = match record.template_content {
+                    Some(content) => &self.arena.get(content)?.children,
+                    None => &record.children,
+                };
+                for child in children {
                     if matches!(self.arena.get(*child)?.kind, NodeKind::ShadowRoot { .. }) {
                         continue;
                     }
@@ -1637,6 +1796,9 @@ impl DomRuntime {
     }
 
     pub fn release_mutation_roots(&mut self, mutations: &[Mutation]) -> Result<(), DomError> {
+        for node in std::mem::take(&mut self.mutations.discarded_removed_roots) {
+            self.release_native(node)?;
+        }
         for mutation in mutations {
             if let Mutation::Removed { node, .. } = mutation {
                 self.release_native(*node)?;
@@ -1683,29 +1845,59 @@ impl DomRuntime {
         Ok(())
     }
 
-    fn reclaim_if_unrooted(&mut self, node: NodeId) -> Result<(), DomError> {
-        let rooted = self.connected.contains(&node)
+    fn is_gc_root(&self, node: NodeId) -> bool {
+        self.connected.contains(&node)
             || self
                 .roots
                 .get(&node)
-                .is_some_and(|roots| roots.wrappers > 0 || roots.native > 0);
-        if !rooted {
-            let children = self.arena.get(node)?.children.clone();
-            for child in children {
-                let child_rooted = self.connected.contains(&child)
-                    || self
-                        .roots
-                        .get(&child)
-                        .is_some_and(|roots| roots.wrappers > 0 || roots.native > 0);
-                if child_rooted {
-                    self.arena.get_mut(child)?.parent = None;
-                } else {
-                    self.reclaim_if_unrooted(child)?;
-                }
+                .is_some_and(|roots| roots.wrappers > 0 || roots.native > 0)
+    }
+
+    fn reclaim_if_unrooted(&mut self, node: NodeId) -> Result<(), DomError> {
+        // A retained DOM node exposes both its ancestors and descendants.
+        // Collection must not detach a retained child or erase an unwrapped
+        // child from a retained parent. Reclaim the whole detached tree only
+        // when none of its nodes has a wrapper or native lease.
+        let mut root = node;
+        loop {
+            if self.is_gc_root(root) {
+                return Ok(());
             }
-            let _ = self.arena.remove(node)?;
-            self.roots.remove(&node);
+            match self.arena.get(root)?.parent {
+                Some(parent) => root = parent,
+                None => break,
+            }
         }
+        let mut pending = self.arena.get(root)?.children.clone();
+        while let Some(child) = pending.pop() {
+            if self.is_gc_root(child) {
+                return Ok(());
+            }
+            pending.extend(self.arena.get(child)?.children.iter().copied());
+        }
+        self.reclaim_unrooted_tree(root)
+    }
+
+    fn reclaim_unrooted_tree(&mut self, node: NodeId) -> Result<(), DomError> {
+        for child in self.arena.get(node)?.children.clone() {
+            self.reclaim_unrooted_tree(child)?;
+        }
+        let sheets = self
+            .arena
+            .get(node)?
+            .adopted_stylesheets
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let template_content = self.arena.get(node)?.template_content;
+        let _ = self.arena.remove(node)?;
+        if let Some(content) = template_content {
+            self.release_native(content)?;
+        }
+        for sheet in sheets {
+            self.release_native(sheet)?;
+        }
+        self.roots.remove(&node);
         Ok(())
     }
 }
@@ -1864,6 +2056,54 @@ mod tests {
     use markup5ever::{local_name, ns};
 
     #[test]
+    fn document_metadata_survives_import_clone_and_replacement() {
+        let mut dom = html::parse("<html><body></body></html>")
+            .into_runtime()
+            .unwrap();
+        let document = dom.document();
+        let metadata = dom
+            .arena()
+            .get(document)
+            .unwrap()
+            .document_metadata
+            .as_ref()
+            .unwrap();
+        assert!(metadata.is_html && metadata.quirks);
+        assert_eq!(metadata.content_type, "text/html");
+        let clone = dom.clone_node(document, true).unwrap();
+        assert_eq!(
+            dom.arena().get(clone).unwrap().document_metadata,
+            dom.arena().get(document).unwrap().document_metadata
+        );
+        let mut other = DomRuntime::new();
+        let imported = other.import_subtree(dom.arena(), clone).unwrap();
+        assert_eq!(
+            other.arena().get(imported).unwrap().document_metadata,
+            dom.arena().get(document).unwrap().document_metadata
+        );
+        dom.replace_document_contents("<!doctype html><title>standards</title>")
+            .unwrap();
+        assert!(
+            !dom.arena()
+                .get(document)
+                .unwrap()
+                .document_metadata
+                .as_ref()
+                .unwrap()
+                .quirks
+        );
+        assert!(
+            dom.arena()
+                .get(clone)
+                .unwrap()
+                .document_metadata
+                .as_ref()
+                .unwrap()
+                .quirks
+        );
+    }
+
+    #[test]
     fn stale_ids_do_not_resolve_after_reuse() {
         let mut dom = DomArena::default();
         let old = dom.insert(NodeKind::Text { data: "old".into() });
@@ -1872,6 +2112,122 @@ mod tests {
         assert_eq!(old.slot, new.slot);
         assert_ne!(old.generation, new.generation);
         assert_eq!(dom.get(old), Err(DomError::StaleNode(old)));
+    }
+
+    #[test]
+    fn parsed_templates_preserve_inert_contents_across_clone_import_and_collection() {
+        let mut dom = html::parse(
+            "<template id='t'><b id='inert'>kept</b><template><i>nested</i></template></template>",
+        )
+        .into_runtime()
+        .unwrap();
+        let template = dom.find_by_id("t").unwrap();
+        let content = dom.template_content(template).unwrap();
+        assert!(dom.arena().get(template).unwrap().children.is_empty());
+        assert_eq!(dom.find_by_id("inert"), None);
+        assert!(!dom.is_connected(content).unwrap());
+        assert_eq!(dom.arena().get(content).unwrap().parent, None);
+        dom.retain_wrapper(content).unwrap();
+        dom.release_wrapper(content).unwrap();
+        assert_eq!(dom.arena().get(content).unwrap().children.len(), 2);
+        let clone = dom.clone_node(template, true).unwrap();
+        assert_eq!(
+            dom.serialize(clone).unwrap(),
+            dom.serialize(template).unwrap()
+        );
+        assert_ne!(dom.template_content(clone).unwrap(), content);
+        let shallow = dom.clone_node(template, false).unwrap();
+        let empty = dom.template_content(shallow).unwrap();
+        assert!(dom.arena().get(empty).unwrap().children.is_empty());
+        let mut other = DomRuntime::new();
+        let imported = other.import_subtree(dom.arena(), template).unwrap();
+        assert_eq!(
+            other.serialize(imported).unwrap(),
+            dom.serialize(template).unwrap()
+        );
+        dom.retain_wrapper(template).unwrap();
+        dom.remove_child(dom.arena().get(template).unwrap().parent.unwrap(), template)
+            .unwrap();
+        dom.release_wrapper(template).unwrap();
+        let mutations = dom.drain_mutations();
+        dom.release_mutation_roots(&mutations).unwrap();
+        assert!(dom.arena().get(content).is_err());
+        assert!(dom.serialize(clone).unwrap().contains("nested"));
+    }
+
+    #[test]
+    fn adopted_sheets_are_native_roots_and_not_dom_children() {
+        let mut dom = DomRuntime::new();
+        let owner = dom.create(NodeKind::Document);
+        dom.retain_wrapper(owner).unwrap();
+        let sheet = dom.create_element("style");
+        dom.retain_wrapper(sheet).unwrap();
+        dom.set_adopted_stylesheets(owner, vec![sheet, sheet])
+            .unwrap();
+        assert!(dom.arena().get(owner).unwrap().children.is_empty());
+        assert_eq!(dom.serialize(owner).unwrap(), "");
+        dom.release_wrapper(sheet).unwrap();
+        assert!(dom.arena().get(sheet).is_ok());
+        dom.set_adopted_stylesheets(owner, vec![sheet]).unwrap();
+        assert!(dom.arena().get(sheet).is_ok());
+        let mutations = dom.drain_mutations();
+        assert_eq!(
+            mutations
+                .iter()
+                .filter(|m| matches!(m, Mutation::StyleSheets { .. }))
+                .count(),
+            2
+        );
+        assert!(
+            !mutations
+                .iter()
+                .any(|m| matches!(m, Mutation::Attribute { .. }))
+        );
+        dom.release_wrapper(owner).unwrap();
+        assert!(matches!(
+            dom.arena().get(owner),
+            Err(DomError::StaleNode(_))
+        ));
+        assert!(matches!(
+            dom.arena().get(sheet),
+            Err(DomError::StaleNode(_))
+        ));
+    }
+
+    #[test]
+    fn discarded_mutation_entries_release_their_native_roots_at_checkpoint() {
+        let mut dom = DomRuntime::new();
+        let removed = dom.create_element("section");
+        dom.append_child(dom.document(), removed).unwrap();
+        dom.remove(removed).unwrap();
+        for _ in 0..MutationJournal::MAX_ENTRIES {
+            dom.focus(None).unwrap();
+        }
+        assert!(dom.arena().get(removed).is_ok());
+        assert_eq!(dom.mutations.discarded_removed_roots, vec![removed]);
+        let batch = dom.drain_mutations();
+        dom.release_mutation_roots(&batch).unwrap();
+        assert!(matches!(
+            dom.arena().get(removed),
+            Err(DomError::StaleNode(_))
+        ));
+
+        let drained = dom.create_element("section");
+        dom.append_child(dom.document(), drained).unwrap();
+        dom.remove(drained).unwrap();
+        let batch = dom.drain_mutations();
+        for _ in 0..MutationJournal::MAX_ENTRIES {
+            dom.focus(None).unwrap();
+        }
+        assert!(dom.mutations.discarded_removed_roots.is_empty());
+        assert!(dom.arena().get(drained).is_ok());
+        dom.release_mutation_roots(&batch).unwrap();
+        assert!(matches!(
+            dom.arena().get(drained),
+            Err(DomError::StaleNode(_))
+        ));
+        let batch = dom.drain_mutations();
+        dom.release_mutation_roots(&batch).unwrap();
     }
 
     #[test]
@@ -1934,26 +2290,48 @@ mod tests {
     }
 
     #[test]
-    fn detached_subtrees_reclaim_postorder_without_stale_parent_links() {
+    fn retained_detached_descendant_keeps_its_parent_and_siblings() {
         let mut dom = DomRuntime::new();
         let parent = dom.create_element("section");
-        let retained_child = dom.create_element("button");
-        let reclaimed_child = dom.create_text("label");
+        let child = dom.create_element("button");
+        let sibling = dom.create_text("label");
         dom.append_child(dom.document(), parent).unwrap();
-        dom.append_child(parent, retained_child).unwrap();
-        dom.append_child(parent, reclaimed_child).unwrap();
-        dom.retain_wrapper(parent).unwrap();
-        dom.retain_wrapper(retained_child).unwrap();
+        dom.append_child(parent, child).unwrap();
+        dom.append_child(parent, sibling).unwrap();
+        dom.retain_wrapper(child).unwrap();
         dom.remove(parent).unwrap();
         let mutations = dom.drain_mutations();
         dom.release_mutation_roots(&mutations).unwrap();
+        assert_eq!(dom.parent(child).unwrap(), Some(parent));
+        assert_eq!(dom.children(parent).unwrap(), &[child, sibling]);
+        assert_eq!(dom.arena().text_content(parent).unwrap(), "label");
+        dom.release_wrapper(child).unwrap();
+        for node in [parent, child, sibling] {
+            assert!(matches!(dom.arena().get(node), Err(DomError::StaleNode(_))));
+        }
+    }
+
+    #[test]
+    fn retained_detached_parent_keeps_children_after_wrapper_collection() {
+        let mut dom = DomRuntime::new();
+        let parent = dom.create_element("section");
+        let child = dom.create_element("button");
+        let sibling = dom.create_text("label");
+        dom.append_child(dom.document(), parent).unwrap();
+        dom.append_child(parent, child).unwrap();
+        dom.append_child(parent, sibling).unwrap();
+        dom.retain_wrapper(parent).unwrap();
+        dom.retain_wrapper(child).unwrap();
+        dom.remove(parent).unwrap();
+        let mutations = dom.drain_mutations();
+        dom.release_mutation_roots(&mutations).unwrap();
+        dom.release_wrapper(child).unwrap();
+        assert_eq!(dom.parent(child).unwrap(), Some(parent));
+        assert_eq!(dom.children(parent).unwrap(), &[child, sibling]);
         dom.release_wrapper(parent).unwrap();
-        assert_eq!(dom.parent(retained_child).unwrap(), None);
-        assert_eq!(dom.arena().get(parent), Err(DomError::StaleNode(parent)));
-        assert_eq!(
-            dom.arena().get(reclaimed_child),
-            Err(DomError::StaleNode(reclaimed_child))
-        );
+        for node in [parent, child, sibling] {
+            assert!(matches!(dom.arena().get(node), Err(DomError::StaleNode(_))));
+        }
     }
 
     #[test]

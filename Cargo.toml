@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-exclude = ["fuzz"]
+exclude = ["fuzz", "vendor/stylo", "vendor/blitz-dom"]
 members = [
     "crates/oryn-common",
     "crates/oryn-core",
@@ -26,3 +26,11 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Keep Oryn's DOM queries and Blitz stylesheet traversal on the same Stylo patch.
+[patch.crates-io]
+stylo = { path = "vendor/stylo" }
+
+# Preserve namespace-dependent selector semantics in the Stylo mirror adapter.
+[patch."https://github.com/DioxusLabs/blitz"]
+blitz-dom = { path = "vendor/blitz-dom" }

@@ -161,6 +161,10 @@ impl SemanticGraph {
                     dirty.insert(*node);
                     dependency_change = true;
                 }
+                Mutation::StyleSheets { node } => {
+                    dirty.extend(dom.descendants_inclusive(*node).unwrap_or_default());
+                    dependency_change = true;
+                }
                 Mutation::FormState { node } | Mutation::EventListener { node, .. } => {
                     dirty.insert(*node);
                 }
@@ -1799,6 +1803,61 @@ fn accessible_text_content(dom: &DomArena, id: NodeId, include_hidden_root: bool
     accessible_text_content_excluding(dom, id, include_hidden_root, None)
 }
 
+fn accessible_children(dom: &DomArena, id: NodeId) -> Vec<NodeId> {
+    let Ok(node) = dom.get(id) else {
+        return Vec::new();
+    };
+    if let Some(root) = node.children.iter().find_map(|child| {
+        dom.get(*child)
+            .ok()
+            .filter(|child| matches!(child.kind, NodeKind::ShadowRoot { .. }))
+    }) {
+        return root.children.clone();
+    }
+    if matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "slot")
+        && let Some(root_id) = tree_scope(dom, id)
+        && let Ok(root) = dom.get(root_id)
+        && matches!(root.kind, NodeKind::ShadowRoot { .. })
+        && let Some(host) = root.parent.and_then(|host| dom.get(host).ok())
+    {
+        let slot_name = node
+            .attributes
+            .get("name")
+            .map(String::as_str)
+            .unwrap_or("");
+        // Only the first slot with a given name receives matching light DOM.
+        let first_slot = descendants(dom, root_id).into_iter().find(|candidate| {
+            tree_scope(dom, *candidate) == Some(root_id)
+                && dom.get(*candidate).is_ok_and(|candidate| {
+                    matches!(&candidate.kind, NodeKind::Element { name } if name.local.as_ref() == "slot")
+                        && candidate.attributes.get("name").map(String::as_str).unwrap_or("") == slot_name
+                })
+        });
+        if first_slot == Some(id) {
+            let assigned = host
+                .children
+                .iter()
+                .copied()
+                .filter(|child| {
+                    dom.get(*child).is_ok_and(|child| {
+                        matches!(child.kind, NodeKind::Element { .. } | NodeKind::Text { .. })
+                            && child
+                                .attributes
+                                .get("slot")
+                                .map(String::as_str)
+                                .unwrap_or("")
+                                == slot_name
+                    })
+                })
+                .collect::<Vec<_>>();
+            if !assigned.is_empty() {
+                return assigned;
+            }
+        }
+    }
+    node.children.clone()
+}
+
 fn accessible_text_content_excluding(
     dom: &DomArena,
     id: NodeId,
@@ -1815,8 +1874,7 @@ fn accessible_text_content_excluding(
         // `visibility` is inherited but can be overridden by a descendant.
         // Other accessibility exclusions suppress the complete subtree.
         if visibility_hidden_only(node) {
-            return node
-                .children
+            return accessible_children(dom, id)
                 .iter()
                 .map(|child| visible_text_below_hidden_visibility(dom, *child, excluded))
                 .filter(|value| !value.is_empty())
@@ -1824,6 +1882,30 @@ fn accessible_text_content_excluding(
                 .join(" ");
         }
         return String::new();
+    }
+    // Recursive name-from-content traversal uses a descendant's explicit
+    // label before its children, including descendants inside shadow trees.
+    // Referenced roots already use this rule in referenced_text; applying it
+    // here also covers labels reached through their containing element.
+    let is_shadow_slot = matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "slot")
+        && tree_scope(dom, id).is_some_and(|root| {
+            dom.get(root)
+                .is_ok_and(|root| matches!(root.kind, NodeKind::ShadowRoot { .. }))
+        });
+    // Embedded text/range/select controls contribute their current value to
+    // the containing label, rather than the label of that embedded control.
+    let is_embedded_value = matches!(&node.kind, NodeKind::Element { name }
+        if matches!(computed_role(name.local.as_ref(), &node.attributes).as_str(),
+            "textbox" | "searchbox" | "combobox" | "listbox" | "slider" | "spinbutton"));
+    if !is_shadow_slot
+        && !is_embedded_value
+        && let Some(label) = node
+            .attributes
+            .get("aria-label")
+            .map(|label| normalize_text(label))
+            .filter(|label| !label.is_empty())
+    {
+        return label;
     }
     match &node.kind {
         NodeKind::Text { data } => data.clone(),
@@ -1944,8 +2026,7 @@ fn accessible_text_content_excluding(
                         .collect::<BTreeSet<_>>()
                 })
                 .unwrap_or_default();
-            let mut value = node
-                .children
+            let mut value = accessible_children(dom, id)
                 .iter()
                 .filter(|child| {
                     aria_owner(dom, **child).is_none() && !action_targets.contains(child)
@@ -3520,10 +3601,52 @@ mod tests {
     }
 
     #[test]
+    fn accessible_names_follow_shadow_slot_assignment_and_fallback() {
+        let mut document = crate::html::parse(
+            r#"<button id=host><span id=assigned slot=x>assigned</span><i>default</i></button>
+            <div id=shadow>before <slot name=x aria-label=ignored>fallback</slot> / <slot></slot> / <slot name=x>second fallback</slot> after</div>"#,
+        );
+        let by_id = |value: &str| {
+            document
+                .dom
+                .iter()
+                .find(|(_, node)| node.attributes.get("id").is_some_and(|id| id == value))
+                .map(|(id, _)| id)
+                .unwrap()
+        };
+        let host = by_id("host");
+        let shadow = by_id("shadow");
+        let assigned = by_id("assigned");
+        document.dom.get_mut(shadow).unwrap().kind = NodeKind::ShadowRoot {
+            mode: crate::dom::ShadowMode::Open,
+            clonable: false,
+        };
+        document.dom.append_child(host, shadow).unwrap();
+        assert_eq!(
+            accessibility_for_node(&document.dom, host).unwrap().1,
+            "before assigned / default / second fallback after"
+        );
+        document
+            .dom
+            .get_mut(assigned)
+            .unwrap()
+            .attributes
+            .insert("slot".into(), "unassigned".into());
+        assert_eq!(
+            accessibility_for_node(&document.dom, host).unwrap().1,
+            "before fallback / default / second fallback after"
+        );
+    }
+
+    #[test]
     fn accessible_name_honors_hidden_content_empty_alt_and_inline_boundaries() {
         let document = crate::html::parse(
             r#"
             <button id=hidden><span hidden>skip</span><span>keep</span></button>
+            <label id=explicit-descendant><div><span aria-label="spoken">visual</span></div></label>
+            <button id=labelled-descendant aria-labelledby=explicit-descendant></button>
+            <button id=labelled-content><span aria-label="spoken">visual</span><span aria-hidden=true aria-label="hidden">skip</span></button>
+            <label>Flash <input id=embedded-checkbox type=checkbox><input aria-label="number of times" value=3> times</label>
             <h2 id=visibility>visible <span style="visibility:hidden">hidden <span style="visibility:visible">restored</span></span></h2>
             <button id=actions aria-actions="edit close">Save <span id=edit>Edit</span><span id=close>Close</span></button>
             <div id=article role=article><div role=group><h3>First heading</h3></div><h2>Later heading</h2></div>
@@ -3543,13 +3666,26 @@ mod tests {
         };
         assert_eq!(named("hidden"), ("button".into(), "keep".into()));
         assert_eq!(
+            named("embedded-checkbox"),
+            ("checkbox".into(), "Flash 3 times".into())
+        );
+        assert_eq!(
+            named("labelled-descendant"),
+            ("button".into(), "spoken".into())
+        );
+        assert_eq!(
+            named("labelled-content"),
+            ("button".into(), "spoken".into())
+        );
+        assert_eq!(
             named("visibility"),
             ("heading".into(), "visible restored".into())
         );
         assert_eq!(named("actions"), ("button".into(), "Save".into()));
         assert_eq!(named("article"), ("article".into(), "First heading".into()));
         assert_eq!(named("joined"), ("button".into(), "buttonlabel".into()));
-        assert_eq!(named("empty-alt"), ("presentation".into(), String::new()));
+        // The role surface canonicalizes the presentation synonym to `none`.
+        assert_eq!(named("empty-alt"), ("none".into(), String::new()));
         assert_eq!(
             named("dialog"),
             ("alertdialog".into(), "Dialog heading".into())

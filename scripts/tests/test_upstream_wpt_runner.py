@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import json
+import hashlib
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -24,6 +27,124 @@ INVENTORY_SPEC.loader.exec_module(INVENTORY)
 
 
 class UpstreamWptRunnerTests(unittest.TestCase):
+    def test_untracked_source_content_and_names_affect_fingerprint(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "new.rs"
+            source.write_text("first")
+            with mock.patch.object(RUNNER.subprocess, "check_output", return_value=b"new.rs\0"):
+                first, count = RUNNER.untracked_source_digest(root)
+                self.assertEqual(count, 1)
+                source.write_text("second")
+                second, _ = RUNNER.untracked_source_digest(root)
+                self.assertNotEqual(first, second)
+            source.rename(root / "renamed.rs")
+            with mock.patch.object(RUNNER.subprocess, "check_output", return_value=b"renamed.rs\0"):
+                renamed, _ = RUNNER.untracked_source_digest(root)
+                self.assertNotEqual(second, renamed)
+
+    def test_locked_inventory_is_authoritative_for_runner_and_validator(self) -> None:
+        validator_spec = importlib.util.spec_from_file_location(
+            "validate_runtime_result",
+            ROOT / "scripts/validate-runtime-api-style-semantics-result.py",
+        )
+        validator = importlib.util.module_from_spec(validator_spec)
+        validator_spec.loader.exec_module(validator)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "case.html"
+            source.write_text('<meta name="variant" content="?discovered">')
+            inventory = {
+                "upstream_revision": json.loads(RUNNER.EXPANDED_MANIFEST.read_text())["upstream"]["revision"],
+                "tests": [{
+                    "path": "case.html",
+                    "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                    "globals": ["window", "dedicatedworker", "sharedworker", "serviceworker"],
+                    "variants": [""],
+                    "workstream": "generated_webidl",
+                }],
+            }
+            path = root / "inventory.json"
+            path.write_text(json.dumps(inventory))
+            actual = {f"{path}|{global_name}|{variant}" for path, _, global_name, variant
+                      in RUNNER.inventoried_tests(root, path)}
+            self.assertEqual(actual, validator.expected_assertions(inventory))
+            self.assertEqual(len(actual), 4)
+            self.assertTrue(all(identifier.endswith("|") for identifier in actual))
+            inventory["tests"][0]["variants"] = ["?one", "?two"]
+            path.write_text(json.dumps(inventory))
+            actual = {f"{path}|{global_name}|{variant}" for path, _, global_name, variant
+                      in RUNNER.inventoried_tests(root, path)}
+            self.assertEqual(actual, validator.expected_assertions(inventory))
+            self.assertEqual(len(actual), 8)
+            source.write_text("changed upstream fixture")
+            with self.assertRaisesRegex(SystemExit, "source digest mismatch"):
+                RUNNER.inventoried_tests(root, path)
+
+    def test_release_validator_requires_real_harness_completion(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "validate_runtime_result", ROOT / "scripts/validate-runtime-api-style-semantics-result.py"
+        )
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        valid = {"status": "passed", "result": {
+            "complete": True, "harness": 0, "tests": [{"name": "one", "status": 0}]
+        }}
+        validator.validate_passed_assertion(valid, "test")
+        for updates in [{"complete": False}, {"harness": 1}, {"tests": []},
+                        {"tests": [{"status": 1}]}]:
+            invalid = {**valid, "result": {**valid["result"], **updates}}
+            with self.subTest(updates=updates), self.assertRaises(SystemExit):
+                validator.validate_passed_assertion(invalid, "test")
+        with self.assertRaises(SystemExit):
+            validator.validate_passed_assertion(
+                {**valid, "result_transport": "isolated_dom_probe"}, "test"
+            )
+        validator.validate_passed_assertion({"status": "failed"}, "test")
+
+    def test_open_ended_editing_range_runs_beyond_one_thousand_assertions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "editing/run/example.html"
+            source.parent.mkdir(parents=True)
+            source.write_text("<html></html>")
+            original = RUNNER.run_case
+            def partition(*args):
+                return {"variant": args[6], "status": "passed", "result": {
+                    "complete": True, "harness": 0, "range_total": 1150,
+                    "tests": [{"name": args[6], "status": 0}],
+                }}
+            with mock.patch.object(RUNNER, "run_case", side_effect=partition) as run:
+                result = original(Path("unused"), root, 8000,
+                                  Path("editing/run/example.html"), "generated_webidl",
+                                  "window", "?1-last", 30, False, None)
+            self.assertEqual(run.call_count, 12)
+            self.assertEqual(result["partitions"][-1], "?1101-1150")
+            self.assertEqual(result["status"], "passed")
+
+    def test_open_ended_editing_range_retains_failed_empty_partition(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "editing/run/example.html"
+            source.parent.mkdir(parents=True)
+            source.write_text("<html></html>")
+            original = RUNNER.run_case
+            parts = [
+                {"variant": "?1-100", "status": "passed", "result": {
+                    "complete": True, "harness": 0, "range_total": 150,
+                    "tests": [{"name": "first", "status": 0}],
+                }},
+                {"variant": "?101-150", "status": "failed", "failure_domain": "timeout"},
+            ]
+            with mock.patch.object(RUNNER, "run_case", side_effect=parts):
+                result = original(Path("unused"), root, 8000,
+                                  Path("editing/run/example.html"), "generated_webidl",
+                                  "window", "?1-last", 30, False, None)
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["failure_domain"], "timeout")
+            self.assertFalse(result["result"]["complete"])
+            self.assertEqual(len(result["partitions"]), 2)
+
     def test_meta_scripts_are_resolved_in_declared_order(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -220,14 +341,15 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             source,
         )
 
-    def test_dom_probe_recovers_typed_assertions(self) -> None:
+    def test_dom_probe_recovers_partial_assertions_without_claiming_completion(self) -> None:
         stdout = (
             'function|function|results=[{"name":"one","status":0,"message":""}]'
             '|messages=[]|driver=[]|document=<html></html>'
         )
         result = RUNNER.probe_wpt_result(stdout)
         self.assertIsNotNone(result)
-        self.assertTrue(result["complete"])
+        self.assertFalse(result["complete"])
+        self.assertIsNone(result["harness"])
         self.assertEqual(result["tests"][0]["name"], "one")
         self.assertIsNone(RUNNER.probe_wpt_result("results=[]|messages=[]"))
 

@@ -97,6 +97,11 @@ pub enum IdbHostCommand {
         store: String,
         index: String,
     },
+    RenameObjectStore {
+        database: String,
+        store: String,
+        new_name: String,
+    },
     RenameIndex {
         database: String,
         store: String,

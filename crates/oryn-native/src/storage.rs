@@ -175,6 +175,11 @@ pub enum IdbCommand {
         store: String,
         index: String,
     },
+    RenameObjectStore {
+        database: String,
+        store: String,
+        new_name: String,
+    },
     RenameIndex {
         database: String,
         store: String,
@@ -931,6 +936,7 @@ fn execute_idb(
         | IdbCommand::DeleteObjectStore { database, .. }
         | IdbCommand::CreateIndex { database, .. }
         | IdbCommand::DeleteIndex { database, .. }
+        | IdbCommand::RenameObjectStore { database, .. }
         | IdbCommand::RenameIndex { database, .. }
         | IdbCommand::Batch { database, .. }
         | IdbCommand::Delete { database, .. }
@@ -1104,6 +1110,25 @@ fn execute_idb(
             }
             IdbResponse::default()
         }
+        IdbCommand::RenameObjectStore {
+            database,
+            store,
+            new_name,
+        } => {
+            let data = database_mut(databases, origin, &database)?;
+            if store != new_name && data.stores.contains_key(&new_name) {
+                return Err(StorageError::Constraint);
+            }
+            let mut contents = data
+                .stores
+                .remove(&store)
+                .ok_or_else(|| StorageError::ObjectStoreNotFound { database, store })?;
+            if let Some(definition) = &mut contents.definition {
+                definition.name = new_name.clone();
+            }
+            data.stores.insert(new_name, contents);
+            IdbResponse::default()
+        }
         IdbCommand::RenameIndex {
             database,
             store,
@@ -1229,19 +1254,10 @@ fn execute_idb(
                 .records
                 .values()
                 .flat_map(|record| {
-                    let indexed_key = index_definition.and_then(|definition| {
-                        json_value_at_key_path(&record.value, &definition.key_path)
-                    });
-                    let mut cursor_keys = match (index_definition, indexed_key) {
-                        (Some(definition), Some(serde_json::Value::Array(values)))
-                            if definition.multi_entry =>
-                        {
-                            values.clone()
-                        }
-                        (_, Some(value)) => vec![value.clone()],
-                        (Some(_), None) => Vec::new(),
-                        (None, None) => vec![record.key.clone()],
-                    };
+                    let mut cursor_keys = index_definition.map_or_else(
+                        || vec![record.key.clone()],
+                        |definition| indexed_record_keys(&record.value, definition),
+                    );
                     cursor_keys.retain(|key| encode_key(key).is_ok());
                     cursor_keys.sort_by(compare_indexed_db_keys);
                     cursor_keys
@@ -1292,6 +1308,7 @@ fn idb_command_changes_storage(command: &IdbCommand) -> bool {
         | IdbCommand::DeleteObjectStore { .. }
         | IdbCommand::CreateIndex { .. }
         | IdbCommand::DeleteIndex { .. }
+        | IdbCommand::RenameObjectStore { .. }
         | IdbCommand::RenameIndex { .. }
         | IdbCommand::Batch { .. }
         | IdbCommand::Delete { .. }
@@ -1448,14 +1465,55 @@ fn indexed_record_keys(
     value: &serde_json::Value,
     definition: &IndexDefinition,
 ) -> Vec<serde_json::Value> {
-    match json_value_at_key_path(value, &definition.key_path) {
-        Some(serde_json::Value::Array(values)) if definition.multi_entry => values
-            .into_iter()
-            .filter(|key| encode_key(key).is_ok())
-            .collect(),
-        Some(key) if encode_key(&key).is_ok() => vec![key],
-        _ => Vec::new(),
-    }
+    let Some(value) = json_value_at_key_path(value, &definition.key_path) else {
+        return Vec::new();
+    };
+    // Structured cloning preserves array properties in a tagged envelope.
+    // Index extraction must operate on its elements, not treat that envelope
+    // as an invalid object key. Use the same conversion for uniqueness checks
+    // and cursor reads so they cannot disagree about indexed records.
+    let elements = value.as_array().or_else(|| {
+        (value
+            .get("__oryn_clone_type")
+            .and_then(serde_json::Value::as_str)
+            == Some("array"))
+        .then(|| value.get("values").and_then(serde_json::Value::as_array))
+        .flatten()
+    });
+    let candidates = if definition.multi_entry {
+        elements.cloned().unwrap_or_else(|| vec![value.clone()])
+    } else {
+        vec![value]
+    };
+    candidates.iter().filter_map(stored_index_key).collect()
+}
+
+fn stored_index_key(value: &serde_json::Value) -> Option<serde_json::Value> {
+    let key = match value
+        .get("__oryn_clone_type")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("array") => serde_json::Value::Array(
+            value
+                .get("values")?
+                .as_array()?
+                .iter()
+                .map(stored_index_key)
+                .collect::<Option<Vec<_>>>()?,
+        ),
+        Some("array_buffer" | "typed_array") => serde_json::json!({
+            "__oryn_idb_key_type": "binary", "bytes": value.get("bytes")?
+        }),
+        _ if value.is_array() => serde_json::Value::Array(
+            value
+                .as_array()?
+                .iter()
+                .map(stored_index_key)
+                .collect::<Option<Vec<_>>>()?,
+        ),
+        _ => value.clone(),
+    };
+    encode_key(&key).ok().map(|_| key)
 }
 
 fn put_record(
@@ -1985,6 +2043,67 @@ mod tests {
     }
 
     #[test]
+    fn indexed_db_store_rename_preserves_metadata_and_rolls_back() {
+        let store = SharedContextStore::memory(StorageLimits::default());
+        let execute = |command| {
+            store.execute(StorageRequest::IndexedDb {
+                origin: "https://example.test".into(),
+                command,
+            })
+        };
+        execute(IdbCommand::Open {
+            name: "rename".into(),
+            version: 1,
+        })
+        .unwrap();
+        execute(IdbCommand::CreateObjectStore {
+            database: "rename".into(),
+            definition: ObjectStoreDefinition {
+                name: "books".into(),
+                key_path: None,
+                auto_increment: true,
+                indexes: Vec::new(),
+            },
+        })
+        .unwrap();
+        execute(IdbCommand::CommitUpgrade {
+            name: "rename".into(),
+        })
+        .unwrap();
+        execute(IdbCommand::Open {
+            name: "rename".into(),
+            version: 2,
+        })
+        .unwrap();
+        execute(IdbCommand::RenameObjectStore {
+            database: "rename".into(),
+            store: "books".into(),
+            new_name: "renamed".into(),
+        })
+        .unwrap();
+        let response = execute(IdbCommand::Open {
+            name: "rename".into(),
+            version: 2,
+        })
+        .unwrap();
+        assert!(matches!(response, StorageResponse::IndexedDb { response }
+            if response.object_stores == ["renamed"] && response.object_store_definitions[0].name == "renamed"
+                && response.object_store_definitions[0].auto_increment));
+        execute(IdbCommand::AbortUpgrade {
+            name: "rename".into(),
+            old_version: 1,
+        })
+        .unwrap();
+        let response = execute(IdbCommand::Open {
+            name: "rename".into(),
+            version: 1,
+        })
+        .unwrap();
+        assert!(matches!(response, StorageResponse::IndexedDb { response }
+            if response.object_stores == ["books"] && response.object_store_definitions[0].name == "books"));
+    }
+
+    #[test]
     fn indexed_db_aborted_upgrade_restores_schema_and_version() {
         let store = SharedContextStore::memory(StorageLimits::default());
         let origin = "https://example.test".to_string();
@@ -2426,6 +2545,42 @@ mod tests {
             ));
         }
         let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn multi_entry_indexes_extract_structured_clone_array_elements() {
+        let definition = IndexDefinition {
+            name: "tags".into(),
+            key_path: "tags".into(),
+            unique: false,
+            multi_entry: true,
+        };
+        let value = serde_json::json!({"tags": {
+            "__oryn_clone_type": "array",
+            "values": ["vowel", null, 3, {"__oryn_clone_type":"array", "values":["nested", 1], "properties":{}}],
+            "properties": {"extra":"not an array element"}
+        }});
+        assert_eq!(
+            indexed_record_keys(&value, &definition),
+            vec![
+                serde_json::json!("vowel"),
+                serde_json::json!(3),
+                serde_json::json!(["nested", 1])
+            ]
+        );
+        let array_key = serde_json::json!({"tags": {
+            "__oryn_clone_type": "array", "values": ["a", 2], "properties": {}
+        }});
+        assert_eq!(
+            indexed_record_keys(
+                &array_key,
+                &IndexDefinition {
+                    multi_entry: false,
+                    ..definition
+                }
+            ),
+            vec![serde_json::json!(["a", 2])]
+        );
     }
 
     #[test]

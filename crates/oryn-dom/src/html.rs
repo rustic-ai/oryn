@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::cell::{Cell, Ref, RefCell};
-use std::collections::BTreeMap;
 
 use html5ever::driver::ParseOpts;
 use html5ever::tendril::{StrTendril, TendrilSink};
@@ -161,6 +160,11 @@ impl StreamingParser {
     }
 
     pub fn push(&mut self, input: &str) {
+        self.process(input);
+        self.inner.tokenizer.sink.sink.flush_text();
+    }
+
+    fn process(&mut self, input: &str) {
         self.bytes_seen = self.bytes_seen.saturating_add(input.len());
         self.inner.process(StrTendril::from(input));
     }
@@ -179,7 +183,7 @@ impl StreamingParser {
                 .find('>')
                 .map_or(remaining.len(), |index| index + 1);
             let chunk = &remaining[..length];
-            self.push(chunk);
+            self.process(chunk);
             consumed += chunk.len();
             self.capture_events();
             if let Some(index) = self.pending_events.iter().position(|event| {
@@ -192,12 +196,14 @@ impl StreamingParser {
                 )
             }) {
                 let event = self.pending_events.remove(index);
+                self.inner.tokenizer.sink.sink.flush_text();
                 return ParseProgress {
                     consumed_bytes: consumed,
                     blocked_on: Some(event),
                 };
             }
         }
+        self.inner.tokenizer.sink.sink.flush_text();
         ParseProgress {
             consumed_bytes: consumed,
             blocked_on: None,
@@ -232,9 +238,9 @@ struct OrynTreeSink {
     dom: SharedDomRuntime,
     document: NodeId,
     errors: RefCell<Vec<String>>,
-    templates: RefCell<BTreeMap<NodeId, NodeId>>,
     quirks_mode: Cell<QuirksMode>,
     events: RefCell<Vec<ParserEvent>>,
+    pending_text: RefCell<Option<(NodeId, String)>>,
 }
 
 impl OrynTreeSink {
@@ -245,19 +251,25 @@ impl OrynTreeSink {
     }
 
     fn with_runtime(dom: SharedDomRuntime, document: NodeId) -> Self {
+        dom.borrow_mut()
+            .arena_mut()
+            .get_mut(document)
+            .expect("parser document")
+            .document_metadata = Some(Box::new(crate::DocumentMetadata::html()));
         Self {
             dom,
             document,
             errors: RefCell::new(Vec::new()),
-            templates: RefCell::new(BTreeMap::new()),
             quirks_mode: Cell::new(QuirksMode::NoQuirks),
             events: RefCell::new(Vec::new()),
+            pending_text: RefCell::new(None),
         }
     }
 
     fn append_node_or_text(&self, parent: NodeId, child: NodeOrText<NodeId>) {
         match child {
             NodeOrText::AppendNode(node) => {
+                self.flush_text();
                 let mut dom = self.dom.borrow_mut();
                 dom.parser_detach(node)
                     .expect("html5ever emitted a valid reparent");
@@ -269,6 +281,23 @@ impl OrynTreeSink {
     }
 
     fn append_text(&self, parent: NodeId, text: StrTendril) {
+        // html5ever can emit many adjacent character tokens within one feed,
+        // especially for raw script text. Insert the contiguous run together:
+        // retaining old/new copies for every token grows quadratically.
+        if let Some((pending_parent, data)) = self.pending_text.borrow_mut().as_mut()
+            && *pending_parent == parent
+        {
+            data.push_str(&text);
+            return;
+        }
+        self.flush_text();
+        *self.pending_text.borrow_mut() = Some((parent, text.to_string()));
+    }
+
+    fn flush_text(&self) {
+        let Some((parent, text)) = self.pending_text.borrow_mut().take() else {
+            return;
+        };
         let mut dom = self.dom.borrow_mut();
         let last_child = dom
             .arena()
@@ -276,10 +305,10 @@ impl OrynTreeSink {
             .ok()
             .and_then(|node| node.children.last().copied());
         if let Some(last_child) = last_child
-            && let Ok(NodeKind::Text { data }) =
-                dom.arena().get(last_child).map(|node| node.kind.clone())
+            && let Ok(NodeKind::Text { data }) = dom.arena().get(last_child).map(|node| &node.kind)
         {
-            dom.set_text(last_child, format!("{data}{text}"))
+            let offset = data.encode_utf16().count() as u32;
+            dom.replace_character_data(last_child, offset, 0, text)
                 .expect("parser text node is live");
             return;
         }
@@ -323,6 +352,7 @@ impl TreeSink for OrynTreeSink {
     type ElemName<'a> = OrynElemName<'a>;
 
     fn finish(self) -> Self::Output {
+        self.flush_text();
         let (dom, document) = self.dom.borrow().snapshot();
         ParsedDocument {
             dom,
@@ -357,6 +387,7 @@ impl TreeSink for OrynTreeSink {
         attrs: Vec<Attribute>,
         flags: ElementFlags,
     ) -> Self::Handle {
+        self.flush_text();
         let is_template = flags.template;
         let mut dom = self.dom.borrow_mut();
         let element = dom.create(NodeKind::Element { name });
@@ -369,8 +400,7 @@ impl TreeSink for OrynTreeSink {
             .expect("new element");
         }
         if is_template {
-            let contents = dom.create_fragment();
-            self.templates.borrow_mut().insert(element, contents);
+            dom.template_content(element).expect("new template");
         }
         if let Ok(node) = dom.arena().get(element)
             && let NodeKind::Element { name } = &node.kind
@@ -429,10 +459,16 @@ impl TreeSink for OrynTreeSink {
     }
 
     fn pop(&self, node: &Self::Handle) {
+        self.flush_text();
         let dom = self.dom.borrow();
         let Ok(node_record) = dom.arena().get(*node) else {
             return;
         };
+        // Template contents are inert: closing an embedded script or style
+        // must not schedule it as a document resource.
+        if !dom.is_connected(*node).unwrap_or(false) {
+            return;
+        }
         let NodeKind::Element { name } = &node_record.kind else {
             return;
         };
@@ -471,10 +507,12 @@ impl TreeSink for OrynTreeSink {
     }
 
     fn create_comment(&self, text: StrTendril) -> Self::Handle {
+        self.flush_text();
         self.dom.borrow_mut().create_comment(text.to_string())
     }
 
     fn create_pi(&self, target: StrTendril, data: StrTendril) -> Self::Handle {
+        self.flush_text();
         self.dom
             .borrow_mut()
             .create_comment(format!("?{} {}?", target, data))
@@ -506,6 +544,7 @@ impl TreeSink for OrynTreeSink {
         public_id: StrTendril,
         system_id: StrTendril,
     ) {
+        self.flush_text();
         let doctype = self.dom.borrow_mut().create(NodeKind::DocumentType {
             name: name.to_string(),
             public_id: public_id.to_string(),
@@ -518,7 +557,13 @@ impl TreeSink for OrynTreeSink {
     }
 
     fn get_template_contents(&self, target: &Self::Handle) -> Self::Handle {
-        self.templates.borrow()[target]
+        self.dom
+            .borrow()
+            .arena()
+            .get(*target)
+            .expect("live template")
+            .template_content
+            .expect("template contents")
     }
 
     fn same_node(&self, x: &Self::Handle, y: &Self::Handle) -> bool {
@@ -527,9 +572,19 @@ impl TreeSink for OrynTreeSink {
 
     fn set_quirks_mode(&self, mode: QuirksMode) {
         self.quirks_mode.set(mode);
+        self.dom
+            .borrow_mut()
+            .arena_mut()
+            .get_mut(self.document)
+            .expect("parser document")
+            .document_metadata
+            .as_mut()
+            .expect("HTML document metadata")
+            .quirks = mode == QuirksMode::Quirks;
     }
 
     fn append_before_sibling(&self, sibling: &Self::Handle, new_node: NodeOrText<Self::Handle>) {
+        self.flush_text();
         match new_node {
             NodeOrText::AppendNode(node) => {
                 let parent = self
@@ -561,6 +616,7 @@ impl TreeSink for OrynTreeSink {
     }
 
     fn add_attrs_if_missing(&self, target: &Self::Handle, attrs: Vec<Attribute>) {
+        self.flush_text();
         let mut dom = self.dom.borrow_mut();
         for attribute in attrs {
             let name = attribute.name.local.to_string();
@@ -576,6 +632,7 @@ impl TreeSink for OrynTreeSink {
     }
 
     fn remove_from_parent(&self, target: &Self::Handle) {
+        self.flush_text();
         self.dom
             .borrow_mut()
             .parser_detach(*target)
@@ -583,6 +640,7 @@ impl TreeSink for OrynTreeSink {
     }
 
     fn reparent_children(&self, node: &Self::Handle, new_parent: &Self::Handle) {
+        self.flush_text();
         let children = self
             .dom
             .borrow()
@@ -601,6 +659,102 @@ impl TreeSink for OrynTreeSink {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parsed_template_scripts_and_styles_are_inert() {
+        let parsed = parse(
+            "<template id='t'><script>throw Error('inert')</script><style>body{display:none}</style></template><script>active()</script>",
+        );
+        assert_eq!(
+            parsed
+                .events
+                .iter()
+                .filter(|event| matches!(event, ParserEvent::ScriptReady { .. }))
+                .count(),
+            1
+        );
+        assert!(
+            !parsed
+                .events
+                .iter()
+                .any(|event| matches!(event, ParserEvent::InlineStyleReady { .. }))
+        );
+        let mut dom = parsed.into_runtime().unwrap();
+        let template = dom.find_by_id("t").unwrap();
+        let content = dom.template_content(template).unwrap();
+        assert_eq!(dom.arena().get(content).unwrap().children.len(), 2);
+    }
+
+    #[test]
+    fn raw_text_tokens_are_batched_before_observation() {
+        let mut parser = StreamingParser::new();
+        let source = "a < b && c > d; ".repeat(4096);
+        let progress = parser.push_until_blocked(&format!("<script>{source}</script><p>later"));
+        assert!(progress.blocked_on.is_some());
+        assert_eq!(
+            progress.consumed_bytes,
+            "<script></script>".len() + source.len()
+        );
+        let dom = parser.shared_dom();
+        let mut dom = dom.borrow_mut();
+        let script = dom
+            .query_selector(dom.document(), "script")
+            .unwrap()
+            .unwrap();
+        assert_eq!(dom.arena().text_content(script).unwrap(), source);
+        let mutations = dom.drain_mutations();
+        let retained_text: usize = mutations
+            .iter()
+            .map(|mutation| match mutation {
+                crate::Mutation::CharacterData {
+                    old_value,
+                    new_value,
+                    ..
+                } => old_value.len() + new_value.len(),
+                _ => 0,
+            })
+            .sum();
+        assert!(
+            retained_text <= source.len() * 2,
+            "retained {retained_text} bytes"
+        );
+    }
+
+    #[test]
+    fn streamed_text_append_preserves_existing_range_offsets() {
+        let mut parser = StreamingParser::new();
+        parser.push("<p>ab");
+        let dom = parser.shared_dom();
+        let (text, range) = {
+            let mut dom = dom.borrow_mut();
+            let p = dom.query_selector(dom.document(), "p").unwrap().unwrap();
+            let text = dom.children(p).unwrap()[0];
+            let range = dom
+                .create_live_range(
+                    crate::BoundaryPoint {
+                        container: text,
+                        offset: 1,
+                    },
+                    crate::BoundaryPoint {
+                        container: text,
+                        offset: 2,
+                    },
+                )
+                .unwrap();
+            dom.drain_mutations();
+            (text, range)
+        };
+        parser.push("cd");
+        let mut dom = dom.borrow_mut();
+        assert_eq!(dom.arena().text_content(text).unwrap(), "abcd");
+        let range = dom.live_range(range).unwrap();
+        assert_eq!(range.start.offset, 1);
+        assert_eq!(range.end.offset, 2);
+        let mutations = dom.drain_mutations();
+        assert!(mutations.iter().any(|mutation| matches!(mutation,
+            crate::Mutation::CharacterData { old_value, new_value, .. }
+                if old_value == "ab" && new_value == "abcd")));
+    }
 
     #[test]
     fn parses_html_into_oryn_owned_dom() {

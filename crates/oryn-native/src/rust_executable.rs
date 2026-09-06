@@ -37,6 +37,12 @@ struct LiveLayoutProvider {
 }
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn layout_revision(&self) -> Option<u64> {
+        // The viewport is immutable for this provider; replacement invalidates the
+        // binding cache. DOM mutations include stylesheet, value, and focus changes.
+        Some(self.dom.borrow().mutation_cursor().0)
+    }
+
     fn compute_layout(
         &self,
         custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
@@ -78,6 +84,22 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         .map_err(|_| "synchronous layout flush panicked on a transient DOM shape".to_owned())?
         .map_err(|error| format!("synchronous layout flush failed: {error}"))?;
         Ok(binding_layout_from_output(&output))
+    }
+
+    fn query_selector(
+        &self,
+        node: NodeId,
+        selector: &str,
+        operation: oryn_dom::SelectorOperation,
+        custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
+    ) -> Option<Result<Vec<NodeId>, String>> {
+        Some(oryn_layout::dom_queries::query(
+            &self.dom.borrow(),
+            node,
+            selector,
+            operation,
+            custom_states,
+        ))
     }
 
     fn canonicalize_selector(&self, selector: &str) -> Result<String, String> {
@@ -127,6 +149,7 @@ fn binding_layout_from_output(output: &oryn_layout::LayoutOutput) -> BindingLayo
         })
         .collect();
     BindingLayout {
+        offset_dimensions: output.offset_dimensions.clone(),
         styles: output.computed_styles.clone(),
         geometry,
     }
@@ -1276,8 +1299,9 @@ for(const name of ['Blob','File','FormData','Headers','AbortSignal','AbortContro
 // legacy numeric codes browser-compatible while the throwing algorithms stay
 // in generated Rust callbacks.
 globalThis.getSelection=()=>document.getSelection();
-const __oryn_time_origin=Date.now();
-globalThis.performance={timeOrigin:__oryn_time_origin,now:()=>Date.now()-__oryn_time_origin,toJSON(){return {timeOrigin:this.timeOrigin}}};
+const __oryn_time_origin=__oryn_performance_time_origin;
+const __oryn_now=__oryn_performance_now;
+globalThis.performance={timeOrigin:__oryn_time_origin,now:()=>__oryn_now(),toJSON(){return {timeOrigin:this.timeOrigin}}};
 globalThis.navigator=Object.freeze({userAgent:'Oryn/0.1',appVersion:'Oryn/0.1',platform:'MacIntel',language:'en-US',languages:Object.freeze(['en-US','en']),onLine:true,cookieEnabled:true,hardwareConcurrency:1,maxTouchPoints:0});
 globalThis.queueMicrotask=callback=>Promise.resolve().then(callback);
 globalThis.__oryn_console=[];
@@ -1366,6 +1390,9 @@ class OrynURLSearchParamsIterator {
   [Symbol.iterator](){return this}
 }
 Object.setPrototypeOf(OrynURLSearchParamsIterator.prototype,Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]())));
+Object.defineProperty(OrynURLSearchParamsIterator.prototype,'next',{enumerable:true});
+delete OrynURLSearchParamsIterator.prototype.constructor;
+delete OrynURLSearchParamsIterator.prototype[Symbol.iterator];
 Object.defineProperty(OrynURLSearchParamsIterator.prototype,Symbol.toStringTag,{value:'URLSearchParams Iterator',writable:false,enumerable:false,configurable:true});
 class OrynURLSearchParams {
   constructor(init='',onChange=null){this.items=[];this.onChange=onChange;if(init&&typeof init==='object'){const entries=typeof init[Symbol.iterator]==='function'?[...init]:Object.entries(init);for(const entry of entries){if(!entry||entry.length!==2)throw new TypeError('URLSearchParams entry must contain two values');this.items.push([String(entry[0]),String(entry[1])])}return}for(const part of String(init).replace(/^\?/,'').split('&'))if(part){const [key,value='']=part.split('=');this.items.push([decodeURIComponent(key.replace(/\+/g,' ')),decodeURIComponent(value.replace(/\+/g,' '))])}}

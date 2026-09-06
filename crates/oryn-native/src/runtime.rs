@@ -2625,7 +2625,7 @@ impl BrowserContext {
                     .into(),
             )
         })?;
-        if !installed.equivalent_policy(&expected) {
+        if !installed.equivalent_response_policy(&expected) {
             return Err(RuntimeError::ProtocolViolation(format!(
                 "worker document-security snapshot did not match parent response headers: parent={installed:?}, worker={expected:?}"
             )));
@@ -7041,6 +7041,7 @@ impl PageState {
             Ok(Ok(output)) => output,
             Ok(Err(error)) => return Err(RuntimeError::LayoutUnavailable(error.to_string())),
             Err(_) => oryn_layout::LayoutOutput {
+                offset_dimensions: BTreeMap::new(),
                 computed_styles: BTreeMap::new(),
                 geometry: BTreeMap::new(),
                 text_fragments: BTreeMap::new(),
@@ -8784,6 +8785,29 @@ fn supported_capability(capability: &str, detail: &str) -> CapabilityDiagnostic 
     }
 }
 
+/// Traverse the current document, not arena allocation order. Detached
+/// documents and removed stylesheets remain alive for JavaScript wrappers but
+/// must not participate in the rendered document's style or layout snapshot.
+#[cfg(any(feature = "v8-host", test))]
+fn layout_element_tree(
+    dom: &crate::dom::DomArena,
+    root: crate::dom::NodeId,
+) -> Vec<(crate::dom::NodeId, Option<crate::dom::NodeId>)> {
+    let mut result = Vec::new();
+    let mut pending = vec![(root, None)];
+    while let Some((id, parent)) = pending.pop() {
+        let Ok(node) = dom.get(id) else { continue };
+        let parent = if matches!(node.kind, crate::dom::NodeKind::Element { .. }) {
+            result.push((id, parent));
+            Some(id)
+        } else {
+            parent
+        };
+        pending.extend(node.children.iter().rev().map(|child| (*child, parent)));
+    }
+    result
+}
+
 #[cfg(feature = "v8-host")]
 pub(crate) fn layout_input(
     document: &ParsedDocument,
@@ -8795,51 +8819,26 @@ pub(crate) fn layout_input(
 ) -> oryn_layout::LayoutInput {
     use crate::dom::NodeKind;
 
-    let elements = document
-        .dom
-        .iter()
-        .filter_map(|(id, node)| matches!(node.kind, NodeKind::Element { .. }).then_some(id))
-        .collect::<Vec<_>>();
+    let elements = layout_element_tree(&document.dom, document.document);
+    let mut child_ids = BTreeMap::<crate::dom::NodeId, Vec<u64>>::new();
+    for (id, parent) in &elements {
+        if let Some(parent) = parent {
+            child_ids
+                .entry(*parent)
+                .or_default()
+                .push(pack_node_id(*id));
+        }
+    }
     let nodes = elements
         .iter()
-        .filter_map(|id| {
+        .filter_map(|(id, parent)| {
             let node = document.dom.get(*id).ok()?;
             let NodeKind::Element { name } = &node.kind else {
                 return None;
             };
             let packed = pack_node_id(*id);
-            let parent = document
-                .dom
-                .ancestors(*id)
-                .ok()?
-                .into_iter()
-                .find(|ancestor| {
-                    document
-                        .dom
-                        .get(*ancestor)
-                        .is_ok_and(|node| matches!(node.kind, NodeKind::Element { .. }))
-                })
-                .map(pack_node_id);
-            let children = elements
-                .iter()
-                .copied()
-                .filter(|candidate| {
-                    document
-                        .dom
-                        .ancestors(*candidate)
-                        .ok()
-                        .and_then(|ancestors| {
-                            ancestors.into_iter().find(|ancestor| {
-                                document
-                                    .dom
-                                    .get(*ancestor)
-                                    .is_ok_and(|node| matches!(node.kind, NodeKind::Element { .. }))
-                            })
-                        })
-                        == Some(*id)
-                })
-                .map(pack_node_id)
-                .collect();
+            let parent = parent.map(pack_node_id);
+            let children = child_ids.remove(id).unwrap_or_default();
             let text = node
                 .children
                 .iter()
@@ -8854,20 +8853,28 @@ pub(crate) fn layout_input(
                 parent,
                 children,
                 tag: name.local.to_string(),
+                namespace: name.ns.to_string(),
                 attributes: node.attributes.clone(),
                 text,
             })
         })
         .collect();
-    let stylesheets = document
-        .dom
+    let mut stylesheets: Vec<String> = elements
         .iter()
-        .filter_map(|(id, node)| {
+        .filter_map(|(id, _)| {
+            let node = document.dom.get(*id).ok()?;
             matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "style")
-                .then(|| document.dom.text_content(id).ok())
+                .then(|| document.dom.text_content(*id).ok())
                 .flatten()
         })
         .collect();
+    if let Ok(root) = document.dom.get(document.document) {
+        stylesheets.extend(
+            root.adopted_stylesheets
+                .iter()
+                .filter_map(|sheet| document.dom.text_content(*sheet).ok()),
+        );
+    }
     oryn_layout::LayoutInput {
         nodes,
         stylesheets,
@@ -10629,6 +10636,38 @@ mod tests {
         )
     }
 
+    #[test]
+    fn layout_tree_follows_mutation_order_and_excludes_detached_styles() {
+        let mut parsed = parse(
+            "<main id=root><div id=removed><style>b { color: red }</style><b>old</b></div><button id=first>first</button><button id=second>second</button></main>",
+        );
+        let find = |id: &str| {
+            parsed
+                .dom
+                .iter()
+                .find(|(_, node)| node.attributes.get("id").is_some_and(|value| value == id))
+                .map(|(id, _)| id)
+                .unwrap()
+        };
+        let root = find("root");
+        let removed = find("removed");
+        let first = find("first");
+        let second = find("second");
+        let detached = parsed.dom.descendants_inclusive(removed).unwrap();
+        parsed.dom.detach(removed).unwrap();
+        parsed.dom.append_child(root, first).unwrap();
+        let elements = layout_element_tree(&parsed.dom, parsed.document);
+        assert!(elements.iter().all(|(id, _)| !detached.contains(id)));
+        let children = elements
+            .iter()
+            .filter_map(|(id, parent)| (*parent == Some(root)).then_some(*id))
+            .collect::<Vec<_>>();
+        assert_eq!(children, vec![second, first]);
+        parsed.dom.append_child(root, removed).unwrap();
+        let elements = layout_element_tree(&parsed.dom, parsed.document);
+        assert!(elements.iter().any(|(id, _)| *id == removed));
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn actions_are_generation_checked_and_report_effects() {
         let page = Browser::new().new_context().new_page();
@@ -10638,7 +10677,10 @@ mod tests {
         )
         .await
         .expect("load HTML");
-        let observation = page.observe().await.expect("observe document");
+        let observation = page
+            .observe_profile(ProjectionProfile::Full)
+            .await
+            .expect("observe document");
         let input = observation
             .nodes
             .iter()
@@ -10661,11 +10703,22 @@ mod tests {
             .await
             .expect("observe delta");
         assert_eq!(delta.to_revision, Revision(2));
-        assert_eq!(delta.upserted.len(), 1);
-        assert_eq!(
-            delta.upserted[0].value.as_deref(),
-            Some("agent@example.test")
-        );
+        let changed_input = delta
+            .upserted
+            .iter()
+            .find(|node| node.semantic_ref == input.semantic_ref)
+            .expect("delta includes the changed input");
+        assert_eq!(changed_input.value.as_deref(), Some("agent@example.test"));
+        // Embedded controls can also change their containing label's name.
+        // Every upsert must nevertheless be a real change in the observation.
+        let after = page
+            .observe_profile(ProjectionProfile::Full)
+            .await
+            .expect("observe updated document");
+        for changed in &delta.upserted {
+            assert!(after.nodes.contains(changed));
+            assert!(!observation.nodes.contains(changed));
+        }
         let trace = page.trace().await.expect("read trace");
         assert!(matches!(
             trace.last().map(|event| &event.kind),

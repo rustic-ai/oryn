@@ -253,6 +253,20 @@ interface SecurityPolicyViolationEvent : Event {
   readonly attribute unsigned long columnNumber;
 };
 
+[Exposed=Window, LegacyUnenumerableNamedProperties]
+interface HTMLCollection {
+  readonly attribute unsigned long length;
+  getter Element? item(unsigned long index);
+  getter Element? namedItem(DOMString name);
+};
+
+[Exposed=Window]
+interface NodeList {
+  getter Node? item(unsigned long index);
+  readonly attribute unsigned long length;
+  iterable<Node>;
+};
+
 [Exposed=Window]
 interface Node : EventTarget {
   const unsigned short ELEMENT_NODE = 1;
@@ -282,7 +296,7 @@ interface Node : EventTarget {
   readonly attribute Node? lastChild;
   readonly attribute Node? previousSibling;
   readonly attribute Node? nextSibling;
-  readonly attribute sequence<Node> childNodes;
+  [SameObject] readonly attribute NodeList childNodes;
   readonly attribute boolean isConnected;
   attribute DOMString? nodeValue;
   attribute DOMString? textContent;
@@ -317,7 +331,7 @@ interface Element : Node {
   readonly attribute DOMString localName;
   readonly attribute DOMString? namespaceURI;
   readonly attribute sequence<any> attributes;
-  readonly attribute sequence<Element> children;
+  [SameObject] readonly attribute HTMLCollection children;
   readonly attribute unsigned long childElementCount;
   readonly attribute Element? firstElementChild;
   readonly attribute Element? lastElementChild;
@@ -343,10 +357,12 @@ interface Element : Node {
   boolean hasAttributes();
   boolean toggleAttribute(DOMString name, optional boolean force);
   Element? querySelector(DOMString selectors);
-  sequence<Element> querySelectorAll(DOMString selectors);
-  sequence<Element> getElementsByTagName(DOMString qualifiedName);
-  sequence<Element> getElementsByClassName(DOMString classNames);
+  [NewObject] NodeList querySelectorAll(DOMString selectors);
+  HTMLCollection getElementsByTagName(DOMString qualifiedName);
+  HTMLCollection getElementsByTagNameNS(DOMString? namespace, DOMString localName);
+  HTMLCollection getElementsByClassName(DOMString classNames);
   boolean matches(DOMString selectors);
+  boolean webkitMatchesSelector(DOMString selectors);
   Element? closest(DOMString selectors);
   Element? insertAdjacentElement(DOMString where, Element element);
   undefined insertAdjacentText(DOMString where, DOMString data);
@@ -387,6 +403,15 @@ interface SVGElement : Element {
 [Exposed=Window]
 interface SVGAElement : SVGElement {
 };
+
+[Exposed=Window]
+interface HTMLHtmlElement : HTMLElement {};
+
+[Exposed=Window]
+interface HTMLHeadElement : HTMLElement {};
+
+[Exposed=Window]
+interface HTMLTitleElement : HTMLElement {};
 
 [Exposed=Window]
 interface HTMLBodyElement : HTMLElement {
@@ -457,6 +482,8 @@ interface DOMTokenList {
 
 [Exposed=Window]
 interface HTMLElement : Element {
+  readonly attribute long offsetWidth;
+  readonly attribute long offsetHeight;
   attribute DOMString title;
   attribute DOMString lang;
   attribute DOMString dir;
@@ -657,9 +684,12 @@ interface HTMLDialogElement : HTMLElement {
 
 [Exposed=Window]
 interface Document : Node {
+  attribute ObservableArray<CSSStyleSheet> adoptedStyleSheets;
   constructor();
   readonly attribute DOMImplementation implementation;
   readonly attribute DOMString URL;
+  readonly attribute DOMString documentURI;
+  readonly attribute DOMString compatMode;
   readonly attribute DOMString baseURI;
   readonly attribute DOMString referrer;
   readonly attribute DOMString characterSet;
@@ -669,6 +699,10 @@ interface Document : Node {
   readonly attribute any location;
   attribute DOMString cookie;
   readonly attribute any defaultView;
+  [SameObject] readonly attribute HTMLCollection children;
+  readonly attribute Element? firstElementChild;
+  readonly attribute Element? lastElementChild;
+  readonly attribute unsigned long childElementCount;
   readonly attribute HTMLElement? documentElement;
   readonly attribute HTMLElement? head;
   readonly attribute HTMLElement? body;
@@ -692,10 +726,11 @@ interface Document : Node {
   undefined close();
   Element? getElementById(DOMString id);
   Element? querySelector(DOMString selectors);
-  sequence<Element> querySelectorAll(DOMString selectors);
-  sequence<Element> getElementsByTagName(DOMString qualifiedName);
-  sequence<Element> getElementsByClassName(DOMString classNames);
-  sequence<Element> getElementsByName(DOMString elementName);
+  [NewObject] NodeList querySelectorAll(DOMString selectors);
+  HTMLCollection getElementsByTagName(DOMString qualifiedName);
+  HTMLCollection getElementsByTagNameNS(DOMString? namespace, DOMString localName);
+  HTMLCollection getElementsByClassName(DOMString classNames);
+  NodeList getElementsByName(DOMString elementName);
   Element? elementFromPoint(double x, double y);
   sequence<Element> elementsFromPoint(double x, double y);
   Range createRange();
@@ -718,6 +753,7 @@ interface DOMParser {
 
 [Exposed=Window]
 interface DOMImplementation {
+  boolean hasFeature();
   Document createDocument(DOMString? namespace, DOMString? qualifiedName, optional Node? doctype = null);
   Document createHTMLDocument(optional DOMString title = "");
   Node createDocumentType(DOMString qualifiedName, optional DOMString publicId = "", optional DOMString systemId = "");
@@ -805,7 +841,7 @@ interface Selection {
 };
 
 [Exposed=Window]
-interface NodeFilter {
+callback interface NodeFilter {
   const unsigned short FILTER_ACCEPT = 1;
   const unsigned short FILTER_REJECT = 2;
   const unsigned short FILTER_SKIP = 3;
@@ -973,6 +1009,7 @@ interface IDBIndex {
   any getKey(any query);
   any getAll(optional any query, optional unsigned long count);
   any getAllKeys(optional any query, optional unsigned long count);
+  IDBRequest getAllRecords(optional any options);
   any count(optional any query);
   any openCursor(optional any query, optional DOMString direction = "next");
   any openKeyCursor(optional any query, optional DOMString direction = "next");
@@ -980,7 +1017,7 @@ interface IDBIndex {
 
 [Exposed=(Window,Worker)]
 interface IDBObjectStore {
-  readonly attribute DOMString name;
+  attribute DOMString name;
   readonly attribute any keyPath;
   readonly attribute sequence<DOMString> indexNames;
   readonly attribute IDBTransaction transaction;
@@ -991,6 +1028,7 @@ interface IDBObjectStore {
   any getKey(any query);
   any getAll(optional any query, optional unsigned long count);
   any getAllKeys(optional any query, optional unsigned long count);
+  IDBRequest getAllRecords(optional any options);
   any delete(any query);
   any clear();
   any count(optional any query);
@@ -1074,16 +1112,17 @@ interface CSSStyleDeclaration {
 
 [Exposed=Window]
 interface DocumentFragment : Node {
-  readonly attribute sequence<Element> children;
+  [SameObject] readonly attribute HTMLCollection children;
   readonly attribute unsigned long childElementCount;
   readonly attribute Element? firstElementChild;
   readonly attribute Element? lastElementChild;
   Element? querySelector(DOMString selectors);
-  sequence<Element> querySelectorAll(DOMString selectors);
+  [NewObject] NodeList querySelectorAll(DOMString selectors);
 };
 
 [Exposed=Window]
 interface ShadowRoot : DocumentFragment {
+  attribute ObservableArray<CSSStyleSheet> adoptedStyleSheets;
   attribute DOMString innerHTML;
   readonly attribute DOMString mode;
   readonly attribute boolean clonable;
@@ -1400,3 +1439,10 @@ dictionary RequestInit {
 };
 
 callback EventListener = undefined (Event event);
+
+[Exposed=(Window,Worker)]
+interface IDBRecord {
+  readonly attribute any key;
+  readonly attribute any primaryKey;
+  readonly attribute any value;
+};
