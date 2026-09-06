@@ -1803,6 +1803,77 @@
       ]
     }
   },
+  "final_correction_note": "ab88096 restores all four focus assertion regressions, passes the disconnected custom-element assertion, retains 15/51 moveBefore file passes, and passes all 12 CSS focus assertions. No new file-level or existing-assertion losses and no missing prior passing assertions in these final selections.",
+  "final_correction_runs": [
+    {
+      "assertion_gains": [
+        {
+          "id": "dom/nodes/moveBefore/focus-preserve.html|window|",
+          "name": "when reparenting an element, don't automatically reset the document focus"
+        },
+        {
+          "id": "dom/nodes/moveBefore/focus-within.html|window|",
+          "name": "focus-within should be updated when reparenting focused element directly"
+        },
+        {
+          "id": "dom/nodes/moveBefore/focus-within.html|window|",
+          "name": "focus-within should be updated when reparenting an element that has focus within"
+        },
+        {
+          "id": "dom/nodes/moveBefore/focus-within.html|window|",
+          "name": "focus-within should remain the same when moving to the same parent"
+        }
+      ],
+      "assertion_regressions": [],
+      "exact_selection_and_pass_completions_verified": true,
+      "ledger": "conformance-worker-custom-names-move.json",
+      "ledger_sha256": "83de5ab3f9f2c014f074fd45547b4ddfdd2490f8815f42f20f974ab2438eb07e",
+      "missing_prior_passing_assertions": [],
+      "newly_passing": [],
+      "outcome": {
+        "required_finished": 51,
+        "required_passed": 15,
+        "required_total": 51,
+        "status": "failed"
+      },
+      "regressions": [],
+      "security_and_limits_unchanged": true,
+      "source": {
+        "commit": "ab880964507fbe1b0185038061f22ec723a07279",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "fe086ba2e4b581080fa8948b97fb73b0a31e594dd1f8f7ce196ad5c7885f2728"
+    },
+    {
+      "assertion_gains": [],
+      "assertion_regressions": [],
+      "exact_selection_and_pass_completions_verified": true,
+      "ledger": "conformance-worker-custom-names-css.json",
+      "ledger_sha256": "de145bf285826602d356b27e9610e4b54a11c637a6195c04a7aa255d93951799",
+      "missing_prior_passing_assertions": [],
+      "newly_passing": [],
+      "outcome": {
+        "required_finished": 1,
+        "required_passed": 1,
+        "required_total": 1,
+        "status": "passed"
+      },
+      "regressions": [],
+      "security_and_limits_unchanged": true,
+      "source": {
+        "commit": "ab880964507fbe1b0185038061f22ec723a07279",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "fe086ba2e4b581080fa8948b97fb73b0a31e594dd1f8f7ce196ad5c7885f2728"
+    }
+  ],
+  "final_correction_source": "ab880964507fbe1b0185038061f22ec723a07279",
   "move_focus_correction_note": "All four focus assertion regressions recovered at d1f1d28; 15/51 moveBefore passes and 12/12 CSS focus assertions retained. One disconnected-custom-element assertion exposed a name-as-CSS-selector SyntaxError; correction follows.",
   "move_focus_correction_runs": [
     {
@@ -1879,7 +1950,7 @@
       "worker_sha256": "dd1e446d49cb4393e3a14fbc59f59b17cc70313629cffc916bb167168e410bd8"
     }
   ],
-  "purpose": "Focused/root diagnostic evidence; not a full baseline or release qualification. Four existing assertion regressions are retained despite no lost file-level passes.",
+  "purpose": "Focused/root diagnostic evidence with historical assertion regressions and verified corrections; not a full baseline or release qualification.",
   "runs": [
     {
       "baseline_ledger": "conformance-worker-full-normalize-window-c12167f.json",

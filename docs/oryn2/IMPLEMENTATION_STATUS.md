@@ -14,11 +14,16 @@ at `f4512fb` for current planning.
 
 The newer `a14bc15` signed candidate passes **372/662 DOM** and **240/564 CSS**
 in separate root selections: one DOM gain and 13 CSS gains, with no lost file-level
-passes. Assertion-level comparison nevertheless found four regressions in the
-still-failing `moveBefore` focus tests, plus ten missing passing assertions in two
-already-incomplete Range probes. These remain recorded and require investigation.
-See [compound/focus evidence](CONFORMANCE-COMPOUND-FOCUS-2026-09-06.json).
-These selections do not replace the full baseline or its 1,483-entry backlog.
+passes. Assertion-level auditing found four moveBefore focus regressions; the
+subsequent `ab88096` candidate restores all four, retains 15/51 moveBefore file
+passes, and preserves all 12 focus-within-009 assertions. It also fixes the
+intermittent custom-element name-as-selector failure. No new assertion losses or
+missing prior passing assertions remain in those final correction selections.
+
+Two already-incomplete Range probes returned shorter partial results; retained
+primary diagnostics identify worker wall-time failures. Those resource cases remain
+open. See [compound/focus evidence](CONFORMANCE-COMPOUND-FOCUS-2026-09-06.json).
+Later selections do not replace the full baseline or its 1,483-entry backlog.
 
 Every required execution ID and every reported passing testharness completion was
 independently checked. Source and the signed worker stayed fixed throughout the run.
@@ -60,7 +65,7 @@ ordering, document adoption and template ownership, top-level XML navigation and
 XML fragments, table/traversal APIs, Range/editing, CSSOM and style-state integration,
 generated-content names, history/iframe realms and IndexedDB transaction scheduling.
 
-The candidate passed 111 V8 binding tests (two existing environment-dependent tests
+The full-baseline candidate (`c12167f`) passed 111 V8 binding tests (two existing environment-dependent tests
 ignored), 41 native DOM tests, strict relevant Clippy, generated binding validation,
 and native V8 compilation. The Window assignment changes also passed two native
 integration tests. Detailed batch history and validation are in the

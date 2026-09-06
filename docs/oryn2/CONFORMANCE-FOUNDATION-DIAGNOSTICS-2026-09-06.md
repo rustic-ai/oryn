@@ -435,3 +435,20 @@ semantics remain separate work. No upstream test or timer value was changed.
 All four native custom-element integration tests now pass, including reaction
 ordering, inserted-subtree upgrades, detached-wrapper release, and the new literal
 name/connectedness case. Formatting, documentation truth, and diff checks pass.
+
+## Final signed correction verification
+
+Clean `ab88096`, signed worker `fe086ba2e4b581080fa8948b97fb73b0a31e594dd1f8f7ce196ad5c7885f2728`:
+15/51 moveBefore executions retained, all four focus assertion regressions restored,
+and the disconnected custom-element case passes. All 12 focus-within-009 assertions
+also pass. Exact selected inventory IDs, every passing completion, final source and
+worker hashes, and unchanged sandbox/resource policy were verified. Neither final
+selection loses an existing passing file or assertion, and neither omits a prior
+passing assertion. Historical failures remain in the evidence alongside correction
+runs in CONFORMANCE-COMPOUND-FOCUS-2026-09-06.json.
+
+This completes validation of these implementation batches, not the full conformance
+plan. The full diagnostic baseline remains 2539/4022 at c12167f. The later root
+selections are 372/662 DOM and 240/564 CSS at a14bc15; no aggregate score is inferred
+from them. Observer microtask scheduling and exception reporting, Range resource and
+editing algorithms, CSSOM, history/realm behavior and IndexedDB remain open.

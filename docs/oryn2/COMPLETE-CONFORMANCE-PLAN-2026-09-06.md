@@ -64,6 +64,13 @@ first-error text does not establish a root cause. No ID is silently discarded.
 | Accessible Name | Clean full baseline | 4 |
 | WAI-ARIA | Clean full baseline | 4 |
 
+Later root checks at `a14bc15` reached 372/662 DOM and 240/564 CSS. Assertion-level
+regressions found during that work were corrected and verified at `ab88096`;
+[batch evidence](CONFORMANCE-COMPOUND-FOCUS-2026-09-06.json) preserves the history.
+These selections do not replace the single full ledger used for the counts below.
+Native observer scheduling/error reporting and the newly retained Range wall-time
+diagnostics remain immediate prerequisites for further conformance work.
+
 Important concentration and dependencies:
 
 - Editing's 586 failing executions cover 133 source files. Three whitespace-joining
