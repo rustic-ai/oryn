@@ -1364,9 +1364,9 @@ globalThis.__oryn_take_context_trace=()=>__oryn_context_trace.splice(0);
 globalThis.__oryn_custom_reactions=[];
 globalThis.__oryn_run_custom_reactions=()=>{for(let rounds=0;__oryn_custom_reactions.length&&rounds<1024;rounds++){const reactions=__oryn_custom_reactions.splice(0);for(const reaction of reactions)reaction()}if(__oryn_custom_reactions.length)throw new Error('custom-element reaction limit exceeded')};
 globalThis.__oryn_custom_definitions=new Map();
-const __oryn_upgrade_custom_element=node=>{if(!node||!node.tagName)return null;const definition=__oryn_custom_definitions.get(String(node.tagName).toLowerCase());if(!definition||node.__orynCustomDefinition===definition)return null;try{__oryn_begin_custom_element_upgrade(node);const upgraded=Reflect.construct(definition,[],definition);upgraded.__orynCustomDefinition=definition;return upgraded}catch(error){__oryn_begin_custom_element_upgrade(null);__oryn_console.push({level:'error',message:'custom element constructor: '+String(error)});return null}};
-const __oryn_queue_connected=node=>{if(node&&typeof node.connectedCallback==='function'&&!node.__orynConnected){node.__orynConnected=true;__oryn_custom_reactions.push(()=>node.connectedCallback())}};
-globalThis.customElements={define(name,constructor){name=String(name).toLowerCase();if(!name.includes('-'))throw new Error('custom element name must contain a hyphen');if(__oryn_custom_definitions.has(name))throw new Error('custom element already defined');__oryn_custom_definitions.set(name,constructor);for(const node of document.querySelectorAll(name)){const upgraded=__oryn_upgrade_custom_element(node);if(upgraded)__oryn_queue_connected(upgraded)}__oryn_run_custom_reactions()},get(name){return __oryn_custom_definitions.get(String(name).toLowerCase())},whenDefined(name){name=String(name).toLowerCase();if(this.get(name))return Promise.resolve(this.get(name));return new Promise(resolve=>{const timer=setInterval(()=>{if(this.get(name)){clearInterval(timer);resolve(this.get(name))}},1)})},upgrade(root){const apply=node=>{const upgraded=__oryn_upgrade_custom_element(node);if(upgraded)__oryn_queue_connected(upgraded)};if(root&&root.tagName)apply(root);if(root&&root.querySelectorAll)for(const name of __oryn_custom_definitions.keys())for(const node of root.querySelectorAll(name))apply(node);__oryn_run_custom_reactions()}};
+const __oryn_upgrade_custom_element=node=>{if(!node||node.namespaceURI!=='http://www.w3.org/1999/xhtml')return null;const definition=__oryn_custom_definitions.get(String(node.localName).toLowerCase());if(!definition||node.__orynCustomDefinition===definition)return null;try{__oryn_begin_custom_element_upgrade(node);const upgraded=Reflect.construct(definition,[],definition);upgraded.__orynCustomDefinition=definition;return upgraded}catch(error){__oryn_begin_custom_element_upgrade(null);__oryn_console.push({level:'error',message:'custom element constructor: '+String(error)});return null}};
+const __oryn_queue_connected=node=>{if(node&&node.isConnected&&typeof node.connectedCallback==='function'&&!node.__orynConnected){node.__orynConnected=true;__oryn_custom_reactions.push(()=>node.connectedCallback())}};
+globalThis.customElements={define(name,constructor){name=String(name).toLowerCase();if(!name.includes('-'))throw new Error('custom element name must contain a hyphen');if(__oryn_custom_definitions.has(name))throw new Error('custom element already defined');__oryn_custom_definitions.set(name,constructor);for(const node of Array.from(document.getElementsByTagName(name))){const upgraded=__oryn_upgrade_custom_element(node);if(upgraded)__oryn_queue_connected(upgraded)}__oryn_run_custom_reactions()},get(name){return __oryn_custom_definitions.get(String(name).toLowerCase())},whenDefined(name){name=String(name).toLowerCase();if(this.get(name))return Promise.resolve(this.get(name));return new Promise(resolve=>{const timer=setInterval(()=>{if(this.get(name)){clearInterval(timer);resolve(this.get(name))}},1)})},upgrade(root){const apply=node=>{const upgraded=__oryn_upgrade_custom_element(node);if(upgraded)__oryn_queue_connected(upgraded)};if(root&&root.tagName)apply(root);if(root&&root.querySelectorAll)for(const node of root.querySelectorAll('*'))apply(node);__oryn_run_custom_reactions()}};
 for(const [owner,method] of [[Document.prototype,'createElement'],[Node.prototype,'appendChild'],[Node.prototype,'insertBefore'],[Node.prototype,'replaceChild']]){const native=owner[method];if(typeof native!=='function')continue;Object.defineProperty(owner,method,{configurable:true,writable:true,value:function(...args){const result=native.apply(this,args),node=method==='createElement'?result:args[0],upgraded=__oryn_upgrade_custom_element(node);if(method!=='createElement')__oryn_queue_connected(upgraded||node);return method==='createElement'?(upgraded||result):result}})}
 globalThis.__oryn_animation_frames=new Map();globalThis.__oryn_next_animation_frame=1;
 globalThis.requestAnimationFrame=callback=>{const id=__oryn_next_animation_frame++;__oryn_animation_frames.set(id,callback);return id};
@@ -4492,6 +4492,33 @@ mod tests {
             if(document.activeElement !== target || getComputedStyle(parent).color !== 'rgb(0, 0, 0)') return 'preserving direct move';
             section.appendChild(target);
             if(target.matches(':focus') || getComputedStyle(parent).color !== 'rgb(0, 0, 0)') return 'move';
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn custom_element_upgrade_uses_literal_names_and_connectedness() {
+        let mut page = RustExecutableDocument::load("<body><ce-1.25></ce-1.25></body>").unwrap();
+        assert_eq!(page.evaluate(r#"(() => {
+            globalThis.customConnections = 0;
+            class DecimalName extends HTMLElement {connectedCallback(){customConnections++;}}
+            customElements.define('ce-1.25', DecimalName);
+            const existing = document.getElementsByTagName('ce-1.25')[0];
+            if(!(existing instanceof DecimalName) || customConnections !== 1) return 'existing';
+            const detached = document.createElement('div'), element = document.createElement('ce-1.25');
+            detached.appendChild(element); customElements.upgrade(detached);
+            if(!(element instanceof DecimalName) || customConnections !== 1) return 'detached';
+            document.body.appendChild(element);
+            // Explicit host reaction checkpoint; CEReactions timing is separate.
+            __oryn_run_custom_reactions();
+            if(customConnections !== 2) return 'connected';
+            const foreign = document.createElementNS('urn:xml', 'ce-1.25');
+            document.body.appendChild(foreign); customElements.upgrade(foreign);
+            if(foreign instanceof DecimalName || customConnections !== 2) return 'namespace';
+            const late = document.createElement('div'); late.innerHTML = '<ce-2.50></ce-2.50>';
+            class LaterName extends HTMLElement {connectedCallback(){customConnections++;}}
+            customElements.define('ce-2.50', LaterName); customElements.upgrade(late);
+            if(!(late.firstChild instanceof LaterName) || customConnections !== 2) return 'late detached upgrade';
             return 'ok';
         })()"#).unwrap(), "ok");
     }

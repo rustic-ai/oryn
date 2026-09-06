@@ -416,3 +416,22 @@ The correction passes 44 native DOM tests, 113 production V8 tests (two existing
 ignored), the extended native V8 focus/Stylo integration test, strict DOM/V8 Clippy,
 28 runner tests, formatting, documentation truth, and diff checks. Signed
 moveBefore and CSS regression selections follow on the committed candidate.
+
+Signed d1f1d28 restores all four focus assertions, retains 15/51 moveBefore file
+passes, and preserves all 12 focus-within-009 assertions. One other assertion
+changed to SyntaxError because a performance.now()-derived custom-element name
+was passed directly to querySelectorAll. Names containing a decimal point are
+literal element names, not CSS selectors. Upgrade lookup now uses native literal
+tag/local-name matching, skips non-HTML namespaces, and only queues connected
+callbacks for connected nodes. A deterministic decimal-name/disconnected/foreign
+namespace regression covers that bootstrap path. Signed rechecks follow.
+
+The literal-name regression uses the existing host reaction checkpoint to verify
+connected-callback queuing. It does not establish complete CEReactions timing;
+connected reactions are not yet universally flushed before DOM methods return.
+The registry's broader validation, realm, shadow-including upgrade and reaction
+semantics remain separate work. No upstream test or timer value was changed.
+
+All four native custom-element integration tests now pass, including reaction
+ordering, inserted-subtree upgrades, detached-wrapper release, and the new literal
+name/connectedness case. Formatting, documentation truth, and diff checks pass.

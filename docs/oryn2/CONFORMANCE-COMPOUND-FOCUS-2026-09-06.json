@@ -1803,6 +1803,82 @@
       ]
     }
   },
+  "move_focus_correction_note": "All four focus assertion regressions recovered at d1f1d28; 15/51 moveBefore passes and 12/12 CSS focus assertions retained. One disconnected-custom-element assertion exposed a name-as-CSS-selector SyntaxError; correction follows.",
+  "move_focus_correction_runs": [
+    {
+      "assertion_gains": [
+        {
+          "id": "dom/nodes/moveBefore/focus-preserve.html|window|",
+          "name": "when reparenting an element, don't automatically reset the document focus"
+        },
+        {
+          "id": "dom/nodes/moveBefore/focus-within.html|window|",
+          "name": "focus-within should be updated when reparenting focused element directly"
+        },
+        {
+          "id": "dom/nodes/moveBefore/focus-within.html|window|",
+          "name": "focus-within should be updated when reparenting an element that has focus within"
+        },
+        {
+          "id": "dom/nodes/moveBefore/focus-within.html|window|",
+          "name": "focus-within should remain the same when moving to the same parent"
+        }
+      ],
+      "assertion_regressions": [
+        {
+          "id": "dom/nodes/moveBefore/Node-moveBefore.html|window|",
+          "message": "promise_test: Unhandled rejection with value: object \"SyntaxError: SyntaxError\"",
+          "name": "No custom element callbacks are run during disconnected moveBefore()"
+        }
+      ],
+      "exact_selection_and_pass_completions_verified": true,
+      "ledger": "conformance-worker-move-focus-subset.json",
+      "ledger_sha256": "5d08bfdf0dbfe1d378d0b350f9774786fd2b1b588d0838e1d98d6645067c5d1e",
+      "missing_prior_passing_assertions": [],
+      "newly_passing": [],
+      "outcome": {
+        "required_finished": 51,
+        "required_passed": 15,
+        "required_total": 51,
+        "status": "failed"
+      },
+      "regressions": [],
+      "security_and_limits_unchanged": true,
+      "source": {
+        "commit": "d1f1d2812a6f300c0a065135c39fb84de1931363",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "dd1e446d49cb4393e3a14fbc59f59b17cc70313629cffc916bb167168e410bd8"
+    },
+    {
+      "assertion_gains": [],
+      "assertion_regressions": [],
+      "exact_selection_and_pass_completions_verified": true,
+      "ledger": "conformance-worker-move-focus-css-regression.json",
+      "ledger_sha256": "a28e5366c7e686424f68828db82dcec947e1c24d0a731dbbeea8fd39f1d144de",
+      "missing_prior_passing_assertions": [],
+      "newly_passing": [],
+      "outcome": {
+        "required_finished": 1,
+        "required_passed": 1,
+        "required_total": 1,
+        "status": "passed"
+      },
+      "regressions": [],
+      "security_and_limits_unchanged": true,
+      "source": {
+        "commit": "d1f1d2812a6f300c0a065135c39fb84de1931363",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "dd1e446d49cb4393e3a14fbc59f59b17cc70313629cffc916bb167168e410bd8"
+    }
+  ],
   "purpose": "Focused/root diagnostic evidence; not a full baseline or release qualification. Four existing assertion regressions are retained despite no lost file-level passes.",
   "runs": [
     {
