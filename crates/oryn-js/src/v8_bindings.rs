@@ -867,11 +867,20 @@ pub struct V8BindingState {
 
 #[derive(Default)]
 struct BindingStateRegistry {
+    observer_microtask_queued: Cell<bool>,
+    observing_states: RefCell<BTreeSet<u64>>,
+    pending_observers: RefCell<Vec<(u64, u64)>>,
+    pending_observer_set: RefCell<BTreeSet<(u64, u64)>>,
+    delivered_observers: Cell<usize>,
     realms: RefCell<BTreeMap<RealmId, RcWeak<V8BindingState>>>,
     instances: RefCell<BTreeMap<u64, RcWeak<V8BindingState>>>,
 }
 
 impl V8BindingState {
+    pub fn has_pending_selection_change(&self) -> bool {
+        self.selection_revision.get() != self.delivered_selection_revision.get()
+    }
+
     /// Take a cross-document history traversal that could not be satisfied by
     /// the realm-local same-document history list. The page orchestrator owns
     /// top-level session history and performs the actual BFCache restore or
@@ -7840,6 +7849,15 @@ fn generated_attribute_getter(
 fn generated_attribute_setter(
     scope: &mut v8::PinScope,
     args: v8::FunctionCallbackArguments,
+    return_value: v8::ReturnValue,
+) {
+    generated_attribute_setter_impl(scope, args, return_value);
+    queue_mutation_observer_microtask(scope);
+}
+
+fn generated_attribute_setter_impl(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
     _return_value: v8::ReturnValue,
 ) {
     let Some((interface, metadata)) = args
@@ -7981,6 +7999,15 @@ fn generated_attribute_setter(
 }
 
 fn generated_operation<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    return_value: v8::ReturnValue,
+) {
+    generated_operation_impl(scope, args, return_value);
+    queue_mutation_observer_microtask(scope);
+}
+
+fn generated_operation_impl<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     args: v8::FunctionCallbackArguments<'s>,
     mut return_value: v8::ReturnValue,
@@ -18367,6 +18394,12 @@ fn call_mutation_observer_operation<'s>(
                 |previous| previous.registration_order,
             );
             observer.registrations.insert(target, options);
+            scope
+                .get_slot::<BindingStateRegistry>()
+                .expect("binding registry")
+                .observing_states
+                .borrow_mut()
+                .insert(state.instance_id);
             Ok(None)
         }
         "disconnect" => {
@@ -18375,6 +18408,19 @@ fn call_mutation_observer_operation<'s>(
                 observer.transients.clear();
                 observer.records.clear();
                 observer.cursor = state.dom.borrow().mutation_cursor();
+            }
+            if state
+                .mutation_observers
+                .borrow()
+                .values()
+                .all(|observer| observer.registrations.is_empty())
+            {
+                scope
+                    .get_slot::<BindingStateRegistry>()
+                    .expect("binding registry")
+                    .observing_states
+                    .borrow_mut()
+                    .remove(&state.instance_id);
             }
             Ok(None)
         }
@@ -18589,6 +18635,9 @@ fn mutation_record_property<'s>(
 }
 
 fn collect_observer_records(dom: &DomRuntime, observer: &mut MutationObserverEntry) {
+    if observer.cursor == dom.mutation_cursor() {
+        return;
+    }
     let batch = dom.mutations_since(observer.cursor);
     observer.cursor = batch.next;
     if observer.registrations.is_empty() {
@@ -18799,42 +18848,156 @@ fn mutation_record_array<'s>(
     Ok(array)
 }
 
-/// Queue and deliver one stable MutationObserver checkpoint for this realm.
-pub fn deliver_mutation_observers(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    _mutations: &[Mutation],
-) -> Result<usize, V8BindingError> {
-    {
+/// Collect native mutations at each binding/task boundary. The ordered pending
+/// set belongs to the isolate's window agent, not to any individual realm.
+pub fn queue_mutation_observer_microtask(scope: &mut v8::PinScope) {
+    if scope.is_execution_terminating() {
+        return;
+    }
+    let Some(registry) = scope.get_slot::<BindingStateRegistry>() else {
+        return;
+    };
+    let states = {
+        let instances = registry.instances.borrow();
+        registry
+            .observing_states
+            .borrow()
+            .iter()
+            .filter_map(|id| instances.get(id).and_then(RcWeak::upgrade))
+            .collect::<Vec<_>>()
+    };
+    let mut newly_pending = Vec::new();
+    for state in states {
         let dom = state.dom.borrow();
-        for observer in state.mutation_observers.borrow_mut().values_mut() {
+        for (&id, observer) in state.mutation_observers.borrow_mut().iter_mut() {
             collect_observer_records(&dom, observer);
+            if let Some(order) = observer.pending_order.take() {
+                newly_pending.push((order, state.instance_id, id));
+            }
         }
     }
-    let mut ids = state
-        .mutation_observers
-        .borrow()
-        .iter()
-        .filter_map(|(id, observer)| {
-            (observer.pending_order.is_some() || !observer.transients.is_empty()).then_some((
-                observer
-                    .pending_order
-                    .unwrap_or((u64::MAX, usize::MAX, u64::MAX)),
-                *id,
-            ))
+    newly_pending.sort_unstable();
+    {
+        let mut pending = registry.pending_observers.borrow_mut();
+        let mut membership = registry.pending_observer_set.borrow_mut();
+        for (_, instance, id) in newly_pending {
+            if membership.insert((instance, id)) {
+                pending.push((instance, id));
+            }
+        }
+        if pending.is_empty() || registry.observer_microtask_queued.get() {
+            return;
+        }
+    }
+    let Some(callback) = v8::Function::new(scope, mutation_observer_microtask) else {
+        return;
+    };
+    scope
+        .get_slot::<BindingStateRegistry>()
+        .expect("binding registry")
+        .observer_microtask_queued
+        .set(true);
+    scope.enqueue_microtask(callback);
+}
+
+pub fn has_pending_mutation_observer_microtask(isolate: &v8::Isolate) -> bool {
+    isolate
+        .get_slot::<BindingStateRegistry>()
+        .is_some_and(|registry| {
+            registry.observer_microtask_queued.get()
+                || !registry.pending_observers.borrow().is_empty()
         })
-        .collect::<Vec<_>>();
-    // Queue order is mutation order, then target-to-root ancestry, then the
-    // registered-observer list position; constructor IDs do not determine it.
-    ids.sort_unstable();
+}
+
+/// V8 discards queued microtasks when execution terminates. Allow the retained
+/// native pending set to schedule a fresh notification after host recovery.
+pub fn reset_mutation_observer_microtask_after_termination(scope: &mut v8::PinScope) {
+    if let Some(registry) = scope.get_slot::<BindingStateRegistry>() {
+        registry.observer_microtask_queued.set(false);
+    }
+}
+
+fn mutation_observer_microtask(
+    scope: &mut v8::PinScope,
+    _args: v8::FunctionCallbackArguments,
+    _return_value: v8::ReturnValue,
+) {
+    let Some(registry) = scope.get_slot::<BindingStateRegistry>() else {
+        return;
+    };
+    registry.observer_microtask_queued.set(false);
+    registry.pending_observer_set.borrow_mut().clear();
+    // Snapshot the entire agent before callbacks. Mutations caused by a callback
+    // may add observers to a later notification, including observers in this set.
+    let pending = std::mem::take(&mut *registry.pending_observers.borrow_mut());
+    let states = registry.instances.borrow().clone();
+    for (instance, id) in pending {
+        let Some(state) = states.get(&instance).and_then(RcWeak::upgrade) else {
+            continue;
+        };
+        let object = state
+            .mutation_observers
+            .borrow()
+            .get(&id)
+            .map(|entry| entry.object.clone());
+        let Some(object) = object else {
+            continue;
+        };
+        let object = v8::Local::new(scope, object);
+        let Some(context) = object.get_creation_context(scope) else {
+            continue;
+        };
+        let scope = &mut v8::ContextScope::new(scope, context);
+        match deliver_mutation_observer_ids(scope, &state, vec![id]) {
+            Ok(delivered) => {
+                let registry = scope
+                    .get_slot::<BindingStateRegistry>()
+                    .expect("binding registry");
+                registry
+                    .delivered_observers
+                    .set(registry.delivered_observers.get().saturating_add(delivered));
+            }
+            Err(error) => {
+                throw_binding_error(scope, &error);
+                return;
+            }
+        }
+        if scope.is_execution_terminating() {
+            return;
+        }
+    }
+}
+
+/// Flush native observer notifications through V8's microtask queue. This is an
+/// agent checkpoint, so callbacks from other window realms can also run.
+pub fn deliver_mutation_observers(
+    scope: &mut v8::PinScope,
+    _state: &Rc<V8BindingState>,
+    _mutations: &[Mutation],
+) -> Result<usize, V8BindingError> {
+    let before = scope
+        .get_slot::<BindingStateRegistry>()
+        .map_or(0, |registry| registry.delivered_observers.get());
+    queue_mutation_observer_microtask(scope);
+    scope.perform_microtask_checkpoint();
+    let after = scope
+        .get_slot::<BindingStateRegistry>()
+        .map_or(0, |registry| registry.delivered_observers.get());
+    Ok(after.saturating_sub(before))
+}
+
+fn deliver_mutation_observer_ids(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    ids: Vec<u64>,
+) -> Result<usize, V8BindingError> {
     let mut delivered = 0;
-    for (_, id) in ids {
+    for id in ids {
         let (callback, object, records) = {
             let mut observers = state.mutation_observers.borrow_mut();
             let observer = observers.get_mut(&id).expect("queued observer exists");
             collect_observer_records(&state.dom.borrow(), observer);
             observer.transients.clear();
-            observer.pending_order = None;
             (
                 observer.callback.clone(),
                 observer.object.clone(),
@@ -26976,6 +27139,165 @@ mod tests {
     }
 
     #[test]
+    fn observer_notifications_precede_later_promise_jobs_and_requeue_after_callbacks() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            globalThis.order = [];
+            const element = document.createElement('div');
+            const observer = new MutationObserver(records => {
+                order.push('observer:' + records.length + ':' + records[0].addedNodes[0].data);
+                if(records[0].addedNodes[0].data === 'second') element.textContent = 'third';
+            });
+            observer.observe(element, {childList:true});
+            Promise.resolve().then(() => order.push('before'));
+            element.textContent = 'first';
+            Promise.resolve().then(() => {
+                order.push('between'); element.textContent = 'second';
+                Promise.resolve().then(() => order.push('after'));
+            });
+        "#,
+        )
+        .unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        scope.perform_microtask_checkpoint();
+        let source = v8::String::new(scope, "order.join('|')").unwrap();
+        let value = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert_eq!(
+            value.to_rust_string_lossy(scope),
+            "before|observer:1:first|between|observer:1:second|after|observer:1:third"
+        );
+    }
+
+    #[test]
+    fn observers_made_pending_in_another_realm_wait_for_the_next_notification() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body><div id='a'></div><div id='b'></div></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let a = v8::Context::new(scope, Default::default());
+        let b = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, a);
+        let log = v8::Array::new(scope, 0);
+        let key = v8::String::new(scope, "log").unwrap();
+        let state_a;
+        let state_b;
+        {
+            let scope = &mut v8::ContextScope::new(scope, a);
+            state_a = install_generated_bindings(scope, a, dom.clone(), RealmId(0), 1).unwrap();
+            a.global(scope).set(scope, key.into(), log.into());
+            let source = v8::String::new(scope, "new MutationObserver(() => {log.push('A'); document.getElementById('b').setAttribute('changed','yes');}).observe(document.getElementById('a'), {attributes:true});").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+        }
+        {
+            let scope = &mut v8::ContextScope::new(scope, b);
+            state_b = install_generated_bindings(scope, b, dom, RealmId(1), 1).unwrap();
+            b.global(scope).set(scope, key.into(), log.into());
+            let source = v8::String::new(scope, "new MutationObserver(() => log.push('B')).observe(document.getElementById('b'), {attributes:true});").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+        }
+        {
+            let scope = &mut v8::ContextScope::new(scope, a);
+            let source = v8::String::new(scope, "document.getElementById('a').setAttribute('changed','yes'); Promise.resolve().then(() => log.push('promise'));").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            scope.perform_microtask_checkpoint();
+            let source = v8::String::new(scope, "log.join('|')").unwrap();
+            let value = v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            assert_eq!(value.to_rust_string_lossy(scope), "A|promise|B");
+        }
+        drop((state_a, state_b));
+    }
+
+    #[test]
+    fn observers_pending_in_another_realm_preserve_first_pending_order() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body><div id='a'></div><div id='b'></div></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let a = v8::Context::new(scope, Default::default());
+        let b = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, a);
+        let log = v8::Array::new(scope, 0);
+        let key = v8::String::new(scope, "log").unwrap();
+        let state_a;
+        let state_b;
+        {
+            let scope = &mut v8::ContextScope::new(scope, a);
+            state_a = install_generated_bindings(scope, a, dom.clone(), RealmId(0), 1).unwrap();
+            a.global(scope).set(scope, key.into(), log.into());
+            let source = v8::String::new(scope, "new MutationObserver(() => {log.push('A'); document.getElementById('b').setAttribute('changed','yes');}).observe(document.getElementById('a'), {attributes:true});").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+        }
+        {
+            let scope = &mut v8::ContextScope::new(scope, b);
+            state_b = install_generated_bindings(scope, b, dom, RealmId(1), 1).unwrap();
+            b.global(scope).set(scope, key.into(), log.into());
+            let source = v8::String::new(scope, "new MutationObserver(() => log.push('B')).observe(document.getElementById('b'), {attributes:true});").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+        }
+        {
+            let scope = &mut v8::ContextScope::new(scope, a);
+            let source = v8::String::new(scope, "document.getElementById('b').setAttribute('changed','before'); document.getElementById('a').setAttribute('changed','yes'); Promise.resolve().then(() => log.push('promise'));").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            scope.perform_microtask_checkpoint();
+            let source = v8::String::new(scope, "log.join('|')").unwrap();
+            let value = v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            assert_eq!(value.to_rust_string_lossy(scope), "B|A|promise|B");
+        }
+        drop((state_a, state_b));
+    }
+
+    #[test]
     fn observer_delivery_follows_mutation_ancestry_and_registration_order() {
         initialize_v8();
         for (setup, expected) in [
@@ -27182,6 +27504,7 @@ mod tests {
                 .unwrap(),
         ));
         let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);

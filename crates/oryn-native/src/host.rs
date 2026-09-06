@@ -81,9 +81,10 @@ mod raw_v8 {
     use oryn_js::v8_bindings::{
         BindingGlobal, BindingLayout, BindingLayoutProvider, PendingDefaultAction, SharedDom,
         V8BindingState, deliver_mutation_observers, deliver_selection_change,
-        install_generated_bindings, install_generated_bindings_with_root,
-        install_generated_bindings_with_root_for_global, publish_named_window_properties,
-        wrap_node,
+        has_pending_mutation_observer_microtask, install_generated_bindings,
+        install_generated_bindings_with_root, install_generated_bindings_with_root_for_global,
+        publish_named_window_properties, queue_mutation_observer_microtask,
+        reset_mutation_observer_microtask_after_termination, wrap_node,
     };
 
     static INITIALIZE_V8: Once = Once::new();
@@ -1618,35 +1619,37 @@ mod raw_v8 {
                 })
         }
 
-        /// Deliver Rust DOM mutation journals after V8's microtask checkpoint.
-        /// Observer callbacks may mutate again, so repeat to a bounded stable
-        /// point before style/semantic publication.
+        /// Drain native journals and publish observer microtasks before style
+        /// and semantic state. Both recursive observers and Promise jobs remain
+        /// subject to the page's V8 execution deadline.
         pub fn run_dom_observer_checkpoint(&mut self) -> Result<usize, HostError> {
+            let Some(dom) = self.active_dom() else {
+                return Ok(0);
+            };
+            let initial_mutations = dom.borrow_mut().drain_mutations();
+            // Most rendering checkpoints have no notifications. Do not spawn
+            // a deadline thread or enter V8 on that common read-only path.
+            if initial_mutations.is_empty()
+                && !has_pending_mutation_observer_microtask(&self.isolate)
+                && !self
+                    .binding_states
+                    .values()
+                    .any(|state| state.has_pending_selection_change())
+            {
+                return Ok(0);
+            }
+            let mut initial_mutations = Some(initial_mutations);
+            let _execution_deadline =
+                ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
             let mut delivered = 0_usize;
             for _ in 0..1024 {
                 let Some(dom) = self.active_dom() else {
                     return Ok(delivered);
                 };
-                let mutations = dom.borrow_mut().drain_mutations();
-                if mutations.is_empty() {
-                    let realms = self.binding_states.keys().copied().collect::<Vec<_>>();
-                    for realm in realms {
-                        let Some(state) = self.binding_states.get(&realm).cloned() else {
-                            continue;
-                        };
-                        let Some(context) = self.contexts.get(&realm).cloned() else {
-                            continue;
-                        };
-                        v8::scope!(let handle_scope, &mut self.isolate);
-                        let context = v8::Local::new(handle_scope, &context);
-                        let scope = &mut v8::ContextScope::new(handle_scope, context);
-                        delivered += usize::from(
-                            deliver_selection_change(scope, &state)
-                                .map_err(|error| HostError::Execution(error.to_string()))?,
-                        );
-                    }
-                    return Ok(delivered);
-                }
+                let mutations = initial_mutations
+                    .take()
+                    .unwrap_or_else(|| dom.borrow_mut().drain_mutations());
+                let cursor = dom.borrow().mutation_cursor();
                 let realms = self.binding_states.keys().copied().collect::<Vec<_>>();
                 for realm in realms {
                     let Some(state) = self.binding_states.get(&realm).cloned() else {
@@ -1660,16 +1663,32 @@ mod raw_v8 {
                     let scope = &mut v8::ContextScope::new(handle_scope, context);
                     delivered += deliver_mutation_observers(scope, &state, &mutations)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
+                    if _execution_deadline.expired() || scope.is_execution_terminating() {
+                        scope.cancel_terminate_execution();
+                        reset_mutation_observer_microtask_after_termination(scope);
+                        return Err(HostError::LimitExceeded {
+                            resource: "wall time".into(),
+                        });
+                    }
                     delivered += usize::from(
                         deliver_selection_change(scope, &state)
                             .map_err(|error| HostError::Execution(error.to_string()))?,
                     );
+                    queue_mutation_observer_microtask(scope);
                     scope.perform_microtask_checkpoint();
+                    if _execution_deadline.expired() || scope.is_execution_terminating() {
+                        scope.cancel_terminate_execution();
+                        reset_mutation_observer_microtask_after_termination(scope);
+                        return Err(HostError::LimitExceeded {
+                            resource: "wall time".into(),
+                        });
+                    }
                 }
-                if let Some(dom) = self.active_dom() {
-                    dom.borrow_mut()
-                        .release_mutation_roots(&mutations)
-                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                dom.borrow_mut()
+                    .release_mutation_roots(&mutations)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                if dom.borrow().mutation_cursor() == cursor {
+                    return Ok(delivered);
                 }
             }
             Err(HostError::LimitExceeded {
@@ -1734,6 +1753,7 @@ mod raw_v8 {
                     v8::scope!(let handle_scope, &mut self.isolate);
                     let context = v8::Local::new(handle_scope, &context);
                     let scope = &mut v8::ContextScope::new(handle_scope, context);
+                    queue_mutation_observer_microtask(scope);
                     v8::tc_scope!(let scope, scope);
                     let callback = v8::Local::new(scope, &callback);
                     let arguments = arguments
@@ -1749,7 +1769,15 @@ mod raw_v8 {
                             .unwrap_or_else(|| "timer callback failed".into());
                         return Err(HostError::Execution(detail));
                     }
+                    queue_mutation_observer_microtask(scope);
                     scope.perform_microtask_checkpoint();
+                    if _deadline.expired() || scope.is_execution_terminating() {
+                        scope.cancel_terminate_execution();
+                        reset_mutation_observer_microtask_after_termination(scope);
+                        return Err(HostError::LimitExceeded {
+                            resource: "wall time".into(),
+                        });
+                    }
                 }
                 if !repeating && let Some(registry) = self.isolate.get_slot_mut::<TimerRegistry>() {
                     registry.callbacks.remove(&timer_id);
@@ -1821,9 +1849,14 @@ mod raw_v8 {
                             completion.operation_id
                         ))
                     })?;
+                let _execution_deadline = ExecutionDeadline::arm(
+                    &self.isolate,
+                    deadline.saturating_duration_since(Instant::now()),
+                );
                 v8::scope!(let handle_scope, &mut self.isolate);
                 let context = v8::Local::new(handle_scope, &pending.context);
                 let scope = &mut v8::ContextScope::new(handle_scope, context);
+                queue_mutation_observer_microtask(scope);
                 let resolver = v8::Local::new(scope, &pending.resolver);
                 match completion.result {
                     Ok(result) => {
@@ -1840,7 +1873,15 @@ mod raw_v8 {
                         resolver.reject(scope, exception);
                     }
                 }
+                queue_mutation_observer_microtask(scope);
                 scope.perform_microtask_checkpoint();
+                if _execution_deadline.expired() || scope.is_execution_terminating() {
+                    scope.cancel_terminate_execution();
+                    reset_mutation_observer_microtask_after_termination(scope);
+                    return Err(HostError::LimitExceeded {
+                        resource: "wall time".into(),
+                    });
+                }
                 delivered += 1;
             }
             delivered += self.drain_generated_platform_operations(wait)?;
@@ -1884,14 +1925,27 @@ mod raw_v8 {
                         }),
                 );
                 for (context, state) in scheduled {
+                    let _execution_deadline = ExecutionDeadline::arm(
+                        &self.isolate,
+                        deadline.saturating_duration_since(Instant::now()),
+                    );
                     v8::scope!(let handle_scope, &mut self.isolate);
                     let context = v8::Local::new(handle_scope, &context);
                     let scope = &mut v8::ContextScope::new(handle_scope, context);
+                    queue_mutation_observer_microtask(scope);
                     pass += state
                         .drain_platform_completions(scope, 32)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                     if pass > 0 {
+                        queue_mutation_observer_microtask(scope);
                         scope.perform_microtask_checkpoint();
+                        if _execution_deadline.expired() || scope.is_execution_terminating() {
+                            scope.cancel_terminate_execution();
+                            reset_mutation_observer_microtask_after_termination(scope);
+                            return Err(HostError::LimitExceeded {
+                                resource: "wall time".into(),
+                            });
+                        }
                         state
                             .finish_platform_task_checkpoint()
                             .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -2154,15 +2208,18 @@ mod raw_v8 {
             if matches!(module.get_status(), v8::ModuleStatus::Evaluated) {
                 return Ok(());
             }
+            queue_mutation_observer_microtask(scope);
             let Some(evaluation) = module.evaluate(scope) else {
                 if _deadline.expired() || scope.is_execution_terminating() {
                     scope.cancel_terminate_execution();
+                    reset_mutation_observer_microtask_after_termination(scope);
                     return Err(HostError::LimitExceeded {
                         resource: "wall time".into(),
                     });
                 }
                 return Err(HostError::Execution("module evaluation failed".into()));
             };
+            queue_mutation_observer_microtask(scope);
             scope.perform_microtask_checkpoint();
             if let Ok(promise) = v8::Local::<v8::Promise>::try_from(evaluation)
                 && promise.state() == v8::PromiseState::Rejected
@@ -2174,6 +2231,7 @@ mod raw_v8 {
             }
             if _deadline.expired() || scope.is_execution_terminating() {
                 scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
                 return Err(HostError::LimitExceeded {
                     resource: "wall time".into(),
                 });
@@ -2725,6 +2783,7 @@ mod raw_v8 {
                     let evaluation = module
                         .evaluate(worker_scope)
                         .ok_or_else(|| "worker module evaluation failed".to_string())?;
+                    queue_mutation_observer_microtask(worker_scope);
                     worker_scope.perform_microtask_checkpoint();
                     if let Ok(promise) = v8::Local::<v8::Promise>::try_from(evaluation)
                         && promise.state() == v8::PromiseState::Rejected
@@ -2762,6 +2821,7 @@ mod raw_v8 {
                         .run(worker_scope)
                         .ok_or_else(|| "service-worker install dispatch failed".to_string())?;
                 }
+                queue_mutation_observer_microtask(worker_scope);
                 worker_scope.perform_microtask_checkpoint();
                 Ok(())
             })();
@@ -2918,6 +2978,7 @@ mod raw_v8 {
                     .unwrap_or_else(|| "unknown exception".into());
                 return Err(format!("worker message dispatch failed: {detail}"));
             }
+            queue_mutation_observer_microtask(&mut try_catch);
             try_catch.perform_microtask_checkpoint();
             Ok(true)
         })();
@@ -3934,9 +3995,11 @@ mod raw_v8 {
                     .unwrap_or_else(|| "compilation failed".into());
                 return Err(HostError::Execution(detail));
             };
+            queue_mutation_observer_microtask(scope);
             if script.run(scope).is_none() {
                 if _deadline.expired() || scope.is_execution_terminating() {
                     scope.cancel_terminate_execution();
+                    reset_mutation_observer_microtask_after_termination(scope);
                     return Err(HostError::LimitExceeded {
                         resource: "wall time".into(),
                     });
@@ -3954,6 +4017,7 @@ mod raw_v8 {
                     .unwrap_or_else(|| "execution failed".into());
                 return Err(HostError::Execution(detail));
             }
+            queue_mutation_observer_microtask(scope);
             scope.perform_microtask_checkpoint();
             if scope.has_caught() {
                 let detail = scope
@@ -3971,6 +4035,7 @@ mod raw_v8 {
             }
             if _deadline.expired() || scope.is_execution_terminating() {
                 scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
                 return Err(HostError::LimitExceeded {
                     resource: "wall time".into(),
                 });
@@ -3997,6 +4062,7 @@ mod raw_v8 {
                 Some(value) => value,
                 None if _deadline.expired() || scope.is_execution_terminating() => {
                     scope.cancel_terminate_execution();
+                    reset_mutation_observer_microtask_after_termination(scope);
                     return Err(HostError::LimitExceeded {
                         resource: "wall time".into(),
                     });
@@ -4104,6 +4170,45 @@ mod tests {
         );
         host.remove_realm(frame).unwrap();
         assert!(host.activate_realm(frame).is_err());
+    }
+
+    #[test]
+    fn observer_microtasks_follow_native_mutations_and_remain_deadline_bounded() {
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<main id='root'></main>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut host = RawV8Host::new_with_wall_limit(Duration::from_millis(100));
+        host.install_dom(dom.clone(), 1).unwrap();
+        host.execute("globalThis.order=[]; globalThis.observer=new MutationObserver(()=>order.push('observer')); observer.observe(document.getElementById('root'),{attributes:true});").unwrap();
+        let root = dom.borrow().find_by_id("root").unwrap();
+        dom.borrow_mut()
+            .set_attribute(root, "changed", "yes")
+            .unwrap();
+        host.execute("Promise.resolve().then(()=>order.push('promise'))")
+            .unwrap();
+        assert_eq!(
+            host.evaluate_string("order.join('|')").unwrap(),
+            "observer|promise"
+        );
+        host.execute("observer.disconnect(); globalThis.loopObserver=new MutationObserver(()=>document.getElementById('root').setAttribute('loop','yes')); loopObserver.observe(document.getElementById('root'),{attributes:true});").unwrap();
+        dom.borrow_mut()
+            .set_attribute(root, "loop", "start")
+            .unwrap();
+        let result = host.run_dom_observer_checkpoint();
+        assert!(
+            matches!(result, Err(HostError::LimitExceeded { .. })),
+            "{result:?}"
+        );
+        // The host remains callable after the bounded failure.
+        assert_eq!(
+            host.evaluate_string("loopObserver.disconnect(); 1 + 1")
+                .unwrap(),
+            "2"
+        );
+        host.execute("globalThis.recovered=false;new MutationObserver(()=>recovered=true).observe(document.getElementById('root'),{attributes:true});document.getElementById('root').setAttribute('recovered','yes')").unwrap();
+        assert_eq!(host.evaluate_string("String(recovered)").unwrap(), "true");
     }
 
     #[test]

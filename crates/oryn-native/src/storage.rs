@@ -1122,7 +1122,7 @@ fn execute_idb(
             let mut contents = data
                 .stores
                 .remove(&store)
-                .ok_or_else(|| StorageError::ObjectStoreNotFound { database, store })?;
+                .ok_or(StorageError::ObjectStoreNotFound { database, store })?;
             if let Some(definition) = &mut contents.definition {
                 definition.name = new_name.clone();
             }

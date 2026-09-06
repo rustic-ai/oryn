@@ -1367,7 +1367,7 @@ globalThis.__oryn_custom_definitions=new Map();
 const __oryn_upgrade_custom_element=node=>{if(!node||node.namespaceURI!=='http://www.w3.org/1999/xhtml')return null;const definition=__oryn_custom_definitions.get(String(node.localName).toLowerCase());if(!definition||node.__orynCustomDefinition===definition)return null;try{__oryn_begin_custom_element_upgrade(node);const upgraded=Reflect.construct(definition,[],definition);upgraded.__orynCustomDefinition=definition;return upgraded}catch(error){__oryn_begin_custom_element_upgrade(null);__oryn_console.push({level:'error',message:'custom element constructor: '+String(error)});return null}};
 const __oryn_queue_connected=node=>{if(node&&node.isConnected&&typeof node.connectedCallback==='function'&&!node.__orynConnected){node.__orynConnected=true;__oryn_custom_reactions.push(()=>node.connectedCallback())}};
 globalThis.customElements={define(name,constructor){name=String(name).toLowerCase();if(!name.includes('-'))throw new Error('custom element name must contain a hyphen');if(__oryn_custom_definitions.has(name))throw new Error('custom element already defined');__oryn_custom_definitions.set(name,constructor);for(const node of Array.from(document.getElementsByTagName(name))){const upgraded=__oryn_upgrade_custom_element(node);if(upgraded)__oryn_queue_connected(upgraded)}__oryn_run_custom_reactions()},get(name){return __oryn_custom_definitions.get(String(name).toLowerCase())},whenDefined(name){name=String(name).toLowerCase();if(this.get(name))return Promise.resolve(this.get(name));return new Promise(resolve=>{const timer=setInterval(()=>{if(this.get(name)){clearInterval(timer);resolve(this.get(name))}},1)})},upgrade(root){const apply=node=>{const upgraded=__oryn_upgrade_custom_element(node);if(upgraded)__oryn_queue_connected(upgraded)};if(root&&root.tagName)apply(root);if(root&&root.querySelectorAll)for(const node of root.querySelectorAll('*'))apply(node);__oryn_run_custom_reactions()}};
-for(const [owner,method] of [[Document.prototype,'createElement'],[Node.prototype,'appendChild'],[Node.prototype,'insertBefore'],[Node.prototype,'replaceChild']]){const native=owner[method];if(typeof native!=='function')continue;Object.defineProperty(owner,method,{configurable:true,writable:true,value:function(...args){const result=native.apply(this,args),node=method==='createElement'?result:args[0],upgraded=__oryn_upgrade_custom_element(node);if(method!=='createElement')__oryn_queue_connected(upgraded||node);return method==='createElement'?(upgraded||result):result}})}
+for(const [owner,method] of [[Document.prototype,'createElement'],[Node.prototype,'appendChild'],[Node.prototype,'insertBefore'],[Node.prototype,'replaceChild']]){const native=owner[method];if(typeof native!=='function')continue;Object.defineProperty(owner,method,{configurable:true,writable:true,value:function(...args){const result=native.apply(this,args),node=method==='createElement'?result:args[0],upgraded=__oryn_upgrade_custom_element(node);if(method!=='createElement'){__oryn_queue_connected(upgraded||node);__oryn_run_custom_reactions()}return method==='createElement'?(upgraded||result):result}})}
 globalThis.__oryn_animation_frames=new Map();globalThis.__oryn_next_animation_frame=1;
 globalThis.requestAnimationFrame=callback=>{const id=__oryn_next_animation_frame++;__oryn_animation_frames.set(id,callback);return id};
 globalThis.cancelAnimationFrame=id=>__oryn_animation_frames.delete(Number(id));
@@ -4937,6 +4937,30 @@ mod tests {
     }
 
     #[test]
+    fn observer_microtasks_and_connected_reactions_preserve_parser_script_order() {
+        let mut page = RustExecutableDocument::load(
+            r#"<body><script>
+          globalThis.order=[];
+          customElements.define('x-order',class extends HTMLElement {
+            connectedCallback(){order.push('reaction');this.setAttribute('ready','')}
+          });
+          const node=document.createElement('x-order');
+          new MutationObserver(records=>order.push('observer:'+records.length))
+            .observe(document.body,{childList:true,attributes:true,subtree:true});
+          Promise.resolve().then(()=>order.push('before'));
+          document.body.appendChild(node);
+          order.push('returned');
+          Promise.resolve().then(()=>order.push('after'));
+        </script>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("order.join('|')").unwrap(),
+            "reaction|returned|before|observer:2|after"
+        );
+    }
+
+    #[test]
     fn custom_element_reactions_precede_mutation_observer_delivery() {
         let mut page = RustExecutableDocument::load(
             r#"<x-state></x-state><script>
@@ -4950,7 +4974,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             page.evaluate("order.join(',')").unwrap(),
-            "reaction,microtask,observer"
+            "reaction,observer,microtask"
         );
     }
 

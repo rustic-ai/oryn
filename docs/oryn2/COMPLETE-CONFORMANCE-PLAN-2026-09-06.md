@@ -76,11 +76,30 @@ position, and registration order for ordinary registered observers within a real
 Updating `observe()` options preserves registration position; disconnect/re-observe
 creates a new position. Empty notifications after `takeRecords()` clear pending
 ordering state. Native regression tests cover these cases and historical ancestry
-when a mutated subtree is subsequently removed. This is a local delivery correction,
-not completion of the agent-wide pending-observer algorithm: cross-realm notification
-order, transient-registration insertion order, native microtask scheduling, and
-exception reporting still require integration and validation. No new signed WPT
-result or full-suite gain is attributed to this change.
+when a mutated subtree is subsequently removed.
+
+The next scheduling change uses an agent-wide ordered pending set and a native V8
+microtask, populated at generated operation/setter boundaries and native task/parser
+entry points. Tests cover earlier/later Promise jobs, callbacks that mutate again,
+and observers becoming pending across realms in both orders. Non-observing realms
+are excluded from the collection path, and unchanged mutation cursors avoid journal
+reconstruction. Host integration also preserves execution deadlines and resets the
+queued flag after V8 discards microtasks on termination. Connected reactions from
+the existing insertion wrappers run before the method returns.
+
+Transient-registration insertion order, complete callback/parser exception reporting,
+worker-agent microtask isolation, and full custom-element reaction-stack semantics
+remain open. The scheduling change
+must pass native integration and signed WPT checks before conformance gains are
+attributed to it; these unit contracts do not replace the complete full ledger.
+
+[Native scheduling validation](CONFORMANCE-NATIVE-OBSERVER-SCHEDULING-2026-09-06.json)
+records 117 passing V8 binding tests (two existing ignores) and all 265 native test
+outcomes: 252 passed, 12 failed, and one navigation-fixture timeout. The normally
+ignored pinned-Range diagnostic was run explicitly. All failures and the timeout
+reproduce on the clean pre-scheduling source at `96d742f`, with matching failure
+reasons. These existing failures remain completion gates, including frame lifecycle,
+worker startup, editing state, startup-reference metadata, and runtime assertions.
 
 Important concentration and dependencies:
 
