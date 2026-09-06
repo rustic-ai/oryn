@@ -1,6 +1,7 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
+> Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md) and its per-ID failure backlog.
 > The latest complete signed-worker development run passes **2,467/4,022**
 > executions, with **2 new passes and no regressions** versus the
 > preceding namespace candidate. **1,555 executions remain failing.**

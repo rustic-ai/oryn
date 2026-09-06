@@ -1,5 +1,9 @@
 # Oryn2 runtime completion action plan
 
+> **Active forward plan:** [Complete conformance execution plan — 2026-09-06](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
+> It supersedes the conformance prioritization below. Earlier batches and milestone
+> notes are retained as history; broader product/platform/release obligations remain.
+
 **Created:** 2026-08-31
 **Historical clean diagnostic source:** `e1b97d7` (`Implement the Image legacy factory`)
 **Status reconciled:** 2026-09-06
@@ -240,7 +244,7 @@ toolchain, V8/ICU/snapshot, fixtures, deterministic results, security results,
 performance and model evidence. Only at this point may proposal-v1 software and
 release status be marked complete.
 
-## 4. Prioritized execution backlog — reviewed 2026-09-05
+## 4. Historical execution backlog — reviewed 2026-09-05
 
 This section replaces the stale immediate list (45 timeouts and CSS 90/564).
 The historical in-process baseline has 54 timeouts and CSS 113/564.
