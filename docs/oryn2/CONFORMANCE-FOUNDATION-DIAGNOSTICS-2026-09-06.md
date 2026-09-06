@@ -171,3 +171,14 @@ this does not close the remaining HTML element-interface inventory.
 Selection follows https://html.spec.whatwg.org/multipage/dom.html#elements-in-the-dom
 and https://html.spec.whatwg.org/multipage/custom-elements.html#valid-custom-element-name .
 Production V8 tests: 105 pass, two existing ignored. Signed follow-up validation pending.
+
+## Signed XML activation results
+
+Clean `9ffc345`, worker SHA-256
+`de133caaa6f3213da115309770ccb01f1a8612599fb351e7ce298aea226a5d0f`:
+Document-createElementNS passes all 596 assertions. DOM selection passes 349/664
+(347/662 DOM plus two accname); CSS passes 232/569 (227/564 CSS plus five referrer).
+Six DOM gains, no lost passes in either selection against the ownership candidate.
+Exact selected execution IDs and every passing testharness completion validated.
+Hash-bound summaries: CONFORMANCE-XML-ACTIVATION-2026-09-06.json.
+The full baseline remains 2501/4022 until another complete run is recorded.

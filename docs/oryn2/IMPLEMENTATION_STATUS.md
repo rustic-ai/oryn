@@ -6,9 +6,10 @@
 > **34 new passes, no lost passes**, and **1,521 remaining failures** versus the
 > previous full run at 2,467/4,022.
 
-The newer clean `a67666b` candidate passes **341/662 DOM** and **227/564 CSS**
-executions in separate root selections, gaining three DOM files and one CSS file
-without losing a previous pass. See the [ownership evidence](CONFORMANCE-ATTRIBUTE-OWNERSHIP-2026-09-06.json).
+The newer clean `9ffc345` candidate passes **347/662 DOM** and **227/564 CSS**
+executions in separate root selections. XML activation gains six DOM files with
+no lost passes; CSS remains unchanged from the preceding ownership candidate.
+See the [XML activation evidence](CONFORMANCE-XML-ACTIVATION-2026-09-06.json).
 These focused results do not replace the full baseline above.
 
 Every required v2 execution ID and every reported passing testharness completion
