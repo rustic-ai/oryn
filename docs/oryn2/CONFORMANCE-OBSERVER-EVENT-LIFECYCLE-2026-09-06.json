@@ -1,0 +1,188 @@
+{
+  "purpose": "Focused and root evidence for the native observer/event lifecycle batch; not a full baseline or release qualification.",
+  "runs": [
+    {
+      "baseline_ledger": "conformance-worker-full-dom-primitives-73ee49b.json",
+      "diagnostic_only": true,
+      "exact_filtered_inventory_and_pass_completion_verified": true,
+      "failure_domains": {
+        "assertion": 8,
+        "harness": 2
+      },
+      "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+      "ledger": "conformance-worker-observer-lifecycle-focused.json",
+      "ledger_sha256": "16398e9c38c7b9e153dfae9529b968d319adb1a6111f68041600b9adf0331dd2",
+      "newly_passing": [
+        "dom/nodes/MutationObserver-callback-arguments.html|window|",
+        "dom/nodes/MutationObserver-sanity.html|window|"
+      ],
+      "outcome": {
+        "required_finished": 12,
+        "required_passed": 2,
+        "required_total": 12,
+        "status": "failed"
+      },
+      "regressions": [],
+      "release_qualified": false,
+      "roots": {
+        "css": {
+          "failed": 1,
+          "passed": 0,
+          "required": 1
+        },
+        "dom": {
+          "failed": 9,
+          "passed": 2,
+          "required": 11
+        }
+      },
+      "source": {
+        "commit": "f4512fb77c93365c7bb3fd43d6edaebe7fa699ed",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "60970e97b737472e9dc6e96f7a2f82c9519a7a251d5fa34e2bc195ef1e5978d8"
+    },
+    {
+      "baseline_ledger": "conformance-worker-full-dom-primitives-73ee49b.json",
+      "diagnostic_only": true,
+      "exact_filtered_inventory_and_pass_completion_verified": true,
+      "failure_domains": {
+        "assertion": 249,
+        "harness": 29,
+        "incomplete": 8,
+        "runtime": 10
+      },
+      "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+      "ledger": "conformance-worker-observer-event-dom.json",
+      "ledger_sha256": "ae5ed3bb81bc1bd30cc87f78c014ad2574161dbae7575b15b9812168b49efd5c",
+      "newly_passing": [
+        "dom/events/Event-cancelBubble.html|window|",
+        "dom/events/Event-dispatch-multiple-cancelBubble.html|window|",
+        "dom/events/Event-dispatch-multiple-stopPropagation.html|window|",
+        "dom/events/Event-dispatch-target-moved.html|window|",
+        "dom/events/Event-dispatch-target-removed.html|window|",
+        "dom/events/Event-initEvent.html|window|",
+        "dom/events/Event-propagation.html|window|",
+        "dom/nodes/MutationObserver-callback-arguments.html|window|",
+        "dom/nodes/MutationObserver-sanity.html|window|",
+        "dom/nodes/insertion-removing-steps/Node-appendChild-script-with-mutation-observer-takeRecords.html|window|"
+      ],
+      "outcome": {
+        "required_finished": 664,
+        "required_passed": 368,
+        "required_total": 664,
+        "status": "failed"
+      },
+      "regressions": [],
+      "release_qualified": false,
+      "roots": {
+        "accname": {
+          "failed": 0,
+          "passed": 2,
+          "required": 2
+        },
+        "dom": {
+          "failed": 296,
+          "passed": 366,
+          "required": 662
+        }
+      },
+      "source": {
+        "commit": "f4512fb77c93365c7bb3fd43d6edaebe7fa699ed",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "60970e97b737472e9dc6e96f7a2f82c9519a7a251d5fa34e2bc195ef1e5978d8"
+    },
+    {
+      "baseline_ledger": "conformance-worker-full-dom-primitives-73ee49b.json",
+      "diagnostic_only": true,
+      "exact_filtered_inventory_and_pass_completion_verified": true,
+      "failure_domains": {
+        "assertion": 295,
+        "harness": 34,
+        "incomplete": 1,
+        "runtime": 6
+      },
+      "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+      "ledger": "conformance-worker-observer-event-css.json",
+      "ledger_sha256": "1756660a8721cfcd66ad97d11f6a779a59f26f67bf5bd7fadf95512b08a03dc1",
+      "newly_passing": [
+        "css/cssom/cssstyledeclaration-mutationrecord-001.html|window|"
+      ],
+      "outcome": {
+        "required_finished": 569,
+        "required_passed": 233,
+        "required_total": 569,
+        "status": "failed"
+      },
+      "regressions": [],
+      "release_qualified": false,
+      "roots": {
+        "css": {
+          "failed": 336,
+          "passed": 228,
+          "required": 564
+        },
+        "referrer-policy": {
+          "failed": 0,
+          "passed": 5,
+          "required": 5
+        }
+      },
+      "source": {
+        "commit": "f4512fb77c93365c7bb3fd43d6edaebe7fa699ed",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "60970e97b737472e9dc6e96f7a2f82c9519a7a251d5fa34e2bc195ef1e5978d8"
+    },
+    {
+      "baseline_ledger": "conformance-worker-full-dom-primitives-73ee49b.json",
+      "diagnostic_only": true,
+      "exact_filtered_inventory_and_pass_completion_verified": true,
+      "failure_domains": {
+        "assertion": 83,
+        "harness": 13,
+        "runtime": 18,
+        "timeout": 1
+      },
+      "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+      "ledger": "conformance-worker-observer-event-idb.json",
+      "ledger_sha256": "d5c9d5417aacac817a896a5ba56cb7de3df25c6dd3f8e6bb590093ffc4110c2b",
+      "newly_passing": [],
+      "outcome": {
+        "required_finished": 456,
+        "required_passed": 341,
+        "required_total": 456,
+        "status": "failed"
+      },
+      "regressions": [],
+      "release_qualified": false,
+      "roots": {
+        "IndexedDB": {
+          "failed": 115,
+          "passed": 341,
+          "required": 456
+        }
+      },
+      "source": {
+        "commit": "f4512fb77c93365c7bb3fd43d6edaebe7fa699ed",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "60970e97b737472e9dc6e96f7a2f82c9519a7a251d5fa34e2bc195ef1e5978d8"
+    }
+  ],
+  "source_commit": "f4512fb77c93365c7bb3fd43d6edaebe7fa699ed",
+  "worker_sha256": "60970e97b737472e9dc6e96f7a2f82c9519a7a251d5fa34e2bc195ef1e5978d8"
+}

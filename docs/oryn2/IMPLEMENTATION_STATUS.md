@@ -10,6 +10,12 @@ This complete run includes the attribute ownership, XML activation, native DOM
 constructor, scoped ID lookup and namespace-aware resource changes. It supersedes
 the separate DOM/CSS root results at `9ffc345` for current planning.
 
+The newer clean `f4512fb` candidate passes **366/662 DOM**, **228/564 CSS**,
+and **341/456 IndexedDB** in separate root selections. The observer/event batch
+has 10 DOM gains and 1 CSS gain; no lost passes in any checked root.
+See [lifecycle evidence](CONFORMANCE-OBSERVER-EVENT-LIFECYCLE-2026-09-06.json).
+These focused results do not replace the complete baseline or its failure backlog.
+
 Every required v2 execution ID and every reported passing testharness completion
 has been independently checked. Source stayed clean and the signed App Sandbox
 worker stayed fixed throughout the run. Security, memory and timeout limits are

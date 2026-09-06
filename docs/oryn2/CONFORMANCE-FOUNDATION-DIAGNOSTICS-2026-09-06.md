@@ -250,4 +250,22 @@ reporting and trusted-event integration remain open.
 
 Repository checks pass 110 V8 tests (two existing ignored), 39 native DOM tests,
 strict V8/DOM Clippy, generated bindings and formatting. The V8-enabled native
-compile check passes. Signed-worker validation remains pending.
+compile check passes. Signed-worker validation follows.
+
+## Signed observer/event lifecycle results
+
+Clean `f4512fb`, signed worker `60970e97b737472e9dc6e96f7a2f82c9519a7a251d5fa34e2bc195ef1e5978d8`:
+MutationObserver selection passes 2/12 (two gains). DOM passes 366/662 plus two
+accname executions, CSS passes 228/564 plus five referrer executions, and IndexedDB
+passes 341/456. There are ten DOM gains, one CSS gain, and no lost passes in any
+selection. Exact selected IDs, passing completions, source/artifact hashes and
+unchanged security/resource policy were independently verified. Hash-bound reports
+are in CONFORMANCE-OBSERVER-EVENT-LIFECYCLE-2026-09-06.json.
+
+Remaining observer failures exposed the Window bootstrap's getter-only ID bindings:
+assignments such as `var n00 = document.getElementById('n00')` did not replace the
+live accessor. Changing the ID could null the variable, or assigning firstChild
+could leave a variable resolving to an Element instead of CharacterData. A separate
+fix is being tested. This is not evidence that the existing appendData implementation
+is absent. Mutation siblings, compound records and microtask ordering also remain
+separate causes; first errors are not interchangeable with API inventory gaps.
