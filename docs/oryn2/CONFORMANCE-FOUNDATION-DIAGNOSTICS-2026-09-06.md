@@ -332,3 +332,46 @@ baseline remains a diagnostic measure of reported outcomes.
 The [baseline evidence](CONFORMANCE-BASELINE-2026-09-06.json) retains changed failure
 domains and regression assertion counts. This is a failing conformance result with
 1483 open executions, not release qualification.
+
+## Compound replacements, token updates, and native focus projection
+
+`textContent` and `innerHTML` now queue one native compound child-list observer
+record with ordered added/removed node identity. The journal retains each structural
+insert/remove for semantic, rendering, Range, connectedness and lifetime consumers;
+only their observer delivery is suppressed. The operation groups records within
+one Rust mutation, without guessing from adjacent journal entries. Empty-to-empty
+replacement queues no record. Replacements preserve internal shadow roots, exclude
+them from light-tree sibling snapshots, and mark only newly parsed scripts inert.
+Document textContent is a no-op; Comment and Attr use their native update paths.
+General fragment insertion, replaceChild/replaceChildren and outerHTML grouping
+remain open; this does not claim complete compound-mutation coverage.
+
+DOMTokenList add/remove accept zero or more tokens, convert all arguments before
+validation, validate atomically, and update the ordered token set once. Empty and
+ASCII-whitespace tokens throw their specified DOM exceptions; forced toggle no-ops
+do not write the attribute. The WebIDL compiler now represents variadic arguments,
+excludes them from required arity, preserves their element type, and rejects
+optional/defaulted/nonterminal variadics. Remaining DOMTokenList members and indexed
+or iterable behavior are separate gaps.
+
+The CSS focus regression exposed an adapter gap: the private Stylo mirror did not
+receive native focus, and Blitz returned false for FocusWithin. LayoutInput now
+carries the focused native element; both synchronous and page layout paths project
+FOCUS and ancestor FOCUS_WITHIN states directly into the mirror before Stylo runs.
+The reused Blitz matcher reads that state. Native removal and ordinary moves clear
+focus from the removed subtree, and detached focus attempts leave focus unchanged.
+This does not claim full focusability, focus-visible heuristics, or focus-event
+ordering conformance.
+
+Prototype checks passed 113 V8 binding tests (two existing environment-dependent
+ignored), 43 native DOM tests, eight WebIDL compiler tests, and 32 layout tests.
+Strict relevant Clippy passed. Native integration and signed-worker evidence are
+recorded below after running the integrated candidate. No inventory, sandbox,
+heap/RSS or timeout limits were changed.
+
+Integrated production checks passed 113 V8 binding tests (the same two ignored),
+43 native DOM tests, eight WebIDL tests, 32 layout tests, and the native V8 focus
+integration test. Strict V8/DOM/layout Clippy, generated bindings, formatting,
+27 WPT-runner tests, documentation truth, and diff checks passed. The runner now
+retains primary-run and probe diagnostics for incomplete recovered results.
+Signed-worker checks are pending for this batch; the full baseline remains c12167f.

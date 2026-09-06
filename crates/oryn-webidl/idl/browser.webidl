@@ -483,8 +483,8 @@ interface ImageData {
 [Exposed=Window]
 interface DOMTokenList {
   attribute DOMString value;
-  undefined add(DOMString token);
-  undefined remove(DOMString token);
+  undefined add(DOMString... tokens);
+  undefined remove(DOMString... tokens);
   boolean toggle(DOMString token, optional boolean force);
   boolean contains(DOMString token);
 };

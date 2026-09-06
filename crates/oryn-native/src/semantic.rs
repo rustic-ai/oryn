@@ -143,6 +143,9 @@ impl SemanticGraph {
                     dirty.extend(former_parent.iter().copied());
                     dependency_change = true;
                 }
+                // Compound records only describe observer delivery; the native
+                // insert/remove entries above already update semantic structure.
+                Mutation::ChildrenReplaced { .. } => {}
                 Mutation::Attribute { node, name, .. } => {
                     dirty.insert(*node);
                     dependency_change |= matches!(

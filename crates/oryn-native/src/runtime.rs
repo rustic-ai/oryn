@@ -7021,7 +7021,7 @@ impl PageState {
             .as_ref()
             .or(self.document.as_ref())
             .ok_or_else(|| RuntimeError::LayoutUnavailable("page has no document".into()))?;
-        let input = layout_input(
+        let mut input = layout_input(
             document,
             self.viewport,
             self.scroll_state,
@@ -7029,6 +7029,10 @@ impl PageState {
             self.reduced_motion,
             &self.web_fonts,
         );
+        input.focused_node = self
+            .executable
+            .as_ref()
+            .and_then(|executable| executable.focused_layout_node());
         let limits = oryn_layout::LayoutLimits {
             max_nodes: self.config.max_layout_nodes,
             max_font_bytes: self.config.max_font_bytes,
@@ -8879,6 +8883,7 @@ pub(crate) fn layout_input(
         nodes,
         stylesheets,
         custom_states: BTreeMap::new(),
+        focused_node: None,
         viewport,
         scroll,
         color_scheme: match color_scheme {

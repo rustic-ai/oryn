@@ -18390,7 +18390,8 @@ fn mutation_target(mutation: &Mutation) -> Option<NodeId> {
     match mutation {
         Mutation::Inserted { parent, .. } => *parent,
         Mutation::Removed { former_parent, .. } => *former_parent,
-        Mutation::Attribute { node, .. }
+        Mutation::ChildrenReplaced { node, .. }
+        | Mutation::Attribute { node, .. }
         | Mutation::CharacterData { node, .. }
         | Mutation::FormState { node }
         | Mutation::StyleSheets { node }
@@ -18409,12 +18410,16 @@ fn observer_accepts(
 ) -> bool {
     let relevant = match mutation {
         Mutation::Inserted {
-            parent: Some(_), ..
+            parent: Some(_),
+            observer_suppressed: false,
+            ..
         }
         | Mutation::Removed {
             former_parent: Some(_),
+            observer_suppressed: false,
             ..
-        } => options.child_list,
+        }
+        | Mutation::ChildrenReplaced { .. } => options.child_list,
         Mutation::Attribute {
             name, namespace, ..
         } => {
@@ -18653,6 +18658,9 @@ fn mutation_record_array<'s>(
         let mutation = &queued.mutation;
         let object = new_mutation_record(scope, state)?;
         let (kind, target, attribute, old_value, added, removed) = match mutation {
+            Mutation::ChildrenReplaced { node, .. } => {
+                ("childList", Some(*node), None, None, None, None)
+            }
             Mutation::Inserted { node, parent, .. } => {
                 ("childList", *parent, None, None, Some(*node), None)
             }
@@ -18716,8 +18724,17 @@ fn mutation_record_array<'s>(
             None => v8::null(scope).into(),
         };
         set_mutation_record_property(scope, object, "oldValue", old_value)?;
-        let added_nodes = added.map_or_else(Vec::new, |node| vec![node]);
-        let removed_nodes = removed.map_or_else(Vec::new, |node| vec![node]);
+        let (added_nodes, removed_nodes) = match mutation {
+            Mutation::ChildrenReplaced {
+                added_nodes,
+                removed_nodes,
+                ..
+            } => (added_nodes.clone(), removed_nodes.clone()),
+            _ => (
+                added.map_or_else(Vec::new, |node| vec![node]),
+                removed.map_or_else(Vec::new, |node| vec![node]),
+            ),
+        };
         let added_value = node_lists::snapshot(scope, state, &added_nodes)?;
         set_mutation_record_property(scope, object, "addedNodes", added_value)?;
         let removed_value = node_lists::snapshot(scope, state, &removed_nodes)?;
@@ -20448,7 +20465,24 @@ fn set_attribute_value(
             // HTML fragment parsing marks script elements already-started;
             // moving the resulting subtree into a document must not execute
             // them later.
-            state.mark_script_subtree_inert(target)?;
+            let children = {
+                let dom = state.dom.borrow();
+                dom.arena()
+                    .get(target)?
+                    .children
+                    .iter()
+                    .copied()
+                    .filter(|child| {
+                        !matches!(
+                            dom.arena().get(*child).map(|record| &record.kind),
+                            Ok(NodeKind::ShadowRoot { .. })
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            };
+            for child in children {
+                state.mark_script_subtree_inert(child)?;
+            }
             upgrade_custom_element_subtree(scope, state, target)?;
             return Ok(());
         }
@@ -22322,14 +22356,25 @@ fn call_operation<'s>(
             };
             Ok(Some(v8::Array::new_with_elements(scope, &values).into()))
         }
-        ("DOMTokenList", "add") => {
-            let token = required_string(scope, args, 0)?;
-            update_class_token(&mut state.dom.borrow_mut(), node, &token, Some(true))?;
-            Ok(None)
-        }
-        ("DOMTokenList", "remove") => {
-            let token = required_string(scope, args, 0)?;
-            update_class_token(&mut state.dom.borrow_mut(), node, &token, Some(false))?;
+        ("DOMTokenList", "add" | "remove") => {
+            let tokens = (0..args.length())
+                .map(|index| required_string(scope, args, index))
+                .collect::<Result<Vec<_>, _>>()?;
+            for token in &tokens {
+                validate_class_token(token)?;
+            }
+            let mut dom = state.dom.borrow_mut();
+            let mut current = class_token_set(&dom, node)?;
+            if member == "add" {
+                for token in tokens {
+                    if !current.contains(&token) {
+                        current.push(token);
+                    }
+                }
+            } else {
+                current.retain(|token| !tokens.contains(token));
+            }
+            store_class_tokens(&mut dom, node, &current)?;
             Ok(None)
         }
         ("DOMTokenList", "contains") => {
@@ -22339,13 +22384,23 @@ fn call_operation<'s>(
         }
         ("DOMTokenList", "toggle") => {
             let token = required_string(scope, args, 0)?;
-            let current = class_tokens(&state.dom.borrow(), node)?.any(|item| item == token);
-            let next = if args.length() > 1 {
+            validate_class_token(&token)?;
+            let mut dom = state.dom.borrow_mut();
+            let mut tokens = class_token_set(&dom, node)?;
+            let current = tokens.contains(&token);
+            let next = if args.length() > 1 && !args.get(1).is_undefined() {
                 args.get(1).boolean_value(scope)
             } else {
                 !current
             };
-            update_class_token(&mut state.dom.borrow_mut(), node, &token, Some(next))?;
+            if next != current {
+                if next {
+                    tokens.push(token);
+                } else {
+                    tokens.retain(|item| item != &token);
+                }
+                store_class_tokens(&mut dom, node, &tokens)?;
+            }
             Ok(Some(v8::Boolean::new(scope, next).into()))
         }
         ("CSSStyleSheet", "insertRule") => {
@@ -22594,6 +22649,9 @@ fn call_operation<'s>(
             Ok(None)
         }
         ("HTMLElement", "focus") => {
+            if !state.dom.borrow().is_connected(node)? {
+                return Ok(None);
+            }
             let previous = state.dom.borrow().focused();
             if previous != Some(node) {
                 if let Some(previous) = previous {
@@ -23553,23 +23611,45 @@ fn class_tokens(dom: &DomRuntime, node: NodeId) -> Result<impl Iterator<Item = &
     Ok(dom
         .attribute(node, "class")?
         .unwrap_or_default()
-        .split_ascii_whitespace())
+        .split(['\t', '\n', '\x0c', '\r', ' '])
+        .filter(|token| !token.is_empty()))
 }
 
-fn update_class_token(
+fn class_token_set(dom: &DomRuntime, node: NodeId) -> Result<Vec<String>, DomError> {
+    let mut seen = BTreeSet::new();
+    Ok(class_tokens(dom, node)?
+        .filter(|token| seen.insert(*token))
+        .map(str::to_owned)
+        .collect())
+}
+
+fn validate_class_token(token: &str) -> Result<(), V8BindingError> {
+    let error = if token.is_empty() {
+        Some("SyntaxError")
+    } else if token
+        .chars()
+        .any(|character| matches!(character, '\t' | '\n' | '\x0c' | '\r' | ' '))
+    {
+        Some("InvalidCharacterError")
+    } else {
+        None
+    };
+    match error {
+        Some(member) => Err(V8BindingError::Unsupported {
+            interface: "DOMTokenList".into(),
+            member: member.into(),
+        }),
+        None => Ok(()),
+    }
+}
+
+fn store_class_tokens(
     dom: &mut DomRuntime,
     node: NodeId,
-    token: &str,
-    force: Option<bool>,
+    tokens: &[String],
 ) -> Result<(), DomError> {
-    let mut tokens = class_tokens(dom, node)?
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    let present = tokens.iter().any(|item| item == token);
-    match force {
-        Some(true) if !present => tokens.push(token.into()),
-        Some(false) if present => tokens.retain(|item| item != token),
-        _ => {}
+    if tokens.is_empty() && dom.attribute(node, "class")?.is_none() {
+        return Ok(());
     }
     dom.set_attribute(node, "class", tokens.join(" "))
 }
@@ -26767,6 +26847,98 @@ mod tests {
     }
 
     #[test]
+    fn token_list_updates_validate_atomically_and_respect_forced_noops() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+          (() => {
+            const element = document.createElement('div'), list = element.classList;
+            list.add(); list.remove(); if(element.hasAttribute('class')) throw Error('empty update creates attribute');
+            element.className = ' a  a b ';
+            const observer = new MutationObserver(() => {}); observer.observe(element, {attributes:true, attributeOldValue:true});
+            list.add('b', 'c', 'c');
+            let records = observer.takeRecords();
+            if(element.className !== 'a b c' || records.length !== 1 || records[0].oldValue !== ' a  a b ') throw Error('ordered token update');
+            for(const [token, name] of [['','SyntaxError'],['x y','InvalidCharacterError']]) {
+              let caught = false; try {list.add('new',token);} catch(e) {caught = e.name === name;}
+              if(!caught || element.className !== 'a b c' || observer.takeRecords().length) throw Error('atomic validation');
+            }
+            const sentinel = {};
+            try {list.add('', {toString(){throw sentinel;}}); throw Error('missing conversion exception');} catch(e) {if(e !== sentinel) throw Error('conversion order');}
+            list.remove('a','c'); if(element.className !== 'b' || observer.takeRecords().length !== 1) throw Error('variadic removal');
+            if(!list.toggle('b',true) || list.toggle('missing',false) || observer.takeRecords().length) throw Error('forced noop');
+            if(!list.toggle('missing',undefined) || observer.takeRecords().length !== 1) throw Error('undefined optional force');
+            list.add('\v'); if(!list.contains('\v') || list.contains('')) throw Error('ASCII whitespace definition');
+            return true;
+          })()
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
+    fn compound_replacements_report_one_record_and_preserve_shadow_roots() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+          (() => {
+            const host = document.createElement('div'), shadow = host.attachShadow({mode:'open'});
+            shadow.append(new Text('retained'));
+            host.append(new Text('a'), document.createElement('b'));
+            const old = Array.from(host.childNodes);
+            const observer = new MutationObserver(() => {}); observer.observe(host, {childList:true, subtree:true});
+            host.textContent = 'new';
+            let records = observer.takeRecords();
+            if(records.length !== 1 || records[0].removedNodes.length !== 2 || records[0].addedNodes.length !== 1 || records[0].removedNodes[0] !== old[0] || records[0].removedNodes[1] !== old[1] || records[0].addedNodes[0] !== host.firstChild) throw Error('compound text replacement');
+            if(host.shadowRoot !== shadow || shadow.firstChild.data !== 'retained') throw Error('text replacement removed shadow');
+            const previous = host.firstChild;
+            host.innerHTML = '<i></i><b></b>';
+            records = observer.takeRecords();
+            if(records.length !== 1 || records[0].removedNodes[0] !== previous || records[0].addedNodes.length !== 2 || records[0].addedNodes[0] !== host.firstChild || records[0].previousSibling !== null || records[0].nextSibling !== null) throw Error('compound innerHTML replacement');
+            if(host.shadowRoot !== shadow || shadow.firstChild.data !== 'retained') throw Error('HTML replacement removed shadow');
+            globalThis.shadowScriptRuns = 0;
+            const shadowScript = document.createElement('script');
+            shadowScript.textContent = 'globalThis.shadowScriptRuns += 1';
+            shadow.appendChild(shadowScript);
+            host.innerHTML = '<script>globalThis.shadowScriptRuns += 100</script>';
+            document.body.appendChild(shadowScript);
+            if(shadowScriptRuns !== 1) throw Error('preserved shadow script marked inert');
+            host.textContent = ''; observer.takeRecords(); host.textContent = '';
+            if(observer.takeRecords().length !== 0) throw Error('empty replacement mutation');
+            host.append(new Text('light')); records = observer.takeRecords();
+            if(records.length !== 1 || records[0].previousSibling !== null) throw Error('shadow exposed as sibling');
+            return true;
+          })()
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
     fn normalization_preserves_native_ranges_shadow_boundaries_and_observers() {
         initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -27690,6 +27862,7 @@ mod tests {
                     node: child,
                     parent: Some(main),
                     siblings: oryn_dom::MutationSiblings::default(),
+                    observer_suppressed: false,
                 },
                 expose_old_value: false,
             }],

@@ -460,12 +460,23 @@ pub enum Mutation {
         parent: Option<NodeId>,
         #[serde(default)]
         siblings: MutationSiblings,
+        #[serde(default)]
+        observer_suppressed: bool,
     },
     Removed {
         node: NodeId,
         former_parent: Option<NodeId>,
         #[serde(default)]
         siblings: MutationSiblings,
+        #[serde(default)]
+        observer_suppressed: bool,
+    },
+    /// Observer-only compound record; structural consumers still receive the
+    /// individual Inserted/Removed entries, marked observer_suppressed.
+    ChildrenReplaced {
+        node: NodeId,
+        added_nodes: Vec<NodeId>,
+        removed_nodes: Vec<NodeId>,
     },
     Attribute {
         node: NodeId,
@@ -549,6 +560,27 @@ impl MutationJournal {
                 // lease must still be released at a safe delivery checkpoint.
                 // Entries already drained transfer that lease to their batch.
                 self.discarded_removed_roots.push(node);
+            }
+        }
+    }
+
+    fn suppress_tree_observers_since(&mut self, cursor: MutationCursor, target: NodeId) {
+        let start = self
+            .entries
+            .partition_point(|(sequence, _)| *sequence <= cursor.0);
+        for (_, mutation) in self.entries.range_mut(start..) {
+            match mutation {
+                Mutation::Inserted {
+                    parent: Some(parent),
+                    observer_suppressed,
+                    ..
+                }
+                | Mutation::Removed {
+                    former_parent: Some(parent),
+                    observer_suppressed,
+                    ..
+                } if *parent == target => *observer_suppressed = true,
+                _ => {}
             }
         }
     }
@@ -678,6 +710,7 @@ impl DomRuntime {
             node,
             parent: None,
             siblings: MutationSiblings::default(),
+            observer_suppressed: false,
         });
         node
     }
@@ -826,9 +859,6 @@ impl DomRuntime {
             _ => return Err(DomError::NotAnElement(node)),
         };
         let parsed = html::parse_fragment(markup, &context_name);
-        for child in self.arena.get(node)?.children.clone() {
-            self.remove_child(node, child)?;
-        }
         let document_children = parsed.dom.get(parsed.document)?.children.clone();
         let fragment_children = document_children
             .first()
@@ -838,11 +868,11 @@ impl DomRuntime {
             })
             .map(|root| root.children.clone())
             .unwrap_or(document_children);
+        let mut children = Vec::new();
         for child in fragment_children {
-            let imported = self.import_subtree(&parsed.dom, child)?;
-            self.append_child(node, imported)?;
+            children.push(self.import_subtree(&parsed.dom, child)?);
         }
-        Ok(())
+        self.replace_with_new_children(node, children)
     }
 
     pub fn set_outer_html(&mut self, node: NodeId, markup: &str) -> Result<(), DomError> {
@@ -952,12 +982,15 @@ impl DomRuntime {
     ) -> Result<MutationSiblings, DomError> {
         let children = &self.arena.get(parent)?.children;
         let index = index as usize;
+        let light = |node: &&NodeId| {
+            !matches!(
+                self.arena.get(**node).map(|record| &record.kind),
+                Ok(NodeKind::ShadowRoot { .. })
+            )
+        };
         Ok(MutationSiblings {
-            previous: index
-                .checked_sub(1)
-                .and_then(|index| children.get(index))
-                .copied(),
-            next: children.get(index + 1).copied(),
+            previous: children[..index].iter().rev().find(light).copied(),
+            next: children[index + 1..].iter().find(light).copied(),
         })
     }
 
@@ -986,12 +1019,14 @@ impl DomRuntime {
                 node: child,
                 former_parent,
                 siblings: removed_siblings,
+                observer_suppressed: false,
             });
         }
         self.mutations.push(Mutation::Inserted {
             node: child,
             parent: Some(parent),
             siblings: inserted_siblings,
+            observer_suppressed: false,
         });
         Ok(())
     }
@@ -1042,12 +1077,14 @@ impl DomRuntime {
                 node: child,
                 former_parent,
                 siblings: removed_siblings,
+                observer_suppressed: false,
             });
         }
         self.mutations.push(Mutation::Inserted {
             node: child,
             parent: Some(parent),
             siblings: inserted_siblings,
+            observer_suppressed: false,
         });
         Ok(())
     }
@@ -1466,29 +1503,63 @@ impl DomRuntime {
         Ok(())
     }
 
+    fn replace_with_new_children(
+        &mut self,
+        node: NodeId,
+        added_nodes: Vec<NodeId>,
+    ) -> Result<(), DomError> {
+        let removed_nodes = self
+            .arena
+            .get(node)?
+            .children
+            .iter()
+            .copied()
+            .filter(|child| {
+                !matches!(
+                    self.arena.get(*child).map(|record| &record.kind),
+                    Ok(NodeKind::ShadowRoot { .. })
+                )
+            })
+            .collect::<Vec<_>>();
+        let cursor = self.mutation_cursor();
+        for child in &removed_nodes {
+            self.remove_child(node, *child)?;
+        }
+        for child in &added_nodes {
+            self.append_child(node, *child)?;
+        }
+        self.mutations.suppress_tree_observers_since(cursor, node);
+        if !added_nodes.is_empty() || !removed_nodes.is_empty() {
+            self.mutations.push(Mutation::ChildrenReplaced {
+                node,
+                added_nodes,
+                removed_nodes,
+            });
+        }
+        Ok(())
+    }
+
     pub fn set_text_content(
         &mut self,
         node: NodeId,
         value: impl Into<String>,
     ) -> Result<(), DomError> {
         let value = value.into();
-        if matches!(
-            self.arena.get(node)?.kind,
+        match self.arena.get(node)?.kind {
             NodeKind::Text { .. }
-                | NodeKind::CDataSection { .. }
-                | NodeKind::ProcessingInstruction { .. }
-        ) {
-            return self.set_text(node, value);
+            | NodeKind::CDataSection { .. }
+            | NodeKind::ProcessingInstruction { .. }
+            | NodeKind::Comment { .. } => return self.set_text(node, value),
+            NodeKind::Attribute { .. } => return self.set_attribute_node_value(node, value),
+            NodeKind::Document | NodeKind::DocumentType { .. } => return Ok(()),
+            _ => {}
         }
-        let children = self.arena.get(node)?.children.clone();
-        for child in children {
-            self.remove_child(node, child)?;
-        }
-        if !value.is_empty() {
-            let text = self.create_text(value);
-            self.append_child(node, text)?;
-        }
-        Ok(())
+        let children = if value.is_empty() {
+            Vec::new()
+        } else {
+            vec![self.create_text(value)]
+        };
+        self.replace_with_new_children(node, children)
     }
 
     pub fn clone_node(&mut self, node: NodeId, deep: bool) -> Result<NodeId, DomError> {
@@ -1561,6 +1632,7 @@ impl DomRuntime {
             node,
             former_parent: parent,
             siblings,
+            observer_suppressed: false,
         });
         self.reclaim_if_unrooted(node)
     }
@@ -1716,6 +1788,7 @@ impl DomRuntime {
             node,
             former_parent: parent,
             siblings,
+            observer_suppressed: false,
         });
         Ok(())
     }
@@ -1759,6 +1832,9 @@ impl DomRuntime {
     pub fn focus(&mut self, current: Option<NodeId>) -> Result<(), DomError> {
         if let Some(node) = current {
             self.arena.get(node)?;
+            if !self.connected.contains(&node) {
+                return Ok(());
+            }
         }
         let previous = std::mem::replace(&mut self.focused, current);
         self.mutations.push(Mutation::Focus { previous, current });
@@ -2128,6 +2204,9 @@ impl DomRuntime {
 
     fn mark_disconnected(&mut self, node: NodeId) -> Result<(), DomError> {
         self.connected.remove(&node);
+        if self.focused == Some(node) {
+            self.focus(None)?;
+        }
         if let Some(id) = self.arena.get(node)?.attributes.get("id")
             && self.ids.get(id) == Some(&node)
         {
@@ -2503,6 +2582,65 @@ mod tests {
     }
 
     #[test]
+    fn text_replacement_groups_observers_without_hiding_structural_changes() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_element("div");
+        let a = dom.create_text("a");
+        let b = dom.create_element("b");
+        dom.append_child(root, a).unwrap();
+        dom.append_child(root, b).unwrap();
+        let cursor = dom.mutation_cursor();
+        dom.set_text_content(root, "new").unwrap();
+        let added = dom.children(root).unwrap()[0];
+        let changes = dom.mutations_since(cursor).mutations;
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|m| matches!(
+                    m,
+                    Mutation::Removed {
+                        observer_suppressed: true,
+                        ..
+                    }
+                ))
+                .count(),
+            2
+        );
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|m| matches!(
+                    m,
+                    Mutation::Inserted {
+                        observer_suppressed: true,
+                        ..
+                    }
+                ))
+                .count(),
+            1
+        );
+        assert!(
+            matches!(changes.last(), Some(Mutation::ChildrenReplaced { node, added_nodes, removed_nodes }) if *node == root && added_nodes == &[added] && removed_nodes == &[a,b])
+        );
+        dom.set_text_content(root, "").unwrap();
+        let cursor = dom.mutation_cursor();
+        dom.set_text_content(root, "").unwrap();
+        assert!(dom.mutations_since(cursor).mutations.is_empty());
+        let document = dom.document();
+        let cursor = dom.mutation_cursor();
+        dom.set_text_content(document, "ignored").unwrap();
+        assert!(dom.mutations_since(cursor).mutations.is_empty());
+        let comment = dom.create(NodeKind::Comment {
+            data: "before".into(),
+        });
+        dom.set_text_content(comment, "after").unwrap();
+        assert!(
+            matches!(&dom.arena().get(comment).unwrap().kind, NodeKind::Comment { data } if data == "after")
+        );
+        assert!(dom.children(comment).unwrap().is_empty());
+    }
+
+    #[test]
     fn normalization_moves_live_range_boundaries_and_preserves_record_order() {
         let mut dom = DomRuntime::new();
         let root = dom.create_fragment();
@@ -2578,6 +2716,27 @@ mod tests {
         assert!(
             matches!(changes.as_slice(), [Mutation::Removed { node: a, .. }, Mutation::CharacterData { node: b, .. }, Mutation::Removed { node: c, .. }, Mutation::Removed { node: d, .. }] if *a == empty && *b == first && *c == middle && *d == last)
         );
+    }
+
+    #[test]
+    fn focus_is_cleared_on_removal_and_ordinary_moves_and_ignores_detached_nodes() {
+        let mut dom = html::parse("<body><div><input></div><section></section></body>")
+            .into_runtime()
+            .unwrap();
+        let root = dom.document();
+        let input = dom.query_selector(root, "input").unwrap().unwrap();
+        let parent = dom.query_selector(root, "div").unwrap().unwrap();
+        let other = dom.query_selector(root, "section").unwrap().unwrap();
+        dom.focus(Some(input)).unwrap();
+        dom.remove(parent).unwrap();
+        assert_eq!(dom.focused(), None);
+        dom.focus(Some(input)).unwrap();
+        assert_eq!(dom.focused(), None);
+        dom.append_child(other, parent).unwrap();
+        dom.focus(Some(input)).unwrap();
+        assert_eq!(dom.focused(), Some(input));
+        dom.append_child(other, input).unwrap();
+        assert_eq!(dom.focused(), None);
     }
 
     #[test]
@@ -2739,6 +2898,7 @@ mod tests {
                 },
                 parent: None,
                 siblings: MutationSiblings::default(),
+                observer_suppressed: false,
             });
         }
         for cursor in [

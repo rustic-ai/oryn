@@ -121,6 +121,7 @@ pub struct Argument {
     pub type_name: String,
     pub type_descriptor: TypeDescriptor,
     pub optional: bool,
+    pub variadic: bool,
     pub default: Option<String>,
     pub extended_attributes: Vec<ExtendedAttribute>,
 }
@@ -289,7 +290,9 @@ pub fn emit_rust_metadata(interface: &Interface) -> String {
 fn required_arity(arguments: &[Argument]) -> usize {
     arguments
         .iter()
-        .take_while(|argument| !argument.optional && argument.default.is_none())
+        .take_while(|argument| {
+            !argument.optional && !argument.variadic && argument.default.is_none()
+        })
         .count()
 }
 
@@ -365,7 +368,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
          #[allow(dead_code)]\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub struct GeneratedDictionary { pub name: &'static str, pub parent: Option<&'static str>, pub members: &'static [GeneratedDictionaryMember] }\n\
          #[allow(dead_code)]\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
-         pub struct GeneratedArgument { pub name: &'static str, pub type_name: &'static str, pub optional: bool, pub default: Option<&'static str> }\n\
+         pub struct GeneratedArgument { pub name: &'static str, pub type_name: &'static str, pub optional: bool, pub variadic: bool, pub default: Option<&'static str> }\n\
          #[allow(dead_code)]\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub struct GeneratedCallback { pub name: &'static str, pub return_type: &'static str, pub arguments: &'static [GeneratedArgument] }\n\
          #[allow(dead_code)]\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
@@ -552,8 +555,8 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
         ));
         for argument in &callback.arguments {
             output.push_str(&format!(
-                "GeneratedArgument {{ name: {:?}, type_name: {:?}, optional: {}, default: {:?} }},",
-                argument.name, argument.type_name, argument.optional, argument.default
+                "GeneratedArgument {{ name: {:?}, type_name: {:?}, optional: {}, variadic: {}, default: {:?} }},",
+                argument.name, argument.type_name, argument.optional, argument.variadic, argument.default
             ));
         }
         output.push_str("];\n");
@@ -707,9 +710,12 @@ fn parse_arguments(arguments: &str) -> Result<Vec<Argument>, ParseError> {
     if arguments.trim().is_empty() {
         return Ok(Vec::new());
     }
-    split_top_level(arguments, ',')
+    let parts = split_top_level(arguments, ',');
+    let count = parts.len();
+    parts
         .into_iter()
-        .map(|argument| {
+        .enumerate()
+        .map(|(index, argument)| {
             let argument = argument.trim();
             let (extended_attributes, argument) = take_extended_attributes(argument)?;
             let (optional, argument) = argument
@@ -722,11 +728,18 @@ fn parse_arguments(arguments: &str) -> Result<Vec<Argument>, ParseError> {
                 });
             if let Some((type_name, name)) = split_type_and_name(argument) {
                 validate_identifier(name)?;
+                let (type_name, variadic) = type_name
+                    .strip_suffix("...")
+                    .map_or((type_name, false), |value| (value.trim(), true));
+                if variadic && (optional || default.is_some() || index + 1 != count) {
+                    return Err(ParseError::UnsupportedMember(argument.to_string()));
+                }
                 Ok(Argument {
                     name: name.to_string(),
                     type_name: type_name.to_string(),
                     type_descriptor: parse_type(type_name)?,
                     optional,
+                    variadic,
                     default,
                     extended_attributes,
                 })
@@ -1241,5 +1254,28 @@ mod tests {
                 .iter()
                 .any(|definition| matches!(definition, Definition::Enumeration(_)))
         );
+    }
+}
+
+#[cfg(test)]
+mod variadic_tests {
+    use super::*;
+    #[test]
+    fn variadic_arguments_have_zero_required_arity_and_preserve_element_type() {
+        let args = parse_arguments("DOMString... tokens").unwrap();
+        assert!(args[0].variadic);
+        assert_eq!(args[0].type_name, "DOMString");
+        assert_eq!(required_arity(&args), 0);
+        assert_eq!(
+            required_arity(&parse_arguments("long first, DOMString... rest").unwrap()),
+            1
+        );
+        for invalid in [
+            "optional DOMString... tokens",
+            "DOMString... tokens = null",
+            "DOMString... tokens, long after",
+        ] {
+            assert!(parse_arguments(invalid).is_err());
+        }
     }
 }

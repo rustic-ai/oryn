@@ -63,6 +63,11 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             oryn_common::v4::ReducedMotion::NoPreference,
             &[],
         );
+        input.focused_node = self
+            .dom
+            .borrow()
+            .focused()
+            .map(|node| (u64::from(node.generation) << 32) | u64::from(node.slot));
         input.custom_states = custom_states
             .iter()
             .map(|(node, values)| {
@@ -2811,6 +2816,13 @@ impl RustExecutableDocument {
         Ok(None)
     }
 
+    pub(crate) fn focused_layout_node(&self) -> Option<u64> {
+        self.live_dom
+            .borrow()
+            .focused()
+            .map(|node| (u64::from(node.generation) << 32) | u64::from(node.slot))
+    }
+
     pub fn layout_snapshot(&mut self) -> Result<ParsedDocument, HostError> {
         self.checkpoint()?;
         Ok(self.document.clone())
@@ -4458,6 +4470,25 @@ mod tests {
         )
         .unwrap();
         assert_eq!(page.evaluate("parserViewport").unwrap(), "1280|720");
+    }
+
+    #[test]
+    fn native_focus_updates_stylo_and_selector_state_synchronously() {
+        let mut page = RustExecutableDocument::load(
+            "<style>* {color:black} :focus-within {color:red} :focus {color:blue}</style><body><div id='parent'><input id='target'></div><section></section></body>",
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"(() => {
+            const parent = document.getElementById('parent'), target = document.getElementById('target');
+            target.focus();
+            if(getComputedStyle(parent).color !== 'rgb(255, 0, 0)' || getComputedStyle(target).color !== 'rgb(0, 0, 255)' || !parent.matches(':focus-within')) return 'focus';
+            parent.remove(); target.focus();
+            if(target.matches(':focus') || parent.querySelectorAll(':focus-within').length) return 'detached';
+            document.body.appendChild(parent); target.focus();
+            if(getComputedStyle(parent).color !== 'rgb(255, 0, 0)') return 'refocus';
+            document.querySelector('section').appendChild(target);
+            if(target.matches(':focus') || getComputedStyle(parent).color !== 'rgb(0, 0, 0)') return 'move';
+            return 'ok';
+        })()"#).unwrap(), "ok");
     }
 
     #[test]

@@ -1162,6 +1162,10 @@ def run_case(
                     "failure_domain": "incomplete",
                     "result": recovered,
                     "result_transport": "isolated_dom_probe",
+                    "diagnostics": [bounded_diagnostic(
+                        completed.stderr + "\n" + completed.stdout + "\n" + trace
+                        + "\nDOM_PROBE:\n" + probe.stdout + "\n" + probe.stderr
+                    )],
                 }
             detail = bounded_diagnostic(
                 completed.stderr

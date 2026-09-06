@@ -59,6 +59,7 @@ pub struct GeneratedArgument {
     pub name: &'static str,
     pub type_name: &'static str,
     pub optional: bool,
+    pub variadic: bool,
     pub default: Option<&'static str>,
 }
 #[allow(dead_code)]
@@ -2917,7 +2918,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         id: GeneratedMemberId(1572865),
         name: "add",
         kind: GeneratedMemberKind::Operation,
-        arity: 1,
+        arity: 0,
         readonly: false,
         indexed_getter: false,
         named_getter: false,
@@ -2936,7 +2937,7 @@ pub const D_O_M_TOKEN_LIST_MEMBERS: &[GeneratedMember] = &[
         id: GeneratedMemberId(1572866),
         name: "remove",
         kind: GeneratedMemberKind::Operation,
-        arity: 1,
+        arity: 0,
         readonly: false,
         indexed_getter: false,
         named_getter: false,
@@ -18564,12 +18565,14 @@ pub const MUTATION_CALLBACK_CALLBACK_ARGUMENTS: &[GeneratedArgument] = &[
         name: "mutations",
         type_name: "sequence<MutationRecord>",
         optional: false,
+        variadic: false,
         default: None,
     },
     GeneratedArgument {
         name: "observer",
         type_name: "MutationObserver",
         optional: false,
+        variadic: false,
         default: None,
     },
 ];
@@ -18579,6 +18582,7 @@ pub const TRUSTED_TYPE_POLICY_CALLBACK_CALLBACK_ARGUMENTS: &[GeneratedArgument] 
         name: "input",
         type_name: "DOMString",
         optional: false,
+        variadic: false,
         default: None,
     },
 ];
@@ -18588,6 +18592,7 @@ pub const EVENT_LISTENER_CALLBACK_ARGUMENTS: &[GeneratedArgument] = &[
         name: "event",
         type_name: "Event",
         optional: false,
+        variadic: false,
         default: None,
     },
 ];
