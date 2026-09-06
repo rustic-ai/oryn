@@ -1,249 +1,236 @@
 {
-  "baseline_ledger": "conformance-worker-full-dom-primitives-73ee49b.json",
+  "assertion_audit": {
+    "counts": {
+      "additional_passing_assertions": 62,
+      "gained_assertions": 485,
+      "missing_previously_passing_assertions": 17,
+      "regressed_assertions": 0
+    },
+    "ledger": "conformance-worker-full-observer-microtasks-eb54e11-assertion-audit.json",
+    "note": "12 earlier passing assertions are absent from the partial results of two Range files. Both current primary diagnostics report WorkerLimitExceeded wall time; this remains unresolved.",
+    "sha256": "dff369bc09977d187e54c208ada7fd8921b15b452b94dd025693da69f17f82e5",
+    "unresolved_missing_previously_passing_assertions": 12,
+    "verified_fixture_port_renames": 5
+  },
+  "baseline_ledger": "conformance-worker-full-normalize-window-c12167f.json",
   "binary": {
-    "sha256": "c0f1433d7d29fbd8ef5a59975b132d5abfaed26616628fe63bd921ac901af4f9",
+    "sha256": "c2c546a7395113100d0c90e4c6644c7df32fe9d3d737a48a99a9355e9c254137",
     "size_bytes": 6991440
   },
   "diagnostic_only": true,
-  "exact_filtered_inventory_and_pass_completion_verified": true,
+  "exact_inventory_and_pass_completion_verified": true,
   "failure_domain_changes": [
     {
-      "current": "assertion",
-      "id": "dom/events/Event-dispatch-throwing-multiple-globals.html|window|",
-      "previous": "harness"
+      "current": null,
+      "id": "css/css-cascade/scope-focus.html|window|",
+      "previous": "assertion"
     },
     {
-      "current": "assertion",
-      "id": "dom/nodes/Element-classlist.html|window|",
-      "previous": "harness"
+      "current": null,
+      "id": "css/selectors/focus-visible-005.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-015.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": "runtime",
+      "id": "css/selectors/focus-visible-018-2.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-008-b.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-008.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-009.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-010.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-011.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-018.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-019.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-020.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-within-009.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/invalidation/is-where-pseudo-containing-hard-pseudo-and-never-matching.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": "runtime",
+      "id": "dom/events/Event-dispatch-on-disabled-elements.html|window|",
+      "previous": "incomplete"
     },
     {
       "current": "harness",
+      "id": "dom/events/scrolling/scrollend-event-not-fired-after-removing-scroller.tentative.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "dom/nodes/MutationObserver-attributes.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "dom/nodes/MutationObserver-document.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "dom/nodes/MutationObserver-textContent.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": "incomplete",
+      "id": "dom/nodes/Node-textContent.html|window|",
+      "previous": "runtime"
+    },
+    {
+      "current": null,
+      "id": "dom/nodes/moveBefore/mutation-observer.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": "runtime",
+      "id": "dom/ranges/Range-mutations-appendData.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": "runtime",
+      "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": "runtime",
+      "id": "dom/ranges/Range-mutations-deleteData.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": "runtime",
+      "id": "dom/ranges/Range-mutations-insertData.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": "runtime",
+      "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": null,
+      "id": "html/browsers/history/the-history-interface/008.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": null,
+      "id": "html/browsers/history/the-history-interface/011.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": null,
+      "id": "html/browsers/history/the-history-interface/012.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": "runtime",
       "id": "html/browsers/history/the-history-interface/combination_history_005.html|window|",
-      "previous": "runtime"
+      "previous": "harness"
     },
     {
-      "current": "harness",
-      "id": "html/browsers/history/the-history-interface/combination_history_006.html|window|",
-      "previous": "runtime"
-    },
-    {
-      "current": "harness",
+      "current": "runtime",
       "id": "html/browsers/history/the-history-interface/combination_history_007.html|window|",
+      "previous": "harness"
+    },
+    {
+      "current": "harness",
+      "id": "html/browsers/history/the-history-interface/history_forward.html|window|",
       "previous": "runtime"
     },
     {
-      "current": "runtime",
-      "id": "html/browsers/history/the-history-interface/history_back.html|window|",
-      "previous": "harness"
-    },
-    {
-      "current": "runtime",
+      "current": "harness",
       "id": "html/browsers/history/the-history-interface/history_go_minus.html|window|",
-      "previous": "harness"
+      "previous": "runtime"
     },
     {
-      "current": "runtime",
+      "current": "harness",
       "id": "html/browsers/history/the-history-interface/history_go_zero_which_document.window.js|window|",
-      "previous": "harness"
-    },
-    {
-      "current": "runtime",
-      "id": "referrer-policy/generic/iframe-upgrade-request-to-cross-origin.sub.html|window|",
-      "previous": "timeout"
+      "previous": "runtime"
     }
   ],
   "failure_domains": {
-    "assertion": 1292,
-    "harness": 127,
-    "incomplete": 12,
-    "runtime": 51,
+    "assertion": 1274,
+    "harness": 129,
+    "incomplete": 3,
+    "runtime": 56,
     "timeout": 1
   },
   "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
-  "isolated_history_rechecks": {
-    "interpretation": "All three passed isolated rechecks on the same worker; full-run failures remain and completion intermittency is unresolved.",
-    "runs": [
-      {
-        "id": "html/browsers/history/the-history-interface/008.html|window|",
-        "ledger": "conformance-worker-normalize-history-008-recheck.json",
-        "outcome": {
-          "required_finished": 1,
-          "required_passed": 1,
-          "required_total": 1,
-          "status": "passed"
-        },
-        "result": {
-          "complete": true,
-          "harness": 0,
-          "harnessMessage": "",
-          "harnessStack": "",
-          "testdriver": [],
-          "tests": [
-            {
-              "message": "",
-              "name": "history.pushState URL resolving should be done relative to the document, not the script",
-              "status": 0
-            },
-            {
-              "message": "",
-              "name": "history.replaceState URL resolving should be done relative to the document, not the script",
-              "status": 0
-            }
-          ]
-        },
-        "sha256": "dd99d7ec152c68a4bb903573c375118da8e420dfd39fd802644329832ecdbcb7",
-        "source": {
-          "commit": "c12167fd8217cba885e4f66bf2facfe929a27a01",
-          "dirty": false,
-          "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "untracked_file_count": 0,
-          "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        },
-        "worker_sha256": "15d09a52d087bf38138bca64241874ef6f9a4fb930ced54f1fc0b368913c5f34"
-      },
-      {
-        "id": "html/browsers/history/the-history-interface/011.html|window|",
-        "ledger": "conformance-worker-normalize-history-011-recheck.json",
-        "outcome": {
-          "required_finished": 1,
-          "required_passed": 1,
-          "required_total": 1,
-          "status": "passed"
-        },
-        "result": {
-          "complete": true,
-          "harness": 0,
-          "harnessMessage": "",
-          "harnessStack": "",
-          "testdriver": [],
-          "tests": [
-            {
-              "message": "",
-              "name": "pushState should be able to set the location state",
-              "status": 0
-            },
-            {
-              "message": "",
-              "name": "pushed location should be reflected immediately",
-              "status": 0
-            },
-            {
-              "message": "",
-              "name": "pushed location should be retained after the page has loaded",
-              "status": 0
-            }
-          ]
-        },
-        "sha256": "b69819ea6d048fa98c8631b9970d21d13769f8d1644647b075bd3830d231a4a0",
-        "source": {
-          "commit": "c12167fd8217cba885e4f66bf2facfe929a27a01",
-          "dirty": false,
-          "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "untracked_file_count": 0,
-          "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        },
-        "worker_sha256": "15d09a52d087bf38138bca64241874ef6f9a4fb930ced54f1fc0b368913c5f34"
-      },
-      {
-        "id": "html/browsers/history/the-history-interface/012.html|window|",
-        "ledger": "conformance-worker-normalize-history-012-recheck.json",
-        "outcome": {
-          "required_finished": 1,
-          "required_passed": 1,
-          "required_total": 1,
-          "status": "passed"
-        },
-        "result": {
-          "complete": true,
-          "harness": 0,
-          "harnessMessage": "",
-          "harnessStack": "",
-          "testdriver": [],
-          "tests": [
-            {
-              "message": "",
-              "name": "replaceState should be able to set the location state",
-              "status": 0
-            },
-            {
-              "message": "",
-              "name": "replaced location should be reflected immediately",
-              "status": 0
-            },
-            {
-              "message": "",
-              "name": "replaced location should be retained after the page has loaded",
-              "status": 0
-            }
-          ]
-        },
-        "sha256": "ed06bc65bf34fe0b87d59251a2973d3b0d03818e0e4fd572331f3a862e5c1202",
-        "source": {
-          "commit": "c12167fd8217cba885e4f66bf2facfe929a27a01",
-          "dirty": false,
-          "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "untracked_file_count": 0,
-          "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        },
-        "worker_sha256": "15d09a52d087bf38138bca64241874ef6f9a4fb930ced54f1fc0b368913c5f34"
-      }
-    ]
-  },
-  "ledger": "conformance-worker-full-normalize-window-c12167f.json",
-  "ledger_sha256": "1b57c6fc1d83aef9dd27eadbbe3eb0906f4778b709809f78fd3649197f9266c0",
+  "ledger": "conformance-worker-full-observer-microtasks-eb54e11.json",
+  "ledger_sha256": "981b95e030e622b758e305a4ff0645eafceea434c165a9ad77162055864f6f40",
   "newly_passing": [
-    "css/cssom/cssstyledeclaration-mutationrecord-001.html|window|",
-    "dom/events/Event-cancelBubble.html|window|",
-    "dom/events/Event-dispatch-multiple-cancelBubble.html|window|",
-    "dom/events/Event-dispatch-multiple-stopPropagation.html|window|",
-    "dom/events/Event-dispatch-target-moved.html|window|",
-    "dom/events/Event-dispatch-target-removed.html|window|",
-    "dom/events/Event-initEvent.html|window|",
-    "dom/events/Event-propagation.html|window|",
-    "dom/nodes/MutationObserver-callback-arguments.html|window|",
-    "dom/nodes/MutationObserver-characterData.html|window|",
-    "dom/nodes/MutationObserver-disconnect.html|window|",
-    "dom/nodes/MutationObserver-sanity.html|window|",
-    "dom/nodes/MutationObserver-takeRecords.html|window|",
-    "dom/nodes/Node-normalize.html|window|",
-    "dom/nodes/insertion-removing-steps/Node-appendChild-script-with-mutation-observer-takeRecords.html|window|",
-    "dom/nodes/moveBefore/moveBefore-id-map.html|window|"
-  ],
-  "outcome": {
-    "required_finished": 4022,
-    "required_passed": 2539,
-    "required_total": 4022,
-    "status": "failed"
-  },
-  "regression_assertion_counts": [
-    {
-      "current": 12,
-      "id": "css/selectors/focus-within-009.html|window|",
-      "previous": 1
-    },
-    {
-      "current": 2,
-      "id": "html/browsers/history/the-history-interface/008.html|window|",
-      "previous": 2
-    },
-    {
-      "current": 3,
-      "id": "html/browsers/history/the-history-interface/011.html|window|",
-      "previous": 3
-    },
-    {
-      "current": 3,
-      "id": "html/browsers/history/the-history-interface/012.html|window|",
-      "previous": 3
-    }
-  ],
-  "regressions": [
+    "css/css-cascade/scope-focus.html|window|",
+    "css/selectors/focus-visible-005.html|window|",
+    "css/selectors/focus-visible-015.html|window|",
+    "css/selectors/focus-visible-script-focus-008-b.html|window|",
+    "css/selectors/focus-visible-script-focus-008.html|window|",
+    "css/selectors/focus-visible-script-focus-009.html|window|",
+    "css/selectors/focus-visible-script-focus-010.html|window|",
+    "css/selectors/focus-visible-script-focus-011.html|window|",
+    "css/selectors/focus-visible-script-focus-018.html|window|",
+    "css/selectors/focus-visible-script-focus-019.html|window|",
+    "css/selectors/focus-visible-script-focus-020.html|window|",
     "css/selectors/focus-within-009.html|window|",
+    "css/selectors/invalidation/is-where-pseudo-containing-hard-pseudo-and-never-matching.html|window|",
+    "dom/nodes/MutationObserver-attributes.html|window|",
+    "dom/nodes/MutationObserver-document.html|window|",
+    "dom/nodes/MutationObserver-textContent.html|window|",
+    "dom/nodes/moveBefore/mutation-observer.html|window|",
     "html/browsers/history/the-history-interface/008.html|window|",
     "html/browsers/history/the-history-interface/011.html|window|",
     "html/browsers/history/the-history-interface/012.html|window|"
   ],
+  "outcome": {
+    "required_finished": 4022,
+    "required_passed": 2559,
+    "required_total": 4022,
+    "status": "failed"
+  },
+  "previous_baseline_archive": "CONFORMANCE-NORMALIZATION-BASELINE-2026-09-06.json",
+  "regressions": [],
   "release_qualified": false,
   "roots": {
     "IndexedDB": {
@@ -262,13 +249,13 @@
       "required": 19
     },
     "css": {
-      "failed": 337,
-      "passed": 227,
+      "failed": 324,
+      "passed": 240,
       "required": 564
     },
     "dom": {
-      "failed": 291,
-      "passed": 371,
+      "failed": 287,
+      "passed": 375,
       "required": 662
     },
     "editing": {
@@ -277,8 +264,8 @@
       "required": 704
     },
     "html": {
-      "failed": 109,
-      "passed": 27,
+      "failed": 106,
+      "passed": 30,
       "required": 136
     },
     "referrer-policy": {
@@ -292,7 +279,7 @@
       "required": 32
     }
   },
-  "run_fingerprint": "79823a7f453bea2132e214174588779e122f0b60519fc0ba02308838acba962b",
+  "run_fingerprint": "96686202db9476ce0eeb0db30c5f585cd8364e0af83cd8c9341752851a4b81c4",
   "runtime_metadata": {
     "binding_abi_version": 3,
     "box_engine_version": "taffy-0.14",
@@ -359,15 +346,16 @@
     "transport_mode": "async_streaming_parent_broker",
     "v8_heap_sandbox": true,
     "v8_version": "15.0.245.2-rusty",
-    "webidl_manifest_sha256": "19d12767669d79d8f1ba71d87db343d5306cfd3ce9fe827c3eeb1ede849a2ff7",
-    "worker_binary_sha256": "15d09a52d087bf38138bca64241874ef6f9a4fb930ced54f1fc0b368913c5f34",
+    "webidl_manifest_sha256": "bd301e64153039409e8b66614bf8c14db544bd2ef2e2ef09e7023cea6af3a071",
+    "worker_binary_sha256": "58bc9a61b046222447b6e82bbb1e5a74bed0a58f9d137f594c6c747a8d8f8406",
     "worker_bundle_id": "ai.rustic.oryn.page-worker",
     "worker_protocol_version": 8,
     "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
     "worker_team_id": "5HVA9VFF8K"
   },
+  "scope_note": "Full-run delta includes all changes since c12167f, including compound mutations, Stylo focus, moveBefore focus, literal custom names, and observer ordering/scheduling. Native exception reporting remains incomplete; this is diagnostic evidence, not a complete-conformance claim.",
   "source": {
-    "commit": "c12167fd8217cba885e4f66bf2facfe929a27a01",
+    "commit": "eb54e110ea9a18cd2f530cd542fe58ee22887b5d",
     "dirty": false,
     "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "untracked_file_count": 0,
@@ -375,5 +363,5 @@
   },
   "source_and_binaries_reverified_after_completion": true,
   "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
-  "worker_sha256": "15d09a52d087bf38138bca64241874ef6f9a4fb930ced54f1fc0b368913c5f34"
+  "worker_sha256": "58bc9a61b046222447b6e82bbb1e5a74bed0a58f9d137f594c6c747a8d8f8406"
 }

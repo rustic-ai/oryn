@@ -452,3 +452,27 @@ plan. The full diagnostic baseline remains 2539/4022 at c12167f. The later root
 selections are 372/662 DOM and 240/564 CSS at a14bc15; no aggregate score is inferred
 from them. Observer microtask scheduling and exception reporting, Range resource and
 editing algorithms, CSSOM, history/realm behavior and IndexedDB remain open.
+
+## Complete native observer scheduling baseline
+
+Clean `eb54e11`, worker `58bc9a61b046222447b6e82bbb1e5a74bed0a58f9d137f594c6c747a8d8f8406`:
+**2559/4022**, 20 gains and 0 lost file passes versus the complete
+`c12167f` run. Exact IDs, reported passing completions, unchanged limits/security,
+and source/CLI/worker hashes were verified. The baseline and backlog now use this
+single run. Earlier c12167f evidence is retained in
+[the normalization archive](CONFORMANCE-NORMALIZATION-BASELINE-2026-09-06.json).
+
+The selected observer run improved 6/12 to 8/12 with six assertion gains and no
+selected regressions or missing prior passes. The cross-realm callback test first
+fails before registration because indexed Window child access is absent; exception
+reporting and real initial frame realms both remain prerequisites. Native tests
+also retain 12 baseline failures and one fixture timeout. Neither these selected
+gains nor the full diagnostic score establish complete conformance.
+
+The full assertion audit found 485 corrected existing assertions, zero observed
+pass-to-fail changes, and 62 additional passing names. Seventeen earlier passing
+names were absent: five are verified fixture-port renames in the history URL test;
+the remaining twelve are absent from partial `Range-mutations-dataChange` and
+`Range-mutations-insertData` results. Both primary diagnostics report worker
+wall-time failures. This is unresolved coverage loss, not evidence of correctness.
+The baseline binds the detailed assertion audit by hash.

@@ -1,5 +1,6 @@
 {
   "baseline_native_binary_sha256": "77a70643fc73f758fc7096518b3fc134be334429de2db2720448fc2b5017daa8",
+  "cross_realm_wpt_first_blocker": "The primary script fails before test registration because frames[0] is undefined when assigning onerror. Indexed Window child access/initial frame realms and native callback exception reporting are both required.",
   "diagnostic_only": true,
   "lint_validation": {
     "crates": [
@@ -136,7 +137,131 @@
     "crates/oryn-native/src/rust_executable.rs": "b60308bbdd49032bd70c8fd1cdc7b5fa95ea739836e3fdbbf90833790735b8b1"
   },
   "schema_version": 1,
-  "signed_wpt_runs": [],
+  "signed_wpt_runs": [
+    {
+      "additional_passing_assertions": [
+        {
+          "id": "dom/nodes/MutationObserver-textContent.html|window|",
+          "name": "Setting Element.textContent to the same value when the old node is a CDATASection",
+          "occurrence": 0
+        }
+      ],
+      "baseline_ledger": "conformance-worker-compound-focus-observers.json",
+      "diagnostic_only": true,
+      "exact_filtered_inventory_and_pass_completion_verified": true,
+      "failures": [
+        {
+          "failure_domain": "assertion",
+          "first_failed_test": {
+            "message": "assert_equals: times callback called expected 1 but got 2",
+            "name": "Updating style property with the same value does not trigger an observation callback",
+            "status": 1
+          },
+          "id": "css/cssom/MutationObserver-style.html|window|"
+        },
+        {
+          "failure_domain": "assertion",
+          "first_failed_test": {
+            "message": "assert_equals: mutation records must match expected 1 but got 2",
+            "name": "childList Node.insertBefore: fragment addition mutations",
+            "status": 1
+          },
+          "id": "dom/nodes/MutationObserver-childList.html|window|"
+        },
+        {
+          "failure_domain": "harness",
+          "first_failed_test": null,
+          "id": "dom/nodes/MutationObserver-cross-realm-callback-report-exception.html|window|"
+        },
+        {
+          "failure_domain": "assertion",
+          "first_failed_test": {
+            "message": "assert_equals: mutation records must match expected 1 but got 2",
+            "name": "outerHTML mutation",
+            "status": 1
+          },
+          "id": "dom/nodes/MutationObserver-inner-outer.html|window|"
+        }
+      ],
+      "gained_assertions": [
+        {
+          "id": "css/cssom/MutationObserver-style.html|window|",
+          "name": "Updating cssText triggers an observation callback even if the value is the same",
+          "occurrence": 0
+        },
+        {
+          "id": "dom/nodes/MutationObserver-document.html|window|",
+          "name": "parser insertion mutations",
+          "occurrence": 0
+        },
+        {
+          "id": "dom/nodes/MutationObserver-document.html|window|",
+          "name": "parser script insertion mutation",
+          "occurrence": 0
+        },
+        {
+          "id": "dom/nodes/MutationObserver-document.html|window|",
+          "name": "removal of parent during parsing",
+          "occurrence": 0
+        },
+        {
+          "id": "dom/nodes/MutationObserver-textContent.html|window|",
+          "name": "Setting Element.textContent",
+          "occurrence": 0
+        },
+        {
+          "id": "dom/nodes/MutationObserver-textContent.html|window|",
+          "name": "Setting Element.textContent to the same value",
+          "occurrence": 0
+        }
+      ],
+      "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+      "ledger": "conformance-worker-observer-microtasks.json",
+      "ledger_sha256": "9a405cdd0951e9d4a00b92744ac6319e016f5b558e33891ccb2b03bdd4e88031",
+      "missing_previously_passing_assertions": [],
+      "newly_passing_files": [
+        "dom/nodes/MutationObserver-document.html|window|",
+        "dom/nodes/MutationObserver-textContent.html|window|"
+      ],
+      "outcome": {
+        "required_finished": 12,
+        "required_passed": 8,
+        "required_total": 12,
+        "status": "failed"
+      },
+      "regressed_assertions": [],
+      "regressed_files": [],
+      "release_qualified": false,
+      "source": {
+        "commit": "eb54e110ea9a18cd2f530cd542fe58ee22887b5d",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "58bc9a61b046222447b6e82bbb1e5a74bed0a58f9d137f594c6c747a8d8f8406"
+    },
+    {
+      "baseline_evidence": "CONFORMANCE-BASELINE-2026-09-06.json",
+      "exact_inventory_and_pass_completion_verified": true,
+      "ledger": "conformance-worker-full-observer-microtasks-eb54e11.json",
+      "ledger_sha256": "981b95e030e622b758e305a4ff0645eafceea434c165a9ad77162055864f6f40",
+      "outcome": {
+        "required_finished": 4022,
+        "required_passed": 2559,
+        "required_total": 4022,
+        "status": "failed"
+      },
+      "source": {
+        "commit": "eb54e110ea9a18cd2f530cd542fe58ee22887b5d",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "58bc9a61b046222447b6e82bbb1e5a74bed0a58f9d137f594c6c747a8d8f8406"
+    }
+  ],
   "source_base_commit": "96d742f960fdbf3e0e0cc95441befe8d4aaa574a",
   "v8_bindings": {
     "failed": 0,
