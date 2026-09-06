@@ -12,6 +12,14 @@ mutation sibling snapshots, live Range-aware text normalization, and assignment
 shadowing of Window named properties. It supersedes the separate root evidence
 at `f4512fb` for current planning.
 
+The newer `a14bc15` signed candidate passes **372/662 DOM** and **240/564 CSS**
+in separate root selections: one DOM gain and 13 CSS gains, with no lost file-level
+passes. Assertion-level comparison nevertheless found four regressions in the
+still-failing `moveBefore` focus tests, plus ten missing passing assertions in two
+already-incomplete Range probes. These remain recorded and require investigation.
+See [compound/focus evidence](CONFORMANCE-COMPOUND-FOCUS-2026-09-06.json).
+These selections do not replace the full baseline or its 1,483-entry backlog.
+
 Every required execution ID and every reported passing testharness completion was
 independently checked. Source and the signed worker stayed fixed throughout the run.
 The 256 MiB heap, 512 MiB RSS, 10 s command and 30 s navigation limits, App Sandbox

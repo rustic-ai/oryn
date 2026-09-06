@@ -1,0 +1,1992 @@
+{
+  "assertion_deltas": {
+    "compound-focus-css": {
+      "missing_previous_passing_assertions": [],
+      "newly_passing_existing_assertions": [
+        [
+          "css/css-cascade/scope-focus.html|window|",
+          ":focus via :scope in subject"
+        ],
+        [
+          "css/css-cascade/scope-focus.html|window|",
+          ":focus via :scope in non-subject"
+        ],
+        [
+          "css/css-cascade/scope-focus.html|window|",
+          ":focus in limit, :scope in subject"
+        ],
+        [
+          "css/css-cascade/scope-focus.html|window|",
+          ":focus in intermediate limit, :scope in subject"
+        ],
+        [
+          "css/selectors/focus-visible-005.html|window|",
+          "Programmatic focus after click should not match :focus-visible"
+        ],
+        [
+          "css/selectors/focus-visible-015.html|window|",
+          ":focus-visible does not match after script focus move"
+        ],
+        [
+          "css/selectors/focus-visible-script-focus-008-b.html|window|",
+          "Script focus after mouse click on a button that does not match :focus-visible, does NOT match :focus-visible"
+        ],
+        [
+          "css/selectors/focus-visible-script-focus-008.html|window|",
+          "Script focus after mouse click on a focusable element that does not match :focus-visible, does NOT match :focus-visible"
+        ],
+        [
+          "css/selectors/focus-visible-script-focus-009.html|window|",
+          "Script focus after blur after mouse click on a focusable element that does not match :focus-visible, does NOT match :focus-visible"
+        ],
+        [
+          "css/selectors/focus-visible-script-focus-010.html|window|",
+          "Script focus after mouse click on a focusable element that matches :focus-visible, does NOT match :focus-visible"
+        ],
+        [
+          "css/selectors/focus-visible-script-focus-011.html|window|",
+          "Script focus after blur after mouse click on a focusable element that matches :focus-visible, does NOT match :focus-visible"
+        ],
+        [
+          "css/selectors/focus-visible-script-focus-018.html|window|",
+          "Script focus after mouse click on a focusable element after editing an input does NOT match :focus-visible"
+        ],
+        [
+          "css/selectors/focus-visible-script-focus-019.html|window|",
+          "Script focus after blur after mouse click on a focusable element after editing an input does NOT match :focus-visible"
+        ],
+        [
+          "css/selectors/focus-visible-script-focus-020.html|window|",
+          "Double script focus after mouse click on a focusable element that does not match :focus-visible, does NOT match :focus-visible"
+        ],
+        [
+          "css/selectors/focus-within-009.html|window|",
+          "Focus 'target1'"
+        ],
+        [
+          "css/selectors/focus-within-009.html|window|",
+          "Focus 'target2'"
+        ],
+        [
+          "css/selectors/focus-within-009.html|window|",
+          "Focus 'target1' again"
+        ],
+        [
+          "css/selectors/focus-within-009.html|window|",
+          "Focus 'target2' again"
+        ],
+        [
+          "css/selectors/focus-within-009.html|window|",
+          "Focus 'target1' once again"
+        ],
+        [
+          "css/selectors/focus-within-009.html|window|",
+          "Detach 'container1' from the document"
+        ],
+        [
+          "css/selectors/focus-within-009.html|window|",
+          "Try to focus 'target1'"
+        ],
+        [
+          "css/selectors/focus-within-009.html|window|",
+          "Focus 'target2' once again"
+        ],
+        [
+          "css/selectors/focus-within-009.html|window|",
+          "Attach 'container1' in 'container2'"
+        ],
+        [
+          "css/selectors/focus-within-009.html|window|",
+          "Focus 'target1' for the last time"
+        ],
+        [
+          "css/selectors/focus-within-009.html|window|",
+          "Move 'target1' in 'container2'"
+        ],
+        [
+          "css/selectors/invalidation/is-where-pseudo-containing-hard-pseudo-and-never-matching.html|window|",
+          "subject1 color after focus is red"
+        ],
+        [
+          "css/selectors/invalidation/is-where-pseudo-containing-hard-pseudo-and-never-matching.html|window|",
+          "subject2 color after focus is orangered"
+        ],
+        [
+          "css/selectors/invalidation/is-where-pseudo-containing-hard-pseudo-and-never-matching.html|window|",
+          "subject3 color after focus is darkred"
+        ],
+        [
+          "css/selectors/invalidation/is-where-pseudo-containing-hard-pseudo-and-never-matching.html|window|",
+          "subject4 color after focus is pink"
+        ]
+      ],
+      "regressed_existing_assertions": []
+    },
+    "compound-focus-dom": {
+      "missing_previous_passing_assertions": [
+        [
+          "dom/ranges/Range-mutations-deleteData.html|window|",
+          "xmlTextNode.deleteData(376, 2), with selected range on xmlTextNode from 0 to 1"
+        ],
+        [
+          "dom/ranges/Range-mutations-insertData.html|window|",
+          "detachedTextNode.insertData(1, \"\"), with unselected range collapsed at (detachedTextNode, 1)"
+        ],
+        [
+          "dom/ranges/Range-mutations-insertData.html|window|",
+          "detachedTextNode.insertData(1, \"\"), with selected range collapsed at (detachedTextNode, 1)"
+        ],
+        [
+          "dom/ranges/Range-mutations-insertData.html|window|",
+          "detachedTextNode.insertData(detachedTextNode.length, \"\"), with unselected range collapsed at (detachedTextNode, detachedTextNode.length)"
+        ],
+        [
+          "dom/ranges/Range-mutations-insertData.html|window|",
+          "detachedTextNode.insertData(detachedTextNode.length, \"\"), with selected range collapsed at (detachedTextNode, detachedTextNode.length)"
+        ],
+        [
+          "dom/ranges/Range-mutations-insertData.html|window|",
+          "detachedTextNode.insertData(1, \"\"), with unselected range on detachedTextNode from 1 to 3"
+        ],
+        [
+          "dom/ranges/Range-mutations-insertData.html|window|",
+          "detachedTextNode.insertData(1, \"\"), with selected range on detachedTextNode from 1 to 3"
+        ],
+        [
+          "dom/ranges/Range-mutations-insertData.html|window|",
+          "detachedTextNode.insertData(2, \"\"), with unselected range on detachedTextNode from 1 to 3"
+        ],
+        [
+          "dom/ranges/Range-mutations-insertData.html|window|",
+          "detachedTextNode.insertData(2, \"\"), with selected range on detachedTextNode from 1 to 3"
+        ],
+        [
+          "dom/ranges/Range-mutations-insertData.html|window|",
+          "detachedTextNode.insertData(3, \"\"), with unselected range on detachedTextNode from 1 to 3"
+        ]
+      ],
+      "newly_passing_existing_assertions": [
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\", true) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\" \") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" \", true) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\ta\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ta\", true) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\t\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\t\", true) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\na\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\na\", true) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\n\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\n\", true) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\fa\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\fa\", true) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\f\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\f\", true) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\ra\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ra\", true) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\r\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\r\", true) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\" a\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" a\", true) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a \") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a \", true) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \" \") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"aa \") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\") with attribute value \"a a a b\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", true) with attribute value \"a a a b\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"c\") with attribute value \" a a b\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"c\", true) with attribute value \" a a b\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\") with attribute value \" a a b\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", true) with attribute value \" a a b\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"d\", \"e\") with attribute value \"a b c \" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add() with attribute value \"a b c a \" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"b\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"b\") with attribute value \"\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\", false) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\" \") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" \", false) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\ta\") with attribute value \"\\ta\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ta\", false) with attribute value \"\\ta\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\t\") with attribute value \"a\\t\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\t\", false) with attribute value \"a\\t\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\na\") with attribute value \"\\na\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\na\", false) with attribute value \"\\na\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\n\") with attribute value \"a\\n\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\n\", false) with attribute value \"a\\n\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\fa\") with attribute value \"\\fa\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\fa\", false) with attribute value \"\\fa\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\f\") with attribute value \"a\\f\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\f\", false) with attribute value \"a\\f\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\ra\") with attribute value \"\\ra\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ra\", false) with attribute value \"\\ra\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\r\") with attribute value \"a\\r\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\r\", false) with attribute value \"a\\r\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\" a\") with attribute value \" a\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" a\", false) with attribute value \" a\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a \") with attribute value \"a \" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a \", false) with attribute value \"a \" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"aa \") with attribute value \"aa \" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"aa \", false) with attribute value \"aa \" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", false) with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"d\", false) with attribute value \"a b c\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"A\", false) with attribute value \"a b c\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"AA\") with attribute value \"AA BB aa CC AA dd aa\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"AA\", false) with attribute value \"AA BB aa CC AA dd aa\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"b\") with attribute value \"a b c \" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"c\") with attribute value \"a b c \" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove() with attribute value \"a b c \" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"b\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove() with attribute value \"a a\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"aa \") with attribute value null (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"d\") with attribute value \" a a b\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\") with attribute value \" A A A \" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"b\") with attribute value \" a a b\" (HTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\", true) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\" \") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" \", true) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\ta\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ta\", true) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\t\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\t\", true) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\na\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\na\", true) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\n\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\n\", true) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\fa\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\fa\", true) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\f\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\f\", true) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\ra\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ra\", true) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\r\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\r\", true) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\" a\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" a\", true) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a \") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a \", true) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \" \") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"aa \") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\") with attribute value \"a a a b\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", true) with attribute value \"a a a b\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"c\") with attribute value \" a a b\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"c\", true) with attribute value \" a a b\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\") with attribute value \" a a b\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", true) with attribute value \" a a b\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"d\", \"e\") with attribute value \"a b c \" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add() with attribute value \"a b c a \" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"b\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"b\") with attribute value \"\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\", false) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\" \") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" \", false) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\ta\") with attribute value \"\\ta\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ta\", false) with attribute value \"\\ta\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\t\") with attribute value \"a\\t\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\t\", false) with attribute value \"a\\t\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\na\") with attribute value \"\\na\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\na\", false) with attribute value \"\\na\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\n\") with attribute value \"a\\n\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\n\", false) with attribute value \"a\\n\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\fa\") with attribute value \"\\fa\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\fa\", false) with attribute value \"\\fa\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\f\") with attribute value \"a\\f\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\f\", false) with attribute value \"a\\f\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\ra\") with attribute value \"\\ra\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ra\", false) with attribute value \"\\ra\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\r\") with attribute value \"a\\r\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\r\", false) with attribute value \"a\\r\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\" a\") with attribute value \" a\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" a\", false) with attribute value \" a\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a \") with attribute value \"a \" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a \", false) with attribute value \"a \" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"aa \") with attribute value \"aa \" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"aa \", false) with attribute value \"aa \" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", false) with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"d\", false) with attribute value \"a b c\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"A\", false) with attribute value \"a b c\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"AA\") with attribute value \"AA BB aa CC AA dd aa\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"AA\", false) with attribute value \"AA BB aa CC AA dd aa\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"b\") with attribute value \"a b c \" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"c\") with attribute value \"a b c \" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove() with attribute value \"a b c \" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"b\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove() with attribute value \"a a\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"aa \") with attribute value null (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"d\") with attribute value \" a a b\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\") with attribute value \" A A A \" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"b\") with attribute value \" a a b\" (XHTML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\", true) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\" \") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" \", true) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\ta\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ta\", true) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\t\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\t\", true) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\na\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\na\", true) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\n\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\n\", true) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\fa\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\fa\", true) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\f\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\f\", true) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\ra\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ra\", true) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\r\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\r\", true) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\" a\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" a\", true) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a \") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a \", true) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \" \") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"aa \") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\") with attribute value \"a a a b\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", true) with attribute value \"a a a b\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"c\") with attribute value \" a a b\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"c\", true) with attribute value \" a a b\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\") with attribute value \" a a b\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", true) with attribute value \" a a b\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"d\", \"e\") with attribute value \"a b c \" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add() with attribute value \"a b c a \" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"b\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"b\") with attribute value \"\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\", false) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\" \") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" \", false) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\ta\") with attribute value \"\\ta\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ta\", false) with attribute value \"\\ta\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\t\") with attribute value \"a\\t\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\t\", false) with attribute value \"a\\t\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\na\") with attribute value \"\\na\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\na\", false) with attribute value \"\\na\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\n\") with attribute value \"a\\n\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\n\", false) with attribute value \"a\\n\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\fa\") with attribute value \"\\fa\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\fa\", false) with attribute value \"\\fa\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\f\") with attribute value \"a\\f\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\f\", false) with attribute value \"a\\f\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\ra\") with attribute value \"\\ra\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ra\", false) with attribute value \"\\ra\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\r\") with attribute value \"a\\r\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\r\", false) with attribute value \"a\\r\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\" a\") with attribute value \" a\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" a\", false) with attribute value \" a\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a \") with attribute value \"a \" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a \", false) with attribute value \"a \" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"aa \") with attribute value \"aa \" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"aa \", false) with attribute value \"aa \" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", false) with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"d\", false) with attribute value \"a b c\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"A\", false) with attribute value \"a b c\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"AA\") with attribute value \"AA BB aa CC AA dd aa\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"AA\", false) with attribute value \"AA BB aa CC AA dd aa\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"b\") with attribute value \"a b c \" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"c\") with attribute value \"a b c \" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove() with attribute value \"a b c \" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"b\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove() with attribute value \"a a\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"aa \") with attribute value null (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"d\") with attribute value \" a a b\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\") with attribute value \" A A A \" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"b\") with attribute value \" a a b\" (MathML node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\", true) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\" \") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" \", true) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\ta\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ta\", true) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\t\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\t\", true) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\na\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\na\", true) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\n\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\n\", true) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\fa\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\fa\", true) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\f\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\f\", true) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\ra\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ra\", true) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\r\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\r\", true) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\" a\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" a\", true) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a \") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a \", true) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \" \") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"aa \") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\") with attribute value \"a a a b\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", true) with attribute value \"a a a b\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"c\") with attribute value \" a a b\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"c\", true) with attribute value \" a a b\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\") with attribute value \" a a b\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", true) with attribute value \" a a b\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"d\", \"e\") with attribute value \"a b c \" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add() with attribute value \"a b c a \" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"b\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"b\") with attribute value \"\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\", false) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\" \") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" \", false) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\ta\") with attribute value \"\\ta\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ta\", false) with attribute value \"\\ta\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\t\") with attribute value \"a\\t\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\t\", false) with attribute value \"a\\t\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\na\") with attribute value \"\\na\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\na\", false) with attribute value \"\\na\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\n\") with attribute value \"a\\n\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\n\", false) with attribute value \"a\\n\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\fa\") with attribute value \"\\fa\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\fa\", false) with attribute value \"\\fa\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\f\") with attribute value \"a\\f\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\f\", false) with attribute value \"a\\f\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\ra\") with attribute value \"\\ra\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ra\", false) with attribute value \"\\ra\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\r\") with attribute value \"a\\r\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\r\", false) with attribute value \"a\\r\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\" a\") with attribute value \" a\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" a\", false) with attribute value \" a\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a \") with attribute value \"a \" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a \", false) with attribute value \"a \" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"aa \") with attribute value \"aa \" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"aa \", false) with attribute value \"aa \" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", false) with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"d\", false) with attribute value \"a b c\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"A\", false) with attribute value \"a b c\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"AA\") with attribute value \"AA BB aa CC AA dd aa\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"AA\", false) with attribute value \"AA BB aa CC AA dd aa\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"b\") with attribute value \"a b c \" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"c\") with attribute value \"a b c \" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove() with attribute value \"a b c \" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"b\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove() with attribute value \"a a\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"aa \") with attribute value null (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"d\") with attribute value \" a a b\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\") with attribute value \" A A A \" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"b\") with attribute value \" a a b\" (XML node with null namespace)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\", true) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\" \") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" \", true) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\ta\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ta\", true) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\t\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\t\", true) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\na\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\na\", true) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\n\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\n\", true) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\fa\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\fa\", true) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\f\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\f\", true) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"\\ra\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ra\", true) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\\r\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\r\", true) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\" a\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" a\", true) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a \") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a \", true) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \" \") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"aa \") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\") with attribute value \"a a a b\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", true) with attribute value \"a a a b\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"c\") with attribute value \" a a b\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"c\", true) with attribute value \" a a b\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\") with attribute value \" a a b\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", true) with attribute value \" a a b\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"d\", \"e\") with attribute value \"a b c \" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add() with attribute value \"a b c a \" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"b\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.add(\"a\", \"b\") with attribute value \"\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\", false) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\" \") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" \", false) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\ta\") with attribute value \"\\ta\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ta\", false) with attribute value \"\\ta\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\t\") with attribute value \"a\\t\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\t\", false) with attribute value \"a\\t\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\na\") with attribute value \"\\na\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\na\", false) with attribute value \"\\na\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\n\") with attribute value \"a\\n\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\n\", false) with attribute value \"a\\n\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\fa\") with attribute value \"\\fa\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\fa\", false) with attribute value \"\\fa\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\f\") with attribute value \"a\\f\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\f\", false) with attribute value \"a\\f\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"\\ra\") with attribute value \"\\ra\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\\ra\", false) with attribute value \"\\ra\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\\r\") with attribute value \"a\\r\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\\r\", false) with attribute value \"a\\r\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\" a\") with attribute value \" a\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\" a\", false) with attribute value \" a\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a \") with attribute value \"a \" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a \", false) with attribute value \"a \" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"aa \") with attribute value \"aa \" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"aa \", false) with attribute value \"aa \" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\", false) with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"d\", false) with attribute value \"a b c\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"A\", false) with attribute value \"a b c\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"AA\") with attribute value \"AA BB aa CC AA dd aa\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"AA\", false) with attribute value \"AA BB aa CC AA dd aa\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"b\") with attribute value \"a b c \" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"c\") with attribute value \"a b c \" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove() with attribute value \"a b c \" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove(\"a\", \"b\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.remove() with attribute value \"a a\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"\") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"aa \") with attribute value null (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"d\") with attribute value \" a a b\" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"a\") with attribute value \" A A A \" (foo node)"
+        ],
+        [
+          "dom/nodes/Element-classlist.html|window|",
+          "classList.toggle(\"b\") with attribute value \" a a b\" (foo node)"
+        ],
+        [
+          "dom/nodes/MutationObserver-attributes.html|window|",
+          "attributes Element.classList.add: syntax err/no mutation"
+        ],
+        [
+          "dom/nodes/MutationObserver-attributes.html|window|",
+          "attributes Element.classList.add: invalid character/no mutation"
+        ],
+        [
+          "dom/nodes/MutationObserver-attributes.html|window|",
+          "attributes Element.classList.toggle: forced missing token removal no mutation"
+        ],
+        [
+          "dom/nodes/MutationObserver-attributes.html|window|",
+          "attributes Element.classList.toggle: forced existing token addition no mutation"
+        ],
+        [
+          "dom/nodes/MutationObserver-childList.html|window|",
+          "childList Node.textContent: replace content mutation"
+        ],
+        [
+          "dom/nodes/MutationObserver-inner-outer.html|window|",
+          "innerHTML mutation"
+        ],
+        [
+          "dom/nodes/MutationObserver-inner-outer.html|window|",
+          "innerHTML with 2 children mutation"
+        ],
+        [
+          "dom/nodes/MutationObserver-textContent.html|window|",
+          "Setting Element.textContent to a different value"
+        ]
+      ],
+      "regressed_existing_assertions": [
+        [
+          "dom/nodes/moveBefore/focus-preserve.html|window|",
+          "when reparenting an element, don't automatically reset the document focus",
+          "assert_equals: expected Element node <button id=\"button\" tabindex=\"1\">Button</button> but got null"
+        ],
+        [
+          "dom/nodes/moveBefore/focus-within.html|window|",
+          "focus-within should be updated when reparenting focused element directly",
+          "assert_array_equals: lengths differ, expected array [\"HTML\", \"BODY\", \"new_parent\", \"button\"] length 4, got [] length 0"
+        ],
+        [
+          "dom/nodes/moveBefore/focus-within.html|window|",
+          "focus-within should be updated when reparenting an element that has focus within",
+          "assert_array_equals: lengths differ, expected array [\"HTML\", \"BODY\", \"new_parent\", \"old_parent\", \"button\"] length 5, got [] length 0"
+        ],
+        [
+          "dom/nodes/moveBefore/focus-within.html|window|",
+          "focus-within should remain the same when moving to the same parent",
+          "assert_array_equals: lengths differ, expected array [\"HTML\", \"BODY\", \"old_parent\", \"button\"] length 4, got [] length 0"
+        ]
+      ]
+    }
+  },
+  "purpose": "Focused/root diagnostic evidence; not a full baseline or release qualification. Four existing assertion regressions are retained despite no lost file-level passes.",
+  "runs": [
+    {
+      "baseline_ledger": "conformance-worker-full-normalize-window-c12167f.json",
+      "diagnostic_only": true,
+      "exact_filtered_inventory_and_pass_completion_verified": true,
+      "failure_domains": {
+        "assertion": 4,
+        "harness": 2
+      },
+      "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+      "ledger": "conformance-worker-compound-focus-observers.json",
+      "ledger_sha256": "fb0dbc4e9c22077ed2a6003b4e135bf52eee760f103d46296008f8e1e3cc259f",
+      "newly_passing": [
+        "dom/nodes/MutationObserver-attributes.html|window|"
+      ],
+      "outcome": {
+        "required_finished": 12,
+        "required_passed": 6,
+        "required_total": 12,
+        "status": "failed"
+      },
+      "regressions": [],
+      "release_qualified": false,
+      "roots": {
+        "css": {
+          "failed": 1,
+          "passed": 0,
+          "required": 1
+        },
+        "dom": {
+          "failed": 5,
+          "passed": 6,
+          "required": 11
+        }
+      },
+      "source": {
+        "commit": "a14bc15050671f178560f9c3ad2641ffd7a3bf83",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "46f9a49f7e03796153c13f00121b5d39bedf898f4462ff773134bf8f36a9f905"
+    },
+    {
+      "baseline_ledger": "conformance-worker-full-normalize-window-c12167f.json",
+      "diagnostic_only": true,
+      "exact_filtered_inventory_and_pass_completion_verified": true,
+      "failure_domains": {},
+      "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+      "ledger": "conformance-worker-compound-focus-regression.json",
+      "ledger_sha256": "1c1311e15e853889245168c6ba4011554abda3191ab8088d3e99a5c80239f6b0",
+      "newly_passing": [
+        "css/selectors/focus-within-009.html|window|"
+      ],
+      "outcome": {
+        "required_finished": 1,
+        "required_passed": 1,
+        "required_total": 1,
+        "status": "passed"
+      },
+      "regressions": [],
+      "release_qualified": false,
+      "roots": {
+        "css": {
+          "failed": 0,
+          "passed": 1,
+          "required": 1
+        }
+      },
+      "source": {
+        "commit": "a14bc15050671f178560f9c3ad2641ffd7a3bf83",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "46f9a49f7e03796153c13f00121b5d39bedf898f4462ff773134bf8f36a9f905"
+    },
+    {
+      "baseline_ledger": "conformance-worker-full-normalize-window-c12167f.json",
+      "diagnostic_only": true,
+      "exact_filtered_inventory_and_pass_completion_verified": true,
+      "failure_domains": {
+        "assertion": 243,
+        "harness": 29,
+        "incomplete": 9,
+        "runtime": 9
+      },
+      "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+      "ledger": "conformance-worker-compound-focus-dom.json",
+      "ledger_sha256": "f77c91f0d9a77bacd5fcc147059b0a07d5ac4a53bbe8f921acce5f3e7d441c62",
+      "newly_passing": [
+        "dom/nodes/MutationObserver-attributes.html|window|"
+      ],
+      "outcome": {
+        "required_finished": 664,
+        "required_passed": 374,
+        "required_total": 664,
+        "status": "failed"
+      },
+      "regressions": [],
+      "release_qualified": false,
+      "roots": {
+        "accname": {
+          "failed": 0,
+          "passed": 2,
+          "required": 2
+        },
+        "dom": {
+          "failed": 290,
+          "passed": 372,
+          "required": 662
+        }
+      },
+      "source": {
+        "commit": "a14bc15050671f178560f9c3ad2641ffd7a3bf83",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "46f9a49f7e03796153c13f00121b5d39bedf898f4462ff773134bf8f36a9f905"
+    },
+    {
+      "baseline_ledger": "conformance-worker-full-normalize-window-c12167f.json",
+      "diagnostic_only": true,
+      "exact_filtered_inventory_and_pass_completion_verified": true,
+      "failure_domains": {
+        "assertion": 283,
+        "harness": 34,
+        "incomplete": 1,
+        "runtime": 6
+      },
+      "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+      "ledger": "conformance-worker-compound-focus-css.json",
+      "ledger_sha256": "15aae9ae6ad0fde2365d634b9d189373474a514329826cbb0ec8e20ec85b4439",
+      "newly_passing": [
+        "css/css-cascade/scope-focus.html|window|",
+        "css/selectors/focus-visible-005.html|window|",
+        "css/selectors/focus-visible-015.html|window|",
+        "css/selectors/focus-visible-script-focus-008-b.html|window|",
+        "css/selectors/focus-visible-script-focus-008.html|window|",
+        "css/selectors/focus-visible-script-focus-009.html|window|",
+        "css/selectors/focus-visible-script-focus-010.html|window|",
+        "css/selectors/focus-visible-script-focus-011.html|window|",
+        "css/selectors/focus-visible-script-focus-018.html|window|",
+        "css/selectors/focus-visible-script-focus-019.html|window|",
+        "css/selectors/focus-visible-script-focus-020.html|window|",
+        "css/selectors/focus-within-009.html|window|",
+        "css/selectors/invalidation/is-where-pseudo-containing-hard-pseudo-and-never-matching.html|window|"
+      ],
+      "outcome": {
+        "required_finished": 569,
+        "required_passed": 245,
+        "required_total": 569,
+        "status": "failed"
+      },
+      "regressions": [],
+      "release_qualified": false,
+      "roots": {
+        "css": {
+          "failed": 324,
+          "passed": 240,
+          "required": 564
+        },
+        "referrer-policy": {
+          "failed": 0,
+          "passed": 5,
+          "required": 5
+        }
+      },
+      "source": {
+        "commit": "a14bc15050671f178560f9c3ad2641ffd7a3bf83",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worker_sha256": "46f9a49f7e03796153c13f00121b5d39bedf898f4462ff773134bf8f36a9f905"
+    }
+  ],
+  "source_and_worker_reverified_after_completion": true,
+  "source_commit": "a14bc15050671f178560f9c3ad2641ffd7a3bf83",
+  "worker_sha256": "46f9a49f7e03796153c13f00121b5d39bedf898f4462ff773134bf8f36a9f905"
+}

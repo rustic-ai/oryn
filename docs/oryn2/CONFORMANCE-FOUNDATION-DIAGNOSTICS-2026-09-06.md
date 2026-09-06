@@ -375,3 +375,23 @@ integration test. Strict V8/DOM/layout Clippy, generated bindings, formatting,
 27 WPT-runner tests, documentation truth, and diff checks passed. The runner now
 retains primary-run and probe diagnostics for incomplete recovered results.
 Signed-worker checks are pending for this batch; the full baseline remains c12167f.
+
+## Signed compound/focus results
+
+Clean `a14bc15`, signed worker `46f9a49f7e03796153c13f00121b5d39bedf898f4462ff773134bf8f36a9f905`:
+**372/662 DOM** and **240/564 CSS**, with one and 13 file-level gains respectively,
+no lost file-level passes, and exact selection/completion validation. The observer
+selection improves from 5/12 to 6/12; focus-within-009 passes all 12 assertions.
+
+Within existing assertions, DOM gains 403 and CSS gains 29. Four DOM assertions
+regress because ordinary focus clearing was also applied to state-preserving
+moveBefore; that distinction needs correction. Ten previously passing assertions
+are absent from the shorter partial payloads of Range-mutations-deleteData and
+Range-mutations-insertData, both still incomplete. The raw and compact evidence
+retains these outcomes. Complete files and partial probes are not interchangeable.
+
+The remaining textContent observer case now queues separate compound records, but
+Promise continuations perform three operations before delayed observer delivery.
+A separate scheduling prototype is under test; it is not part of this candidate.
+The full baseline remains 2539/4022 at c12167f. Hash-bound root and assertion deltas
+are in CONFORMANCE-COMPOUND-FOCUS-2026-09-06.json.
