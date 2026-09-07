@@ -7,7 +7,7 @@ use style::{
     properties::{PropertyId, SourcePropertyDeclaration, parse_style_attribute},
     stylesheets::{CssRuleType, Origin, UrlExtraData},
 };
-use style_traits::ParsingMode;
+use style_traits::{ParsingMode, ToCss as _};
 
 /// Builds import-rule metadata for a read-only CSSOM parse. Resource loading
 /// belongs to the host stylesheet pipeline, never to property enumeration.
@@ -130,6 +130,14 @@ pub fn read_stylesheet(
                     .to_css(&mut declarations)
                     .map_err(|error| error.to_string())?;
                 (Some(rule.selectors.to_css_string()), Some(declarations))
+            } else if let CssRule::Page(rule) = rule {
+                let rule = rule.read_with(&guard);
+                let mut declarations = String::new();
+                rule.block
+                    .read_with(&guard)
+                    .to_css(&mut declarations)
+                    .map_err(|error| error.to_string())?;
+                (Some(rule.selectors.to_css_string()), Some(declarations))
             } else {
                 (None, None)
             };
@@ -141,6 +149,193 @@ pub fn read_stylesheet(
             })
         })
         .collect()
+}
+
+/// Mutate a page selector through Stylo, preserving declarations and nested rules.
+/// Invalid selectors leave the rule untouched, as required by CSSOM.
+pub fn set_page_selector(
+    source: &str,
+    selector: &str,
+    base_url: &str,
+    quirks: bool,
+) -> Result<Option<RuleView>, String> {
+    use style::{
+        media_queries::MediaList,
+        parser::{Parse, ParserContext},
+        servo_arc::Arc,
+        shared_lock::{SharedRwLock, ToCssWithGuard},
+        stylesheets::{AllowImportRules, CssRule, PageSelectors, Stylesheet, StylesheetInDocument},
+    };
+    let url_data = UrlExtraData::from(url::Url::parse(base_url).map_err(|e| e.to_string())?);
+    let quirks = if quirks {
+        QuirksMode::Quirks
+    } else {
+        QuirksMode::NoQuirks
+    };
+    let context = ParserContext::new(
+        Origin::Author,
+        &url_data,
+        Some(CssRuleType::Page),
+        ParsingMode::DEFAULT,
+        quirks,
+        Default::default(),
+        None,
+        None,
+        Default::default(),
+    );
+    let mut input = cssparser::ParserInput::new(selector);
+    let mut parser = cssparser::Parser::new(&mut input);
+    let selectors = if parser.is_exhausted() {
+        PageSelectors::default()
+    } else {
+        match parser.parse_entirely(|input| PageSelectors::parse(&context, input)) {
+            Ok(selectors) => selectors,
+            Err(_) => return Ok(None),
+        }
+    };
+    let lock = SharedRwLock::new();
+    let sheet = Stylesheet::from_str(
+        source,
+        url_data,
+        Origin::Author,
+        Arc::new(lock.wrap(MediaList::empty())),
+        lock.clone(),
+        None,
+        None,
+        quirks,
+        AllowImportRules::No,
+    );
+    let rule = {
+        let guard = lock.read();
+        let rules = &sheet.contents(&guard).rules.read_with(&guard).0;
+        if rules.len() != 1 {
+            return Ok(None);
+        }
+        match &rules[0] {
+            CssRule::Page(rule) => rule.clone(),
+            _ => return Ok(None),
+        }
+    };
+    rule.write_with(&mut lock.write()).selectors = selectors;
+    let serialized = rule
+        .read_with(&lock.read())
+        .to_css_string(&lock.read())
+        .to_string();
+    Ok(
+        read_stylesheet(&serialized, base_url, quirks == QuirksMode::Quirks, false)?
+            .into_iter()
+            .next(),
+    )
+}
+
+/// A page declaration edit, including the old value returned by removeProperty.
+pub struct PageDeclarationMutation {
+    pub previous_value: String,
+    pub rule: Option<RuleView>,
+}
+
+/// Edit the native declaration block without reconstructing the page's nested rules.
+pub fn mutate_page_declaration(
+    source: &str,
+    property: &str,
+    value: &str,
+    priority: &str,
+    base_url: &str,
+    quirks: bool,
+) -> Result<PageDeclarationMutation, String> {
+    edit_page_declaration_block(source, Some(property), value, priority, base_url, quirks)
+}
+
+/// Replace only a page rule's declarations; its margin rules remain intact.
+pub fn replace_page_declarations(
+    source: &str,
+    declarations: &str,
+    base_url: &str,
+    quirks: bool,
+) -> Result<PageDeclarationMutation, String> {
+    edit_page_declaration_block(source, None, declarations, "", base_url, quirks)
+}
+
+fn edit_page_declaration_block(
+    source: &str,
+    property: Option<&str>,
+    value: &str,
+    priority: &str,
+    base_url: &str,
+    quirks: bool,
+) -> Result<PageDeclarationMutation, String> {
+    use style::{
+        media_queries::MediaList,
+        servo_arc::Arc,
+        shared_lock::{SharedRwLock, ToCssWithGuard},
+        stylesheets::{AllowImportRules, CssRule, Stylesheet, StylesheetInDocument},
+    };
+    let url_data = UrlExtraData::from(url::Url::parse(base_url).map_err(|e| e.to_string())?);
+    let quirks_mode = if quirks {
+        QuirksMode::Quirks
+    } else {
+        QuirksMode::NoQuirks
+    };
+    let lock = SharedRwLock::new();
+    let sheet = Stylesheet::from_str(
+        source,
+        url_data.clone(),
+        Origin::Author,
+        Arc::new(lock.wrap(MediaList::empty())),
+        lock.clone(),
+        None,
+        None,
+        quirks_mode,
+        AllowImportRules::No,
+    );
+    let (rule, declarations) = {
+        let guard = lock.read();
+        let rules = &sheet.contents(&guard).rules.read_with(&guard).0;
+        let [CssRule::Page(rule)] = rules.as_slice() else {
+            return Err("Expected one native page rule".into());
+        };
+        let mut text = String::new();
+        rule.read_with(&guard)
+            .block
+            .read_with(&guard)
+            .to_css(&mut text)
+            .map_err(|e| e.to_string())?;
+        (rule.clone(), text)
+    };
+    let mutation = match property {
+        Some(property) => mutate_declaration_in_rule(
+            &declarations,
+            property,
+            value,
+            priority,
+            base_url,
+            quirks,
+            CssRuleType::Page,
+        )?,
+        None => DeclarationMutation {
+            previous_value: String::new(),
+            css_text: Some(value.into()),
+        },
+    };
+    let Some(text) = mutation.css_text else {
+        return Ok(PageDeclarationMutation {
+            previous_value: mutation.previous_value,
+            rule: None,
+        });
+    };
+    let block = parse_style_attribute(&text, &url_data, None, quirks_mode, CssRuleType::Page);
+    rule.write_with(&mut lock.write()).block = Arc::new(lock.wrap(block));
+    let serialized = {
+        let guard = lock.read();
+        rule.read_with(&guard).to_css_string(&guard).to_string()
+    };
+    let view = read_stylesheet(&serialized, base_url, quirks, false)?
+        .into_iter()
+        .next();
+    Ok(PageDeclarationMutation {
+        previous_value: mutation.previous_value,
+        rule: view,
+    })
 }
 
 /// Result of a declaration mutation. `None` leaves the attribute untouched,
@@ -160,6 +355,26 @@ pub fn mutate_declaration(
     base_url: &str,
     quirks: bool,
 ) -> Result<DeclarationMutation, String> {
+    mutate_declaration_in_rule(
+        css_text,
+        property,
+        value,
+        priority,
+        base_url,
+        quirks,
+        CssRuleType::Style,
+    )
+}
+
+fn mutate_declaration_in_rule(
+    css_text: &str,
+    property: &str,
+    value: &str,
+    priority: &str,
+    base_url: &str,
+    quirks: bool,
+    rule_type: CssRuleType,
+) -> Result<DeclarationMutation, String> {
     let mut result = DeclarationMutation {
         previous_value: String::new(),
         css_text: None,
@@ -173,8 +388,7 @@ pub fn mutate_declaration(
     } else {
         QuirksMode::NoQuirks
     };
-    let mut block =
-        parse_style_attribute(css_text, &url_data, None, quirks_mode, CssRuleType::Style);
+    let mut block = parse_style_attribute(css_text, &url_data, None, quirks_mode, rule_type);
     block
         .property_value_to_css(&property, &mut result.previous_value)
         .map_err(|e| e.to_string())?;
@@ -201,7 +415,7 @@ pub fn mutate_declaration(
             None,
             ParsingMode::DEFAULT,
             quirks_mode,
-            CssRuleType::Style,
+            rule_type,
         )
         .is_err()
         {
@@ -234,13 +448,33 @@ pub fn read_declaration(
     base_url: &str,
     quirks: bool,
 ) -> Result<DeclarationView, String> {
+    read_declaration_in_rule(css_text, property, base_url, quirks, CssRuleType::Style)
+}
+
+/// Read page declarations in their native parsing context.
+pub fn read_page_declaration(
+    css_text: &str,
+    property: &str,
+    base_url: &str,
+    quirks: bool,
+) -> Result<DeclarationView, String> {
+    read_declaration_in_rule(css_text, property, base_url, quirks, CssRuleType::Page)
+}
+
+fn read_declaration_in_rule(
+    css_text: &str,
+    property: &str,
+    base_url: &str,
+    quirks: bool,
+    rule_type: CssRuleType,
+) -> Result<DeclarationView, String> {
     let url_data = UrlExtraData::from(url::Url::parse(base_url).map_err(|e| e.to_string())?);
     let quirks = if quirks {
         QuirksMode::Quirks
     } else {
         QuirksMode::NoQuirks
     };
-    let block = parse_style_attribute(css_text, &url_data, None, quirks, CssRuleType::Style);
+    let block = parse_style_attribute(css_text, &url_data, None, quirks, rule_type);
     let mut result = DeclarationView {
         css_text: String::new(),
         names: block
@@ -277,6 +511,133 @@ pub fn supported_properties() -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn page_declaration_replacement_preserves_nested_rules_and_reads_priority() {
+        let source = "@page named { margin: 1cm; @bottom-right { content: 'footer'; } }";
+        let edited = replace_page_declarations(
+            source,
+            "margin-left: 3cm !important; invalid: value",
+            "https://example.test/",
+            false,
+        )
+        .unwrap()
+        .rule
+        .unwrap();
+        assert_eq!(edited.selector_text.as_deref(), Some("named"));
+        assert!(edited.css_text.contains("footer"));
+        let read = read_page_declaration(
+            edited.declaration_text.as_deref().unwrap(),
+            "margin-left",
+            "https://example.test/",
+            false,
+        )
+        .unwrap();
+        assert_eq!(read.value, "3cm");
+        assert!(read.important);
+        assert!(!read.css_text.contains("invalid"));
+        let empty = replace_page_declarations(&edited.css_text, "", "https://example.test/", false)
+            .unwrap()
+            .rule
+            .unwrap();
+        assert_eq!(empty.declaration_text.as_deref(), Some(""));
+        assert!(empty.css_text.contains("footer"));
+    }
+
+    #[test]
+    fn page_declaration_mutation_keeps_selectors_and_nested_margin_content() {
+        let source = "@page named:left { margin: 1cm; @top-left { content: 'heading'; } }";
+        let edited = mutate_page_declaration(
+            source,
+            "margin-left",
+            "2cm",
+            "important",
+            "https://example.test/",
+            false,
+        )
+        .unwrap()
+        .rule
+        .unwrap();
+        assert_eq!(edited.selector_text.as_deref(), Some("named:left"));
+        assert!(edited.css_text.contains("heading"));
+        assert!(edited.css_text.contains("2cm !important"));
+        let removed = mutate_page_declaration(
+            &edited.css_text,
+            "margin-left",
+            "",
+            "",
+            "https://example.test/",
+            false,
+        )
+        .unwrap();
+        assert_eq!(removed.previous_value, "2cm");
+        assert!(removed.rule.unwrap().css_text.contains("heading"));
+        assert!(
+            mutate_page_declaration(
+                source,
+                "margin",
+                "invalid",
+                "",
+                "https://example.test/",
+                false
+            )
+            .unwrap()
+            .rule
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn page_selector_mutation_validates_and_preserves_rule_contents() {
+        let source = "@page original { margin: 1cm; @top-left { content: 'heading'; } }";
+        for (selector, expected) in [("named:First", "named:first"), (":left", ":left"), ("", "")] {
+            let rule = set_page_selector(source, selector, "https://example.test/", false)
+                .unwrap()
+                .unwrap();
+            assert_eq!(rule.selector_text.as_deref(), Some(expected));
+            assert!(rule.css_text.contains("margin:"));
+            assert!(rule.css_text.contains("@top-left"));
+            assert!(rule.css_text.contains("heading"));
+        }
+        for selector in [
+            "named :first",
+            ":first :left",
+            ":unknown",
+            "named {}",
+            "named,",
+            "named; @page other",
+        ] {
+            assert!(
+                set_page_selector(source, selector, "https://example.test/", false)
+                    .unwrap()
+                    .is_none(),
+                "{selector}"
+            );
+        }
+    }
+
+    #[test]
+    fn page_rule_views_preserve_page_selectors_and_declarations() {
+        let rules = read_stylesheet(
+            "@page {} @page report:First { margin: 1cm; }",
+            "https://example.test/",
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].rule_type, CssRuleType::Page as u16);
+        assert_eq!(rules[0].selector_text.as_deref(), Some(""));
+        assert_eq!(rules[0].css_text, "@page { }");
+        assert_eq!(rules[1].selector_text.as_deref(), Some("report:first"));
+        assert!(
+            rules[1]
+                .declaration_text
+                .as_deref()
+                .unwrap()
+                .contains("margin")
+        );
+    }
 
     #[test]
     fn cssom_import_readback_retains_conditions_without_fetching() {

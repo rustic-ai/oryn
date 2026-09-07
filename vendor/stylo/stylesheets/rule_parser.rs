@@ -764,7 +764,7 @@ impl<'a, 'i> AtRuleParser<'i> for NestedRuleParser<'a, 'i> {
                 let name = KeyframesName::parse(&self.context, input)?;
                 AtRulePrelude::Keyframes(name, prefix)
             },
-            "page" if cfg!(feature = "gecko") => {
+            "page" => {
                 AtRulePrelude::Page(
                     input.try_parse(|i| PageSelectors::parse(&self.context, i)).unwrap_or_default()
                 )
@@ -809,7 +809,7 @@ impl<'a, 'i> AtRuleParser<'i> for NestedRuleParser<'a, 'i> {
                 AtRulePrelude::ViewTransition
             },
             _ => {
-                if static_prefs::pref!("layout.css.margin-rules.enabled") {
+                if cfg!(feature = "servo") || static_prefs::pref!("layout.css.margin-rules.enabled") {
                     if let Some(margin_rule_type) = MarginRuleType::match_name(&name) {
                         return Ok(AtRulePrelude::Margin(margin_rule_type));
                     }
@@ -891,7 +891,7 @@ impl<'a, 'i> AtRuleParser<'i> for NestedRuleParser<'a, 'i> {
                 })
             },
             AtRulePrelude::Page(selectors) => {
-                let page_rule = if !static_prefs::pref!("layout.css.margin-rules.enabled") {
+                let page_rule = if !cfg!(feature = "servo") && !static_prefs::pref!("layout.css.margin-rules.enabled") {
                     let declarations = self.nest_for_rule(CssRuleType::Page, |p| {
                         parse_property_declaration_list(&p.context, input, &[])
                     });

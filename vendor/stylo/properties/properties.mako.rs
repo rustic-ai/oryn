@@ -403,7 +403,12 @@ impl NonCustomPropertyId {
 
     /// Returns whether a given rule allows a given property.
     #[inline]
-    pub fn allowed_in_rule(self, rule_types: CssRuleTypes) -> bool {
+    pub fn allowed_in_rule(self, mut rule_types: CssRuleTypes) -> bool {
+        // Page-margin boxes accept ordinary style declarations, including
+        // generated content, rather than only the page descriptor subset.
+        if rule_types.contains(CssRuleType::Margin) {
+            rule_types.insert(CssRuleType::Style);
+        }
         debug_assert!(
             rule_types.contains(CssRuleType::Keyframe) ||
             rule_types.contains(CssRuleType::Page) ||
