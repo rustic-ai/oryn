@@ -1,0 +1,37 @@
+{
+  "base_commit": "afaa76c5df1f252796ebedc9149e23e8d9f09826",
+  "source_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "2ec8a38f75e97f27cddfd0fdffad9c27821abad8fa150078e6fc1fbf404ab1b3",
+    "crates/oryn-layout/src/lib.rs": "cd0c3d9dd10585073ee6b0ba1dc9aff890fe28a07c027ff1d46ea636b2f4638f",
+    "crates/oryn-native/src/runtime.rs": "0ea7be349ee10696b6d700b157b9931612356bd1a3f41a85d3727ff8ff7d6eb3",
+    "crates/oryn-native/src/rust_executable.rs": "494b746f9ec8614d52f0415fc7a28d0bfe727e7afdce219b4e01e14fff9cd51b",
+    "vendor/stylo/properties/cascade.rs": "f262f7992fb78ce14e3df4b5b98cb652483df646f1471fb09ef59786565c6708",
+    "vendor/stylo/properties/computed_value_flags.rs": "d249c5e4b80d2bd903ab277c7ba3cd1c987e744c9bf9af2a015f87d659fab773"
+  },
+  "changes": [
+    "Stylo records winning author whitespace provenance and propagates inherited provenance and invalidation.",
+    "Internal layout metadata carries provenance separately from computed CSS properties.",
+    "Editing joins preserve author whitespace, without preserving UA defaults using extra wrappers.",
+    "Typing consumes a redundant terminal BR placeholder while preserving visible line breaks and caret formatting."
+  ],
+  "validation": {
+    "native_matrix_cases": 945,
+    "stylo_provenance_cases": 11,
+    "layout_tests_passed": 48,
+    "binding_tests_passed": 148,
+    "binding_tests_existing_ignored": 2,
+    "additional_native_regressions": "editing, justification, command query, keyboard, shadow selection, and frame Range filters passed",
+    "strict_clippy": "oryn-layout, oryn-js, oryn-native passed with -D warnings",
+    "logs": [
+      "artifacts/native-shared-editing/whitespace-cleanup-native-pass.log",
+      "artifacts/native-shared-editing/whitespace-cleanup-broad-validation.log"
+    ]
+  },
+  "expectation_correction": "The native line-break matrix now expects typing to consume the terminal placeholder. Verified against 12 reference Chrome cases spanning six whitespace modes and two host tags, and pinned plaintext-only WPT expectations. Exact assertions retained; no upstream fixtures changed.",
+  "reference_evidence": "artifacts/native-shared-editing/cleanup-reference-environment.json",
+  "conformance_status": "Native validation only. All 704 editing executions and overall 4022 executions still require measurement for this candidate. No whole-test gain claimed here.",
+  "remaining_investigations": [
+    "Six insertText newline expectations for normal whitespace differ from isolated reference Chrome behavior.",
+    "Five older paragraph/list join expectations differ from isolated reference Chrome behavior. These remain open failures, not waived requirements."
+  ]
+}

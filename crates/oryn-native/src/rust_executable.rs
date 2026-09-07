@@ -308,6 +308,7 @@ fn binding_layout_from_output(output: &oryn_layout::LayoutOutput) -> BindingLayo
         }
     }
     BindingLayout {
+        author_whitespace: output.author_whitespace.clone(),
         offset_dimensions: output.offset_dimensions.clone(),
         styles,
         geometry,

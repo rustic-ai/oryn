@@ -1259,6 +1259,27 @@ impl<'a> Cascade<'a> {
             builder.add_flags(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_TEXT_SHADOW);
         }
 
+        // Preserve provenance alongside the value, after Stylo has resolved
+        // importance, variables and revert/revert-layer. An inherited value
+        // retains its provenance; a winning UA declaration replaces it.
+        for (property, flag) in [
+            (
+                LonghandId::WhiteSpaceCollapse,
+                ComputedValueFlags::HAS_AUTHOR_WHITE_SPACE_COLLAPSE,
+            ),
+            (
+                LonghandId::TextWrapMode,
+                ComputedValueFlags::HAS_AUTHOR_TEXT_WRAP_MODE,
+            ),
+        ] {
+            if self.author_specified.contains(property)
+                || (!self.seen.longhands.contains(property)
+                    && builder.get_parent_flags().contains(flag))
+            {
+                builder.add_flags(flag);
+            }
+        }
+
         if self.author_specified.contains(LonghandId::GridAutoFlow) {
             builder.add_flags(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_GRID_AUTO_FLOW);
         }

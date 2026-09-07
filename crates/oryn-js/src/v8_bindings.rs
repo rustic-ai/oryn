@@ -723,6 +723,7 @@ pub enum BindingGeometry {
 
 #[derive(Debug, Clone, Default)]
 pub struct BindingLayout {
+    pub author_whitespace: BTreeSet<u64>,
     pub offset_dimensions: BTreeMap<u64, (f64, f64)>,
     pub styles: BTreeMap<u64, BTreeMap<String, String>>,
     pub geometry: BTreeMap<u64, BindingGeometry>,
@@ -11382,7 +11383,13 @@ fn join_first_editing_line(
         {
             dom.remove_child(destination, last)?;
         }
-        let target = if source_mode != destination_mode {
+        let target = if source_mode != destination_mode
+            && state
+                .layout
+                .borrow()
+                .author_whitespace
+                .contains(&node_key(line_root))
+        {
             let span = dom.create_element("span");
             dom.set_attribute(span, "style", format!("white-space: {source_mode};"))?;
             dom.append_child(destination, span)?;
@@ -12268,14 +12275,87 @@ fn nearest_rendered_editing_block(
 
 fn insert_editing_text(state: &V8BindingState, text: &str) -> Result<(), V8BindingError> {
     let mut lines = text.split('\n');
-    replace_selection_with_text(state, lines.next().unwrap_or_default())?;
+    let first = lines.next().unwrap_or_default();
+    replace_selection_with_text(state, first)?;
+    remove_editing_placeholder_after_typing(state, first)?;
     for line in lines {
         split_editing_paragraph(state)?;
         if !line.is_empty() {
             replace_selection_with_text(state, line)?;
+            remove_editing_placeholder_after_typing(state, line)?;
         }
     }
     Ok(())
+}
+
+// Once inserted text gives a line a caret position, its trailing placeholder
+// is redundant. Keep visible breaks (including another empty line) and never
+// search outside the current rendered editing block.
+fn remove_editing_placeholder_after_typing(
+    state: &V8BindingState,
+    text: &str,
+) -> Result<(), V8BindingError> {
+    if text.is_empty() {
+        return Ok(());
+    }
+    let Some(host) = editing_host(state)? else {
+        return Ok(());
+    };
+    let Some(range) = state
+        .selection_range
+        .get()
+        .and_then(|id| state.ranges.borrow().get(&id).cloned())
+    else {
+        return Ok(());
+    };
+    let whitespace = editing_white_space(state, range.start_container)?;
+    if !editing_text_has_visible_content(text, &whitespace) {
+        return Ok(());
+    }
+    let block = nearest_rendered_editing_block(state, range.start_container, host)?;
+    let mut point = BoundaryPoint {
+        container: range.start_container,
+        offset: range.start_offset,
+    };
+    {
+        let dom = state.dom.borrow();
+        if matches!(
+            dom.arena().get(point.container)?.kind,
+            NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+        ) {
+            if point.offset != boundary_length(&dom, point.container)? {
+                return Ok(());
+            }
+            let (container, offset) = relative_boundary(&dom, point.container, true)?;
+            point = BoundaryPoint { container, offset };
+        }
+    }
+    loop {
+        let candidate = light_children(&state.dom.borrow(), point.container)?
+            .get(point.offset as usize)
+            .copied();
+        if let Some(candidate) = candidate {
+            if element_local_name(&state.dom.borrow(), candidate) != Some("br") {
+                return Ok(());
+            }
+            let after = BoundaryPoint {
+                container: point.container,
+                offset: point.offset + 1,
+            };
+            if !editing_line_has_following_content(state, after, host, &whitespace)? {
+                state
+                    .dom
+                    .borrow_mut()
+                    .remove_child(point.container, candidate)?;
+            }
+            return Ok(());
+        }
+        if point.container == block {
+            return Ok(());
+        }
+        let (container, offset) = relative_boundary(&state.dom.borrow(), point.container, true)?;
+        point = BoundaryPoint { container, offset };
+    }
 }
 
 fn editing_text_has_visible_content(data: &str, whitespace: &str) -> bool {
@@ -28760,6 +28840,7 @@ mod tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.set_layout(BindingLayout {
+            author_whitespace: BTreeSet::new(),
             offset_dimensions: BTreeMap::new(),
             styles: BTreeMap::from([(
                 node_key(probe),
@@ -29187,6 +29268,7 @@ mod tests {
                 _custom_states: &BTreeMap<NodeId, BTreeSet<String>>,
             ) -> Result<BindingLayout, String> {
                 Ok(BindingLayout {
+                    author_whitespace: BTreeSet::new(),
                     offset_dimensions: BTreeMap::new(),
                     styles: BTreeMap::from([(
                         node_key(self.node),
@@ -29483,6 +29565,7 @@ mod tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.set_layout(BindingLayout {
+            author_whitespace: BTreeSet::new(),
             offset_dimensions: BTreeMap::from([(node_key(visible), (3.4, 4.6))]),
             styles: BTreeMap::new(),
             geometry: BTreeMap::from([

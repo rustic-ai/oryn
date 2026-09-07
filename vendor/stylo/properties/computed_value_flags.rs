@@ -137,6 +137,14 @@ bitflags! {
 
         /// Whether this style uses `sibling-index()`.
         const USES_SIBLING_INDEX = 1 << 27;
+
+        /// The winning white-space-collapse value is author-specified or
+        /// inherited from an author-specified value (Oryn editing provenance).
+        const HAS_AUTHOR_WHITE_SPACE_COLLAPSE = 1 << 28;
+
+        /// The winning text-wrap-mode value is author-specified or inherited
+        /// from an author-specified value (Oryn editing provenance).
+        const HAS_AUTHOR_TEXT_WRAP_MODE = 1 << 29;
     }
 }
 
@@ -166,6 +174,8 @@ impl ComputedValueFlags {
         Self::inherited_flags()
             | Self::SHOULD_SUPPRESS_LINEBREAK
             | Self::DISPLAY_CONTENTS_IN_ITEM_CONTAINER
+            | Self::HAS_AUTHOR_WHITE_SPACE_COLLAPSE
+            | Self::HAS_AUTHOR_TEXT_WRAP_MODE
     }
 
     /// Flags that are an input to the cascade.

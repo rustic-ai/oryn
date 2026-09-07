@@ -7070,6 +7070,7 @@ impl PageState {
             Ok(Ok(output)) => output,
             Ok(Err(error)) => return Err(RuntimeError::LayoutUnavailable(error.to_string())),
             Err(_) => oryn_layout::LayoutOutput {
+                author_whitespace: Default::default(),
                 resolved_values: BTreeMap::new(),
                 offset_dimensions: BTreeMap::new(),
                 computed_styles: BTreeMap::new(),
@@ -10726,6 +10727,101 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn editing_typing_consumes_terminal_placeholders_and_keeps_visible_breaks() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://editing.example.test/placeholders",
+            "<!doctype html><div id=host contenteditable></div>",
+        )
+        .await
+        .unwrap();
+        let result = page.evaluate(r#"(() => {
+          const host = document.getElementById('host');
+          let checked = 0;
+          for (const editable of ['true','plaintext-only']) {
+            host.contentEditable = editable;
+            for (const mode of ['normal','nowrap','pre','pre-wrap','pre-line','break-spaces']) {
+              host.style.whiteSpace = mode;
+              const line = mode === 'normal' || mode === 'nowrap' ? '<br>' : '\n';
+              for (const selectAll of [false,true]) {
+                host.innerHTML = '<p><b>AB</b></p>';
+                const bold = host.firstChild.firstChild;
+                host.focus();
+                const range = document.createRange();
+                range.setStart(bold.firstChild, selectAll ? 0 : 2); range.setEnd(bold.firstChild, 2);
+                getSelection().removeAllRanges(); getSelection().addRange(range);
+                document.execCommand('insertLineBreak'); document.execCommand('insertText', false, 'a');
+                const expected = '<p><b>' + (selectAll ? '' : 'AB') + line + 'a</b></p>';
+                if (host.innerHTML !== expected) throw new Error(JSON.stringify({editable,mode,selectAll,expected,actual:host.innerHTML}));
+                document.execCommand('insertText', false, 'b');
+                if (bold.textContent !== (selectAll ? '' : 'AB') + (line === '<br>' ? '' : '\n') + 'ab') throw new Error('typing caret or formatting lost');
+                checked++;
+              }
+              for (const tail of ['<br>tail','<br><br>']) {
+                host.innerHTML = '<p><b>AB' + tail + '</b></p>';
+                host.focus();getSelection().collapse(host.firstChild.firstChild.firstChild,2);
+                document.execCommand('insertText', false, 'a');
+                if (host.innerHTML !== '<p><b>ABa' + tail + '</b></p>') throw new Error('visible line break removed');
+                checked++;
+              }
+            }
+          }
+          return String(checked);
+        })()"#).await.unwrap();
+        assert_eq!(result, "48");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_join_preserves_author_whitespace_but_not_ua_defaults() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://editing.example.test/origins",
+            "<!doctype html><style id=rules></style><div id=host contenteditable></div>",
+        )
+        .await
+        .unwrap();
+        let result = page.evaluate(r#"(() => {
+          const host = document.getElementById('host');
+          const rules = document.getElementById('rules');
+          let checked = 0;
+          for (const tag of ['div','p','blockquote']) {
+            for (const authored of [false,true]) {
+              rules.textContent = authored ? 'pre {white-space:pre}' : '';
+              for (const preOnLeft of [false,true]) {
+                for (const direction of ['backward','forward','selection']) {
+                  const leftTag = preOnLeft ? 'pre' : tag;
+                  const rightTag = preOnLeft ? tag : 'pre';
+                  host.innerHTML = '<' + leftTag + '>abc</' + leftTag + '><' + rightTag + '>def</' + rightTag + '>';
+                  const left = host.firstChild, right = host.lastChild;
+                  host.focus();
+                  const range = document.createRange();
+                  if (direction === 'backward') {
+                    range.setStart(right.firstChild, 0); range.collapse(true);
+                  } else {
+                    range.setStart(left.firstChild, 3);
+                    if (direction === 'forward') range.collapse(true);
+                    else range.setEnd(right.firstChild, 0);
+                  }
+                  getSelection().removeAllRanges(); getSelection().addRange(range);
+                  document.execCommand(direction === 'forward' ? 'forwardDelete' : 'delete');
+                  const suffix = authored && !preOnLeft ? '<span style="white-space: pre;">def</span>' : 'def';
+                  const expected = '<' + leftTag + '>abc' + suffix + '</' + leftTag + '>';
+                  if (host.innerHTML !== expected) throw new Error(JSON.stringify({tag,authored,preOnLeft,direction,actual:host.innerHTML,expected}));
+                  document.execCommand('insertText', false, 'X');
+                  if (left.textContent !== 'abcXdef') throw new Error('join caret moved');
+                  checked++;
+                }
+              }
+            }
+          }
+          return String(checked);
+        })()"#).await.unwrap();
+        assert_eq!(result, "36");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn editing_join_preserves_first_line_whitespace_and_remaining_lines() {
         let context = Browser::new().new_context();
         let page = context.new_page();
@@ -10861,12 +10957,12 @@ mod tests {
               for (const display of ['inline','block','inline-block','list-item','table-cell']) {
                 editor.style.display = display;
                 for (const test of [
-                  ['', false, 0, 0, line + '<br>', line + 'X<br>'],
+                  ['', false, 0, 0, line + '<br>', line + 'X'],
                   ['abcd', true, 0, 0, line + 'abcd', line + 'Xabcd'],
                   ['abcd', true, 2, 2, 'ab' + line + 'cd', 'ab' + line + 'Xcd'],
-                  ['abcd', true, 4, 4, 'abcd' + line + '<br>', 'abcd' + line + 'X<br>'],
+                  ['abcd', true, 4, 4, 'abcd' + line + '<br>', 'abcd' + line + 'X'],
                   ['abcd', true, 1, 3, 'a' + line + 'd', 'a' + line + 'Xd'],
-                  ['<br>', false, 0, 0, line + '<br>', line + 'X<br>']
+                  ['<br>', false, 0, 0, line + '<br>', line + 'X']
                 ]) {
                   editor.innerHTML = test[0];
                   editor.focus();

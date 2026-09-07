@@ -254,6 +254,10 @@ pub struct LayoutOutput {
     #[serde(default)]
     pub resolved_values: BTreeMap<u64, BTreeMap<String, String>>,
     pub computed_styles: BTreeMap<u64, BTreeMap<String, String>>,
+    /// Elements/text whose computed whitespace includes author-specified values.
+    /// Internal editing metadata, deliberately separate from CSSOM properties.
+    #[serde(default)]
+    pub author_whitespace: BTreeSet<u64>,
     pub geometry: BTreeMap<u64, NodeGeometry>,
     /// Untransformed border-box dimensions, including visibility-hidden boxes.
     #[serde(default)]
@@ -298,8 +302,10 @@ impl StyleEngine {
         input: &LayoutInput,
         limits: &LayoutLimits,
     ) -> Result<LayoutOutput, LayoutError> {
-        let computed_styles = stylo_computed_values(input)?;
-        compute_with_styles(input, limits, computed_styles)
+        let (computed_styles, author_whitespace) = stylo_computed_values_with_provenance(input)?;
+        let mut output = compute_with_styles(input, limits, computed_styles)?;
+        output.author_whitespace = author_whitespace;
+        Ok(output)
     }
 }
 
@@ -758,6 +764,7 @@ fn compute_with_styles(
     Ok(LayoutOutput {
         resolved_values,
         computed_styles,
+        author_whitespace: BTreeSet::new(),
         geometry,
         offset_dimensions,
         text_fragments,
@@ -899,9 +906,18 @@ fn rewrite_custom_state_selectors(stylesheet: &str) -> Cow<'_, str> {
 /// style snapshot: the live DOM remains Rust-owned by `oryn-dom`, while selector
 /// matching, origins, cascade, variables and inheritance are all resolved by
 /// Stylo rather than reconstructed by Oryn.
+#[cfg(test)]
 fn stylo_computed_values(
     input: &LayoutInput,
 ) -> Result<BTreeMap<u64, BTreeMap<String, String>>, LayoutError> {
+    stylo_computed_values_with_provenance(input).map(|(styles, _)| styles)
+}
+
+type StyloStyleProjection = (BTreeMap<u64, BTreeMap<String, String>>, BTreeSet<u64>);
+
+fn stylo_computed_values_with_provenance(
+    input: &LayoutInput,
+) -> Result<StyloStyleProjection, LayoutError> {
     let viewport = BlitzViewport::new(
         input.viewport.width.clamp(1.0, f64::from(u32::MAX)) as u32,
         input.viewport.height.clamp(1.0, f64::from(u32::MAX)) as u32,
@@ -1091,6 +1107,7 @@ fn stylo_computed_values(
     }
 
     let mut output: BTreeMap<u64, BTreeMap<String, String>> = BTreeMap::new();
+    let mut author_whitespace = BTreeSet::new();
     let mut pending = BTreeSet::new();
     for node in &input.nodes {
         let mut values = BTreeMap::new();
@@ -1101,6 +1118,13 @@ fn stylo_computed_values(
                 LayoutError::StyleTraversal(format!("missing mirror for node {}", node.id))
             })?;
             if let Some(computed) = document.resolved_primary_style(mirror) {
+                use style::computed_value_flags::ComputedValueFlags;
+                if computed.flags.intersects(
+                    ComputedValueFlags::HAS_AUTHOR_WHITE_SPACE_COLLAPSE
+                        | ComputedValueFlags::HAS_AUTHOR_TEXT_WRAP_MODE,
+                ) {
+                    author_whitespace.insert(node.id);
+                }
                 for name in COMPUTED_PROPERTIES {
                     let Ok(property) = PropertyId::parse_enabled_for_all_content(name) else {
                         continue;
@@ -1156,6 +1180,9 @@ fn stylo_computed_values(
             let Some(parent_style) = output.get(&parent).cloned() else {
                 return true;
             };
+            if author_whitespace.contains(&parent) {
+                author_whitespace.insert(*id);
+            }
             let style = output.entry(*id).or_default();
             *style = parent_style;
             if node.tag == "#text" || node.tag == "#comment" {
@@ -1175,7 +1202,7 @@ fn stylo_computed_values(
                 .insert("display".into(), "none".into());
         }
     }
-    Ok(output)
+    Ok((output, author_whitespace))
 }
 
 /// Traverse parent dependencies rather than relying on snapshot vector order.
@@ -3170,6 +3197,71 @@ mod tests {
         input.nodes[1].attributes.remove("class");
         let output = engine.compute(&input, &LayoutLimits::default()).unwrap();
         assert_eq!(output.computed_styles[&3]["color"], "rgb(0, 0, 255)");
+    }
+
+    #[test]
+    fn stylo_whitespace_provenance_follows_the_winning_cascade_and_inheritance() {
+        let mut root = node(1, None, "div", "");
+        root.children = vec![2, 4];
+        let mut pre = node(2, Some(1), "pre", "");
+        pre.children = vec![3];
+        let child = node(3, Some(2), "span", "text");
+        let sibling = node(4, Some(1), "span", "text");
+        let mut input = LayoutInput {
+            nodes: vec![child, sibling, pre, root],
+            stylesheets: Vec::new(),
+            custom_states: BTreeMap::new(),
+            focused_node: None,
+            viewport: ViewportState::default(),
+            scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light,
+            reduced_motion: false,
+            web_fonts: Vec::new(),
+        };
+        for (css, expected, mode) in [
+            ("", vec![], "pre"),
+            ("pre {white-space:pre}", vec![2, 3], "pre"),
+            ("div {white-space:pre-wrap}", vec![1, 4], "pre"),
+            ("pre {white-space:revert}", vec![], "pre"),
+            (
+                "pre {white-space:pre-wrap} pre {white-space:revert}",
+                vec![],
+                "pre",
+            ),
+            (
+                "@layer base, override; @layer base {pre {white-space:pre-wrap}} @layer override {pre {white-space:revert-layer}}",
+                vec![2, 3],
+                "pre-wrap",
+            ),
+            (
+                "div {white-space:pre-wrap} pre {white-space:inherit}",
+                vec![1, 2, 3, 4],
+                "pre-wrap",
+            ),
+            ("pre {white-space:initial}", vec![2, 3], "normal"),
+            ("pre {text-wrap-mode:wrap}", vec![2, 3], "pre-wrap"),
+            (
+                "pre {--ws:pre-wrap; white-space:var(--ws)}",
+                vec![2, 3],
+                "pre-wrap",
+            ),
+        ] {
+            input.stylesheets = vec![css.into()];
+            let output = compute(&input, &LayoutLimits::default()).unwrap();
+            assert_eq!(
+                output.author_whitespace,
+                expected.into_iter().collect(),
+                "{css}"
+            );
+            assert_eq!(output.computed_styles[&2]["white-space"], mode, "{css}");
+        }
+        input.nodes[2]
+            .attributes
+            .insert("style".into(), "white-space:normal".into());
+        input.stylesheets = vec!["pre {white-space:pre !important}".into()];
+        let output = compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(output.computed_styles[&2]["white-space"], "pre");
+        assert_eq!(output.author_whitespace, BTreeSet::from([2, 3]));
     }
 
     #[test]
