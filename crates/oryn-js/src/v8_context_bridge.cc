@@ -92,6 +92,7 @@ static v8::Intercepted window_index_define(
 }
 extern "C" void oryn_v8_set_window_index_handlers(
     v8::ObjectTemplate* object_template, const OrynCrossContextHandlers* h) {
+  object_template->SetWindowProxyStructuralSemantics();
   object_template->SetHandler(v8::IndexedPropertyHandlerConfiguration(
       h->indexed_getter, window_index_set, h->indexed_query,
       h->indexed_deleter, h->indexed_enumerator, window_index_define,

@@ -13,6 +13,7 @@
     "dedicated_worker_take_callback",
     "dedicated_worker_terminate_callback",
     "dedicated_worker_emit_callback",
-    "dedicated_worker_close_callback"
+    "dedicated_worker_close_callback",
+    "import_scripts_callback"
   ]
 }

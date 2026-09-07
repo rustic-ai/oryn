@@ -479,11 +479,23 @@ other prototype changes fail. Protected property reads still throw SecurityError
 The [structural evidence](CONFORMANCE-NATIVE-WINDOW-STRUCTURAL-2026-09-06.json)
 records nine context passes, 131 binding passes (two existing ignores), and 283/296
 native outcomes with all 13 prior nonpass IDs and reasons retained. Navigation
-checks preserve global-proxy identity and expose fresh Window state. This engine
-patch is not installed in production profiles: the unpatched engine still fails
-the new normative structural test. Reproducible profile integration, synchronized
-headers, snapshots, signed-worker and sandbox/profile gates must precede adoption.
+checks preserve global-proxy identity and expose fresh Window state. That isolated
+stage did not install the patch in production profiles; the upstream unpatched
+engine fails the normative structural test. Its qualification alone did not
+establish reproducible profiles, signed-worker or sandbox/profile gates.
 The full baseline and four production frame regressions remain unchanged.
+
+The opt-in is now integrated into the reproducible profile builder and native
+bridge, with hash-checked synchronized public headers. The canonical core-full
+build generated a fresh snapshot and worker; all artifact hashes and reported
+fingerprints match. [Profile evidence](CONFORMANCE-NATIVE-WINDOW-PROFILE-2026-09-06.json)
+records nine context passes, 131 binding passes (two existing ignores), and 284/296
+native outcomes. The missing importScripts entry in the external-reference
+manifest is corrected; all 12 remaining native nonpass IDs and reasons match the
+prior candidate. Signed sandbox verification, core-lite/profile equivalence and
+the security update policy's remaining release gates are pending. Production
+frame adoption and the four WPT regressions remain open; this is not a new full
+conformance result or a release qualification.
 
 ## Immediate next execution sequence
 

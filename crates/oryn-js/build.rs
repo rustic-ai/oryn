@@ -11,6 +11,15 @@ fn verify_v8_api_headers() {
         &fs::read_to_string(root.join("manifest.json")).expect("V8 API header manifest"),
     )
     .expect("valid V8 API header manifest");
+    let patch = Path::new("../../patches/v8/window-proxy-structural-semantics.patch");
+    assert_eq!(
+        digest(patch),
+        manifest["v8_patch_sha256"]
+            .as_str()
+            .expect("qualified V8 patch hash"),
+        "V8 public headers must match the qualified engine patch"
+    );
+    println!("cargo:rerun-if-changed={}", patch.display());
     for (name, expected) in manifest["headers"]
         .as_object()
         .expect("V8 API header hashes")

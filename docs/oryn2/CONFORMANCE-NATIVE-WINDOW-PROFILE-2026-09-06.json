@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "status": "core_full_candidate_native_validation_passed_with_existing_nonpasses",
+  "source_base": "214d7d0",
+  "source_files": {
+    "crates/oryn-js/src/v8_bindings.rs": "dbca2d9e34c58fbb2375ea5c833c11f95e98a4db68b66c682c4133f017494903",
+    "crates/oryn-js/src/v8_bindings/window_proxy.rs": "e0f5b4eeb034ff7d41713e3aab458aa3bae99a2449cf267415af39aef754c180",
+    "crates/oryn-js/src/v8_bindings/global_events.rs": "c56c47182edcf8403d8f01f8966035aa10a4ff698c32677482d7e98d174c9125",
+    "crates/oryn-native/src/host.rs": "7fb299b6c12458a1e72db40bdae44c15f1076bb05fcf44c4782709da989a4597",
+    "crates/oryn-native/src/rust_executable.rs": "ff726ecc69402dc4ec009064abe955d9d3fd6b7b68cd63c4307563564720cc19",
+    "crates/oryn-js/src/v8_context_bridge.rs": "6806e1fb855dfc48c0b587afaea3186033d6fba9de67d25f1755fdd05b9af0fa",
+    "crates/oryn-js/src/v8_context_bridge.cc": "896b38b121c76f27f42e96fb449c54e9511762315c062d56b3994ebf5813275d",
+    "crates/oryn-native/build.rs": "172eabc6f807257a9b086f8526a4f779c9d47472d29566555cdc84c6ac13dd46",
+    "crates/oryn-js/build.rs": "01c4c234919b13705bca57a1248bfde5e622c5a1824381440d4cb63baf388cb0",
+    "vendor/v8-api/manifest.json": "1dc7b475e9b477c43166542ed2f3c6c98af6f9b3e78c3bf86dfa351a795eba77",
+    "Cargo.lock": "76a2cd7c8ef6782d95c751482175188453105e2bb5ddcc190b94b9300c677980",
+    "crates/oryn-native/assets/external-references-v1.json": "9a7f55016d5cbbfdeda9a9f112b8cdcb082aa24dc5ac41700a2dac918ebac83d",
+    "scripts/build-v8-runtime-profile.sh": "2047b9131c3d25ee5ca1222e0b96cbcdda91512e844232627d702f39f3acabab",
+    "scripts/build-sandboxed-worker.sh": "aaea64af4611e414d6dad89ddd6599fc71869ccb626db6cb269864a3182779b4",
+    "scripts/apply-v8-window-patch.py": "41b0470fa8bd661f24a9b642cf0cc6539b8251fea0e4323863b513a901eb6a7f",
+    "vendor/v8-api/include/v8-template.h": "f59fbd39ca391135bfc8d41bf5b8fde62f7f08f2e0b2fb351bac3dde4941bd8f",
+    "patches/v8/window-proxy-structural-semantics.patch": "6610b064bb5507125696bb7208d7fbef3b829972f2fcd5d9ebc74486ba874ff0"
+  },
+  "profile": {
+    "schema_version": 4,
+    "v8_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+    "v8_patch_sha256": "6610b064bb5507125696bb7208d7fbef3b829972f2fcd5d9ebc74486ba874ff0",
+    "profile": "core-full",
+    "target": "aarch64-apple-darwin",
+    "v8_version": "150.4.0",
+    "rusty_v8_revision": "5c15a6995c9bb4bacd3e341b59fff32c909c80bf",
+    "icu_revision": "ee5f27adc28bd3f15b2c293f726d14d2e336cbd5",
+    "v8_heap_sandbox": true,
+    "pointer_compression": true,
+    "archive_path": "/Users/rohit/Work/oryn2/oryn/target/v8-window-structural-artifacts/librusty_v8-core-full-e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4.a",
+    "archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "archive_size_bytes": 150882664,
+    "binding_path": "/Users/rohit/Work/oryn2/oryn/target/v8-window-structural-artifacts/src_binding-core-full-2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28.rs",
+    "binding_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "binding_size_bytes": 39824,
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "icu_data_size_bytes": 10822192,
+    "icu_filter_sha256": null,
+    "break_iterator_manifest_sha256": null,
+    "startup_snapshot_path": "/Users/rohit/Work/oryn2/oryn/target/v8-window-structural-artifacts/oryn-startup-core-full-abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7.blob",
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "startup_snapshot_size_bytes": 395464,
+    "external_references_path": "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/assets/external-references-v1.json",
+    "external_references_sha256": "9a7f55016d5cbbfdeda9a9f112b8cdcb082aa24dc5ac41700a2dac918ebac83d",
+    "external_references_size_bytes": 504,
+    "worker_path": "/Users/rohit/Work/oryn2/oryn/target/v8-core-full/release/oryn-page-worker",
+    "worker_sha256": "5e25c57e53cd0f92a270b04170c8b0120530ece3c4a69237e49f69511a555fe5",
+    "worker_size_bytes": 52916240,
+    "gn_args": "v8_enable_sandbox=true v8_enable_pointer_compression=true v8_enable_external_code_space=true"
+  },
+  "profile_artifact_checks": {
+    "all_file_hashes_and_sizes_match": true,
+    "worker_reported_icu_snapshot_and_reference_hashes_match": true,
+    "patched_public_headers_match_engine_source": 45,
+    "all_20_submodules_at_pinned_revisions": true,
+    "generated_rust_binding_bytes_unchanged": true
+  },
+  "native_context_tests": {
+    "passed": 9,
+    "failed": 0
+  },
+  "native_matrix": {
+    "total": 296,
+    "passed": 284,
+    "new_nonpasses": [],
+    "resolved": [
+      "host::tests::startup_external_reference_manifest_matches_runtime_order"
+    ],
+    "all_12_remaining_reasons_match": true,
+    "nonpasses": [
+      {
+        "test": "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+        "reason": "called `Result::unwrap()` on an `Err` value: Execution(\"ReferenceError: dedicated is not defined\\n    at <anonymous>:1:70\")"
+      },
+      {
+        "test": "executable::tests::editing_command_state_reports_paragraph_and_alignment_values",
+        "reason": "assertion `left == right` failed\n  left: \"div|left|true||true|true|p|left|false\"\n right: \"div|left|true||true|true|p|center|true\""
+      },
+      {
+        "test": "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm",
+        "reason": "assertion `left == right` failed\n  left: \"pending\"\n right: \"https://frame.example.test/source|complete\""
+      },
+      {
+        "test": "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit",
+        "reason": "assertion `left == right` failed\n  left: \"pending\"\n right: \"true|true|https://child.example.test|reply:early\""
+      },
+      {
+        "test": "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics",
+        "reason": "WPT did not publish a completion result"
+      },
+      {
+        "test": "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks",
+        "reason": "assertion failed: started.elapsed() >= Duration::from_millis(10)"
+      },
+      {
+        "test": "runtime::tests::about_blank_is_internal_and_history_safe",
+        "reason": "assertion `left == right` failed\n  left: Some(Commit)\n right: Some(Load)"
+      },
+      {
+        "test": "runtime::tests::native_navigation_checks_redirects_and_supports_history",
+        "reason": "diagnostic timeout 15"
+      },
+      {
+        "test": "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action",
+        "reason": "assertion failed: matches!(error, RuntimeError::StaleSemanticRef)"
+      },
+      {
+        "test": "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report",
+        "reason": "assertion `left == right` failed\n  left: \"[\\\"script-src:report\\\",\\\"script-src:report\\\"]\"\n right: \"[\\\"script-src:report\\\"]\""
+      },
+      {
+        "test": "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages",
+        "reason": "assertion `left == right` failed\n  left: 3\n right: 2"
+      },
+      {
+        "test": "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported",
+        "reason": "assertion `left == right` failed\n  left: \"generated binding XMLHttpRequest.synchronous requests is not implemented\"\n right: \"synchronous main-thread XHR is unsupported\""
+      }
+    ],
+    "binary_sha256": "4065713b986ca563e257a7bf6e595ff73f898ea1f123fbc8a3b4c09229fd908d"
+  },
+  "bindings": {
+    "passed": 131,
+    "failed": 0,
+    "ignored": 2
+  },
+  "checks": {
+    "strict_js_native_clippy": "passed",
+    "generated_webidl_bindings": "passed",
+    "rustfmt": "passed",
+    "static_security_controls": {
+      "passed": 51
+    }
+  },
+  "raw_artifacts": {
+    "artifacts/native-window-profile/build.log": "5b96a37eb2ca33d04d9e9a0d455e86594a64aca6e301c8c2b91af8ba87a5713d",
+    "artifacts/native-window-profile/runtime.json": "bf964611c83b86bf01852e25bffdb20a1aef586875eced3b45ddf2b19a974817",
+    "artifacts/native-window-profile/contexts.log": "65f0988ea9735b5ac895041c915d941c932d588342de4e3eed6ad22747e7f486",
+    "artifacts/native-window-profile/native-matrix.json": "15aabb11372b94bc0f3e842b2f1e4e79ac0dd1462c25a246e140293cf0964da2",
+    "artifacts/native-window-profile/bindings.log": "1259a787bc5cdd30c8fe11ac0c71727ea9989536d8379b03613700a348439b68",
+    "artifacts/native-window-profile/clippy.log": "154f2ab75ff5c35244c29c429be0f7aefbff8de63a0813414272fa5ed681d2ed",
+    "artifacts/native-window-profile/profile.json": "3269098e49e2cde8fcde7d1523261ccb53e869c0f0b629ccee3f0d8e74c3cd25"
+  },
+  "full_conformance_baseline": {
+    "source": "5499cc739523caa7958369b2378f28ef0f20cd9d",
+    "passed": 2561,
+    "total": 4022,
+    "new_full_run": false
+  },
+  "qualification_remaining": [
+    "Signed sandboxed worker and OS sandbox-denial verification",
+    "Core-lite build and complete profile-equivalence gates",
+    "Remaining security/fuzz/release gates in security/v8-update-policy.json",
+    "Twelve native nonpasses",
+    "Production native frame adoption and four pinned frame assertion regressions",
+    "All remaining workstreams and two complete 4022/4022 runs on one frozen candidate"
+  ]
+}

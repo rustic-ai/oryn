@@ -1145,6 +1145,16 @@ class V8_EXPORT ObjectTemplate : public Template {
   void SetImmutableProto();
 
   /**
+   * Opt a Context global template into HTML WindowProxy structural semantics.
+   * For the resulting global proxy, preventing extensions fails, and a
+   * cross-origin prototype update succeeds only when the requested prototype
+   * is null (its cross-origin observable prototype). Other objects and global
+   * templates retain ordinary V8 behavior. Configure before Context creation.
+   * The embedder must also configure immutable prototypes and access checks.
+   */
+  void SetWindowProxyStructuralSemantics();
+
+  /**
    * Support for TC39 "dynamic code brand checks" proposal.
    *
    * This API allows to mark (& query) objects as "code like", which causes

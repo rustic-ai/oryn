@@ -1,15 +1,20 @@
 # WindowProxy engine experiment
 
 `window-proxy-structural-semantics.patch` adds an opt-in public ObjectTemplate
-method to the pinned V8 revision recorded in the adjacent JSON manifest. It is
-not yet part of the production runtime profile and is not qualified for release.
+method to the pinned V8 revision recorded in the adjacent JSON manifest. The
+runtime profile builder now applies it and records its hash. Release qualification
+remains incomplete.
 
 The isolated candidate passes all nine native context tests and 131 binding tests
 (two existing ignores). Its complete native matrix is 283/296, retaining the same
 13 prior nonpasses and failure reasons. The
 [qualification evidence](../../docs/oryn2/CONFORMANCE-NATIVE-WINDOW-STRUCTURAL-2026-09-06.json)
-records exact source and archive hashes. Profile integration and release gates
-remain pending.
+records exact source and archive hashes. The subsequent
+[core-full profile validation](../../docs/oryn2/CONFORMANCE-NATIVE-WINDOW-PROFILE-2026-09-06.json)
+uses the canonical build and a fresh snapshot: nine context passes, 131 binding
+passes and 284/296 native outcomes. Correcting the external-reference manifest
+resolves one prior failure. Signed sandbox, core-lite/profile equivalence and
+remaining security/release gates are still required.
 
 V8's public failed-access callback cannot implement HTML's cross-origin
 `[[SetPrototypeOf]]` and `[[PreventExtensions]]` completions: it must throw, and

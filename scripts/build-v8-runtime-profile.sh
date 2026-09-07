@@ -19,13 +19,18 @@ oryn_target_dir="$repo_root/target/v8-$profile"
 
 mkdir -p "$output"
 output="$(cd "$output" && pwd)"
-if [[ ! -d "$source_dir/.git" ]]; then
+if [[ ! -e "$source_dir/.git" ]]; then
   git clone --depth 1 --branch "v$rusty_v8_version" \
     https://github.com/denoland/rusty_v8.git "$source_dir"
 fi
 test "$(git -C "$source_dir" rev-parse HEAD)" = "$rusty_v8_revision"
 git -C "$source_dir" submodule update --init --recursive --depth 1
 test "$(git -C "$source_dir/third_party/icu" rev-parse HEAD)" = "$icu_revision"
+v8_revision="ac1e23989121713ca642f6650b34deff7b686896"
+test "$(git -C "$source_dir/v8" rev-parse HEAD)" = "$v8_revision"
+python3 "$repo_root/scripts/apply-v8-window-patch.py" "$source_dir/v8"
+v8_patch_sha="$(shasum -a 256 "$repo_root/patches/v8/window-proxy-structural-semantics.patch" | awk '{print $1}')"
+
 
 extra_gn_args="v8_enable_sandbox=true v8_enable_pointer_compression=true v8_enable_external_code_space=true"
 icu_source="$source_dir/third_party/icu/common/icudtl.dat"
@@ -120,6 +125,8 @@ jq -n \
   --arg v8 "$rusty_v8_version" \
   --arg rusty_v8_revision "$rusty_v8_revision" \
   --arg icu_revision "$icu_revision" \
+  --arg v8_revision "$v8_revision" \
+  --arg v8_patch_sha256 "$v8_patch_sha" \
   --arg archive "$archive_out" \
   --arg archive_sha256 "$archive_sha" \
   --argjson archive_size "$archive_size" \
@@ -140,6 +147,6 @@ jq -n \
   --arg worker_sha256 "$worker_sha" \
   --argjson worker_size "$worker_size" \
   --arg gn_args "$extra_gn_args" \
-  '{schema_version:3,profile:$profile,target:$target,v8_version:$v8,rusty_v8_revision:$rusty_v8_revision,icu_revision:$icu_revision,v8_heap_sandbox:true,pointer_compression:true,archive_path:$archive,archive_sha256:$archive_sha256,archive_size_bytes:$archive_size,binding_path:$binding,binding_sha256:$binding_sha256,binding_size_bytes:$binding_size,icu_data_sha256:$icu_sha256,icu_data_size_bytes:$icu_size,icu_filter_sha256:(if $icu_filter_sha256 == "" then null else $icu_filter_sha256 end),break_iterator_manifest_sha256:(if $break_iterator_manifest_sha256 == "" then null else $break_iterator_manifest_sha256 end),startup_snapshot_path:$snapshot,startup_snapshot_sha256:$snapshot_sha256,startup_snapshot_size_bytes:$snapshot_size,external_references_path:$external_references,external_references_sha256:$external_references_sha256,external_references_size_bytes:$external_references_size,worker_path:$worker,worker_sha256:$worker_sha256,worker_size_bytes:$worker_size,gn_args:$gn_args}' \
+  '{schema_version:4,v8_revision:$v8_revision,v8_patch_sha256:$v8_patch_sha256,profile:$profile,target:$target,v8_version:$v8,rusty_v8_revision:$rusty_v8_revision,icu_revision:$icu_revision,v8_heap_sandbox:true,pointer_compression:true,archive_path:$archive,archive_sha256:$archive_sha256,archive_size_bytes:$archive_size,binding_path:$binding,binding_sha256:$binding_sha256,binding_size_bytes:$binding_size,icu_data_sha256:$icu_sha256,icu_data_size_bytes:$icu_size,icu_filter_sha256:(if $icu_filter_sha256 == "" then null else $icu_filter_sha256 end),break_iterator_manifest_sha256:(if $break_iterator_manifest_sha256 == "" then null else $break_iterator_manifest_sha256 end),startup_snapshot_path:$snapshot,startup_snapshot_sha256:$snapshot_sha256,startup_snapshot_size_bytes:$snapshot_size,external_references_path:$external_references,external_references_sha256:$external_references_sha256,external_references_size_bytes:$external_references_size,worker_path:$worker,worker_sha256:$worker_sha256,worker_size_bytes:$worker_size,gn_args:$gn_args}' \
   > "$output/$profile-manifest.json"
 printf '%s\n' "$output/$profile-manifest.json"
