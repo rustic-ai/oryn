@@ -2,12 +2,12 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> Clean signed-worker baseline `8c88350`: **2,567/4,022**, with
-> **5 new file passes, 0 lost file passes, and 1,455 remaining failures**
-> versus `19feaac` at 2,562/4,022.
+> Clean signed-worker baseline `728688c`: **2,570/4,022**, with
+> **5 new file passes, 2 lost file passes, and 1,452 remaining failures**
+> versus `8c88350` at 2,567/4,022.
 
-This candidate replaces writable computed-style snapshots with native readonly
-declarations and live value reads. The full audit verifies all 4,022 unique IDs,
+This candidate resolves hidden descendants through Stylo and exposes applicable
+untransformed used dimensions through computed-style declarations. The full audit verifies all 4,022 unique IDs,
 passing harness completions, frozen source and binary hashes, and unchanged
 sandbox boundaries and resource limits. Stylo remains the CSS engine.
 
@@ -17,22 +17,23 @@ sandbox boundaries and resource limits. Stylo remains the CSS engine.
 | WebIDL | 30/58 |
 | accname | 15/19 |
 | css/css-cascade | 45/97 |
-| css/cssom | 35/190 |
+| css/cssom | 40/190 |
 | css/selectors | 160/277 |
 | dom | 382/662 |
-| editing | 118/704 |
+| editing | 116/704 |
 | html/browsers/history | 30/136 |
 | referrer-policy | 1,383/1,391 |
 | wai-aria | 28/32 |
 
-[Baseline evidence](CONFORMANCE-COMPUTED-STYLE-BASELINE-2026-09-07.json) records every file delta and artifact hash.
+[Baseline evidence](CONFORMANCE-USED-DIMENSIONS-BASELINE-2026-09-07.json) records every file delta and artifact hash.
 The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) uses this single
-complete run. The assertion comparison records 24 corrected assertions,
-no observed pass-to-fail changes, and seven unresolved historical Range assertion
-names. Five history-name changes were verified as fixture-port renames; three
-historical Range names reappeared as passing. Four historical frame regressions
-remain. No timing cause is inferred from missing names.
-Native MessagePort work and the next hidden-subtree style fix remain isolated.
+complete run. The assertion comparison records 5 corrected assertions,
+6 observed pass-to-fail changes, and 9 cumulative unresolved
+missing historical assertion names. Four older frame regressions and six new
+editing assertion regressions remain. The two lost files concern typing into
+input and textarea controls after an event handler hides their parent. No timing
+cause is inferred from missing assertion names.
+Native MessagePort work and the new inline CSSOM declaration batch remain isolated.
 
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.

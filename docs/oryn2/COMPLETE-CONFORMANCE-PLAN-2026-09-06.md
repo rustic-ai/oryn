@@ -32,17 +32,18 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The clean **complete full baseline** at `8c88350` is **2,567/4,022**, with
-1,455 failures: 5 gains and 0 lost file passes versus `19feaac` at 2,562/4,022.
+The clean **complete full baseline** at `728688c` is **2,570/4,022**, with
+1,452 failures: 5 gains and 2 lost file passes versus `8c88350` at 2,567/4,022.
 Exact inventory coverage, passing completions, source and binary hashes, and
-unchanged limits were independently checked in the [computed-style baseline](CONFORMANCE-COMPUTED-STYLE-BASELINE-2026-09-07.json).
-The native computed-style declarations now enforce readonly behavior and read
-current layout values. The comparison records 24 corrected assertions and
-0 observed pass-to-fail changes. 7 historical passing assertion names
-remain absent and unresolved; 4 historical regressions remain observed failing.
+unchanged limits were independently checked in the [used-dimensions baseline](CONFORMANCE-USED-DIMENSIONS-BASELINE-2026-09-07.json).
+Stylo now resolves hidden descendant styles, and computed-style declarations read
+applicable untransformed layout dimensions. The comparison records 5 corrected assertions and
+6 observed pass-to-fail changes. 9 historical passing assertion names
+remain absent and unresolved; four older frame regressions and six new editing
+assertion regressions remain observed failing.
 Missing names and intermittent outcomes require investigation; no timing cause
-is inferred from this run. Native MessagePort work and the next hidden-subtree
-Stylo fix are not included in the candidate.
+is inferred from this run. Native MessagePort work and the new inline CSSOM declaration
+batch are not included in the candidate.
 
 The [historical observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
 retains an earlier complete run. That earlier assertion audit records 25 corrected
@@ -136,10 +137,10 @@ Important concentration and dependencies:
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 
-**Baseline completed:** clean source `8c88350`, signed worker
-`15b67c8e5073a5600231a0ae65aa2560b4a790d43ca0201b85677c280debc97f`,
-ledger `conformance-worker-full-native-computed-style-8c88350.json`. All 4,022 IDs and passing
-completions verified; all 1,455 failures routed. The initial resource batch has
+**Baseline completed:** clean source `728688c`, signed worker
+`404f766f189e141fe8bad5a454aa9a96e6c6d73fbd98623b473c8e7025908276`,
+ledger `conformance-worker-full-cssom-used-dimensions-728688c.json`. All 4,022 IDs and passing
+completions verified; all 1,452 failures routed. The initial resource batch has
 reproducible scaling and GC diagnostics recorded in the
 [foundation report](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 The procedure below remains required for subsequent complete candidates.
@@ -244,9 +245,9 @@ single patch. Shared prerequisites may resolve failures in several workstreams.
 | W2: bindings, interfaces and realms | 38 | `oryn-webidl`, `oryn-js` generated registry | Real required interfaces with correct conversions, brands, descriptors and realm behavior |
 | W3: events, input and task scheduling | 80 | `oryn-js`, native scheduler/default actions | Correct event paths, ordering, activation and cancellation across required environments |
 | W4: browsing contexts, history and referrer | 114 | Native runtime/context service and bindings | Document activation and session history with correct origin, realm and policy behavior |
-| W5: CSSOM | 155 | Native stylesheet owner, generated CSSOM bindings, Stylo adapter | Live rule objects, editing, serialization, ownership and exceptions |
+| W5: CSSOM | 150 | Native stylesheet owner, generated CSSOM bindings, Stylo adapter | Live rule objects, editing, serialization, ownership and exceptions |
 | W6: selectors and cascade | 169 | `oryn-layout`, Stylo/Blitz adapters | Correct tree/state/mode inputs, scope/cascade semantics and mutation invalidation |
-| W7: editing | 586 | Native editing algorithms, Range/Selection and input | Correct DOM transformations, selection and input-event behavior across every variant |
+| W7: editing | 588 | Native editing algorithms, Range/Selection and input | Correct DOM transformations, selection and input-event behavior across every variant |
 | W8: IndexedDB | 115 | Storage host, structured clone, JS transaction/task bridge | Correct keys, transactions, cursor scheduling, abort/upgrade and origin isolation |
 | W9: accessibility semantics | 8 | Native semantic projection with DOM/style inputs | Correct generated-content names, role resolution, reflection and invalidation |
 
@@ -519,8 +520,10 @@ records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 
-1. Validate the isolated hidden-subtree fix against the pinned CSSOM failures:
-   resolve each descendant through Stylo, then prove selected WPT gains before
+1. Validate the isolated Stylo-backed inline declaration batch against pinned
+   CSSOM failures, including native mutation, parsing, readback and indexed-access
+   regressions. Restore the two lost editing files by diagnosing hidden-parent
+   input eligibility. Prove selected WPT gains and regression recovery before
    integrating. Keep MessagePort work parked until a pinned failure needs it.
 2. Prioritize shared causes in the current failing ledger. Each batch must name
    affected pinned IDs, preserve existing passes, and deliver signed-worker
