@@ -37,17 +37,18 @@ The later text-document candidate `2192207` has a complete selected DOM audit:
 lost file passes, and zero lost or missing previously passing assertions.
 [Selected evidence](CONFORMANCE-TEXT-DOCUMENTS-2026-09-07.json) binds this result
 to the signed candidate and unchanged profile. This is not a new full-inventory
-score. Top-level MIME dispatch, media documents, JavaScript-URL documents, and
+score. Top-level MIME dispatch, audio/video documents, JavaScript-URL documents, and
 XHR document responses remain open.
 
-The latest **complete full measurement** at `da9959f` is **2,621/4,022 (65.2%)**,
-with 1,401 failures: six gains and no lost file passes versus `38813e5` (2,615).
-The [measurement](CONFORMANCE-DOM-BOUNDARIES-BASELINE-2026-09-07.json)
-verifies exact coverage, passing completions, frozen hashes, and unchanged limits.
-Twenty-one editing assertion regressions and twenty-one missing prior passing
-CharacterData Range assertions remain open; five history names were reconciled as
-server-port changes. The candidate is not regression-free. Next work must resolve
-these regressions and Range execution limits while continuing all workstreams.
+The latest **complete full measurement** at `12a64cb` is **2,625/4,022 (65.3%)**,
+with 1,397 failures: six MIME gains and two history losses versus `da9959f` (2,621).
+The [measurement](CONFORMANCE-MIME-BASELINE-2026-09-07.json) verifies exact coverage,
+passing completions, frozen hashes, and unchanged limits. Six prior passing
+assertions are missing from the two history failures; five port-dependent names
+were reconciled by complete normalized assertion multisets. No observed assertion
+pass-to-fail changes were found against that baseline. Earlier editing/frame
+regressions remain open. Fix the history navigation regression next, then continue
+MIME integration and all remaining workstreams. This is not a release candidate.
 
 The [historical observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
 retains an earlier complete run. That earlier assertion audit records 25 corrected
@@ -63,8 +64,8 @@ first-error text does not establish a root cause. No ID is silently discarded.
 
 | Root | Latest evidence used for planning | Open executions |
 |---|---|---:|
-| DOM | Latest full measurement | 275 |
-| Editing | Latest full measurement | 584 |
+| DOM | Latest full measurement | 269 |
+| Editing | Latest full measurement | 580 |
 | CSS | Clean full baseline | 283 |
 | IndexedDB | Clean full baseline | 115 |
 | HTML | Clean full baseline | 106 |
@@ -141,10 +142,10 @@ Important concentration and dependencies:
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 
-**Measurement completed:** clean source `da9959f`, signed worker
-`8ee6465a656c0353fe32b6834940a2aaf8552b435120907af38f13258a0e4f40`,
-ledger `conformance-worker-full-dom-boundaries-da9959f.json`. All 4,022 IDs and passing
-completions verified; all 1,401 failures routed. Assertion regressions and missing
+**Measurement completed:** clean source `12a64cb`, signed worker
+`34764c8fcd54cabc6e303e12d4d71cb55867aaa4f9879078e094eb2687bc3dbf`,
+ledger `conformance-worker-full-dom-boundaries-12a64cb.json`. All 4,022 IDs and passing
+completions verified; all 1,397 failures routed. Assertion regressions and missing
 coverage remain open as recorded above. The initial resource batch has
 reproducible scaling and GC diagnostics recorded in the
 [foundation report](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).

@@ -2,20 +2,19 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> Latest complete signed-worker measurement `da9959f`: **2,621/4,022 (65.2%)**.
-> **6 new file passes, no lost file passes, and 1,401 remaining failures** versus `38813e5`.
+> Latest complete signed-worker measurement `12a64cb`: **2,625/4,022 (65.3%)**.
+> **6 new file passes, 2 lost file passes, and 1,397 remaining failures** versus `da9959f`.
 
-Four justification and two Location executions now pass. The runner preserves
-stateful upstream variants without internal splitting. Justification uses computed
-alignment and range-preserving wrappers. Stylo remains the CSS engine.
+Text and image frame documents now preserve their response MIME types. Six
+Document.contentType executions pass. Stylo remains the CSS engine.
 
 The audit verifies all 4,022 unique IDs, passing harness completions, frozen source
-and binary hashes, and unchanged sandbox boundaries and limits. This is not a
-regression-free candidate: 21 observed editing assertion regressions remain.
-Twenty-one prior passing assertions are missing from incomplete CharacterData
-Range runs (appendData: 6, dataChange: 6, replaceData: 9). Five additional missing
-history names were reconciled by matching full assertion name/status multisets
-after normalizing only the test server port.
+and binary hashes, and unchanged sandbox boundaries and limits. This candidate
+has two history regressions: `pushState` and `replaceState` before load can end on
+a 404 page. Their six formerly passing assertions are missing. Five additional
+missing names were reconciled by matching complete assertion name/status multisets
+after normalizing only the test server port. No observed assertion pass-to-fail
+changes were found against `da9959f`; earlier editing/frame gaps remain open.
 
 | Root | Passed / required |
 |---|---:|
@@ -25,15 +24,15 @@ after normalizing only the test server port.
 | css/css-cascade | 47/97 |
 | css/cssom | 73/190 |
 | css/selectors | 161/277 |
-| dom | 387/662 |
+| dom | 393/662 |
 | editing | 124/704 |
-| html/browsers/history | 32/136 |
+| html/browsers/history | 30/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-[Measurement evidence](CONFORMANCE-DOM-BOUNDARIES-BASELINE-2026-09-07.json) records
+[Measurement evidence](CONFORMANCE-MIME-BASELINE-2026-09-07.json) records
 results, hashes, gains, regressions, and limitations. The
-[failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,401
+[failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,397
 open executions from this single full run. Historical missing assertion names and
 older frame regressions remain open. Native MessagePort work remains isolated.
 Complete conformance is not achieved.
