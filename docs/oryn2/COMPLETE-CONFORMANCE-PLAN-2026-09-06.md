@@ -32,14 +32,15 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The clean **complete full baseline** at `6ee4710` is **2,608/4,022 (64.8%)**,
-with 1,414 failures: 10 gains and no lost file passes versus `450dd3e`.
-The [page-rule baseline](CONFORMANCE-PAGE-RULES-BASELINE-2026-09-07.json) verifies
-exact coverage, passing completions, frozen hashes, and unchanged resource limits.
-It records 248 corrected assertions, no observed assertion regressions, and five
-verified history names differing only in server port. Older historical missing
-names and frame regressions remain open. Editing commands and shared Range
-ownership are the next isolated implementation batch, not part of this score.
+The latest **complete full measurement** at `38813e5` is **2,615/4,022 (65.0%)**,
+with 1,407 failures: seven gains and no lost file passes versus `6ee4710` (2,608).
+The [DOM-boundary measurement](CONFORMANCE-DOM-BOUNDARIES-BASELINE-2026-09-07.json)
+verifies exact coverage, passing completions, frozen hashes, and unchanged limits.
+Three assertion regressions and seventeen missing prior passing assertions remain
+open; five history names were reconciled as server-port changes. The candidate is
+not regression-free. Selected surroundContents diagnostics pass, but the full file
+exceeds its wall-time limit. Next work must resolve the justification and Location
+regressions and Range execution limits while continuing the broader workstreams.
 
 The [historical observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
 retains an earlier complete run. That earlier assertion audit records 25 corrected
@@ -55,8 +56,8 @@ first-error text does not establish a root cause. No ID is silently discarded.
 
 | Root | Latest evidence used for planning | Open executions |
 |---|---|---:|
-| DOM | Clean full baseline | 280 |
-| Editing | Clean full baseline | 586 |
+| DOM | Latest full measurement | 275 |
+| Editing | Latest full measurement | 584 |
 | CSS | Clean full baseline | 283 |
 | IndexedDB | Clean full baseline | 115 |
 | HTML | Clean full baseline | 106 |
@@ -133,10 +134,11 @@ Important concentration and dependencies:
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 
-**Baseline completed:** clean source `6ee4710`, signed worker
-`4a4ff965bdb4ef5249b8d4c1bfacbb98eacb80df12d57fdb4a5b019d427d0c94`,
-ledger `conformance-worker-full-page-rules-6ee4710.json`. All 4,022 IDs and passing
-completions verified; all 1,414 failures routed. The initial resource batch has
+**Measurement completed:** clean source `38813e5`, signed worker
+`e7f0f5f20bc0c0d05d60d398a7bae8a3639d897ddeb1323ec1aeabef12da5c07`,
+ledger `conformance-worker-full-dom-boundaries-38813e5.json`. All 4,022 IDs and passing
+completions verified; all 1,407 failures routed. Assertion regressions and missing
+coverage remain open as recorded above. The initial resource batch has
 reproducible scaling and GC diagnostics recorded in the
 [foundation report](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 The procedure below remains required for subsequent complete candidates.
