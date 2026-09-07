@@ -2,45 +2,37 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> Clean signed-worker baseline `19feaac`: **2,562/4,022**, with
-> **1 new file pass, 0 lost file passes, and 1,460 remaining failures**
-> versus `5499cc7` at 2,561/4,022.
+> Clean signed-worker baseline `8c88350`: **2,567/4,022**, with
+> **5 new file passes, 0 lost file passes, and 1,455 remaining failures**
+> versus `19feaac` at 2,562/4,022.
 
-The full run includes native MessageEvent and structured serialization, worker
-EventTarget startup fixes, and the integrated WindowProxy engine profile. The new
-file pass is the Window variant of WebIDL's no-RegExp-special-casing test. The
-assertion audit records seven corrected assertions and no observed pass-to-fail
-changes. The two historical worker receiver regressions are corrected; four
-historical frame regressions remain open.
-
-All 4,022 IDs and every reported passing completion were independently verified
-against source, CLI and signed-worker hashes. Limits remain 256 MiB heap, 512 MiB
-RSS, 10 s command and 30 s navigation; sandbox boundaries and Stylo ownership are
-unchanged. This failing diagnostic result does not qualify a release.
+This candidate replaces writable computed-style snapshots with native readonly
+declarations and live value reads. The full audit verifies all 4,022 unique IDs,
+passing harness completions, frozen source and binary hashes, and unchanged
+sandbox boundaries and resource limits. Stylo remains the CSS engine.
 
 | Root | Passed / required |
 |---|---:|
 | IndexedDB | 341/456 |
 | WebIDL | 30/58 |
 | accname | 15/19 |
-| css | 235/564 |
+| css/css-cascade | 45/97 |
+| css/cssom | 35/190 |
+| css/selectors | 160/277 |
 | dom | 382/662 |
 | editing | 118/704 |
-| html | 30/136 |
+| html/browsers/history | 30/136 |
 | referrer-policy | 1,383/1,391 |
 | wai-aria | 28/32 |
 
-[Baseline evidence](CONFORMANCE-SERIALIZATION-BASELINE-2026-09-07.json) identifies
-the full ledger and artifact hashes. [The failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json)
-uses this single run: 1,268 assertion, 51 runtime, 136 harness, three incomplete and
-two timeout failures.
-
-Five changed history assertion names were verified as fixture-port renames. Four
-newly missing Range names and four carried from the previous audit remain
-unresolved in wall-time-limited files; one historical Range name reappeared as
-passing. Concurrent isolated compilation means this run does not isolate the
-cause of timing changes. Native MessagePort work remains separate and is not
-included in this baseline.
+[Baseline evidence](CONFORMANCE-COMPUTED-STYLE-BASELINE-2026-09-07.json) records every file delta and artifact hash.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) uses this single
+complete run. The assertion comparison records 24 corrected assertions,
+no observed pass-to-fail changes, and seven unresolved historical Range assertion
+names. Five history-name changes were verified as fixture-port renames; three
+historical Range names reappeared as passing. Four historical frame regressions
+remain. No timing cause is inferred from missing names.
+Native MessagePort work and the next hidden-subtree style fix remain isolated.
 
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.

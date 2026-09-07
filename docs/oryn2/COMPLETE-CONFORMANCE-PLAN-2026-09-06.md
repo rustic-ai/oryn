@@ -32,22 +32,17 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The clean **complete full baseline** at `19feaac` is **2,562/4,022**, with
-1,460 failures: one gain and no lost file passes versus `5499cc7` at 2,561/4,022.
-DOM remains 382/662 and CSS 235/564; WebIDL is now 30/58. Exact inventory coverage,
-passing completions and frozen source/CLI/signed-worker hashes were independently
-verified in the [serialization baseline](CONFORMANCE-SERIALIZATION-BASELINE-2026-09-07.json).
-Seven assertions were corrected, with no observed pass-to-fail changes. The two
-historical worker receiver regressions are corrected in this full run; the four
-historical frame regressions remain immediate priorities.
-
-The five CSS file losses from the earlier native-error-reporting baseline remain
-open prerequisites: initial frame documents, Window named properties,
-selectedOptions and declarative shadow parsing. Eight historical Range assertion
-names are absent from current wall-time-limited failures (four newly absent and
-four carried forward); one previous missing name is now passing. Five history
-fixture-port renames were verified. Timing causes remain unresolved; isolated
-compilation ran concurrently, so this is not performance-isolation evidence.
+The clean **complete full baseline** at `8c88350` is **2,567/4,022**, with
+1,455 failures: 5 gains and 0 lost file passes versus `19feaac` at 2,562/4,022.
+Exact inventory coverage, passing completions, source and binary hashes, and
+unchanged limits were independently checked in the [computed-style baseline](CONFORMANCE-COMPUTED-STYLE-BASELINE-2026-09-07.json).
+The native computed-style declarations now enforce readonly behavior and read
+current layout values. The comparison records 24 corrected assertions and
+0 observed pass-to-fail changes. 7 historical passing assertion names
+remain absent and unresolved; 4 historical regressions remain observed failing.
+Missing names and intermittent outcomes require investigation; no timing cause
+is inferred from this run. Native MessagePort work and the next hidden-subtree
+Stylo fix are not included in the candidate.
 
 The [historical observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
 retains an earlier complete run. That earlier assertion audit records 25 corrected
@@ -141,10 +136,10 @@ Important concentration and dependencies:
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 
-**Baseline completed:** clean source `19feaac`, signed worker
-`ab8f3ce6c3451c1ea92a429e33c016f2e47a27d76ca65dfef93c77903ce924e9`,
-ledger `conformance-worker-full-native-serialization-19feaac.json`. All 4,022 IDs and passing
-completions verified; all 1,460 failures routed. The initial resource batch has
+**Baseline completed:** clean source `8c88350`, signed worker
+`15b67c8e5073a5600231a0ae65aa2560b4a790d43ca0201b85677c280debc97f`,
+ledger `conformance-worker-full-native-computed-style-8c88350.json`. All 4,022 IDs and passing
+completions verified; all 1,455 failures routed. The initial resource batch has
 reproducible scaling and GC diagnostics recorded in the
 [foundation report](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 The procedure below remains required for subsequent complete candidates.
@@ -249,8 +244,8 @@ single patch. Shared prerequisites may resolve failures in several workstreams.
 | W2: bindings, interfaces and realms | 38 | `oryn-webidl`, `oryn-js` generated registry | Real required interfaces with correct conversions, brands, descriptors and realm behavior |
 | W3: events, input and task scheduling | 80 | `oryn-js`, native scheduler/default actions | Correct event paths, ordering, activation and cancellation across required environments |
 | W4: browsing contexts, history and referrer | 114 | Native runtime/context service and bindings | Document activation and session history with correct origin, realm and policy behavior |
-| W5: CSSOM | 159 | Native stylesheet owner, generated CSSOM bindings, Stylo adapter | Live rule objects, editing, serialization, ownership and exceptions |
-| W6: selectors and cascade | 170 | `oryn-layout`, Stylo/Blitz adapters | Correct tree/state/mode inputs, scope/cascade semantics and mutation invalidation |
+| W5: CSSOM | 155 | Native stylesheet owner, generated CSSOM bindings, Stylo adapter | Live rule objects, editing, serialization, ownership and exceptions |
+| W6: selectors and cascade | 169 | `oryn-layout`, Stylo/Blitz adapters | Correct tree/state/mode inputs, scope/cascade semantics and mutation invalidation |
 | W7: editing | 586 | Native editing algorithms, Range/Selection and input | Correct DOM transformations, selection and input-event behavior across every variant |
 | W8: IndexedDB | 115 | Storage host, structured clone, JS transaction/task bridge | Correct keys, transactions, cursor scheduling, abort/upgrade and origin isolation |
 | W9: accessibility semantics | 8 | Native semantic projection with DOM/style inputs | Correct generated-content names, role resolution, reflection and invalidation |
@@ -524,18 +519,19 @@ records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 
-1. Correct the four remaining frame assertion regressions through native frame-realm
-   semantics. Preserve the now-verified native worker EventTarget startup behavior.
-   Test global identity, receiver ownership, navigation and frame teardown.
-2. Restore complete CSS test registration through initial frame documents, live
-   Window named properties, selectedOptions and declarative shadow parsing.
-3. Diagnose the missing Range assertions and remaining runtime/harness outcomes;
-   preserve limits and require actual testharness completion.
-4. Integrate CSSOM declaration mutation with Stylo and continue document ownership,
-   event lifecycle, editing, history and IndexedDB workstreams in dependency order.
-5. After each validated runtime batch, build a clean signed candidate, run the exact
-   inventory and refresh evidence. Execute M5 twice on one frozen passing candidate
-   only after all workstream and native validation gates pass.
+1. Validate the isolated hidden-subtree fix against the pinned CSSOM failures:
+   resolve each descendant through Stylo, then prove selected WPT gains before
+   integrating. Keep MessagePort work parked until a pinned failure needs it.
+2. Prioritize shared causes in the current failing ledger. Each batch must name
+   affected pinned IDs, preserve existing passes, and deliver signed-worker
+   evidence; native unit tests alone do not increase overall conformance.
+3. Correct the remaining frame regressions and missing Range assertions while
+   preserving limits and requiring actual testharness completion. Continue all
+   document, CSS, event, editing, history and IndexedDB workstreams.
+4. Integrate validated batches and rerun the full inventory on a frozen candidate.
+   Refresh the backlog from that complete ledger. Require all 4,022 executions
+   to pass twice on one candidate plus the native/profile/security gates before
+   declaring completion.
 
 The existing release/product/platform action plan still applies independently.
 A paid evaluation, deployment, or publication is not necessary to claim that this
