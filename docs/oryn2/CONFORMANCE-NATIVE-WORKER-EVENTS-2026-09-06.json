@@ -33,6 +33,80 @@
     "docs_truth": true,
     "diff_check": true
   },
-  "signed_inventory_validation": "pending",
+  "signed_inventory_validation": {
+    "source_commit": "6c20c992726cb80ee3b3048110c551d8d0b23737",
+    "exact_selection_coverage_and_passing_completions_verified": true,
+    "source_and_binary_hashes_reverified_after_completion": true,
+    "limits_unchanged": true,
+    "audit_ledger": "native-worker-events-6c20c99-audit.json",
+    "audit_sha256": "3ddda6cf74f3dff2b8c26ee634b9d3111db1fa3ea47ffe06cef1baca2b095a5f",
+    "worker_sha256": "477ce7d787ccd9aeaf206109e75f8c282a6cdf82344b1aa749f71c1a1c2a5fed",
+    "binary": {
+      "sha256": "21b790aa74f72f9dd032d3df06845c267c27c9bfd91130a694023468290e7fbf",
+      "size_bytes": 6991440
+    },
+    "selections": [
+      {
+        "ledger": "conformance-worker-native-events-6c20c99-dedicatedworker.json",
+        "sha256": "0733a61816b76f0bb2d43ae77a806ea5a15e5377ce29f305bac7012906635faf",
+        "outcome": {
+          "required_finished": 265,
+          "required_passed": 202,
+          "required_total": 265,
+          "status": "failed"
+        },
+        "gains": [],
+        "losses": [],
+        "assertion_changes": [
+          {
+            "id": "WebIDL/ecmascript-binding/no-regexp-special-casing.any.js|dedicatedworker|",
+            "missing": [],
+            "regressed": [],
+            "corrected": [
+              "Can be used as an object implementing a callback interface"
+            ],
+            "additional": []
+          },
+          {
+            "id": "dom/idlharness.any.js|dedicatedworker|",
+            "missing": [],
+            "regressed": [],
+            "corrected": [
+              "EventTarget interface: operation addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean))",
+              "EventTarget interface: operation removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean))"
+            ],
+            "additional": []
+          }
+        ]
+      },
+      {
+        "ledger": "conformance-worker-native-events-6c20c99-sharedworker.json",
+        "sha256": "53ddb58e8a9b20ec43a49a2129b8407b8081d806cc96c14536ccb8b00f93587c",
+        "outcome": {
+          "required_finished": 4,
+          "required_passed": 4,
+          "required_total": 4,
+          "status": "passed"
+        },
+        "gains": [],
+        "losses": [],
+        "assertion_changes": []
+      },
+      {
+        "ledger": "conformance-worker-native-events-6c20c99-serviceworker.json",
+        "sha256": "9fe19b976f4bf48aac9c9106b8929ae595c26f05b0117b40f13f6fdfeaf53ad5",
+        "outcome": {
+          "required_finished": 4,
+          "required_passed": 4,
+          "required_total": 4,
+          "status": "passed"
+        },
+        "gains": [],
+        "losses": [],
+        "assertion_changes": []
+      }
+    ],
+    "full_baseline_unchanged": 2561
+  },
   "complete_conformance": false
 }

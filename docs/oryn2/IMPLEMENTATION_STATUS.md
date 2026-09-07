@@ -44,6 +44,13 @@ are the immediate implementation priority. Five earlier passing Range assertions
 are absent from partial results that report worker wall-time limits and remain unresolved. Five history name changes
 were verified as passing counterparts with different fixture ports.
 
+The subsequent native worker startup fix at `6c20c99` preserves the generated
+EventTarget methods and listener registry. [Signed worker validation](CONFORMANCE-NATIVE-WORKER-EVENTS-2026-09-06.json)
+covers all 273 worker executions: 202/265 dedicated, 4/4 shared and 4/4 service.
+Three assertions are corrected, including both worker receiver regressions, with
+no lost file passes, observed assertion regressions or missing prior passes.
+The four frame regressions remain open. These selections do not change the full score.
+
 Stylo owns the rendering style pipeline and selector matching. CSSOM declaration
 mutation still uses a separate binding helper that must be integrated with Stylo. Remaining
 shared gaps include fragment/outerHTML mutation grouping, transient registrations,

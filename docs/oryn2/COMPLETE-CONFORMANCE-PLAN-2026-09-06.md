@@ -41,7 +41,12 @@ assertion regressions remain open: four frame Window proxy failures and two work
 EventTarget receiver-check failures. Worker startup overrides native global methods,
 so the pinned IDL harness no longer recognizes their implicit-global identity.
 Preserve the native methods and registry; do not reject valid global receivers.
-Fix these regressions before expanding feature work.
+The worker startup fix at `6c20c99` is now verified across all 273 worker executions:
+three corrected assertions (including both receiver regressions), no lost file
+passes, no assertion regressions and no missing prior passes. See the
+[worker evidence](CONFORMANCE-NATIVE-WORKER-EVENTS-2026-09-06.json). Four frame
+regressions remain immediate priorities. The selected run does not change this
+full baseline.
 
 The [previous observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
 retains the preceding complete run. The new assertion audit records 25 corrected
@@ -424,9 +429,9 @@ M5 passes; a smaller achievable batch is progress, not completion.
 
 ## Immediate next execution sequence
 
-1. Correct the six assertion regressions by preserving native worker EventTarget
-   methods through startup and implementing native frame-realm semantics. Test
-   global method identity, listener lifecycle, invalid receivers and frame teardown.
+1. Correct the four remaining frame assertion regressions through native frame-realm
+   semantics. Preserve the now-verified native worker EventTarget startup behavior.
+   Test global identity, receiver ownership, navigation and frame teardown.
 2. Restore complete CSS test registration through initial frame documents, live
    Window named properties, selectedOptions and declarative shadow parsing.
 3. Diagnose the missing Range assertions and remaining runtime/harness outcomes;
