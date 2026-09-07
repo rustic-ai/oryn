@@ -2,20 +2,20 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> Latest complete signed-worker measurement `38813e5`: **2,615/4,022 (65.0%)**.
-> **7 new file passes, no lost file passes, and 1,407 remaining failures** versus `6ee4710`.
+> Latest complete signed-worker measurement `da9959f`: **2,621/4,022 (65.2%)**.
+> **6 new file passes, no lost file passes, and 1,401 remaining failures** versus `38813e5`.
 
-Five DOM and two editing executions now pass. Shared Range ownership, insertion
-validation, replacement ordering, foreign Node arguments, and public Document tree
-boundaries are included. Stylo remains the CSS engine.
+Four justification and two Location executions now pass. The runner preserves
+stateful upstream variants without internal splitting. Justification uses computed
+alignment and range-preserving wrappers. Stylo remains the CSS engine.
 
 The audit verifies all 4,022 unique IDs, passing harness completions, frozen source
 and binary hashes, and unchanged sandbox boundaries and limits. This is not a
-regression-free candidate: three observed assertion regressions remain (one in
-justification and two in Location prototype handling). Seventeen prior passing
-assertions are missing from incomplete Range coverage, including surroundContents
-now exceeding its wall-time limit. Five additional missing names were verified as
-history assertion names changing only in the test server port.
+regression-free candidate: 21 observed editing assertion regressions remain.
+Twenty-one prior passing assertions are missing from incomplete CharacterData
+Range runs (appendData: 6, dataChange: 6, replaceData: 9). Five additional missing
+history names were reconciled by matching full assertion name/status multisets
+after normalizing only the test server port.
 
 | Root | Passed / required |
 |---|---:|
@@ -26,14 +26,14 @@ history assertion names changing only in the test server port.
 | css/cssom | 73/190 |
 | css/selectors | 161/277 |
 | dom | 387/662 |
-| editing | 120/704 |
-| html/browsers/history | 30/136 |
+| editing | 124/704 |
+| html/browsers/history | 32/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
 [Measurement evidence](CONFORMANCE-DOM-BOUNDARIES-BASELINE-2026-09-07.json) records
 results, hashes, gains, regressions, and limitations. The
-[failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,407
+[failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,401
 open executions from this single full run. Historical missing assertion names and
 older frame regressions remain open. Native MessagePort work remains isolated.
 Complete conformance is not achieved.
@@ -271,7 +271,7 @@ rewrite those historical payloads or present them as a new validation run.
   now terminates deterministically rather than timing out. The complete,
   clean-tree `e1b97d7` diagnostic executes all 4,022 variants and passes 2,267.
   Exact root totals are IndexedDB 304/456, generated-WebIDL 26/58, Accessible
-  Name 13/19, CSS 113/564, DOM 269/662, editing 118/704, HTML 30/136, referrer
+  Name 13/19, CSS 113/564, DOM 269/662, editing 118/704, HTML 32/136, referrer
   policy 1,366/1,391 and WAI-ARIA 28/32. The 1,755 failures comprise 1,527
   assertion failures, 146 harness failures, 54 timeouts and 28 unclassified
   results. The tested binary is 53,172,224 bytes with

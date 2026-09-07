@@ -32,15 +32,14 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The latest **complete full measurement** at `38813e5` is **2,615/4,022 (65.0%)**,
-with 1,407 failures: seven gains and no lost file passes versus `6ee4710` (2,608).
-The [DOM-boundary measurement](CONFORMANCE-DOM-BOUNDARIES-BASELINE-2026-09-07.json)
+The latest **complete full measurement** at `da9959f` is **2,621/4,022 (65.2%)**,
+with 1,401 failures: six gains and no lost file passes versus `38813e5` (2,615).
+The [measurement](CONFORMANCE-DOM-BOUNDARIES-BASELINE-2026-09-07.json)
 verifies exact coverage, passing completions, frozen hashes, and unchanged limits.
-Three assertion regressions and seventeen missing prior passing assertions remain
-open; five history names were reconciled as server-port changes. The candidate is
-not regression-free. Selected surroundContents diagnostics pass, but the full file
-exceeds its wall-time limit. Next work must resolve the justification and Location
-regressions and Range execution limits while continuing the broader workstreams.
+Twenty-one editing assertion regressions and twenty-one missing prior passing
+CharacterData Range assertions remain open; five history names were reconciled as
+server-port changes. The candidate is not regression-free. Next work must resolve
+these regressions and Range execution limits while continuing all workstreams.
 
 The [historical observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
 retains an earlier complete run. That earlier assertion audit records 25 corrected
@@ -134,10 +133,10 @@ Important concentration and dependencies:
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 
-**Measurement completed:** clean source `38813e5`, signed worker
-`e7f0f5f20bc0c0d05d60d398a7bae8a3639d897ddeb1323ec1aeabef12da5c07`,
-ledger `conformance-worker-full-dom-boundaries-38813e5.json`. All 4,022 IDs and passing
-completions verified; all 1,407 failures routed. Assertion regressions and missing
+**Measurement completed:** clean source `da9959f`, signed worker
+`8ee6465a656c0353fe32b6834940a2aaf8552b435120907af38f13258a0e4f40`,
+ledger `conformance-worker-full-dom-boundaries-da9959f.json`. All 4,022 IDs and passing
+completions verified; all 1,401 failures routed. Assertion regressions and missing
 coverage remain open as recorded above. The initial resource batch has
 reproducible scaling and GC diagnostics recorded in the
 [foundation report](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
