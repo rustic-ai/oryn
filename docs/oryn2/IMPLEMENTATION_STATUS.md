@@ -2,25 +2,22 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> Latest complete signed-worker measurement `12a64cb`: **2,625/4,022 (65.3%)**.
-> **6 new file passes, 2 lost file passes, and 1,397 remaining failures** versus `da9959f`.
+> Latest complete signed-worker measurement `f6be522`: **2,627/4,022 (65.3%)**.
+> **2 recovered file passes, 0 lost file passes, and 1,395 remaining failures** versus `12a64cb`.
 
-The later candidate `662d133` restores both lost history tests in a complete
-136-case selection: 32 pass, zero lost file passes, and zero unresolved lost or
-missing assertions after exact server-port reconciliation.
-[Recovery evidence](CONFORMANCE-HISTORY-RECOVERY-2026-09-07.json) is separate from
-the full baseline; the overall score is not yet remeasured on this fix.
-
-Text and image frame documents now preserve their response MIME types. Six
-Document.contentType executions pass. Stylo remains the CSS engine.
+The full run confirms recovery of history tests `011.html` and `012.html`.
+Same-document history updates retain their document rather than fetching a new page.
+Streamed top-level navigation now dispatches text, XML and image responses by MIME
+and keeps XML lookalike elements out of HTML resource discovery. The full inventory
+shows no additional whole-test gains from that MIME integration. Stylo remains the CSS engine.
 
 The audit verifies all 4,022 unique IDs, passing harness completions, frozen source
-and binary hashes, and unchanged sandbox boundaries and limits. This candidate
-has two history regressions: `pushState` and `replaceState` before load can end on
-a 404 page. Their six formerly passing assertions are missing. Five additional
-missing names were reconciled by matching complete assertion name/status multisets
-after normalizing only the test server port. No observed assertion pass-to-fail
-changes were found against `da9959f`; earlier editing/frame gaps remain open.
+and binary hashes, and unchanged sandbox boundaries and limits. No observed
+assertion pass-to-fail changes occurred against `12a64cb`. However, 24 formerly
+passing assertions are absent from three partial Range mutation results that hit
+worker wall-time limits. Those missing results remain unresolved. Five other name
+changes reconcile through identical complete assertion name/status multisets after
+normalizing only the test server port. Earlier editing/frame regressions remain open.
 
 | Root | Passed / required |
 |---|---:|
@@ -32,16 +29,17 @@ changes were found against `da9959f`; earlier editing/frame gaps remain open.
 | css/selectors | 161/277 |
 | dom | 393/662 |
 | editing | 124/704 |
-| html/browsers/history | 30/136 |
+| html/browsers/history | 32/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-[Measurement evidence](CONFORMANCE-MIME-BASELINE-2026-09-07.json) records
-results, hashes, gains, regressions, and limitations. The
-[failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,397
-open executions from this single full run. Historical missing assertion names and
-older frame regressions remain open. Native MessagePort work remains isolated.
-Complete conformance is not achieved.
+[Measurement evidence](CONFORMANCE-STREAM-MIME-BASELINE-2026-09-07.json) records
+results, hashes, gains, unresolved missing assertions, and limitations. The
+[failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,395
+open executions from this single full run. The next implementation priority is the
+shared editing line-break, paragraph-insertion and first-line-joining algorithms;
+isolated drafts are not counted as conformance progress. Native MessagePort work
+remains isolated. Complete conformance is not achieved.
 
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.

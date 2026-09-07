@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Reviewed against commit `10f9b46` and the signed-worker evidence available on 2026-09-06.
+Current full-run evidence: signed candidate `f6be522`, measured on 2026-09-07.
 This is the active forward plan. Earlier batch sections in the runtime action plan remain history.
 
 ## Objective and definition of done
@@ -32,29 +32,29 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The later candidate `662d133` restores both lost history tests in a complete
-136-case selection: 32 pass, zero lost file passes, and zero unresolved lost or
-missing assertions after exact server-port reconciliation.
-[Recovery evidence](CONFORMANCE-HISTORY-RECOVERY-2026-09-07.json) is separate from
-the full baseline; the overall score is not yet remeasured on this fix.
+The latest **complete full measurement** at `f6be522` is **2,627/4,022 (65.3%)**,
+with 1,395 failures. It confirms two recovered history file passes and no whole-test
+losses versus `12a64cb` (2,625). The
+[measurement](CONFORMANCE-STREAM-MIME-BASELINE-2026-09-07.json) verifies exact
+coverage, successful passing completions, frozen hashes, and unchanged limits.
+There are no observed assertion pass-to-fail changes. Twenty-four earlier passing
+assertions are missing from three partial Range mutation runs with worker wall-time
+limits; these remain unresolved. Five server-port-dependent names reconcile by
+complete normalized assertion name/status multisets. Earlier editing/frame
+regressions remain open. This is not a release candidate.
 
-The later text-document candidate `2192207` has a complete selected DOM audit:
-391/664, two whole-test gains (`contenttype_css` and `contenttype_txt`), zero
-lost file passes, and zero lost or missing previously passing assertions.
-[Selected evidence](CONFORMANCE-TEXT-DOCUMENTS-2026-09-07.json) binds this result
-to the signed candidate and unchanged profile. This is not a new full-inventory
-score. Top-level MIME dispatch, audio/video documents, JavaScript-URL documents, and
-XHR document responses remain open.
+Text, XML and supported image MIME dispatch now reaches streamed top-level
+navigation as well as frames. This integration adds no further whole-test gains
+in the pinned full inventory. Audio/video documents, JavaScript-URL documents,
+XHR document responses and broader MIME behavior remain open.
 
-The latest **complete full measurement** at `12a64cb` is **2,625/4,022 (65.3%)**,
-with 1,397 failures: six MIME gains and two history losses versus `da9959f` (2,621).
-The [measurement](CONFORMANCE-MIME-BASELINE-2026-09-07.json) verifies exact coverage,
-passing completions, frozen hashes, and unchanged limits. Six prior passing
-assertions are missing from the two history failures; five port-dependent names
-were reconciled by complete normalized assertion multisets. No observed assertion
-pass-to-fail changes were found against that baseline. Earlier editing/frame
-regressions remain open. Fix the history navigation regression next, then continue
-MIME integration and all remaining workstreams. This is not a release candidate.
+The immediate implementation priority is shared editing algorithms: whitespace
+joining (180 failing variants), paragraph insertion (88 failing variants), caret
+placement and preservation of computed style. Validate representative native
+behavior, then all 704 editing executions and their prior passing assertions.
+An isolated draft or a passing local test does not update the overall score.
+Retain Range resource failures in the backlog; avoid another micro-optimization
+cycle without evidence that it enables a whole failing group to complete.
 
 The [historical observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
 retains an earlier complete run. That earlier assertion audit records 25 corrected
@@ -62,8 +62,8 @@ assertions, 850 additional passing names, five unresolved missing Range assertio
 and five verified history fixture-port name changes. Selected passes are not added
 to the score, and this result does not establish complete conformance.
 
-The [planning backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) now uses that
-single full ledger, replacing the original mixed-candidate planning index.
+The [planning backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) uses the
+`f6be522` full ledger, replacing the original mixed-candidate planning index.
 Each open ID retains its source evidence, failure domain, first observed failing
 assertion when available, and workstream assignment. Routing remains provisional;
 first-error text does not establish a root cause. No ID is silently discarded.
@@ -74,7 +74,7 @@ first-error text does not establish a root cause. No ID is silently discarded.
 | Editing | Latest full measurement | 580 |
 | CSS | Clean full baseline | 283 |
 | IndexedDB | Clean full baseline | 115 |
-| HTML | Clean full baseline | 106 |
+| HTML | Latest full measurement | 104 |
 | WebIDL | Clean full baseline | 28 |
 | Referrer policy | Clean full baseline | 8 |
 | Accessible Name | Clean full baseline | 4 |
@@ -127,14 +127,14 @@ zero lost file passes does not establish freedom from all regressions.
 
 Important concentration and dependencies:
 
-- Editing's 586 failing executions cover 133 source files. Three whitespace-joining
+- Editing has 580 failing executions. Three whitespace-joining
   files account for 180 variants; two paragraph-insertion files account for another
   88. These are high-priority shared algorithms, not hundreds of independent fixes.
-- CSS splits into 158 CSSOM, 113 selector and 53 cascade failures. Stylo owns
+- CSS splits into 117 CSSOM, 116 selector and 50 cascade failures. Stylo owns
   the rendering style pipeline and selector matching. CSSOM declaration mutation
   still uses a separate binding helper; integrate it with Stylo's declaration API.
   Also investigate adapter state, stylesheet ownership and invalidation.
-- All 106 HTML failures are history/browsing-context tests. Treat them together with
+- All 104 HTML failures are history/browsing-context tests. Treat them together with
   frame activation, navigation tasks and the eight referrer-inheritance failures.
 - The XML/XHTML iframe parser and missing interfaces exposed by createElementNS
   are fixed; that file now passes all 596 assertions. Broader XML navigation,
