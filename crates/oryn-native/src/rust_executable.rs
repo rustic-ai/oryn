@@ -6457,6 +6457,31 @@ mod tests {
     }
 
     #[test]
+    fn range_endpoint_reads_follow_mutations_without_changing_static_snapshots() {
+        let mut page = RustExecutableDocument::load("<main>abcdef</main>").unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const text = document.querySelector('main').firstChild;
+            const live = document.createRange();
+            live.setStart(text, 2); live.setEnd(text, 5);
+            const snapshot = new StaticRange({startContainer:text, startOffset:2,
+                endContainer:text, endOffset:5});
+            text.insertData(0, 'xy');
+            const first = [live.startOffset, live.endOffset,
+                snapshot.startOffset, snapshot.endOffset];
+            text.deleteData(3, 2);
+            first.concat([live.startContainer === text, live.startOffset,
+                live.endOffset, live.collapsed, snapshot.startOffset,
+                snapshot.endOffset]).join('|')
+        "#
+            )
+            .unwrap(),
+            "4|7|2|5|true|3|5|false|2|5"
+        );
+    }
+
+    #[test]
     fn selection_accepts_connected_shadow_ranges_and_rejects_detached_hosts() {
         let mut page = RustExecutableDocument::load("<main></main>").unwrap();
         assert_eq!(page.evaluate(r#"

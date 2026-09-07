@@ -13596,18 +13596,23 @@ fn get_stateful_attribute<'s>(
             }),
         };
     }
-    if matches!(
-        interface,
-        "AbstractRange" | "Range" | "StaticRange" | "Selection"
-    ) {
+    if interface == "Selection" {
         synchronize_live_ranges(state)?;
     }
     if matches!(interface, "AbstractRange" | "Range" | "StaticRange") {
         let id = stateful_id(scope, object)?;
-        let ranges = state.ranges.borrow();
-        let range = ranges
-            .get(&id)
-            .ok_or(V8BindingError::Allocation("Range record"))?;
+        // Native live ranges already track DOM mutations. Reading one endpoint
+        // must not refresh every unrelated range retained by this realm.
+        let range: RangeRecord = if state.static_ranges.borrow().contains(&id) {
+            state
+                .ranges
+                .borrow()
+                .get(&id)
+                .cloned()
+                .ok_or(V8BindingError::Allocation("Range record"))?
+        } else {
+            state.dom.borrow().live_range(LiveRangeId(id))?.into()
+        };
         return match member {
             "startContainer" => Ok(wrap_node(scope, state, range.start_container)?.into()),
             "startOffset" => Ok(v8::Integer::new_from_unsigned(scope, range.start_offset).into()),
