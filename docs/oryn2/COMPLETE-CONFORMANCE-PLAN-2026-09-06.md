@@ -174,6 +174,19 @@ cancellation, registration order and cross-realm event ownership. The
 global handler attributes, frame activation and worker propagation still need work.
 
 
+Classic parser scripts now use native exception reporting for compile/run failures,
+including thrown null/undefined, handler cancellation, synchronous reporting before
+queued jobs, and continued execution of later scripts. External scripts carry a V8
+source URL; cross-origin errors are conservatively muted because the current resource
+table lacks CORS response-taint metadata. The ordinary host execute/evaluate API keeps
+its existing error propagation. This is a partial W0 implementation: module errors,
+inline document line offsets, precise CORS tainting, and callback script muting remain
+open. The pinned testharness now proves rejection of unexpected parser exceptions and
+acceptance when explicitly allowed. [Evidence](CONFORMANCE-NATIVE-PARSER-ERRORS-2026-09-06.json)
+records seven passing regressions, 126 binding passes and all 275 native outcomes
+(262 passes; the same 13 prior nonpasses and reasons). No new signed-worker score is claimed.
+
+
 Create a reduced regression for each confirmed shared cause. Record its dependency
 contracts, affected IDs, expected behavior and decisive check. First failing assertions
 are a starting point: inspect later assertions after each fix, and track assertion-level

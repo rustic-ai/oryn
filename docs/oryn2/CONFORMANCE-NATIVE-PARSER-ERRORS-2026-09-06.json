@@ -1,0 +1,74 @@
+{
+  "parent_revision": "f4e923d",
+  "scope": "Native classic parser-script exception reporting; not a signed-worker conformance result",
+  "source_files": {
+    "crates/oryn-js/src/v8_bindings.rs": "3dbde825ed623ede3cca13469ecf55ff0c78de16254166605a06ba7ce248a3ec",
+    "crates/oryn-js/src/v8_bindings/global_events.rs": "92c99516a73814283836a039c1b1257f33d836ec137415f04a5d4af3e475f441",
+    "crates/oryn-native/src/host.rs": "92ff8f86ec2cf5dd72fc6f11a6ea7244aac54b94f3f36c5b29f0a1f13b20d7c2",
+    "crates/oryn-native/src/rust_executable.rs": "929d8212bff6c5778541ba3d2883395285975c83ed0a7bc07bbe022e3214fdbc"
+  },
+  "native_test_binary_sha256": "e52b2efbcbb80972a1422675090e888ae3eaabf57e72cbaf47e0ff02d3dab675",
+  "pinned_wpt_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "testharness_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+  "targeted_tests": {
+    "passed": 7,
+    "failed": 0,
+    "ignored": 0,
+    "fixture_note": "The test marked ignored by default because it requires ORYN_WPT_ROOT was explicitly executed with --include-ignored. Both allow_uncaught_exception modes pass.",
+    "names": [
+      "executable::tests::parser_error_native_cross_origin_details_are_muted",
+      "executable::tests::parser_error_native_external_source_location_and_cancellation",
+      "executable::tests::parser_error_native_handler_exceptions_do_not_recurse",
+      "executable::tests::parser_error_native_pinned_testharness_rejects_unexpected_errors",
+      "executable::tests::parser_error_native_preserves_values_and_continues_scripts",
+      "executable::tests::parser_error_native_reporting_keeps_wall_deadline",
+      "executable::tests::parser_error_native_reports_syntax_and_runs_queued_jobs"
+    ]
+  },
+  "bindings": {
+    "passed": 126,
+    "failed": 0,
+    "existing_ignored": 2
+  },
+  "native_matrix": {
+    "total": 275,
+    "passed": 262,
+    "failed": 12,
+    "timeout": 1,
+    "timeout_seconds": 15,
+    "new_nonpasses": [],
+    "fixed_prior_nonpasses": [],
+    "same_failure_reasons": [
+      "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+      "executable::tests::editing_command_state_reports_paragraph_and_alignment_values",
+      "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm",
+      "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit",
+      "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics",
+      "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks",
+      "host::tests::startup_external_reference_manifest_matches_runtime_order",
+      "runtime::tests::about_blank_is_internal_and_history_safe",
+      "runtime::tests::native_navigation_checks_redirects_and_supports_history",
+      "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action",
+      "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report",
+      "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages",
+      "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported"
+    ],
+    "fixture_note": "ORYN_WPT_ROOT configured for the entire matrix; every test run with --include-ignored in a separate process."
+  },
+  "checks": {
+    "strict_clippy_js_and_native": "passed with -D warnings",
+    "rustfmt": "passed",
+    "generated_registry": "passed",
+    "docs_truth": "passed",
+    "wpt_runner_unit_tests": 28
+  },
+  "limitations": [
+    "Module exception reporting and asynchronous module rejection remain open.",
+    "Inline source coordinates are relative to the extracted script, not the HTML document.",
+    "Resource table lacks CORS response taint metadata; cross-origin error details are conservatively muted even when a future CORS-aware fetch could allow them.",
+    "Callback script muting, node listener reporting, initial frame realms, and worker propagation remain open.",
+    "No new signed-worker full run; the prior baseline remains 2559/4022."
+  ],
+  "raw_evidence_directory": "artifacts/native-parser-error-reporting",
+  "normative_reference": "https://html.spec.whatwg.org/multipage/webappapis.html#report-an-exception"
+}

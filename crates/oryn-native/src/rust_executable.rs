@@ -517,8 +517,25 @@ fn run_script_record(
         } else {
             source
         };
-        host.execute(source)
-            .map_err(|error| script_diagnostic_at(error, src.as_deref().unwrap_or("inline script")))
+        let document_url = host.evaluate_string("location.href")?;
+        let resource_name = match src.as_ref().and_then(|src| resource_entry(resources, src)) {
+            Some((name, _)) => name.to_owned(),
+            None => document_url.clone(),
+        };
+        let resource_name = Url::parse(&document_url)
+            .ok()
+            .and_then(|base| base.join(&resource_name).ok())
+            .map(|url| url.to_string())
+            .unwrap_or(resource_name);
+        // The current resource table does not carry CORS response tainting. Until it does,
+        // cross-origin resources must conservatively withhold exception details.
+        let muted_errors = src.is_some()
+            && Url::parse(&resource_name)
+                .ok()
+                .zip(Url::parse(&document_url).ok())
+                .is_none_or(|(script, document)| script.origin() != document.origin());
+        host.execute_parser_script(source, &resource_name, muted_errors)
+            .map_err(|error| script_diagnostic_at(error, &resource_name))
     };
     host.set_current_script(None)?;
     if let Err(diagnostic) = result {
@@ -4901,6 +4918,144 @@ mod tests {
             page.evaluate("document.querySelector('#result').textContent")
                 .unwrap(),
             "3:3"
+        );
+    }
+
+    #[test]
+    fn parser_error_native_preserves_values_and_continues_scripts() {
+        let mut page = RustExecutableDocument::load(
+            r#"<body><script>
+          globalThis.errors=[];globalThis.payload={};globalThis.after=false;
+          onerror=function(m,f,l,c,error){errors.push([arguments.length,error,f,l,c]);return true};
+        </script><script>throw payload</script><script>throw null</script>
+        <script>throw undefined</script><script>globalThis.after=true</script>"#,
+        )
+        .unwrap();
+        assert_eq!(page.evaluate("JSON.stringify([errors.length,errors[0][0],errors[0][1]===payload,errors[1][1]===null,errors[2][1]===undefined,errors.every(e=>e[2]===location.href&&e[3]>0&&e[4]>0),after])").unwrap(),
+            "[3,5,true,true,true,true,true]");
+        assert!(page.evaluate("throw payload").is_err());
+        assert_eq!(page.evaluate("errors.length").unwrap(), "3");
+    }
+
+    #[test]
+    fn parser_error_native_reports_syntax_and_runs_queued_jobs() {
+        let mut page = RustExecutableDocument::load(r#"<body><script>
+          globalThis.order=[];
+          addEventListener('error',e=>{order.push(e.error instanceof SyntaxError?'syntax':'runtime');e.preventDefault()});
+        </script><script>let = ;</script><script>
+          Promise.resolve().then(()=>order.push('microtask'));throw 42;
+        </script><script>order.push('after')</script>"#).unwrap();
+        assert_eq!(
+            page.evaluate("order.join('|')").unwrap(),
+            "syntax|runtime|microtask|after"
+        );
+    }
+
+    #[test]
+    fn parser_error_native_external_source_location_and_cancellation() {
+        let mut resources = BTreeMap::new();
+        resources.insert("https://example.test/fail.js".into(), "\nthrow 7".into());
+        resources.insert("/fail.js".into(), "\nthrow 7".into());
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<script>globalThis.seen=[];onerror=(m,f,l,c,e)=>{seen=[f,l,c,e];return true}</script>
+            <script src="/fail.js"></script>"#,
+            &resources,
+            None,
+            Some(Url::parse("https://example.test/page").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(seen)").unwrap(),
+            "[\"https://example.test/fail.js\",2,1,7]"
+        );
+        assert!(
+            !page
+                .diagnostics
+                .iter()
+                .any(|d| format!("{d:?}").contains("Uncaught 7"))
+        );
+    }
+
+    #[test]
+    fn parser_error_native_cross_origin_details_are_muted() {
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "https://remote.test/fail.js".into(),
+            "throw {secret:42}".into(),
+        );
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<script>globalThis.seen=[];onerror=(...args)=>{seen=args;return true}</script>
+            <script src="https://remote.test/fail.js"></script>"#,
+            &resources,
+            None,
+            Some(Url::parse("https://example.test/page").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(seen)").unwrap(),
+            "[\"Script error.\",\"\",0,0,null]"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires the pinned upstream WPT checkout in ORYN_WPT_ROOT"]
+    fn parser_error_native_pinned_testharness_rejects_unexpected_errors() {
+        let root =
+            std::path::PathBuf::from(std::env::var("ORYN_WPT_ROOT").expect("pinned WPT root"));
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "https://example.test/testharness.js".into(),
+            std::fs::read_to_string(root.join("resources/testharness.js")).unwrap(),
+        );
+        for allow in [false, true] {
+            let html = format!(
+                r#"<script src="https://example.test/testharness.js"></script>
+              <script>setup({{explicit_done:true,allow_uncaught_exception:{allow}}});
+              globalThis.completion=null;add_completion_callback((tests,status)=>completion=[tests.length,status.status]);</script>
+              <script>throw new Error('parser-contract')</script>
+              <script>test(()=>assert_true(true),'later registration');done()</script>"#
+            );
+            let mut page = RustExecutableDocument::load_with_environment(
+                &html,
+                &resources,
+                None,
+                Some(Url::parse("https://example.test/page").unwrap()),
+            )
+            .unwrap();
+            assert_eq!(
+                page.evaluate("JSON.stringify(completion)").unwrap(),
+                if allow { "[1,0]" } else { "[0,1]" },
+                "allow_uncaught_exception={allow}"
+            );
+        }
+    }
+
+    #[test]
+    fn parser_error_native_reporting_keeps_wall_deadline() {
+        let mut page = RustExecutableDocument::load("<body>").unwrap();
+        page.host.execute("onerror=()=>{while(true){}}").unwrap();
+        page.host
+            .set_execution_wall_limit(std::time::Duration::from_millis(50));
+        assert!(matches!(
+            page.host
+                .execute_parser_script("throw 1", "https://example.test/fail.js", false),
+            Err(HostError::LimitExceeded { .. })
+        ));
+        assert_eq!(page.evaluate("1+1").unwrap(), "2");
+    }
+
+    #[test]
+    fn parser_error_native_handler_exceptions_do_not_recurse() {
+        let mut page = RustExecutableDocument::load(
+            r#"<body><script>
+          globalThis.order=[];onerror=()=>{order.push('handler');throw 'nested'};
+          addEventListener('error',e=>order.push('listener:'+e.error));
+        </script><script>throw 'outer'</script><script>order.push('after')</script>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("order.join('|')").unwrap(),
+            "handler|listener:outer|after"
         );
     }
 

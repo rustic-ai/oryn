@@ -1,4 +1,4 @@
-//! Isolated prototype: native global event dispatch and callback reporting.
+//! Native global event dispatch and callback reporting.
 use super::*;
 pub(super) const GLOBAL_TARGET: u64 = 0;
 
@@ -339,10 +339,20 @@ pub(super) fn invoke<'s>(
     }
     result
 }
-pub(super) fn report_exception(
+pub fn report_exception(
     scope: &mut v8::PinScope,
     exception: v8::Local<v8::Value>,
     message: Option<v8::Local<v8::Message>>,
+) -> Result<bool, V8BindingError> {
+    report_script_exception(scope, exception, message, false)
+}
+
+/// Report an exception, sanitizing opaque classic-script errors before event delivery.
+pub fn report_script_exception(
+    scope: &mut v8::PinScope,
+    exception: v8::Local<v8::Value>,
+    message: Option<v8::Local<v8::Message>>,
+    muted: bool,
 ) -> Result<bool, V8BindingError> {
     if scope.is_execution_terminating() {
         return Ok(false);
@@ -373,6 +383,17 @@ pub(super) fn report_exception(
         0
     } else {
         message.get_start_column() as u32 + 1
+    };
+    let (text, filename, line, column, exception) = if muted {
+        (
+            v8::String::new(scope, "Script error.").unwrap(),
+            v8::String::new(scope, "").unwrap(),
+            0,
+            0,
+            v8::null(scope).into(),
+        )
+    } else {
+        (text, filename, line, column, exception)
     };
     let event =
         create_event_object_with_interface(scope, &state, "ErrorEvent", "error", false, true)?;

@@ -44,11 +44,15 @@ Five other name mismatches were verified as passing tests with changed fixture p
 Stylo owns the rendering style pipeline and selector matching. CSSOM declaration
 mutation still uses a separate binding helper that must be integrated with Stylo. Remaining
 shared gaps include fragment/outerHTML mutation grouping, transient registrations,
-node-listener/parser exception reporting, initial frame realms and indexed Window child
+node-listener/module exception reporting, initial frame realms and indexed Window child
 access, Range/editing, document ownership, XML navigation/fragments, CSSOM, history,
-accessibility and IndexedDB lifecycle behavior. Parser exceptions still do not reach
-Window error handlers reliably; reported completion alone cannot prove every later
-assertion was registered. This baseline remains diagnostic.
+accessibility and IndexedDB lifecycle behavior. The historical baseline predates native parser error delivery and remains diagnostic.
+Classic parser scripts now report uncaught errors through native Window handlers;
+[validation](CONFORMANCE-NATIVE-PARSER-ERRORS-2026-09-06.json) includes the pinned
+testharness accepting explicitly allowed exceptions and rejecting unexpected ones.
+Seven new regressions pass, 126 binding tests pass, and the native matrix is 262/275
+with the same 13 existing nonpasses and failure reasons. Modules, inline document
+line offsets, precise CORS tainting and other callback paths still require work.
 
 [Native scheduling evidence](CONFORMANCE-NATIVE-OBSERVER-SCHEDULING-2026-09-06.json)
 records 117 passing V8 tests (two existing ignores), strict JS/native Clippy, and all

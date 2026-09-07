@@ -706,6 +706,118 @@ mod raw_v8 {
     }
 
     impl RawV8Host {
+        /// Execute a parser-owned classic script and report uncaught exceptions to its realm.
+        /// API execution continues to use `JavaScriptHost::execute` and propagate errors.
+        pub fn execute_parser_script(
+            &mut self,
+            source: &str,
+            resource_name: &str,
+            muted_errors: bool,
+        ) -> Result<(), HostError> {
+            let deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
+            v8::scope!(let handle_scope, &mut self.isolate);
+            let context = v8::Local::new(
+                handle_scope,
+                self.contexts
+                    .get(&self.active_realm)
+                    .expect("active realm context exists"),
+            );
+            let scope = &mut v8::ContextScope::new(handle_scope, context);
+            v8::tc_scope!(let scope, scope);
+            let source = v8::String::new(scope, source)
+                .ok_or_else(|| HostError::Execution("source allocation failed".into()))?;
+            let name = v8::String::new(scope, resource_name)
+                .ok_or_else(|| HostError::Execution("script name allocation failed".into()))?;
+            let origin = v8::ScriptOrigin::new(
+                scope,
+                name.into(),
+                0,
+                0,
+                false,
+                -1,
+                None,
+                false,
+                false,
+                false,
+                None,
+            );
+            queue_mutation_observer_microtask(scope);
+            let completed = v8::Script::compile(scope, source, Some(&origin))
+                .and_then(|script| script.run(scope))
+                .is_some();
+            if deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
+            let mut result = Ok(());
+            if !completed {
+                // Preserve even thrown null/undefined, and capture source metadata before reset.
+                let exception = scope.exception();
+                let message = scope.message();
+                let detail = message
+                    .map(|message| message.get(scope).to_rust_string_lossy(scope))
+                    .unwrap_or_else(|| "script execution failed".into());
+                scope.reset();
+                let canceled = if let Some(exception) = exception {
+                    oryn_js::v8_bindings::report_script_exception(
+                        scope,
+                        exception,
+                        message,
+                        muted_errors,
+                    )
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+                } else {
+                    false
+                };
+                if !canceled {
+                    result = Err(HostError::Execution(detail));
+                }
+            }
+            // Error reporting is synchronous; pending jobs still run after a failed script.
+            if !deadline.expired() && !scope.is_execution_terminating() {
+                queue_mutation_observer_microtask(scope);
+                scope.perform_microtask_checkpoint();
+            }
+            if deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
+            if scope.has_caught() {
+                let exception = scope.exception();
+                let message = scope.message();
+                let detail = message
+                    .map(|message| message.get(scope).to_rust_string_lossy(scope))
+                    .unwrap_or_else(|| "microtask checkpoint failed".into());
+                scope.reset();
+                if let Some(exception) = exception {
+                    let canceled = oryn_js::v8_bindings::report_script_exception(
+                        scope,
+                        exception,
+                        message,
+                        muted_errors,
+                    )
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                    if !canceled {
+                        result = Err(HostError::Execution(detail));
+                    }
+                }
+            }
+            if deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
+            result
+        }
+
         fn security_token_identity(origin: &str, realm: RealmId) -> String {
             // V8 uses context security-token identity for cross-context global
             // access. Same-origin frame realms must therefore share an exact
