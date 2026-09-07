@@ -9506,20 +9506,27 @@ fn range_contents(
     }
 
     let common = common_ancestor(dom, range.start_container, range.end_container)?;
-    for child in light_children(dom, common)? {
-        if let Some(selected) = range_process_node(dom, child, range, mode)? {
+    let children = light_children(dom, common)?;
+    // Classify against the original tree. Removing an earlier sibling must
+    // not shift an element endpoint onto a later, originally unselected node.
+    let mut selection = BTreeMap::new();
+    for child in &children {
+        collect_range_content_selection(dom, *child, range, &mut selection)?;
+    }
+    for child in children {
+        if let Some(selected) = range_process_node(dom, child, range, mode, &selection)? {
             dom.append_child(fragment, selected)?;
         }
     }
     Ok(fragment)
 }
 
-fn range_process_node(
-    dom: &mut DomRuntime,
+fn collect_range_content_selection(
+    dom: &DomRuntime,
     node: NodeId,
     range: &RangeRecord,
-    mode: RangeContentsMode,
-) -> Result<Option<NodeId>, V8BindingError> {
+    selection: &mut BTreeMap<NodeId, bool>,
+) -> Result<(), V8BindingError> {
     let before = relative_boundary(dom, node, false)?;
     let after = relative_boundary(dom, node, true)?;
     let start = (range.start_container, range.start_offset);
@@ -9527,10 +9534,29 @@ fn range_process_node(
     if compare_boundary_points(dom, end, before)? <= 0
         || compare_boundary_points(dom, start, after)? >= 0
     {
-        return Ok(None);
+        return Ok(());
     }
     let fully_contained = compare_boundary_points(dom, start, before)? <= 0
         && compare_boundary_points(dom, after, end)? <= 0;
+    selection.insert(node, fully_contained);
+    if !fully_contained {
+        for child in light_children(dom, node)? {
+            collect_range_content_selection(dom, child, range, selection)?;
+        }
+    }
+    Ok(())
+}
+
+fn range_process_node(
+    dom: &mut DomRuntime,
+    node: NodeId,
+    range: &RangeRecord,
+    mode: RangeContentsMode,
+    selection: &BTreeMap<NodeId, bool>,
+) -> Result<Option<NodeId>, V8BindingError> {
+    let Some(&fully_contained) = selection.get(&node) else {
+        return Ok(None);
+    };
     if fully_contained {
         return match mode {
             RangeContentsMode::Clone => Ok(Some(dom.clone_node(node, true)?)),
@@ -9600,7 +9626,7 @@ fn range_process_node(
         }
     }
     for child in light_children(dom, node)? {
-        if let Some(selected) = range_process_node(dom, child, range, mode)?
+        if let Some(selected) = range_process_node(dom, child, range, mode, selection)?
             && let Some(shell) = shell
         {
             dom.append_child(shell, selected)?;
@@ -11222,6 +11248,164 @@ fn merge_document_root_editing_boundary(
     Ok(true)
 }
 
+// Join one rendered line, retaining later lines in their original paragraph.
+// ExtractContents preserves wholly selected nodes and clones partial inline
+// ancestors; the style wrapper keeps the source's inherited whitespace intact.
+fn join_first_editing_line(
+    state: &V8BindingState,
+    destination: NodeId,
+    source: NodeId,
+) -> Result<BoundaryPoint, V8BindingError> {
+    let destination_mode = editing_white_space(state, destination)?;
+    let mut line_root = source;
+    loop {
+        let first = light_children(&state.dom.borrow(), line_root)?
+            .into_iter()
+            .find(|node| !is_ignored_editing_sibling(&state.dom.borrow(), *node));
+        let Some(first) = first else { break };
+        if nearest_rendered_editing_block(state, first, source)? != first {
+            break;
+        }
+        line_root = first;
+    }
+    let source_mode = editing_white_space(state, line_root)?;
+    let mut end = BoundaryPoint {
+        container: line_root,
+        offset: boundary_length(&state.dom.borrow(), line_root)?,
+    };
+    let mut separator = None;
+    let mut cleanup = Vec::new();
+    let mut line_nodes = light_children(&state.dom.borrow(), line_root)?;
+    line_nodes.reverse();
+    while let Some(node) = line_nodes.pop() {
+        let kind = state.dom.borrow().arena().get(node)?.kind.clone();
+        if is_preserved_editing_boundary(&state.dom.borrow(), node) {
+            let (container, offset) = relative_boundary(&state.dom.borrow(), node, false)?;
+            end = BoundaryPoint { container, offset };
+            break;
+        }
+        match kind {
+            NodeKind::Element { .. } => {
+                let hidden = state
+                    .layout
+                    .borrow()
+                    .styles
+                    .get(&node_key(node))
+                    .and_then(|style| style.get("display"))
+                    .is_some_and(|display| display == "none");
+                if hidden || is_ignored_editing_sibling(&state.dom.borrow(), node) {
+                    continue;
+                }
+                if element_local_name(&state.dom.borrow(), node) == Some("br") {
+                    let (container, offset) = relative_boundary(&state.dom.borrow(), node, false)?;
+                    end = BoundaryPoint { container, offset };
+                    separator = Some((node, false));
+                    break;
+                }
+                if nearest_rendered_editing_block(state, node, line_root)? == node {
+                    let (container, offset) = relative_boundary(&state.dom.borrow(), node, false)?;
+                    end = BoundaryPoint { container, offset };
+                    break;
+                }
+                line_nodes.extend(light_children(&state.dom.borrow(), node)?.into_iter().rev());
+            }
+            NodeKind::Text { data } | NodeKind::CDataSection { data } => {
+                let mode = editing_white_space(state, node)?;
+                if matches!(
+                    mode.as_str(),
+                    "pre" | "pre-wrap" | "pre-line" | "break-spaces"
+                ) && let Some(index) = data.find('\n')
+                {
+                    end = BoundaryPoint {
+                        container: node,
+                        offset: data[..index].encode_utf16().count() as u32,
+                    };
+                    separator = Some((node, true));
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some((node, _)) = separator {
+        let mut current = Some(node);
+        while let Some(node) = current {
+            cleanup.push(node);
+            if node == line_root {
+                break;
+            }
+            current = state.dom.borrow().parent(node)?;
+        }
+    }
+    let mut dom = state.dom.borrow_mut();
+    let caret_offset = editing_caret_end(&dom, destination)?;
+    let fragment = range_contents(
+        &mut dom,
+        &RangeRecord {
+            start_container: line_root,
+            start_offset: 0,
+            end_container: end.container,
+            end_offset: end.offset,
+        },
+        RangeContentsMode::Extract,
+    )?;
+    if let Some((node, newline)) = separator {
+        if newline {
+            dom.replace_character_data(node, 0, 1, "")?;
+        } else if let Some(parent) = dom.parent(node)? {
+            dom.remove_child(parent, node)?;
+        }
+    }
+    for node in cleanup {
+        if node == line_root {
+            break;
+        }
+        let empty = match &dom.arena().get(node)?.kind {
+            NodeKind::Text { data } | NodeKind::CDataSection { data } => data.is_empty(),
+            NodeKind::Element { .. } => dom.arena().get(node)?.children.is_empty(),
+            _ => false,
+        };
+        if empty && let Some(parent) = dom.parent(node)? {
+            dom.remove_child(parent, node)?;
+        }
+    }
+    let moving = light_children(&dom, fragment)?;
+    if !moving.is_empty() {
+        // A final placeholder is replaced by the joined line.
+        if let Some(last) = light_children(&dom, destination)?.last().copied()
+            && element_local_name(&dom, last) == Some("br")
+        {
+            dom.remove_child(destination, last)?;
+        }
+        let target = if source_mode != destination_mode {
+            let span = dom.create_element("span");
+            dom.set_attribute(span, "style", format!("white-space: {source_mode};"))?;
+            dom.append_child(destination, span)?;
+            span
+        } else {
+            destination
+        };
+        for child in moving {
+            dom.append_child(target, child)?;
+        }
+    }
+    let mut empty = line_root;
+    while light_children(&dom, empty)?.is_empty() {
+        let Some(parent) = dom.parent(empty)? else {
+            break;
+        };
+        dom.remove_child(parent, empty)?;
+        if empty == source {
+            break;
+        }
+        empty = parent;
+    }
+    Ok(BoundaryPoint {
+        container: destination,
+        offset: caret_offset.min(boundary_length(&dom, destination)?),
+    })
+}
+
 fn merge_adjacent_editing_block(
     state: &V8BindingState,
     container: NodeId,
@@ -11287,43 +11471,15 @@ fn merge_adjacent_editing_block(
         } else {
             (sibling, block)
         };
-        let caret_offset = editing_caret_end(&state.dom.borrow(), destination)?;
-        let source_empty = node_is_placeholder_empty(&state.dom.borrow(), source)?;
-        let moving = if source_empty {
-            Vec::new()
-        } else {
-            light_children(&state.dom.borrow(), source)?
-                .into_iter()
-                .filter(|child| !is_preserved_editing_boundary(&state.dom.borrow(), *child))
-                .collect()
-        };
-        {
+        for separator in ignored {
             let mut dom = state.dom.borrow_mut();
-            for separator in ignored {
-                if matches!(
-                    dom.arena().get(separator).map(|record| &record.kind),
-                    Ok(NodeKind::Text { data } | NodeKind::CDataSection { data })
-                        if data.trim().is_empty()
-                ) {
-                    dom.remove_child(parent, separator)?;
-                }
-            }
-            for child in moving {
-                dom.append_child(destination, child)?;
-            }
-            if source_empty || light_children(&dom, source)?.is_empty() {
-                dom.remove_child(parent, source)?;
+            if matches!(dom.arena().get(separator).map(|record| &record.kind),
+                Ok(NodeKind::Text { data } | NodeKind::CDataSection { data }) if data.trim().is_empty())
+            {
+                dom.remove_child(parent, separator)?;
             }
         }
-        let point = if source_empty && node_is_placeholder_empty(&state.dom.borrow(), destination)?
-        {
-            editing_placeholder_caret(&state.dom.borrow(), destination)?
-        } else {
-            BoundaryPoint {
-                container: destination,
-                offset: caret_offset,
-            }
-        };
+        let point = join_first_editing_line(state, destination, source)?;
         set_selection_boundaries(state, point, point)?;
         return Ok(true);
     }
@@ -11780,6 +11936,30 @@ fn editing_input_target_range(
     Ok(range)
 }
 
+fn editing_point_is_at_block_edge(
+    dom: &DomRuntime,
+    mut point: BoundaryPoint,
+    block: NodeId,
+    at_end: bool,
+) -> Result<bool, V8BindingError> {
+    loop {
+        if point.offset
+            != if at_end {
+                boundary_length(dom, point.container)?
+            } else {
+                0
+            }
+        {
+            return Ok(false);
+        }
+        if point.container == block {
+            return Ok(true);
+        }
+        let (container, offset) = relative_boundary(dom, point.container, at_end)?;
+        point = BoundaryPoint { container, offset };
+    }
+}
+
 fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(), V8BindingError> {
     let Some(id) = state.selection_range.get() else {
         return Ok(());
@@ -11796,6 +11976,43 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
         (range.end_container, range.end_offset),
     )? != 0
     {
+        // Selecting only the boundary between adjacent paragraphs has the
+        // same line-joining behavior as deleting at either collapsed endpoint.
+        if let Some(host) = editing_host(state)? {
+            let left = nearest_rendered_editing_block(state, range.start_container, host)?;
+            let right = nearest_rendered_editing_block(state, range.end_container, host)?;
+            let boundary_only = {
+                let dom = state.dom.borrow();
+                left != right
+                    && dom.parent(left)? == dom.parent(right)?
+                    && editing_point_is_at_block_edge(
+                        &dom,
+                        BoundaryPoint {
+                            container: range.start_container,
+                            offset: range.start_offset,
+                        },
+                        left,
+                        true,
+                    )?
+                    && editing_point_is_at_block_edge(
+                        &dom,
+                        BoundaryPoint {
+                            container: range.end_container,
+                            offset: range.end_offset,
+                        },
+                        right,
+                        false,
+                    )?
+                    && dom.parent(left)?.is_some_and(|parent| {
+                        light_children(&dom, parent).is_ok_and(|children| {
+                            children.windows(2).any(|pair| pair == [left, right])
+                        })
+                    })
+            };
+            if boundary_only && merge_adjacent_editing_block(state, range.start_container, true)? {
+                return Ok(());
+            }
+        }
         let preserve_nested_caret =
             !forward && selection_ends_at_nested_block_start(state, &range)?;
         replace_selection_with_text(state, "")?;
@@ -11964,6 +12181,249 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
             merge_adjacent_editing_block(state, range.start_container, forward)?;
         }
     }
+    Ok(())
+}
+
+// Editing decisions use the same resolved style snapshot as getComputedStyle.
+// Binding-only embedders without a layout provider retain an inherited fallback.
+fn editing_white_space(state: &V8BindingState, mut node: NodeId) -> Result<String, V8BindingError> {
+    refresh_layout(state)?;
+    let dom = state.dom.borrow();
+    let layout = state.layout.borrow();
+    loop {
+        let record = dom.arena().get(node)?;
+        if let Some(value) = layout
+            .styles
+            .get(&node_key(node))
+            .and_then(|s| s.get("white-space"))
+        {
+            return Ok(value.clone());
+        }
+        if let Some(value) = record
+            .attributes
+            .get("style")
+            .and_then(|style| inline_style_entries(style).remove("white-space"))
+            && !matches!(value.as_str(), "inherit" | "unset")
+        {
+            return Ok(value);
+        }
+        if element_local_name(&dom, node) == Some("pre") {
+            return Ok("pre".into());
+        }
+        let Some(parent) = record.parent else {
+            return Ok("normal".into());
+        };
+        node = parent;
+    }
+}
+
+fn nearest_rendered_editing_block(
+    state: &V8BindingState,
+    mut node: NodeId,
+    host: NodeId,
+) -> Result<NodeId, V8BindingError> {
+    refresh_layout(state)?;
+    let dom = state.dom.borrow();
+    let layout = state.layout.borrow();
+    loop {
+        if node == host {
+            return Ok(host);
+        }
+        let display = layout
+            .styles
+            .get(&node_key(node))
+            .and_then(|style| style.get("display"));
+        let block = display.map_or_else(
+            || is_editing_block(&dom, node),
+            |display| {
+                matches!(
+                    display.as_str(),
+                    "block"
+                        | "flow-root"
+                        | "list-item"
+                        | "table-cell"
+                        | "table-caption"
+                        | "flex"
+                        | "grid"
+                )
+            },
+        );
+        if block {
+            return Ok(node);
+        }
+        let Some(parent) = dom.parent(node)? else {
+            return Ok(host);
+        };
+        node = parent;
+    }
+}
+
+fn insert_editing_text(state: &V8BindingState, text: &str) -> Result<(), V8BindingError> {
+    let mut lines = text.split('\n');
+    replace_selection_with_text(state, lines.next().unwrap_or_default())?;
+    for line in lines {
+        split_editing_paragraph(state)?;
+        if !line.is_empty() {
+            replace_selection_with_text(state, line)?;
+        }
+    }
+    Ok(())
+}
+
+fn editing_text_has_visible_content(data: &str, whitespace: &str) -> bool {
+    match whitespace {
+        "pre" | "pre-wrap" | "break-spaces" => !data.is_empty(),
+        "pre-line" => !data.trim_matches([' ', '\t', '\r']).is_empty(),
+        _ => !data.trim_matches([' ', '\t', '\r', '\n']).is_empty(),
+    }
+}
+
+// A trailing line break needs a placeholder unless content in the same editing
+// block already gives the new line a position. Never use content outside the host.
+fn editing_line_has_following_content(
+    state: &V8BindingState,
+    point: BoundaryPoint,
+    host: NodeId,
+    whitespace: &str,
+) -> Result<bool, V8BindingError> {
+    let block = nearest_rendered_editing_block(state, point.container, host)?;
+    let dom = state.dom.borrow();
+    let layout = state.layout.borrow();
+    let mut node = point.container;
+    let record = dom.arena().get(node)?;
+    let mut pending = Vec::new();
+    if let NodeKind::Text { data } | NodeKind::CDataSection { data } = &record.kind {
+        let tail = String::from_utf16_lossy(
+            &data
+                .encode_utf16()
+                .skip(point.offset as usize)
+                .collect::<Vec<_>>(),
+        );
+        if editing_text_has_visible_content(&tail, whitespace) {
+            return Ok(true);
+        }
+    } else {
+        pending.extend(record.children.iter().skip(point.offset as usize).copied());
+    }
+    while node != block {
+        let Some(parent) = dom.parent(node)? else {
+            break;
+        };
+        let siblings = light_children(&dom, parent)?;
+        if let Some(index) = siblings.iter().position(|id| *id == node) {
+            pending.extend(siblings[index + 1..].iter().copied());
+        }
+        node = parent;
+    }
+    pending.reverse();
+    while let Some(node) = pending.pop() {
+        let record = dom.arena().get(node)?;
+        match &record.kind {
+            NodeKind::Text { data } | NodeKind::CDataSection { data } => {
+                let mode = record
+                    .parent
+                    .and_then(|parent| layout.styles.get(&node_key(parent)))
+                    .and_then(|style| style.get("white-space"))
+                    .map_or(whitespace, String::as_str);
+                if editing_text_has_visible_content(data, mode) {
+                    return Ok(true);
+                }
+            }
+            NodeKind::Element { .. } => {
+                let display = layout
+                    .styles
+                    .get(&node_key(node))
+                    .and_then(|s| s.get("display"))
+                    .map(String::as_str);
+                if display == Some("none") || is_ignored_editing_sibling(&dom, node) {
+                    continue;
+                }
+                if display.is_some_and(|d| {
+                    matches!(
+                        d,
+                        "block" | "flow-root" | "list-item" | "table" | "flex" | "grid"
+                    )
+                }) || (display.is_none() && is_editing_block(&dom, node))
+                {
+                    return Ok(false);
+                }
+                if matches!(
+                    element_local_name(&dom, node),
+                    Some("br" | "img" | "input" | "video" | "audio" | "iframe" | "canvas" | "svg")
+                ) {
+                    return Ok(true);
+                }
+                pending.extend(record.children.iter().rev().copied());
+            }
+            _ => {}
+        }
+    }
+    Ok(false)
+}
+
+fn insert_editing_line_break(state: &V8BindingState) -> Result<(), V8BindingError> {
+    let Some(host) = editing_host(state)? else {
+        return Ok(());
+    };
+    replace_selection_with_text(state, "")?;
+    let Some(id) = state.selection_range.get() else {
+        return Ok(());
+    };
+    let range = state
+        .ranges
+        .borrow()
+        .get(&id)
+        .cloned()
+        .ok_or(V8BindingError::Allocation("selection range"))?;
+    let whitespace = editing_white_space(state, range.start_container)?;
+    let preserves = matches!(
+        whitespace.as_str(),
+        "pre" | "pre-wrap" | "pre-line" | "break-spaces"
+    );
+    let mut point = BoundaryPoint {
+        container: range.start_container,
+        offset: range.start_offset,
+    };
+    let needs_placeholder = !editing_line_has_following_content(state, point, host, &whitespace)?;
+    if preserves {
+        replace_selection_with_text(state, "\n")?;
+        let range = state
+            .ranges
+            .borrow()
+            .get(&id)
+            .cloned()
+            .ok_or(V8BindingError::Allocation("selection range"))?;
+        point = BoundaryPoint {
+            container: range.start_container,
+            offset: range.start_offset,
+        };
+    } else {
+        let mut dom = state.dom.borrow_mut();
+        if matches!(
+            dom.arena().get(point.container)?.kind,
+            NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+        ) {
+            let length = boundary_length(&dom, point.container)?;
+            if point.offset == 0 || point.offset == length {
+                let (container, offset) = relative_boundary(
+                    &dom,
+                    point.container,
+                    point.offset == length && length != 0,
+                )?;
+                point = BoundaryPoint { container, offset };
+            }
+        }
+        let br = dom.create_element("br");
+        insert_at_boundary(&mut dom, point.container, point.offset, br)?;
+        let (container, offset) = relative_boundary(&dom, br, true)?;
+        point = BoundaryPoint { container, offset };
+    }
+    if needs_placeholder {
+        let mut dom = state.dom.borrow_mut();
+        let br = dom.create_element("br");
+        insert_at_boundary(&mut dom, point.container, point.offset, br)?;
+    }
+    set_selection_boundaries(state, point, point)?;
     Ok(())
 }
 
@@ -13015,9 +13475,16 @@ fn split_editing_paragraph(state: &V8BindingState) -> Result<(), V8BindingError>
         .get(&range_id)
         .cloned()
         .ok_or(V8BindingError::Allocation("selection range"))?;
-    let block = nearest_editing_block(&state.dom.borrow(), range.start_container, host)?;
-    if block == host || *state.default_paragraph_separator.borrow() == "br" {
-        return replace_selection_with_html(state, "<br>");
+    let block = nearest_rendered_editing_block(state, range.start_container, host)?;
+    // These containers represent several lines or table structure. A paragraph
+    // command must not clone the container itself into a sibling table cell or
+    // a second preformatted/address element.
+    let multiline_container = matches!(
+        element_local_name(&state.dom.borrow(), block),
+        Some("pre" | "listing" | "address" | "td" | "th" | "caption")
+    );
+    if block == host || multiline_container || *state.default_paragraph_separator.borrow() == "br" {
+        return insert_editing_line_break(state);
     }
 
     let mut dom = state.dom.borrow_mut();
@@ -22890,14 +23357,14 @@ fn call_operation<'s>(
                 _ => {
                     let changed = run_edit_transaction(state, &command, |state| {
                         match command.as_str() {
-                            "inserttext" => replace_selection_with_text(state, &value)?,
+                            "inserttext" => insert_editing_text(state, &value)?,
                             "inserthtml" if plaintext => {
                                 let parsed = oryn_dom::html::parse_fragment(&value, "div");
                                 let text = parsed.dom.text_content(parsed.document)?;
                                 replace_selection_with_text(state, &text)?;
                             }
                             "inserthtml" => replace_selection_with_html(state, &value)?,
-                            "insertlinebreak" => replace_selection_with_html(state, "<br>")?,
+                            "insertlinebreak" => insert_editing_line_break(state)?,
                             "insertparagraph" => split_editing_paragraph(state)?,
                             "inserthorizontalrule" => replace_selection_with_html(state, "<hr>")?,
                             "insertimage" => {
@@ -31656,6 +32123,43 @@ mod tests {
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
             "0|b|EM|SPAN|PAB"
+        );
+    }
+
+    #[test]
+    fn cross_container_range_preserves_original_element_endpoint_offsets() {
+        initialize_v8();
+        let parsed = html::parse("<main id='root'></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"(() => {
+          const root = document.getElementById('root');
+          const results = [];
+          for (const command of ['cloneContents','extractContents','deleteContents']) {
+            root.innerHTML = '<b>def<br>ghi</b><i>jkl</i>';
+            const original = root.firstChild.firstChild;
+            const range = document.createRange();
+            range.setStart(root, 0); range.setEnd(root.firstChild, 1);
+            const fragment = range[command]();
+            results.push(fragment ? fragment.textContent : '-');
+            results.push(root.innerHTML);
+            if (command === 'extractContents' && fragment.firstChild.firstChild !== original) throw new Error('contained text was cloned');
+          }
+          root.innerHTML = '<b>a<br>b</b><i>c</i><u>d</u>';
+          const range = document.createRange();
+          range.setStart(root.firstChild, 1); range.setEnd(root, 2);
+          const fragment = range.extractContents();
+          results.push(fragment.textContent, root.innerHTML);
+          return results.join('|');
+        })()"#).unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "def|<b>def<br>ghi</b><i>jkl</i>|def|<b><br>ghi</b><i>jkl</i>|-|<b><br>ghi</b><i>jkl</i>|bc|<b>a</b><u>d</u>"
         );
     }
 

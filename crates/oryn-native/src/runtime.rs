@@ -10706,6 +10706,171 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn editing_join_preserves_first_line_whitespace_and_remaining_lines() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://editing.example.test/join",
+            "<!doctype html><style id=rules></style><div id=host contenteditable></div>",
+        )
+        .await
+        .unwrap();
+        let result = page.evaluate(r#"(() => {
+          const host = document.getElementById('host');
+          const rules = document.getElementById('rules');
+          let checked = 0;
+          for (const leftMode of ['normal','nowrap','pre','pre-wrap','pre-line']) {
+            for (const rightMode of ['normal','nowrap','pre','pre-wrap','pre-line']) {
+              if (leftMode === rightMode) continue;
+              const bodies = ['def', 'def<br>ghi', '<b>def<br>ghi</b>'];
+              if (rightMode !== 'normal' && rightMode !== 'nowrap') bodies.push('<b>def\nghi</b>');
+              rules.textContent = '.left{white-space:' + leftMode + '} .right{white-space:' + rightMode + '}';
+              for (const direction of ['backward','forward','selection']) {
+                for (const body of bodies) {
+                  host.innerHTML = '<div class="left">abc</div><div class="right">' + body + '</div>';
+                  const left = host.firstChild, right = host.lastChild;
+                  let rightText = right.firstChild;
+                  while (rightText.nodeType !== 3) rightText = rightText.firstChild;
+                  host.focus();
+                  const range = document.createRange();
+                  if (direction === 'backward') {
+                    range.setStart(rightText, 0); range.collapse(true);
+                  } else {
+                    range.setStart(left.firstChild, 3);
+                    if (direction === 'forward') range.collapse(true);
+                    else range.setEnd(rightText, 0);
+                  }
+                  getSelection().removeAllRanges(); getSelection().addRange(range);
+                  document.execCommand(direction === 'forward' ? 'forwardDelete' : 'delete');
+                  if (left.textContent !== 'abcdef') throw new Error(JSON.stringify({leftMode,rightMode,direction,body,actual:host.innerHTML,reason:'first line not joined'}));
+                  if (body === 'def' ? host.children.length !== 1 : host.children.length !== 2 || host.lastChild.textContent !== 'ghi') throw new Error(JSON.stringify({leftMode,rightMode,direction,body,actual:host.innerHTML,reason:'remaining lines changed'}));
+                  const walker = document.createTreeWalker(left, NodeFilter.SHOW_TEXT);
+                  let moved;
+                  while (walker.nextNode()) if (walker.currentNode.data.includes('def')) moved = walker.currentNode;
+                  if (!moved || getComputedStyle(moved.parentElement).whiteSpace !== rightMode) throw new Error(JSON.stringify({leftMode,rightMode,direction,body,actual:host.innerHTML,reason:'moved whitespace changed'}));
+                  if (body.startsWith('<b>') && !moved.parentElement.closest('b')) throw new Error('inline formatting lost');
+                  document.execCommand('insertText', false, 'X');
+                  if (left.textContent !== 'abcXdef') throw new Error(JSON.stringify({direction,body,actual:host.innerHTML,reason:'join caret misplaced'}));
+                  checked++;
+                }
+              }
+            }
+          }
+          return String(checked);
+        })()"#).await.unwrap();
+        assert_eq!(result, "216");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_paragraphs_split_computed_blocks_and_keep_inline_formatting() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        page.load_html("https://editing.example.test/nested", "<!doctype html><style>.split {display:block} .inline {display:inline;white-space:normal} .collapse {white-space:normal}</style><div id=container></div>").await.unwrap();
+        let result = page.evaluate(r#"(() => {
+          let checked = 0;
+          const container = document.getElementById('container');
+          for (const tag of ['span','p']) {
+            container.innerHTML = '<' + tag + ' contenteditable></' + tag + '>';
+            const host = container.firstChild;
+            for (const mode of ['normal','nowrap','pre','pre-wrap','pre-line','break-spaces']) {
+              host.style.whiteSpace = mode;
+              const line = mode === 'normal' || mode === 'nowrap' ? '<br>' : '\n';
+              for (const command of ['insertParagraph','insertText']) {
+                for (const [markup, expected] of [
+                  ['<b>ab</b>', '<b>a' + line + 'Xb</b>'],
+                  ['<b class="collapse">ab</b>', '<b class="collapse">a<br>Xb</b>'],
+                  ['<span class="split"><b>ab</b></span>', '<span class="split"><b>a</b></span><span class="split"><b>Xb</b></span>'],
+                  ['<div class="inline">ab</div>', '<div class="inline">a<br>Xb</div>']
+                ]) {
+                  host.innerHTML = markup;
+                  let text = host.firstChild;
+                  while (text.nodeType !== 3) text = text.firstChild;
+                  host.focus();
+                  getSelection().collapse(text, 1);
+                  if (!document.execCommand(command, false, command === 'insertText' ? '\n' : '')) throw new Error('command rejected');
+                  if (!getSelection().isCollapsed || !host.contains(getSelection().anchorNode)) throw new Error('caret outside host');
+                  document.execCommand('insertText', false, 'X');
+                  if (host.innerHTML !== expected) throw new Error(JSON.stringify({tag,mode,command,markup,expected,actual:host.innerHTML}));
+                  checked++;
+                }
+              }
+            }
+          }
+          for (const command of ['insertParagraph','insertText']) {
+            for (const tag of ['pre','address']) {
+              container.innerHTML = '<div contenteditable><' + tag + ' style="white-space:pre">ab</' + tag + '></div>';
+              const host = container.firstChild, original = host.firstChild;
+              host.focus(); getSelection().collapse(original.firstChild, 1);
+              document.execCommand(command, false, command === 'insertText' ? '\n' : '');
+              document.execCommand('insertText', false, 'X');
+              if (host.children.length !== 1 || host.firstChild !== original || original.textContent !== 'a\nXb') throw new Error('multiline container was split');
+              checked++;
+            }
+            for (const tag of ['td','th']) {
+              container.innerHTML = '<div contenteditable><table><tbody><tr><' + tag + '>ab</' + tag + '></tr></tbody></table></div>';
+              const host = container.firstChild, cell = host.querySelector(tag), row = cell.parentElement;
+              host.focus(); getSelection().collapse(cell.firstChild, 1);
+              document.execCommand(command, false, command === 'insertText' ? '\n' : '');
+              if (row.children.length !== 1 || row.firstChild !== cell || !cell.contains(getSelection().anchorNode)) throw new Error('paragraph command changed table structure');
+              checked++;
+            }
+          }
+          return String(checked);
+        })()"#).await.unwrap();
+        assert_eq!(result, "104");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn editing_line_breaks_use_computed_whitespace_and_preserve_the_caret() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        page.load_html("https://editing.example.test/", "<!doctype html><style id=rules></style><div><span id=editor contenteditable></span>outside text</div>").await.unwrap();
+        let result = page.evaluate(r#"(() => {
+          const editor = document.getElementById('editor');
+          const rules = document.getElementById('rules');
+          const selection = getSelection();
+          let checked = 0;
+          for (const mode of ['normal','nowrap','pre','pre-wrap','pre-line','break-spaces']) {
+            const line = mode === 'normal' || mode === 'nowrap' ? '<br>' : '\n';
+            // A stylesheet's !important declaration must win over inline style.
+            rules.textContent = '#editor {white-space:' + mode + ' !important}';
+            editor.style.whiteSpace = mode === 'normal' ? 'pre' : 'normal';
+            for (const command of ['insertLineBreak','insertParagraph','insertText']) {
+              for (const display of ['inline','block','inline-block','list-item','table-cell']) {
+                editor.style.display = display;
+                for (const test of [
+                  ['', false, 0, 0, line + '<br>', line + 'X<br>'],
+                  ['abcd', true, 0, 0, line + 'abcd', line + 'Xabcd'],
+                  ['abcd', true, 2, 2, 'ab' + line + 'cd', 'ab' + line + 'Xcd'],
+                  ['abcd', true, 4, 4, 'abcd' + line + '<br>', 'abcd' + line + 'X<br>'],
+                  ['abcd', true, 1, 3, 'a' + line + 'd', 'a' + line + 'Xd'],
+                  ['<br>', false, 0, 0, line + '<br>', line + 'X<br>']
+                ]) {
+                  editor.innerHTML = test[0];
+                  editor.focus();
+                  const node = test[1] ? editor.firstChild : editor;
+                  const range = document.createRange();
+                  range.setStart(node, test[2]); range.setEnd(node, test[3]);
+                  selection.removeAllRanges(); selection.addRange(range);
+                  if (!document.execCommand(command, false, command === 'insertText' ? '\n' : '')) throw new Error('command rejected');
+                  if (editor.innerHTML !== test[4]) throw new Error(JSON.stringify({mode,command,display,input:test[0],expected:test[4],actual:editor.innerHTML}));
+                  if (!selection.isCollapsed || !editor.contains(selection.anchorNode)) throw new Error('caret escaped host');
+                  document.execCommand('insertText', false, 'X');
+                  if (editor.innerHTML !== test[5]) throw new Error(JSON.stringify({mode,command,display,expectedCaret:test[5],actual:editor.innerHTML}));
+                  checked++;
+                }
+              }
+            }
+          }
+          return String(checked);
+        })()"#).await.unwrap();
+        assert_eq!(result, "540");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn navigation_dispatches_xml_and_image_responses() {
         struct MimeFixture(Arc<Mutex<Vec<String>>>);
         impl NetworkBroker for MimeFixture {

@@ -803,6 +803,8 @@ const COMPUTED_PROPERTIES: &[&str] = &[
     "line-height",
     "text-align",
     "white-space",
+    "white-space-collapse",
+    "text-wrap-mode",
     "overflow-x",
     "overflow-y",
     "min-width",
@@ -1103,13 +1105,29 @@ fn stylo_computed_values(
                     let Ok(property) = PropertyId::parse_enabled_for_all_content(name) else {
                         continue;
                     };
-                    let Err(longhand) = property.as_shorthand() else {
-                        continue;
+                    let value = match property.as_shorthand() {
+                        Ok(shorthand) => {
+                            // Modern white-space is a shorthand. Serialize its
+                            // computed longhands through Stylo instead of losing
+                            // the cascade and falling back to inline declarations.
+                            let declarations = shorthand
+                                .longhands()
+                                .map(|id| computed.computed_or_resolved_declaration(id, None))
+                                .collect::<Vec<_>>();
+                            let references = declarations.iter().collect::<Vec<_>>();
+                            let mut value = String::new();
+                            shorthand
+                                .longhands_to_css(&references, &mut value)
+                                .map_err(|_| {
+                                    LayoutError::StyleTraversal(format!(
+                                        "cannot serialize computed {name}"
+                                    ))
+                                })?;
+                            value
+                        }
+                        Err(longhand) => computed.computed_value_to_string(longhand),
                     };
-                    values.insert(
-                        (*name).to_string(),
-                        computed.computed_value_to_string(longhand),
-                    );
+                    values.insert((*name).to_string(), value);
                 }
             } else {
                 return Err(LayoutError::StyleTraversal(format!(
@@ -3152,6 +3170,50 @@ mod tests {
         input.nodes[1].attributes.remove("class");
         let output = engine.compute(&input, &LayoutLimits::default()).unwrap();
         assert_eq!(output.computed_styles[&3]["color"], "rgb(0, 0, 255)");
+    }
+
+    #[test]
+    fn stylo_exports_computed_whitespace_shorthand_and_longhands() {
+        let mut root = node(1, None, "div", "");
+        root.children = vec![2];
+        let mut child = node(2, Some(1), "span", "text");
+        child
+            .attributes
+            .insert("style".into(), "white-space: pre".into());
+        let mut input = LayoutInput {
+            nodes: vec![root, child],
+            stylesheets: Vec::new(),
+            custom_states: BTreeMap::new(),
+            focused_node: None,
+            viewport: ViewportState::default(),
+            scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light,
+            reduced_motion: false,
+            web_fonts: Vec::new(),
+        };
+        for (shorthand, collapse, wrap) in [
+            ("normal", "collapse", "wrap"),
+            ("nowrap", "collapse", "nowrap"),
+            ("pre", "preserve", "nowrap"),
+            ("pre-wrap", "preserve", "wrap"),
+            ("pre-line", "preserve-breaks", "wrap"),
+            ("break-spaces", "break-spaces", "wrap"),
+        ] {
+            input.stylesheets = vec![format!("span {{ white-space: {shorthand} !important }}")];
+            let styles = stylo_computed_values(&input).unwrap();
+            assert_eq!(styles[&2]["white-space"], shorthand);
+            assert_eq!(styles[&2]["white-space-collapse"], collapse);
+            assert_eq!(styles[&2]["text-wrap-mode"], wrap);
+            input.nodes[1].attributes.remove("style");
+            input.stylesheets = vec![format!(
+                "div {{ white-space-collapse: {collapse}; text-wrap-mode: {wrap} }}"
+            )];
+            let inherited = stylo_computed_values(&input).unwrap();
+            assert_eq!(inherited[&2]["white-space"], shorthand);
+            input.nodes[1]
+                .attributes
+                .insert("style".into(), "white-space: pre".into());
+        }
     }
 
     #[test]
