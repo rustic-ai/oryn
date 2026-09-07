@@ -1052,6 +1052,10 @@ fn stylo_computed_values(
             current = by_id.get(&id).and_then(|node| node.parent);
         }
     }
+    // Building the mirror can parse <style> text automatically. CSSOM source
+    // is owned by LayoutInput and can differ from that text; keeping both would
+    // duplicate declarations and establish stale cascade-layer ordering.
+    document.clear_author_stylesheets();
     for stylesheet in &input.stylesheets {
         let style_node = {
             let mut mutator = document.mutate();
@@ -2560,6 +2564,47 @@ mod tests {
             attributes: BTreeMap::new(),
             text: text.into(),
         }
+    }
+
+    #[test]
+    fn cssom_layer_order_uses_effective_sheets_without_duplicate_dom_source() {
+        let rules =
+            "@layer first { #target { color: green; } } @layer second { #target { color: red; } }";
+        let mut target = node(5, Some(2), "div", "");
+        target.attributes.insert("id".into(), "target".into());
+        let mut input = LayoutInput {
+            nodes: vec![
+                node(1, None, "html", ""),
+                node(2, Some(1), "body", ""),
+                node(3, Some(2), "style", ""),
+                node(4, Some(2), "style", rules),
+                target,
+            ],
+            stylesheets: vec![String::new(), rules.into()],
+            custom_states: BTreeMap::new(),
+            focused_node: None,
+            viewport: ViewportState::default(),
+            scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light,
+            reduced_motion: false,
+            web_fonts: Vec::new(),
+        };
+        assert_eq!(
+            stylo_computed_values(&input).unwrap()[&5]["color"],
+            "rgb(255, 0, 0)"
+        );
+        input.stylesheets[0] = "@layer second {}".into();
+        assert_eq!(
+            stylo_computed_values(&input).unwrap()[&5]["color"],
+            "rgb(0, 128, 0)"
+        );
+        // DOM text remains authored even when the effective CSSOM sheet is empty.
+        input.nodes[2].text = "@layer second {}".into();
+        input.stylesheets[0].clear();
+        assert_eq!(
+            stylo_computed_values(&input).unwrap()[&5]["color"],
+            "rgb(255, 0, 0)"
+        );
     }
 
     #[test]

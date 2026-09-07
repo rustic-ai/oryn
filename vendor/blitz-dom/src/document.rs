@@ -1133,6 +1133,21 @@ impl BaseDocument {
         self.nodes_to_stylesheet.values()
     }
 
+    /// Remove author sheets before installing an authoritative external sheet list.
+    /// Keep the DOM intact so selectors still see the original element children.
+    pub fn clear_author_stylesheets(&mut self) {
+        for (node_id, sheet) in std::mem::take(&mut self.nodes_to_stylesheet) {
+            self.stylist.remove_stylesheet(sheet, &self.guard.read());
+            if let Some(node) = self.nodes.get_mut(node_id) {
+                if let Some(element) = node.element_data_mut() {
+                    if matches!(element.special_data, SpecialElementData::Stylesheet(_)) {
+                        element.special_data = SpecialElementData::None;
+                    }
+                }
+            }
+        }
+    }
+
     /// Iterate over the user-agent stylesheets currently associated with this document
     pub fn useragent_stylesheets(&self) -> impl Iterator<Item = &DocumentStyleSheet> {
         self.ua_stylesheets.values()

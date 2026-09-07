@@ -5441,6 +5441,51 @@ mod tests {
     }
 
     #[test]
+    fn cssom_layer_edits_change_order_without_rewriting_style_text() {
+        let mut page = RustExecutableDocument::load(
+            r#"<!doctype html>
+            <style id='order'></style><style>
+            @layer first { #probe { color: green; } }
+            @layer second { #probe { color: red; } }
+            </style><div id='probe'></div>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const owner = document.getElementById('order');
+            const sheet = owner.sheet;
+            const computed = getComputedStyle(document.getElementById('probe'));
+            const colors = [computed.color];
+            sheet.insertRule('@layer second {}', 0);
+            colors.push(computed.color);
+            sheet.deleteRule(0);
+            colors.push(computed.color);
+            colors.concat([owner.textContent === '']).join('|')
+        "#
+            )
+            .unwrap(),
+            "rgb(255, 0, 0)|rgb(0, 128, 0)|rgb(255, 0, 0)|true"
+        );
+    }
+
+    #[test]
+    fn cssom_import_rules_keep_their_indices_and_conditions() {
+        let mut page =
+            RustExecutableDocument::load("<!doctype html><style id='sheet'></style><body>")
+                .unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = document.getElementById('sheet').sheet;
+            sheet.insertRule('@import url("unloaded.css") layer(theme) supports(display:block) screen;', 0);
+            const rule = sheet.cssRules[0];
+            const valid = !!rule && rule.cssText.includes('layer(theme)') &&
+                rule.cssText.includes('supports(') && rule.cssText.includes('screen');
+            sheet.deleteRule(0);
+            [valid, sheet.cssRules.length].join('|')
+        "#).unwrap(), "true|0");
+    }
+
+    #[test]
     fn cssom_svg_urls_follow_cascade_inheritance_and_live_updates() {
         let mut page = RustExecutableDocument::load(
             r#"<!doctype html>

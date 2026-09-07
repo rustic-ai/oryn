@@ -9,6 +9,59 @@ use style::{
 };
 use style_traits::ParsingMode;
 
+/// Builds import-rule metadata for a read-only CSSOM parse. Resource loading
+/// belongs to the host stylesheet pipeline, never to property enumeration.
+struct CssomImportLoader {
+    base_url: UrlExtraData,
+    quirks: QuirksMode,
+}
+
+impl style::stylesheets::StylesheetLoader for CssomImportLoader {
+    fn request_stylesheet(
+        &self,
+        url: style::values::CssUrl,
+        location: cssparser::SourceLocation,
+        lock: &style::shared_lock::SharedRwLock,
+        media: style::servo_arc::Arc<style::shared_lock::Locked<style::media_queries::MediaList>>,
+        supports: Option<style::stylesheets::import_rule::ImportSupportsCondition>,
+        layer: style::stylesheets::import_rule::ImportLayer,
+    ) -> style::servo_arc::Arc<
+        style::shared_lock::Locked<style::stylesheets::import_rule::ImportRule>,
+    > {
+        use style::{
+            servo_arc::Arc,
+            stylesheets::{
+                AllowImportRules, Stylesheet,
+                import_rule::{ImportRule, ImportSheet},
+            },
+        };
+        // This transient child carries the media list needed for serialization.
+        // It is not a loaded sheet and is never installed in the document.
+        let base_url = url
+            .url()
+            .map(|resolved| UrlExtraData::from(resolved.as_ref().clone()))
+            .unwrap_or_else(|| self.base_url.clone());
+        let child = Stylesheet::from_str(
+            "",
+            base_url,
+            Origin::Author,
+            media,
+            lock.clone(),
+            None,
+            None,
+            self.quirks,
+            AllowImportRules::No,
+        );
+        Arc::new(lock.wrap(ImportRule {
+            url,
+            stylesheet: ImportSheet::new(Arc::new(child)),
+            supports,
+            layer,
+            source_location: location,
+        }))
+    }
+}
+
 /// A CSSOM rule view produced by Stylo, including its actual rule kind.
 /// The binding layer assigns identity; it must not infer kinds or declaration
 /// boundaries by splitting the serialized CSS text.
@@ -34,13 +87,21 @@ pub fn read_stylesheet(
         stylesheets::{AllowImportRules, CssRule, Stylesheet, StylesheetInDocument},
     };
     let lock = SharedRwLock::new();
+    let loader = CssomImportLoader {
+        base_url: UrlExtraData::from(url::Url::parse(base_url).map_err(|error| error.to_string())?),
+        quirks: if quirks {
+            QuirksMode::Quirks
+        } else {
+            QuirksMode::NoQuirks
+        },
+    };
     let sheet = Stylesheet::from_str(
         source,
         UrlExtraData::from(url::Url::parse(base_url).map_err(|error| error.to_string())?),
         Origin::Author,
         Arc::new(lock.wrap(MediaList::empty())),
         lock.clone(),
-        None,
+        Some(&loader),
         None,
         if quirks {
             QuirksMode::Quirks
@@ -216,6 +277,22 @@ pub fn supported_properties() -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cssom_import_readback_retains_conditions_without_fetching() {
+        for condition in ["display: block", "(display: flex)", "(unknown: value)"] {
+            let source = format!(
+                "@import url('unloaded.css') layer(theme) supports({condition}) screen; div {{ color: red; }}"
+            );
+            let rules =
+                read_stylesheet(&source, "https://example.test/main.css", false, true).unwrap();
+            assert_eq!(rules.len(), 2, "{condition}");
+            assert_eq!(rules[0].rule_type, CssRuleType::Import as u16);
+            for part in ["unloaded.css", "layer(theme)", "supports(", "screen"] {
+                assert!(rules[0].css_text.contains(part), "{}", rules[0].css_text);
+            }
+        }
+    }
 
     #[test]
     fn svg_resource_declarations_survive_stylo_round_trip() {

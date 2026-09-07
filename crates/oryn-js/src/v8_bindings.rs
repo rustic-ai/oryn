@@ -7858,6 +7858,18 @@ fn binding_state_for_receiver(
     scope: &mut v8::PinScope,
     receiver: v8::Local<v8::Object>,
 ) -> Option<Rc<V8BindingState>> {
+    // Associated objects can be created while their owner is accessed from
+    // another realm. Their native owner, rather than that calling context,
+    // determines the wrapper registry and keeps the backing node alive.
+    let receiver = if !receiver.is_proxy() {
+        v8::String::new(scope, "oryn.associated.owner")
+            .map(|name| v8::Private::for_api(scope, Some(name)))
+            .and_then(|key| receiver.get_private(scope, key))
+            .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+            .unwrap_or(receiver)
+    } else {
+        receiver
+    };
     if let Some((_, realm, _)) = embedded_node_identity(scope, receiver)
         && let Some(state) = scope
             .get_slot::<BindingStateRegistry>()
@@ -24303,6 +24315,11 @@ fn associated_wrapper<'s>(
         .new_instance(scope)
         .ok_or(V8BindingError::Allocation("associated wrapper object"))?;
     object.set_internal_field(0, v8::BigInt::new_from_u64(scope, wrapper.0).into());
+    let owner = wrap_node(scope, state, node)?;
+    let key = v8::String::new(scope, "oryn.associated.owner")
+        .ok_or(V8BindingError::Allocation("associated object owner"))?;
+    let key = v8::Private::for_api(scope, Some(key));
+    object.set_private(scope, key, owner.into());
     if interface == "CSSStyleSheet" {
         let constructed = state.constructed_stylesheets.borrow().contains(&node);
         adopted_stylesheets::mark_sheet(scope, state, object, constructed)?;
@@ -27083,6 +27100,50 @@ mod tests {
                 .exception()
                 .map(|e| e.to_rust_string_lossy(scope))
                 .unwrap_or_default()
+        );
+    }
+
+    #[test]
+    fn associated_stylesheets_use_owner_state_when_created_from_another_realm() {
+        initialize_v8();
+        let dom_a = Rc::new(RefCell::new(
+            html::parse("<style>div { color: red; }</style>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let dom_b = Rc::new(RefCell::new(
+            html::parse("<style id='sheet'>div { color: blue; }</style>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let node = dom_b.borrow().find_by_id("sheet").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let a = v8::Context::new(scope, Default::default());
+        let b = v8::Context::new(scope, Default::default());
+        let state_b;
+        {
+            let scope = &mut v8::ContextScope::new(scope, b);
+            state_b = install_generated_bindings(scope, b, dom_b, RealmId(1), 1).unwrap();
+        }
+        let scope = &mut v8::ContextScope::new(scope, a);
+        let _state_a = install_generated_bindings(scope, a, dom_a, RealmId(0), 1).unwrap();
+        let value = associated_wrapper(scope, &state_b, node, "CSSStyleSheet").unwrap();
+        let object = v8::Local::<v8::Object>::try_from(value).unwrap();
+        assert!(Rc::ptr_eq(
+            &binding_state_for_receiver(scope, object).unwrap(),
+            &state_b
+        ));
+        let key = v8::String::new(scope, "foreignSheet").unwrap();
+        a.global(scope).set(scope, key.into(), value);
+        let source =
+            v8::String::new(scope, "foreignSheet.cssRules[0].cssText.includes('blue')").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .boolean_value(scope)
         );
     }
 
