@@ -1599,11 +1599,23 @@ mod raw_v8 {
             &mut self,
             provider: Rc<dyn BindingLayoutProvider>,
         ) -> Result<(), HostError> {
-            self.binding_states
-                .get(&self.active_realm)
-                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
-                .set_layout_provider(provider);
-            Ok(())
+            let realm = self.active_realm;
+            let state = self
+                .binding_states
+                .get(&realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?;
+            state.set_layout_provider(provider);
+            let context = self
+                .contexts
+                .get(&realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active realm is unavailable".into()))?;
+            v8::scope!(let handle_scope, &mut self.isolate);
+            let context = v8::Local::new(handle_scope, &context);
+            let scope = &mut v8::ContextScope::new(handle_scope, context);
+            oryn_js::v8_bindings::install_css_property_accessors(scope, &state)
+                .map_err(|error| HostError::Execution(error.to_string()))
         }
 
         pub fn refresh_named_window_properties(&mut self) -> Result<(), HostError> {

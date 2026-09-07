@@ -37,6 +37,10 @@ struct LiveLayoutProvider {
 }
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn supported_css_properties(&self) -> Vec<(String, String)> {
+        oryn_layout::cssom::supported_properties()
+    }
+
     fn read_declaration(
         &self,
         request: &oryn_js::v8_bindings::BindingDeclarationRequest<'_>,
@@ -5410,6 +5414,53 @@ mod tests {
             page.evaluate("order.join('|')").unwrap(),
             "handler:5:true|listener:true|after"
         );
+    }
+
+    #[test]
+    fn computed_cssom_insets_survive_shorthand_serialization() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><style>#probe { right: 9px !important; }</style><div id='probe'></div>",
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const probe=document.getElementById('probe');
+            probe.style.cssText='display: none; top: 1px; right: 2px; bottom: 3px; left: 4px';
+            const computed=getComputedStyle(probe);
+            const before=[computed.top,computed.right,computed.bottom,computed.left].join(',');
+            probe.style.setProperty('inset','5px 6px 7px 8px');
+            const after=[computed.top,computed.right,computed.bottom,computed.left].join(',');
+            before+'|'+after
+        "#
+            )
+            .unwrap(),
+            "1px,9px,3px,4px|5px,9px,7px,8px"
+        );
+    }
+
+    #[test]
+    fn cssom_property_catalogue_installs_native_accessors() {
+        let mut page =
+            RustExecutableDocument::load("<!doctype html><body><div id='probe'></div>").unwrap();
+        let catalogue = serde_json::to_string(&oryn_layout::cssom::supported_properties()).unwrap();
+        let source = format!("globalThis.catalogue={catalogue};")
+            + r#"
+            const proto=CSSStyleDeclaration.prototype, style=document.getElementById('probe').style;
+            const supported=catalogue.every(([name])=>{
+                const descriptor=Object.getOwnPropertyDescriptor(proto,name);
+                return descriptor&&typeof descriptor.get==='function'&&typeof descriptor.set==='function';
+            });
+            style.float='left';style.paddingTop='12px';style['margin-inline-start']='3px';
+            const values=style.cssFloat==='left'&&style.getPropertyValue('float')==='left'
+                &&style.getPropertyValue('padding-top')==='12px'&&style.marginInlineStart==='3px';
+            const native=!Object.hasOwn(style,'float')&&!Object.hasOwn(style,'paddingTop');
+            style.paddingTop=null;const removed=style.getPropertyValue('padding-top')==='';
+            const computed=getComputedStyle(document.getElementById('probe'));let readonly=false;
+            try{computed.marginInlineStart='4px'}catch(e){readonly=e.name==='NoModificationAllowedError'}
+            [supported,values,native,removed,readonly].join('|')
+        "#;
+        assert_eq!(page.evaluate(&source).unwrap(), "true|true|true|true|true");
     }
 
     #[test]

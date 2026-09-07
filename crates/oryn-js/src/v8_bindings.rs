@@ -764,6 +764,10 @@ pub struct BindingDeclarationMutation {
 /// implementation lives in the page orchestrator so generated bindings keep
 /// using the same Rust DOM and Stylo/Taffy/Parley pipeline as observations.
 pub trait BindingLayoutProvider {
+    fn supported_css_properties(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
+
     fn read_declaration(
         &self,
         _request: &BindingDeclarationRequest<'_>,
@@ -19564,6 +19568,14 @@ fn cssom_string(
         .to_string(scope)
         .map(|value| value.to_rust_string_lossy(scope))
         .ok_or(V8BindingError::JavaScriptException)
+}
+
+/// Install CSS property accessors from the active native style provider.
+pub fn install_css_property_accessors(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+) -> Result<(), V8BindingError> {
+    inline_styles::install_properties(scope, state)
 }
 
 fn cssom_base_url(scope: &mut v8::PinScope) -> Result<String, V8BindingError> {

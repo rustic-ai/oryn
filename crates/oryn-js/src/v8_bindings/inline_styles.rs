@@ -161,3 +161,157 @@ pub(super) fn configure(instance: v8::Local<v8::ObjectTemplate>) {
             .deleter(deleter),
     );
 }
+
+fn attribute_names(property: &str) -> BTreeSet<String> {
+    let mut names = BTreeSet::from([property.to_owned()]);
+    let mut camel = String::new();
+    let mut uppercase = false;
+    for character in property.chars() {
+        if character == '-' {
+            uppercase = true;
+        } else if uppercase {
+            camel.extend(character.to_uppercase());
+            uppercase = false;
+        } else {
+            camel.push(character);
+        }
+    }
+    if let Some(suffix) = camel.strip_prefix("Webkit") {
+        names.insert(format!("webkit{suffix}"));
+    }
+    names.insert(camel);
+    names
+}
+
+fn property_getter(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let result = (|| {
+        let state = binding_state_for_receiver(scope, args.this())
+            .ok_or(V8BindingError::Allocation("CSS property receiver"))?;
+        let property = args.data().to_rust_string_lossy(scope);
+        if computed_styles::is_computed(scope, &state, args.this()) {
+            return computed_styles::attribute(scope, &state, args.this(), &property);
+        }
+        let node = resolve_receiver(scope, &state, args.this(), "CSSStyleDeclaration")?;
+        get_attribute_value(scope, &state, node, "CSSStyleDeclaration", &property)
+    })();
+    match result {
+        Ok(value) => rv.set(value),
+        Err(error) => throw_binding_error(scope, &error),
+    }
+}
+
+fn property_setter(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _: v8::ReturnValue,
+) {
+    let result = (|| {
+        let state = binding_state_for_receiver(scope, args.this())
+            .ok_or(V8BindingError::Allocation("CSS property receiver"))?;
+        let property = args.data().to_rust_string_lossy(scope);
+        if computed_styles::is_computed(scope, &state, args.this()) {
+            cssom_string(scope, args.get(0), true)?;
+            return Err(computed_styles::readonly_error());
+        }
+        let node = resolve_receiver(scope, &state, args.this(), "CSSStyleDeclaration")?;
+        let value = cssom_string(scope, args.get(0), true)?;
+        mutate_inline_declaration(scope, &state, node, &property, &value, "")?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        throw_binding_error(scope, &error)
+    }
+}
+
+pub(super) fn install_properties(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+) -> Result<(), V8BindingError> {
+    let properties = state
+        .layout_provider
+        .borrow()
+        .as_ref()
+        .map(|provider| provider.supported_css_properties())
+        .unwrap_or_default();
+    if properties.is_empty() {
+        return Ok(());
+    }
+    let template = state
+        .instance_templates
+        .borrow()
+        .get("CSSStyleDeclaration")
+        .cloned()
+        .ok_or(V8BindingError::MissingInterface("CSSStyleDeclaration"))?;
+    // Obtain the canonical prototype from the realm's template rather than a
+    // replaceable global constructor, including when the provider is refreshed.
+    let object =
+        v8::Local::new(scope, &template)
+            .new_instance(scope)
+            .ok_or(V8BindingError::Allocation(
+                "CSS property prototype instance",
+            ))?;
+    let prototype = object
+        .get_prototype(scope)
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+        .ok_or(V8BindingError::Allocation("CSS property prototype"))?;
+    for (property, canonical) in properties {
+        for name in attribute_names(&property) {
+            let key = v8::String::new(scope, &name)
+                .ok_or(V8BindingError::Allocation("CSS property name"))?;
+            if prototype
+                .has_own_property(scope, key.into())
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            let data = v8_string(scope, &canonical)?;
+            let getter = v8::Function::builder(property_getter)
+                .data(data)
+                .constructor_behavior(v8::ConstructorBehavior::Throw)
+                .build(scope)
+                .ok_or(V8BindingError::Allocation("CSS property getter"))?;
+            let setter = v8::Function::builder(property_setter)
+                .data(data)
+                .length(1)
+                .constructor_behavior(v8::ConstructorBehavior::Throw)
+                .build(scope)
+                .ok_or(V8BindingError::Allocation("CSS property setter"))?;
+            let mut descriptor =
+                v8::PropertyDescriptor::new_from_get_set(getter.into(), setter.into());
+            descriptor.set_enumerable(true);
+            descriptor.set_configurable(true);
+            if !prototype
+                .define_property(scope, key.into(), &descriptor)
+                .unwrap_or(false)
+            {
+                return Err(V8BindingError::Allocation("CSS property descriptor"));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn property_attribute_names_preserve_css_and_idl_spellings() {
+        assert_eq!(
+            attribute_names("padding-top"),
+            BTreeSet::from(["padding-top".into(), "paddingTop".into()])
+        );
+        assert_eq!(
+            attribute_names("-webkit-transform"),
+            BTreeSet::from([
+                "-webkit-transform".into(),
+                "WebkitTransform".into(),
+                "webkitTransform".into()
+            ])
+        );
+        assert_eq!(attribute_names("float"), BTreeSet::from(["float".into()]));
+    }
+}

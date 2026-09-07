@@ -128,6 +128,18 @@ pub fn read_declaration(
     Ok(result)
 }
 
+/// Supported property spellings and their canonical (unaliasing) targets.
+/// Both enumeration and enablement come from Stylo's generated property table.
+pub fn supported_properties() -> Vec<(String, String)> {
+    style::properties::NonCustomPropertyId::iter()
+        .filter_map(|id| {
+            PropertyId::parse_enabled_for_all_content(id.name())
+                .ok()
+                .map(|_| (id.name().to_owned(), id.unaliased().name().to_owned()))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
