@@ -905,6 +905,7 @@ pub struct V8BindingState {
     node_lists: node_lists::Store,
     selection_range: Rc<Cell<Option<u64>>>,
     range_selections: SharedRangeSelections,
+    inherited_base_url: RefCell<Option<String>>,
     selection_backward: Cell<bool>,
     selection_anchor: Cell<Option<BoundaryPoint>>,
     selection_focus: Cell<Option<BoundaryPoint>>,
@@ -2534,6 +2535,10 @@ impl V8BindingState {
         released + wrapper_graphs::refresh(scope, self)
     }
 
+    pub fn set_inherited_base_url(&self, base: Option<String>) {
+        *self.inherited_base_url.borrow_mut() = base;
+    }
+
     pub fn set_layout(&self, layout: BindingLayout) {
         *self.layout.borrow_mut() = layout;
         self.layout_cache_key.borrow_mut().take();
@@ -2902,6 +2907,7 @@ pub fn install_generated_bindings_with_root_for_global(
         node_lists: node_lists::Store::default(),
         selection_range,
         range_selections,
+        inherited_base_url: RefCell::new(None),
         selection_backward: Cell::new(false),
         selection_anchor: Cell::new(None),
         selection_focus: Cell::new(None),
@@ -6973,6 +6979,43 @@ fn normalize_header_name(name: String) -> Result<String, V8BindingError> {
     Ok(name)
 }
 
+fn document_base_url(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    use_base_element: bool,
+) -> Result<String, V8BindingError> {
+    let global = state
+        .global_object
+        .to_local(scope)
+        .ok_or(V8BindingError::Allocation("document global"))?;
+    let location_key = v8::String::new(scope, "location").unwrap();
+    let href = global
+        .get(scope, location_key.into())
+        .and_then(|value| value.to_object(scope))
+        .and_then(|location| {
+            let key = v8::String::new(scope, "href")?;
+            location.get(scope, key.into())
+        })
+        .map(|value| value.to_rust_string_lossy(scope))
+        .unwrap_or_else(|| "about:blank".into());
+    let fallback = if matches!(href.as_str(), "about:srcdoc" | "about:blank") {
+        state.inherited_base_url.borrow().clone().unwrap_or(href)
+    } else {
+        href
+    };
+    if use_base_element {
+        let dom = state.dom.borrow();
+        if let Some(base) = dom.query_selector(state.document, "base[href]")?
+            && let Some(value) = dom.attribute(base, "href")?
+            && let Ok(url) = Url::parse(&fallback).and_then(|base| base.join(value))
+            && !matches!(url.scheme(), "data" | "javascript")
+        {
+            return Ok(url.to_string());
+        }
+    }
+    Ok(fallback)
+}
+
 fn resolve_platform_url(scope: &mut v8::PinScope, input: &str) -> Result<String, V8BindingError> {
     if let Ok(url) = Url::parse(input) {
         return Ok(url.to_string());
@@ -9245,6 +9288,19 @@ fn tree_root(dom: &DomRuntime, mut node: NodeId) -> Result<NodeId, V8BindingErro
         NodeKind::Document | NodeKind::ShadowRoot { .. }
     ) && let Some(parent) = dom.parent(node)?
     {
+        node = parent;
+    }
+    Ok(node)
+}
+
+fn shadow_including_tree_root(
+    dom: &DomRuntime,
+    mut node: NodeId,
+) -> Result<NodeId, V8BindingError> {
+    while !matches!(dom.arena().get(node)?.kind, NodeKind::Document) {
+        let Some(parent) = dom.arena().get(node)?.parent else {
+            break;
+        };
         node = parent;
     }
     Ok(node)
@@ -17715,8 +17771,10 @@ fn call_stateful_operation<'s>(
                     .cloned()
                     .ok_or(V8BindingError::Allocation("Range record"))?;
                 if state.selection_range.get().is_some()
-                    || tree_root(&state.dom.borrow(), range.start_container)? != state.document
-                    || tree_root(&state.dom.borrow(), range.end_container)? != state.document
+                    || shadow_including_tree_root(&state.dom.borrow(), range.start_container)?
+                        != state.document
+                    || shadow_including_tree_root(&state.dom.borrow(), range.end_container)?
+                        != state.document
                 {
                     return Ok(None);
                 }
@@ -20221,6 +20279,10 @@ fn get_attribute_value<'s>(
             .get(scope, location.into())
             .ok_or(V8BindingError::Allocation("location object"));
     }
+    if member == "baseURI" && node == state.document {
+        let base = document_base_url(scope, state, true)?;
+        return v8_string(scope, &base);
+    }
     if interface == "Document" && matches!(member, "URL" | "documentURI" | "baseURI") {
         let global = scope.get_current_context().global(scope);
         let location_key =
@@ -20913,7 +20975,11 @@ fn get_attribute_value<'s>(
             if matches!(member, "href" | "src" | "action") && !reflected.is_empty() {
                 let reflected = reflected.to_owned();
                 drop(dom);
-                let resolved = resolve_platform_url(scope, &reflected)?;
+                let base = document_base_url(scope, state, interface != "HTMLBaseElement")?;
+                let resolved = Url::parse(&base)
+                    .and_then(|base| base.join(&reflected))
+                    .map(|url| url.to_string())
+                    .unwrap_or(reflected);
                 return v8_string(scope, &resolved);
             }
             v8_string(scope, reflected)?

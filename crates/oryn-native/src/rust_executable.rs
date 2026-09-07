@@ -3555,6 +3555,12 @@ impl RustExecutableDocument {
                     .ok()
                     .and_then(|value| Url::parse(&value).ok())
                     .or_else(|| self.base_url.clone());
+                let parent_base_url = self
+                    .host
+                    .evaluate_string("document.baseURI")
+                    .ok()
+                    .and_then(|value| Url::parse(&value).ok())
+                    .or_else(|| parent_url.clone());
                 let parent_security_url = self
                     .host
                     .evaluate_string("globalThis.__oryn_request_initiator_url")
@@ -3839,6 +3845,10 @@ impl RustExecutableDocument {
                     }
                 }
                 self.host.activate_realm(realm)?;
+                if is_srcdoc || inherited_about_blank {
+                    self.host
+                        .set_inherited_base_url(parent_base_url.as_ref().map(Url::to_string))?;
+                }
                 self.host.execute(RUST_RUNTIME_GLOBALS).map_err(|error| {
                     HostError::Execution(format!("dynamic frame runtime bootstrap: {error}"))
                 })?;
@@ -6222,6 +6232,91 @@ mod tests {
                 .unwrap(),
             "ready|https://frame.example.test|true|true"
         );
+    }
+
+    #[test]
+    #[ignore = "requires the pinned upstream WPT checkout in ORYN_WPT_ROOT"]
+    fn srcdoc_child_executes_pinned_testdriver_before_load() {
+        let root =
+            std::path::PathBuf::from(std::env::var("ORYN_WPT_ROOT").expect("pinned WPT root"));
+        let source = std::fs::read_to_string(root.join("resources/testdriver.js")).unwrap();
+        let resources = BTreeMap::from([(
+            "https://frame.example.test/resources/testdriver.js".into(),
+            source,
+        )]);
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<iframe id=frame srcdoc='<script src="/resources/testdriver.js"></script>'></iframe>"#,
+            &resources, None, Some(Url::parse("https://frame.example.test/root").unwrap()),
+        ).unwrap();
+        assert_eq!(
+            page.evaluate(
+                "typeof document.querySelector('#frame').contentWindow.test_driver?.send_keys"
+            )
+            .unwrap(),
+            "function",
+            "{:?}",
+            page.diagnostics
+        );
+        page.evaluate(r#"document.querySelector('#frame').srcdoc = '<head><script src="/resources/testdriver.js"></script></head><body>new</body>'"#).unwrap();
+        assert_eq!(
+            page.evaluate(
+                "typeof document.querySelector('#frame').contentWindow.test_driver?.send_keys"
+            )
+            .unwrap(),
+            "function",
+            "{:?}",
+            page.diagnostics
+        );
+    }
+
+    #[test]
+    fn srcdoc_inherits_parent_document_base_and_resolves_child_base_attributes() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<base href="https://assets.example.test/parent/"><iframe srcdoc='<a href="item">link</a>'></iframe>"#,
+            &BTreeMap::new(), None, Some(Url::parse("https://frame.example.test/root").unwrap()),
+        ).unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            globalThis.child = document.querySelector('iframe').contentDocument;
+            [child.URL, child.baseURI, child.querySelector('a').href].join('|')
+        "#
+            )
+            .unwrap(),
+            "about:srcdoc|https://assets.example.test/parent/|https://assets.example.test/parent/item"
+        );
+        assert_eq!(page.evaluate(r#"
+            const base = child.createElement('base'); base.setAttribute('href', '../child/'); child.head.appendChild(base);
+            [child.baseURI, child.querySelector('a').href].join('|')
+        "#).unwrap(), "https://assets.example.test/child/|https://assets.example.test/child/item");
+        assert_eq!(
+            page.evaluate(
+                r#"
+            child.querySelector('base').remove();
+            document.querySelector('base').setAttribute('href', 'https://different.example/');
+            child.querySelector('a').setAttribute('href', 'http://[');
+            [child.baseURI, child.querySelector('a').href].join('|')
+        "#
+            )
+            .unwrap(),
+            "https://assets.example.test/parent/|http://["
+        );
+    }
+
+    #[test]
+    fn selection_accepts_connected_shadow_ranges_and_rejects_detached_hosts() {
+        let mut page = RustExecutableDocument::load("<main></main>").unwrap();
+        assert_eq!(page.evaluate(r#"
+            const host = document.querySelector('main');
+            const root = host.attachShadow({mode:'closed'});
+            const editor = document.createElement('span');
+            editor.contentEditable = 'true'; editor.textContent = 'abc'; root.appendChild(editor);
+            const range = document.createRange(); range.setStart(editor.firstChild, 1); range.setEnd(editor.firstChild, 2);
+            const selection = document.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+            const connected = selection.getRangeAt(0) === range && selection.toString() === 'b';
+            selection.removeAllRanges(); host.remove(); selection.addRange(range);
+            [connected, selection.rangeCount].join('|')
+        "#).unwrap(), "true|0");
     }
 
     #[test]

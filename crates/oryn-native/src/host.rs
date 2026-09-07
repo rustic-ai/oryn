@@ -1595,6 +1595,14 @@ mod raw_v8 {
             Ok(())
         }
 
+        pub fn set_inherited_base_url(&mut self, base: Option<String>) -> Result<(), HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
+                .set_inherited_base_url(base);
+            Ok(())
+        }
+
         pub fn install_layout_provider(
             &mut self,
             provider: Rc<dyn BindingLayoutProvider>,
