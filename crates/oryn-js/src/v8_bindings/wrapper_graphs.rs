@@ -58,7 +58,8 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
     let mut affected = BTreeSet::new();
     let mut roots = BTreeMap::new();
     let mut complete_rebuild = state.wrapper_graph_revision.get().is_none();
-    let mut changed = state.wrapper_graph_new_nodes.borrow().clone();
+    let new_nodes = state.wrapper_graph_new_nodes.borrow().clone();
+    let mut changed = new_nodes.clone();
     if let Some(previous) = state.wrapper_graph_revision.get() {
         let batch = dom.mutations_since(oryn_dom::MutationCursor(previous));
         complete_rebuild |= batch.truncated;
@@ -93,8 +94,8 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
     }
     // A newly materialized owner-document wrapper must become reachable from
     // every existing detached component that exposes it through ownerDocument.
-    for (node, owner) in node_documents.iter() {
-        if changed.contains(owner)
+    for (node, owner) in node_documents.iter().filter(|_| !new_nodes.is_empty()) {
+        if new_nodes.contains(owner)
             && let Some(object) = wrappers
                 .lookup(state.realm, *node)
                 .and_then(|id| objects.get(&id))
@@ -124,9 +125,6 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
     let mut groups = BTreeMap::<NodeId, Vec<(NodeId, v8::Local<v8::Object>)>>::new();
     {
         for (id, object) in objects.iter_mut() {
-            let Some(metadata) = wrappers.metadata(*id) else {
-                continue;
-            };
             if !complete_rebuild
                 && object
                     .retention_component
@@ -134,6 +132,9 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
             {
                 continue;
             }
+            let Some(metadata) = wrappers.metadata(*id) else {
+                continue;
+            };
             object.retention_component = native_root(&dom, metadata.node, &mut roots);
             let Some(local) = object.handle.to_local(scope) else {
                 continue;
