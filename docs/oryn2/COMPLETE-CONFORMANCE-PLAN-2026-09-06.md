@@ -499,6 +499,16 @@ equivalence and the security update policy's remaining release gates are pending
 frame adoption and the four WPT regressions remain open; this is not a new full
 conformance result or a release qualification.
 
+Native `MessageEvent` is now implemented as a prerequisite for posted-message
+integration: traced payloads, native source/port branding, frozen port arrays,
+constructor conversions, legacy initialization and native global dispatch.
+[MessageEvent evidence](CONFORMANCE-NATIVE-MESSAGE-EVENTS-2026-09-06.json) records
+133 binding passes (two existing ignores), eight WebIDL unit passes, and 285/297
+native outcomes with the same 12 nonpass IDs and reasons. Frame delivery still
+uses facades; worker startup still supplies a JavaScript constructor, and native
+ServiceWorker source objects remain unsupported. No signed WPT execution has
+been run for this change, so the full baseline remains 2,561/4,022.
+
 ## Immediate next execution sequence
 
 1. Correct the four remaining frame assertion regressions through native frame-realm

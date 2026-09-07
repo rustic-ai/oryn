@@ -4411,6 +4411,24 @@ mod tests {
     }
 
     #[test]
+    fn message_event_uses_native_payload_and_global_dispatch() {
+        let mut page=RustExecutableDocument::load(r#"<output id='result'></output><script>
+          const payload={value:42},port=new MessageChannel().port1;
+          addEventListener('message',event=>{
+            document.getElementById('result').textContent=[event instanceof MessageEvent,event instanceof Event,event.data===payload,event.source===window,event.ports[0]===port,Object.isFrozen(event.ports),event.isTrusted].join('|');
+          });
+          dispatchEvent(new MessageEvent('message',{data:payload,source:window,ports:[port]}));
+        </script>"#).unwrap();
+        assert!(page.diagnostics.is_empty(), "{:?}", page.diagnostics);
+        assert_eq!(
+            page.evaluate("document.getElementById('result').textContent")
+                .unwrap(),
+            "true|true|true|true|true|true|false"
+        );
+        assert_eq!(page.evaluate("(()=>{const e=document.createEvent('MessageEvent');e.initMessageEvent('legacy',false,false,1,'origin','id',window,[]);return [e.type,e.data,e.origin,e.lastEventId,e.source===window,e.ports.length].join('|')})()").unwrap(),"legacy|1|origin|id|true|0");
+    }
+
+    #[test]
     fn scripts_and_events_mutate_only_the_rust_dom() {
         let mut page = RustExecutableDocument::load(
             "<main id='root'></main><script>const button=document.createElement('button');button.id='go';button.addEventListener('click',()=>button.textContent='done');document.getElementById('root').appendChild(button)</script>",

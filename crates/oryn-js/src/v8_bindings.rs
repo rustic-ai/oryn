@@ -35,6 +35,7 @@ use crate::{
 };
 
 mod global_events;
+mod message_events;
 pub mod window_proxy;
 pub use global_events::{report_exception, report_script_exception};
 
@@ -799,6 +800,7 @@ pub struct V8BindingState {
     mutation_observers: RefCell<BTreeMap<u64, MutationObserverEntry>>,
     mutation_record_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     error_event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
+    message_event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     global_object: v8::Weak<v8::Object>,
     reporting_exception: Cell<bool>,
@@ -2756,6 +2758,7 @@ pub fn install_generated_bindings_with_root_for_global(
         mutation_observers: RefCell::new(BTreeMap::new()),
         mutation_record_brand: RefCell::new(None),
         error_event_brand: RefCell::new(None),
+        message_event_brand: RefCell::new(None),
         event_brand: RefCell::new(None),
         global_object: v8::Weak::new(scope, global_object),
         reporting_exception: Cell::new(false),
@@ -7425,6 +7428,16 @@ fn generated_constructor<'s>(
     let name = interface
         .map(|interface| interface.name)
         .unwrap_or("interface");
+    if name == "MessageEvent" {
+        if !args.is_construct_call() {
+            throw_type_error(scope, "MessageEvent constructor requires new");
+        } else if let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() {
+            message_events::construct(scope, &state, &args);
+        } else {
+            throw_type_error(scope, "generated binding state is unavailable");
+        }
+        return;
+    }
     if name == "ErrorEvent" {
         if !args.is_construct_call() {
             throw_type_error(scope, "ErrorEvent constructor requires new");
@@ -7998,6 +8011,12 @@ fn generated_attribute_getter(
         }
         return;
     }
+    if interface == "MessageEvent" {
+        if let Some(value) = message_events::property(scope, &state, args.this(), member) {
+            return_value.set(value);
+        }
+        return;
+    }
     if interface == "ErrorEvent" {
         match error_event_property(scope, &state, args.this(), member) {
             Ok(value) => return_value.set(value),
@@ -8259,6 +8278,10 @@ fn generated_operation_impl<'s>(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "MessageEvent" && member == "initMessageEvent" {
+        message_events::reinitialize(scope, &state, &args);
+        return;
+    }
     if matches!(interface, "NodeList" | "HTMLCollection") && member == "item" {
         let result = node_lists::item(scope, &state, args.this(), interface, args.get(0));
         node_lists::account_memory(scope, &state);
@@ -21447,11 +21470,17 @@ fn call_operation<'s>(
             let requested = required_string(scope, args, 0)?.to_ascii_lowercase();
             let interface = if matches!(requested.as_str(), "customevent" | "customevents") {
                 "CustomEvent"
+            } else if requested == "messageevent" {
+                "MessageEvent"
             } else {
                 "Event"
             };
             let event =
                 create_event_object_with_interface(scope, state, interface, "", false, false)?;
+            if interface == "MessageEvent" {
+                message_events::initialize_empty(scope, state, event)
+                    .ok_or(V8BindingError::Allocation("MessageEvent payload"))?;
+            }
             let id = event_id(scope, event)?;
             state.events.borrow_mut().get_mut(&id).unwrap().initialized = false;
             Ok(Some(event.into()))
@@ -24263,14 +24292,18 @@ fn event_id(
         .get_internal_field(scope, 3)
         .and_then(|value| v8::Local::<v8::Value>::try_from(value).ok())
         .ok_or(V8BindingError::Allocation("Event receiver"))?;
-    let matches = [&state.event_brand, &state.error_event_brand]
-        .into_iter()
-        .any(|expected| {
-            expected
-                .borrow()
-                .as_ref()
-                .is_some_and(|expected| brand.strict_equals(v8::Local::new(scope, expected).into()))
-        });
+    let matches = [
+        &state.event_brand,
+        &state.error_event_brand,
+        &state.message_event_brand,
+    ]
+    .into_iter()
+    .any(|expected| {
+        expected
+            .borrow()
+            .as_ref()
+            .is_some_and(|expected| brand.strict_equals(v8::Local::new(scope, expected).into()))
+    });
     if !matches {
         return Err(V8BindingError::Allocation("Event receiver"));
     }
@@ -28193,6 +28226,151 @@ mod tests {
             "{:?}",
             tc.exception().map(|e| e.to_rust_string_lossy(tc))
         );
+    }
+
+    #[test]
+    fn message_event_native_payload_conversions_and_reinitialization() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let code = r#"
+          function check(v,label){if(!v)throw Error(label)}
+          function typeError(fn){try{fn()}catch(e){check(e instanceof TypeError,'TypeError');return}throw Error('expected TypeError')}
+          const empty=new MessageEvent('message');
+          check(empty instanceof Event && empty.data===null && empty.origin==='' && empty.lastEventId==='' && empty.source===null,'defaults');
+          check(empty.ports.length===0 && Object.isFrozen(empty.ports) && empty.ports===empty.ports,'frozen defaults');
+          check(!empty.isTrusted && !empty.bubbles && !empty.cancelable && !empty.composed,'flags');
+          class DerivedMessage extends MessageEvent {}
+          const port=new MessageChannel().port1, value={nested:{}};
+          let event=new DerivedMessage('\ud800',{data:value,origin:'a\ud800b',lastEventId:'\ud800',source:globalThis,ports:new Set([port]),bubbles:true,cancelable:true,composed:true});
+          check(event instanceof DerivedMessage && event.type==='\ud800' && event.origin==='a\ufffdb' && event.lastEventId==='\ud800','strings/subclass');
+          check(event.data===value && event.source===globalThis && event.ports[0]===port && Object.isFrozen(event.ports),'payload');
+          check(new MessageEvent('x',{source:port}).source===port,'port source');
+          check(new MessageEvent('x',{data:undefined}).data===null,'undefined default');
+          const symbol=Symbol();check(new MessageEvent('x',{data:symbol}).data===symbol,'any data');
+          const getData=Object.getOwnPropertyDescriptor(MessageEvent.prototype,'data').get;
+          const initMessage=MessageEvent.prototype.initMessageEvent;
+          for(const fake of [{},new Event('x'),new ErrorEvent('x'),Object.create(MessageEvent.prototype)]){
+            typeError(()=>getData.call(fake));typeError(()=>initMessage.call(fake,'x'));
+          }
+          typeError(()=>MessageEvent('x'));typeError(()=>new MessageEvent());
+          for(const init of [1,true,'',Symbol()])typeError(()=>new MessageEvent('x',init));
+          for(const source of [{},new Event('x'),new Proxy(port,{}),Object.create(MessagePort.prototype)])typeError(()=>new MessageEvent('x',{source}));
+          for(const ports of [null,1,'',{},[{}],[new Event('x')]])typeError(()=>new MessageEvent('x',{ports}));
+          typeError(()=>new MessageEvent('x',{origin:Symbol()}));typeError(()=>new MessageEvent('x',{lastEventId:Symbol()}));
+          let order=[];new MessageEvent({toString(){order.push('type');return 'x'}},new Proxy({}, {get(_,key){order.push(key);return undefined}}));
+          check(order.join(',')==='type,bubbles,cancelable,composed,data,lastEventId,origin,ports,source','dictionary order');
+          const marker={};for(const field of ['bubbles','cancelable','composed','data','lastEventId','origin','ports','source']){
+            try{new MessageEvent('x',new Proxy({}, {get(_,key){if(key===field)throw marker}}));throw Error('missing getter error')}catch(e){check(e===marker,'exception identity')}
+          }
+          let closed=0;
+          typeError(()=>new MessageEvent('x',{ports:{[Symbol.iterator](){return{next(){return{done:false,value:{}}},return(){closed++;throw marker}}}}}));
+          check(closed===1,'iterator closed with original conversion error');
+          event.preventDefault();event.initMessageEvent('again',false,false,port,'\ud800','\ud800',port,[port,port]);
+          check(event.type==='again' && !event.defaultPrevented && event.data===port && event.origin==='\ufffd' && event.lastEventId==='\ud800' && event.source===port && event.ports.length===2 && event.composed,'reinitialization');
+          const oldPorts=event.ports;
+          try{event.initMessageEvent('bad',true,true,null,'','',null,[{}]);throw Error('missing conversion error')}catch(e){check(e instanceof TypeError,'init TypeError')}
+          check(event.type==='again' && event.ports===oldPorts,'atomic conversion');
+          const target=new EventTarget();target.addEventListener('again',()=>{event.initMessageEvent('during',true,true,null);check(event.type==='again' && event.ports===oldPorts,'dispatch no-op')});target.dispatchEvent(event);
+          event.initMessageEvent('reset');check(event.data===null && event.source===null && event.ports.length===0 && event.target===null,'reset defaults');
+          Object.setPrototypeOf(event,null);check(getData.call(event)===null,'brand survives prototype mutation');
+          let legacy=document.createEvent('MessageEvent');check(legacy instanceof MessageEvent && legacy.data===null && legacy.type==='' && legacy.ports.length===0,'createEvent defaults');
+          legacy.initMessageEvent('legacy',false,false,value,'origin','id',port,[port]);check(legacy.data===value && legacy.source===port,'legacy initialization');
+          let poisoned=0;Object.defineProperty(Array.prototype,'0',{configurable:true,set(){poisoned++}});
+          try{const guarded=new MessageEvent('x',{ports:new Set([port])});check(guarded.ports[0]===port && poisoned===0,'prototype setter isolation')}finally{delete Array.prototype[0]}
+          globalThis.retainedMessage=new MessageEvent('message',{data:value,source:globalThis,ports:[port]});globalThis.retainedValue=value;
+          true
+        "#;
+        {
+            v8::tc_scope!(let tc, scope);
+            let source = v8::String::new(tc, code).unwrap();
+            let result = v8::Script::compile(tc, source, None).unwrap().run(tc);
+            assert!(
+                result.is_some_and(|v| v.is_true()),
+                "{:?}",
+                tc.exception().map(|v| v.to_rust_string_lossy(tc))
+            );
+            tc.low_memory_notification();
+            let source = v8::String::new(tc,"retainedMessage.data===retainedValue && retainedMessage.source===globalThis && retainedMessage.ports[0] instanceof MessagePort").unwrap();
+            assert!(
+                v8::Script::compile(tc, source, None)
+                    .unwrap()
+                    .run(tc)
+                    .unwrap()
+                    .is_true()
+            );
+        }
+        let key = v8::String::new(scope, "retainedMessage").unwrap();
+        let event = context.global(scope).get(scope, key.into()).unwrap();
+        let other = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, other);
+        let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        install_generated_bindings(scope, other, dom, RealmId(1), 1).unwrap();
+        let key = v8::String::new(scope, "foreignEvent").unwrap();
+        other.global(scope).set(scope, key.into(), event);
+        let source=v8::String::new(scope,"Object.getOwnPropertyDescriptor(MessageEvent.prototype,'data').get.call(foreignEvent)===foreignEvent.data").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
+    fn message_event_payload_edges_are_traced_and_released() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        let (context, weak_data, weak_port) = {
+            v8::scope!(let scope, &mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+            install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+            let source=v8::String::new(scope,"globalThis.heldMessage=new MessageEvent('x',{data:{only:42},ports:[new MessageChannel().port1]});heldMessage.data").unwrap();
+            let data = v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .to_object(scope)
+                .unwrap();
+            let source = v8::String::new(scope, "heldMessage.ports[0]").unwrap();
+            let port = v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .to_object(scope)
+                .unwrap();
+            (
+                v8::Global::new(scope, context),
+                v8::Weak::new(scope, data),
+                v8::Weak::new(scope, port),
+            )
+        };
+        isolate.low_memory_notification();
+        assert!(!weak_data.is_empty() && !weak_port.is_empty());
+        {
+            v8::scope!(let scope, &mut isolate);
+            let context = v8::Local::new(scope, &context);
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let source=v8::String::new(scope,"if(heldMessage.data.only!==42)throw Error('lost payload');delete globalThis.heldMessage").unwrap();
+            assert!(
+                v8::Script::compile(scope, source, None)
+                    .unwrap()
+                    .run(scope)
+                    .unwrap()
+                    .is_true()
+            );
+        }
+        isolate.low_memory_notification();
+        assert!(weak_data.is_empty() && weak_port.is_empty());
     }
 
     #[test]

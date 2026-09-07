@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "status": "native_message_event_prerequisite_validated_conformance_incomplete",
+  "source_base": "92daff6a7f9268e0b78d2dc5adc16b7d30bec705",
+  "source_files": {
+    "crates/oryn-js/src/v8_bindings.rs": "6b3cc7bb49c6f920de94e4cdce004e3601c22d4489d867bdfd81111e23538893",
+    "crates/oryn-js/src/v8_bindings/message_events.rs": "1289c5f355806c4f89e475b3bcada9164e82a1c0fd08a744364e6ce4e5639c45",
+    "crates/oryn-js/src/generated/browser.rs": "90894db568e90e3ebea5f0f8868d88876916a99a26b252cc0cc516d61e14e086",
+    "crates/oryn-webidl/idl/browser.webidl": "835148e50cef9120cb1ad13de4f1d8229e086e1a8bf0eae15bce6d3e52eb980f",
+    "crates/oryn-native/src/rust_executable.rs": "e26c0c169cdfe9918dbd80e3c6f248331305cb4b7f6b85c908c89a89c72067c6",
+    "crates/oryn-native/src/host.rs": "7fb299b6c12458a1e72db40bdae44c15f1076bb05fcf44c4782709da989a4597",
+    "Cargo.lock": "76a2cd7c8ef6782d95c751482175188453105e2bb5ddcc190b94b9300c677980"
+  },
+  "profile_manifest": "target/v8-window-structural-artifacts/core-full-manifest.json",
+  "native_binary_sha256": "2cc76542c5a16471b1a35ddfc152eadad1fc61b0aae3cf1f9ec5fd86651ffea8",
+  "validation": {
+    "binding_tests": {
+      "passed": 133,
+      "failed": 0,
+      "existing_ignored": 2
+    },
+    "native_page_message_event_test": "passed",
+    "native_matrix": {
+      "passed": 285,
+      "total": 297,
+      "existing_nonpasses": {
+        "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes": "called `Result::unwrap()` on an `Err` value: Execution(\"ReferenceError: dedicated is not defined\\n    at <anonymous>:1:70\")",
+        "executable::tests::editing_command_state_reports_paragraph_and_alignment_values": "assertion `left == right` failed\n  left: \"div|left|true||true|true|p|left|false\"\n right: \"div|left|true||true|true|p|center|true\"",
+        "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm": "assertion `left == right` failed\n  left: \"pending\"\n right: \"https://frame.example.test/source|complete\"",
+        "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit": "assertion `left == right` failed\n  left: \"pending\"\n right: \"true|true|https://child.example.test|reply:early\"",
+        "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics": "WPT did not publish a completion result",
+        "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks": "assertion failed: started.elapsed() >= Duration::from_millis(10)",
+        "runtime::tests::about_blank_is_internal_and_history_safe": "assertion `left == right` failed\n  left: Some(Commit)\n right: Some(Load)",
+        "runtime::tests::native_navigation_checks_redirects_and_supports_history": "diagnostic timeout: 15",
+        "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action": "assertion failed: matches!(error, RuntimeError::StaleSemanticRef)",
+        "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report": "assertion `left == right` failed\n  left: \"[\\\"script-src:report\\\",\\\"script-src:report\\\"]\"\n right: \"[\\\"script-src:report\\\"]\"",
+        "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages": "assertion `left == right` failed\n  left: 3\n right: 2",
+        "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported": "assertion `left == right` failed\n  left: \"generated binding XMLHttpRequest.synchronous requests is not implemented\"\n right: \"synchronous main-thread XHR is unsupported\""
+      },
+      "nonpass_ids_and_reasons_unchanged": true
+    },
+    "webidl_unit_tests": 8,
+    "generated_bindings": "passed",
+    "rustfmt": "passed",
+    "strict_js_native_clippy": "passed",
+    "docs_truth": "passed"
+  },
+  "coverage": [
+    "Native MessageEvent WebIDL constructor, attributes and legacy initializer",
+    "Traced payload and port edges survive while reachable and collect after release",
+    "Native Window and MessagePort source branding; frozen ports; WebIDL conversion order and IteratorClose",
+    "Document.createEvent MessageEvent initialization and native global dispatch"
+  ],
+  "remaining": [
+    "Production frame WindowProxy adoption and native posted-message task/structured serialization",
+    "Native worker port and MessageEvent integration; worker bootstrap still overrides constructor",
+    "Native ServiceWorker source union member",
+    "Signed candidate rebuild and upstream conformance execution for this change",
+    "Full inventory twice and remaining runtime/profile/security release gates"
+  ],
+  "full_baseline": {
+    "source": "5499cc739523caa7958369b2378f28ef0f20cd9d",
+    "passed": 2561,
+    "total": 4022,
+    "unchanged": true
+  },
+  "raw_artifacts": {
+    "artifacts/native-message-events/native-matrix.json": "a1bf55947f5a60b2402b93734534464e0a5b5577fbfa7b42ed764749f782914d",
+    "artifacts/native-message-events/clippy.log": "3b11768c144b603d1cbeef74dbb6f49d1758992e84d415f8ad6fc230af794313",
+    "artifacts/native-message-events/native.log": "bc1d379ac3855bb0b89eb064bdf55ceff75fd0dd9dd25e0e57caaa91f4780f6e",
+    "artifacts/native-message-events/native-matrix.log": "2120bb6ac78748aa8f209d2a9cda1d669e66cda024388ffec015a055209aea11",
+    "artifacts/native-message-events/bindings.log": "08be4b720a74f59ef4f3c367bf1ed928ca24f2f5900901a171dece9f7d50699b"
+  }
+}

@@ -131,6 +131,25 @@ dictionary ErrorEventInit : EventInit {
 };
 
 [Exposed=(Window,Worker)]
+interface MessageEvent : Event {
+  constructor(DOMString type, optional MessageEventInit eventInitDict);
+  readonly attribute any data;
+  readonly attribute USVString origin;
+  readonly attribute DOMString lastEventId;
+  readonly attribute (WindowProxy or MessagePort or ServiceWorker)? source;
+  readonly attribute FrozenArray<MessagePort> ports;
+  undefined initMessageEvent(DOMString type, optional boolean bubbles = false, optional boolean cancelable = false, optional any data = null, optional USVString origin = "", optional DOMString lastEventId = "", optional (WindowProxy or MessagePort or ServiceWorker)? source = null, optional sequence<MessagePort> ports = []);
+};
+
+dictionary MessageEventInit : EventInit {
+  any data = null;
+  USVString origin = "";
+  DOMString lastEventId = "";
+  (WindowProxy or MessagePort or ServiceWorker)? source = null;
+  sequence<MessagePort> ports = [];
+};
+
+[Exposed=(Window,Worker)]
 interface CustomEvent : Event {
   constructor(DOMString type, optional CustomEventInit eventInitDict);
   readonly attribute any detail;
