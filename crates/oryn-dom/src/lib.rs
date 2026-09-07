@@ -1155,8 +1155,28 @@ impl DomRuntime {
         if self.arena.get(child)?.parent != Some(parent) {
             return Err(DomError::NotAChild(child, parent));
         }
-        self.insert_before(parent, replacement, Some(child))?;
-        self.remove_child(parent, child)
+        self.arena.get(replacement)?;
+        if replacement == parent {
+            return Err(DomError::SelfParent);
+        }
+        if self.arena.ancestors(parent)?.contains(&replacement) {
+            return Err(DomError::Cycle);
+        }
+        let index = self.child_index(parent, child)? as usize;
+        let reference = self.arena.get(parent)?.children[index + 1..]
+            .iter()
+            .copied()
+            .find(|candidate| {
+                *candidate != replacement
+                    && !matches!(
+                        self.arena.get(*candidate).map(|node| &node.kind),
+                        Ok(NodeKind::ShadowRoot { .. })
+                    )
+            });
+        // Range offsets must see removal before insertion at the vacated slot.
+        // The removal journal retains the child, including self-replacement.
+        self.remove_child(parent, child)?;
+        self.insert_before(parent, replacement, reference)
     }
 
     /// Publish CSSOM source without rewriting DOM text or emitting DOM records.
@@ -3345,6 +3365,45 @@ mod tests {
             .unwrap();
         assert_eq!(dom.live_range(range).unwrap().start.offset, 2);
         dom.drop_live_range(range).unwrap();
+    }
+
+    #[test]
+    fn child_replacement_updates_ranges_before_inserting_at_the_vacated_slot() {
+        let mut dom = DomRuntime::new();
+        let parent = dom.create_element("div");
+        let child = dom.create_text("old");
+        let replacement = dom.create_element("span");
+        dom.append_child(dom.document(), parent).unwrap();
+        dom.append_child(parent, child).unwrap();
+        dom.append_child(parent, replacement).unwrap();
+        let point = BoundaryPoint {
+            container: parent,
+            offset: 1,
+        };
+        let range = dom.create_live_range(point, point).unwrap();
+        dom.replace_child(parent, replacement, child).unwrap();
+        assert_eq!(dom.children(parent).unwrap(), &[replacement]);
+        assert_eq!(dom.live_range(range).unwrap().start.offset, 0);
+        assert_eq!(dom.live_range(range).unwrap().end.offset, 0);
+        let inside = BoundaryPoint {
+            container: replacement,
+            offset: 0,
+        };
+        let nested = dom.create_live_range(inside, inside).unwrap();
+        dom.replace_child(parent, replacement, replacement).unwrap();
+        assert_eq!(dom.children(parent).unwrap(), &[replacement]);
+        assert_eq!(
+            dom.live_range(nested).unwrap().start,
+            BoundaryPoint {
+                container: parent,
+                offset: 0
+            }
+        );
+        assert!(matches!(
+            dom.replace_child(parent, parent, replacement),
+            Err(DomError::SelfParent)
+        ));
+        assert_eq!(dom.children(parent).unwrap(), &[replacement]);
     }
 
     #[test]

@@ -22634,14 +22634,25 @@ fn call_operation<'s>(
                 .transpose()?
             };
             if let Some(children) = fragment_children {
-                for fragment_child in children {
+                let reference = {
+                    let dom = state.dom.borrow();
+                    let siblings = light_children(&dom, node)?;
+                    let index = siblings
+                        .iter()
+                        .position(|candidate| *candidate == child)
+                        .ok_or(DomError::NotAChild(child, node))?;
+                    siblings.get(index + 1).copied()
+                };
+                state.dom.borrow_mut().remove_child(node, child)?;
+                for fragment_child in &children {
                     state
                         .dom
                         .borrow_mut()
-                        .insert_before(node, fragment_child, Some(child))?;
+                        .insert_before(node, *fragment_child, reference)?;
+                }
+                for fragment_child in children {
                     prepare_dynamic_script_subtree(scope, state, fragment_child)?;
                 }
-                state.dom.borrow_mut().remove_child(node, child)?;
             } else {
                 state
                     .dom
@@ -26775,6 +26786,17 @@ mod tests {
             const tail = text.splitText(2);
             check(textRange.startContainer === text && textRange.startOffset === 1 && textRange.endContainer === tail && textRange.endOffset === 1, 'attached split moves trailing boundary');
             check(afterText.startContainer === host && afterText.startOffset === 2 && afterText.endOffset === 2, 'parent boundary follows both text nodes');
+            const box = document.createElement('div');
+            const oldChild = document.createElement('i'), following = document.createElement('b');
+            box.appendChild(oldChild); box.appendChild(following);
+            const replacementRange = document.createRange(); replacementRange.setStart(box, 1); replacementRange.collapse(true);
+            const nodes = document.createDocumentFragment();
+            const first = document.createTextNode('first'), second = document.createTextNode('second');
+            nodes.appendChild(first); nodes.appendChild(second);
+            check(box.replaceChild(nodes, oldChild) === oldChild, 'replacement return value');
+            check(box.childNodes.length === 3 && box.firstChild === first && first.nextSibling === second && second.nextSibling === following, 'fragment insertion order');
+            check(nodes.childNodes.length === 0 && oldChild.parentNode === null, 'fragment consumed and child detached');
+            check(replacementRange.startContainer === box && replacementRange.startOffset === 0 && replacementRange.endOffset === 0, 'replacement removes before insertion');
             const original = document.documentElement, replacement = document.createElement('html');
             document.replaceChild(replacement, original);
             check(document.documentElement === replacement && document.doctype === type, 'valid root replacement');
