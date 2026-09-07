@@ -6225,6 +6225,74 @@ mod tests {
     }
 
     #[test]
+    fn frame_selection_retains_foreign_range_identity_and_live_boundaries() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<iframe id=frame srcdoc='<main contenteditable>abcdef</main>'></iframe>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            globalThis.child = document.querySelector('#frame').contentDocument;
+            globalThis.text = child.querySelector('main').firstChild;
+            globalThis.foreignRange = document.createRange();
+            foreignRange.setStart(text, 1);
+            foreignRange.setEnd(text, 4);
+            globalThis.childSelection = child.getSelection();
+            childSelection.removeAllRanges();
+            childSelection.addRange(foreignRange);
+            [childSelection.getRangeAt(0) === foreignRange,
+             childSelection.toString(), childSelection.anchorOffset,
+             childSelection.focusOffset].join('|')
+        "#
+            )
+            .unwrap(),
+            "true|bcd|1|4"
+        );
+        assert_eq!(
+            page.evaluate(
+                r#"
+            foreignRange.setEnd(text, 5);
+            text.insertData(0, 'X');
+            [childSelection.getRangeAt(0) === foreignRange,
+             foreignRange.startOffset, foreignRange.endOffset,
+             childSelection.anchorOffset, childSelection.focusOffset,
+             childSelection.toString()].join('|')
+        "#
+            )
+            .unwrap(),
+            "true|2|6|2|6|bcde"
+        );
+        assert_eq!(
+            page.evaluate(
+                r#"
+            childSelection.setBaseAndExtent(text, 6, text, 2);
+            const backward = childSelection.getRangeAt(0);
+            backward.setEnd(text, 7);
+            [childSelection.anchorOffset, childSelection.focusOffset,
+             childSelection.toString()].join('|')
+        "#
+            )
+            .unwrap(),
+            "7|2|bcdef"
+        );
+        assert_eq!(
+            page.evaluate(
+                r#"
+            childSelection.removeAllRanges();
+            foreignRange.setEnd(text, 6);
+            [childSelection.rangeCount, foreignRange.toString()].join('|')
+        "#
+            )
+            .unwrap(),
+            "0|bcde"
+        );
+    }
+
+    #[test]
     fn frame_navigation_updates_content_document_origin_visibility() {
         let mut page = RustExecutableDocument::load_with_environment(
             r#"<iframe id=frame srcdoc='<p>initial</p>'></iframe>"#,

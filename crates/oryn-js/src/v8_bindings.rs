@@ -898,12 +898,14 @@ pub struct V8BindingState {
     global_object: v8::Weak<v8::Object>,
     reporting_exception: Cell<bool>,
     next_event_listener_id: Cell<u64>,
-    ranges: RefCell<BTreeMap<u64, RangeRecord>>,
-    static_ranges: RefCell<BTreeSet<u64>>,
-    range_objects: RefCell<BTreeMap<u64, RangeWrapper>>,
-    range_memory_delta: Cell<i64>,
+    ranges: Rc<RefCell<BTreeMap<u64, RangeRecord>>>,
+    static_ranges: Rc<RefCell<BTreeSet<u64>>>,
+    range_objects: Rc<RefCell<BTreeMap<u64, RangeWrapper>>>,
+    range_memory_delta: Rc<Cell<i64>>,
     node_lists: node_lists::Store,
-    selection_range: Cell<Option<u64>>,
+    selection_range: Rc<Cell<Option<u64>>>,
+    range_selections: SharedRangeSelections,
+    selection_backward: Cell<bool>,
     selection_anchor: Cell<Option<BoundaryPoint>>,
     selection_focus: Cell<Option<BoundaryPoint>>,
     selection_revision: Cell<u64>,
@@ -975,6 +977,8 @@ pub struct V8BindingState {
     canvas_images: RefCell<BTreeMap<NodeId, DecodedImage>>,
     scroll_offsets: RefCell<BTreeMap<NodeId, (f64, f64)>>,
 }
+
+type SharedRangeSelections = Rc<RefCell<Vec<RcWeak<Cell<Option<u64>>>>>>;
 
 #[derive(Default)]
 struct BindingStateRegistry {
@@ -2827,6 +2831,26 @@ pub fn install_generated_bindings_with_root_for_global(
     binding_global: BindingGlobal,
 ) -> Result<Rc<V8BindingState>, V8BindingError> {
     let global_object = context.global(scope);
+    // Live range identities belong to the shared DOM, not the realm that
+    // happened to create the JavaScript wrapper.
+    let range_owner = scope
+        .get_slot::<BindingStateRegistry>()
+        .and_then(|registry| {
+            registry
+                .instances
+                .borrow()
+                .values()
+                .filter_map(RcWeak::upgrade)
+                .find(|candidate| Rc::ptr_eq(&candidate.dom, &dom))
+        });
+    let selection_range = Rc::new(Cell::new(None));
+    let range_selections = range_owner.as_ref().map_or_else(
+        || Rc::new(RefCell::new(Vec::new())),
+        |owner| owner.range_selections.clone(),
+    );
+    range_selections
+        .borrow_mut()
+        .push(Rc::downgrade(&selection_range));
     let state = Rc::new(V8BindingState {
         binding_global,
         instance_id: NEXT_BINDING_STATE_ID.fetch_add(1, AtomicOrdering::Relaxed),
@@ -2859,12 +2883,26 @@ pub fn install_generated_bindings_with_root_for_global(
         global_object: v8::Weak::new(scope, global_object),
         reporting_exception: Cell::new(false),
         next_event_listener_id: Cell::new(1),
-        ranges: RefCell::new(BTreeMap::new()),
-        static_ranges: RefCell::new(BTreeSet::new()),
-        range_objects: RefCell::new(BTreeMap::new()),
-        range_memory_delta: Cell::new(0),
+        ranges: range_owner.as_ref().map_or_else(
+            || Rc::new(RefCell::new(BTreeMap::new())),
+            |owner| owner.ranges.clone(),
+        ),
+        static_ranges: range_owner.as_ref().map_or_else(
+            || Rc::new(RefCell::new(BTreeSet::new())),
+            |owner| owner.static_ranges.clone(),
+        ),
+        range_objects: range_owner.as_ref().map_or_else(
+            || Rc::new(RefCell::new(BTreeMap::new())),
+            |owner| owner.range_objects.clone(),
+        ),
+        range_memory_delta: range_owner.as_ref().map_or_else(
+            || Rc::new(Cell::new(0)),
+            |owner| owner.range_memory_delta.clone(),
+        ),
         node_lists: node_lists::Store::default(),
-        selection_range: Cell::new(None),
+        selection_range,
+        range_selections,
+        selection_backward: Cell::new(false),
         selection_anchor: Cell::new(None),
         selection_focus: Cell::new(None),
         selection_revision: Cell::new(0),
@@ -9658,15 +9696,7 @@ fn synchronize_live_ranges(state: &V8BindingState) -> Result<(), V8BindingError>
         .collect::<Vec<_>>();
     drop(static_ranges);
     let selection_id = state.selection_range.get();
-    let selection_was_backward = selection_id.is_some_and(|id| {
-        let ranges = state.ranges.borrow();
-        let Some(range) = ranges.get(&id) else {
-            return false;
-        };
-        state.selection_anchor.get().is_some_and(|anchor| {
-            anchor.container == range.end_container && anchor.offset == range.end_offset
-        })
-    });
+    let selection_was_backward = state.selection_backward.get();
     let dom = state.dom.borrow();
     let mut ranges = state.ranges.borrow_mut();
     for id in ids {
@@ -9725,6 +9755,16 @@ fn apply_range_memory_accounting(scope: &mut v8::PinScope, state: &V8BindingStat
     }
 }
 
+fn selected_range_ids(state: &V8BindingState) -> BTreeSet<u64> {
+    let mut selections = state.range_selections.borrow_mut();
+    selections.retain(|selection| selection.strong_count() != 0);
+    selections
+        .iter()
+        .filter_map(RcWeak::upgrade)
+        .filter_map(|selection| selection.get())
+        .collect()
+}
+
 fn track_range_wrapper(
     scope: &mut v8::PinScope,
     state: &V8BindingState,
@@ -9736,7 +9776,8 @@ fn track_range_wrapper(
         id,
         RangeWrapper {
             handle: v8::Weak::new(scope, object),
-            selection_root: (state.selection_range.get() == Some(id))
+            selection_root: selected_range_ids(state)
+                .contains(&id)
                 .then(|| v8::Global::new(scope, object)),
         },
     );
@@ -9744,10 +9785,10 @@ fn track_range_wrapper(
 }
 
 fn refresh_range_wrapper_roots(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
-    let selected = state.selection_range.get();
+    let selected = selected_range_ids(state);
     let mut released = 0;
     for (id, object) in state.range_objects.borrow_mut().iter_mut() {
-        if selected == Some(*id) {
+        if selected.contains(id) {
             if object.selection_root.is_none()
                 && let Some(local) = object.handle.to_local(scope)
             {
@@ -9775,9 +9816,9 @@ fn collect_dead_ranges(
     ) else {
         return Ok(0);
     };
-    let selected = state.selection_range.get();
+    let selected = selected_range_ids(state);
     for (id, object) in objects.iter_mut() {
-        if selected != Some(*id) {
+        if !selected.contains(id) {
             object.selection_root.take();
         }
     }
@@ -9785,7 +9826,7 @@ fn collect_dead_ranges(
         .keys()
         .copied()
         .filter(|id| {
-            selected != Some(*id)
+            !selected.contains(id)
                 && objects
                     .get(id)
                     .map_or(include_unwrapped, |object| object.handle.is_empty())
@@ -9896,6 +9937,7 @@ fn set_selection_boundaries(
         register_live_range(state, range)?
     };
     state.selection_range.set(Some(id));
+    state.selection_backward.set(anchor == end && start != end);
     state.selection_anchor.set(Some(anchor));
     state.selection_focus.set(Some(focus));
     if previous != (Some(anchor), Some(focus)) {
@@ -9909,6 +9951,7 @@ fn set_selection_boundaries(
 fn clear_selection(state: &V8BindingState) {
     let changed = state.selection_anchor.get().is_some() || state.selection_focus.get().is_some();
     state.selection_range.set(None);
+    state.selection_backward.set(false);
     state.selection_anchor.set(None);
     state.selection_focus.set(None);
     if changed {
@@ -10314,6 +10357,15 @@ fn edit_command_supported(command: &str) -> bool {
             | "underline"
             | "undo"
             | "unlink"
+            | "usecss"
+    )
+}
+
+// These commands operate on the document even without an editable selection.
+fn edit_command_enabled_without_selection(command: &str) -> bool {
+    matches!(
+        command,
+        "defaultparagraphseparator" | "selectall" | "stylewithcss" | "usecss"
     )
 }
 
@@ -12116,7 +12168,7 @@ fn apply_block_command(
         }
         "defaultparagraphseparator" => {
             let separator = value.to_ascii_lowercase();
-            if matches!(separator.as_str(), "div" | "p" | "br") {
+            if matches!(separator.as_str(), "div" | "p") {
                 *state.default_paragraph_separator.borrow_mut() = separator;
             }
         }
@@ -17346,11 +17398,17 @@ fn call_stateful_operation<'s>(
                         member: "NotSupportedError".into(),
                     });
                 }
-                let other_id = stateful_id(
-                    scope,
-                    v8::Local::<v8::Object>::try_from(args.get(1))
-                        .map_err(|_| V8BindingError::Allocation("Range argument"))?,
-                )?;
+                let other_object = v8::Local::<v8::Object>::try_from(args.get(1))
+                    .map_err(|_| V8BindingError::Allocation("Range argument"))?;
+                let other_owner = binding_state_for_receiver(scope, other_object)
+                    .ok_or(V8BindingError::Allocation("Range owner"))?;
+                if !Rc::ptr_eq(&other_owner.dom, &state.dom) {
+                    return Err(V8BindingError::Unsupported {
+                        interface: "Range".into(),
+                        member: "WrongDocumentError".into(),
+                    });
+                }
+                let other_id = stateful_id(scope, other_object)?;
                 let ranges = state.ranges.borrow();
                 let range = ranges
                     .get(&id)
@@ -17642,18 +17700,28 @@ fn call_stateful_operation<'s>(
                 return Ok(Some(new_stateful_object(scope, state, "Range", id)?.into()));
             }
             "addRange" => {
-                let id = stateful_id(
-                    scope,
-                    v8::Local::<v8::Object>::try_from(args.get(0))
-                        .map_err(|_| V8BindingError::Allocation("Range argument"))?,
-                )?;
+                let range_object = v8::Local::<v8::Object>::try_from(args.get(0))
+                    .map_err(|_| V8BindingError::Allocation("Range argument"))?;
+                let owner = binding_state_for_receiver(scope, range_object)
+                    .ok_or(V8BindingError::Allocation("Range owner"))?;
+                if !Rc::ptr_eq(&owner.dom, &state.dom) {
+                    return Ok(None);
+                }
+                let id = stateful_id(scope, range_object)?;
                 let range = state
                     .ranges
                     .borrow()
                     .get(&id)
                     .cloned()
                     .ok_or(V8BindingError::Allocation("Range record"))?;
+                if state.selection_range.get().is_some()
+                    || tree_root(&state.dom.borrow(), range.start_container)? != state.document
+                    || tree_root(&state.dom.borrow(), range.end_container)? != state.document
+                {
+                    return Ok(None);
+                }
                 state.selection_range.set(Some(id));
+                state.selection_backward.set(false);
                 state.selection_anchor.set(Some(BoundaryPoint {
                     container: range.start_container,
                     offset: range.start_offset,
@@ -17665,12 +17733,14 @@ fn call_stateful_operation<'s>(
                 return Ok(None);
             }
             "removeRange" => {
-                let range_id = stateful_id(
-                    scope,
-                    v8::Local::<v8::Object>::try_from(args.get(0))
-                        .map_err(|_| V8BindingError::Allocation("Range argument"))?,
-                )?;
-                if state.selection_range.get() != Some(range_id) {
+                let range_object = v8::Local::<v8::Object>::try_from(args.get(0))
+                    .map_err(|_| V8BindingError::Allocation("Range argument"))?;
+                let owner = binding_state_for_receiver(scope, range_object)
+                    .ok_or(V8BindingError::Allocation("Range owner"))?;
+                let range_id = stateful_id(scope, range_object)?;
+                if !Rc::ptr_eq(&owner.dom, &state.dom)
+                    || state.selection_range.get() != Some(range_id)
+                {
                     return Err(V8BindingError::Unsupported {
                         interface: interface.into(),
                         member: "NotFoundError".into(),
@@ -17710,6 +17780,7 @@ fn call_stateful_operation<'s>(
                         container: collapsed,
                         offset,
                     };
+                    state.selection_backward.set(false);
                     state.selection_anchor.set(Some(point));
                     state.selection_focus.set(Some(point));
                 }
@@ -17840,6 +17911,7 @@ fn call_stateful_operation<'s>(
                     container: point,
                     offset,
                 };
+                state.selection_backward.set(false);
                 state.selection_anchor.set(Some(point));
                 state.selection_focus.set(Some(point));
                 return Ok(None);
@@ -21794,7 +21866,10 @@ fn call_operation<'s>(
                 return Ok(Some(
                     v8::Boolean::new(
                         scope,
-                        supported && history_enabled && document_is_editable(state),
+                        supported
+                            && history_enabled
+                            && (edit_command_enabled_without_selection(&command)
+                                || document_is_editable(state)),
                     )
                     .into(),
                 ));
@@ -21805,11 +21880,25 @@ fn call_operation<'s>(
             if member == "queryCommandState" {
                 let active = match command.as_str() {
                     "stylewithcss" => state.style_with_css.get(),
-                    "justifyleft" => selection_block_alignment(state) == "left",
-                    "justifycenter" => selection_block_alignment(state) == "center",
-                    "justifyright" => selection_block_alignment(state) == "right",
-                    "justifyfull" => selection_block_alignment(state) == "justify",
-                    _ => selection_format_value(state, &command).is_some(),
+                    "justifyleft" => {
+                        state.selection_range.get().is_some()
+                            && selection_block_alignment(state) == "left"
+                    }
+                    "justifycenter" => {
+                        state.selection_range.get().is_some()
+                            && selection_block_alignment(state) == "center"
+                    }
+                    "justifyright" => {
+                        state.selection_range.get().is_some()
+                            && selection_block_alignment(state) == "right"
+                    }
+                    "justifyfull" => {
+                        state.selection_range.get().is_some()
+                            && selection_block_alignment(state) == "justify"
+                    }
+                    "bold" | "italic" | "underline" | "strikethrough" | "subscript"
+                    | "superscript" => selection_format_value(state, &command).is_some(),
+                    _ => false,
                 };
                 return Ok(Some(v8::Boolean::new(scope, active).into()));
             }
@@ -21820,13 +21909,19 @@ fn call_operation<'s>(
                         state.default_paragraph_separator.borrow().clone()
                     }
                     "justifyleft" | "justifycenter" | "justifyright" | "justifyfull" => {
-                        selection_block_alignment(state)
+                        if state.selection_range.get().is_some() {
+                            selection_block_alignment(state)
+                        } else {
+                            String::new()
+                        }
                     }
-                    _ => selection_format_value(state, &command).unwrap_or_default(),
+                    "backcolor" | "hilitecolor" | "forecolor" | "fontname" | "fontsize"
+                    | "formatblock" => selection_format_value(state, &command).unwrap_or_default(),
+                    _ => String::new(),
                 };
                 return Ok(Some(v8_string(scope, &value)?));
             }
-            let document_command = command == "selectall" && state.design_mode.get();
+            let document_command = edit_command_enabled_without_selection(&command);
             if !supported || (!document_is_editable(state) && !document_command) {
                 return Ok(Some(v8::Boolean::new(scope, false).into()));
             }
@@ -21868,12 +21963,20 @@ fn call_operation<'s>(
             }
             let executed = match command.as_str() {
                 "stylewithcss" => {
-                    state.style_with_css.set(value.eq_ignore_ascii_case("true"));
+                    state
+                        .style_with_css
+                        .set(!value.eq_ignore_ascii_case("false"));
+                    true
+                }
+                "usecss" => {
+                    state
+                        .style_with_css
+                        .set(value.eq_ignore_ascii_case("false"));
                     true
                 }
                 "defaultparagraphseparator" => {
                     let separator = value.to_ascii_lowercase();
-                    if matches!(separator.as_str(), "div" | "p" | "br") {
+                    if matches!(separator.as_str(), "div" | "p") {
                         *state.default_paragraph_separator.borrow_mut() = separator;
                         true
                     } else {
@@ -26460,6 +26563,60 @@ mod tests {
     }
 
     #[test]
+    fn editing_command_settings_and_query_categories_follow_document_semantics() {
+        initialize_v8();
+        let parsed = html::parse(
+            "<main contenteditable><b id='bold'>abc</b><span id='color' style='color:red;background-color:blue;font-size:20px'>def</span></main>",
+        );
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const check = (condition, message) => { if (!condition) throw new Error(message); };
+            const selection = document.getSelection();
+            selection.removeAllRanges();
+            for (const command of ['justifyLeft', 'justifyCenter', 'justifyRight', 'justifyFull']) {
+                check(!document.queryCommandState(command), command + ' has no active state');
+                check(document.queryCommandValue(command) === '', command + ' has no active value');
+            }
+            for (const command of ['defaultParagraphSeparator', 'styleWithCSS', 'useCSS', 'selectAll']) {
+                check(document.queryCommandEnabled(command), command + ' enabled without selection');
+            }
+            check(document.execCommand('defaultParagraphSeparator', false, 'P'), 'set paragraph');
+            check(document.queryCommandValue('defaultParagraphSeparator') === 'p', 'paragraph value');
+            check(!document.execCommand('defaultParagraphSeparator', false, 'br'), 'reject br');
+            check(document.queryCommandValue('defaultParagraphSeparator') === 'p', 'preserve paragraph');
+            for (const value of ['', 'true', 'arbitrary', 'FALSE']) {
+                check(document.execCommand('styleWithCSS', false, value), 'set styling');
+                check(document.queryCommandState('styleWithCSS') === (value !== 'FALSE'), 'styling flag');
+                check(document.queryCommandValue('styleWithCSS') === '', 'styling has no value');
+                check(document.execCommand('useCSS', false, value), 'set legacy styling');
+                check(document.queryCommandState('styleWithCSS') === (value === 'FALSE'), 'legacy flag');
+                check(!document.queryCommandState('useCSS'), 'legacy has no state');
+                check(document.queryCommandValue('useCSS') === '', 'legacy has no value');
+            }
+            selection.selectAllChildren(document.getElementById('bold'));
+            check(document.queryCommandState('bold'), 'bold state');
+            check(document.queryCommandValue('bold') === '', 'bold has no value');
+            selection.selectAllChildren(document.getElementById('color'));
+            for (const command of ['foreColor', 'backColor', 'hiliteColor', 'fontSize']) {
+                check(!document.queryCommandState(command), command + ' has no state');
+                check(document.queryCommandValue(command) !== '', command + ' has value');
+            }
+            'ok'
+        "#).unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "ok");
+    }
+
+    #[test]
     fn input_event_target_ranges_remain_static_across_editing_mutations() {
         initialize_v8();
         let parsed = html::parse("<main id='editor' contenteditable>abc</main>");
@@ -30030,6 +30187,129 @@ mod tests {
                 .unwrap()
                 .is_true()
         );
+    }
+
+    #[test]
+    fn unrelated_dom_range_ids_do_not_alias_selection_or_comparison() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let a = v8::Context::new(scope, Default::default());
+        let b = v8::Context::new(scope, Default::default());
+        let state_a;
+        {
+            let scope = &mut v8::ContextScope::new(scope, a);
+            let dom = Rc::new(RefCell::new(
+                html::parse("<main>A</main>").into_runtime().unwrap(),
+            ));
+            state_a = install_generated_bindings(scope, a, dom, RealmId(0), 1).unwrap();
+        }
+        let scope = &mut v8::ContextScope::new(scope, b);
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main>B</main>").into_runtime().unwrap(),
+        ));
+        let state_b = install_generated_bindings(scope, b, dom, RealmId(1), 1).unwrap();
+        let mut ids = Vec::new();
+        for (name, state) in [("foreignRange", &state_a), ("localRange", &state_b)] {
+            let id = register_live_range(
+                state,
+                RangeRecord {
+                    start_container: state.document,
+                    start_offset: 0,
+                    end_container: state.document,
+                    end_offset: 0,
+                },
+            )
+            .unwrap();
+            ids.push(id);
+            let object = new_stateful_object(scope, state, "Range", id).unwrap();
+            let global = b.global(scope);
+            set_object_property(scope, global, name, object.into()).unwrap();
+        }
+        assert_eq!(ids[0], ids[1]);
+        let source = v8::String::new(scope, r#"
+            const selection = document.getSelection();
+            selection.addRange(foreignRange);
+            if (selection.rangeCount !== 0) throw Error('foreign selection');
+            selection.addRange(localRange);
+            let removal = '', comparison = '';
+            try { selection.removeRange(foreignRange); } catch (e) { removal = e.name; }
+            try { localRange.compareBoundaryPoints(0, foreignRange); } catch (e) { comparison = e.name; }
+            [removal, comparison, selection.getRangeAt(0) === localRange].join('|')
+        "#).unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "NotFoundError|WrongDocumentError|true");
+    }
+
+    #[test]
+    fn foreign_selection_roots_shared_range_until_the_last_selection_releases_it() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main>text</main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let a = v8::Context::new(scope, Default::default());
+        let b = v8::Context::new(scope, Default::default());
+        let state_a;
+        {
+            let scope = &mut v8::ContextScope::new(scope, a);
+            state_a = install_generated_bindings(scope, a, dom.clone(), RealmId(0), 1).unwrap();
+        }
+        let scope = &mut v8::ContextScope::new(scope, b);
+        let state_b = install_generated_bindings(scope, b, dom, RealmId(1), 1).unwrap();
+        assert!(Rc::ptr_eq(&state_a.ranges, &state_b.ranges));
+        assert!(Rc::ptr_eq(&state_a.range_objects, &state_b.range_objects));
+        {
+            v8::scope!(let inner, scope);
+            let range = register_live_range(
+                &state_a,
+                RangeRecord {
+                    start_container: state_a.document,
+                    start_offset: 0,
+                    end_container: state_a.document,
+                    end_offset: 0,
+                },
+            )
+            .unwrap();
+            let object = new_stateful_object(inner, &state_a, "Range", range).unwrap();
+            let marker = v8::Boolean::new(inner, true);
+            set_object_property(inner, object, "marker", marker.into()).unwrap();
+            state_a.selection_range.set(Some(range));
+            state_b.selection_range.set(Some(range));
+            refresh_range_wrapper_roots(inner, &state_b);
+        }
+        scope.low_memory_notification();
+        state_a.process_weak_releases().unwrap();
+        assert_eq!(state_a.ranges.borrow().len(), 1);
+        {
+            v8::scope!(let inner, scope);
+            let id = state_b.selection_range.get().unwrap();
+            let object = new_stateful_object(inner, &state_b, "Range", id).unwrap();
+            let key = v8::String::new(inner, "marker").unwrap();
+            assert!(object.get(inner, key.into()).unwrap().is_true());
+            assert!(Rc::ptr_eq(
+                &binding_state_for_receiver(inner, object).unwrap(),
+                &state_a
+            ));
+        }
+        clear_selection(&state_a);
+        refresh_range_wrapper_roots(scope, &state_a);
+        scope.low_memory_notification();
+        state_a.process_weak_releases().unwrap();
+        assert_eq!(state_a.ranges.borrow().len(), 1);
+        clear_selection(&state_b);
+        refresh_range_wrapper_roots(scope, &state_a);
+        scope.low_memory_notification();
+        state_b.process_weak_releases().unwrap();
+        apply_range_memory_accounting(scope, &state_b);
+        assert!(state_a.ranges.borrow().is_empty());
+        assert!(state_a.range_objects.borrow().is_empty());
+        assert_eq!(state_a.range_memory_delta.get(), 0);
     }
 
     #[test]
