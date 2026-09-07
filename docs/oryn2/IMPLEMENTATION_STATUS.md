@@ -44,7 +44,7 @@ Five other name mismatches were verified as passing tests with changed fixture p
 Stylo owns the rendering style pipeline and selector matching. CSSOM declaration
 mutation still uses a separate binding helper that must be integrated with Stylo. Remaining
 shared gaps include fragment/outerHTML mutation grouping, transient registrations,
-callback/parser exception reporting, initial frame realms and indexed Window child
+node-listener/parser exception reporting, initial frame realms and indexed Window child
 access, Range/editing, document ownership, XML navigation/fragments, CSSOM, history,
 accessibility and IndexedDB lifecycle behavior. Parser exceptions still do not reach
 Window error handlers reliably; reported completion alone cannot prove every later
@@ -55,6 +55,14 @@ records 117 passing V8 tests (two existing ignores), strict JS/native Clippy, an
 265 native test outcomes: 252 passed, 12 failed and one timeout. The normally ignored
 Range diagnostic was explicitly run. All native failures and the timeout reproduce
 on clean `96d742f`; they remain completion gates.
+
+The [native global-event change](CONFORMANCE-NATIVE-GLOBAL-EVENTS-2026-09-06.json)
+replaces bootstrap global listener dispatch and reports observer/global-listener
+exceptions in the callback realm. It passes 126 V8 binding tests (two existing
+ignores), three new native page tests, and strict JS/native Clippy. The complete
+native matrix has 255/268 passes; all 12 failures and one timeout retain the prior
+failure reasons. Parser/module and node-listener reporting remain open. This
+change has not yet established a new signed-worker WPT result.
 
 Complete conformance requires two full 4,022/4,022 runs of the same frozen candidate
 and all independent verification, native correctness and security gates in the plan.

@@ -492,7 +492,7 @@ The signed full score remains the `eb54e11` baseline; no WPT gain is claimed her
 
 ## Isolated global event and observer exception prototype
 
-Production remains at the native ErrorEvent interface prerequisite. An isolated
+At that stage, production remained at the native ErrorEvent interface prerequisite. An isolated
 checkout tests native global listeners, ErrorEvent handler calls, cancellation,
 reentrant error reporting and callback-realm exception delivery. It passes 122
 V8 binding tests with two existing ignores and strict JS Clippy. Focused tests
@@ -503,3 +503,20 @@ source and patch to its logs and lists remaining validation explicitly.
 This prototype has not replaced production bootstrap dispatch. Parser/module
 reporting, other global handler attributes, cross-realm Event ownership and host
 integration still require work. No signed-worker WPT gain is attributed to it.
+
+## Native global event integration
+
+The isolated implementation is now integrated into production after 126 passing
+binding tests, three passing native page tests and strict JS/native Clippy. The
+complete native matrix records 255 passes, 12 failures and one timeout across
+268 tests, including the normally ignored Range diagnostic with its pinned fixture.
+All 13 nonpass reasons match the prior native diagnostics. The only subsequent
+source edit before integration replaced a private test-dispatch hook with actual
+Window listeners while retaining the frozen-path assertions; the binding suite
+was rerun successfully. Runtime source equivalence was independently checked.
+
+The change preserves callback-realm exception identity, native ErrorEvent brands,
+Window/Document calling conventions, listener and handler registration semantics,
+and cross-realm global targets. See [the evidence](CONFORMANCE-NATIVE-GLOBAL-EVENTS-2026-09-06.json).
+Parser/module and node-listener exceptions, broader global handler semantics and
+worker propagation remain open. The signed WPT baseline is unchanged.

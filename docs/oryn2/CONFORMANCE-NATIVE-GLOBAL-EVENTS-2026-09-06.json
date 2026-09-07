@@ -1,0 +1,58 @@
+{
+  "artifacts": {
+    "artifacts/native-global-event-integration/integration.patch": "8c53432d6361a8d93ec0d05cd4d85aabb6d83231486f4ae0849b1088544d84df",
+    "artifacts/native-global-event-integration/oryn-global-event-native-matrix.json": "fb1b4526bc51daf8eae696a4ffc3b7bcc7fae9a9c00674a8bc28b04c76701d0d",
+    "artifacts/native-global-event-integration/oryn-global-event-native-range.json": "b8ad6ac9d3d348aadead9002d97a3268d451c0259c450c8819258098aa3e6a6e",
+    "artifacts/native-global-event-integration/oryn-global-event-native-tests.log": "71f7bb4d7ecbeefaf8e076ebb61b337f65466571f1c58b66a4339fd5e9e148d9",
+    "artifacts/native-global-event-integration/oryn-global-event-prototype-clippy.log": "eb18d3286e127acd405f5c2a83a6c90caef145e596956e5f596fb02d121464d4",
+    "artifacts/native-global-event-integration/oryn-global-event-prototype-tests.log": "c28855376d51fb549175c9b18a2372eecaadd983a783ac5489c7065d2c73955b"
+  },
+  "earlier_review": "The untested production replacement was rejected. This exact patch is prepared after isolated binding, native integration, complete native regression comparison and strict lint validation.",
+  "integration_note": "Automatic review approved the exact validated patch after the isolated regression evidence was supplied. Production source hashes match the tested source.",
+  "production_base_commit": "4054389be17365f41a668944797201d8e5454099",
+  "production_integration_verified": true,
+  "remaining": [
+    "Native classic parser and module exception reporting with source locations",
+    "Node-listener exception reporting and full EventTarget dispatch semantics",
+    "Global handler attributes beyond onerror",
+    "Cross-realm Event dispatch to DOM and platform targets",
+    "Initial frame realms, WindowProxy indexed access, worker propagation and origin muting",
+    "Existing native test failures and full pinned conformance gates"
+  ],
+  "scope": "Native global EventTarget dispatch, global ErrorEvent handlers and observer callback exception reporting. Parser and module reporting remain incomplete. No new WPT score.",
+  "source_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "0b2aac54aaee0cae65c98cd64aa4bf13ccb0b239b43f8a15023b6711c7475c1f",
+    "crates/oryn-js/src/v8_bindings/global_events.rs": "a651df877e0b47afebc6162990dacfb1d4f9afef868933c5ed3fb8598ef616a9",
+    "crates/oryn-native/src/rust_executable.rs": "13d288ca553651cfbe5714f20103c9c5416f13605900e4228fec1009976cd594"
+  },
+  "validated_in_isolated_checkout": "/private/tmp/oryn-global-event-prototype",
+  "validation": {
+    "complete_native_matrix": {
+      "all_13_nonpass_reasons_match_prior_native_diagnostics": true,
+      "failed": 12,
+      "new_nonpasses": [],
+      "normally_ignored_range_explicitly_executed_with_pinned_fixture": true,
+      "passed": 255,
+      "timeout": 1,
+      "total": 268
+    },
+    "focused_native_page_tests": {
+      "failed": 0,
+      "passed": 3
+    },
+    "strict_clippy": {
+      "packages": [
+        "oryn-js",
+        "oryn-native"
+      ],
+      "passed": true,
+      "warnings_denied": true
+    },
+    "subsequent_test_only_edit": "The full native matrix preceded replacement of a private JS-dispatch test stub with real Window listeners in one binding test. Reversing only those two test lines exactly reconstructs every matrix source hash. Runtime code is unchanged; the complete binding suite was rerun and passed.",
+    "v8_binding_tests": {
+      "failed": 0,
+      "ignored": 2,
+      "passed": 126
+    }
+  }
+}

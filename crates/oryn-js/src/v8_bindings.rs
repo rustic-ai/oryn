@@ -34,6 +34,8 @@ use crate::{
     trusted_types::{TrustedKind, TrustedTypesConfig, TrustedTypesRegistry, TrustedValue},
 };
 
+mod global_events;
+
 static NEXT_OBSERVER_REGISTRATION_ORDER: AtomicU64 = AtomicU64::new(1);
 
 static NEXT_BINDING_STATE_ID: AtomicU64 = AtomicU64::new(1);
@@ -130,6 +132,8 @@ struct EventListener {
 
 #[derive(Clone)]
 struct PlatformEventListener {
+    registration_id: u64,
+    global_handler: bool,
     callback: v8::Global<v8::Value>,
     capture: bool,
     once: bool,
@@ -791,6 +795,10 @@ pub struct V8BindingState {
     mutation_observers: RefCell<BTreeMap<u64, MutationObserverEntry>>,
     mutation_record_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     error_event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
+    event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
+    global_object: v8::Weak<v8::Object>,
+    reporting_exception: Cell<bool>,
+    next_event_listener_id: Cell<u64>,
     ranges: RefCell<BTreeMap<u64, RangeRecord>>,
     static_ranges: RefCell<BTreeSet<u64>>,
     range_objects: RefCell<BTreeMap<u64, RangeWrapper>>,
@@ -2696,6 +2704,7 @@ pub fn install_generated_bindings_with_root_for_global(
     document: NodeId,
     binding_global: BindingGlobal,
 ) -> Result<Rc<V8BindingState>, V8BindingError> {
+    let global_object = context.global(scope);
     let state = Rc::new(V8BindingState {
         instance_id: NEXT_BINDING_STATE_ID.fetch_add(1, AtomicOrdering::Relaxed),
         dom,
@@ -2721,6 +2730,10 @@ pub fn install_generated_bindings_with_root_for_global(
         mutation_observers: RefCell::new(BTreeMap::new()),
         mutation_record_brand: RefCell::new(None),
         error_event_brand: RefCell::new(None),
+        event_brand: RefCell::new(None),
+        global_object: v8::Weak::new(scope, global_object),
+        reporting_exception: Cell::new(false),
+        next_event_listener_id: Cell::new(1),
         ranges: RefCell::new(BTreeMap::new()),
         static_ranges: RefCell::new(BTreeSet::new()),
         range_objects: RefCell::new(BTreeMap::new()),
@@ -3238,6 +3251,7 @@ pub fn install_generated_bindings_with_root_for_global(
             .global(scope)
             .set(scope, name.into(), user_input.into());
     }
+    global_events::install(scope, context)?;
     Ok(state)
 }
 
@@ -3259,7 +3273,12 @@ fn dispatch_user_input_event(
         let event_type = args.get(1).to_rust_string_lossy(scope);
         let mut path = state.dom.borrow().arena().ancestors(target)?;
         path.push(target);
-        let passive = args.get(2).boolean_value(scope)
+        let passive = state
+            .platform_listeners
+            .borrow()
+            .get(&(global_events::GLOBAL_TARGET, event_type.clone()))
+            .is_some_and(|listeners| listeners.iter().any(|listener| listener.passive))
+            || args.get(2).boolean_value(scope)
             || path.iter().any(|node| {
                 state
                     .listeners
@@ -7325,6 +7344,7 @@ fn initialize_error_event<'s>(
     );
     let id = v8::Number::new(scope, event_id as f64);
     args.this().set_internal_field(0, id.into());
+    tag_event_object(scope, state, args.this());
     // V8 traces payload edges, preserving arbitrary thrown values without a
     // native strong-handle table that would retain the payload after collection.
     args.this().set_internal_field(2, data.into());
@@ -7475,6 +7495,7 @@ fn generated_constructor<'s>(
         );
         let id = v8::Number::new(scope, event_id as f64);
         args.this().set_internal_field(0, id.into());
+        tag_event_object(scope, &state, args.this());
         if name == "CustomEvent" {
             let detail = init
                 .and_then(|init| {
@@ -8223,6 +8244,29 @@ fn generated_operation_impl<'s>(
         throw_type_error(scope, "IDBFactory.cmp requires two keys");
         return;
     }
+    if interface == "EventTarget" && global_events::is_global(scope, &state, args.this()) {
+        let result = if member == "dispatchEvent" {
+            args.get(0)
+                .to_object(scope)
+                .ok_or(V8BindingError::Allocation("Event object"))
+                .and_then(|event| global_events::dispatch(scope, &state, event))
+                .map(|accepted| Some(v8::Boolean::new(scope, accepted).into()))
+        } else {
+            call_platform_event_target_id(
+                scope,
+                &state,
+                global_events::GLOBAL_TARGET,
+                member,
+                &args,
+            )
+        };
+        match result {
+            Ok(Some(value)) => return_value.set(value),
+            Ok(None) => {}
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if interface == "EventTarget" && is_platform_receiver(scope, &state, args.this()) {
         match call_platform_event_target(scope, &state, args.this(), member, &args) {
             Ok(Some(value)) => return_value.set(value),
@@ -8353,22 +8397,48 @@ fn call_platform_event_target<'s>(
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let id = stateful_id(scope, object)?;
-    let event_type = args.get(0).to_rust_string_lossy(scope);
+    call_platform_event_target_id(scope, state, id, member, args)
+}
+fn call_platform_event_target_id<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+    id: u64,
+    member: &str,
+    args: &v8::FunctionCallbackArguments<'s>,
+) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    let event_type = required_string(scope, args, 0)?;
     match member {
         "addEventListener" => {
             let callback = args.get(1);
+            if !callback.is_null_or_undefined() && !callback.is_object() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "EventTarget".into(),
+                    member: "TypeError: listener must be an object or null".into(),
+                });
+            }
             let options = args.get(2);
-            let capture = if options.is_boolean() {
-                options.boolean_value(scope)
+            let dictionary = if options.is_object() {
+                options.to_object(scope)
             } else {
-                option_value(scope, options, "capture")
-                    .is_some_and(|value| value.boolean_value(scope))
+                None
             };
-            let once = option_value(scope, options, "once")
-                .is_some_and(|value| value.boolean_value(scope));
-            let passive = option_value(scope, options, "passive")
-                .is_some_and(|value| value.boolean_value(scope));
-            let signal = option_value(scope, options, "signal");
+            let capture = if dictionary.is_some() {
+                event_init_member(scope, dictionary, "capture")
+                    .ok_or(V8BindingError::JavaScriptException)?
+                    .boolean_value(scope)
+            } else {
+                options.boolean_value(scope)
+            };
+            let once = event_init_member(scope, dictionary, "once")
+                .ok_or(V8BindingError::JavaScriptException)?
+                .boolean_value(scope);
+            let passive = event_init_member(scope, dictionary, "passive")
+                .ok_or(V8BindingError::JavaScriptException)?
+                .boolean_value(scope);
+            let signal = Some(
+                event_init_member(scope, dictionary, "signal")
+                    .ok_or(V8BindingError::JavaScriptException)?,
+            );
             if signal.is_some_and(|signal| signal.is_null()) {
                 return Err(V8BindingError::Unsupported {
                     interface: "EventTarget".into(),
@@ -8408,10 +8478,15 @@ fn call_platform_event_target<'s>(
                 let mut listeners = state.platform_listeners.borrow_mut();
                 let listeners = listeners.entry((id, event_type)).or_default();
                 if !listeners.iter().any(|candidate| {
-                    candidate.capture == capture
+                    !candidate.global_handler
+                        && candidate.capture == capture
                         && v8::Local::new(scope, &candidate.callback).strict_equals(callback)
                 }) {
+                    let registration_id = state.next_event_listener_id.get();
+                    state.next_event_listener_id.set(registration_id + 1);
                     listeners.push(PlatformEventListener {
+                        registration_id,
+                        global_handler: false,
                         callback: v8::Global::new(scope, callback),
                         capture,
                         once,
@@ -8424,12 +8499,24 @@ fn call_platform_event_target<'s>(
         }
         "removeEventListener" => {
             let callback = args.get(1);
+            if !callback.is_null_or_undefined() && !callback.is_object() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "EventTarget".into(),
+                    member: "TypeError: listener must be an object or null".into(),
+                });
+            }
             let options = args.get(2);
-            let capture = if options.is_boolean() {
-                options.boolean_value(scope)
+            let dictionary = if options.is_object() {
+                options.to_object(scope)
             } else {
-                option_value(scope, options, "capture")
-                    .is_some_and(|value| value.boolean_value(scope))
+                None
+            };
+            let capture = if dictionary.is_some() {
+                event_init_member(scope, dictionary, "capture")
+                    .ok_or(V8BindingError::JavaScriptException)?
+                    .boolean_value(scope)
+            } else {
+                options.boolean_value(scope)
             };
             if let Some(listeners) = state
                 .platform_listeners
@@ -8437,7 +8524,8 @@ fn call_platform_event_target<'s>(
                 .get_mut(&(id, event_type))
             {
                 listeners.retain(|candidate| {
-                    candidate.capture != capture
+                    candidate.global_handler
+                        || candidate.capture != capture
                         || !v8::Local::new(scope, &candidate.callback).strict_equals(callback)
                 });
             }
@@ -19177,7 +19265,12 @@ fn deliver_mutation_observer_ids(
         let callback = v8::Local::new(scope, &callback);
         let object = v8::Local::new(scope, &object);
         let array = mutation_record_array(scope, state, &records)?;
-        callback.call(scope, object.into(), &[array.into(), object.into()]);
+        global_events::invoke(
+            scope,
+            callback.into(),
+            object.into(),
+            &[array.into(), object.into()],
+        );
         delivered += 1;
     }
     Ok(delivered)
@@ -24104,10 +24197,47 @@ fn hierarchy_request_error() -> V8BindingError {
     }
 }
 
+fn tag_event_object(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    object: v8::Local<v8::Object>,
+) {
+    let brand = {
+        let mut brand = state.event_brand.borrow_mut();
+        if brand.is_none() {
+            let symbol = v8::Symbol::new(scope, None);
+            *brand = Some(v8::Global::new(scope, symbol));
+        }
+        v8::Local::new(scope, brand.as_ref().unwrap())
+    };
+    object.set_internal_field(1, v8::Number::new(scope, state.instance_id as f64).into());
+    object.set_internal_field(3, brand.into());
+}
+
 fn event_id(
     scope: &mut v8::PinScope,
     object: v8::Local<v8::Object>,
 ) -> Result<u64, V8BindingError> {
+    if object.internal_field_count() < 4 {
+        return Err(V8BindingError::Allocation("Event receiver"));
+    }
+    let state = binding_state_for_receiver(scope, object)
+        .ok_or(V8BindingError::Allocation("Event owner"))?;
+    let brand = object
+        .get_internal_field(scope, 3)
+        .and_then(|value| v8::Local::<v8::Value>::try_from(value).ok())
+        .ok_or(V8BindingError::Allocation("Event receiver"))?;
+    let matches = [&state.event_brand, &state.error_event_brand]
+        .into_iter()
+        .any(|expected| {
+            expected
+                .borrow()
+                .as_ref()
+                .is_some_and(|expected| brand.strict_equals(v8::Local::new(scope, expected).into()))
+        });
+    if !matches {
+        return Err(V8BindingError::Allocation("Event receiver"));
+    }
     object
         .get_internal_field(scope, 0)
         .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
@@ -24168,6 +24298,7 @@ fn create_event_object_with_interface<'s>(
         },
     );
     object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
+    tag_event_object(scope, state, object);
     Ok(object)
 }
 
@@ -24213,6 +24344,7 @@ fn create_input_event_object<'s>(
         },
     );
     object.set_internal_field(0, v8::Number::new(scope, id as f64).into());
+    tag_event_object(scope, state, object);
     let input_type_value = v8_string(scope, input_type)?;
     set_object_property(scope, object, "__oryn_inputType", input_type_value)?;
     let data = match data {
@@ -24282,6 +24414,24 @@ fn get_event_attribute<'s>(
         .get(&id)
         .cloned()
         .ok_or(V8BindingError::Allocation("event record"))?;
+    if matches!(member, "target" | "srcElement")
+        && event.platform_target == Some(global_events::GLOBAL_TARGET)
+        && let Some(value) = object
+            .get_internal_field(scope, 4)
+            .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+            .filter(|value| value.is_object())
+    {
+        return Ok(value);
+    }
+    if member == "currentTarget"
+        && event.platform_current_target == Some(global_events::GLOBAL_TARGET)
+        && let Some(value) = object
+            .get_internal_field(scope, 5)
+            .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+            .filter(|value| value.is_object())
+    {
+        return Ok(value);
+    }
     match member {
         "type" => v8_string(scope, &event.event_type),
         "target" => optional_event_target(scope, state, event.target, event.platform_target),
@@ -24314,19 +24464,8 @@ fn call_event_operation<'s>(
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let id = event_id(scope, object)?;
     if member == "composedPath" {
-        let event = state
-            .events
-            .borrow()
-            .get(&id)
-            .cloned()
-            .ok_or(V8BindingError::Allocation("event record"))?;
         let path = v8::Array::new(scope, 0);
-        let target = optional_event_target(
-            scope,
-            state,
-            event.current_target,
-            event.platform_current_target,
-        )?;
+        let target = get_event_attribute(scope, state, object, "currentTarget")?;
         if !target.is_null() {
             path.set_index(scope, 0, target);
         }
@@ -24347,6 +24486,9 @@ fn call_event_operation<'s>(
             if event.dispatching {
                 return Ok(None);
             }
+            let empty = v8::undefined(scope);
+            object.set_internal_field(4, empty.into());
+            object.set_internal_field(5, empty.into());
             event.event_type = init_type.unwrap();
             event.bubbles = args.get(1).boolean_value(scope);
             event.cancelable = args.get(2).boolean_value(scope);
@@ -24511,25 +24653,12 @@ fn invoke_global_event_phase(
     capture: bool,
     phase: u32,
 ) -> Result<(), V8BindingError> {
-    let callback = global_property(scope, "__oryn_dispatch_global_phase")?;
-    let Ok(callback) = v8::Local::<v8::Function>::try_from(callback) else {
-        return Ok(());
-    };
-    let receiver = scope.get_current_context().global(scope);
-    callback
-        .call(
-            scope,
-            receiver.into(),
-            &[
-                object.into(),
-                v8::Boolean::new(scope, capture).into(),
-                v8::Integer::new_from_unsigned(scope, phase).into(),
-            ],
-        )
-        .ok_or_else(|| {
-            V8BindingError::EventCallback("global event listener raised an exception".into())
-        })?;
-    Ok(())
+    let state = scope
+        .get_current_context()
+        .get_slot::<V8BindingState>()
+        .ok_or(V8BindingError::Allocation("global event state"))?;
+    let object = v8::Local::new(scope, object);
+    global_events::phase(scope, &state, object, capture, phase as u16)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -24639,6 +24768,13 @@ fn optional_event_target<'s>(
     node: Option<NodeId>,
     platform: Option<u64>,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if platform == Some(global_events::GLOBAL_TARGET) {
+        return state
+            .global_object
+            .to_local(scope)
+            .map(Into::into)
+            .ok_or(V8BindingError::Allocation("global event target"));
+    }
     if let Some(node) = node {
         return Ok(wrap_node(scope, state, node)?.into());
     }
@@ -27601,6 +27737,287 @@ mod tests {
         );
     }
 
+    fn check_global_event_prototype_script(source: &str) {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, source).unwrap();
+        v8::tc_scope!(let tc,scope);
+        let value = v8::Script::compile(tc, source, None).unwrap().run(tc);
+        assert!(
+            value.is_some_and(|v| v.is_true()),
+            "{:?}",
+            tc.exception().map(|e| e.to_rust_string_lossy(tc))
+        );
+    }
+    #[test]
+    fn global_event_prototype_handler_registration_position() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+          const order=[];onerror=()=>{order.push('handler');return true};
+          addEventListener('error',()=>order.push('listener'));
+          dispatchEvent(new ErrorEvent('error'));
+          if(order.join(',')!=='handler,listener')throw Error('handler registration order: '+order);
+          return true;
+        })()"#,
+        );
+    }
+    #[test]
+    fn global_event_prototype_removed_registration_is_not_revived() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+          let calls=0;const later=()=>calls++;
+          addEventListener('x',()=>{removeEventListener('x',later);addEventListener('x',later)},{once:true});
+          addEventListener('x',later);dispatchEvent(new Event('x'));
+          if(calls!==0)throw Error('removed listener was revived in the old snapshot');
+          dispatchEvent(new Event('x'));if(calls!==1)throw Error('new registration absent');
+          return true;
+        })()"#,
+        );
+    }
+    #[test]
+    fn global_event_prototype_handler_and_listener_are_distinct() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+          let calls=0;const fn=()=>calls++;onerror=fn;
+          addEventListener('error',fn);dispatchEvent(new ErrorEvent('error'));
+          if(calls!==2)throw Error('handler suppressed ordinary listener');
+          removeEventListener('error',fn);dispatchEvent(new ErrorEvent('error'));
+          if(calls!==3)throw Error('removal removed the handler');
+          addEventListener('error',fn,{once:true});dispatchEvent(new ErrorEvent('error'));
+          dispatchEvent(new ErrorEvent('error'));if(calls!==6)throw Error('once removed handler');
+          const object={handleEvent(){throw Error('noncallable handler was invoked')}};onerror=object;
+          if(onerror!==object)throw Error('object handler identity');dispatchEvent(new ErrorEvent('error'));
+          for(const value of [undefined,null,42,'text',Symbol()]) {onerror=value;if(onerror!==null)throw Error('nonobject handler not null')}
+          const order=[];onerror=()=>order.push('old');addEventListener('error',()=>order.push('listener'));
+          onerror=()=>order.push('updated');dispatchEvent(new ErrorEvent('error'));
+          if(order.join(',')!=='updated,listener')throw Error('handler update changed position');
+          order.length=0;onerror=null;onerror=()=>order.push('readded');dispatchEvent(new ErrorEvent('error'));
+          if(order.join(',')!=='listener,readded')throw Error('handler reactivation position');
+          return true;
+        })()"#,
+        );
+    }
+
+    #[test]
+    fn global_event_prototype_foreign_event_keeps_its_owner_and_target() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let target = v8::Context::new(scope, Default::default());
+        let foreign = v8::Context::new(scope, Default::default());
+        for (index, context) in [target, foreign].into_iter().enumerate() {
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let dom = Rc::new(RefCell::new(
+                html::parse("<body></body>").into_runtime().unwrap(),
+            ));
+            install_generated_bindings(scope, context, dom, RealmId(index as u32), 1).unwrap();
+        }
+        let event = {
+            let scope = &mut v8::ContextScope::new(scope, foreign);
+            let source = v8::String::new(
+                scope,
+                "new ErrorEvent('error',{error:{identity:true},cancelable:true})",
+            )
+            .unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+        };
+        let scope = &mut v8::ContextScope::new(scope, target);
+        let key = v8::String::new(scope, "foreignEvent").unwrap();
+        target.global(scope).set(scope, key.into(), event);
+        let source=v8::String::new(scope,r#"(()=>{
+          let calls=0;onerror=function(m,f,l,c,error){if(error!==foreignEvent.error)throw Error('payload owner');calls++;return true};
+          addEventListener('error',e=>{if(e!==foreignEvent||e.target!==globalThis||e.currentTarget!==globalThis||e.eventPhase!==2||e.composedPath()[0]!==globalThis)throw Error('foreign target');calls++});
+          if(dispatchEvent(foreignEvent)!==false||calls!==2||!foreignEvent.defaultPrevented)throw Error('foreign dispatch');
+          if(foreignEvent.target!==globalThis||foreignEvent.currentTarget!==null||foreignEvent.eventPhase!==0)throw Error('foreign cleanup');
+          foreignEvent.initEvent('again');if(foreignEvent.target!==null)throw Error('reinitialization target');
+          return true;
+        })()"#).unwrap();
+        v8::tc_scope!(let tc,scope);
+        let value = v8::Script::compile(tc, source, None).unwrap().run(tc);
+        assert!(
+            value.is_some_and(|v| v.is_true()),
+            "{:?}",
+            tc.exception().map(|e| e.to_rust_string_lossy(tc))
+        );
+    }
+
+    #[test]
+    fn global_event_prototype_listener_conversions_and_callback_interfaces() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+          const check=(v,m)=>{if(!v)throw Error(m)}, marker={};let reports=[],calls=0;
+          onerror=(m,f,l,c,error)=>{reports.push(error);return true};
+          addEventListener('getter',{get handleEvent(){throw marker}});
+          addEventListener('getter',()=>calls++);dispatchEvent(new Event('getter'));
+          check(reports[0]===marker&&calls===1,'getter exception or dispatch continuation');
+          addEventListener('invalid',{});dispatchEvent(new Event('invalid'));
+          check(reports[1] instanceof TypeError,'noncallable handleEvent');
+          const object={handleEvent(){check(this===object,'callback interface receiver');calls++}};
+          addEventListener('object',object);dispatchEvent(new Event('object'));check(calls===2,'object listener');
+          const fn=()=>calls++;let reads=0;
+          try{addEventListener('atomic',fn,{get capture(){throw marker}});throw Error('no getter throw')}catch(e){check(e===marker,'original options error')}
+          dispatchEvent(new Event('atomic'));check(calls===2,'registration despite failed options conversion');
+          try{addEventListener('bad',123,{get capture(){reads++;return false}});throw Error('no callback conversion error')}catch(e){check(e instanceof TypeError&&reads===0,'callback conversion order')}
+          addEventListener('null',null,{get capture(){reads++;return false}});check(reads===1,'null callback options conversion');
+          addEventListener('boolean',fn,1);removeEventListener('boolean',fn,true);dispatchEvent(new Event('boolean'));check(calls===2,'boolean union conversion');
+          const descriptor=Object.getOwnPropertyDescriptor(globalThis,'onerror');
+          for(const operation of [()=>descriptor.get.call({}),()=>descriptor.set.call({},fn)]) {
+            try{operation();throw Error('no receiver rejection')}catch(e){check(e instanceof TypeError,'handler receiver brand')}
+          }
+          return true;
+        })()"#,
+        );
+    }
+
+    #[test]
+    fn global_event_prototype_rejects_non_event_native_wrappers() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+          const real=new Event('x'), getter=Object.getOwnPropertyDescriptor(Event.prototype,'type').get;
+          for(const object of [{},Object.create(Event.prototype),new Headers(),new EventTarget(),new AbortController()]) {
+            for(const action of [()=>dispatchEvent(object),()=>getter.call(object)]) {
+              try{action();throw Error('non-Event accepted')}catch(e){if(!(e instanceof TypeError))throw e}
+            }
+          }
+          Object.setPrototypeOf(real,null);if(!dispatchEvent(real)||getter.call(real)!=='x')throw Error('native brand depended on prototype');
+          return true;
+        })()"#,
+        );
+    }
+
+    #[test]
+    fn global_event_prototype_observer_reports_to_callback_realm() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let contexts = [
+            v8::Context::new(scope, Default::default()),
+            v8::Context::new(scope, Default::default()),
+            v8::Context::new(scope, Default::default()),
+        ];
+        for (index, context) in contexts.iter().copied().enumerate() {
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let dom = Rc::new(RefCell::new(
+                html::parse("<body></body>").into_runtime().unwrap(),
+            ));
+            install_generated_bindings(scope, context, dom, RealmId(index as u32), 1).unwrap();
+            let source = v8::String::new(
+                scope,
+                "globalThis.errors=0;globalThis.onerror=()=>{errors++;return true}",
+            )
+            .unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+        }
+        let payload = {
+            let scope = &mut v8::ContextScope::new(scope, contexts[2]);
+            let source = v8::String::new(scope, "new Error('third realm')").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+        };
+        let callback = {
+            let scope = &mut v8::ContextScope::new(scope, contexts[1]);
+            let key = v8::String::new(scope, "payload").unwrap();
+            contexts[1].global(scope).set(scope, key.into(), payload);
+            let source=v8::String::new(scope,"globalThis.onerror=(m,f,l,c,error)=>{errors++;globalThis.identityPreserved=error===payload;return true};(()=>{throw payload})").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+        };
+        {
+            let scope = &mut v8::ContextScope::new(scope, contexts[0]);
+            let key = v8::String::new(scope, "callback").unwrap();
+            contexts[0].global(scope).set(scope, key.into(), callback);
+            let source=v8::String::new(scope,"new MutationObserver(callback).observe(document.body,{attributes:true});document.body.id='changed'").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        for (index, context) in contexts.iter().copied().enumerate() {
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let source = v8::String::new(
+                scope,
+                if index == 1 {
+                    "errors===1&&identityPreserved"
+                } else {
+                    "errors===0"
+                },
+            )
+            .unwrap();
+            assert!(
+                v8::Script::compile(scope, source, None)
+                    .unwrap()
+                    .run(scope)
+                    .unwrap()
+                    .is_true(),
+                "realm {index}"
+            );
+        }
+    }
+
+    #[test]
+    fn global_event_prototype_dispatch_and_error_contracts() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+          (()=>{
+            const check=(ok,label)=>{if(!ok)throw Error(label)}, log=[];
+            addEventListener('order',e=>{check(e.target===globalThis&&e.currentTarget===globalThis&&e.eventPhase===2,'target');log.push('capture');e.stopPropagation()},{capture:true,once:true});
+            addEventListener('order',()=>log.push('bubble'),{once:true});
+            const event=new Event('order',{cancelable:true}); dispatchEvent(event); dispatchEvent(event);
+            check(log.join(',')==='capture,bubble','capture and once');
+            check(event.currentTarget===null&&event.eventPhase===0&&event.target===globalThis,'cleanup');
+            const later=()=>log.push('removed');
+            addEventListener('remove',()=>removeEventListener('remove',later),{once:true});
+            addEventListener('remove',later);dispatchEvent(new Event('remove'));check(!log.includes('removed'),'remove during dispatch');
+            const controller=new AbortController();addEventListener('abortable',()=>log.push('aborted'),{signal:controller.signal});controller.abort();dispatchEvent(new Event('abortable'));check(!log.includes('aborted'),'abort signal');
+            addEventListener('passive',e=>e.preventDefault(),{passive:true});check(dispatchEvent(new Event('passive',{cancelable:true})),'passive');
+            const payload={identity:1};let errors=0,after=0;
+            onerror=function(message,filename,line,column,error){check(arguments.length===5&&this===globalThis,'onerror arguments');check(error===payload,'error identity');errors++;return true};
+            addEventListener('explode',()=>{throw payload});addEventListener('explode',()=>after++);
+            check(dispatchEvent(new Event('explode'))&&errors===1&&after===1,'report and continue');
+            const synthetic=new ErrorEvent('error',{error:payload,cancelable:true});check(!dispatchEvent(synthetic)&&synthetic.defaultPrevented,'onerror true cancellation');
+            onerror=()=>false;check(dispatchEvent(new ErrorEvent('error',{cancelable:true})),'onerror false no cancellation');
+            let nested=0;onerror=()=>{nested++;throw new Error('nested')};
+            dispatchEvent(new Event('explode'));check(nested===1&&after===2,'error reporting reentrancy');
+            onerror=null;let observed=null;addEventListener('error',e=>{observed=e;e.preventDefault()},{once:true});
+            dispatchEvent(new Event('explode'));check(observed instanceof ErrorEvent&&observed.isTrusted&&observed.error===payload,'native reported event');
+            return true;
+          })()
+        "#).unwrap();
+        v8::tc_scope!(let tc, scope);
+        let value = v8::Script::compile(tc, source, None).unwrap().run(tc);
+        assert!(
+            value.is_some_and(|v| v.is_true()),
+            "{:?}",
+            tc.exception().map(|e| e.to_rust_string_lossy(tc))
+        );
+    }
+
     #[test]
     fn error_event_preserves_payload_conversions_and_native_brand() {
         initialize_v8();
@@ -27736,7 +28153,8 @@ mod tests {
             const parent = document.querySelector('main'); parent.appendChild(target);
             let ancestorHits = 0, globalHits = 0;
             parent.addEventListener('path', () => ancestorHits++, true);
-            globalThis.__oryn_dispatch_global_phase = (event, capture) => {globalHits++; if(capture) parent.remove();};
+            addEventListener('path', () => {globalHits++; parent.remove();}, true);
+            addEventListener('path', () => globalHits++);
             target.dispatchEvent(new Event('path', {bubbles:true}));
             if(ancestorHits !== 1 || globalHits !== 2) throw Error('frozen event path');
             target.dispatchEvent(new Event('path', {bubbles:true}));

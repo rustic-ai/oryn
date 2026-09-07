@@ -164,6 +164,16 @@ validation. Parser/callback reporting, Window `onerror`, worker propagation and
 initial frame realms remain open; this interface alone does not close W0 or
 establish a new signed-worker conformance result.
 
+Native global EventTarget dispatch and observer/global-listener exception reporting
+are now integrated after isolated validation: 126 binding tests, three new native
+page tests, strict JS/native Clippy, and a 268-test native comparison with no new
+nonpasses. Global ErrorEvent handlers preserve payload identity, calling convention,
+cancellation, registration order and cross-realm event ownership. The
+[hash-bound evidence](CONFORMANCE-NATIVE-GLOBAL-EVENTS-2026-09-06.json) retains all
+13 existing native nonpasses. Parser/module and node-listener reporting, remaining
+global handler attributes, frame activation and worker propagation still need work.
+
+
 Create a reduced regression for each confirmed shared cause. Record its dependency
 contracts, affected IDs, expected behavior and decisive check. First failing assertions
 are a starting point: inspect later assertions after each fix, and track assertion-level

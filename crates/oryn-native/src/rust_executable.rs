@@ -1507,13 +1507,9 @@ globalThis.__oryn_configure_context=(pageId,openerPageId)=>{__oryn_page_id=pageI
 globalThis.open=(url='',name='')=>{url=String(url);name=String(name);if(name&&name!=='_blank'){const frame=[...document.querySelectorAll('iframe')].find(candidate=>candidate.name===name||candidate.getAttribute('name')===name);if(frame){if(url)frame.contentWindow.location.href=new OrynURL(url,location.href).href;return frame.contentWindow}}if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return null;const target=url?new OrynURL(url,location.href).href:null;const response=contextCall({operation:'open_page',opener_page_id:__oryn_page_id,url:target,name:name||null});if(response.result==='page_opened'){__oryn_context_trace.push({kind:'page_created',detail:{page_id:response.page_id,opener_page_id:__oryn_page_id}});return __oryn_page_proxy(response.page_id)}if(response.result==='page_denied')__oryn_context_trace.push({kind:'capability_failure',detail:{capability:'popup.open',detail:response.reason}});return null};
 globalThis.closed=false;
 globalThis.close=()=>{if(closed||__oryn_page_id===null)return;globalThis.closed=true;__oryn_context_trace.push({kind:'page_closed',detail:{page_id:__oryn_page_id}})};
-const __oryn_global_listeners=new Map();const __oryn_websockets=new Set();const __oryn_message_log=[];const __oryn_record_message=value=>{if(__oryn_message_log.length===128)__oryn_message_log.shift();__oryn_message_log.push(value)};let __oryn_context_event_id=0;
+const __oryn_websockets=new Set();const __oryn_message_log=[];const __oryn_record_message=value=>{if(__oryn_message_log.length===128)__oryn_message_log.shift();__oryn_message_log.push(value)};let __oryn_context_event_id=0;
 class SecurityPolicyViolationEvent extends Event {constructor(type,eventInitDict={}){super(type,{bubbles:true,cancelable:false});for(const [name,value] of Object.entries({documentURI:'',referrer:'',blockedURI:'',violatedDirective:'',effectiveDirective:'',originalPolicy:'',sourceFile:'',sample:'',disposition:'enforce',statusCode:0,lineNumber:0,columnNumber:0,...eventInitDict}))Object.defineProperty(this,name,{value,enumerable:true,writable:false,configurable:false})}}
 globalThis.SecurityPolicyViolationEvent=SecurityPolicyViolationEvent;
-globalThis.addEventListener=(type,callback,options={})=>{type=String(type);if(typeof callback!=='function')return;const capture=typeof options==='boolean'?options:!!options?.capture,once=!!options?.once,passive=!!options?.passive,list=__oryn_global_listeners.get(type)||[];if(list.some(item=>item.callback===callback&&item.capture===capture))return;list.push({callback,capture,once,passive});__oryn_global_listeners.set(type,list)};
-globalThis.removeEventListener=(type,callback,options={})=>{const capture=typeof options==='boolean'?options:!!options?.capture;__oryn_global_listeners.set(String(type),(__oryn_global_listeners.get(String(type))||[]).filter(item=>item.callback!==callback||item.capture!==capture))};
-globalThis.__oryn_dispatch_global_phase=(event,capture,phase)=>{const records=[...(__oryn_global_listeners.get(event.type)||[])];Object.defineProperty(event,'currentTarget',{configurable:true,value:globalThis});Object.defineProperty(event,'eventPhase',{configurable:true,value:Number(phase)});for(const record of records){if(record.capture!==!!capture)continue;record.callback.call(globalThis,event);if(record.once)removeEventListener(event.type,record.callback,{capture:record.capture});if(event.cancelBubble)break}if(!capture){const handler=globalThis['on'+event.type];if(typeof handler==='function'&&handler.call(globalThis,event)===false)event.returnValue=false}delete event.currentTarget;delete event.eventPhase;return !event.defaultPrevented};
-globalThis.dispatchEvent=event=>{__oryn_dispatch_global_phase(event,true,2);if(!event.cancelBubble)__oryn_dispatch_global_phase(event,false,2);return !event.defaultPrevented};
 globalThis.__oryn_structured_clone=(value,seen=new Map())=>{
   if(value===null||typeof value==='undefined'||typeof value==='string'||typeof value==='number'||typeof value==='boolean'||typeof value==='bigint')return value;
   if(typeof value==='symbol'||typeof value==='function'){const error=new Error('value is not structured-cloneable');error.name='DataCloneError';throw error}
@@ -1673,7 +1669,7 @@ const __oryn_testdriver_keyboard=(target,value,pressed)=>{
 const __oryn_testdriver_key_target=target=>{const focused=document.activeElement;if(!focused||focused===target)return target;let current=focused;for(let depth=0;current&&depth<32;depth++){if(current===target)return focused;const root=current.getRootNode?.({composed:false});current=root&&root!==document?root.host:current.parentElement}return target};
 globalThis.__oryn_testdriver_send_keys=async(target,keys)=>{if(!target)throw new TypeError('testdriver target is required');target=__oryn_testdriver_key_target(target);target.focus?.();keys=String(keys);if(String(target.tagName).toLowerCase()==='input'&&String(target.type).toLowerCase()==='file'){const response=contextCall({operation:'materialize_upload',page_id:__oryn_page_id,label:keys});if(response.result!=='upload_materialized')throw new Error('parent did not authorize the selected upload');target.setAttribute('data-oryn-upload-files',JSON.stringify([{filename:response.filename,media_type:response.media_type,body_base64:response.body_base64,last_modified:response.last_modified}]));target.value=response.filename;target.dispatchEvent(new Event('input',{bubbles:true}));target.dispatchEvent(new Event('change',{bubbles:true}));return}for(const key of [...keys]){__oryn_testdriver_keyboard(target,key,true);__oryn_testdriver_keyboard(target,key,false)}};
 globalThis.__oryn_testdriver_click=async target=>{if(!target)throw new TypeError('testdriver target is required');target.focus?.();target.dispatchEvent(new Event('pointerdown',{bubbles:true,cancelable:true}));target.dispatchEvent(new Event('mousedown',{bubbles:true,cancelable:true}));target.dispatchEvent(new Event('pointerup',{bubbles:true,cancelable:true}));target.dispatchEvent(new Event('mouseup',{bubbles:true,cancelable:true}));target.click?.()};
-globalThis.__oryn_testdriver_actions=async(sources,keyboardTarget=null)=>{let pointerTarget=null,pointerClicks=0;const modifiers=globalThis.__oryn_testdriver_modifiers||(globalThis.__oryn_testdriver_modifiers=new Set()),touchPointers=new Set(),dispatchInput=(target,type)=>__oryn_dispatch_user_input(target,type,(__oryn_global_listeners.get(type)||[]).some(listener=>listener.passive));const lists=(sources||[]).map(source=>source.actions||[]);const ticks=Math.max(0,...lists.map(actions=>actions.length));for(let tick=0;tick<ticks;tick++)for(let index=0;index<sources.length;index++){const source=sources[index],action=lists[index][tick];if(!action||action.type==='pause')continue;if(action.type==='scroll'){const target=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement||document.body;for(const type of ['wheel','mousewheel'])dispatchInput(target,type);continue}if(action.type==='pointerMove'){if(action.origin&&typeof action.origin==='object')pointerTarget=action.origin;else if(!touchPointers.has(source.id))pointerTarget=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement;if(touchPointers.has(source.id))dispatchInput(pointerTarget,'touchmove');continue}if(action.type==='pointerDown'){pointerTarget?.focus?.();pointerTarget?.dispatchEvent(new Event('pointerdown',{bubbles:true,cancelable:true}));pointerTarget?.dispatchEvent(new Event('mousedown',{bubbles:true,cancelable:true}));if(source.parameters?.pointerType==='touch'){touchPointers.add(source.id);dispatchInput(pointerTarget,'touchstart')}continue}if(action.type==='pointerUp'){pointerTarget?.dispatchEvent(new Event('pointerup',{bubbles:true,cancelable:true}));pointerTarget?.dispatchEvent(new Event('mouseup',{bubbles:true,cancelable:true}));if(touchPointers.delete(source.id))dispatchInput(pointerTarget,'touchend');pointerTarget?.click?.();pointerClicks++;if(pointerClicks===2){const text=__oryn_testdriver_text_node(pointerTarget);if(text){const selection=document.getSelection();selection.setBaseAndExtent(text,0,text,text.data.length)}}continue}const target=keyboardTarget||document.activeElement||document.body;if(action.type==='keyDown')__oryn_testdriver_keyboard(target,action.value,true);else if(action.type==='keyUp'){const key=__oryn_testdriver_key_name(String(action.value));__oryn_testdriver_keyboard(target,action.value,false);modifiers.delete(key)}}};
+globalThis.__oryn_testdriver_actions=async(sources,keyboardTarget=null)=>{let pointerTarget=null,pointerClicks=0;const modifiers=globalThis.__oryn_testdriver_modifiers||(globalThis.__oryn_testdriver_modifiers=new Set()),touchPointers=new Set(),dispatchInput=(target,type)=>__oryn_dispatch_user_input(target,type,false);const lists=(sources||[]).map(source=>source.actions||[]);const ticks=Math.max(0,...lists.map(actions=>actions.length));for(let tick=0;tick<ticks;tick++)for(let index=0;index<sources.length;index++){const source=sources[index],action=lists[index][tick];if(!action||action.type==='pause')continue;if(action.type==='scroll'){const target=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement||document.body;for(const type of ['wheel','mousewheel'])dispatchInput(target,type);continue}if(action.type==='pointerMove'){if(action.origin&&typeof action.origin==='object')pointerTarget=action.origin;else if(!touchPointers.has(source.id))pointerTarget=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement;if(touchPointers.has(source.id))dispatchInput(pointerTarget,'touchmove');continue}if(action.type==='pointerDown'){pointerTarget?.focus?.();pointerTarget?.dispatchEvent(new Event('pointerdown',{bubbles:true,cancelable:true}));pointerTarget?.dispatchEvent(new Event('mousedown',{bubbles:true,cancelable:true}));if(source.parameters?.pointerType==='touch'){touchPointers.add(source.id);dispatchInput(pointerTarget,'touchstart')}continue}if(action.type==='pointerUp'){pointerTarget?.dispatchEvent(new Event('pointerup',{bubbles:true,cancelable:true}));pointerTarget?.dispatchEvent(new Event('mouseup',{bubbles:true,cancelable:true}));if(touchPointers.delete(source.id))dispatchInput(pointerTarget,'touchend');pointerTarget?.click?.();pointerClicks++;if(pointerClicks===2){const text=__oryn_testdriver_text_node(pointerTarget);if(text){const selection=document.getSelection();selection.setBaseAndExtent(text,0,text,text.data.length)}}continue}const target=keyboardTarget||document.activeElement||document.body;if(action.type==='keyDown')__oryn_testdriver_keyboard(target,action.value,true);else if(action.type==='keyUp'){const key=__oryn_testdriver_key_name(String(action.value));__oryn_testdriver_keyboard(target,action.value,false);modifiers.delete(key)}}};
 const __oryn_install_text_selection=prototype=>{if(!prototype)return;Object.defineProperties(prototype,{selectionStart:{configurable:true,get(){const length=String(this.value||'').length;return Math.max(0,Math.min(length,Number(this.__oryn_selection_start??length)))},set(value){const length=String(this.value||'').length;this.__oryn_selection_start=Math.max(0,Math.min(length,Number(value)||0));if(this.__oryn_selection_end===undefined||this.__oryn_selection_end<this.__oryn_selection_start)this.__oryn_selection_end=this.__oryn_selection_start}},selectionEnd:{configurable:true,get(){const length=String(this.value||'').length;return Math.max(0,Math.min(length,Number(this.__oryn_selection_end??this.selectionStart)))},set(value){const length=String(this.value||'').length;this.__oryn_selection_end=Math.max(0,Math.min(length,Number(value)||0));if(this.__oryn_selection_start===undefined||this.__oryn_selection_start>this.__oryn_selection_end)this.__oryn_selection_start=this.__oryn_selection_end}},selectionDirection:{configurable:true,get(){return this.__oryn_selection_direction||'none'},set(value){this.__oryn_selection_direction=['forward','backward'].includes(String(value))?String(value):'none'}},setSelectionRange:{configurable:true,value(start,end,direction='none'){this.__oryn_selection_start=Math.max(0,Math.min(String(this.value||'').length,Number(start)||0));this.__oryn_selection_end=Math.max(this.__oryn_selection_start,Math.min(String(this.value||'').length,Number(end)||0));this.selectionDirection=direction}},setRangeText:{configurable:true,value(replacement,start=this.selectionStart,end=this.selectionEnd,mode='preserve'){const value=String(this.value||''),text=String(replacement);start=Math.max(0,Math.min(value.length,Number(start)||0));end=Math.max(start,Math.min(value.length,Number(end)||0));this.value=value.slice(0,start)+text+value.slice(end);const finish=start+text.length;if(mode==='select')this.setSelectionRange(start,finish);else if(mode==='start')this.setSelectionRange(start,start);else if(mode==='end')this.setSelectionRange(finish,finish);else this.setSelectionRange(finish,finish)}}})};
 if(globalThis.HTMLInputElement){Object.defineProperty(HTMLInputElement.prototype,'files',{configurable:true,get(){return __orynInputFiles(this)}});__oryn_install_text_selection(HTMLInputElement.prototype)}
 if(globalThis.HTMLTextAreaElement)__oryn_install_text_selection(HTMLTextAreaElement.prototype);
@@ -4905,6 +4901,57 @@ mod tests {
             page.evaluate("document.querySelector('#result').textContent")
                 .unwrap(),
             "3:3"
+        );
+    }
+
+    #[test]
+    fn global_event_native_observer_exceptions_reach_error_handlers() {
+        let mut page=RustExecutableDocument::load(r#"<body><script>'use strict';
+          globalThis.order=[];const payload={};
+          onerror=function(m,f,l,c,error){order.push('handler:'+arguments.length+':'+(error===payload));return true};
+          addEventListener('error',e=>order.push('listener:'+(e instanceof ErrorEvent&&e.isTrusted&&e.error===payload&&e.target===window&&e.defaultPrevented)));
+          new MutationObserver(()=>{throw payload}).observe(document.body,{attributes:true});
+          new MutationObserver(()=>order.push('after')).observe(document.body,{attributes:true});
+          document.body.id='changed';
+        </script>"#).unwrap();
+        assert_eq!(
+            page.evaluate("order.join('|')").unwrap(),
+            "handler:5:true|listener:true|after"
+        );
+    }
+
+    #[test]
+    fn global_event_native_phases_surround_dom_listeners() {
+        let mut page = RustExecutableDocument::load(
+            r#"<body><button></button><script>
+          globalThis.order=[];const node=document.querySelector('button');
+          addEventListener('native-probe',()=>order.push('capture'),true);
+          node.addEventListener('native-probe',()=>order.push('node'));
+          addEventListener('native-probe',()=>order.push('bubble'));
+          node.dispatchEvent(new Event('native-probe',{bubbles:true}));
+        </script>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("order.join('|')").unwrap(),
+            "capture|node|bubble"
+        );
+    }
+
+    #[test]
+    fn global_event_native_error_handler_convention_depends_on_target() {
+        let mut page=RustExecutableDocument::load(r#"<body><script>
+          globalThis.order=[];
+          onerror=function(){order.push(arguments.length);return true};
+          order.push(dispatchEvent(new ErrorEvent('error',{cancelable:true})));
+          document.onerror=function(){order.push(arguments.length);return false};
+          order.push(document.dispatchEvent(new ErrorEvent('error',{cancelable:true})));
+          document.onerror=null;onerror=function(){order.push(arguments.length);return false};
+          order.push(document.dispatchEvent(new ErrorEvent('error',{bubbles:true,cancelable:true})));
+        </script>"#).unwrap();
+        assert_eq!(
+            page.evaluate("order.join('|')").unwrap(),
+            "5|false|1|false|1|false"
         );
     }
 
