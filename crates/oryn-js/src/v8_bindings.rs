@@ -10417,12 +10417,10 @@ fn edit_command_supported(command: &str) -> bool {
     )
 }
 
-// These commands operate on the document even without an editable selection.
+// Selecting document content does not require an editor. Editing settings do:
+// a call without an editable context must not mutate the document's settings.
 fn edit_command_enabled_without_selection(command: &str) -> bool {
-    matches!(
-        command,
-        "defaultparagraphseparator" | "selectall" | "stylewithcss" | "usecss"
-    )
+    command == "selectall"
 }
 
 fn selection_format_value(state: &V8BindingState, command: &str) -> Option<String> {
@@ -12159,7 +12157,26 @@ fn apply_block_command(
                 state.dom.borrow_mut().append_child(wrapper, *child)?;
             }
             if let Some(focus) = focus_before_wrap {
-                set_selection_boundaries(state, anchor, focus)?;
+                // Moving children into a wrapper changes parent-offset boundaries.
+                // Keep boundaries within the moved interval attached to that
+                // content, including selections created with selectAllChildren.
+                let remap = |point: BoundaryPoint| {
+                    if point.container != host || (point.offset as usize) < start {
+                        return point;
+                    }
+                    if (point.offset as usize) <= end {
+                        BoundaryPoint {
+                            container: wrapper,
+                            offset: point.offset - start as u32,
+                        }
+                    } else {
+                        BoundaryPoint {
+                            container: host,
+                            offset: point.offset - (end - start) as u32 + 1,
+                        }
+                    }
+                };
+                set_selection_boundaries(state, remap(anchor), remap(focus))?;
             }
             block = wrapper;
         }
@@ -26648,8 +26665,16 @@ mod tests {
                 check(!document.queryCommandState(command), command + ' has no active state');
                 check(document.queryCommandValue(command) === '', command + ' has no active value');
             }
-            for (const command of ['defaultParagraphSeparator', 'styleWithCSS', 'useCSS', 'selectAll']) {
-                check(document.queryCommandEnabled(command), command + ' enabled without selection');
+            check(document.queryCommandEnabled('selectAll'), 'selectAll enabled without an editor');
+            for (const command of ['defaultParagraphSeparator', 'styleWithCSS', 'useCSS']) {
+                check(!document.queryCommandEnabled(command), command + ' disabled without an editor');
+                check(!document.execCommand(command, false, 'true'), command + ' rejects execution without an editor');
+            }
+            check(!document.queryCommandState('styleWithCSS'), 'rejected command preserves initial CSS flag');
+            check(document.queryCommandValue('defaultParagraphSeparator') === 'div', 'rejected command preserves initial paragraph');
+            selection.selectAllChildren(document.getElementById('bold'));
+            for (const command of ['defaultParagraphSeparator', 'styleWithCSS', 'useCSS']) {
+                check(document.queryCommandEnabled(command), command + ' enabled in an editor');
             }
             check(document.execCommand('defaultParagraphSeparator', false, 'P'), 'set paragraph');
             check(document.queryCommandValue('defaultParagraphSeparator') === 'p', 'paragraph value');
@@ -26664,6 +26689,11 @@ mod tests {
                 check(!document.queryCommandState('useCSS'), 'legacy has no state');
                 check(document.queryCommandValue('useCSS') === '', 'legacy has no value');
             }
+            selection.removeAllRanges();
+            check(!document.execCommand('styleWithCSS', false, 'false'), 'disabled command cannot clear CSS flag');
+            check(document.queryCommandState('styleWithCSS'), 'CSS flag survives disabled command');
+            check(!document.execCommand('defaultParagraphSeparator', false, 'div'), 'disabled command cannot reset paragraph');
+            check(document.queryCommandValue('defaultParagraphSeparator') === 'p', 'paragraph survives disabled command');
             selection.selectAllChildren(document.getElementById('bold'));
             check(document.queryCommandState('bold'), 'bold state');
             check(document.queryCommandValue('bold') === '', 'bold has no value');

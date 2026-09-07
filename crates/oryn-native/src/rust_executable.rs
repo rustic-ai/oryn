@@ -4663,6 +4663,21 @@ mod tests {
     }
 
     #[test]
+    fn justification_preserves_backward_parent_offset_selection() {
+        let mut page = RustExecutableDocument::load(
+            "<div id='editor' contenteditable>one<span>two</span></div>",
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                "const editor=document.getElementById('editor');const selection=getSelection();selection.setBaseAndExtent(editor,2,editor,0);const before=selection.toString();document.execCommand('justifyRight');const wrapper=editor.firstChild;[before,selection.toString(),selection.anchorNode===wrapper,selection.anchorOffset,selection.focusNode===wrapper,selection.focusOffset,document.queryCommandValue('justifyRight')].join('|')"
+            )
+            .unwrap(),
+            "onetwo|onetwo|true|2|true|0|right"
+        );
+    }
+
+    #[test]
     fn navigator_and_performance_are_available_for_framework_feature_detection() {
         let mut page = RustExecutableDocument::load("<main></main>").unwrap();
         assert_eq!(
