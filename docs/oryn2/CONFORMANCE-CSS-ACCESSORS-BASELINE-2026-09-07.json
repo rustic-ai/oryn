@@ -1,0 +1,477 @@
+{
+  "ledger": "artifacts/upstream-conformance/conformance-worker-full-css-accessors-450dd3e.json",
+  "ledger_sha256": "b9ff70e5c3c24ceb291c77f8aaff616ff928fde6fe8e9bafebfd42619790272a",
+  "source": {
+    "commit": "450dd3e74ded0bc271f7d1b458bacfc9faeadb63",
+    "dirty": false,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_file_count": 0,
+    "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "binary": {
+    "sha256": "25c5d3bace5d709fb890cfc3a59cfef0f05dd4d16af36da7feceae278f6cedaa",
+    "size_bytes": 6991440
+  },
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "9a7f55016d5cbbfdeda9a9f112b8cdcb082aa24dc5ac41700a2dac918ebac83d",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "7805c0e417a14e86d1c73439d853fd20f2265ccb715ce48ed10aca132461643b",
+    "worker_binary_sha256": "e6a52bfedbe26c482846b5a7ab8a78651899a459db907838fdf158ac36cdec84",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_protocol_version": 8,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+  "exact_coverage": true,
+  "passed_completions_valid": true,
+  "outcome": {
+    "required_finished": 4022,
+    "required_passed": 2598,
+    "required_total": 4022,
+    "status": "failed"
+  },
+  "counts_by_root": {
+    "IndexedDB": {
+      "passed": 341,
+      "required": 456
+    },
+    "WebIDL": {
+      "passed": 30,
+      "required": 58
+    },
+    "accname": {
+      "passed": 15,
+      "required": 19
+    },
+    "css/css-cascade": {
+      "passed": 46,
+      "required": 97
+    },
+    "css/cssom": {
+      "passed": 67,
+      "required": 190
+    },
+    "css/selectors": {
+      "passed": 160,
+      "required": 277
+    },
+    "dom": {
+      "passed": 382,
+      "required": 662
+    },
+    "editing": {
+      "passed": 118,
+      "required": 704
+    },
+    "html/browsers/history": {
+      "passed": 30,
+      "required": 136
+    },
+    "referrer-policy": {
+      "passed": 1381,
+      "required": 1391
+    },
+    "wai-aria": {
+      "passed": 28,
+      "required": 32
+    }
+  },
+  "failure_domains": {
+    "assertion": 1233,
+    "timeout": 1,
+    "runtime": 51,
+    "harness": 136,
+    "incomplete": 3
+  },
+  "file_gains": [
+    "css/css-cascade/parsing/all-valid.html|window|",
+    "css/cssom/MutationObserver-style.html|window|",
+    "css/cssom/cssom-cssText-serialize.html|window|",
+    "css/cssom/cssstyledeclaration-csstext-final-delimiter.html|window|",
+    "css/cssom/cssstyledeclaration-csstext-important.html|window|",
+    "css/cssom/cssstyledeclaration-csstext.html|window|",
+    "css/cssom/cssstyledeclaration-custom-properties.html|window|",
+    "css/cssom/cssstyledeclaration-mutationrecord-002.html|window|",
+    "css/cssom/cssstyledeclaration-mutationrecord-003.html|window|",
+    "css/cssom/cssstyledeclaration-mutationrecord-004.html|window|",
+    "css/cssom/cssstyledeclaration-mutationrecord-005.html|window|",
+    "css/cssom/cssstyledeclaration-removeProperty-all.html|window|",
+    "css/cssom/cssstyledeclaration-setter-attr.html|window|",
+    "css/cssom/cssstyledeclaration-setter-declarations.html|window|",
+    "css/cssom/cssstyledeclaration-setter-logical.html|window|",
+    "css/cssom/font-shorthand-serialization.html|window|",
+    "css/cssom/getComputedStyle-getter-v-properties.tentative.html|window|",
+    "css/cssom/getComputedStyle-insets-nobox.html|window|",
+    "css/cssom/getComputedStyle-insets-static.html|window|",
+    "css/cssom/getComputedStyle-line-height.html|window|",
+    "css/cssom/inline-style-001.html|window|",
+    "css/cssom/serialization-CSSDeclaration-with-important.html|window|",
+    "css/cssom/serialize-custom-props.html|window|",
+    "css/cssom/serialize-variable-reference.html|window|",
+    "css/cssom/setproperty-null-undefined.html|window|",
+    "css/cssom/shorthand-serialization.html|window|",
+    "css/cssom/shorthand-values.html|window|",
+    "css/cssom/variable-names.html|window|",
+    "editing/other/edit-in-textcontrol-immediately-after-hidden.tentative.html|window|?editor=input&hide-target=parent",
+    "editing/other/edit-in-textcontrol-immediately-after-hidden.tentative.html|window|?editor=textarea&hide-target=parent"
+  ],
+  "file_losses": [
+    "referrer-policy/css-integration/svg/inline-style-with-differentorigin-base-tag.tentative.html|window|",
+    "referrer-policy/css-integration/svg/inline-style.html|window|"
+  ],
+  "zero_assertion_passes": [],
+  "verified_assertion_renames": [
+    {
+      "id": "css/cssom/getComputedStyle-line-height.html|window|",
+      "source": "artifacts/upstream-conformance/wpt-719d5e38fdd0903a18ed9007aba816c98cc491e0/css/cssom/getComputedStyle-line-height.html",
+      "source_sha256": "44027275cb7aa8ae454252032701d3139a864b1e756b8788645421a5d75873d0",
+      "reason": "Pinned test registers four cases in DOM order and derives names from e.style.lineHeight. Previously missing accessor yielded four duplicate undefined names. All four corresponding assertions pass with the correct property-derived names.",
+      "previous_names": [
+        "line-height: undefined",
+        "line-height: undefined",
+        "line-height: undefined",
+        "line-height: undefined"
+      ],
+      "current_names": [
+        "line-height: normal",
+        "line-height: 1",
+        "line-height: 10px",
+        "line-height: 10%"
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "status": "complete_failing_baseline_conformance_incomplete",
+  "previous_baseline": "CONFORMANCE-USED-DIMENSIONS-BASELINE-2026-09-07.json",
+  "release_qualified": false,
+  "inventory_complete_twice": false,
+  "signed_candidate": {
+    "source_files": {
+      "crates/oryn-js/src/v8_bindings.rs": "915e1391a45196fd7af5a53c3fc643cc5d9f251f7faea5566efe763e9df8a735",
+      "crates/oryn-js/src/v8_bindings/inline_styles.rs": "7a4e12c89847fe07d6401510e00f71dd7a69f9ad4bebf0219e969daa11e8ca17",
+      "crates/oryn-layout/src/cssom.rs": "13a3cf38f4e1237ab314458417a2084d3987663cc49471558ccd88818e892f3c",
+      "crates/oryn-layout/src/lib.rs": "b21ab6b8f3ce8b1ca20b79b718b4daaff64e80b53c095ac10343ce771ecb94f2",
+      "crates/oryn-native/src/host.rs": "335f7dc96b340064bab625e13a83b65412130840b09c458fe3bc33570270a6c2",
+      "crates/oryn-native/src/rust_executable.rs": "218d940260d5e9e233072e036977bd97be4e73d0d4f8eae187f70a449fb8c05c"
+    },
+    "layout_tests": {
+      "passed": 37,
+      "failed": 0
+    },
+    "binding_tests": {
+      "passed": 137,
+      "failed": 0,
+      "ignored": 2
+    },
+    "native_regressions": {
+      "passed": 6,
+      "failed": 0
+    },
+    "strict_layout_clippy": "passed",
+    "strict_binding_clippy": "passed",
+    "strict_native_clippy": "passed",
+    "signed_worker": "passed including signing/sandbox/protocol/DOM/broker checks",
+    "wpt": {
+      "selected_css": {
+        "passed": 273,
+        "total": 564,
+        "gains_vs_728": 28,
+        "gains_vs_c31": 9,
+        "file_losses": 0,
+        "assertion_losses": 0,
+        "corrected_assertions_vs_728": 380,
+        "recovered_inset_regressions": 828,
+        "verified_renamed_assertions": 4
+      },
+      "additional_referrer_cases": {
+        "passed": 5,
+        "total": 5
+      },
+      "hidden_control_editing": {
+        "passed": 4,
+        "total": 4,
+        "recovered_files": 2,
+        "corrected_assertions": 6
+      },
+      "full_inventory": {
+        "required_finished": 4022,
+        "required_passed": 2598,
+        "required_total": 4022,
+        "status": "failed"
+      }
+    },
+    "candidate": "450dd3e74ded0bc271f7d1b458bacfc9faeadb63",
+    "worker_sha256": "e6a52bfedbe26c482846b5a7ab8a78651899a459db907838fdf158ac36cdec84",
+    "cli_sha256": "25c5d3bace5d709fb890cfc3a59cfef0f05dd4d16af36da7feceae278f6cedaa",
+    "source_hash_independently_verified": true,
+    "all_signing_sandbox_protocol_dom_broker_checks_passed": true,
+    "source_tree_sha256": "33f5e3aba3800e0eb2feb8d622dc305399fe3406d8ba522816611c5e043e0615"
+  },
+  "assertion_audit": {
+    "counts": {
+      "missing_prior_passes": 9,
+      "observed_pass_to_fail": 8,
+      "corrected_existing": 390,
+      "additional_passing_names": 7
+    },
+    "verified_fixture_port_renames": [
+      {
+        "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+        "previous_name": "http://localhost:53775/common/blank.html to http://localhost:53775/common/blank.html#newhash should work",
+        "current_name": "http://localhost:65033/common/blank.html to http://localhost:65033/common/blank.html#newhash should work"
+      },
+      {
+        "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+        "previous_name": "http://localhost:53775/common/blank.html to http://localhost:53775/common/blank.html?newsearch should work",
+        "current_name": "http://localhost:65033/common/blank.html to http://localhost:65033/common/blank.html?newsearch should work"
+      },
+      {
+        "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+        "previous_name": "http://localhost:53775/common/blank.html to http://localhost:53775/newpath should work",
+        "current_name": "http://localhost:65033/common/blank.html to http://localhost:65033/newpath should work"
+      },
+      {
+        "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+        "previous_name": "http://localhost:53775/common/blank.html to about:blank should not work",
+        "current_name": "http://localhost:65033/common/blank.html to about:blank should not work"
+      },
+      {
+        "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+        "previous_name": "http://localhost:53775/common/blank.html to about:srcdoc should not work",
+        "current_name": "http://localhost:65033/common/blank.html to about:srcdoc should not work"
+      }
+    ],
+    "fixture_port_rename_source_sha256": "d30070f50e41a5b4901cbc9724c7c862538570b5e4855b86b17f648ac23de047",
+    "unresolved_missing_prior_passes": [
+      {
+        "id": "dom/ranges/Range-mutations-appendData.html|window|",
+        "name": "detachedTextNode.appendData(\"\"), with unselected range on detachedTextNode from 0 to 1",
+        "source": "newly absent versus 728688c"
+      },
+      {
+        "id": "dom/ranges/Range-mutations-appendData.html|window|",
+        "name": "detachedTextNode.appendData(\"\"), with selected range on detachedTextNode from 0 to 1",
+        "source": "newly absent versus 728688c"
+      },
+      {
+        "id": "dom/ranges/Range-mutations-appendData.html|window|",
+        "name": "detachedTextNode.appendData(\"\"), with unselected range collapsed at (detachedTextNode, 0)",
+        "source": "newly absent versus 728688c"
+      },
+      {
+        "id": "dom/ranges/Range-mutations-appendData.html|window|",
+        "name": "detachedTextNode.appendData(\"\"), with selected range collapsed at (detachedTextNode, 0)",
+        "source": "newly absent versus 728688c"
+      },
+      {
+        "id": "dom/ranges/Range-mutations-appendData.html|window|",
+        "name": "detachedTextNode.appendData(\"\"), with unselected range collapsed at (detachedTextNode, 1)",
+        "source": "carried from previous full audit"
+      },
+      {
+        "id": "dom/ranges/Range-mutations-appendData.html|window|",
+        "name": "detachedTextNode.appendData(\"\"), with selected range collapsed at (detachedTextNode, 1)",
+        "source": "carried from previous full audit"
+      },
+      {
+        "id": "dom/ranges/Range-mutations-appendData.html|window|",
+        "name": "detachedTextNode.appendData(\"\"), with unselected range on detachedTextNode from 0 to detachedTextNode.length",
+        "source": "carried from previous full audit"
+      },
+      {
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "paras[1].firstChild.replaceData(376, 1, \"\"), with unselected range on paras[1].firstChild from 0 to 1",
+        "source": "carried from previous full audit"
+      },
+      {
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "paras[0].firstChild.textContent += \"\", with unselected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "source": "carried from previous full audit"
+      },
+      {
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "paras[0].firstChild.textContent += \"\", with selected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "source": "carried from previous full audit"
+      },
+      {
+        "id": "dom/ranges/Range-mutations-insertData.html|window|",
+        "name": "detachedTextNode.insertData(376, \"\"), with selected range on detachedTextNode from 0 to 1",
+        "source": "carried from previous full audit"
+      },
+      {
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "paras[1].firstChild.replaceData(376, 1, \"\"), with selected range on paras[1].firstChild from 0 to 1",
+        "source": "carried from previous full audit"
+      }
+    ],
+    "recovered_historical_missing": [
+      {
+        "id": "dom/ranges/Range-mutations-deleteData.html|window|",
+        "name": "xmlTextNode.deleteData(0, 2), with unselected range collapsed at (xmlTextNode, 0)",
+        "source": "carried from previous full audit"
+      }
+    ],
+    "open_historical_regressions": [
+      {
+        "id": "dom/events/scrolling/scroll-event-fired-to-iframe.html|window|",
+        "name": "scrollX and scrollY being set with the same value."
+      },
+      {
+        "id": "dom/events/scrolling/scroll-event-fired-to-iframe.html|window|",
+        "name": "scrollX and scrollY being set with invalid scroll Scroll."
+      },
+      {
+        "id": "dom/observable/tentative/observable-constructor.window.js|window|",
+        "name": "Subscriber.error() does not \"report the exception\" even when an `error()` handler is not present, when it is invoked in a detached document"
+      },
+      {
+        "id": "dom/observable/tentative/observable-constructor.window.js|window|",
+        "name": "Cannot subscribe to an Observable in a detached document"
+      },
+      {
+        "id": "referrer-policy/css-integration/svg/inline-style-with-differentorigin-base-tag.tentative.html|window|",
+        "name": "Styling SVG from inline styles filter",
+        "source": "newly observed pass-to-fail versus 728688c"
+      },
+      {
+        "id": "referrer-policy/css-integration/svg/inline-style-with-differentorigin-base-tag.tentative.html|window|",
+        "name": "Styling SVG from inline styles marker-start",
+        "source": "newly observed pass-to-fail versus 728688c"
+      },
+      {
+        "id": "referrer-policy/css-integration/svg/inline-style-with-differentorigin-base-tag.tentative.html|window|",
+        "name": "Styling SVG from inline styles marker-mid",
+        "source": "newly observed pass-to-fail versus 728688c"
+      },
+      {
+        "id": "referrer-policy/css-integration/svg/inline-style-with-differentorigin-base-tag.tentative.html|window|",
+        "name": "Styling SVG from inline styles marker-end",
+        "source": "newly observed pass-to-fail versus 728688c"
+      },
+      {
+        "id": "referrer-policy/css-integration/svg/inline-style.html|window|",
+        "name": "Styling SVG from inline styles filter",
+        "source": "newly observed pass-to-fail versus 728688c"
+      },
+      {
+        "id": "referrer-policy/css-integration/svg/inline-style.html|window|",
+        "name": "Styling SVG from inline styles marker-start",
+        "source": "newly observed pass-to-fail versus 728688c"
+      },
+      {
+        "id": "referrer-policy/css-integration/svg/inline-style.html|window|",
+        "name": "Styling SVG from inline styles marker-mid",
+        "source": "newly observed pass-to-fail versus 728688c"
+      },
+      {
+        "id": "referrer-policy/css-integration/svg/inline-style.html|window|",
+        "name": "Styling SVG from inline styles marker-end",
+        "source": "newly observed pass-to-fail versus 728688c"
+      }
+    ],
+    "corrected_historical_regressions": [
+      {
+        "id": "editing/other/edit-in-textcontrol-immediately-after-hidden.tentative.html|window|?editor=input&hide-target=parent",
+        "name": "<input> is hidden by \"keydown\" event listener",
+        "source": "newly observed pass-to-fail versus 8c88350"
+      },
+      {
+        "id": "editing/other/edit-in-textcontrol-immediately-after-hidden.tentative.html|window|?editor=input&hide-target=parent",
+        "name": "<input> is hidden by \"keypress\" event listener",
+        "source": "newly observed pass-to-fail versus 8c88350"
+      },
+      {
+        "id": "editing/other/edit-in-textcontrol-immediately-after-hidden.tentative.html|window|?editor=input&hide-target=parent",
+        "name": "<input> is hidden by \"beforeinput\" event listener",
+        "source": "newly observed pass-to-fail versus 8c88350"
+      },
+      {
+        "id": "editing/other/edit-in-textcontrol-immediately-after-hidden.tentative.html|window|?editor=textarea&hide-target=parent",
+        "name": "<textarea> is hidden by \"keydown\" event listener",
+        "source": "newly observed pass-to-fail versus 8c88350"
+      },
+      {
+        "id": "editing/other/edit-in-textcontrol-immediately-after-hidden.tentative.html|window|?editor=textarea&hide-target=parent",
+        "name": "<textarea> is hidden by \"keypress\" event listener",
+        "source": "newly observed pass-to-fail versus 8c88350"
+      },
+      {
+        "id": "editing/other/edit-in-textcontrol-immediately-after-hidden.tentative.html|window|?editor=textarea&hide-target=parent",
+        "name": "<textarea> is hidden by \"beforeinput\" event listener",
+        "source": "newly observed pass-to-fail versus 8c88350"
+      }
+    ],
+    "unobserved_historical_regressions": [],
+    "ledger": "artifacts/upstream-conformance/css-accessors-450dd3e-full-audit.json",
+    "sha256": "866537857bb0960423b3b54912cc079c4daed5f3380000b62a8f8eb3868aca63"
+  },
+  "validation_limitations": [
+    "This is a failing full-inventory diagnostic, not complete conformance or release qualification.",
+    "Missing historical assertion names remain unresolved; timing alone does not establish their cause.",
+    "Native MessagePorts and the new stylesheet source/rule implementation are isolated and excluded from this candidate."
+  ]
+}
