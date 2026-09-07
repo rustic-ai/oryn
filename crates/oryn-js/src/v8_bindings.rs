@@ -21603,26 +21603,30 @@ fn call_operation<'s>(
                     member: "IndexSizeError".into(),
                 });
             }
-            let head = utf16_slice(&data, 0, offset);
             let tail = utf16_slice(&data, offset, length);
             let live_range_records = {
                 let static_ranges = state.static_ranges.borrow();
+                let dom = state.dom.borrow();
                 state
                     .ranges
                     .borrow()
-                    .iter()
-                    .filter(|(id, _)| !static_ranges.contains(id))
-                    .map(|(id, range)| (*id, range.clone()))
-                    .collect::<Vec<_>>()
+                    .keys()
+                    .filter(|id| !static_ranges.contains(id))
+                    .map(|id| {
+                        dom.live_range(LiveRangeId(*id))
+                            .map(|range| (*id, RangeRecord::from(range)))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
             };
             let created = {
                 let mut dom = state.dom.borrow_mut();
-                dom.set_text(node, head)?;
+                dom.replace_character_data(node, offset, length - offset, "")?;
                 let created = if cdata {
                     dom.create_cdata_section(tail)
                 } else {
                     dom.create_text(tail)
                 };
+                let mut parent_boundary = None;
                 if let Some(parent) = parent {
                     let siblings = dom.children(parent)?.to_vec();
                     let index = siblings
@@ -21630,10 +21634,14 @@ fn call_operation<'s>(
                         .position(|candidate| *candidate == node)
                         .ok_or(DomError::StaleNode(node))?;
                     dom.insert_before(parent, created, siblings.get(index + 1).copied())?;
+                    parent_boundary = Some(BoundaryPoint {
+                        container: parent,
+                        offset: index as u32 + 1,
+                    });
                 }
                 for (id, original) in &live_range_records {
                     let mut current = dom.live_range(LiveRangeId(*id))?;
-                    if original.start_container == node {
+                    if parent.is_some() && original.start_container == node {
                         current.start = if original.start_offset > offset {
                             BoundaryPoint {
                                 container: created,
@@ -21646,7 +21654,7 @@ fn call_operation<'s>(
                             }
                         };
                     }
-                    if original.end_container == node {
+                    if parent.is_some() && original.end_container == node {
                         current.end = if original.end_offset > offset {
                             BoundaryPoint {
                                 container: created,
@@ -21658,6 +21666,18 @@ fn call_operation<'s>(
                                 offset: original.end_offset,
                             }
                         };
+                    }
+                    if let Some(boundary) = parent_boundary {
+                        if original.start_container == boundary.container
+                            && original.start_offset == boundary.offset
+                        {
+                            current.start.offset += 1;
+                        }
+                        if original.end_container == boundary.container
+                            && original.end_offset == boundary.offset
+                        {
+                            current.end.offset += 1;
+                        }
                     }
                     dom.set_live_range(LiveRangeId(*id), current.start, current.end)?;
                 }
@@ -22540,7 +22560,7 @@ fn call_operation<'s>(
         }
         (_, "appendChild") => {
             let child = argument_node(scope, state, args.get(0))?;
-            validate_tree_insertion(&state.dom.borrow(), node, child)?;
+            validate_pre_insertion(&state.dom.borrow(), node, child, None, None)?;
             let fragment_children = {
                 let dom = state.dom.borrow();
                 matches!(dom.arena().get(child)?.kind, NodeKind::DocumentFragment)
@@ -22561,7 +22581,7 @@ fn call_operation<'s>(
         (_, "insertBefore") => {
             let child = argument_node(scope, state, args.get(0))?;
             let reference = optional_argument_node(scope, state, args.get(1))?;
-            validate_tree_insertion(&state.dom.borrow(), node, child)?;
+            validate_pre_insertion(&state.dom.borrow(), node, child, reference, None)?;
             let fragment_children = {
                 let dom = state.dom.borrow();
                 matches!(dom.arena().get(child)?.kind, NodeKind::DocumentFragment)
@@ -22593,7 +22613,13 @@ fn call_operation<'s>(
         (_, "replaceChild") => {
             let replacement = argument_node(scope, state, args.get(0))?;
             let child = argument_node(scope, state, args.get(1))?;
-            validate_tree_insertion(&state.dom.borrow(), node, replacement)?;
+            validate_pre_insertion(
+                &state.dom.borrow(),
+                node,
+                replacement,
+                Some(child),
+                Some(child),
+            )?;
             let fragment_children = {
                 let dom = state.dom.borrow();
                 matches!(
@@ -24711,11 +24737,59 @@ fn form_is_valid(dom: &DomRuntime, form: NodeId) -> Result<bool, DomError> {
     Ok(true)
 }
 
+fn validate_pre_insertion(
+    dom: &DomRuntime,
+    parent: NodeId,
+    child: NodeId,
+    reference: Option<NodeId>,
+    replaced: Option<NodeId>,
+) -> Result<(), V8BindingError> {
+    validate_tree_insertion(dom, parent, child)?;
+    if let Some(reference) = reference
+        && dom.arena().get(reference)?.parent != Some(parent)
+    {
+        return Err(V8BindingError::Unsupported {
+            interface: "Node".into(),
+            member: "NotFoundError".into(),
+        });
+    }
+    let inserted = if matches!(dom.arena().get(child)?.kind, NodeKind::DocumentFragment) {
+        light_children(dom, child)?
+    } else {
+        vec![child]
+    };
+    let mut proposed = Vec::new();
+    for current in light_children(dom, parent)? {
+        if Some(current) == reference {
+            proposed.extend_from_slice(&inserted);
+        }
+        if current != child && Some(current) != replaced {
+            proposed.push(current);
+        }
+    }
+    if reference.is_none() {
+        proposed.extend_from_slice(&inserted);
+    }
+    validate_child_sequence(dom, parent, &proposed)
+}
+
 fn validate_tree_insertion(
     dom: &DomRuntime,
     parent: NodeId,
     child: NodeId,
 ) -> Result<(), V8BindingError> {
+    let parent_kind = &dom.arena().get(parent)?.kind;
+    if !matches!(
+        parent_kind,
+        NodeKind::Document
+            | NodeKind::DocumentFragment
+            | NodeKind::Element { .. }
+            | NodeKind::ShadowRoot { .. }
+    ) || (matches!(dom.arena().get(child)?.kind, NodeKind::DocumentType { .. })
+        && !matches!(parent_kind, NodeKind::Document))
+    {
+        return Err(hierarchy_request_error());
+    }
     if child == parent || dom.arena().ancestors(parent)?.contains(&child) {
         return Err(V8BindingError::Unsupported {
             interface: "Node".into(),
@@ -24753,7 +24827,7 @@ fn validate_child_sequence(
                     return Err(hierarchy_request_error());
                 }
             }
-            NodeKind::Text { .. } if parent_is_document => {
+            NodeKind::Text { .. } | NodeKind::CDataSection { .. } if parent_is_document => {
                 return Err(hierarchy_request_error());
             }
             NodeKind::DocumentType { .. } if !parent_is_document => {
@@ -26657,6 +26731,61 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "true|oryn|false|false|false|false|false|");
+    }
+
+    #[test]
+    fn invalid_tree_insertions_preserve_documents_fragments_and_live_ranges() {
+        initialize_v8();
+        let parsed = html::parse("<!doctype html><main>text</main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const check = (value, message) => { if (!value) throw new Error(message); };
+            const reject = (operation, name) => {
+                try { operation(); } catch (e) { check(e.name === name, e.name); return; }
+                throw new Error('insertion unexpectedly succeeded');
+            };
+            const host = document.querySelector('main'), type = document.doctype;
+            const range = document.createRange(); range.selectNode(type);
+            reject(() => host.appendChild(type), 'HierarchyRequestError');
+            reject(() => host.insertBefore(type, host.firstChild), 'HierarchyRequestError');
+            check(document.doctype === type && type.parentNode === document, 'doctype preserved');
+            check(range.startContainer === document && range.startOffset === 0 && range.endOffset === 1, 'range preserved');
+            const fragment = document.createDocumentFragment();
+            fragment.appendChild(document.createElement('one'));
+            fragment.appendChild(document.createElement('two'));
+            reject(() => document.appendChild(fragment), 'HierarchyRequestError');
+            check(fragment.childNodes.length === 2, 'fragment not partially consumed');
+            reject(() => document.insertBefore(document.createComment('x'), host), 'NotFoundError');
+            reject(() => document.appendChild(document.createTextNode('x')), 'HierarchyRequestError');
+            reject(() => host.firstChild.appendChild(document.createElement('x')), 'HierarchyRequestError');
+            const detached = document.createTextNode('abcd');
+            const detachedRange = document.createRange();
+            detachedRange.setStart(detached, 1); detachedRange.setEnd(detached, 3);
+            const detachedTail = detached.splitText(2);
+            check(detachedRange.startContainer === detached && detachedRange.startOffset === 1 && detachedRange.endContainer === detached && detachedRange.endOffset === 2, 'detached split clamps original range');
+            check(detachedTail.data === 'cd' && detachedTail.parentNode === null, 'detached tail');
+            const text = host.firstChild;
+            const textRange = document.createRange(); textRange.setStart(text, 1); textRange.setEnd(text, 3);
+            const afterText = document.createRange(); afterText.setStart(host, 1); afterText.collapse(true);
+            const tail = text.splitText(2);
+            check(textRange.startContainer === text && textRange.startOffset === 1 && textRange.endContainer === tail && textRange.endOffset === 1, 'attached split moves trailing boundary');
+            check(afterText.startContainer === host && afterText.startOffset === 2 && afterText.endOffset === 2, 'parent boundary follows both text nodes');
+            const original = document.documentElement, replacement = document.createElement('html');
+            document.replaceChild(replacement, original);
+            check(document.documentElement === replacement && document.doctype === type, 'valid root replacement');
+            'ok'
+        "#).unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "ok");
     }
 
     #[test]
