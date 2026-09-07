@@ -144,7 +144,11 @@
     "artifacts/native-window-profile/native-matrix.json": "15aabb11372b94bc0f3e842b2f1e4e79ac0dd1462c25a246e140293cf0964da2",
     "artifacts/native-window-profile/bindings.log": "1259a787bc5cdd30c8fe11ac0c71727ea9989536d8379b03613700a348439b68",
     "artifacts/native-window-profile/clippy.log": "154f2ab75ff5c35244c29c429be0f7aefbff8de63a0813414272fa5ed681d2ed",
-    "artifacts/native-window-profile/profile.json": "3269098e49e2cde8fcde7d1523261ccb53e869c0f0b629ccee3f0d8e74c3cd25"
+    "artifacts/native-window-profile/profile.json": "3269098e49e2cde8fcde7d1523261ccb53e869c0f0b629ccee3f0d8e74c3cd25",
+    "artifacts/native-window-profile/signed-build.log": "0d38ac4f2aece14db4f3bce1849bb2803de9dc2a0d86d7cd4a41fba6b3a88511",
+    "artifacts/native-window-profile/worker-manifest.json": "3bd212acc8e00c2d4c2f1b591fe4f519b3d4f6bf7f7140adad1bd8463987e17f",
+    "artifacts/native-window-profile/signed-runtime.json": "8bee885b81ff08272d89fddd131ca50a1f21ddfa92ddf795a08306656aa666b4",
+    "artifacts/native-window-profile/sandbox-probe.json": "15cc3f7457468ed38d36fe4a5019d2a6f01ea01634ccae8433999fcab6006333"
   },
   "full_conformance_baseline": {
     "source": "5499cc739523caa7958369b2378f28ef0f20cd9d",
@@ -153,11 +157,51 @@
     "new_full_run": false
   },
   "qualification_remaining": [
-    "Signed sandboxed worker and OS sandbox-denial verification",
     "Core-lite build and complete profile-equivalence gates",
     "Remaining security/fuzz/release gates in security/v8-update-policy.json",
     "Twelve native nonpasses",
     "Production native frame adoption and four pinned frame assertion regressions",
     "All remaining workstreams and two complete 4022/4022 runs on one frozen candidate"
-  ]
+  ],
+  "signed_candidate": {
+    "source_commit": "b8e5dae239172f8643ad5a54a77437643b5dbd29",
+    "source_tree_sha256": "64d175c186ddd08ecfc8ea7fe292f17cb3a343c731426c6a3806c46597245d19",
+    "clean_source_tree_verified_before_evidence_update": true,
+    "worker_path": "/Users/rohit/Work/oryn2/oryn/target/v8-core-full/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker",
+    "worker_sha256": "4ce74816d597bd30c38d65786340343cd6f00887aff2619e8b94fcdb981b9ddb",
+    "unsigned_worker_sha256": "5e25c57e53cd0f92a270b04170c8b0120530ece3c4a69237e49f69511a555fe5",
+    "parent_path": "/Users/rohit/Work/oryn2/oryn/target/v8-core-full/release/oryn",
+    "parent_sha256": "b96b17925a816bf8c6c29661ede7765ad94af6a964e55fe5eab383de4b59bb43",
+    "signing_build_exit_code": 0,
+    "checks": [
+      "exact App Sandbox and allow-jit entitlements; prohibited entitlements absent",
+      "signed protocol ping/exit",
+      "OS probe filesystem read, outgoing connection and listener all denied",
+      "parent handshake verifies signed worker identity",
+      "V8 DOM mutation smoke",
+      "authorized parent-broker loopback request"
+    ],
+    "probe": {
+      "filesystem_read_succeeded": false,
+      "listener_succeeded": false,
+      "outgoing_connection_succeeded": false,
+      "secret_environment_present": false
+    },
+    "limits": {
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912,
+      "ipc_frame_bytes": 25165824,
+      "command_wall_ms": 10000,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "max_layout_nodes": 100000,
+      "max_font_bytes": 8388608,
+      "max_page_font_bytes": 33554432,
+      "max_viewport_css_px": 16384,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entry_bytes": 8388608
+    }
+  }
 }

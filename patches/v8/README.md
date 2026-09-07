@@ -13,8 +13,10 @@ records exact source and archive hashes. The subsequent
 [core-full profile validation](../../docs/oryn2/CONFORMANCE-NATIVE-WINDOW-PROFILE-2026-09-06.json)
 uses the canonical build and a fresh snapshot: nine context passes, 131 binding
 passes and 284/296 native outcomes. Correcting the external-reference manifest
-resolves one prior failure. Signed sandbox, core-lite/profile equivalence and
-remaining security/release gates are still required.
+resolves one prior failure. The signed candidate also passes the builder's
+entitlement, OS denial, handshake, DOM-mutation and broker smoke checks.
+Core-lite/profile equivalence and remaining security/release gates are still
+required.
 
 V8's public failed-access callback cannot implement HTML's cross-origin
 `[[SetPrototypeOf]]` and `[[PreventExtensions]]` completions: it must throw, and
