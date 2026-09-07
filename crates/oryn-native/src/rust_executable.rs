@@ -3196,9 +3196,11 @@ impl RustExecutableDocument {
     }
 
     fn drain_dynamic_stylesheets(&mut self) -> Result<(), HostError> {
-        let processing_instruction_href =
-            regex::Regex::new(r#"(?i)href\s*=\s*[\"']([^\"']+)[\"']"#)
-                .expect("xml-stylesheet href regex");
+        static PROCESSING_INSTRUCTION_HREF: std::sync::LazyLock<regex::Regex> =
+            std::sync::LazyLock::new(|| {
+                regex::Regex::new(r#"(?i)href\s*=\s*[\"']([^\"']+)[\"']"#)
+                    .expect("xml-stylesheet href regex")
+            });
         for _ in 0..1024 {
             let pending = self.host.take_all_pending_dynamic_stylesheets()?;
             if pending.is_empty() {
@@ -3216,7 +3218,7 @@ impl RustExecutableDocument {
                         .get(stylesheet)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                     if let NodeKind::ProcessingInstruction { target, data } = &record.kind {
-                        let href = processing_instruction_href
+                        let href = PROCESSING_INSTRUCTION_HREF
                             .captures(data)
                             .map(|capture| {
                                 capture[1]
