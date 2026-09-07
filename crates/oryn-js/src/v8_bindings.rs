@@ -11257,6 +11257,7 @@ fn join_first_editing_line(
     source: NodeId,
 ) -> Result<BoundaryPoint, V8BindingError> {
     let destination_mode = editing_white_space(state, destination)?;
+    let source_is_placeholder = node_is_placeholder_empty(&state.dom.borrow(), source)?;
     let mut line_root = source;
     loop {
         let first = light_children(&state.dom.borrow(), line_root)?
@@ -11369,7 +11370,11 @@ fn join_first_editing_line(
             dom.remove_child(parent, node)?;
         }
     }
-    let moving = light_children(&dom, fragment)?;
+    let moving = if source_is_placeholder {
+        Vec::new()
+    } else {
+        light_children(&dom, fragment)?
+    };
     if !moving.is_empty() {
         // A final placeholder is replaced by the joined line.
         if let Some(last) = light_children(&dom, destination)?.last().copied()
@@ -11399,6 +11404,9 @@ fn join_first_editing_line(
             break;
         }
         empty = parent;
+    }
+    if node_is_placeholder_empty(&dom, destination)? {
+        return editing_placeholder_caret(&dom, destination);
     }
     Ok(BoundaryPoint {
         container: destination,
@@ -12376,10 +12384,19 @@ fn insert_editing_line_break(state: &V8BindingState) -> Result<(), V8BindingErro
         .cloned()
         .ok_or(V8BindingError::Allocation("selection range"))?;
     let whitespace = editing_white_space(state, range.start_container)?;
-    let preserves = matches!(
-        whitespace.as_str(),
-        "pre" | "pre-wrap" | "pre-line" | "break-spaces"
-    );
+    // Preformatted HTML containers use an explicit break element for editing
+    // commands, even though their text layout preserves literal newlines.
+    let preformatted_container = {
+        let dom = state.dom.borrow();
+        ["pre", "listing"]
+            .into_iter()
+            .any(|tag| has_ancestor_element_before(&dom, range.start_container, tag, host))
+    };
+    let preserves = !preformatted_container
+        && matches!(
+            whitespace.as_str(),
+            "pre" | "pre-wrap" | "pre-line" | "break-spaces"
+        );
     let mut point = BoundaryPoint {
         container: range.start_container,
         offset: range.start_offset,

@@ -10706,6 +10706,26 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn editing_empty_paragraph_join_keeps_one_placeholder_and_caret() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html("https://editing.example.test/empty", "<!doctype html><div id=editor contenteditable><p><tt>x</tt></p><p><tt><br></tt></p><p><tt><br></tt></p></div>").await.unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"(() => {
+          const editor = document.getElementById('editor');
+          editor.focus(); getSelection().collapse(editor.lastChild.firstChild, 0);
+          document.execCommand('delete');
+          return editor.innerHTML + '|' + (getSelection().anchorNode === editor.lastChild.firstChild && getSelection().anchorOffset === 0);
+        })()"#
+            )
+            .await
+            .unwrap(),
+            "<p><tt>x</tt></p><p><tt><br></tt></p>|true"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn editing_join_preserves_first_line_whitespace_and_remaining_lines() {
         let context = Browser::new().new_context();
         let page = context.new_page();
@@ -10804,7 +10824,7 @@ mod tests {
               host.focus(); getSelection().collapse(original.firstChild, 1);
               document.execCommand(command, false, command === 'insertText' ? '\n' : '');
               document.execCommand('insertText', false, 'X');
-              if (host.children.length !== 1 || host.firstChild !== original || original.textContent !== 'a\nXb') throw new Error('multiline container was split');
+              if (host.children.length !== 1 || host.firstChild !== original || original.innerHTML !== (tag === 'pre' ? 'a<br>Xb' : 'a\nXb')) throw new Error('multiline container was split');
               checked++;
             }
             for (const tag of ['td','th']) {

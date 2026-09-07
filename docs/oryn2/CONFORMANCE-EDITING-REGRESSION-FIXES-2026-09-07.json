@@ -1,0 +1,15 @@
+{
+  "base": "ecd74d2de8aa7266be39b1b8d758221e8b398239",
+  "source_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "157d63621ef2472f92d6a1bb3dd7f23e06285240f089badaa0f91d98e879b3e7",
+    "crates/oryn-native/src/runtime.rs": "d3be52f16ef2e9a576a184ed2343b9274524b6817a8d6627948d12e478a5419e"
+  },
+  "native_tests": {
+    "empty_paragraph_placeholder_and_caret": 1,
+    "computed_whitespace_line_break_matrix": 540,
+    "nested_paragraph_matrix": 104,
+    "first_line_join_matrix": 216
+  },
+  "result": "All four native tests passed; no WPT rerun or overall gain claimed.",
+  "reference": "Chrome 152.0.7977.76 results archived in artifacts/native-shared-editing; pre-container expectation corrected from literal LF to BR based on reference behavior."
+}
