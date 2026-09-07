@@ -905,6 +905,7 @@ pub struct V8BindingState {
     node_lists: node_lists::Store,
     selection_range: Rc<Cell<Option<u64>>>,
     range_selections: SharedRangeSelections,
+    rooted_range_selection_ids: Rc<RefCell<Option<BTreeSet<u64>>>>,
     inherited_base_url: RefCell<Option<String>>,
     selection_backward: Cell<bool>,
     selection_anchor: Cell<Option<BoundaryPoint>>,
@@ -2907,6 +2908,10 @@ pub fn install_generated_bindings_with_root_for_global(
         node_lists: node_lists::Store::default(),
         selection_range,
         range_selections,
+        rooted_range_selection_ids: range_owner.as_ref().map_or_else(
+            || Rc::new(RefCell::new(None)),
+            |owner| owner.rooted_range_selection_ids.clone(),
+        ),
         inherited_base_url: RefCell::new(None),
         selection_backward: Cell::new(false),
         selection_anchor: Cell::new(None),
@@ -9842,6 +9847,11 @@ fn track_range_wrapper(
 
 fn refresh_range_wrapper_roots(scope: &mut v8::PinScope, state: &V8BindingState) -> usize {
     let selected = selected_range_ids(state);
+    // New wrappers initialize their own root in track_range_wrapper. Existing
+    // roots only need updating when a selection in the shared DOM changes.
+    if state.rooted_range_selection_ids.borrow().as_ref() == Some(&selected) {
+        return 0;
+    }
     let mut released = 0;
     for (id, object) in state.range_objects.borrow_mut().iter_mut() {
         if selected.contains(id) {
@@ -9854,6 +9864,7 @@ fn refresh_range_wrapper_roots(scope: &mut v8::PinScope, state: &V8BindingState)
             released += 1;
         }
     }
+    *state.rooted_range_selection_ids.borrow_mut() = Some(selected);
     released
 }
 
@@ -9873,6 +9884,9 @@ fn collect_dead_ranges(
         return Ok(0);
     };
     let selected = selected_range_ids(state);
+    // Collection can drop roots between two refreshes, including when a
+    // selection subsequently returns to its previous range identifier.
+    state.rooted_range_selection_ids.borrow_mut().take();
     for (id, object) in objects.iter_mut() {
         if !selected.contains(id) {
             object.selection_root.take();
@@ -30378,6 +30392,28 @@ mod tests {
             state_a.selection_range.set(Some(range));
             state_b.selection_range.set(Some(range));
             refresh_range_wrapper_roots(inner, &state_b);
+            assert!(Rc::ptr_eq(
+                &state_a.rooted_range_selection_ids,
+                &state_b.rooted_range_selection_ids
+            ));
+            // Collection may observe a temporary deselection before refresh.
+            // Restoring the same selected IDs must still restore the roots.
+            clear_selection(&state_a);
+            clear_selection(&state_b);
+            collect_dead_ranges(&state_a, false).unwrap();
+            assert!(
+                state_a.range_objects.borrow()[&range]
+                    .selection_root
+                    .is_none()
+            );
+            state_a.selection_range.set(Some(range));
+            state_b.selection_range.set(Some(range));
+            refresh_range_wrapper_roots(inner, &state_b);
+            assert!(
+                state_a.range_objects.borrow()[&range]
+                    .selection_root
+                    .is_some()
+            );
         }
         scope.low_memory_notification();
         state_a.process_weak_releases().unwrap();
