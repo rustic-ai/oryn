@@ -35,3 +35,46 @@ pub(crate) fn can_access_window(scope: &mut v8::PinScope, receiver: v8::Local<v8
     // context/global identities and security tokens; it executes no page code.
     unsafe { oryn_v8_can_access_window(scope.as_raw_isolate_ptr(), &*receiver) }
 }
+
+/// Public V8 interceptor callbacks used only when a context access check fails.
+/// The function pointers use exactly the callback ABI exposed by rusty_v8.
+#[repr(C)]
+#[derive(Default)]
+pub struct CrossContextHandlers {
+    pub named_getter: Option<v8::NamedPropertyGetterCallback>,
+    pub named_setter: Option<v8::NamedPropertySetterCallback>,
+    pub named_query: Option<v8::NamedPropertyQueryCallback>,
+    pub named_deleter: Option<v8::NamedPropertyDeleterCallback>,
+    pub named_enumerator: Option<v8::NamedPropertyEnumeratorCallback>,
+    pub named_definer: Option<v8::NamedPropertyDefinerCallback>,
+    pub named_descriptor: Option<v8::NamedPropertyDescriptorCallback>,
+    pub indexed_getter: Option<v8::IndexedPropertyGetterCallback>,
+    pub indexed_setter: Option<v8::IndexedPropertySetterCallback>,
+    pub indexed_query: Option<v8::IndexedPropertyQueryCallback>,
+    pub indexed_deleter: Option<v8::IndexedPropertyDeleterCallback>,
+    pub indexed_enumerator: Option<v8::IndexedPropertyEnumeratorCallback>,
+    pub indexed_definer: Option<v8::IndexedPropertyDefinerCallback>,
+    pub indexed_descriptor: Option<v8::IndexedPropertyDescriptorCallback>,
+}
+
+unsafe extern "C" {
+    fn oryn_v8_set_cross_context_handlers(
+        template: *const v8::ObjectTemplate,
+        handlers: *const CrossContextHandlers,
+    );
+}
+
+/// Install token-based access checks and native cross-context interceptors.
+/// Configure the template before creating any contexts from it. The handlers
+/// must enforce the host interface's allowed cross-origin property surface.
+pub fn set_cross_context_handlers(
+    scope: &mut v8::PinScope<'_, '_, ()>,
+    template: v8::Local<v8::ObjectTemplate>,
+    handlers: &CrossContextHandlers,
+) {
+    let template = v8::Local::new(scope, template);
+    // SAFETY: The template is rooted in this isolate and the repr(C) record
+    // contains only C callback pointers. V8 copies the pointers synchronously;
+    // it never retains a pointer to the Rust configuration record.
+    unsafe { oryn_v8_set_cross_context_handlers(&*template, handlers) }
+}

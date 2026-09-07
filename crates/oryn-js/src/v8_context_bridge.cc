@@ -3,6 +3,7 @@
 #include "v8-context.h"
 #include "v8-isolate.h"
 #include "v8-version.h"
+#include "v8-template.h"
 
 static_assert(sizeof(v8::Local<v8::Context>) == sizeof(void*));
 
@@ -26,4 +27,42 @@ extern "C" bool oryn_v8_can_access_window(v8::Isolate* isolate,
     return false;
   }
   return caller->GetSecurityToken()->StrictEquals(target->GetSecurityToken());
+}
+
+struct OrynCrossContextHandlers {
+  v8::NamedPropertyGetterCallback named_getter;
+  v8::NamedPropertySetterCallback named_setter;
+  v8::NamedPropertyQueryCallback named_query;
+  v8::NamedPropertyDeleterCallback named_deleter;
+  v8::NamedPropertyEnumeratorCallback named_enumerator;
+  v8::NamedPropertyDefinerCallback named_definer;
+  v8::NamedPropertyDescriptorCallback named_descriptor;
+  v8::IndexedPropertyGetterCallbackV2 indexed_getter;
+  v8::IndexedPropertySetterCallbackV2 indexed_setter;
+  v8::IndexedPropertyQueryCallbackV2 indexed_query;
+  v8::IndexedPropertyDeleterCallbackV2 indexed_deleter;
+  v8::IndexedPropertyEnumeratorCallback indexed_enumerator;
+  v8::IndexedPropertyDefinerCallbackV2 indexed_definer;
+  v8::IndexedPropertyDescriptorCallbackV2 indexed_descriptor;
+};
+
+static bool same_security_token(v8::Local<v8::Context> caller,
+                                v8::Local<v8::Object> receiver,
+                                v8::Local<v8::Value>) {
+  v8::Local<v8::Context> target;
+  return receiver->GetCreationContext().ToLocal(&target) &&
+         caller->GetSecurityToken()->StrictEquals(target->GetSecurityToken());
+}
+
+extern "C" void oryn_v8_set_cross_context_handlers(
+    v8::ObjectTemplate* object_template, const OrynCrossContextHandlers* h) {
+  object_template->SetAccessCheckCallbackAndHandler(
+      same_security_token,
+      v8::NamedPropertyHandlerConfiguration(
+          h->named_getter, h->named_setter, h->named_query, h->named_deleter,
+          h->named_enumerator, h->named_definer, h->named_descriptor),
+      v8::IndexedPropertyHandlerConfiguration(
+          h->indexed_getter, h->indexed_setter, h->indexed_query,
+          h->indexed_deleter, h->indexed_enumerator, h->indexed_definer,
+          h->indexed_descriptor));
 }

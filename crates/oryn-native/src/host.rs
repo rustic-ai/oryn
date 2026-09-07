@@ -4419,6 +4419,107 @@ mod raw_v8 {
         }
 
         #[test]
+        fn native_context_cross_origin_interceptors_preserve_normal_local_access() {
+            use v8::MapFnTo;
+            let mut host = host();
+            let parent = host.contexts.get(&RealmId(0)).unwrap().clone();
+            let child = {
+                v8::scope!(let scope, &mut host.isolate);
+                let parent = v8::Local::new(scope, &parent);
+                let template = v8::ObjectTemplate::new(scope);
+                let getter = |scope: &mut v8::PinScope,
+                              key: v8::Local<v8::Name>,
+                              _: v8::PropertyCallbackArguments,
+                              mut rv: v8::ReturnValue| {
+                    if key.to_rust_string_lossy(scope) == "exposed" {
+                        rv.set(v8::String::new(scope, "native").unwrap().into());
+                    } else {
+                        let message = v8::String::new(scope, "denied by native handler").unwrap();
+                        let error = v8::Exception::type_error(scope, message);
+                        scope.throw_exception(error);
+                    }
+                    v8::Intercepted::kYes
+                };
+                let indexed = |_: &mut v8::PinScope,
+                               index: u32,
+                               _: v8::PropertyCallbackArguments,
+                               mut rv: v8::ReturnValue| {
+                    rv.set_uint32(100 + index);
+                    v8::Intercepted::kYes
+                };
+                oryn_js::v8_context_bridge::set_cross_context_handlers(
+                    scope,
+                    template,
+                    &oryn_js::v8_context_bridge::CrossContextHandlers {
+                        named_getter: Some(getter.map_fn_to()),
+                        indexed_getter: Some(indexed.map_fn_to()),
+                        ..Default::default()
+                    },
+                );
+                let child = v8::Context::new(
+                    scope,
+                    v8::ContextOptions {
+                        global_template: Some(template),
+                        ..Default::default()
+                    },
+                );
+                child.set_security_token(parent.get_security_token(scope));
+                {
+                    let scope = &mut v8::ContextScope::new(scope, child);
+                    let source = v8::String::new(
+                        scope,
+                        "var exposed='author';var secret=42;globalThis[3]=7",
+                    )
+                    .unwrap();
+                    v8::Script::compile(scope, source, None)
+                        .unwrap()
+                        .run(scope)
+                        .unwrap();
+                }
+                {
+                    let scope = &mut v8::ContextScope::new(scope, parent);
+                    let key = v8::String::new(scope, "foreignWindow").unwrap();
+                    parent
+                        .global(scope)
+                        .set(scope, key.into(), child.global(scope).into());
+                }
+                v8::Global::new(scope, child)
+            };
+            assert_eq!(
+                host.evaluate_string(
+                    "foreignWindow.exposed+'|'+foreignWindow.secret+'|'+foreignWindow[3]"
+                )
+                .unwrap(),
+                "author|42|7"
+            );
+            {
+                v8::scope!(let scope, &mut host.isolate);
+                let child = v8::Local::new(scope, &child);
+                child.set_security_token(v8::String::new(scope, "opaque:other").unwrap().into());
+            }
+            assert_eq!(
+                host.evaluate_string("foreignWindow.exposed+'|'+foreignWindow[3]")
+                    .unwrap(),
+                "native|103"
+            );
+            assert!(host.evaluate_string("foreignWindow.secret").is_err());
+            assert!(host.evaluate_string("foreignWindow.secret=0").is_err());
+            {
+                v8::scope!(let scope, &mut host.isolate);
+                let parent = v8::Local::new(scope, &parent);
+                let child = v8::Local::new(scope, &child);
+                child.set_security_token(parent.get_security_token(scope));
+            }
+            assert_eq!(
+                host.evaluate_string(
+                    "foreignWindow.exposed+'|'+foreignWindow.secret+'|'+foreignWindow[3]"
+                )
+                .unwrap(),
+                "author|42|7"
+            );
+        }
+
+        #[test]
         fn native_context_incumbent_tracks_the_calling_script() {
             let mut host = host();
             let frame = host.create_realm("https://example.test", 1, Some(7));

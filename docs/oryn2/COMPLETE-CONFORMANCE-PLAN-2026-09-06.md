@@ -457,6 +457,13 @@ verifies origin transitions and returning to a same-origin document. Native vali
 is 279/292 with unchanged 13 nonpasses. This does not close native proxy integration
 or the four WPT frame regressions.
 
+The public V8 bridge now exposes native cross-context property handlers behind
+security-token checks. The [handler evidence](CONFORMANCE-NATIVE-CROSS-CONTEXT-HANDLERS-2026-09-06.json)
+verifies foreign named/indexed dispatch, denied writes and normal same-origin behavior.
+All 45 public headers match the pinned V8 git blobs. Native validation is 280/293
+with unchanged 13 nonpasses. This hook is not yet installed on production frame
+contexts; the Window whitelist and native frame integration remain open.
+
 ## Immediate next execution sequence
 
 1. Correct the four remaining frame assertion regressions through native frame-realm

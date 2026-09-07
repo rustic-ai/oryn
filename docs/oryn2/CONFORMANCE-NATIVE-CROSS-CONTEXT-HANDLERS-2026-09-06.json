@@ -1,0 +1,66 @@
+{
+  "implementation": "Public V8 SetAccessCheckCallbackAndHandler bridge with native security-token comparison and named/indexed callback configurations. Not yet installed on production frame contexts; Window-specific whitelist remains open.",
+  "prior_runtime_commit": "d350e29",
+  "native_context_tests": {
+    "passed": 6,
+    "failed": 0,
+    "new_test": "native_context_cross_origin_interceptors_preserve_normal_local_access",
+    "coverage": [
+      "Same-origin properties use normal object behavior",
+      "Foreign named and indexed access routes to native handlers independently of author properties",
+      "Foreign unhandled writes are denied",
+      "Restored same-origin access observes unchanged original properties"
+    ]
+  },
+  "native_matrix": {
+    "required": 293,
+    "passed": 280,
+    "nonpasses": 13,
+    "baseline_required": 292,
+    "baseline_passed": 279,
+    "same_nonpass_ids": true,
+    "same_complete_failure_bodies_ignoring_source_lines_test_counts_and_timing": true,
+    "diagnostic_timeout_seconds": 15,
+    "nonpass_ids": [
+      "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+      "executable::tests::editing_command_state_reports_paragraph_and_alignment_values",
+      "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm",
+      "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit",
+      "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics",
+      "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks",
+      "host::tests::startup_external_reference_manifest_matches_runtime_order",
+      "runtime::tests::about_blank_is_internal_and_history_safe",
+      "runtime::tests::native_navigation_checks_redirects_and_supports_history",
+      "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action",
+      "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report",
+      "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages",
+      "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported"
+    ]
+  },
+  "checks": {
+    "strict_clippy": "passed",
+    "rustfmt": "passed",
+    "docs_truth": "passed",
+    "diff_check": "passed",
+    "public_header_git_blob_verification": "All 45 headers exactly match pinned V8 revision ac1e23989121713ca642f6650b34deff7b686896"
+  },
+  "source_files": {
+    "crates/oryn-js/src/v8_context_bridge.rs": "9a24d1a127f2b1baca2003f939b18dda6f06fcf646be67027940707bbd7e0036",
+    "crates/oryn-js/src/v8_context_bridge.cc": "92a5588792e6fe15b39c3af623fc91703e477b72a59d41d98f818bf707dbecc5",
+    "crates/oryn-native/src/host.rs": "8a3f516f5d36db79f5a149dd39cca7f02699a1fdd785f710a3a156f76c85adbc",
+    "vendor/v8-api/manifest.json": "de5f742ecb34c45f4ea3d07925d0c85f97c0ea380153a416d1501b358215622a",
+    "vendor/v8-api/include/v8-template.h": "fd4c13b90a534a569bdfa96fd97e8bf1eb65e2d096d77bdc9073b46da1737437"
+  },
+  "native_test_binary_sha256": "f69aa24eac4f23692c297792111ad8eb71eb20a823e88e2c578eec3b37abbdc4",
+  "raw_artifacts": {
+    "artifacts/native-cross-context-handlers/native-matrix.json": "d5640a670fcb29002b5a27ef812ff546d6f978b704784cfadc21f6719a8a8b87",
+    "artifacts/native-cross-context-handlers/clippy.log": "fa2f5d40ee7d43108af6c74a374b00ea58966b4dba42d0d0b0c3910c5778a282",
+    "artifacts/native-cross-context-handlers/context-tests.log": "fd15dec9597b8abd0f84439607609161d55e4662199208c47db8fd1b9cdab50e"
+  },
+  "full_conformance_baseline_unchanged": {
+    "commit": "5499cc7",
+    "passed": 2561,
+    "required": 4022
+  },
+  "complete_conformance": false
+}

@@ -1,10 +1,10 @@
 # Pinned V8 public API headers
 
 Unmodified transitive public headers for `v8-context.h`, `v8-isolate.h` and
-`v8-version.h`, from the exact V8 revision recorded in `manifest.json`.
+`v8-version.h` and `v8-template.h`, from the exact V8 revision recorded in `manifest.json`.
 The BSD license is retained in `LICENSE`. These declarations support the small
 C ABI bridge for public APIs not exposed by rusty_v8 150.4.0: incumbent context
-lookup and global-proxy detachment. No V8 implementation is vendored here.
+lookup, global-proxy detachment and cross-context access handlers. No V8 implementation is vendored here.
 
 Keep this manifest and the locked rusty_v8 version in sync when qualifying a V8
 update. Recopy the transitive quoted includes from that revision's `v8/include`
