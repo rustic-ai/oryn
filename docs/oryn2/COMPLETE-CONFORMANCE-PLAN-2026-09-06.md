@@ -32,6 +32,14 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
+The later text-document candidate `2192207` has a complete selected DOM audit:
+391/664, two whole-test gains (`contenttype_css` and `contenttype_txt`), zero
+lost file passes, and zero lost or missing previously passing assertions.
+[Selected evidence](CONFORMANCE-TEXT-DOCUMENTS-2026-09-07.json) binds this result
+to the signed candidate and unchanged profile. This is not a new full-inventory
+score. Top-level MIME dispatch, media documents, JavaScript-URL documents, and
+XHR document responses remain open.
+
 The latest **complete full measurement** at `da9959f` is **2,621/4,022 (65.2%)**,
 with 1,401 failures: six gains and no lost file passes versus `38813e5` (2,615).
 The [measurement](CONFORMANCE-DOM-BOUNDARIES-BASELINE-2026-09-07.json)

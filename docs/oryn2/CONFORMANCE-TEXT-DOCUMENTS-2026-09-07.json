@@ -1,0 +1,125 @@
+{
+  "baseline_sha256": "7d8bf3c724d64431b9f5e50b9db069d9356797f23bb045f14d778120c43a03ed",
+  "reports": {
+    "dom": {
+      "ledger": "artifacts/upstream-conformance/editing-ranges-dom-2192207.json",
+      "sha256": "3058fada7a94a322e56763b0d2ded9f8ea64d5822e9767fe21c39c0a680fb899",
+      "outcome": {
+        "required_finished": 664,
+        "required_passed": 391,
+        "required_total": 664,
+        "status": "failed"
+      },
+      "source": {
+        "commit": "2192207c0a9c5dbebffa3b23a4eb469d02e8d45c",
+        "dirty": false,
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked_file_count": 0,
+        "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "binary": {
+        "sha256": "9979299457739338a095e51c85478bd1b7f787ae5ec865f5e0e3d8254011bad9",
+        "size_bytes": 6991440
+      },
+      "runtime_metadata": {
+        "binding_abi_version": 3,
+        "box_engine_version": "taffy-0.14",
+        "build_profile": "release",
+        "capabilities": [
+          "native_dom",
+          "html5ever",
+          "rustls_network_broker",
+          "oil",
+          "semantic_v3_compat",
+          "semantic_v4",
+          "execution_domain_handoff",
+          "trace_recording",
+          "network_record_replay",
+          "sealed_context_checkpoint",
+          "replay_branching",
+          "v8_javascript",
+          "generated_webidl_registry",
+          "generated_web_platform_algorithms",
+          "typed_platform_host_operations",
+          "webassembly",
+          "same_site_cookies",
+          "csp3_agent_critical",
+          "trusted_types_core",
+          "intl_full_icu",
+          "computed_style",
+          "layout_box",
+          "layout_inline_text",
+          "viewport_scroll",
+          "deterministic_embedded_font",
+          "paint_snapshot"
+        ],
+        "contract_version": 4,
+        "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+        "execution_mode": "sandboxed_worker",
+        "external_references_sha256": "9a7f55016d5cbbfdeda9a9f112b8cdcb082aa24dc5ac41700a2dac918ebac83d",
+        "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+        "inline_engine_version": "parley-0.11.1",
+        "limits": {
+          "command_wall_ms": 10000,
+          "ipc_frame_bytes": 25165824,
+          "max_font_bytes": 8388608,
+          "max_layout_nodes": 100000,
+          "max_page_font_bytes": 33554432,
+          "max_resource_cache_bytes": 33554432,
+          "max_resource_cache_entries": 256,
+          "max_resource_cache_entry_bytes": 8388608,
+          "max_viewport_css_px": 16384,
+          "navigation_wall_ms": 30000,
+          "queue_capacity": 32,
+          "runtime_profile": "full",
+          "v8_heap_bytes": 268435456,
+          "worker_rss_bytes": 536870912
+        },
+        "native_v8": true,
+        "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+        "runtime_profile": "core_full",
+        "sandbox_state": "app_sandbox",
+        "sandboxed": true,
+        "semantic_graph_version": 2,
+        "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+        "streaming_parser": true,
+        "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+        "transport_mode": "async_streaming_parent_broker",
+        "v8_heap_sandbox": true,
+        "v8_version": "15.0.245.2-rusty",
+        "webidl_manifest_sha256": "887445ae879a308db36184cd1e0789df850ac6c879c2e4d68780ea7aa04f85ca",
+        "worker_binary_sha256": "fbc9ebe3746a02f67ebae0c01e74832d885e88d31b04a404ed8837a4bee549ed",
+        "worker_bundle_id": "ai.rustic.oryn.page-worker",
+        "worker_protocol_version": 8,
+        "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+        "worker_team_id": "5HVA9VFF8K"
+      },
+      "exact_coverage": true,
+      "gains": [
+        "dom/nodes/Document-contentType/contentType/contenttype_css.html|window|",
+        "dom/nodes/Document-contentType/contentType/contenttype_txt.html|window|"
+      ],
+      "losses": [],
+      "assertion_changes": [
+        {
+          "id": "dom/nodes/Document-contentType/contentType/contenttype_css.html|window|",
+          "missing_prior_passes": [],
+          "observed_pass_to_fail": [],
+          "corrected_existing": [
+            "CSS document.contentType === 'text/css'"
+          ]
+        },
+        {
+          "id": "dom/nodes/Document-contentType/contentType/contenttype_txt.html|window|",
+          "missing_prior_passes": [],
+          "observed_pass_to_fail": [],
+          "corrected_existing": [
+            "TXT document.contentType === 'text/plain'"
+          ]
+        }
+      ],
+      "needs_regression_investigation": false
+    }
+  },
+  "scope_note": "Selected DOM evidence only: 664 IDs includes 662 DOM and two substring matches. Overall full inventory baseline remains 2621/4022. Complete conformance is not established."
+}
