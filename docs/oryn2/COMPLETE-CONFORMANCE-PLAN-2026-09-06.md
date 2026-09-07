@@ -445,6 +445,12 @@ is 277/290 with the same 13 nonpasses, and bindings are 131 passed, two ignored.
 This prerequisite does not close the four page frame regressions or change the
 2,561/4,022 complete-run baseline.
 
+The page loader now retains the old frame realm and document until a replacement
+is ready to commit. The [frame commit evidence](CONFORMANCE-NATIVE-FRAME-COMMIT-2026-09-06.json)
+records the reproduced failure and passing regression, including a subsequent valid
+navigation. Native validation is 278/291 with unchanged 13 nonpasses. This corrects
+retirement ordering; native proxy adoption and the four WPT frame regressions remain open.
+
 ## Immediate next execution sequence
 
 1. Correct the four remaining frame assertion regressions through native frame-realm

@@ -3409,40 +3409,10 @@ impl RustExecutableDocument {
                             .then_some(*realm)
                     })
                     .collect::<Vec<_>>();
-                let replacing_document = !replaced_realms.is_empty();
-                for realm in replaced_realms {
-                    self.frame_realms.remove(&realm);
-                    let _ = self.host.remove_realm(realm);
-                    self.node_realms
-                        .retain(|_, node_realm| *node_realm != realm);
-                }
                 self.host.activate_realm(parent_realm)?;
                 let parent_dom = self.host.active_dom().ok_or_else(|| {
                     HostError::Execution("dynamic-frame realm DOM is unavailable".into())
                 })?;
-                if replacing_document {
-                    let old_documents = {
-                        let dom = parent_dom.borrow();
-                        dom.arena()
-                            .get(frame)
-                            .map_err(|error| HostError::Execution(error.to_string()))?
-                            .children
-                            .iter()
-                            .copied()
-                            .filter(|child| {
-                                dom.arena()
-                                    .get(*child)
-                                    .is_ok_and(|record| matches!(record.kind, NodeKind::Document))
-                            })
-                            .collect::<Vec<_>>()
-                    };
-                    for document in old_documents {
-                        parent_dom
-                            .borrow_mut()
-                            .remove_child(frame, document)
-                            .map_err(|error| HostError::Execution(error.to_string()))?;
-                    }
-                }
                 self.host.activate_realm(document_realm)?;
                 let parent_url = self
                     .host
@@ -3715,10 +3685,6 @@ impl RustExecutableDocument {
                         .borrow_mut()
                         .import_subtree(&parsed.dom, parsed.document)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
-                    parent_dom
-                        .borrow_mut()
-                        .append_child(frame, document)
-                        .map_err(|error| HostError::Execution(error.to_string()))?;
                     (parent_dom.clone(), document)
                 };
                 let realm = self.host.create_realm_with_dom_root(
@@ -3816,6 +3782,45 @@ impl RustExecutableDocument {
                         .map_err(|error| {
                             HostError::Execution(format!("dynamic srcdoc origin: {error}"))
                         })?;
+                }
+                // Retire the old document only after a replacement has loaded
+                // and bootstrapped. A navigation with no response must leave the
+                // active realm and its document intact.
+                let replacing_document = !replaced_realms.is_empty();
+                for realm in replaced_realms {
+                    self.frame_realms.remove(&realm);
+                    self.host.remove_realm(realm)?;
+                    self.node_realms
+                        .retain(|_, node_realm| *node_realm != realm);
+                }
+                if replacing_document {
+                    let old_documents = {
+                        let dom = parent_dom.borrow();
+                        dom.arena()
+                            .get(frame)
+                            .map_err(|error| HostError::Execution(error.to_string()))?
+                            .children
+                            .iter()
+                            .copied()
+                            .filter(|child| {
+                                dom.arena()
+                                    .get(*child)
+                                    .is_ok_and(|record| matches!(record.kind, NodeKind::Document))
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    for document in old_documents {
+                        parent_dom
+                            .borrow_mut()
+                            .remove_child(frame, document)
+                            .map_err(|error| HostError::Execution(error.to_string()))?;
+                    }
+                }
+                if !cross_origin {
+                    parent_dom
+                        .borrow_mut()
+                        .append_child(frame, child_document)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
                 }
                 // Establish parent/top and the frame's contentWindow before child
                 // script execution. Frame scripts are allowed to synchronously
@@ -5653,6 +5658,32 @@ mod tests {
                 .unwrap(),
             "ready|https://frame.example.test|true|true"
         );
+    }
+
+    #[test]
+    fn uncommitted_frame_navigation_preserves_the_active_document() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<iframe id=frame srcdoc='<p>old</p>'></iframe>"#,
+            &BTreeMap::from([("/replacement".into(), "<p>new</p>".into())]),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        let old_realm = *page.frame_realms.keys().next().unwrap();
+        page.evaluate("globalThis.frame=document.querySelector('#frame');globalThis.oldDocument=frame.contentDocument;globalThis.oldWindow=frame.contentWindow;frame.removeAttribute('srcdoc');frame.src='/unavailable'").unwrap();
+        assert!(page.frame_realms.contains_key(&old_realm));
+        assert_eq!(page.evaluate("String(frame.contentDocument===oldDocument)+'|'+String(frame.contentWindow===oldWindow)+'|'+oldDocument.querySelector('p').textContent").unwrap(), "true|true|old");
+        page.host.activate_realm(old_realm).unwrap();
+        assert_eq!(
+            page.host
+                .evaluate_string("document.querySelector('p').textContent")
+                .unwrap(),
+            "old"
+        );
+        page.host.activate_realm(RealmId(0)).unwrap();
+        page.evaluate("frame.src='/replacement'").unwrap();
+        assert!(!page.frame_realms.contains_key(&old_realm));
+        assert_eq!(page.evaluate("String(frame.contentDocument!==oldDocument)+'|'+String(frame.contentWindow===oldWindow)+'|'+frame.contentDocument.querySelector('p').textContent").unwrap(), "true|true|new");
     }
 
     #[test]

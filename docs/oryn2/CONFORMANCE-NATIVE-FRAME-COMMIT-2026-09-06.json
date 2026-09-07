@@ -1,0 +1,56 @@
+{
+  "implementation": "Keep the current frame realm and document until a loaded replacement finishes bootstrap; attach the replacement at commit. Propagate realm retirement errors instead of ignoring them. Native WindowProxy integration remains open.",
+  "prior_runtime_commit": "0748bd3",
+  "regression": {
+    "test": "executable::tests::uncommitted_frame_navigation_preserves_the_active_document",
+    "before": "failed: old frame realm removed when no replacement resource was available",
+    "after": "passed: realm and document retained; later valid navigation replaces document while contentWindow identity stays stable"
+  },
+  "native_matrix": {
+    "required": 291,
+    "passed": 278,
+    "nonpasses": 13,
+    "baseline_required": 290,
+    "baseline_passed": 277,
+    "same_nonpass_ids": true,
+    "same_complete_failure_bodies_ignoring_source_lines_test_counts_and_timing": true,
+    "diagnostic_timeout_seconds": 15,
+    "nonpass_ids": [
+      "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+      "executable::tests::editing_command_state_reports_paragraph_and_alignment_values",
+      "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm",
+      "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit",
+      "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics",
+      "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks",
+      "host::tests::startup_external_reference_manifest_matches_runtime_order",
+      "runtime::tests::about_blank_is_internal_and_history_safe",
+      "runtime::tests::native_navigation_checks_redirects_and_supports_history",
+      "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action",
+      "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report",
+      "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages",
+      "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported"
+    ]
+  },
+  "checks": {
+    "strict_clippy": "passed",
+    "rustfmt": "passed",
+    "docs_truth": "passed",
+    "diff_check": "passed"
+  },
+  "source_files": {
+    "crates/oryn-native/src/rust_executable.rs": "6e6ad2a4e1c41db5b2432fe2d70b7d8a234ec56326a32228f28df845e146ebba"
+  },
+  "native_test_binary_sha256": "58bfc2051bbd1ebc06ffd41d8bc8ccd6fa5ca0534a7634bf005a2d51d2d399f3",
+  "raw_artifacts": {
+    "artifacts/native-frame-commit/native-matrix.json": "93c3dafe20f65d18ee58f6cb9af3801e33610b8bf158a16271751d844e4a333d",
+    "artifacts/native-frame-commit/clippy.log": "a7cbaf30eef61948802098e3dc4bfd2b706f876d924c47025a1a63c030afe515",
+    "artifacts/native-frame-commit/before.log": "59267e300d3c5a87dc3e278f3af7e1f857e514d931c93b38946409c744382ea9",
+    "artifacts/native-frame-commit/after.log": "0c6f220ab5c8bf38064012558aaac9d132677eeb2c28749bf51b3d8aa5896ca7"
+  },
+  "full_conformance_baseline_unchanged": {
+    "commit": "5499cc7",
+    "passed": 2561,
+    "required": 4022
+  },
+  "complete_conformance": false
+}
