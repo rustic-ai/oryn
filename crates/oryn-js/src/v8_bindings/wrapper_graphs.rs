@@ -117,6 +117,21 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
         }
         affected.extend(native_root(&dom, node, &mut roots));
     }
+    let mut components = state.wrapper_graph_components.borrow_mut();
+    let mut selected = BTreeSet::new();
+    if complete_rebuild {
+        selected.extend(objects.keys().copied());
+        components.clear();
+    } else {
+        for root in &affected {
+            if let Some(members) = components.get(root) {
+                selected.extend(members);
+            }
+        }
+        for node in &new_nodes {
+            selected.extend(wrappers.lookup(state.realm, *node));
+        }
+    }
     state.wrapper_graph_new_nodes.borrow_mut().clear();
     state.wrapper_graph_revision.set(Some(revision));
     let mut owners = BTreeMap::new();
@@ -124,18 +139,25 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
     let mut nodes = BTreeMap::new();
     let mut groups = BTreeMap::<NodeId, Vec<(NodeId, v8::Local<v8::Object>)>>::new();
     {
-        for (id, object) in objects.iter_mut() {
-            if !complete_rebuild
-                && object
-                    .retention_component
-                    .is_some_and(|root| !affected.contains(&root))
-            {
-                continue;
-            }
-            let Some(metadata) = wrappers.metadata(*id) else {
+        for id in selected {
+            let Some(object) = objects.get_mut(&id) else {
                 continue;
             };
+            let Some(metadata) = wrappers.metadata(id) else {
+                continue;
+            };
+            if let Some(previous) = object.retention_component
+                && let Some(members) = components.get_mut(&previous)
+            {
+                members.remove(&id);
+                if members.is_empty() {
+                    components.remove(&previous);
+                }
+            }
             object.retention_component = native_root(&dom, metadata.node, &mut roots);
+            if let Some(root) = object.retention_component {
+                components.entry(root).or_default().insert(id);
+            }
             let Some(local) = object.handle.to_local(scope) else {
                 continue;
             };
@@ -168,6 +190,7 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
             nodes.insert(*owner, local);
         }
     }
+    drop(components);
     drop(objects);
     drop(wrappers);
     drop(node_documents);
@@ -270,6 +293,12 @@ pub(super) fn attach_new_leaf(
         && let Some(wrapper) = state.objects.borrow_mut().get_mut(&id)
     {
         wrapper.retention_component = Some(node);
+        state
+            .wrapper_graph_components
+            .borrow_mut()
+            .entry(node)
+            .or_default()
+            .insert(id);
     }
     state.wrapper_graph_revision.set(Some(revision));
     true

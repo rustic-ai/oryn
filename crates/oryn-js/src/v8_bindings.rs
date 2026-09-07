@@ -881,6 +881,7 @@ pub struct V8BindingState {
     objects: RefCell<BTreeMap<WrapperId, WrapperObject>>,
     wrapper_graph_revision: Cell<Option<u64>>,
     wrapper_graph_new_nodes: RefCell<BTreeSet<NodeId>>,
+    wrapper_graph_components: RefCell<BTreeMap<NodeId, BTreeSet<WrapperId>>>,
     instance_templates: RefCell<BTreeMap<&'static str, v8::Global<v8::ObjectTemplate>>>,
     associated_wrappers: RefCell<BTreeMap<(NodeId, &'static str), v8::Weak<v8::Object>>>,
     custom_states: RefCell<BTreeMap<NodeId, BTreeSet<String>>>,
@@ -2507,7 +2508,21 @@ impl V8BindingState {
         node_lists::collect(self)?;
         let live_wrappers = {
             let mut objects = self.objects.borrow_mut();
-            objects.retain(|_, object| !object.handle.is_empty());
+            let mut components = self.wrapper_graph_components.borrow_mut();
+            objects.retain(|id, object| {
+                if !object.handle.is_empty() {
+                    return true;
+                }
+                if let Some(root) = object.retention_component
+                    && let Some(members) = components.get_mut(&root)
+                {
+                    members.remove(id);
+                    if members.is_empty() {
+                        components.remove(&root);
+                    }
+                }
+                false
+            });
             objects.keys().copied().collect::<BTreeSet<_>>()
         };
         let mut wrappers = self.wrappers.borrow_mut();
@@ -2870,6 +2885,7 @@ pub fn install_generated_bindings_with_root_for_global(
         objects: RefCell::new(BTreeMap::new()),
         wrapper_graph_revision: Cell::new(None),
         wrapper_graph_new_nodes: RefCell::new(BTreeSet::new()),
+        wrapper_graph_components: RefCell::new(BTreeMap::new()),
         instance_templates: RefCell::new(BTreeMap::new()),
         associated_wrappers: RefCell::new(BTreeMap::new()),
         custom_states: RefCell::new(BTreeMap::new()),
@@ -19312,7 +19328,7 @@ pub fn wrap_node<'s>(
     // Connected wrappers already have their individual embedder roots. Adding
     // one cannot change a detached tree's traced members; rebuilding all trees
     // here would make wrapping a large connected query result quadratic.
-    if detached && !wrapper_graphs::attach_new_leaf(scope, state, node, object) {
+    if !detached || !wrapper_graphs::attach_new_leaf(scope, state, node, object) {
         state.wrapper_graph_new_nodes.borrow_mut().insert(node);
     }
     wrapper_graphs::refresh(scope, state);
