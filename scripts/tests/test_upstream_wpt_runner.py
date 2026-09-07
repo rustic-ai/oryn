@@ -102,48 +102,31 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             )
         validator.validate_passed_assertion({"status": "failed"}, "test")
 
-    def test_open_ended_editing_range_runs_beyond_one_thousand_assertions(self) -> None:
+    def test_editing_variants_preserve_one_execution_and_all_assertions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "editing/run/example.html"
             source.parent.mkdir(parents=True)
             source.write_text("<html></html>")
-            original = RUNNER.run_case
-            def partition(*args):
-                return {"variant": args[6], "status": "passed", "result": {
-                    "complete": True, "harness": 0, "range_total": 1150,
-                    "tests": [{"name": args[6], "status": 0}],
-                }}
-            with mock.patch.object(RUNNER, "run_case", side_effect=partition) as run:
-                result = original(Path("unused"), root, 8000,
-                                  Path("editing/run/example.html"), "generated_webidl",
-                                  "window", "?1-last", 30, False, None)
-            self.assertEqual(run.call_count, 12)
-            self.assertEqual(result["partitions"][-1], "?1101-1150")
-            self.assertEqual(result["status"], "passed")
-
-    def test_open_ended_editing_range_retains_failed_empty_partition(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = root / "editing/run/example.html"
-            source.parent.mkdir(parents=True)
-            source.write_text("<html></html>")
-            original = RUNNER.run_case
-            parts = [
-                {"variant": "?1-100", "status": "passed", "result": {
-                    "complete": True, "harness": 0, "range_total": 150,
-                    "tests": [{"name": "first", "status": 0}],
-                }},
-                {"variant": "?101-150", "status": "failed", "failure_domain": "timeout"},
-            ]
-            with mock.patch.object(RUNNER, "run_case", side_effect=parts):
-                result = original(Path("unused"), root, 8000,
-                                  Path("editing/run/example.html"), "generated_webidl",
-                                  "window", "?1-last", 30, False, None)
-            self.assertEqual(result["status"], "failed")
-            self.assertEqual(result["failure_domain"], "timeout")
-            self.assertFalse(result["result"]["complete"])
-            self.assertEqual(len(result["partitions"]), 2)
+            tests = [{"name": f"assertion {i}", "status": 0} for i in range(1150)]
+            tests[-1]["status"] = 1
+            payload = {"complete": True, "harness": 0, "tests": tests}
+            output = "__ORYN_WPT_DONE__" + json.dumps(payload)
+            for variant in ("?1-last", "?1001-2000"):
+                with self.subTest(variant=variant), mock.patch.object(
+                    RUNNER.subprocess, "run", return_value=
+                    RUNNER.subprocess.CompletedProcess([], 0, output, ""),
+                ) as run:
+                    result = RUNNER.run_case(Path("unused"), root, 8000,
+                        Path("editing/run/example.html"), "generated_webidl",
+                        "window", variant, 30, False, None)
+                self.assertEqual(run.call_count, 1)
+                arguments = run.call_args.args[0]
+                self.assertEqual(arguments[arguments.index("--url") + 1],
+                    "http://localhost:8000/editing/run/example.html" + variant)
+                self.assertEqual(result["result"]["tests"], tests)
+                self.assertEqual(result["status"], "failed")
+                self.assertNotIn("partitions", result)
 
     def test_meta_scripts_are_resolved_in_declared_order(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

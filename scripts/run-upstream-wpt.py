@@ -936,7 +936,6 @@ def run_case(
     timeout: int,
     in_process_probe: bool,
     script_wall_ms: int | None,
-    _partitioned: bool = False,
 ) -> dict[str, object]:
     def bounded_diagnostic(value: str, limit: int = 20_000) -> str:
         value = value.strip()
@@ -977,98 +976,8 @@ def run_case(
             "status": "failed",
             "diagnostics": [f"WPT global {global_name!r} is not yet installed by the native harness"],
         }
-    # The upstream editing corpus declares thousand-test query variants. A
-    # single monolithic V8 task prevents scheduler checkpoints and can exceed
-    # the per-script safety wall even though every individual assertion is
-    # bounded. Execute those immutable numeric ranges as fresh 100-test
-    # subranges, then fold their official testharness results back into the
-    # original inventory cell. This changes neither source nor assertions and
-    # records the partitioning explicitly in the result transport.
-    large_variant = re.fullmatch(r"\?(\d+)-(\d+|last)", variant)
-    if (
-        not _partitioned
-        and large_variant
-        and test.as_posix().startswith("editing/run/")
-    ):
-        start = int(large_variant.group(1))
-        open_ended = large_variant.group(2) == "last"
-        end = int(large_variant.group(2)) if not open_ended else None
-        if open_ended or end - start + 1 > 100:
-            parts = []
-            part_start = start
-            while end is None or part_start <= end:
-                part_end = min(part_start + 99, end) if end is not None else part_start + 99
-                part = run_case(
-                        binary,
-                        checkout,
-                        port,
-                        test,
-                        classification,
-                        global_name,
-                        f"?{part_start}-{part_end}",
-                        timeout,
-                        in_process_probe,
-                        script_wall_ms,
-                        True,
-                    )
-                parts.append(part)
-                if end is None:
-                    total = (part.get("result") or {}).get("range_total")
-                    if not isinstance(total, int) or total < start:
-                        part["status"] = "failed"
-                        part["failure_domain"] = part.get("failure_domain") or "incomplete"
-                        part.setdefault("diagnostics", []).append(
-                            "open-ended editing range lacks a verified assertion count"
-                        )
-                        break
-                    end = total
-                part_start = part_end + 1
-            tests = [
-                assertion
-                for part in parts
-                for assertion in (part.get("result") or {}).get("tests", [])
-            ]
-            passed = bool(tests) and all(part.get("status") == "passed" for part in parts)
-            result = {
-                "complete": all(
-                    (part.get("result") or {}).get("complete", False) for part in parts
-                ),
-                "harness": 0,
-                "harnessMessage": "",
-                "harnessStack": "",
-                "tests": tests,
-                "testdriver": [],
-            }
-            record: dict[str, object] = {
-                "id": identifier,
-                "path": test.as_posix(),
-                "classification": classification,
-                "global": global_name,
-                "variant": variant,
-                "status": "passed" if passed else "failed",
-                "failure_domain": None
-                if passed
-                else next(
-                    (
-                        part.get("failure_domain", "partition")
-                        for part in parts
-                        if part.get("status") != "passed"
-                    ),
-                    "partition",
-                ),
-                "result": result,
-                "result_transport": "partitioned_testharness_range_v1",
-                "partitions": [part["variant"] for part in parts],
-            }
-            diagnostics = [
-                f"{part['variant']}: {diagnostic}"
-                for part in parts
-                if part.get("status") != "passed"
-                for diagnostic in part.get("diagnostics", [])
-            ]
-            if diagnostics:
-                record["diagnostics"] = diagnostics
-            return record
+    # Preserve each upstream variant as one execution. Splitting assertion
+    # ranges skips command callbacks whose side effects later assertions need.
     if global_name in {"dedicatedworker", "sharedworker", "serviceworker"}:
         query = urllib.parse.urlencode(
             {"source": test.as_posix(), "variant": variant, "global": global_name}
