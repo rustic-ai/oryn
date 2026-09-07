@@ -776,6 +776,7 @@ struct LayoutCacheKey {
 /// Per-context binding state. The DOM may be shared with the page orchestrator,
 /// but V8 handles and wrapper identities remain realm-local and thread-affine.
 pub struct V8BindingState {
+    binding_global: BindingGlobal,
     instance_id: u64,
     dom: SharedDom,
     realm: RealmId,
@@ -2638,6 +2639,20 @@ fn dom_exception_value<'s>(
             v8::Exception::range_error(scope, message)
         });
     }
+    // Use the realm's native interface template. A retained native function
+    // can run after its WindowProxy navigates, and author code can replace the
+    // global DOMException property. Neither changes this realm's intrinsic.
+    if let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() {
+        let id = register_platform_object(
+            &state,
+            PlatformObjectRecord::DomException {
+                name: name.into(),
+                message: name.into(),
+                code: dom_exception_code(name),
+            },
+        );
+        return new_platform_object(scope, &state, "DOMException", id).map(Into::into);
+    }
     let context = scope.get_current_context();
     let global = context.global(scope);
     if let Some(constructor_key) = v8::String::new(scope, "DOMException")
@@ -2708,6 +2723,7 @@ pub fn install_generated_bindings_with_root_for_global(
 ) -> Result<Rc<V8BindingState>, V8BindingError> {
     let global_object = context.global(scope);
     let state = Rc::new(V8BindingState {
+        binding_global,
         instance_id: NEXT_BINDING_STATE_ID.fetch_add(1, AtomicOrdering::Relaxed),
         dom,
         realm,
@@ -8211,6 +8227,16 @@ fn generated_operation_impl<'s>(
         return;
     };
     let member = metadata.name;
+    // Web IDL checks Window access before overload/argument conversion. Native
+    // API functions can be borrowed across realms, so their creation realm is
+    // not the calling realm used for this security decision.
+    if interface == "EventTarget"
+        && let Some(state) = binding_state_for_receiver(scope, args.this())
+        && global_events::is_global(scope, &state, args.this())
+        && !global_events::check_window_access(scope, &state, args.this())
+    {
+        return;
+    }
     if args.length() < i32::from(metadata.arity) {
         throw_type_error(
             scope,

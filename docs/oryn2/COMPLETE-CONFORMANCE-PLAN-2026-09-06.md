@@ -436,6 +436,15 @@ ordinary navigation versus initial same-origin Window reuse, incumbent-origin
 message delivery, cross-origin access and inactive document behavior together.
 The four frame regressions remain open until the pinned tests verify that path.
 
+Native Window receiver access checks are also validated in the
+[Window access evidence](CONFORMANCE-NATIVE-WINDOW-ACCESS-2026-09-06.json).
+Borrowed EventTarget methods and onerror accessors reject foreign navigated
+Window receivers before argument conversion; DOM errors use the original realm
+interface even when page code replaces the global constructor. The native matrix
+is 277/290 with the same 13 nonpasses, and bindings are 131 passed, two ignored.
+This prerequisite does not close the four page frame regressions or change the
+2,561/4,022 complete-run baseline.
+
 ## Immediate next execution sequence
 
 1. Correct the four remaining frame assertion regressions through native frame-realm

@@ -2359,12 +2359,14 @@ name = "oryn-js"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "cc",
  "image",
  "markup5ever",
  "oryn-dom",
  "oryn-webidl",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.17",
  "url",
  "v8",
@@ -2406,7 +2408,6 @@ dependencies = [
  "base64 0.22.1",
  "brotli",
  "bytes",
- "cc",
  "cookie 0.18.1",
  "flate2",
  "futures-util",

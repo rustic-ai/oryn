@@ -1,0 +1,82 @@
+{
+  "implementation": "Native Window receiver access checks before EventTarget argument conversion and native onerror access; realm-owned DOMException allocation independent of author global constructor replacement. Shared public V8 context bridge relocated to oryn-js. Page frame loading integration remains open.",
+  "prior_runtime_commit": "698fb17",
+  "native_context_tests": {
+    "passed": 5,
+    "failed": 0,
+    "new_coverage": [
+      "Borrowed addEventListener/removeEventListener/dispatchEvent and onerror accessors reject cross-origin navigated Window receivers with original-realm SecurityError branding",
+      "Security check precedes argument conversion and missing-argument handling",
+      "DOMException creation ignores replaced global constructor",
+      "Retained ordinary DOM nodes remain usable"
+    ]
+  },
+  "bindings": {
+    "passed": 131,
+    "failed": 0,
+    "ignored": 2
+  },
+  "native_matrix": {
+    "required": 290,
+    "passed": 277,
+    "nonpasses": 13,
+    "baseline_required": 288,
+    "baseline_passed": 275,
+    "same_nonpass_ids": true,
+    "same_complete_failure_bodies_ignoring_line_numbers_and_test_timing": true,
+    "diagnostic_timeout_seconds": 15,
+    "nonpass_ids": [
+      "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+      "executable::tests::editing_command_state_reports_paragraph_and_alignment_values",
+      "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm",
+      "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit",
+      "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics",
+      "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks",
+      "host::tests::startup_external_reference_manifest_matches_runtime_order",
+      "runtime::tests::about_blank_is_internal_and_history_safe",
+      "runtime::tests::native_navigation_checks_redirects_and_supports_history",
+      "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action",
+      "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report",
+      "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages",
+      "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported"
+    ]
+  },
+  "checks": {
+    "strict_clippy": "passed",
+    "rustfmt": "passed",
+    "docs_truth": "passed"
+  },
+  "native_test_binary_sha256": "9741ef7e6f8b6af9b715cb8128c9541b7878759306b32180d59af9cec6f1b97d",
+  "source_files": {
+    "Cargo.lock": "76a2cd7c8ef6782d95c751482175188453105e2bb5ddcc190b94b9300c677980",
+    "crates/oryn-js/Cargo.toml": "265d8f4cf28d2bdb7c2fca7f46608adb9e85c6d49241b67ae80c31194d33dc07",
+    "crates/oryn-js/build.rs": "aa4b91dd9beacbea90ba11f09ec32536158f9c20b3646dde7cbf89428489460f",
+    "crates/oryn-js/src/lib.rs": "0c733f55f83f32dfd3bf7426bb51a2404fba264a5df3a7b887a87e6622ca316e",
+    "crates/oryn-js/src/v8_bindings.rs": "889f2c21fab63fa529aa366d315f1f7abb14e512a3b38ba4f5441665d1d0f78c",
+    "crates/oryn-js/src/v8_bindings/global_events.rs": "c56c47182edcf8403d8f01f8966035aa10a4ff698c32677482d7e98d174c9125",
+    "crates/oryn-js/src/v8_context_bridge.cc": "154e85841e477be15935fa7abc96746004d3321ad551af67a5862de64d69c804",
+    "crates/oryn-js/src/v8_context_bridge.rs": "6b117e652fe68628a3c1a499131c89f8d2ec4f1070d8a8e1cad455251c45c2ce",
+    "crates/oryn-native/Cargo.toml": "64a78882176155d882464f5c2c06a59eedbc181b4afc8cc31193e44e069f3717",
+    "crates/oryn-native/build.rs": "172eabc6f807257a9b086f8526a4f779c9d47472d29566555cdc84c6ac13dd46",
+    "crates/oryn-native/src/lib.rs": "30506b9b460ee28e9fe01b389884f1cca0dc4710ee0caf5db85e753ed6cd8ded",
+    "crates/oryn-native/src/host.rs": "486ab67f86981ef1785a3c441c7fbe35fbff7a867fcd698d7a5dcc24f7b181ab"
+  },
+  "raw_artifacts": {
+    "artifacts/native-context-access/native-matrix.json": "a1784a9c551503a9dc796bd5c5088b29055d02c6fa9fd6380d1123560cd81214",
+    "artifacts/native-context-access/clippy.log": "d7a6397a98cbd63f0ec05b44a55b9d47f1f56e345137c1d54f6cb4c8edc1ba1c",
+    "artifacts/native-context-access/context-tests.log": "1d3bda0a4eafe6cbe8a6e8f784d66512f11452c7a1b5b990ae269edbff4b47b4",
+    "artifacts/native-context-access/before.log": "0058359dfd3681a61b1e01d73f522dd36c953e11400b32dde3e86ec23d224a09",
+    "artifacts/native-context-access/bindings.log": "530c03d5fa77c0478ab326b5b5f2ea33c0dd23402e3d1980559c0a6a39782cb4"
+  },
+  "full_conformance_baseline_unchanged": {
+    "commit": "5499cc7",
+    "passed": 2561,
+    "required": 4022
+  },
+  "open_requirements": [
+    "Route page frame loading through native WindowProxy contexts with initial-document semantics",
+    "Native incumbent-origin message delivery and cross-origin Window whitelist",
+    "Inactive document lifecycle and remaining four frame assertion regressions"
+  ],
+  "complete_conformance": false
+}

@@ -2243,7 +2243,7 @@ mod raw_v8 {
                 v8::scope!(let scope, &mut self.isolate);
                 let context = v8::Local::new(scope, &context);
                 let global = v8::Global::new(scope, context.global(scope));
-                crate::v8_context_bridge::detach_global(scope, context);
+                oryn_js::v8_context_bridge::detach_global(scope, context);
                 global
             };
             let was_active = self.active_realm == previous;
@@ -2263,7 +2263,7 @@ mod raw_v8 {
         /// The incumbent realm belongs to the calling script, which can differ
         /// from the native function's creation realm and the last entered realm.
         pub fn incumbent_realm(scope: &mut v8::PinScope) -> Option<Rc<RealmDescriptor>> {
-            crate::v8_context_bridge::incumbent_slot(scope)
+            oryn_js::v8_context_bridge::incumbent_slot(scope)
         }
 
         pub fn create_realm_with_dom(
@@ -4489,6 +4489,76 @@ mod raw_v8 {
             host.execute("var marker='returned'").unwrap();
             host.activate_realm(RealmId(0)).unwrap();
             assert_eq!(host.evaluate_string("held===child && child.marker==='returned' && typeof child.secret==='undefined' && readOld()==='old:1'").unwrap(), "true");
+        }
+
+        #[test]
+        fn native_context_navigation_checks_borrowed_dom_operations() {
+            let mut host = host();
+            let dom = |html| {
+                Rc::new(RefCell::new(
+                    oryn_dom::html::parse(html).into_runtime().unwrap(),
+                ))
+            };
+            host.install_dom(dom("<body id='parent'>"), 1).unwrap();
+            let frame = host
+                .create_realm_with_dom("https://example.test", 1, Some(7), dom("<body id='old'>"))
+                .unwrap();
+            expose_child(&mut host, frame);
+            host.execute("globalThis.savedAdd=child.addEventListener;globalThis.savedDispatch=child.dispatchEvent;globalThis.savedRemove=child.removeEventListener;globalThis.savedOnError=Object.getOwnPropertyDescriptor(child,'onerror');globalThis.SavedDOMException=child.DOMException;globalThis.oldBody=child.document.body;globalThis.payload=new Event('probe');savedAdd.call(child,'probe',()=>{});globalThis.before=child===child.globalThis").unwrap();
+            let next = host
+                .replace_frame_realm(frame, "https://foreign.test", 2)
+                .unwrap();
+            host.activate_realm(next).unwrap();
+            host.install_dom(dom("<body id='foreign'>"), 2).unwrap();
+            host.execute("globalThis.calls=0;addEventListener('probe',()=>calls++)")
+                .unwrap();
+            host.activate_realm(RealmId(0)).unwrap();
+            assert_eq!(host.evaluate_string("before").unwrap(), "true");
+            assert!(host.evaluate_string("child.document").is_err());
+            host.execute(r#"
+                globalThis.converted = false;
+                globalThis.errorResults = [];
+                const type = {toString(){converted=true;return 'probe'}};
+                for (const call of [
+                    () => savedAdd.call(child, type, () => {}),
+                    () => savedRemove.call(child, type, () => {}),
+                    () => savedAdd.call(child),
+                    () => savedDispatch.call(child, payload),
+                    () => savedOnError.get.call(child),
+                    () => savedOnError.set.call(child, () => {})
+                ]) {
+                    try { call(); errorResults.push('accepted'); }
+                    catch (error) { errorResults.push(error.name+':'+(error instanceof SavedDOMException)); }
+                }
+            "#).unwrap();
+            assert_eq!(host.evaluate_string("!converted && errorResults.length===6 && errorResults.every(value=>value==='SecurityError:true')").unwrap(), "true");
+            // Retaining an old same-origin document does not grant access to
+            // the replacement document, and remains a valid detached DOM reference.
+            assert_eq!(host.evaluate_string("oldBody.id").unwrap(), "old");
+            host.activate_realm(next).unwrap();
+            assert_eq!(host.evaluate_string("calls").unwrap(), "0");
+        }
+
+        #[test]
+        fn native_context_dom_exception_ignores_replaced_global_constructor() {
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+            ));
+            host.install_dom(dom, 1).unwrap();
+            host.execute(r#"
+                globalThis.OriginalException=DOMException;
+                globalThis.constructorCalls=0;
+                globalThis.DOMException=function(){constructorCalls++;return {fake:true}};
+                globalThis.correct=false;
+                try { document.createElement('invalid name'); }
+                catch(error) { correct=error instanceof OriginalException && error.name==='InvalidCharacterError'; }
+            "#).unwrap();
+            assert_eq!(
+                host.evaluate_string("correct && constructorCalls===0")
+                    .unwrap(),
+                "true"
+            );
         }
 
         #[test]

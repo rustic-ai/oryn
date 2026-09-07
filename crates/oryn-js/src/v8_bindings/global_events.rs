@@ -12,6 +12,25 @@ pub(super) fn is_global(
         .to_local(scope)
         .is_some_and(|global| global.strict_equals(object.into()))
 }
+pub(super) fn check_window_access(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    receiver: v8::Local<v8::Object>,
+) -> bool {
+    if state.binding_global == BindingGlobal::Worker
+        || crate::v8_context_bridge::can_access_window(scope, receiver)
+    {
+        return true;
+    }
+    throw_binding_error(
+        scope,
+        &V8BindingError::Unsupported {
+            interface: "Window".into(),
+            member: "SecurityError".into(),
+        },
+    );
+    false
+}
 pub(super) fn install(
     scope: &mut v8::PinScope,
     context: v8::Local<v8::Context>,
@@ -53,6 +72,9 @@ fn error_handler_get(
         throw_type_error(scope, "global event handler receiver is invalid");
         return;
     }
+    if !check_window_access(scope, &state, args.this()) {
+        return;
+    }
     let handler = state
         .platform_listeners
         .borrow()
@@ -74,6 +96,9 @@ fn error_handler_set(
     };
     if !is_global(scope, &state, args.this()) {
         throw_type_error(scope, "global event handler receiver is invalid");
+        return;
+    }
+    if !check_window_access(scope, &state, args.this()) {
         return;
     }
     let value = args.get(0);

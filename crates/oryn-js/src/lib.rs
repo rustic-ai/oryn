@@ -12,3 +12,6 @@ pub mod trusted_types;
 pub mod v8_bindings;
 
 pub const BINDING_ABI_VERSION: u16 = 3;
+
+#[cfg(feature = "v8-host")]
+pub mod v8_context_bridge;
