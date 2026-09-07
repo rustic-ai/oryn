@@ -51,6 +51,15 @@ Three assertions are corrected, including both worker receiver regressions, with
 no lost file passes, observed assertion regressions or missing prior passes.
 The four frame regressions remain open. These selections do not change the full score.
 
+The [native context foundation](CONFORMANCE-NATIVE-CONTEXT-LIFECYCLE-2026-09-06.json)
+now exposes V8's incumbent-context and global-detachment APIs through a scoped C
+bridge. A frame-realm replacement primitive preserves native proxy identity and
+retained old environments while installing fresh navigation state and origin tokens.
+Three context tests pass; the full native matrix is 275/288, with all 13 prior
+nonpasses matching their previous reasons. Strict Clippy passes. Page frame loading
+still needs integration, initial about:blank handling and native message delivery;
+this foundation does not close the four frame regressions or change the full score.
+
 Stylo owns the rendering style pipeline and selector matching. CSSOM declaration
 mutation still uses a separate binding helper that must be integrated with Stylo. Remaining
 shared gaps include fragment/outerHTML mutation grouping, transient registrations,

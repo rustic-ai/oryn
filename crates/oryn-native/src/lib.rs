@@ -260,3 +260,6 @@ pub fn production_runtime_build_info_with_options(
     }
     Ok(runtime_build_info())
 }
+
+#[cfg(feature = "v8-host")]
+mod v8_context_bridge;

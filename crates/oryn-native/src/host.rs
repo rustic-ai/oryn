@@ -992,6 +992,7 @@ mod raw_v8 {
                 let token =
                     v8::String::new(scope, &identity).expect("allocate V8 context security token");
                 context.set_security_token(token.into());
+                context.set_slot(Rc::new(realms.get(active_realm).unwrap().clone()));
                 install_host_functions!(scope, context);
                 (
                     v8::Global::new(scope, context),
@@ -2170,7 +2171,16 @@ mod raw_v8 {
             document_generation: u64,
             frame_id: Option<u64>,
         ) -> RealmId {
-            let origin = origin.into();
+            self.create_realm_with_global(origin.into(), document_generation, frame_id, None)
+        }
+
+        fn create_realm_with_global(
+            &mut self,
+            origin: String,
+            document_generation: u64,
+            frame_id: Option<u64>,
+            global: Option<v8::Global<v8::Object>>,
+        ) -> RealmId {
             let realm = self
                 .realms
                 .create(origin.clone(), document_generation, frame_id);
@@ -2178,7 +2188,16 @@ mod raw_v8 {
             let existing_token = self.security_tokens.get(&identity).cloned();
             let context = {
                 v8::scope!(let scope, &mut self.isolate);
-                let context = v8::Context::new(scope, Default::default());
+                let global_object = global
+                    .as_ref()
+                    .map(|value| v8::Local::new(scope, value).into());
+                let context = v8::Context::new(
+                    scope,
+                    v8::ContextOptions {
+                        global_object,
+                        ..Default::default()
+                    },
+                );
                 let token = existing_token
                     .as_ref()
                     .map(|token| v8::Local::new(scope, token))
@@ -2191,11 +2210,60 @@ mod raw_v8 {
                     self.security_tokens
                         .insert(identity, v8::Global::new(scope, token));
                 }
+                context.set_slot(Rc::new(self.realms.get(realm).unwrap().clone()));
                 install_host_functions!(scope, context);
                 v8::Global::new(scope, context)
             };
             self.contexts.insert(realm, context);
             realm
+        }
+
+        /// Create a fresh frame document realm while retaining the browsing
+        /// context's native global proxy. This is for ordinary navigation, not
+        /// the initial same-origin about:blank Window reuse case.
+        pub fn replace_frame_realm(
+            &mut self,
+            previous: RealmId,
+            origin: impl Into<String>,
+            document_generation: u64,
+        ) -> Result<RealmId, HostError> {
+            let frame_id = self
+                .realms
+                .get(previous)
+                .and_then(|descriptor| descriptor.frame_id)
+                .ok_or_else(|| {
+                    HostError::Execution("replacement requires an existing frame realm".into())
+                })?;
+            let context = self
+                .contexts
+                .get(&previous)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("frame context is unavailable".into()))?;
+            let global = {
+                v8::scope!(let scope, &mut self.isolate);
+                let context = v8::Local::new(scope, &context);
+                let global = v8::Global::new(scope, context.global(scope));
+                crate::v8_context_bridge::detach_global(scope, context);
+                global
+            };
+            let was_active = self.active_realm == previous;
+            let replacement = self.create_realm_with_global(
+                origin.into(),
+                document_generation,
+                Some(frame_id),
+                Some(global),
+            );
+            self.remove_realm(previous)?;
+            if was_active {
+                self.active_realm = replacement;
+            }
+            Ok(replacement)
+        }
+
+        /// The incumbent realm belongs to the calling script, which can differ
+        /// from the native function's creation realm and the last entered realm.
+        pub fn incumbent_realm(scope: &mut v8::PinScope) -> Option<Rc<RealmDescriptor>> {
+            crate::v8_context_bridge::incumbent_slot(scope)
         }
 
         pub fn create_realm_with_dom(
@@ -4306,6 +4374,136 @@ mod raw_v8 {
 
         fn terminate(&mut self) {
             self.isolate.terminate_execution();
+        }
+    }
+    #[cfg(test)]
+    mod native_context_tests {
+        use super::*;
+
+        fn host() -> RawV8Host {
+            RawV8Host::new_with_base_url_and_heap_limit(
+                Url::parse("https://example.test/").unwrap(),
+                256 * 1024 * 1024,
+            )
+        }
+
+        fn expose_child(host: &mut RawV8Host, child: RealmId) {
+            let parent = host.contexts.get(&RealmId(0)).unwrap().clone();
+            let child = host.contexts.get(&child).unwrap().clone();
+            v8::scope!(let scope, &mut host.isolate);
+            let parent = v8::Local::new(scope, &parent);
+            let scope = &mut v8::ContextScope::new(scope, parent);
+            let child = v8::Local::new(scope, &child);
+            let global = child.global(scope);
+            let key = v8::String::new(scope, "child").unwrap();
+            assert_eq!(
+                parent.global(scope).set(scope, key.into(), global.into()),
+                Some(true)
+            );
+        }
+
+        fn inspect_incumbent(
+            scope: &mut v8::PinScope,
+            _: v8::FunctionCallbackArguments,
+            mut rv: v8::ReturnValue,
+        ) {
+            let current = scope
+                .get_current_context()
+                .get_slot::<RealmDescriptor>()
+                .unwrap();
+            let incumbent = RawV8Host::incumbent_realm(scope).unwrap();
+            let result = format!("{}:{}", current.id.0, incumbent.id.0);
+            rv.set(v8::String::new(scope, &result).unwrap().into());
+        }
+
+        #[test]
+        fn native_context_incumbent_tracks_the_calling_script() {
+            let mut host = host();
+            let frame = host.create_realm("https://example.test", 1, Some(7));
+            expose_child(&mut host, frame);
+            {
+                let context = host.contexts.get(&frame).unwrap().clone();
+                v8::scope!(let scope, &mut host.isolate);
+                let context = v8::Local::new(scope, &context);
+                let scope = &mut v8::ContextScope::new(scope, context);
+                let callback = v8::Function::new(scope, inspect_incumbent).unwrap();
+                let key = v8::String::new(scope, "inspectIncumbent").unwrap();
+                context
+                    .global(scope)
+                    .set(scope, key.into(), callback.into());
+            }
+            assert_eq!(
+                host.evaluate_string("child.inspectIncumbent()").unwrap(),
+                "1:0"
+            );
+            assert_eq!(
+                host.evaluate_string("child.eval('inspectIncumbent()')")
+                    .unwrap(),
+                "1:1"
+            );
+            host.execute("globalThis.result='pending'; child.eval('Promise.resolve().then(()=>globalThis.result=inspectIncumbent())')").unwrap();
+            assert_eq!(host.evaluate_string("child.result").unwrap(), "1:1");
+        }
+
+        #[test]
+        fn native_context_replacement_preserves_proxy_and_retained_environment() {
+            let mut host = host();
+            let frame = host.create_realm("https://example.test", 1, Some(7));
+            host.activate_realm(frame).unwrap();
+            host.execute("var marker='old'; var document={generation:1}; function readOld(){return marker+':'+document.generation}").unwrap();
+            expose_child(&mut host, frame);
+            host.activate_realm(RealmId(0)).unwrap();
+            host.execute("var held=child;var readOld=child.readOld;var oldDocument=child.document")
+                .unwrap();
+            let replacement = host
+                .replace_frame_realm(frame, "https://example.test", 2)
+                .unwrap();
+            assert_eq!(host.active_realm(), RealmId(0));
+            assert!(host.realm_descriptor(frame).is_none());
+            assert_eq!(
+                host.realm_descriptor(replacement)
+                    .unwrap()
+                    .document_generation,
+                2
+            );
+            host.activate_realm(replacement).unwrap();
+            assert_eq!(host.evaluate_string("typeof marker").unwrap(), "undefined");
+            host.execute("var marker='new';var document={generation:2}")
+                .unwrap();
+            host.activate_realm(RealmId(0)).unwrap();
+            assert_eq!(host.evaluate_string("held===child && child===child.globalThis && child.marker==='new' && child.document!==oldDocument && readOld()==='old:1'").unwrap(), "true");
+            let foreign = host
+                .replace_frame_realm(replacement, "https://foreign.test", 3)
+                .unwrap();
+            host.activate_realm(foreign).unwrap();
+            host.execute("var secret=42").unwrap();
+            host.activate_realm(RealmId(0)).unwrap();
+            assert_eq!(host.evaluate_string("held===child").unwrap(), "true");
+            assert!(host.evaluate_string("child.secret").is_err());
+            assert_eq!(host.evaluate_string("readOld()").unwrap(), "old:1");
+            host.activate_realm(foreign).unwrap();
+            let returned = host
+                .replace_frame_realm(foreign, "https://example.test", 4)
+                .unwrap();
+            assert_eq!(host.active_realm(), returned);
+            host.execute("var marker='returned'").unwrap();
+            host.activate_realm(RealmId(0)).unwrap();
+            assert_eq!(host.evaluate_string("held===child && child.marker==='returned' && typeof child.secret==='undefined' && readOld()==='old:1'").unwrap(), "true");
+        }
+
+        #[test]
+        fn native_context_replacement_rejects_non_frame_without_mutation() {
+            let mut host = host();
+            host.execute("var marker='unchanged'").unwrap();
+            assert!(
+                host.replace_frame_realm(RealmId(0), "https://foreign.test", 2)
+                    .is_err()
+            );
+            assert!(
+                host.replace_frame_realm(RealmId(999), "https://foreign.test", 2)
+                    .is_err()
+            );
+            assert_eq!(host.evaluate_string("marker").unwrap(), "unchanged");
         }
     }
 }

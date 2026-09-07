@@ -1,0 +1,157 @@
+{
+  "implementation": "Public V8 context bridge and native frame-realm replacement primitive. Page frame loading is not yet routed through it.",
+  "native_context_tests": {
+    "passed": 3,
+    "failed": 0,
+    "coverage": [
+      "incumbent realm for direct calls, cross-realm eval and Promise jobs",
+      "native proxy identity over same-origin and cross-origin navigation",
+      "fresh global state with retained old function environments",
+      "cross-origin reads denied",
+      "active realm selection and invalid replacement rejection"
+    ]
+  },
+  "native_matrix": {
+    "required": 288,
+    "passed": 275,
+    "failed": 12,
+    "timed_out": 1,
+    "diagnostic_timeout_seconds": 15,
+    "baseline_required": 284,
+    "baseline_passed": 271,
+    "same_nonpass_ids": true,
+    "nonpasses": [
+      {
+        "test": "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+        "same_reason": true,
+        "reason": "called `Result::unwrap()` on an `Err` value: Execution(\"ReferenceError: dedicated is not defined\\n    at <anonymous>:1:70\")",
+        "baseline_reason": "called `Result::unwrap()` on an `Err` value: Execution(\"ReferenceError: dedicated is not defined\\n    at <anonymous>:1:70\")"
+      },
+      {
+        "test": "executable::tests::editing_command_state_reports_paragraph_and_alignment_values",
+        "same_reason": true,
+        "reason": "assertion `left == right` failed\n  left: \"div|left|true||true|true|p|left|false\"\n right: \"div|left|true||true|true|p|center|true\"",
+        "baseline_reason": "assertion `left == right` failed\n  left: \"div|left|true||true|true|p|left|false\"\n right: \"div|left|true||true|true|p|center|true\""
+      },
+      {
+        "test": "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm",
+        "same_reason": true,
+        "reason": "assertion `left == right` failed\n  left: \"pending\"\n right: \"https://frame.example.test/source|complete\"",
+        "baseline_reason": "assertion `left == right` failed\n  left: \"pending\"\n right: \"https://frame.example.test/source|complete\""
+      },
+      {
+        "test": "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit",
+        "same_reason": true,
+        "reason": "assertion `left == right` failed\n  left: \"pending\"\n right: \"true|true|https://child.example.test|reply:early\"",
+        "baseline_reason": "assertion `left == right` failed\n  left: \"pending\"\n right: \"true|true|https://child.example.test|reply:early\""
+      },
+      {
+        "test": "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics",
+        "same_reason": true,
+        "reason": "WPT did not publish a completion result",
+        "baseline_reason": "WPT did not publish a completion result"
+      },
+      {
+        "test": "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks",
+        "same_reason": true,
+        "reason": "assertion failed: started.elapsed() >= Duration::from_millis(10)",
+        "baseline_reason": "assertion failed: started.elapsed() >= Duration::from_millis(10)"
+      },
+      {
+        "test": "host::tests::startup_external_reference_manifest_matches_runtime_order",
+        "same_reason": true,
+        "reason": "assertion `left == right` failed\n  left: [\"fetch_async_callback\", \"context_callback\", \"stream_read_async_callback\", \"crypto_callback\", \"timer_schedule_callback\", \"timer_cancel_callback\", \"dedicated_worker_create_callback\", \"dedicated_worker_post_callback\", \"dedicated_worker_take_callback\", \"dedicated_worker_terminate_callback\", \"dedicated_worker_emit_callback\", \"dedicated_worker_close_callback\"]\n right: [\"fetch_async_callback\", \"context_callback\", \"stream_read_async_callback\", \"crypto_callback\", \"timer_schedule_callback\", \"timer_cancel_callback\", \"dedicated_worker_create_callback\", \"dedicated_worker_post_callback\", \"dedicated_worker_take_callback\", \"dedicated_worker_terminate_callback\", \"dedicated_worker_emit_callback\", \"dedicated_worker_close_callback\", \"import_scripts_callback\"]",
+        "baseline_reason": "assertion `left == right` failed\n  left: [\"fetch_async_callback\", \"context_callback\", \"stream_read_async_callback\", \"crypto_callback\", \"timer_schedule_callback\", \"timer_cancel_callback\", \"dedicated_worker_create_callback\", \"dedicated_worker_post_callback\", \"dedicated_worker_take_callback\", \"dedicated_worker_terminate_callback\", \"dedicated_worker_emit_callback\", \"dedicated_worker_close_callback\"]\n right: [\"fetch_async_callback\", \"context_callback\", \"stream_read_async_callback\", \"crypto_callback\", \"timer_schedule_callback\", \"timer_cancel_callback\", \"dedicated_worker_create_callback\", \"dedicated_worker_post_callback\", \"dedicated_worker_take_callback\", \"dedicated_worker_terminate_callback\", \"dedicated_worker_emit_callback\", \"dedicated_worker_close_callback\", \"import_scripts_callback\"]"
+      },
+      {
+        "test": "runtime::tests::about_blank_is_internal_and_history_safe",
+        "same_reason": true,
+        "reason": "assertion `left == right` failed\n  left: Some(Commit)\n right: Some(Load)",
+        "baseline_reason": "assertion `left == right` failed\n  left: Some(Commit)\n right: Some(Load)"
+      },
+      {
+        "test": "runtime::tests::native_navigation_checks_redirects_and_supports_history",
+        "same_reason": true,
+        "reason": {
+          "timeout_seconds": 15
+        },
+        "baseline_reason": {
+          "timeout_seconds": 15
+        }
+      },
+      {
+        "test": "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action",
+        "same_reason": true,
+        "reason": "assertion failed: matches!(error, RuntimeError::StaleSemanticRef)",
+        "baseline_reason": "assertion failed: matches!(error, RuntimeError::StaleSemanticRef)"
+      },
+      {
+        "test": "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report",
+        "same_reason": true,
+        "reason": "assertion `left == right` failed\n  left: \"[\\\"script-src:report\\\",\\\"script-src:report\\\"]\"\n right: \"[\\\"script-src:report\\\"]\"",
+        "baseline_reason": "assertion `left == right` failed\n  left: \"[\\\"script-src:report\\\",\\\"script-src:report\\\"]\"\n right: \"[\\\"script-src:report\\\"]\""
+      },
+      {
+        "test": "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages",
+        "same_reason": true,
+        "reason": "assertion `left == right` failed\n  left: 3\n right: 2",
+        "baseline_reason": "assertion `left == right` failed\n  left: 3\n right: 2"
+      },
+      {
+        "test": "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported",
+        "same_reason": true,
+        "reason": "assertion `left == right` failed\n  left: \"generated binding XMLHttpRequest.synchronous requests is not implemented\"\n right: \"synchronous main-thread XHR is unsupported\"",
+        "baseline_reason": "assertion `left == right` failed\n  left: \"generated binding XMLHttpRequest.synchronous requests is not implemented\"\n right: \"synchronous main-thread XHR is unsupported\""
+      }
+    ],
+    "baseline_runtime_commit": "5499cc739523caa7958369b2378f28ef0f20cd9d",
+    "additional_tests_since_baseline": "One previously validated worker startup test and three new native context tests."
+  },
+  "checks": {
+    "strict_js_native_clippy": true,
+    "rustfmt": true,
+    "docs_truth": true,
+    "diff_check": true
+  },
+  "source_files": {
+    "crates/oryn-js/src/v8_bindings.rs": "720809fc6fa39a76ab1aa5737c0b239ca8ef750582e72e2d74c4fa5b1ca68669",
+    "crates/oryn-js/src/v8_bindings/global_events.rs": "92c99516a73814283836a039c1b1257f33d836ec137415f04a5d4af3e475f441",
+    "crates/oryn-native/src/host.rs": "a84ff3a9aca883e4264c800f043185bc354726a31b2f2c9aa5ad8cc88a0a3ac3",
+    "crates/oryn-native/src/rust_executable.rs": "998f37fcae346951d1ffc401adb83bf822e73b366dcc16e687c56c00baeac54d",
+    "crates/oryn-native/src/v8_context_bridge.rs": "865b4379f7a11aa4a0138881fd4cc33640746c58eaf2d8151c786fed3d0d9732",
+    "crates/oryn-native/src/v8_context_bridge.cc": "edb98ec3c3684251bf9496f5cf4ef63d2ab0de8ea67ec8771b1b9a28c44c2aa4",
+    "crates/oryn-native/build.rs": "149a8c960126a108d5d8c7404440ba28bdcebac9a130887d42e61b2b59b69bb9",
+    "vendor/v8-api/manifest.json": "79cb5721b430f4e4de8babfb94a6ed96a44a2dbb3b57f781cebf2bdd9619c2da",
+    "Cargo.lock": "ecba86bb71fbb452274214f04cedad77920096a17c783af2c61f4ccda2783782",
+    "crates/oryn-native/Cargo.toml": "653c3b288f12650b11a510200fa836176f2c04f100806aaff8bc653be5a27893",
+    "crates/oryn-native/src/lib.rs": "bd7cc0a21a535bbe66fb8ae190801a6233abc9aa4f9196cdfa3f252e531c7373"
+  },
+  "native_test_binary_sha256": "e1d140357a832b42091906264be9c1e8136a1e0ee11335e0201544b1d7f597cc",
+  "raw_artifacts": {
+    "native-matrix.json": "7dab71fcb48bcc4e46211602efed4920d94c667269ea2d8f3e1762457dc7521a",
+    "clippy.log": "4433278e159197bbf10ad011c998790f9451e35571b5015c98deea6cafc9c6e9",
+    "context-tests.log": "a732055f31a402882f9bd81fa3fda146afd4b96819afdf497b69634d4d2a59c2",
+    "isolated-probe-results.jsonl": "f26f2aae766d84724027a4538579349301b9a87cc359f9fd33a6e79bcad221cc",
+    "prototype/Cargo.toml": "816b63496684d0e77867f1538d7d30695dd22e0e8b3f4e27c668539d75ab6a37",
+    "prototype/Cargo.lock": "68ec380aec4137c71181ee994868776367e712f95aa96ba13e57630a32c4be89",
+    "prototype/build.rs": "c7b96c0fbdde9ebf5bd0375752a81dddd8e70304752e2a98092805852dc542c5",
+    "prototype/probe.cc": "35838f7808a64ba0b7d99e3c9245e2db374cb2a90e04dc1bc585ea088029a724",
+    "prototype/main.rs": "d1c6dd77b06a9e224289ff9b8c864875d9fe20a223b2f72db883679fe5b294e0"
+  },
+  "v8_api_headers_manifest": "vendor/v8-api/manifest.json",
+  "v8_archive_sha256": "004af1e5b340d8aedc88588942f747f375db5ddaf400054fae34c55f276bb99d",
+  "full_conformance_baseline_unchanged": {
+    "commit": "5499cc7",
+    "passed": 2561,
+    "required": 4022
+  },
+  "open_requirements": [
+    "Route frame creation and navigation through native WindowProxy contexts.",
+    "Create initial about:blank documents and apply the special initial same-origin Window reuse rule.",
+    "Replace facade-based message delivery with incumbent-realm-aware native delivery.",
+    "Preserve cross-origin Window access rules and retire old document activity.",
+    "Recheck the four frame assertion regressions and five aborted CSS registration files."
+  ],
+  "complete_conformance": false,
+  "prior_runtime_commit": "6c20c992726cb80ee3b3048110c551d8d0b23737"
+}

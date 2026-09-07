@@ -427,6 +427,15 @@ M5 passes; a smaller achievable batch is progress, not completion.
 | A required capability is larger than its apparent test count | Estimate the real contract and dependencies; retain it in M4 rather than replacing it with a shallow stub |
 | Pass counts improve while stability or memory worsens | Treat new crashes, timeouts, retention growth and assertion regressions as unresolved work even if no passing file was lost |
 
+Native context primitives are now validated separately in the
+[context lifecycle evidence](CONFORMANCE-NATIVE-CONTEXT-LIFECYCLE-2026-09-06.json).
+They preserve native proxy identity across navigation and expose the incumbent
+realm through public V8 APIs. The page frame-loading path has not yet adopted them.
+The next integration must cover actual global identity, early initial documents,
+ordinary navigation versus initial same-origin Window reuse, incumbent-origin
+message delivery, cross-origin access and inactive document behavior together.
+The four frame regressions remain open until the pinned tests verify that path.
+
 ## Immediate next execution sequence
 
 1. Correct the four remaining frame assertion regressions through native frame-realm
