@@ -27205,6 +27205,31 @@ mod tests {
     }
 
     #[test]
+    fn css_rule_constants_are_installed_on_constructor_and_prototype() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let _state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            Object.entries({STYLE_RULE:1,CHARSET_RULE:2,IMPORT_RULE:3,MEDIA_RULE:4,FONT_FACE_RULE:5,PAGE_RULE:6,MARGIN_RULE:9,NAMESPACE_RULE:10}).every(([name, value]) =>
+                [CSSRule, CSSRule.prototype].every(object => {
+                    const descriptor = Object.getOwnPropertyDescriptor(object, name);
+                    return descriptor.value === value && descriptor.enumerable && !descriptor.writable && !descriptor.configurable;
+                }))
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
     fn retained_page_declarations_trace_rules_and_release_native_records() {
         struct Provider;
         impl BindingLayoutProvider for Provider {

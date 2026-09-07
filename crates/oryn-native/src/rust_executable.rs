@@ -5577,7 +5577,7 @@ mod tests {
         assert_eq!(page.evaluate(r#"
             const sheet = document.styleSheets[0];
             const first = sheet.cssRules[0], second = sheet.cssRules[1];
-            const same = sheet.cssRules[0] === first && sheet.cssRules[1] === second;
+            const same = sheet.cssRules[0] === first && sheet.cssRules[1] === second && first.type === CSSRule.PAGE_RULE;
             first.selectorText = 'named:First';
             const changed = first.cssText === '@page named:first { }' &&
                 sheet.cssRules[0] === first && second.selectorText === '';
