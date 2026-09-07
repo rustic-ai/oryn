@@ -99,23 +99,12 @@ pub fn parse_streamed(input: &str, max_chunk_bytes: usize) -> ParsedDocument {
 
 /// Load a decoded text response without interpreting its contents as markup.
 pub fn parse_text_document(input: &str, content_type: &str) -> ParsedDocument {
-    let mut parser = parse_document(OrynTreeSink::new(), ParseOpts::default());
-    parser.process(StrTendril::from("<pre>\n"));
-    parser.tokenizer.set_plaintext_state();
-    parser.process(StrTendril::from(input));
-    let mut parsed = parser.finish();
-    // Text documents always use no-quirks mode, regardless of their contents.
-    parsed.quirks_mode = QuirksMode::NoQuirks;
-    let metadata = parsed
-        .dom
-        .get_mut(parsed.document)
-        .unwrap()
-        .document_metadata
-        .as_mut()
-        .unwrap();
-    metadata.content_type = content_type.into();
-    metadata.quirks = false;
-    parsed
+    let mut parser = StreamingParser::with_runtime_text(
+        std::rc::Rc::new(RefCell::new(DomRuntime::new())),
+        content_type,
+    );
+    parser.push(input);
+    parser.finish()
 }
 
 pub fn parse_fragment(input: &str, context_local_name: &str) -> ParsedDocument {
@@ -170,6 +159,31 @@ impl StreamingParser {
             bytes_seen: 0,
             pending_events: Vec::new(),
         }
+    }
+
+    /// Start a streaming text document in the same live DOM used by the host.
+    pub fn with_runtime_text(dom: SharedDomRuntime, content_type: &str) -> Self {
+        let mut parser = Self::with_runtime(dom);
+        parser.push("<pre>\n");
+        parser.inner.tokenizer.set_plaintext_state();
+        parser
+            .inner
+            .tokenizer
+            .sink
+            .sink
+            .set_quirks_mode(QuirksMode::NoQuirks);
+        parser
+            .dom
+            .borrow_mut()
+            .arena_mut()
+            .get_mut(parser.document)
+            .unwrap()
+            .document_metadata
+            .as_mut()
+            .unwrap()
+            .content_type = content_type.into();
+        parser.bytes_seen = 0;
+        parser
     }
 
     pub fn shared_dom(&self) -> SharedDomRuntime {

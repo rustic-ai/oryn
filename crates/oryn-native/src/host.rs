@@ -1,3 +1,18 @@
+/// Decoded navigation chunks and the response type that selects their parser.
+pub(crate) struct DocumentStream {
+    pub chunks: Box<dyn Iterator<Item = Result<String, HostError>>>,
+    pub content_type: Option<String>,
+}
+
+impl DocumentStream {
+    pub fn html(chunks: Box<dyn Iterator<Item = Result<String, HostError>>>) -> Self {
+        Self {
+            chunks,
+            content_type: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostKind {
     RawV8,

@@ -71,8 +71,17 @@ pub fn parse_by_mime(source: &str, content_type: Option<&str>) -> ParsedDocument
         .to_ascii_lowercase();
     if matches!(essence.as_str(), "application/xml" | "text/xml") || essence.ends_with("+xml") {
         parse(source, &essence)
-    } else if matches!(
-        essence.as_str(),
+    } else if is_text_mime(&essence) {
+        crate::html::parse_text_document(source, &essence)
+    } else {
+        crate::html::parse_streamed(source, 4096)
+    }
+}
+
+/// Whether a normalized MIME essence loads as a text document.
+pub fn is_text_mime(essence: &str) -> bool {
+    matches!(
+        essence,
         "text/plain"
             | "text/css"
             | "text/vtt"
@@ -95,11 +104,6 @@ pub fn parse_by_mime(source: &str, content_type: Option<&str>) -> ParsedDocument
             | "application/json"
             | "text/json"
     ) || essence.ends_with("+json")
-    {
-        crate::html::parse_text_document(source, &essence)
-    } else {
-        crate::html::parse_streamed(source, 4096)
-    }
 }
 
 fn qualified(name: OwnedName) -> QualName {
@@ -297,6 +301,34 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .is_html
+        );
+    }
+
+    #[test]
+    fn text_navigation_is_literal_across_stream_boundaries() {
+        let source = "\n<meta charset=windows-1252>&amp;\r\né<script>run()</script>";
+        let dom = std::rc::Rc::new(std::cell::RefCell::new(crate::DomRuntime::new()));
+        let mut parser = crate::html::StreamingParser::with_runtime_text(dom.clone(), "text/plain");
+        for character in source.chars() {
+            parser.push(&character.to_string());
+        }
+        assert_eq!(parser.bytes_seen(), source.len());
+        assert_eq!(
+            dom.borrow()
+                .arena()
+                .text_content(parser.document())
+                .unwrap(),
+            source.replace("\r\n", "\n")
+        );
+        let parsed = parser.finish();
+        assert!(parsed.events.is_empty());
+        assert_eq!(
+            parsed.quirks_mode,
+            markup5ever::interface::QuirksMode::NoQuirks
+        );
+        assert_eq!(
+            parsed.dom.text_content(parsed.document).unwrap(),
+            source.replace("\r\n", "\n")
         );
     }
 

@@ -724,7 +724,7 @@ fn parser_checkpoint(
 }
 
 enum DocumentLoad {
-    Live(Box<dyn Iterator<Item = Result<String, HostError>>>),
+    Live(crate::host::DocumentStream),
     Snapshot(ParsedDocument),
 }
 
@@ -1207,7 +1207,7 @@ struct LiveParseResult {
 }
 
 fn parse_live_document(
-    mut source: Box<dyn Iterator<Item = Result<String, HostError>>>,
+    input_stream: crate::host::DocumentStream,
     live_dom: &SharedDomRuntime,
     host: &mut RawV8Host,
     resources: &mut BTreeMap<String, String>,
@@ -1221,7 +1221,21 @@ fn parse_live_document(
     use std::collections::VecDeque;
 
     let mut loaded_frames = BTreeMap::new();
-    let mut parser = html::StreamingParser::with_runtime(live_dom.clone());
+    let mut source = input_stream.chunks;
+    let essence = input_stream
+        .content_type
+        .as_deref()
+        .unwrap_or("text/html")
+        .split(';')
+        .next()
+        .unwrap_or("text/html")
+        .trim()
+        .to_ascii_lowercase();
+    let mut parser = if oryn_dom::xml::is_text_mime(&essence) {
+        html::StreamingParser::with_runtime_text(live_dom.clone(), &essence)
+    } else {
+        html::StreamingParser::with_runtime(live_dom.clone())
+    };
     let mut input = VecDeque::new();
     #[cfg(unix)]
     let mut resource_scheduler = ParserResourceScheduler::new();
@@ -1988,7 +2002,9 @@ impl RustExecutableDocument {
         max_heap_bytes: usize,
     ) -> Result<Self, HostError> {
         Self::load_with_options(
-            DocumentLoad::Live(Box::new(std::iter::once(Ok(html_source.to_owned())))),
+            DocumentLoad::Live(crate::host::DocumentStream::html(Box::new(
+                std::iter::once(Ok(html_source.to_owned())),
+            ))),
             resources,
             broker,
             base_url,
@@ -1999,7 +2015,7 @@ impl RustExecutableDocument {
     }
 
     pub(crate) fn load_stream_with_limits(
-        chunks: Box<dyn Iterator<Item = Result<String, HostError>>>,
+        chunks: crate::host::DocumentStream,
         resources: &BTreeMap<String, String>,
         broker: Option<SharedNetworkBroker>,
         base_url: Option<Url>,
@@ -2048,7 +2064,9 @@ impl RustExecutableDocument {
         ),
     ) -> Result<Self, HostError> {
         Self::load_with_options(
-            DocumentLoad::Live(Box::new(std::iter::once(Ok(html_source.to_owned())))),
+            DocumentLoad::Live(crate::host::DocumentStream::html(Box::new(
+                std::iter::once(Ok(html_source.to_owned())),
+            ))),
             resources,
             broker,
             base_url,
@@ -2059,7 +2077,7 @@ impl RustExecutableDocument {
 
     #[cfg(unix)]
     pub(crate) fn load_stream_with_context_and_limits(
-        chunks: Box<dyn Iterator<Item = Result<String, HostError>>>,
+        chunks: crate::host::DocumentStream,
         resources: &BTreeMap<String, String>,
         broker: Option<SharedNetworkBroker>,
         base_url: Option<Url>,
@@ -2123,6 +2141,33 @@ impl RustExecutableDocument {
         #[cfg(unix)]
         let context_handle = context.clone();
         let broker_handle = broker.clone();
+        let input = match input {
+            DocumentLoad::Live(stream) => {
+                let essence = stream
+                    .content_type
+                    .as_deref()
+                    .unwrap_or("text/html")
+                    .split(';')
+                    .next()
+                    .unwrap_or("text/html")
+                    .trim()
+                    .to_ascii_lowercase();
+                if essence == "text/html" || oryn_dom::xml::is_text_mime(&essence) {
+                    DocumentLoad::Live(stream)
+                } else {
+                    let mut source = String::new();
+                    for chunk in stream.chunks {
+                        source.push_str(&chunk?);
+                    }
+                    DocumentLoad::Snapshot(oryn_dom::xml::parse_navigation(
+                        &source,
+                        Some(&essence),
+                        base_url.as_ref().map_or("about:blank", Url::as_str),
+                    ))
+                }
+            }
+            other => other,
+        };
         let (live_dom, live_source, mut quirks_mode, mut parser_events) = match input {
             DocumentLoad::Live(source) => (
                 Rc::new(RefCell::new(DomRuntime::new())),

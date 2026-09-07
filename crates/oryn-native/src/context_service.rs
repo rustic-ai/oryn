@@ -2762,6 +2762,8 @@ fn page_resource_text_kind(
         && (matches!(essence.as_str(), "text/xml" | "application/xml") || essence.ends_with("+xml"))
     {
         oryn_net::TextResourceKind::Xml
+    } else if default == oryn_net::TextResourceKind::Html && oryn_dom::xml::is_text_mime(&essence) {
+        oryn_net::TextResourceKind::Fetch
     } else {
         default
     }

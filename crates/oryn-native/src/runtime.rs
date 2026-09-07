@@ -5024,7 +5024,7 @@ impl PageState {
         url: String,
         html: &str,
         parsed: Option<ParsedDocument>,
-        live_source: Option<Box<dyn Iterator<Item = Result<String, crate::host::HostError>>>>,
+        live_source: Option<crate::host::DocumentStream>,
         history_update: HistoryUpdate,
         resources: &BTreeMap<String, String>,
         #[cfg(feature = "v8-host")] web_fonts: Vec<oryn_layout::WebFont>,
@@ -5555,6 +5555,23 @@ impl PageState {
         }
         #[cfg(feature = "v8-host")]
         {
+            let essence = content_type
+                .as_deref()
+                .unwrap_or("text/html")
+                .split(';')
+                .next()
+                .unwrap_or("text/html")
+                .trim()
+                .to_ascii_lowercase();
+            let text_kind = if matches!(essence.as_str(), "text/xml" | "application/xml")
+                || essence.ends_with("+xml")
+            {
+                oryn_net::TextResourceKind::Xml
+            } else if oryn_dom::xml::is_text_mime(&essence) {
+                oryn_net::TextResourceKind::Fetch
+            } else {
+                oryn_net::TextResourceKind::Html
+            };
             let capture = Arc::new(Mutex::new(NavigationBodyCapture::default()));
             let source = NavigationBodyChunks {
                 operation,
@@ -5562,10 +5579,7 @@ impl PageState {
                     .broker
                     .clone()
                     .ok_or_else(|| RuntimeError::Network("network broker is unavailable".into()))?,
-                decoder: oryn_net::IncrementalTextDecoder::new(
-                    content_type.as_deref(),
-                    oryn_net::TextResourceKind::Html,
-                ),
+                decoder: oryn_net::IncrementalTextDecoder::new(content_type.as_deref(), text_kind),
                 capture: capture.clone(),
                 deadline: Instant::now() + self.config.navigation_timeout,
                 finished: false,
@@ -5574,7 +5588,10 @@ impl PageState {
                 current.to_string(),
                 "",
                 None,
-                Some(Box::new(source)),
+                Some(crate::host::DocumentStream {
+                    chunks: Box::new(source),
+                    content_type: content_type.clone(),
+                }),
                 history_update,
                 &BTreeMap::new(),
                 Vec::new(),
@@ -5594,7 +5611,15 @@ impl PageState {
                     bytes: capture.bytes,
                 },
             );
-            if let Some(policy) = meta_referrer_policy(&capture.source) {
+            let resource_source = if essence == "text/html" {
+                capture.source.clone()
+            } else {
+                self.document
+                    .as_ref()
+                    .map(|document| resource_markup_for_document(&document.dom, document.document))
+                    .unwrap_or_default()
+            };
+            if let Some(policy) = meta_referrer_policy(&resource_source) {
                 self.referrer_policy = crate::referrer::ReferrerPolicy::parse_list(&policy);
                 #[cfg(unix)]
                 if let Some(client) = &self.context_client {
@@ -5614,8 +5639,8 @@ impl PageState {
             // Re-evaluate the completed source for parent trace publication and
             // non-script resource discovery. Script execution itself was
             // authorized at its parser boundary and is never replayed here.
-            let _ = self.enforce_csp_html(&capture.source);
-            self.load_auxiliary_resources(&current, &capture.source);
+            let _ = self.enforce_csp_html(&resource_source);
+            self.load_auxiliary_resources(&current, &resource_source);
             // Parser and script mutations already share the authoritative
             // Rust DOM. Re-parsing the original response here can mistake
             // markup embedded in JavaScript strings for live stylesheets and
@@ -5624,7 +5649,7 @@ impl PageState {
             let stylesheet_source = self
                 .document
                 .as_ref()
-                .map(|document| serialize_dom_node(&document.dom, document.document))
+                .map(|document| resource_markup_for_document(&document.dom, document.document))
                 .unwrap_or_default();
             self.web_fonts = self.load_web_fonts(&current, &stylesheet_source)?;
             self.layout = None;
@@ -9156,6 +9181,54 @@ fn serialize_dom_node(dom: &crate::dom::DomArena, id: crate::dom::NodeId) -> Str
     }
 }
 
+// Input for legacy HTML-based resource scanners. Only elements with resource
+// semantics in their actual namespace contribute markup; XML lookalikes and
+// text nodes cannot become HTML elements through reparsing.
+#[cfg(feature = "v8-host")]
+fn resource_markup_for_document(dom: &crate::dom::DomArena, root: crate::dom::NodeId) -> String {
+    let mut output = String::new();
+    let mut pending = vec![root];
+    while let Some(id) = pending.pop() {
+        let Ok(node) = dom.get(id) else { continue };
+        if matches!(node.kind, crate::dom::NodeKind::ShadowRoot { .. }) {
+            continue;
+        }
+        pending.extend(node.children.iter().rev().copied());
+        let crate::dom::NodeKind::Element { name } = &node.kind else {
+            continue;
+        };
+        let tag = name.local.as_ref();
+        let html_resource = name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+            && matches!(
+                tag,
+                "meta"
+                    | "script"
+                    | "style"
+                    | "link"
+                    | "audio"
+                    | "video"
+                    | "source"
+                    | "track"
+                    | "object"
+                    | "embed"
+            );
+        let svg_resource =
+            name.ns.as_ref() == "http://www.w3.org/2000/svg" && matches!(tag, "script" | "style");
+        if !html_resource && !svg_resource {
+            continue;
+        }
+        output.push('<');
+        output.push_str(tag);
+        for (name, value) in &node.attributes {
+            output.push_str(&format!(" {name}=\"{}\"", escape_html(value)));
+        }
+        output.push('>');
+        output.push_str(&escape_html(&dom.text_content(id).unwrap_or_default()));
+        output.push_str(&format!("</{tag}>"));
+    }
+    output
+}
+
 fn escape_html(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -10627,6 +10700,117 @@ mod tests {
                 "https://history.example.test/destination",
                 "https://history.example.test/start",
                 "https://history.example.test/destination"
+            ]
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn navigation_dispatches_xml_and_image_responses() {
+        struct MimeFixture(Arc<Mutex<Vec<String>>>);
+        impl NetworkBroker for MimeFixture {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                self.0.lock().unwrap().push(request.url.clone());
+                let (mime, body) = if request.url.ends_with("/xml") {
+                    (
+                        "application/xml",
+                        b"<?xml version='1.0' encoding='windows-1252'?><root><value>\xe9</value><meta name='referrer' content='no-referrer'/><audio src='/unexpected-media'/><style>@font-face {font-family: x;src:url('/unexpected-font')}</style><h:audio xmlns:h='http://www.w3.org/1999/xhtml' src='/expected-media'/></root>".to_vec(),
+                    )
+                } else {
+                    // A one-pixel, 24-bit BMP with a padded four-byte row.
+                    let mut bmp = vec![0_u8; 58];
+                    bmp[..2].copy_from_slice(b"BM");
+                    bmp[2..6].copy_from_slice(&58_u32.to_le_bytes());
+                    bmp[10..14].copy_from_slice(&54_u32.to_le_bytes());
+                    bmp[14..18].copy_from_slice(&40_u32.to_le_bytes());
+                    bmp[18..22].copy_from_slice(&1_u32.to_le_bytes());
+                    bmp[22..26].copy_from_slice(&1_u32.to_le_bytes());
+                    bmp[26..28].copy_from_slice(&1_u16.to_le_bytes());
+                    bmp[28..30].copy_from_slice(&24_u16.to_le_bytes());
+                    bmp[34..38].copy_from_slice(&4_u32.to_le_bytes());
+                    ("image/bmp", bmp)
+                };
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), mime.into())],
+                    body,
+                })
+            }
+        }
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let context = Browser::new().new_context_with_broker(
+            ContextOptions::default(),
+            SharedNetworkBroker::new(MimeFixture(requests.clone())),
+        );
+        let page = context.new_page();
+        page.goto("https://mime.example.test/xml").await.unwrap();
+        assert_eq!(page.evaluate("[document.contentType,document.compatMode,document.documentElement.nodeName,document.querySelector('value').textContent,document.body===null].join('|')").await.unwrap(), "application/xml|CSS1Compat|root|é|true");
+        page.goto("https://mime.example.test/image").await.unwrap();
+        assert_eq!(page.evaluate("[document.contentType,document.compatMode,document.body.firstElementChild.tagName,document.body.firstElementChild.getAttribute('src')].join('|')").await.unwrap(), "image/bmp|CSS1Compat|IMG|https://mime.example.test/image");
+        let requests = requests.lock().unwrap();
+        assert!(requests.iter().any(|url| url.ends_with("/expected-media")));
+        assert!(
+            !requests.iter().any(|url| url.contains("/unexpected-")),
+            "unexpected namespace resource requests: {requests:?}"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn text_navigation_preserves_mime_and_does_not_discover_html_resources() {
+        const SOURCE: &str = "<meta charset=windows-1252><script src='/unexpected.js'>globalThis.executed=true</script><link rel=stylesheet href='/unexpected.css'><iframe src='/unexpected.html'></iframe>é";
+        struct TextNavigationFixture(Arc<Mutex<Vec<String>>>);
+        impl NetworkBroker for TextNavigationFixture {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                self.0.lock().unwrap().push(request.url.clone());
+                let mime = if request.url.ends_with("/plain") {
+                    "text/plain"
+                } else if request.url.ends_with("/css") {
+                    "text/css"
+                } else {
+                    "application/json"
+                };
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), mime.into())],
+                    body: if request.url.contains("/unexpected.") {
+                        Vec::new()
+                    } else {
+                        SOURCE.as_bytes().to_vec()
+                    },
+                })
+            }
+        }
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let context = Browser::new().new_context_with_broker(
+            ContextOptions::default(),
+            SharedNetworkBroker::new(TextNavigationFixture(requests.clone())),
+        );
+        let page = context.new_page();
+        for (path, mime) in [
+            ("plain", "text/plain"),
+            ("css", "text/css"),
+            ("json", "application/json"),
+        ] {
+            page.goto(format!("https://text.example.test/{path}"))
+                .await
+                .unwrap();
+            assert_eq!(page.evaluate("[document.contentType,document.compatMode,typeof executed,document.body.firstElementChild.tagName,document.body.textContent].join('|')").await.unwrap(), format!("{mime}|CSS1Compat|undefined|PRE|{SOURCE}"));
+        }
+        assert_eq!(
+            *requests.lock().unwrap(),
+            [
+                "https://text.example.test/plain",
+                "https://text.example.test/css",
+                "https://text.example.test/json"
             ]
         );
     }
