@@ -37,6 +37,46 @@ struct LiveLayoutProvider {
 }
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn read_declaration(
+        &self,
+        request: &oryn_js::v8_bindings::BindingDeclarationRequest<'_>,
+    ) -> Option<Result<oryn_js::v8_bindings::BindingDeclarationView, String>> {
+        Some(
+            oryn_layout::cssom::read_declaration(
+                request.css_text,
+                request.property,
+                request.base_url,
+                request.quirks,
+            )
+            .map(|result| oryn_js::v8_bindings::BindingDeclarationView {
+                css_text: result.css_text,
+                names: result.names,
+                value: result.value,
+                important: result.important,
+            }),
+        )
+    }
+
+    fn mutate_declaration(
+        &self,
+        request: &oryn_js::v8_bindings::BindingDeclarationRequest<'_>,
+    ) -> Option<Result<oryn_js::v8_bindings::BindingDeclarationMutation, String>> {
+        Some(
+            oryn_layout::cssom::mutate_declaration(
+                request.css_text,
+                request.property,
+                request.value,
+                request.priority,
+                request.base_url,
+                request.quirks,
+            )
+            .map(|result| oryn_js::v8_bindings::BindingDeclarationMutation {
+                previous_value: result.previous_value,
+                css_text: result.css_text,
+            }),
+        )
+    }
+
     fn layout_revision(&self) -> Option<u64> {
         // The viewport is immutable for this provider; replacement invalidates the
         // binding cache. DOM mutations include stylesheet, value, and focus changes.
@@ -1360,7 +1400,7 @@ globalThis.frameElement=null;globalThis.__oryn_document_detached=false;
 if(globalThis.Document&&!globalThis.XMLDocument)globalThis.XMLDocument=globalThis.Document;
 globalThis.focus=()=>{if(typeof globalThis.__oryn_context_call==='function'&&__oryn_page_id!==null)contextCall({operation:'activate_page',source_page_id:__oryn_page_id,target_page_id:__oryn_page_id})};
 globalThis.blur=()=>{};
-if(globalThis.CSSStyleDeclaration&&!CSSStyleDeclaration.prototype[Symbol.iterator])Object.defineProperty(CSSStyleDeclaration.prototype,Symbol.iterator,{configurable:true,writable:true,value:function*(){for(const declaration of String(this.cssText||'').split(';')){const separator=declaration.indexOf(':');if(separator>0)yield declaration.slice(0,separator).trim()}}});
+if(globalThis.CSSStyleDeclaration&&!CSSStyleDeclaration.prototype[Symbol.iterator])Object.defineProperty(CSSStyleDeclaration.prototype,Symbol.iterator,{configurable:true,writable:true,value:function*(){for(let i=0;i<this.length;i++)yield this.item(i)}});
 if(!globalThis.CSS)globalThis.CSS={};
 if(!CSS.escape)CSS.escape=value=>{const string=String(value),length=string.length;let result='';for(let index=0;index<length;index++){const code=string.charCodeAt(index),character=string.charAt(index);if(code===0){result+='\uFFFD';continue}if((code>=1&&code<=31)||code===127||(index===0&&code>=48&&code<=57)||(index===1&&code>=48&&code<=57&&string.charCodeAt(0)===45)){result+='\\'+code.toString(16)+' ';continue}if(index===0&&code===45&&length===1){result+='\\-';continue}if(code>=128||code===45||code===95||(code>=48&&code<=57)||(code>=65&&code<=90)||(code>=97&&code<=122)){result+=character;continue}result+='\\'+character}return result};
 if(!CSS.supports)CSS.supports=(property,value)=>{if(value===undefined){const source=String(property).trim(),selector=source.match(/^selector\(([\s\S]*)\)$/);if(selector){try{document.querySelector(selector[1]);return true}catch(_){return false}}const match=source.match(/^\(\s*([\w-]+)\s*:\s*([^)]*)\)$/);return !!match&&CSS.supports(match[1],match[2])}const probe=document.createElement('div').style;try{probe.setProperty(String(property),String(value));return probe.getPropertyValue(String(property))!==''}catch(_){return false}};
@@ -1642,7 +1682,7 @@ const __oryn_testdriver_keyboard=(target,value,pressed)=>{
   const tag=String(target.tagName||'').toLowerCase();
   const textControl=tag==='textarea'||(tag==='input'&&!['button','checkbox','file','radio','reset','submit'].includes(String(target.type||'').toLowerCase()));
   if(textControl&&(key==='Backspace'||key==='Delete'||key.length===1)){
-    const unavailable=()=>target.hidden||target.getAttribute?.('aria-hidden')==='true'||getComputedStyle(target).display==='none'||getComputedStyle(target).visibility==='hidden';
+    const unavailable=()=>!target.isConnected||target.getClientRects().length===0||getComputedStyle(target).visibility==='hidden';
     if(unavailable())return;
     if(key.length===1){
       const keypress=new Event('keypress',{bubbles:true,cancelable:true});keypress.key=key;keypress.code=event.code;target.dispatchEvent(keypress);
@@ -5370,6 +5410,93 @@ mod tests {
             page.evaluate("order.join('|')").unwrap(),
             "handler:5:true|listener:true|after"
         );
+    }
+
+    #[test]
+    fn keyboard_editing_rechecks_native_geometry_after_handlers() {
+        let mut page = RustExecutableDocument::load("<!doctype html><body></body>").unwrap();
+        assert_eq!(page.evaluate(r#"
+            const results=[];
+            for(const tag of ['input','textarea'])for(const event of ['keydown','keypress','beforeinput']) {
+                const parent=document.createElement('div'),control=document.createElement(tag);
+                parent.append(control);document.body.append(parent);control.value='original';control.select();
+                control.addEventListener(event,()=>parent.style.display='none',{once:true});
+                __oryn_testdriver_keyboard(control,'a',true);
+                __oryn_testdriver_keyboard(control,'a',false);
+                results.push(control.value==='original');parent.remove();
+            }
+            const control=document.createElement('input');control.setAttribute('aria-hidden','true');
+            document.body.append(control);control.value='original';control.select();
+            __oryn_testdriver_keyboard(control,'a',true);__oryn_testdriver_keyboard(control,'a',false);
+            results.push(control.value==='a');results.every(Boolean)
+        "#).unwrap(),"true");
+    }
+
+    #[test]
+    fn inline_cssom_converts_arguments_before_mutating() {
+        let mut page =
+            RustExecutableDocument::load("<!doctype html><body><div id='probe'></div>").unwrap();
+        assert_eq!(page.evaluate(r#"
+            const probe=document.getElementById('probe'), style=probe.style;
+            style.width='10px'; const original=probe.getAttribute('style');
+            const sentinel={};let caught=0;
+            for(const action of [()=>style.width={toString(){throw sentinel}},
+                ()=>style.cssText={toString(){throw sentinel}},
+                ()=>style.setProperty('width','20px',{toString(){throw sentinel}})]) {
+                try{action()}catch(e){if(e===sentinel&&probe.getAttribute('style')===original)caught++}
+            }
+            style.width=null;const removed=style.width==='';
+            style.setProperty('width','20px',null);const priority=style.width==='20px';
+            style.setProperty('width',null);const empty=style.width==='';
+            [caught,removed,priority,empty].join('|')
+        "#).unwrap(),"3|true|true|true");
+    }
+
+    #[test]
+    fn computed_cssom_indices_follow_live_declarations() {
+        let mut page = RustExecutableDocument::load(
+            r#"<!doctype html><body><div id="probe" style="--one: red"></div>"#,
+        )
+        .unwrap();
+        assert_eq!(page.evaluate(r#"
+            const probe=document.getElementById('probe'), computed=getComputedStyle(probe);
+            const before=computed.length;
+            const first=computed.item(before-1)==='--one'&&computed[before-1]==='--one';
+            probe.style.setProperty('--two','blue');
+            const added=computed.length===before+1&&computed.item(before)==='--two'&&computed[before]==='--two';
+            probe.style.removeProperty('--one');
+            const removed=computed.length===before&&computed.item(before-1)==='--two'&&computed[before]===undefined;
+            const keys=Object.keys(computed).filter(key=>/^[0-9]+$/.test(key));
+            [first,added,removed,keys.length===computed.length].join('|')
+        "#).unwrap(), "true|true|true|true");
+    }
+
+    #[test]
+    fn inline_cssom_uses_stylo_for_mutations_and_live_readback() {
+        let mut page =
+            RustExecutableDocument::load(r#"<!doctype html><body><div id="probe"></div>"#).unwrap();
+        assert_eq!(page.evaluate(r#"
+            const probe=document.getElementById('probe'), style=probe.style;
+            const observer=new MutationObserver(()=>{});
+            observer.observe(probe,{attributes:true,attributeOldValue:true});
+            style.width='-100px'; style.removeProperty('width');
+            const absent=observer.takeRecords().length===0&&!probe.hasAttribute('style');
+            style.cssText='margin: 1px 2px !important; --Name: "a;b:c"; width: -1px';
+            observer.takeRecords();
+            const names=Array.from(style);
+            const read=style.marginLeft==='2px'&&style.getPropertyPriority('margin')==='important'
+                &&names.length===5&&names[0]==='margin-top'&&style[1]==='margin-right'
+                &&style.item(4)==='--Name'&&style.item(99)===''&&style[99]===undefined;
+            style.setProperty('--Name','three','important');
+            const custom=style.getPropertyValue('--Name')==='three'&&style.getPropertyValue('--name')==='';
+            const old=style.removeProperty('margin');
+            const live=old==='1px 2px'&&style.length===1&&style[0]==='--Name'&&style[1]===undefined;
+            observer.takeRecords();
+            style.setProperty('--Name','three','important');
+            const unchanged=observer.takeRecords().length===0;
+            style.setProperty('--Name','','invalid');
+            [absent,read,custom,live,unchanged,style.length===0].join('|')
+        "#).unwrap(), "true|true|true|true|true|true");
     }
 
     #[test]

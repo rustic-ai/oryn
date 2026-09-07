@@ -681,6 +681,25 @@ pub const C_S_S_RULE_MEMBERS: &[GeneratedMember] = &[
 pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
     GeneratedMember {
         id: GeneratedMemberId(524288),
+        name: "item",
+        kind: GeneratedMemberKind::Operation,
+        arity: 1,
+        readonly: false,
+        indexed_getter: false,
+        named_getter: false,
+        value_iterable: false,
+        constant_value: None,
+        type_name: Some("DOMString"),
+        same_object: false,
+        new_object: false,
+        ce_reactions: false,
+        unscopable: false,
+        unforgeable: false,
+        replaceable: false,
+        put_forwards: None,
+    },
+    GeneratedMember {
+        id: GeneratedMemberId(524289),
         name: "parentRule",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -699,7 +718,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524289),
+        id: GeneratedMemberId(524290),
         name: "transition",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -718,7 +737,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524290),
+        id: GeneratedMemberId(524291),
         name: "webkitTransition",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -737,7 +756,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524291),
+        id: GeneratedMemberId(524292),
         name: "cssText",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -756,7 +775,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524292),
+        id: GeneratedMemberId(524293),
         name: "length",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -775,7 +794,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524293),
+        id: GeneratedMemberId(524294),
         name: "display",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -794,7 +813,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524294),
+        id: GeneratedMemberId(524295),
         name: "visibility",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -813,7 +832,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524295),
+        id: GeneratedMemberId(524296),
         name: "width",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -832,7 +851,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524296),
+        id: GeneratedMemberId(524297),
         name: "height",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -851,7 +870,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524297),
+        id: GeneratedMemberId(524298),
         name: "position",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -870,7 +889,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524298),
+        id: GeneratedMemberId(524299),
         name: "top",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -889,7 +908,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524299),
+        id: GeneratedMemberId(524300),
         name: "left",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -908,7 +927,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524300),
+        id: GeneratedMemberId(524301),
         name: "right",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -927,7 +946,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524301),
+        id: GeneratedMemberId(524302),
         name: "bottom",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -946,7 +965,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524302),
+        id: GeneratedMemberId(524303),
         name: "overflow",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -965,7 +984,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524303),
+        id: GeneratedMemberId(524304),
         name: "opacity",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -984,7 +1003,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524304),
+        id: GeneratedMemberId(524305),
         name: "color",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1003,7 +1022,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524305),
+        id: GeneratedMemberId(524306),
         name: "border",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1022,7 +1041,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524306),
+        id: GeneratedMemberId(524307),
         name: "fontSize",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1041,7 +1060,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524307),
+        id: GeneratedMemberId(524308),
         name: "fontStyle",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1060,7 +1079,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524308),
+        id: GeneratedMemberId(524309),
         name: "fontWeight",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1079,7 +1098,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524309),
+        id: GeneratedMemberId(524310),
         name: "margin",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1098,7 +1117,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524310),
+        id: GeneratedMemberId(524311),
         name: "marginLeft",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1117,7 +1136,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524311),
+        id: GeneratedMemberId(524312),
         name: "padding",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1136,7 +1155,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524312),
+        id: GeneratedMemberId(524313),
         name: "textAlign",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1155,7 +1174,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524313),
+        id: GeneratedMemberId(524314),
         name: "textDecoration",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1174,7 +1193,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524314),
+        id: GeneratedMemberId(524315),
         name: "verticalAlign",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1193,7 +1212,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524315),
+        id: GeneratedMemberId(524316),
         name: "backgroundClip",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1212,7 +1231,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524316),
+        id: GeneratedMemberId(524317),
         name: "backgroundColor",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1231,7 +1250,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524317),
+        id: GeneratedMemberId(524318),
         name: "borderCollapse",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1250,7 +1269,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524318),
+        id: GeneratedMemberId(524319),
         name: "boxSizing",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1269,7 +1288,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524319),
+        id: GeneratedMemberId(524320),
         name: "cssFloat",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1288,7 +1307,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524320),
+        id: GeneratedMemberId(524321),
         name: "filter",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1307,7 +1326,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524321),
+        id: GeneratedMemberId(524322),
         name: "marginRight",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1326,7 +1345,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524322),
+        id: GeneratedMemberId(524323),
         name: "maxHeight",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1345,7 +1364,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524323),
+        id: GeneratedMemberId(524324),
         name: "minHeight",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1364,7 +1383,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524324),
+        id: GeneratedMemberId(524325),
         name: "whiteSpace",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1383,7 +1402,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524325),
+        id: GeneratedMemberId(524326),
         name: "MozBoxSizing",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1402,7 +1421,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524326),
+        id: GeneratedMemberId(524327),
         name: "WebkitBoxSizing",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1421,7 +1440,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524327),
+        id: GeneratedMemberId(524328),
         name: "zoom",
         kind: GeneratedMemberKind::Attribute,
         arity: 0,
@@ -1440,7 +1459,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524328),
+        id: GeneratedMemberId(524329),
         name: "getPropertyValue",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -1459,7 +1478,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524329),
+        id: GeneratedMemberId(524330),
         name: "getPropertyPriority",
         kind: GeneratedMemberKind::Operation,
         arity: 1,
@@ -1478,7 +1497,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524330),
+        id: GeneratedMemberId(524331),
         name: "setProperty",
         kind: GeneratedMemberKind::Operation,
         arity: 2,
@@ -1497,7 +1516,7 @@ pub const C_S_S_STYLE_DECLARATION_MEMBERS: &[GeneratedMember] = &[
         put_forwards: None,
     },
     GeneratedMember {
-        id: GeneratedMemberId(524331),
+        id: GeneratedMemberId(524332),
         name: "removeProperty",
         kind: GeneratedMemberKind::Operation,
         arity: 1,

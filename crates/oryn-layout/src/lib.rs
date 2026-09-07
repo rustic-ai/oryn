@@ -5,6 +5,8 @@
 //! geometry keyed by the stable DOM node identifier.  It never owns DOM,
 //! JavaScript, networking, cookies, or browser policy.
 
+pub mod cssom;
+
 #[cfg(test)]
 use std::ptr::NonNull;
 use std::{

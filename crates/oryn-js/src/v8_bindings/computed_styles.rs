@@ -116,9 +116,7 @@ pub(super) fn create<'s>(
     // A traced wrapper retains the target element without a permanent Rust root.
     let target = wrap_node(scope, state, node)?;
     object.set_internal_field(3, target.into());
-    for (index, property) in values.keys().enumerate() {
-        let name = v8_string(scope, property)?;
-        object.set_index(scope, index as u32, name);
+    for property in values.keys() {
         let mut idl = String::new();
         let mut uppercase = false;
         for character in property.trim_start_matches('-').chars() {
@@ -160,6 +158,24 @@ pub(super) fn create<'s>(
     Ok(object)
 }
 
+/// CSSOM lists ordinary properties before custom properties. Keep index lookup
+/// live, using the same style flush as named property access and length.
+pub(super) fn property_names(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    object: v8::Local<v8::Object>,
+) -> Result<Vec<String>, V8BindingError> {
+    let node = node(scope, state, object)?;
+    let styles = styles(state, node)?;
+    let mut names = styles
+        .keys()
+        .filter(|name| !name.starts_with("--"))
+        .cloned()
+        .collect::<Vec<_>>();
+    names.extend(styles.keys().filter(|name| name.starts_with("--")).cloned());
+    Ok(names)
+}
+
 pub(super) fn attribute<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &V8BindingState,
@@ -192,6 +208,16 @@ pub(super) fn operation<'s>(
     member: &str,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let node = node(scope, state, args.this())?;
+    if member == "item" {
+        let Some(index) = args.get(0).uint32_value(scope) else {
+            return Ok(None);
+        };
+        let names = property_names(scope, state, args.this())?;
+        return Ok(Some(v8_string(
+            scope,
+            names.get(index as usize).map_or("", String::as_str),
+        )?));
+    }
     let Some(property) = args.get(0).to_string(scope) else {
         return Ok(None);
     };

@@ -734,13 +734,50 @@ pub struct BindingAccessibility {
 }
 
 mod adopted_stylesheets;
+mod inline_styles;
 mod node_lists;
 mod wrapper_graphs;
+
+/// Authored declaration input passed to the native Stylo provider.
+pub struct BindingDeclarationRequest<'a> {
+    pub css_text: &'a str,
+    pub property: &'a str,
+    pub value: &'a str,
+    pub priority: &'a str,
+    pub base_url: &'a str,
+    pub quirks: bool,
+}
+
+pub struct BindingDeclarationView {
+    pub css_text: String,
+    pub names: Vec<String>,
+    pub value: String,
+    pub important: bool,
+}
+
+pub struct BindingDeclarationMutation {
+    pub previous_value: String,
+    pub css_text: Option<String>,
+}
 
 /// Synchronous style/layout flush used by geometry WebIDL operations. The
 /// implementation lives in the page orchestrator so generated bindings keep
 /// using the same Rust DOM and Stylo/Taffy/Parley pipeline as observations.
 pub trait BindingLayoutProvider {
+    fn read_declaration(
+        &self,
+        _request: &BindingDeclarationRequest<'_>,
+    ) -> Option<Result<BindingDeclarationView, String>> {
+        None
+    }
+
+    fn mutate_declaration(
+        &self,
+        _request: &BindingDeclarationRequest<'_>,
+    ) -> Option<Result<BindingDeclarationMutation, String>> {
+        None
+    }
+
     /// Opt in only when the revision covers every provider-owned layout input.
     /// Providers with independently changing inputs keep the default uncached behavior.
     fn layout_revision(&self) -> Option<u64> {
@@ -2903,6 +2940,9 @@ pub fn install_generated_bindings_with_root_for_global(
             instance.set_internal_field_count(6);
             if matches!(interface.name, "NodeList" | "HTMLCollection") {
                 node_lists::configure(instance);
+            }
+            if interface.name == "CSSStyleDeclaration" {
+                inline_styles::configure(instance);
             }
             if interface.name == "HTMLCollection" {
                 node_lists::configure_named(instance);
@@ -19509,6 +19549,152 @@ fn validate_css_selector(state: &V8BindingState, selector: &str) -> Result<(), V
     Ok(())
 }
 
+/// CSS property values and priorities use LegacyNullToEmptyString; cssText
+/// uses ordinary DOMString conversion. Preserve conversion exceptions before
+/// any declaration parsing or DOM mutation.
+fn cssom_string(
+    scope: &mut v8::PinScope,
+    value: v8::Local<v8::Value>,
+    null_is_empty: bool,
+) -> Result<String, V8BindingError> {
+    if null_is_empty && value.is_null() {
+        return Ok(String::new());
+    }
+    value
+        .to_string(scope)
+        .map(|value| value.to_rust_string_lossy(scope))
+        .ok_or(V8BindingError::JavaScriptException)
+}
+
+fn cssom_base_url(scope: &mut v8::PinScope) -> Result<String, V8BindingError> {
+    let location = global_property(scope, "location")?;
+    let Ok(location) = v8::Local::<v8::Object>::try_from(location) else {
+        return Ok("about:blank".into());
+    };
+    let href =
+        v8::String::new(scope, "href").ok_or(V8BindingError::Allocation("location href key"))?;
+    let href = location
+        .get(scope, href.into())
+        .ok_or(V8BindingError::JavaScriptException)?;
+    if !href.is_string() {
+        return Ok("about:blank".into());
+    }
+    let href = href.to_rust_string_lossy(scope);
+    Ok(Url::parse(&href).map_or_else(|_| "about:blank".into(), |url| url.to_string()))
+}
+
+fn read_inline_declaration(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+    property: &str,
+    replacement: Option<&str>,
+) -> Result<Option<BindingDeclarationView>, V8BindingError> {
+    let Some(provider) = state.layout_provider.borrow().clone() else {
+        return Ok(None);
+    };
+    let document = owner_document_for_node(state, node)?;
+    let (current, quirks) = {
+        let dom = state.dom.borrow();
+        (
+            replacement.map(str::to_owned).unwrap_or_else(|| {
+                dom.arena()
+                    .get(node)
+                    .ok()
+                    .and_then(|r| r.attributes.get("style"))
+                    .cloned()
+                    .unwrap_or_default()
+            }),
+            dom.arena()
+                .get(document)?
+                .document_metadata
+                .as_ref()
+                .is_some_and(|m| m.quirks),
+        )
+    };
+    let base_url = cssom_base_url(scope)?;
+    provider
+        .read_declaration(&BindingDeclarationRequest {
+            css_text: &current,
+            property,
+            value: "",
+            priority: "",
+            base_url: &base_url,
+            quirks,
+        })
+        .transpose()
+        .map_err(V8BindingError::EventCallback)
+}
+
+fn mutate_inline_declaration(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+    property: &str,
+    value: &str,
+    priority: &str,
+) -> Result<String, V8BindingError> {
+    let document = owner_document_for_node(state, node)?;
+    let (current, quirks) = {
+        let dom = state.dom.borrow();
+        (
+            dom.arena()
+                .get(node)?
+                .attributes
+                .get("style")
+                .cloned()
+                .unwrap_or_default(),
+            dom.arena()
+                .get(document)?
+                .document_metadata
+                .as_ref()
+                .is_some_and(|m| m.quirks),
+        )
+    };
+    let base_url = cssom_base_url(scope)?;
+    let provider = state.layout_provider.borrow().clone();
+    if let Some(provider) = provider
+        && let Some(result) = provider.mutate_declaration(&BindingDeclarationRequest {
+            css_text: &current,
+            property,
+            value,
+            priority,
+            base_url: &base_url,
+            quirks,
+        })
+    {
+        let result = result.map_err(V8BindingError::EventCallback)?;
+        if let Some(css_text) = result.css_text {
+            state
+                .dom
+                .borrow_mut()
+                .set_attribute(node, "style", css_text)?;
+            state.prepared_stylesheets.borrow_mut().remove(&node);
+            state
+                .pending_dynamic_stylesheets
+                .borrow_mut()
+                .retain(|pending| *pending != node);
+            prepare_dynamic_stylesheet_subtree(state, node)?;
+        }
+        return Ok(result.previous_value);
+    }
+    // Provider-less binding hosts retain their existing minimal capability.
+    if !value.is_empty() && !priority.is_empty() && !priority.eq_ignore_ascii_case("important") {
+        return Ok(String::new());
+    }
+    let value = if !value.is_empty() && priority.eq_ignore_ascii_case("important") {
+        format!("{value} !important")
+    } else {
+        value.to_owned()
+    };
+    Ok(set_inline_style_property(
+        &mut state.dom.borrow_mut(),
+        node,
+        property,
+        &value,
+    )?)
+}
+
 fn set_inline_style_property(
     dom: &mut DomRuntime,
     node: NodeId,
@@ -19591,6 +19777,17 @@ fn get_attribute_value<'s>(
     interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if interface == "CSSStyleDeclaration"
+        && member != "parentRule"
+        && let Some(view) =
+            read_inline_declaration(scope, state, node, css_property_name(member), None)?
+    {
+        return match member {
+            "cssText" => v8_string(scope, &view.css_text),
+            "length" => Ok(v8::Integer::new_from_unsigned(scope, view.names.len() as u32).into()),
+            _ => v8_string(scope, &view.value),
+        };
+    }
     if member == "adoptedStyleSheets" && matches!(interface, "Document" | "ShadowRoot") {
         return adopted_stylesheets::get(scope, state, node).map(Into::into);
     }
@@ -20584,7 +20781,9 @@ fn set_attribute_value(
         )?;
         return Ok(());
     }
-    let value = if matches!(
+    let value = if interface == "CSSStyleDeclaration" {
+        cssom_string(scope, value, member != "cssText")?
+    } else if matches!(
         (interface, member),
         ("Element", "innerHTML" | "outerHTML") | ("ShadowRoot", "innerHTML")
     ) {
@@ -20612,6 +20811,26 @@ fn set_attribute_value(
     } else {
         value.to_rust_string_lossy(scope)
     };
+    if interface == "CSSStyleDeclaration"
+        && member == "cssText"
+        && let Some(view) = read_inline_declaration(scope, state, node, "", Some(&value))?
+    {
+        state
+            .dom
+            .borrow_mut()
+            .set_attribute(node, "style", view.css_text)?;
+        state.prepared_stylesheets.borrow_mut().remove(&node);
+        state
+            .pending_dynamic_stylesheets
+            .borrow_mut()
+            .retain(|pending| *pending != node);
+        prepare_dynamic_stylesheet_subtree(state, node)?;
+        return Ok(());
+    }
+    if interface == "CSSStyleDeclaration" && member != "cssText" {
+        mutate_inline_declaration(scope, state, node, css_property_name(member), &value, "")?;
+        return Ok(());
+    }
     let inner_html_target = if interface == "Element"
         && member == "innerHTML"
         && state
@@ -22961,8 +23180,37 @@ fn call_operation<'s>(
             }
             Ok(None)
         }
+        ("CSSStyleDeclaration", "item") => {
+            let Some(index) = args.get(0).uint32_value(scope) else {
+                return Ok(None);
+            };
+            let names = if let Some(view) = read_inline_declaration(scope, state, node, "", None)? {
+                view.names
+            } else {
+                inline_style_entries(
+                    state
+                        .dom
+                        .borrow()
+                        .arena()
+                        .get(node)?
+                        .attributes
+                        .get("style")
+                        .map_or("", String::as_str),
+                )
+                .into_keys()
+                .collect()
+            };
+            Ok(Some(v8_string(
+                scope,
+                names.get(index as usize).map_or("", String::as_str),
+            )?))
+        }
         ("CSSStyleDeclaration", "getPropertyValue") => {
-            let property = required_string(scope, args, 0)?.to_ascii_lowercase();
+            let property = required_string(scope, args, 0)?;
+            if let Some(view) = read_inline_declaration(scope, state, node, &property, None)? {
+                return Ok(Some(v8_string(scope, &view.value)?));
+            }
+            let property = property.to_ascii_lowercase();
             let dom = state.dom.borrow();
             let style = dom
                 .arena()
@@ -22982,7 +23230,14 @@ fn call_operation<'s>(
             Ok(Some(v8_string(scope, value)?))
         }
         ("CSSStyleDeclaration", "getPropertyPriority") => {
-            let property = required_string(scope, args, 0)?.to_ascii_lowercase();
+            let property = required_string(scope, args, 0)?;
+            if let Some(view) = read_inline_declaration(scope, state, node, &property, None)? {
+                return Ok(Some(v8_string(
+                    scope,
+                    if view.important { "important" } else { "" },
+                )?));
+            }
+            let property = property.to_ascii_lowercase();
             let dom = state.dom.borrow();
             let style = dom
                 .arena()
@@ -23000,26 +23255,19 @@ fn call_operation<'s>(
             )?))
         }
         ("CSSStyleDeclaration", "setProperty") => {
-            let property = required_string(scope, args, 0)?.to_ascii_lowercase();
-            let mut value = required_string(scope, args, 1)?;
-            let priority = if args.length() > 2 {
-                required_string(scope, args, 2)?.to_ascii_lowercase()
+            let property = required_string(scope, args, 0)?;
+            let value = cssom_string(scope, args.get(1), true)?;
+            let priority = if args.length() > 2 && !args.get(2).is_undefined() {
+                cssom_string(scope, args.get(2), true)?
             } else {
                 String::new()
             };
-            if !priority.is_empty() && priority != "important" {
-                return Ok(None);
-            }
-            if priority == "important" && !value.is_empty() {
-                value.push_str(" !important");
-            }
-            set_inline_style_property(&mut state.dom.borrow_mut(), node, &property, &value)?;
+            mutate_inline_declaration(scope, state, node, &property, &value, &priority)?;
             Ok(None)
         }
         ("CSSStyleDeclaration", "removeProperty") => {
-            let property = required_string(scope, args, 0)?.to_ascii_lowercase();
-            let previous =
-                set_inline_style_property(&mut state.dom.borrow_mut(), node, &property, "")?;
+            let property = required_string(scope, args, 0)?;
+            let previous = mutate_inline_declaration(scope, state, node, &property, "", "")?;
             Ok(Some(v8_string(scope, &previous)?))
         }
         ("HTMLDialogElement", "show" | "showModal") => {
