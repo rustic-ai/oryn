@@ -5,6 +5,12 @@
 > Latest complete signed-worker measurement `12a64cb`: **2,625/4,022 (65.3%)**.
 > **6 new file passes, 2 lost file passes, and 1,397 remaining failures** versus `da9959f`.
 
+The later candidate `662d133` restores both lost history tests in a complete
+136-case selection: 32 pass, zero lost file passes, and zero unresolved lost or
+missing assertions after exact server-port reconciliation.
+[Recovery evidence](CONFORMANCE-HISTORY-RECOVERY-2026-09-07.json) is separate from
+the full baseline; the overall score is not yet remeasured on this fix.
+
 Text and image frame documents now preserve their response MIME types. Six
 Document.contentType executions pass. Stylo remains the CSS engine.
 

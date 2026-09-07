@@ -32,6 +32,12 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
+The later candidate `662d133` restores both lost history tests in a complete
+136-case selection: 32 pass, zero lost file passes, and zero unresolved lost or
+missing assertions after exact server-port reconciliation.
+[Recovery evidence](CONFORMANCE-HISTORY-RECOVERY-2026-09-07.json) is separate from
+the full baseline; the overall score is not yet remeasured on this fix.
+
 The later text-document candidate `2192207` has a complete selected DOM audit:
 391/664, two whole-test gains (`contenttype_css` and `contenttype_txt`), zero
 lost file passes, and zero lost or missing previously passing assertions.
