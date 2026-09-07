@@ -10750,7 +10750,13 @@ mod tests {
                 const range = document.createRange();
                 range.setStart(bold.firstChild, selectAll ? 0 : 2); range.setEnd(bold.firstChild, 2);
                 getSelection().removeAllRanges(); getSelection().addRange(range);
-                document.execCommand('insertLineBreak'); document.execCommand('insertText', false, 'a');
+                document.execCommand('insertLineBreak');
+                const observer = new MutationObserver(() => {});
+                observer.observe(host, {subtree:true, childList:true, characterData:true});
+                document.execCommand('insertText', false, 'a');
+                const records = observer.takeRecords(); observer.disconnect();
+                const last = records[records.length - 1];
+                if (!last || !(last.type === 'characterData' || last.addedNodes.length && last.addedNodes[0].nodeType === 3)) throw new Error('text insertion was not the final DOM mutation');
                 const expected = '<p><b>' + (selectAll ? '' : 'AB') + line + 'a</b></p>';
                 if (host.innerHTML !== expected) throw new Error(JSON.stringify({editable,mode,selectAll,expected,actual:host.innerHTML}));
                 document.execCommand('insertText', false, 'b');
@@ -10789,10 +10795,10 @@ mod tests {
             for (const authored of [false,true]) {
               rules.textContent = authored ? 'pre {white-space:pre}' : '';
               for (const preOnLeft of [false,true]) {
-                for (const direction of ['backward','forward','selection']) {
+                for (const direction of ['backward','forward','selection']) for (const separator of ['', '\n']) {
                   const leftTag = preOnLeft ? 'pre' : tag;
                   const rightTag = preOnLeft ? tag : 'pre';
-                  host.innerHTML = '<' + leftTag + '>abc</' + leftTag + '><' + rightTag + '>def</' + rightTag + '>';
+                  host.innerHTML = '<' + leftTag + '>abc</' + leftTag + '>' + separator + '<' + rightTag + '>def</' + rightTag + '>';
                   const left = host.firstChild, right = host.lastChild;
                   host.focus();
                   const range = document.createRange();
@@ -10817,7 +10823,7 @@ mod tests {
           }
           return String(checked);
         })()"#).await.unwrap();
-        assert_eq!(result, "36");
+        assert_eq!(result, "72");
     }
 
     #[cfg(feature = "v8-host")]
@@ -10842,8 +10848,8 @@ mod tests {
               if (rightMode !== 'normal' && rightMode !== 'nowrap') bodies.push('<b>def\nghi</b>');
               rules.textContent = '.left{white-space:' + leftMode + '} .right{white-space:' + rightMode + '}';
               for (const direction of ['backward','forward','selection']) {
-                for (const body of bodies) {
-                  host.innerHTML = '<div class="left">abc</div><div class="right">' + body + '</div>';
+                for (const body of bodies) for (const separator of ['', '\n']) {
+                  host.innerHTML = '<div class="left">abc</div>' + separator + '<div class="right">' + body + '</div>';
                   const left = host.firstChild, right = host.lastChild;
                   let rightText = right.firstChild;
                   while (rightText.nodeType !== 3) rightText = rightText.firstChild;
@@ -10874,7 +10880,7 @@ mod tests {
           }
           return String(checked);
         })()"#).await.unwrap();
-        assert_eq!(result, "216");
+        assert_eq!(result, "432");
     }
 
     #[cfg(feature = "v8-host")]

@@ -1,0 +1,57 @@
+{
+  "base_commit": "62c9aa0ce046095d220f518f588ed1b33270a16e",
+  "changes": [
+    "Remove redundant editing placeholders before inserting text so the final DOM mutation adds or changes text.",
+    "Treat selected paragraph boundaries containing ignored whitespace consistently with collapsed deletion."
+  ],
+  "source_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "e4cd397ec99b973859d7224e27ca4d704d271863b27d0410b2575a552a97e0a6",
+    "crates/oryn-native/src/runtime.rs": "969d2c198cab4fdcb97c063fe41a3d638e55fd982db72764e7b157a74a801c60"
+  },
+  "validation": {
+    "native_cases": 1197,
+    "mutation_observer_assertions": 24,
+    "layout_tests_passed": 48,
+    "binding_tests_passed": 148,
+    "binding_tests_existing_ignored": 2,
+    "native_regression_filters": "editing, justification, command query, keyboard, shadow selection, frame Range passed",
+    "strict_clippy": "oryn-layout, oryn-js, oryn-native passed with -D warnings",
+    "logs": [
+      "artifacts/native-shared-editing/oryn-editing-boundary-and-mutation-tests.log",
+      "artifacts/native-shared-editing/oryn-editing-boundary-and-mutation-broad.log"
+    ]
+  },
+  "preceding_candidate_measurement": {
+    "selected": {
+      "path": "artifacts/upstream-conformance/shared-editing-62c9aa0-selected-audit.json",
+      "sha256": "46be24d3f43d8b90620b8d28da42cf6c8971df70a66fad9664b1d2dd709e6717",
+      "outcome": {
+        "required_finished": 704,
+        "required_passed": 222,
+        "required_total": 704,
+        "status": "failed"
+      },
+      "whole_gains": 98,
+      "whole_losses": 0,
+      "observed_pass_to_fail": 41,
+      "missing_prior_passes": 0,
+      "corrected_existing": 5167
+    },
+    "retention": {
+      "path": "artifacts/upstream-conformance/shared-editing-62c9aa0-retention-audit.json",
+      "sha256": "f8953b0c5011440cae981722614cbadb81f1acc7791e239b2c61e09a15d7a7bd",
+      "outcome": {
+        "required_finished": 704,
+        "required_passed": 222,
+        "required_total": 704,
+        "status": "failed"
+      },
+      "whole_gains": 7,
+      "whole_losses": 0,
+      "observed_pass_to_fail": 30,
+      "missing_prior_passes": 0,
+      "corrected_existing": 263
+    }
+  },
+  "qualification": "The preceding candidate completed 222/704 editing executions. These follow-up changes passed native checks but require a new signed WPT run; no measured gain is claimed for them yet. Overall remains 2627/4022 on the last full measured baseline."
+}

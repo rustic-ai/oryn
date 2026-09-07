@@ -12020,7 +12020,12 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
                     )?
                     && dom.parent(left)?.is_some_and(|parent| {
                         light_children(&dom, parent).is_ok_and(|children| {
-                            children.windows(2).any(|pair| pair == [left, right])
+                            children
+                                .iter()
+                                .skip_while(|node| **node != left)
+                                .skip(1)
+                                .find(|node| !is_ignored_editing_sibling(&dom, **node))
+                                == Some(&right)
                         })
                     })
             };
@@ -12276,22 +12281,25 @@ fn nearest_rendered_editing_block(
 fn insert_editing_text(state: &V8BindingState, text: &str) -> Result<(), V8BindingError> {
     let mut lines = text.split('\n');
     let first = lines.next().unwrap_or_default();
-    replace_selection_with_text(state, first)?;
-    remove_editing_placeholder_after_typing(state, first)?;
+    replace_selection_with_text(state, "")?;
+    if !first.is_empty() {
+        remove_editing_placeholder_before_typing(state, first)?;
+        replace_selection_with_text(state, first)?;
+    }
     for line in lines {
         split_editing_paragraph(state)?;
         if !line.is_empty() {
+            remove_editing_placeholder_before_typing(state, line)?;
             replace_selection_with_text(state, line)?;
-            remove_editing_placeholder_after_typing(state, line)?;
         }
     }
     Ok(())
 }
 
-// Once inserted text gives a line a caret position, its trailing placeholder
-// is redundant. Keep visible breaks (including another empty line) and never
-// search outside the current rendered editing block.
-fn remove_editing_placeholder_after_typing(
+// The inserted text will give this line a caret position, so remove its
+// redundant placeholder first. Text insertion must be the final DOM mutation
+// exposed to editors. Keep visible breaks and stay inside this editing block.
+fn remove_editing_placeholder_before_typing(
     state: &V8BindingState,
     text: &str,
 ) -> Result<(), V8BindingError> {
