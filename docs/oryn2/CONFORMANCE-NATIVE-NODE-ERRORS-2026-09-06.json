@@ -1,0 +1,99 @@
+{
+  "parent_revision": "82d3208",
+  "scope": "Native node/platform listener exception reporting, listener identity, and deadline classification; not a signed-worker conformance result",
+  "source_files": {
+    "crates/oryn-js/src/v8_bindings.rs": "720809fc6fa39a76ab1aa5737c0b239ca8ef750582e72e2d74c4fa5b1ca68669",
+    "crates/oryn-js/src/v8_bindings/global_events.rs": "92c99516a73814283836a039c1b1257f33d836ec137415f04a5d4af3e475f441",
+    "crates/oryn-native/src/host.rs": "2ceda7c276f6a9b6ebe8d9c2920a8ddcc2b179ae0e1a74f92521c666d510c0ba",
+    "crates/oryn-native/src/rust_executable.rs": "998f37fcae346951d1ffc401adb83bf822e73b366dcc16e687c56c00baeac54d"
+  },
+  "native_test_binary_sha256": "b5541a0536887603150ef4c862275d9616935152d0b18c6c443ed913a0702b6e",
+  "pinned_wpt_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "targeted_tests": {
+    "passed": 16,
+    "failed": 0,
+    "ignored": 0,
+    "new_native_tests": 3,
+    "existing_parser_module_regressions": 13,
+    "fixture_note": "All three pinned-harness tests explicitly executed with --include-ignored and ORYN_WPT_ROOT, in both allow_uncaught_exception modes.",
+    "names": [
+      "executable::tests::module_error_native_api_propagation_and_shared_dependencies_are_preserved",
+      "executable::tests::module_error_native_compile_and_link_failures_report_syntax_errors",
+      "executable::tests::module_error_native_delayed_rejection_reports_once_and_is_handled",
+      "executable::tests::module_error_native_inline_roots_preserve_values_and_identity",
+      "executable::tests::module_error_native_pinned_testharness_rejects_unexpected_errors",
+      "executable::tests::module_error_native_reporting_obeys_wall_deadline",
+      "executable::tests::node_error_native_passive_cleanup_and_property_cancellation",
+      "executable::tests::node_error_native_pinned_testharness_rejects_unexpected_errors",
+      "executable::tests::node_error_native_termination_still_reaches_host_and_removes_once_listener",
+      "executable::tests::parser_error_native_cross_origin_details_are_muted",
+      "executable::tests::parser_error_native_external_source_location_and_cancellation",
+      "executable::tests::parser_error_native_handler_exceptions_do_not_recurse",
+      "executable::tests::parser_error_native_pinned_testharness_rejects_unexpected_errors",
+      "executable::tests::parser_error_native_preserves_values_and_continues_scripts",
+      "executable::tests::parser_error_native_reporting_keeps_wall_deadline",
+      "executable::tests::parser_error_native_reports_syntax_and_runs_queued_jobs"
+    ]
+  },
+  "bindings": {
+    "passed": 131,
+    "failed": 0,
+    "existing_ignored": 2,
+    "new_tests": 5
+  },
+  "native_matrix": {
+    "total": 284,
+    "passed": 271,
+    "failed": 12,
+    "timeout": 1,
+    "timeout_seconds": 15,
+    "new_nonpasses": [],
+    "fixed_prior_nonpasses": [],
+    "same_failure_reasons": [
+      "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+      "executable::tests::editing_command_state_reports_paragraph_and_alignment_values",
+      "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm",
+      "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit",
+      "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks",
+      "host::tests::startup_external_reference_manifest_matches_runtime_order",
+      "runtime::tests::about_blank_is_internal_and_history_safe",
+      "runtime::tests::native_navigation_checks_redirects_and_supports_history",
+      "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action",
+      "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report",
+      "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages",
+      "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported"
+    ],
+    "changed_failure_reasons": {
+      "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics": {
+        "previous": "called `Result::unwrap()` on an `Err` value: Execution(\"dynamic frame element load: JavaScript execution failed: TypeError: event callback failed: event property handler raised an exception\")",
+        "current": "WPT did not publish a completion result"
+      }
+    },
+    "fixture_note": "All tests run separately with --include-ignored and ORYN_WPT_ROOT. The Range fixture now supplies canonical URLs as well as literal parent-script resource keys; assertions and selected subtest are unchanged. It remains failing because WPT does not publish completion."
+  },
+  "checks": {
+    "strict_clippy_js_and_native": "passed with -D warnings",
+    "rustfmt": "passed",
+    "generated_registry": "passed",
+    "docs_truth": "passed",
+    "wpt_runner_unit_tests": 28
+  },
+  "contracts": [
+    "Node function and callback-interface exceptions report original values to the callback realm and allow later callbacks and propagation.",
+    "Node once listeners are removed before invocation; stable registration IDs prevent removed/re-added callbacks being revived by an old snapshot.",
+    "Callback-interface handleEvent getter errors report; removal uses callback identity.",
+    "Node property-function exceptions report; false-return cancellation and passive cleanup remain intact.",
+    "Platform callback errors report while retaining the threw result consumed by IndexedDB.",
+    "Termination remains a host LimitExceeded outcome, including after a caught microtask termination and through string evaluation; host recovers."
+  ],
+  "limitations": [
+    "Complete native event-handler slots/registration order and shadowed property access remain open.",
+    "Node listener option conversion, AbortSignal behavior and complete platform listener snapshot/phase semantics remain open.",
+    "Foreign Event ownership on node/platform targets and complete composed paths remain open.",
+    "Worker/stream/custom-element exception routes, callback script muting, module load barriers and initial frame realms remain open.",
+    "Range fixture now loads resources but still fails to publish completion.",
+    "No new signed-worker full run; previous baseline remains 2559/4022."
+  ],
+  "raw_evidence_directory": "artifacts/native-node-error-reporting",
+  "normative_reference": "https://dom.spec.whatwg.org/#concept-event-listener-inner-invoke"
+}

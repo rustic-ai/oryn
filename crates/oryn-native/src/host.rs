@@ -4239,6 +4239,13 @@ mod raw_v8 {
             }
             queue_mutation_observer_microtask(scope);
             scope.perform_microtask_checkpoint();
+            if _deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
             if scope.has_caught() {
                 let detail = scope
                     .exception()
@@ -4252,13 +4259,6 @@ mod raw_v8 {
                     .map(|value| value.to_rust_string_lossy(scope))
                     .unwrap_or_else(|| "microtask checkpoint failed".into());
                 return Err(HostError::Execution(detail));
-            }
-            if _deadline.expired() || scope.is_execution_terminating() {
-                scope.cancel_terminate_execution();
-                reset_mutation_observer_microtask_after_termination(scope);
-                return Err(HostError::LimitExceeded {
-                    resource: "wall time".into(),
-                });
             }
             Ok(())
         }
@@ -4297,8 +4297,22 @@ mod raw_v8 {
                     return Err(HostError::Execution(detail));
                 }
             };
+            if _deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
+            let value = value.to_string(scope);
+            if _deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
             let value = value
-                .to_string(scope)
                 .ok_or_else(|| HostError::Execution("result is not string-convertible".into()))?;
             Ok(value.to_rust_string_lossy(scope))
         }

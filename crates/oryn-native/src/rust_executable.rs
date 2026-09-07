@@ -4346,7 +4346,7 @@ mod tests {
         let harness_end =
             html.find("testharness.js></script>").unwrap() + "testharness.js></script>".len();
         html.insert_str(harness_end, completion);
-        let resources = BTreeMap::from([
+        let mut resources = BTreeMap::from([
             (
                 "/resources/testharness.js".into(),
                 std::fs::read_to_string(root.join("resources/testharness.js")).unwrap(),
@@ -4361,6 +4361,19 @@ mod tests {
             ),
             ("oryn:execution-wall-ms".into(), "5000".into()),
         ]);
+        // Child-frame script records resolve against their document URL. Supply
+        // canonical fixture keys as well as the parent's literal relative URLs.
+        let base = Url::parse("https://wpt.test/dom/ranges/Range-cloneContents.html").unwrap();
+        for relative in [
+            "/resources/testharness.js",
+            "../common.js",
+            "Range-test-iframe.html",
+        ] {
+            resources.insert(
+                base.join(relative).unwrap().to_string(),
+                resources[relative].clone(),
+            );
+        }
         let page = RustExecutableDocument::load_with_environment(
             &html,
             &resources,
@@ -4931,6 +4944,89 @@ mod tests {
                 .unwrap(),
             "3:3"
         );
+    }
+
+    #[test]
+    fn node_error_native_passive_cleanup_and_property_cancellation() {
+        let mut page=RustExecutableDocument::load(r#"<body><script>
+          globalThis.order=[];const node=document.body;
+          onerror=()=>{order.push('error');return true};
+          node.addEventListener('probe',e=>{e.preventDefault();throw null},{passive:true});
+          node.addEventListener('probe',e=>order.push('later:'+e.defaultPrevented));
+          node.onprobe=()=>false;
+          globalThis.event=new Event('probe',{cancelable:true});globalThis.accepted=node.dispatchEvent(event);
+        </script>"#).unwrap();
+        assert_eq!(
+            page.evaluate(
+                "order.join('|')+':'+accepted+':'+event.defaultPrevented+':'+event.currentTarget"
+            )
+            .unwrap(),
+            "error|later:false:false:true:null"
+        );
+    }
+
+    #[test]
+    fn node_error_native_termination_still_reaches_host_and_removes_once_listener() {
+        let mut page=RustExecutableDocument::load("<body><script>document.body.addEventListener('probe',()=>{while(true){}},{once:true})</script>").unwrap();
+        page.host
+            .set_execution_wall_limit(std::time::Duration::from_millis(50));
+        assert!(page.diagnostics.is_empty(), "{:?}", page.diagnostics);
+        let result = page
+            .host
+            .execute("document.body.dispatchEvent(new Event('probe'))");
+        assert!(
+            matches!(result, Err(HostError::LimitExceeded { .. })),
+            "{result:?}"
+        );
+        assert_eq!(
+            page.evaluate("document.body.dispatchEvent(new Event('probe'))")
+                .unwrap(),
+            "true"
+        );
+        page.host
+            .execute("document.body.addEventListener('eval-probe',()=>{while(true){}},{once:true})")
+            .unwrap();
+        let result = page
+            .host
+            .evaluate_string("document.body.dispatchEvent(new Event('eval-probe'))");
+        assert!(
+            matches!(result, Err(HostError::LimitExceeded { .. })),
+            "{result:?}"
+        );
+        assert_eq!(page.evaluate("1+1").unwrap(), "2");
+    }
+
+    #[test]
+    #[ignore = "requires the pinned upstream WPT checkout in ORYN_WPT_ROOT"]
+    fn node_error_native_pinned_testharness_rejects_unexpected_errors() {
+        let root =
+            std::path::PathBuf::from(std::env::var("ORYN_WPT_ROOT").expect("pinned WPT root"));
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "https://example.test/testharness.js".into(),
+            std::fs::read_to_string(root.join("resources/testharness.js")).unwrap(),
+        );
+        for allow in [false, true] {
+            let html = format!(
+                r#"<body><script src="https://example.test/testharness.js"></script>
+              <script>setup({{explicit_done:true,allow_uncaught_exception:{allow}}});
+              globalThis.completion=null;add_completion_callback((tests,status)=>completion=[tests.length,status.status]);</script>
+              <script>document.body.addEventListener('probe',()=>{{throw Error('node-contract')}});document.body.dispatchEvent(new Event('probe'));</script>
+              <script>test(()=>assert_true(true),'later registration');done()</script>"#
+            );
+            let mut page = RustExecutableDocument::load_with_environment(
+                &html,
+                &resources,
+                None,
+                Some(Url::parse("https://example.test/page").unwrap()),
+            )
+            .unwrap();
+            assert_eq!(
+                page.evaluate("JSON.stringify(completion)").unwrap(),
+                if allow { "[1,0]" } else { "[0,1]" },
+                "allow_uncaught_exception={allow}"
+            );
+        }
     }
 
     #[test]

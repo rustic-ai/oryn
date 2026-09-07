@@ -199,6 +199,22 @@ records 13 passing parser/module regressions (including both pinned harness proo
 complete source-coordinate handling, node listeners and worker reporting remain open.
 
 
+Node listeners and property functions now report exceptions through the native
+callback-realm reporter and continue dispatch. Callback-interface objects are
+supported; node once listeners are removed before invocation and registration IDs
+prevent snapshot revival after remove/re-add. Platform callback exceptions report
+while preserving the exception result used by IndexedDB. Host termination is checked
+before ordinary checkpoint-error conversion. [Evidence](CONFORMANCE-NATIVE-NODE-ERRORS-2026-09-06.json)
+records 16 native reporting regressions, 131 binding passes and strict Clippy.
+The 284-test native comparison has 271 passes and the same 13 nonpass IDs. Twelve
+reasons match; the Range fixture now supplies canonical resources and reaches a
+missing-completion failure instead of aborting at a generic callback error. It is
+not counted as fixed. Complete handler slots/options, platform phase semantics,
+foreign Event ownership, remaining callback routes and frame activation stay open.
+Refresh the clean signed-worker full baseline after this batch; improved error
+reporting can reveal previously hidden failures and missing registrations.
+
+
 Create a reduced regression for each confirmed shared cause. Record its dependency
 contracts, affected IDs, expected behavior and decisive check. First failing assertions
 are a starting point: inspect later assertions after each fix, and track assertion-level

@@ -125,7 +125,8 @@ struct EventRecord {
 
 #[derive(Clone)]
 struct EventListener {
-    callback: v8::Global<v8::Function>,
+    registration_id: u64,
+    callback: v8::Global<v8::Value>,
     capture: bool,
     once: bool,
     passive: bool,
@@ -8777,6 +8778,9 @@ fn dispatch_platform_event_capturing(
         {
             record.in_passive_listener = false;
         }
+        if scope.is_execution_terminating() {
+            break;
+        }
     }
     let registered_handler = {
         state
@@ -8786,12 +8790,17 @@ fn dispatch_platform_event_capturing(
             .cloned()
     };
     let handler = registered_handler.or_else(|| {
+        if scope.is_execution_terminating() {
+            return None;
+        }
         let target = target?;
         let property = v8::String::new(scope, &format!("on{event_type}"))?;
         let value = target.get(scope, property.into())?;
         (!value.is_null_or_undefined()).then(|| v8::Global::new(scope, value))
     });
-    if let Some(handler) = handler {
+    if !scope.is_execution_terminating()
+        && let Some(handler) = handler
+    {
         threw |= invoke_platform_listener(scope, &handler, receiver, event);
     }
     if let Ok(event_id) = event_id(scope, event)
@@ -8808,29 +8817,10 @@ fn invoke_platform_listener(
     target: v8::Local<v8::Value>,
     event: v8::Local<v8::Object>,
 ) -> bool {
-    let try_catch = std::pin::pin!(v8::TryCatch::new(scope));
-    let mut try_catch = try_catch.init();
-    let listener = v8::Local::new(&try_catch, listener);
-    let (callback, receiver) = if let Ok(callback) = v8::Local::<v8::Function>::try_from(listener) {
-        (Some(callback), target)
-    } else if let Ok(object) = v8::Local::<v8::Object>::try_from(listener) {
-        let callback = v8::String::new(&try_catch, "handleEvent")
-            .and_then(|key| object.get(&try_catch, key.into()))
-            .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok());
-        (callback, object.into())
-    } else {
-        (None, target)
-    };
-    let succeeded = callback.is_some_and(|callback| {
-        callback
-            .call(&try_catch, receiver, &[event.into()])
-            .is_some()
-    });
-    let threw = !succeeded || try_catch.has_caught();
-    if try_catch.has_caught() {
-        try_catch.reset();
-    }
-    threw
+    let listener = v8::Local::new(scope, listener);
+    let target = v8::Local::new(scope, target);
+    let event = v8::Local::new(scope, event);
+    global_events::invoke(scope, listener, target, &[event.into()]).is_none()
 }
 
 fn platform_event_prevent_default(
@@ -21169,8 +21159,13 @@ fn call_operation<'s>(
             if args.get(1).is_null_or_undefined() {
                 return Ok(None);
             }
-            let callback = v8::Local::<v8::Function>::try_from(args.get(1))
-                .map_err(|_| V8BindingError::Allocation("event listener callback"))?;
+            let callback = args.get(1);
+            if !callback.is_object() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "EventTarget".into(),
+                    member: "TypeError: listener must be an object or null".into(),
+                });
+            }
             let options = args.get(2);
             let capture = if options.is_boolean() {
                 options.boolean_value(scope)
@@ -21186,11 +21181,14 @@ fn call_operation<'s>(
             let listeners = listener_map.entry((node, event_type.clone())).or_default();
             if listeners.iter().any(|listener| {
                 listener.capture == capture
-                    && v8::Local::new(scope, &listener.callback).strict_equals(callback.into())
+                    && v8::Local::new(scope, &listener.callback).strict_equals(callback)
             }) {
                 return Ok(None);
             }
+            let registration_id = state.next_event_listener_id.get();
+            state.next_event_listener_id.set(registration_id + 1);
             listeners.push(EventListener {
+                registration_id,
                 callback: v8::Global::new(scope, callback),
                 capture,
                 once,
@@ -21205,7 +21203,13 @@ fn call_operation<'s>(
         }
         ("EventTarget", "removeEventListener") => {
             let event_type = required_string(scope, args, 0)?;
-            let candidate = v8::Local::<v8::Function>::try_from(args.get(1)).ok();
+            let candidate = args.get(1);
+            if !candidate.is_null_or_undefined() && !candidate.is_object() {
+                return Err(V8BindingError::Unsupported {
+                    interface: "EventTarget".into(),
+                    member: "TypeError: listener must be an object or null".into(),
+                });
+            }
             let options = args.get(2);
             let capture = if options.is_boolean() {
                 options.boolean_value(scope)
@@ -21217,11 +21221,8 @@ fn call_operation<'s>(
             let mut listener_map = state.listeners.borrow_mut();
             if let Some(listeners) = listener_map.get_mut(&(node, event_type.clone())) {
                 listeners.retain(|listener| {
-                    candidate.is_none_or(|candidate| {
-                        listener.capture != capture
-                            || !v8::Local::new(scope, &listener.callback)
-                                .strict_equals(candidate.into())
-                    })
+                    listener.capture != capture
+                        || !v8::Local::new(scope, &listener.callback).strict_equals(candidate)
                 });
             }
             let no_click_listeners = is_click
@@ -24673,6 +24674,7 @@ fn invoke_node_event_listeners(
     capture: Option<bool>,
     invoke_property: bool,
 ) -> Result<(), V8BindingError> {
+    let object = v8::Local::new(scope, object);
     let event_type = state.events.borrow().get(&id).unwrap().event_type.clone();
     {
         let mut events = state.events.borrow_mut();
@@ -24693,35 +24695,42 @@ fn invoke_node_event_listeners(
         .into_iter()
         .filter(|listener| capture.is_none_or(|capture| listener.capture == capture))
     {
+        // Snapshot iteration must not revive a listener removed and re-added by an
+        // earlier callback. Remove once listeners before invocation, including reentrancy.
+        let active = state
+            .listeners
+            .borrow()
+            .get(&(current, event_type.clone()))
+            .is_some_and(|entries| {
+                entries
+                    .iter()
+                    .any(|entry| entry.registration_id == listener.registration_id)
+            });
+        if !active {
+            continue;
+        }
+        if listener.once
+            && let Some(entries) = state
+                .listeners
+                .borrow_mut()
+                .get_mut(&(current, event_type.clone()))
+        {
+            entries.retain(|entry| entry.registration_id != listener.registration_id);
+        }
         {
             let mut events = state.events.borrow_mut();
             events.get_mut(&id).unwrap().in_passive_listener = listener.passive;
         }
         let callback = v8::Local::new(scope, &listener.callback);
-        if callback
-            .call(scope, receiver.into(), &[object.into()])
-            .is_none()
-        {
-            return Err(V8BindingError::EventCallback(
-                "JavaScript listener raised an exception".into(),
-            ));
-        }
+        global_events::invoke(scope, callback, receiver.into(), &[object.into()]);
         state
             .events
             .borrow_mut()
             .get_mut(&id)
             .unwrap()
             .in_passive_listener = false;
-        if listener.once
-            && let Some(current_listeners) = state
-                .listeners
-                .borrow_mut()
-                .get_mut(&(current, event_type.clone()))
-        {
-            current_listeners.retain(|candidate| {
-                candidate.capture != listener.capture
-                    || !v8::Local::new(scope, &candidate.callback).strict_equals(callback.into())
-            });
+        if scope.is_execution_terminating() {
+            break;
         }
         if state
             .events
@@ -24733,6 +24742,7 @@ fn invoke_node_event_listeners(
         }
     }
     if invoke_property
+        && !scope.is_execution_terminating()
         && !state
             .events
             .borrow()
@@ -24744,14 +24754,9 @@ fn invoke_node_event_listeners(
             && let Some(handler) = receiver.get(scope, property.into())
             && let Ok(handler) = v8::Local::<v8::Function>::try_from(handler)
         {
-            let result = handler
-                .call(scope, receiver.into(), &[object.into()])
-                .ok_or_else(|| {
-                    V8BindingError::EventCallback(
-                        "event property handler raised an exception".into(),
-                    )
-                })?;
-            if result.is_false() {
+            let result =
+                global_events::invoke(scope, handler.into(), receiver.into(), &[object.into()]);
+            if result.is_some_and(|result| result.is_false()) {
                 let mut events = state.events.borrow_mut();
                 let event = events.get_mut(&id).unwrap();
                 if event.cancelable {
@@ -27758,6 +27763,66 @@ mod tests {
         );
     }
     #[test]
+    fn node_event_errors_preserve_identity_and_continue_dispatch() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+          const node=document.body, payload={}, order=[];
+          globalThis.onerror=(m,f,l,c,e)=>{order.push(e===payload?'error':'wrong');return true};
+          node.addEventListener('probe',()=>{order.push('listener');throw payload});
+          node.addEventListener('probe',()=>order.push('later'));
+          node.onprobe=()=>{order.push('property');throw payload};
+          document.addEventListener('probe',()=>order.push('parent'));
+          const event=new Event('probe',{bubbles:true,cancelable:true});
+          return node.dispatchEvent(event)&&event.currentTarget===null&&event.eventPhase===0&&order.join('|')==='listener|error|later|property|error|parent';
+        })()"#,
+        );
+    }
+
+    #[test]
+    fn node_event_once_and_removed_registrations_survive_reentrant_errors() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+          const node=document.body,order=[];
+          globalThis.onerror=()=>{order.push('error');node.dispatchEvent(new Event('once'));return true};
+          node.addEventListener('once',()=>{order.push('once');throw 1},{once:true});
+          node.addEventListener('once',()=>order.push('later'));
+          node.dispatchEvent(new Event('once'));
+          if(order.join('|')!=='once|error|later|later')throw Error(order);
+          order.length=0;const last=()=>order.push('last');
+          node.addEventListener('remove',()=>{node.removeEventListener('remove',last);node.addEventListener('remove',last)}, {once:true});
+          node.addEventListener('remove',last);node.dispatchEvent(new Event('remove'));
+          if(order.length)throw Error('removed registration revived');
+          node.dispatchEvent(new Event('remove'));return order.join('|')==='last';
+        })()"#,
+        );
+    }
+
+    #[test]
+    fn node_event_callback_interfaces_report_getter_errors_and_remove_by_identity() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+          const node=document.body,payload={},errors=[];globalThis.onerror=(m,f,l,c,e)=>{errors.push(e);return true};
+          const listener={get handleEvent(){throw payload}};
+          node.addEventListener('probe',listener);node.dispatchEvent(new Event('probe'));
+          node.removeEventListener('probe',listener);node.dispatchEvent(new Event('probe'));
+          node.addEventListener('probe',{});node.dispatchEvent(new Event('probe'));
+          return errors.length===2&&errors[0]===payload&&errors[1] instanceof TypeError;
+        })()"#,
+        );
+    }
+
+    #[test]
+    fn platform_event_errors_report_and_preserve_dispatch_result() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+          const node=new EventTarget(),payload={},order=[];globalThis.onerror=(m,f,l,c,e)=>{order.push(e===payload?'error':'wrong');return true};
+          node.addEventListener('probe',()=>{throw payload});node.addEventListener('probe',()=>order.push('later'));
+          return node.dispatchEvent(new Event('probe'))&&order.join('|')==='error|later';
+        })()"#,
+        );
+    }
+
+    #[test]
     fn global_event_prototype_handler_registration_position() {
         check_global_event_prototype_script(
             r#"(()=>{
@@ -27894,6 +27959,83 @@ mod tests {
           return true;
         })()"#,
         );
+    }
+
+    #[test]
+    fn node_event_errors_report_to_callback_realm() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let contexts = [
+            v8::Context::new(scope, Default::default()),
+            v8::Context::new(scope, Default::default()),
+            v8::Context::new(scope, Default::default()),
+        ];
+        for (index, context) in contexts.iter().copied().enumerate() {
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let dom = Rc::new(RefCell::new(
+                html::parse("<body></body>").into_runtime().unwrap(),
+            ));
+            install_generated_bindings(scope, context, dom, RealmId(index as u32), 1).unwrap();
+            let source = v8::String::new(
+                scope,
+                "globalThis.errors=0;globalThis.onerror=()=>{errors++;return true}",
+            )
+            .unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+        }
+        let payload = {
+            let scope = &mut v8::ContextScope::new(scope, contexts[2]);
+            let source = v8::String::new(scope, "new Error('third realm')").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+        };
+        let callback = {
+            let scope = &mut v8::ContextScope::new(scope, contexts[1]);
+            let key = v8::String::new(scope, "payload").unwrap();
+            contexts[1].global(scope).set(scope, key.into(), payload);
+            let source=v8::String::new(scope,"globalThis.onerror=(m,f,l,c,error)=>{errors++;globalThis.identityPreserved=error===payload;return true};(()=>{throw payload})").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+        };
+        {
+            let scope = &mut v8::ContextScope::new(scope, contexts[0]);
+            let key = v8::String::new(scope, "callback").unwrap();
+            contexts[0].global(scope).set(scope, key.into(), callback);
+            let source=v8::String::new(scope,"document.body.addEventListener('probe',callback);document.body.dispatchEvent(new Event('probe'))").unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        for (index, context) in contexts.iter().copied().enumerate() {
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let source = v8::String::new(
+                scope,
+                if index == 1 {
+                    "errors===1&&identityPreserved"
+                } else {
+                    "errors===0"
+                },
+            )
+            .unwrap();
+            assert!(
+                v8::Script::compile(scope, source, None)
+                    .unwrap()
+                    .run(scope)
+                    .unwrap()
+                    .is_true(),
+                "realm {index}"
+            );
+        }
     }
 
     #[test]
