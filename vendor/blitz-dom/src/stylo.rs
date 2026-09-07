@@ -59,6 +59,60 @@ use style_dom::ElementState;
 use style::values::computed::text::TextAlign as StyloTextAlign;
 
 impl crate::document::BaseDocument {
+    /// Resolve a primary style even when normal traversal pruned this element
+    /// beneath display:none. Call after resolve_stylist; this does not create boxes
+    /// or change the element's display value.
+    pub fn resolved_primary_style(
+        &self,
+        node_id: NodeId,
+    ) -> Option<Arc<style::properties::ComputedValues>> {
+        let element = self.get_node(node_id)?.as_element()?;
+        if let Some(computed) = element.primary_styles() {
+            return Some(Arc::clone(&computed));
+        }
+        struct LayoutThreadState(bool);
+        impl Drop for LayoutThreadState {
+            fn drop(&mut self) {
+                if self.0 {
+                    style::thread_state::exit(ThreadState::LAYOUT);
+                }
+            }
+        }
+        let entered = !style::thread_state::get().contains(ThreadState::LAYOUT);
+        if entered {
+            style::thread_state::enter(ThreadState::LAYOUT);
+        }
+        let _thread_state = LayoutThreadState(entered);
+        let guard = self.guard.read();
+        let shared = SharedStyleContext {
+            traversal_flags: TraversalFlags::empty(),
+            stylist: &self.stylist,
+            options: GLOBAL_STYLE_DATA.options.clone(),
+            guards: StylesheetGuards {
+                author: &guard,
+                ua_or_user: &guard,
+            },
+            visited_styles_enabled: false,
+            animations: self.animations.clone(),
+            current_time_for_animations: 0.0,
+            snapshot_map: &self.snapshots,
+            registered_speculative_painters: &RegisteredPaintersImpl,
+        };
+        let mut local = style::context::ThreadLocalStyleContext::new();
+        let mut context = StyleContext {
+            shared: &shared,
+            thread_local: &mut local,
+        };
+        let resolved = style::traversal::resolve_style(
+            &mut context,
+            element,
+            style::stylist::RuleInclusion::All,
+            None,
+            None,
+        );
+        Some(resolved.primary().clone())
+    }
+
     pub fn resolve_stylist(&mut self, now: f64) {
         style::thread_state::enter(ThreadState::LAYOUT);
 

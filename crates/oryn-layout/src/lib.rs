@@ -1075,10 +1075,7 @@ fn stylo_computed_values(
             let mirror = mirror_ids.get(&node.id).copied().ok_or_else(|| {
                 LayoutError::StyleTraversal(format!("missing mirror for node {}", node.id))
             })?;
-            if let Some(computed) = document
-                .get_node(mirror)
-                .and_then(|node| node.primary_styles())
-            {
+            if let Some(computed) = document.resolved_primary_style(mirror) {
                 for name in COMPUTED_PROPERTIES {
                     let Ok(property) = PropertyId::parse_enabled_for_all_content(name) else {
                         continue;
@@ -1092,11 +1089,10 @@ fn stylo_computed_values(
                     );
                 }
             } else {
-                // Stylo intentionally prunes descendants of `display:none`
-                // during the normal traversal. They inherit the nearest
-                // computed ancestor for Oryn's hidden-subtree bookkeeping and
-                // never reach layout or semantic geometry.
-                pending.insert(node.id);
+                return Err(LayoutError::StyleTraversal(format!(
+                    "Stylo did not resolve element {}",
+                    node.id
+                )));
             }
         }
         if node.attributes.contains_key("hidden") {
@@ -2518,6 +2514,46 @@ mod tests {
             ..input
         };
         assert!(stylo_computed_values(&text_only).is_ok());
+    }
+
+    #[test]
+    fn stylo_resolves_rules_inside_display_none_subtrees() {
+        let mut root = node(1, None, "html", "");
+        root.children = vec![2];
+        let mut hidden = node(2, Some(1), "section", "");
+        hidden.children = vec![3];
+        let mut child = node(3, Some(2), "div", "");
+        child.children = vec![4];
+        let mut input = LayoutInput {
+            nodes: vec![root, hidden, child, node(4, Some(3), "span", "")],
+            stylesheets: vec!["section { display: none; color: red; opacity: .5 } div { color: green; width: 37px } div.changed { color: lime } span { background-color: blue }".into()],
+            custom_states: BTreeMap::new(), focused_node: None,
+            viewport: ViewportState::default(), scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
+        };
+        let styles = stylo_computed_values(&input).unwrap();
+        assert_eq!(styles[&2]["display"], "none");
+        assert_eq!(styles[&3]["color"], "rgb(0, 128, 0)");
+        assert_eq!(styles[&3]["width"], "37px");
+        assert_eq!(styles[&3]["opacity"], "1");
+        assert_eq!(styles[&4]["color"], "rgb(0, 128, 0)");
+        assert_eq!(styles[&4]["background-color"], "rgb(0, 0, 255)");
+        input.nodes[2]
+            .attributes
+            .insert("class".into(), "changed".into());
+        let styles = stylo_computed_values(&input).unwrap();
+        assert_eq!(styles[&3]["color"], "rgb(0, 255, 0)");
+        assert_eq!(styles[&4]["color"], "rgb(0, 255, 0)");
+        let output = StyleEngine::default()
+            .compute(&input, &LayoutLimits::default())
+            .unwrap();
+        for id in [2, 3, 4] {
+            assert_eq!(
+                output.geometry[&id].availability,
+                GeometryAvailability::Hidden
+            );
+            assert!(output.geometry[&id].box_model.is_none());
+        }
     }
 
     #[test]
