@@ -1654,7 +1654,14 @@ class OrynURL {
   static revokeObjectURL(url){__oryn_blob_url_revoke(String(url))}
 }
 globalThis.URL=OrynURL;globalThis.URLSearchParams=OrynURLSearchParams;
-const __oryn_location=new OrynURL(location.href);
+// Location has an immutable prototype but must remain extensible.
+const __oryn_location=(()=>{
+  const target=new OrynURL(location.href),prototype=Object.getPrototypeOf(target);
+  return new Proxy(target,{
+    setPrototypeOf(_target,value){return value===prototype},
+    preventExtensions(){return false}
+  });
+})();
 Object.defineProperty(globalThis,'location',{get(){return __oryn_location},set(value){__oryn_location.href=String(value)},enumerable:true,configurable:true});
 Object.defineProperty(location,'assign',{configurable:true,enumerable:true,writable:true,value(url){this.href=new OrynURL(url,this.href).href}});
 const __oryn_history_clone=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value));
@@ -5008,6 +5015,40 @@ mod tests {
         .unwrap();
         page.evaluate("window.location='/next.html'")
             .expect("window.location assignment");
+        assert_eq!(page.location().unwrap(), "https://example.test/next.html");
+    }
+
+    #[test]
+    fn location_preserves_its_prototype_and_extensibility() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<p>Location invariants</p>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://example.test/start.html").unwrap()),
+        )
+        .unwrap();
+        page.evaluate(
+            r#"(() => {
+              const target=location, prototype=Object.getPrototypeOf(target);
+              const check=(value,message)=>{if(!value)throw new Error(message)};
+              const throwsTypeError=callback=>{try{callback()}catch(error){return error instanceof TypeError}return false};
+              check(Reflect.setPrototypeOf(target,prototype),'same prototype');
+              check(Object.setPrototypeOf(target,prototype)===target,'same prototype identity');
+              for(const value of [{},null]){
+                check(!Reflect.setPrototypeOf(target,value),'Reflect must reject');
+                check(throwsTypeError(()=>Object.setPrototypeOf(target,value)),'Object must throw');
+                check(throwsTypeError(()=>{target.__proto__=value}),'legacy setter must throw');
+              }
+              check(Object.getPrototypeOf(target)===prototype,'prototype retained');
+              check(!Reflect.preventExtensions(target),'preventExtensions must reject');
+              check(throwsTypeError(()=>Object.preventExtensions(target)),'preventExtensions must throw');
+              check(Object.isExtensible(target),'still extensible');
+              target.extra=7;check(target.extra===7,'expando works');delete target.extra;
+              target.assign('/next.html');
+              check(location===target,'Location identity retained');
+            })()"#,
+        )
+        .unwrap();
         assert_eq!(page.location().unwrap(), "https://example.test/next.html");
     }
 
