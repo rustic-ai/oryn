@@ -10555,11 +10555,23 @@ fn resolve_editing_alignment(alignment: &str, rtl: bool) -> &'static str {
     }
 }
 
+fn selection_block_alignments(state: &V8BindingState) -> Result<Vec<String>, V8BindingError> {
+    selected_editing_alignment_targets(state)?
+        .into_iter()
+        .map(|point| editing_alignment_value(state, point.container))
+        .collect()
+}
+
 fn selection_block_alignment(state: &V8BindingState) -> Result<String, V8BindingError> {
-    match state.selection_anchor.get() {
-        Some(point) => editing_alignment_value(state, point.container),
-        None => Ok("left".into()),
-    }
+    Ok(selection_block_alignments(state)?
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| "left".into()))
+}
+
+fn selection_has_alignment(state: &V8BindingState, expected: &str) -> Result<bool, V8BindingError> {
+    let values = selection_block_alignments(state)?;
+    Ok(!values.is_empty() && values.iter().all(|value| value == expected))
 }
 
 fn document_is_editable(state: &V8BindingState) -> bool {
@@ -12171,37 +12183,177 @@ fn remove_selection_format(state: &V8BindingState) -> Result<(), V8BindingError>
     synchronize_live_ranges(state)
 }
 
-fn apply_block_command(
-    state: &V8BindingState,
-    command: &str,
-    value: &str,
-) -> Result<(), V8BindingError> {
-    let Some(anchor) = state.selection_anchor.get() else {
-        return Ok(());
+fn alignment_node_is_block(dom: &DomRuntime, layout: &BindingLayout, node: NodeId) -> bool {
+    if !matches!(
+        dom.arena().get(node).map(|record| &record.kind),
+        Ok(NodeKind::Element { .. })
+    ) {
+        return false;
+    }
+    layout
+        .styles
+        .get(&node_key(node))
+        .and_then(|style| style.get("display"))
+        .map_or_else(
+            || is_editing_block(dom, node),
+            |display| {
+                !matches!(
+                    display.as_str(),
+                    "inline" | "inline-block" | "inline-table" | "none"
+                )
+            },
+        )
+}
+
+fn alignment_node_is_visible(
+    dom: &DomRuntime,
+    layout: &BindingLayout,
+    node: NodeId,
+) -> Result<bool, V8BindingError> {
+    let mut current = Some(node);
+    while let Some(candidate) = current {
+        if layout
+            .styles
+            .get(&node_key(candidate))
+            .and_then(|style| style.get("display"))
+            .is_some_and(|value| value == "none")
+        {
+            return Ok(false);
+        }
+        current = dom.parent(candidate)?;
+    }
+    Ok(match &dom.arena().get(node)?.kind {
+        NodeKind::Text { data } | NodeKind::CDataSection { data } => !data.is_empty(),
+        NodeKind::Element { .. } => {
+            alignment_node_is_block(dom, layout, node)
+                || matches!(element_local_name(dom, node), Some("img" | "br"))
+        }
+        _ => false,
+    })
+}
+
+fn alignment_block_boundary(
+    dom: &DomRuntime,
+    layout: &BindingLayout,
+    host: NodeId,
+    point: (NodeId, u32),
+    start: bool,
+) -> Result<bool, V8BindingError> {
+    if point.0 == host
+        && point.1
+            == if start {
+                0
+            } else {
+                boundary_length(dom, host)?
+            }
+    {
+        return Ok(true);
+    }
+    let children = light_children(dom, point.0)?;
+    let index = if start {
+        point.1.checked_sub(1)
+    } else {
+        Some(point.1)
     };
-    let alignment = match command {
-        "justifyleft" => "left",
-        "justifycenter" => "center",
-        "justifyright" => "right",
-        "justifyfull" => "justify",
-        _ => return apply_block_command_at_boundary(state, command, value, anchor),
+    let Some(child) = index
+        .and_then(|index| children.get(index as usize))
+        .copied()
+    else {
+        return Ok(false);
+    };
+    Ok(alignment_node_is_visible(dom, layout, child)?
+        && (alignment_node_is_block(dom, layout, child)
+            || (start && element_local_name(dom, child) == Some("br"))))
+}
+
+fn extend_alignment_boundary(
+    dom: &DomRuntime,
+    layout: &BindingLayout,
+    host: NodeId,
+    mut point: (NodeId, u32),
+    start: bool,
+) -> Result<(NodeId, u32), V8BindingError> {
+    let mut ancestor = Some(point.0);
+    while let Some(node) = ancestor {
+        if node == host {
+            break;
+        }
+        if element_local_name(dom, node) == Some("li") {
+            point = relative_boundary(dom, node, !start)?;
+            break;
+        }
+        ancestor = dom.parent(node)?;
+    }
+    if !alignment_block_boundary(dom, layout, host, point, start)? {
+        loop {
+            let length = boundary_length(dom, point.0)?;
+            if (start && point.1 == 0) || (!start && point.1 == length) {
+                if point.0 == host {
+                    break;
+                }
+                point = relative_boundary(dom, point.0, !start)?;
+            } else if start {
+                point.1 -= 1;
+            } else {
+                point.1 += 1;
+            }
+            if alignment_block_boundary(dom, layout, host, point, true)?
+                || alignment_block_boundary(dom, layout, host, point, false)?
+            {
+                break;
+            }
+        }
+    }
+    while point.0 != host
+        && point.1
+            == if start {
+                0
+            } else {
+                boundary_length(dom, point.0)?
+            }
+    {
+        point = relative_boundary(dom, point.0, !start)?;
+    }
+    Ok(point)
+}
+
+fn selected_editing_alignment_targets(
+    state: &V8BindingState,
+) -> Result<Vec<BoundaryPoint>, V8BindingError> {
+    let Some(_anchor) = state.selection_anchor.get() else {
+        return Ok(Vec::new());
     };
     let Some(host) = editing_host(state)? else {
-        return Ok(());
+        return Ok(Vec::new());
     };
     let range = state
         .selection_range
         .get()
         .and_then(|id| state.ranges.borrow().get(&id).cloned())
         .ok_or(V8BindingError::Allocation("selection range"))?;
+    refresh_layout(state)?;
     let targets = {
         let dom = state.dom.borrow();
+        let layout = state.layout.borrow();
+        let start = extend_alignment_boundary(
+            &dom,
+            &layout,
+            host,
+            (range.start_container, range.start_offset),
+            true,
+        )?;
+        let end = extend_alignment_boundary(
+            &dom,
+            &layout,
+            host,
+            (range.end_container, range.end_offset),
+            false,
+        )?;
         let mut targets = Vec::new();
-        if range.start_container == range.end_container && range.start_offset == range.end_offset {
-            targets.push(anchor);
-        } else {
+        {
             for node in traversal_nodes(&dom, host)? {
                 if node == host
+                    || !alignment_node_is_visible(&dom, &layout, node)?
                     || !light_children(&dom, node)?.is_empty()
                     || !matches!(
                         dom.arena().get(node)?.kind,
@@ -12220,13 +12372,8 @@ fn apply_block_command(
                 }
                 let before = relative_boundary(&dom, node, false)?;
                 let after = relative_boundary(&dom, node, true)?;
-                if compare_boundary_points(&dom, (range.end_container, range.end_offset), before)?
-                    > 0
-                    && compare_boundary_points(
-                        &dom,
-                        (range.start_container, range.start_offset),
-                        after,
-                    )? < 0
+                if compare_boundary_points(&dom, end, before)? > 0
+                    && compare_boundary_points(&dom, start, after)? < 0
                 {
                     targets.push(BoundaryPoint {
                         container: node,
@@ -12237,6 +12384,25 @@ fn apply_block_command(
         }
         targets
     };
+    Ok(targets)
+}
+
+fn apply_block_command(
+    state: &V8BindingState,
+    command: &str,
+    value: &str,
+) -> Result<(), V8BindingError> {
+    let Some(anchor) = state.selection_anchor.get() else {
+        return Ok(());
+    };
+    let alignment = match command {
+        "justifyleft" => "left",
+        "justifycenter" => "center",
+        "justifyright" => "right",
+        "justifyfull" => "justify",
+        _ => return apply_block_command_at_boundary(state, command, value, anchor),
+    };
+    let targets = selected_editing_alignment_targets(state)?;
     // Work from the selected content rather than just the anchor. Re-resolving
     // each target after a wrap also avoids wrapping the same paragraph twice.
     for target in targets {
@@ -12257,6 +12423,34 @@ fn apply_block_command_at_boundary(
         return Ok(());
     };
     let mut block = nearest_editing_block(&state.dom.borrow(), anchor.container, host)?;
+    if matches!(
+        command,
+        "justifyleft" | "justifycenter" | "justifyright" | "justifyfull"
+    ) {
+        refresh_layout(state)?;
+        let dom = state.dom.borrow();
+        let layout = state.layout.borrow();
+        let mut current = anchor.container;
+        loop {
+            if current == host {
+                block = host;
+                break;
+            }
+            if matches!(dom.arena().get(current)?.kind, NodeKind::Element { .. })
+                && layout
+                    .styles
+                    .get(&node_key(current))
+                    .and_then(|style| style.get("display"))
+                    .is_some_and(|display| {
+                        !matches!(display.as_str(), "inline" | "none" | "contents")
+                    })
+            {
+                block = current;
+                break;
+            }
+            current = dom.parent(current)?.unwrap_or(host);
+        }
+    }
     if block == host
         && matches!(
             command,
@@ -22132,26 +22326,40 @@ fn call_operation<'s>(
                 ));
             }
             if member == "queryCommandIndeterm" {
-                return Ok(Some(v8::Boolean::new(scope, false).into()));
+                let alignment = match command.as_str() {
+                    "justifyleft" => Some("left"),
+                    "justifyright" => Some("right"),
+                    "justifycenter" => Some("center"),
+                    "justifyfull" => Some("justify"),
+                    _ => None,
+                };
+                let mixed = if let Some(expected) = alignment {
+                    let values = selection_block_alignments(state)?;
+                    values.iter().any(|value| value == expected)
+                        && values.iter().any(|value| value != expected)
+                } else {
+                    false
+                };
+                return Ok(Some(v8::Boolean::new(scope, mixed).into()));
             }
             if member == "queryCommandState" {
                 let active = match command.as_str() {
                     "stylewithcss" => state.style_with_css.get(),
                     "justifyleft" => {
                         state.selection_range.get().is_some()
-                            && selection_block_alignment(state)? == "left"
+                            && selection_has_alignment(state, "left")?
                     }
                     "justifycenter" => {
                         state.selection_range.get().is_some()
-                            && selection_block_alignment(state)? == "center"
+                            && selection_has_alignment(state, "center")?
                     }
                     "justifyright" => {
                         state.selection_range.get().is_some()
-                            && selection_block_alignment(state)? == "right"
+                            && selection_has_alignment(state, "right")?
                     }
                     "justifyfull" => {
                         state.selection_range.get().is_some()
-                            && selection_block_alignment(state)? == "justify"
+                            && selection_has_alignment(state, "justify")?
                     }
                     "bold" | "italic" | "underline" | "strikethrough" | "subscript"
                     | "superscript" => selection_format_value(state, &command).is_some(),
@@ -22348,7 +22556,16 @@ fn call_operation<'s>(
                     // even when there is no resulting markup diff. The input
                     // transaction is still observable.
                     let accepted = changed
-                        || matches!(command.as_str(), "delete" | "forwarddelete" | "formatblock");
+                        || matches!(
+                            command.as_str(),
+                            "delete"
+                                | "forwarddelete"
+                                | "formatblock"
+                                | "justifyleft"
+                                | "justifycenter"
+                                | "justifyright"
+                                | "justifyfull"
+                        );
                     if accepted {
                         let input_type = match command.as_str() {
                             "delete" => "deleteContentBackward",

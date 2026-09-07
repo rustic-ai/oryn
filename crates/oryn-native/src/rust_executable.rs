@@ -4693,6 +4693,54 @@ mod tests {
     }
 
     #[test]
+    fn justification_noop_succeeds_and_emits_input_without_an_undo_entry() {
+        let mut page =
+            RustExecutableDocument::load("<div id=editor contenteditable>text</div>").unwrap();
+        assert_eq!(page.evaluate(
+            "const editor=document.getElementById('editor');getSelection().selectAllChildren(editor);let events=[];editor.addEventListener('input',event=>events.push(event.inputType));const result=document.execCommand('justifyLeft');[result,events.join(','),document.queryCommandEnabled('undo'),editor.innerHTML].join('|')"
+        ).unwrap(), "true|formatJustifyLeft|false|text");
+    }
+
+    #[test]
+    fn justification_queries_cover_mixed_selection_and_target_table_cells() {
+        let mut page = RustExecutableDocument::load(
+            "<div id=editor contenteditable><p id=first style='text-align:center'>one</p><p id=last>two</p><table><tr><td id=cell>cell</td></tr></table></div>",
+        ).unwrap();
+        assert_eq!(page.evaluate(
+            "const first=document.getElementById('first'),last=document.getElementById('last');getSelection().setBaseAndExtent(last.firstChild,3,first.firstChild,0);[document.queryCommandState('justifyCenter'),document.queryCommandIndeterm('justifyCenter'),document.queryCommandValue('justifyCenter')].join('|')"
+        ).unwrap(), "false|true|center");
+        assert_eq!(page.evaluate(
+            "const cell=document.getElementById('cell');getSelection().selectAllChildren(cell);document.execCommand('justifyCenter');[getComputedStyle(cell).textAlign,document.queryCommandState('justifyCenter')].join('|')"
+        ).unwrap(), "center|true");
+    }
+
+    #[test]
+    fn justification_block_extension_ignores_hidden_blocks() {
+        let mut page = RustExecutableDocument::load(
+            "<div id=editor contenteditable><p style='text-align:center'>one<span id=hidden style='display:none;text-align:right'>hidden</span><span id=caret>two</span></p><p id=next>next</p></div>",
+        ).unwrap();
+        assert_eq!(page.evaluate(
+            "const caret=document.getElementById('caret');getSelection().collapse(caret.firstChild,1);[document.queryCommandValue('justifyCenter'),document.queryCommandState('justifyCenter'),document.queryCommandIndeterm('justifyCenter')].join('|')"
+        ).unwrap(), "center|true|false");
+        assert_eq!(page.evaluate(
+            "getSelection().setBaseAndExtent(caret.firstChild,1,document.getElementById('next').firstChild,1);[document.queryCommandState('justifyCenter'),document.queryCommandIndeterm('justifyCenter')].join('|')"
+        ).unwrap(), "false|true");
+    }
+
+    #[test]
+    fn justification_presentational_hints_inherit_and_yield_to_author_css() {
+        let mut page = RustExecutableDocument::load(
+            "<style>.override {text-align:right}</style><div id=editor contenteditable align=JuStIfY><p id=child>text</p></div>",
+        ).unwrap();
+        assert_eq!(page.evaluate(
+            "const editor=document.getElementById('editor'),child=document.getElementById('child');getSelection().selectAllChildren(child);const initial=document.queryCommandValue('justifyFull');editor.className='override';[initial,getComputedStyle(child).textAlign,document.queryCommandValue('justifyRight')].join('|')"
+        ).unwrap(), "justify|right|right");
+        assert_eq!(page.evaluate(
+            "editor.className='';editor.setAttribute('align','CENTER');document.queryCommandState('justifyCenter')"
+        ).unwrap(), "true");
+    }
+
+    #[test]
     fn justification_preserves_backward_parent_offset_selection() {
         let mut page = RustExecutableDocument::load(
             "<div id='editor' contenteditable>one<span>two</span></div>",

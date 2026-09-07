@@ -994,10 +994,11 @@ impl<'a> TElement for BlitzNode<'a> {
 
             if *name == local_name!("align") {
                 use style::values::specified::TextAlign;
-                let keyword = match value {
+                let keyword = match value.to_ascii_lowercase().as_str() {
                     "left" => Some(StyloTextAlign::MozLeft),
                     "right" => Some(StyloTextAlign::MozRight),
                     "center" => Some(StyloTextAlign::MozCenter),
+                    "justify" => Some(StyloTextAlign::Justify),
                     _ => None,
                 };
 
