@@ -510,6 +510,15 @@ ServiceWorker source objects remain unsupported. The signed candidate at `53ce8b
 handshake, DOM-mutation and parent-broker checks. No WPT execution has been run
 for this change, so the full baseline remains 2,561/4,022.
 
+Native structured serialization now replaces the page's JavaScript clone implementation.
+It preserves cyclic graphs and buffer relationships, transfers ArrayBuffers, and
+serializes native Blob/File and DOMException data into the destination realm.
+[Serialization evidence](CONFORMANCE-NATIVE-STRUCTURED-CLONE-2026-09-06.json) records
+135 binding passes (two existing ignores), three selected native passes and 286/298
+native outcomes with the same 12 nonpass IDs and reasons. Native MessagePort
+transfer/delivery, Window operations and posted-message scheduling remain open.
+The full conformance baseline is unchanged pending a fresh signed inventory run.
+
 ## Immediate next execution sequence
 
 1. Correct the four remaining frame assertion regressions through native frame-realm

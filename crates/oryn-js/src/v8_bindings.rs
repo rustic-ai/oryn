@@ -36,6 +36,7 @@ use crate::{
 
 mod global_events;
 mod message_events;
+pub mod structured_clone;
 pub mod window_proxy;
 pub use global_events::{report_exception, report_script_exception};
 
@@ -3281,6 +3282,7 @@ pub fn install_generated_bindings_with_root_for_global(
             .set(scope, name.into(), user_input.into());
     }
     global_events::install(scope, context)?;
+    structured_clone::install(scope, context)?;
     Ok(state)
 }
 
@@ -28223,6 +28225,135 @@ mod tests {
         let value = v8::Script::compile(tc, source, None).unwrap().run(tc);
         assert!(
             value.is_some_and(|v| v.is_true()),
+            "{:?}",
+            tc.exception().map(|e| e.to_rust_string_lossy(tc))
+        );
+    }
+
+    #[test]
+    fn structured_clone_deserializes_in_destination_after_source_collection() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        let serialized = {
+            v8::scope!(let scope, &mut isolate);
+            let source = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, source);
+            let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+            install_generated_bindings(scope, source, dom, RealmId(0), 1).unwrap();
+            let text=v8::String::new(scope,"(()=>{const blob=new Blob(['abc']), root={blob,again:blob,date:new Date(7),map:new Map(),bytes:new Uint8Array([1,2,3])};root.map.set(root,blob);root.self=root;return root})()").unwrap();
+            let value = v8::Script::compile(scope, text, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            structured_clone::serialize(scope, value, &[]).unwrap()
+        };
+        isolate.low_memory_notification();
+        v8::scope!(let scope, &mut isolate);
+        let destination = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, destination);
+        let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        install_generated_bindings(scope, destination, dom, RealmId(1), 1).unwrap();
+        let value = structured_clone::deserialize(scope, serialized).unwrap();
+        let key = v8::String::new(scope, "copy").unwrap();
+        destination.global(scope).set(scope, key.into(), value);
+        let text=v8::String::new(scope,"copy instanceof Object && copy.self===copy && copy.date instanceof Date && copy.date.getTime()===7 && copy.map instanceof Map && copy.map.get(copy)===copy.blob && copy.blob instanceof Blob && copy.blob===copy.again && copy.blob.size===3 && copy.bytes instanceof Uint8Array && copy.bytes[2]===3").unwrap();
+        assert!(
+            v8::Script::compile(scope, text, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        let token = v8::String::new(scope, "same-origin").unwrap();
+        destination.set_security_token(token.into());
+        let other = v8::Context::new(scope, Default::default());
+        other.set_security_token(token.into());
+        {
+            let scope = &mut v8::ContextScope::new(scope, other);
+            let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+            install_generated_bindings(scope, other, dom, RealmId(2), 1).unwrap();
+        }
+        let key = v8::String::new(scope, "other").unwrap();
+        let global = other.global(scope);
+        destination
+            .global(scope)
+            .set(scope, key.into(), global.into());
+        let text = v8::String::new(
+            scope,
+            "Object.getPrototypeOf(structuredClone.call(other,{x:1}))===other.Object.prototype",
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, text, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
+    fn structured_clone_native_graphs_transfers_and_errors() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(html::parse("<body>").into_runtime().unwrap()));
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+          (()=>{
+            const check=(ok,label)=>{if(!ok)throw Error(label)};
+            const clone=structuredClone, NativeDOMException=DOMException;
+            const fail=(fn,name)=>{try{fn()}catch(e){check(e.name===name,'error '+name+': '+e);if(name==='DataCloneError')check(e instanceof NativeDOMException,'native exception');return}throw Error('missing '+name)};
+            check(clone.length===1&&clone.name==='structuredClone','function metadata');
+            fail(()=>new clone(1),'TypeError');fail(()=>clone(),'TypeError');fail(()=>clone.call({},1),'TypeError');
+            for(const value of [undefined,null,true,NaN,Infinity,-0,1n,'\ud800'])check(Object.is(value,clone(value)),'primitive');
+            const date=new Date(123), re=/a/gi, buffer=new ArrayBuffer(16), a=new Uint8Array(buffer,2,4), view=new DataView(buffer,1,8);
+            a[0]=42;re.lastIndex=2;
+            const input={date,again:date,re,buffer,a,view,map:new Map(),set:new Set()};input.self=input;input.map.set(input,date);input.set.add(input);
+            const copy=clone(input);
+            check(copy!==input&&copy.self===copy&&copy.date===copy.again&&copy.date.getTime()===123,'graph');
+            check(copy.map.get(copy)===copy.date&&copy.set.has(copy),'collections');
+            check(copy.re.source==='a'&&copy.re.flags==='gi'&&copy.re.lastIndex===0,'regexp');
+            check(copy.buffer!==buffer&&copy.a.buffer===copy.buffer&&copy.view.buffer===copy.buffer&&copy.a.byteOffset===2&&copy.view.byteOffset===1&&copy.a[0]===42,'buffer aliases');
+            const sparse=[];sparse.length=5;sparse[3]='x';sparse.extra={x:1};const sc=clone(sparse);
+            check(sc.length===5&&!(0 in sc)&&sc[3]==='x'&&sc.extra.x===1,'sparse properties');
+            const tagged={a:1,get [Symbol.toStringTag](){throw Error('tag getter')},get constructor(){return 7}};
+            check(clone(tagged).a===1,'no tag inspection');
+            const proto={inherited:1}, object=Object.create(proto);object.own=2;
+            check(Object.getPrototypeOf(clone(object))===Object.prototype&&!('inherited' in clone(object)),'prototype');
+            const cause={x:1}, err=new TypeError('bad',{cause}), ec=clone(err);
+            check(ec instanceof TypeError&&ec.message==='bad'&&ec.cause!==cause&&ec.cause.x===1,'error');
+            const blob=new Blob(['abc'],{type:'text/plain'}), file=new File(['xyz'],'name',{lastModified:42});
+            const bc=clone({blob,again:blob,file});check(bc.blob!==blob&&bc.blob===bc.again&&bc.blob.size===3&&bc.blob.type==='text/plain'&&bc.file instanceof File&&bc.file.name==='name'&&bc.file.lastModified===42,'host objects');
+            const de=clone(new DOMException('message','NotFoundError'));check(de instanceof DOMException&&de.name==='NotFoundError'&&de.message==='message'&&de.code===8,'DOMException');
+            globalThis.DOMException=()=>{throw Error('replaced')};
+            for(const value of [Symbol(),()=>{},new Proxy({},{}),new WeakMap(),document,new Event('x'),new MessageChannel().port1])fail(()=>clone(value),'DataCloneError');
+            const marker={};try{clone({get a(){throw marker}});throw Error('missing getter error')}catch(e){check(e===marker,'getter identity')}
+            const moved=new ArrayBuffer(8), mv=new Uint8Array(moved);mv[0]=99;
+            const mc=clone({moved,mv},{transfer:new Set([moved])});check(moved.byteLength===0&&mc.moved===mc.mv.buffer&&mc.mv[0]===99,'transfer');
+            const unused=new ArrayBuffer(3);clone(null,{transfer:[unused]});check(unused.byteLength===0,'unreachable transfer');
+            const resizable=new ArrayBuffer(4,{maxByteLength:16});new Uint8Array(resizable)[0]=17;
+            const rc=clone(resizable);check(rc.resizable&&rc.maxByteLength===16&&rc.byteLength===4,'resizable clone');
+            const rt=clone(resizable,{transfer:[resizable]});check(resizable.byteLength===0&&rt.resizable&&rt.maxByteLength===16&&new Uint8Array(rt)[0]===17,'resizable transfer');rt.resize(8);check(rt.byteLength===8,'resizable destination');
+            const reentrant=new ArrayBuffer(3);fail(()=>clone({get x(){clone(reentrant,{transfer:[reentrant]});return 1}},{transfer:[reentrant]}),'DataCloneError');
+
+            const duplicate=new ArrayBuffer(4);let read=false;
+            fail(()=>clone({get x(){read=true}},{transfer:[duplicate,duplicate]}),'DataCloneError');check(!read&&duplicate.byteLength===4,'duplicate before serialization');
+            const retained=new ArrayBuffer(4);fail(()=>clone(()=>{},{transfer:[retained]}),'DataCloneError');check(retained.byteLength===4,'failure atomicity');
+            fail(()=>clone(1,{transfer:[moved]}),'DataCloneError');fail(()=>clone(1,{transfer:[{}]}),'DataCloneError');
+            fail(()=>clone(1,{transfer:[new Uint8Array(1)]}),'DataCloneError');
+            for(const options of [1,true,'x'])fail(()=>clone(1,options),'TypeError');
+            fail(()=>clone(1,{transfer:null}),'TypeError');
+            let closed=false;fail(()=>clone(1,{transfer:{[Symbol.iterator](){return {next(){return {value:1,done:false}},return(){closed=true;throw marker}}}}}),'TypeError');check(closed,'iterator close');
+            return true;
+          })()
+        "#).unwrap();
+        v8::tc_scope!(let tc, scope);
+        let result = v8::Script::compile(tc, source, None).unwrap().run(tc);
+        assert!(
+            result.is_some_and(|v| v.is_true()),
             "{:?}",
             tc.exception().map(|e| e.to_rust_string_lossy(tc))
         );

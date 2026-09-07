@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "status": "native_serialization_integrated_full_conformance_pending",
+  "source_base": "ce0ad8454a3f3ef382d5de07932677148cc04abd",
+  "source_files": {
+    "crates/oryn-js/src/v8_bindings.rs": "4a4c4468042f2b12970a1a53f8b079a724e819232464a646db03ea1abe212d2f",
+    "crates/oryn-js/src/v8_bindings/structured_clone.rs": "01cb1e2b04582b52a1c35825b8f65568369edaecafa1ab812d974d11680fed9d",
+    "crates/oryn-native/src/rust_executable.rs": "4de8adce58e7a1e8fe34a907b3e7c7f01ee269cce553e1e3286f6c67a5dbdd23",
+    "crates/oryn-native/src/host.rs": "7fb299b6c12458a1e72db40bdae44c15f1076bb05fcf44c4782709da989a4597",
+    "Cargo.lock": "76a2cd7c8ef6782d95c751482175188453105e2bb5ddcc190b94b9300c677980"
+  },
+  "native_binary_sha256": "c7c042524784b2ebb0ec3c755f248a5763e919c83d41724985556cea70d6aff6",
+  "profile_manifest": "target/v8-window-structural-artifacts/core-full-manifest.json",
+  "validation": {
+    "bindings": {
+      "passed": 135,
+      "failed": 0,
+      "existing_ignored": 2
+    },
+    "selected_native_tests": {
+      "passed": 3,
+      "failed": 0
+    },
+    "native_matrix": {
+      "passed": 286,
+      "total": 298,
+      "nonpass_ids_and_reasons_unchanged": true,
+      "existing_nonpasses": {
+        "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes": "called `Result::unwrap()` on an `Err` value: Execution(\"ReferenceError: dedicated is not defined\\n    at <anonymous>:1:70\")",
+        "executable::tests::editing_command_state_reports_paragraph_and_alignment_values": "assertion `left == right` failed\n  left: \"div|left|true||true|true|p|left|false\"\n right: \"div|left|true||true|true|p|center|true\"",
+        "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm": "assertion `left == right` failed\n  left: \"pending\"\n right: \"https://frame.example.test/source|complete\"",
+        "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit": "assertion `left == right` failed\n  left: \"pending\"\n right: \"true|true|https://child.example.test|reply:early\"",
+        "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics": "WPT did not publish a completion result",
+        "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks": "assertion failed: started.elapsed() >= Duration::from_millis(10)",
+        "runtime::tests::about_blank_is_internal_and_history_safe": "assertion `left == right` failed\n  left: Some(Commit)\n right: Some(Load)",
+        "runtime::tests::native_navigation_checks_redirects_and_supports_history": "diagnostic timeout: 15",
+        "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action": "assertion failed: matches!(error, RuntimeError::StaleSemanticRef)",
+        "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report": "assertion `left == right` failed\n  left: \"[\\\"script-src:report\\\",\\\"script-src:report\\\"]\"\n right: \"[\\\"script-src:report\\\"]\"",
+        "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages": "assertion `left == right` failed\n  left: 3\n right: 2",
+        "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported": "assertion `left == right` failed\n  left: \"generated binding XMLHttpRequest.synchronous requests is not implemented\"\n right: \"synchronous main-thread XHR is unsupported\""
+      }
+    },
+    "strict_js_native_clippy": "passed",
+    "rustfmt": "passed",
+    "docs_truth": "passed"
+  },
+  "coverage": [
+    "V8 serialization of cyclic graphs, aliasing, sparse arrays, built-in values, errors and shared buffer views",
+    "Native Blob/File and DOMException host serialization without author constructor access",
+    "ArrayBuffer and resizable ArrayBuffer transfer, duplicate rejection, failed-serialization atomicity and reentrant detachment",
+    "WebIDL transfer sequence conversion, IteratorClose and native DataCloneError",
+    "Deserialization after source realm collection and into a borrowed global receivers relevant realm",
+    "Page bootstrap uses native structuredClone in place of its JavaScript clone implementation"
+  ],
+  "remaining": [
+    "Native MessagePort transfer and queued delivery",
+    "Native Window/Location operations and production frame WindowProxy adoption",
+    "Posted-message task source and source/origin semantics",
+    "Native worker MessageEvent and ports; worker message transport remains JSON",
+    "Other serializable platform interfaces and WebAssembly module serialization; no isolated shared-memory agent cluster",
+    "Signed candidate and complete pinned inventory rerun",
+    "Complete inventory twice plus native/profile/security release gates"
+  ],
+  "full_baseline": {
+    "source": "5499cc739523caa7958369b2378f28ef0f20cd9d",
+    "passed": 2561,
+    "total": 4022,
+    "unchanged": true
+  },
+  "raw_artifacts": {
+    "artifacts/native-structured-clone/native-matrix.json": "990f628b903795453c3fad6b722b81d17bf52ce6f4d72ef2e4d77bc79fec70ac",
+    "artifacts/native-structured-clone/clippy.log": "a85b25068e240e8bdd3259be30d465f02c768739cb379559a9751786131deb83",
+    "artifacts/native-structured-clone/native.log": "7c5e5ab73af1bc97e732355ed819dbb61e730395452096357ef909ae4f23e445",
+    "artifacts/native-structured-clone/native-matrix.log": "13f48f10a50bd74d19559e34556546c092f3a7b037ef8da445a106a24ccb7bd3",
+    "artifacts/native-structured-clone/bindings.log": "b6a3c9443bd2c28ab6f0c327c7c39cd5f0ed13bb5a02982215ffd9ec78ffd2e6"
+  }
+}

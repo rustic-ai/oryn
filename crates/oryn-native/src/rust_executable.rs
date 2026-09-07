@@ -1531,26 +1531,7 @@ globalThis.close=()=>{if(closed||__oryn_page_id===null)return;globalThis.closed=
 const __oryn_websockets=new Set();const __oryn_message_log=[];const __oryn_record_message=value=>{if(__oryn_message_log.length===128)__oryn_message_log.shift();__oryn_message_log.push(value)};let __oryn_context_event_id=0;
 class SecurityPolicyViolationEvent extends Event {constructor(type,eventInitDict={}){super(type,{bubbles:true,cancelable:false});for(const [name,value] of Object.entries({documentURI:'',referrer:'',blockedURI:'',violatedDirective:'',effectiveDirective:'',originalPolicy:'',sourceFile:'',sample:'',disposition:'enforce',statusCode:0,lineNumber:0,columnNumber:0,...eventInitDict}))Object.defineProperty(this,name,{value,enumerable:true,writable:false,configurable:false})}}
 globalThis.SecurityPolicyViolationEvent=SecurityPolicyViolationEvent;
-globalThis.__oryn_structured_clone=(value,seen=new Map())=>{
-  if(value===null||typeof value==='undefined'||typeof value==='string'||typeof value==='number'||typeof value==='boolean'||typeof value==='bigint')return value;
-  if(typeof value==='symbol'||typeof value==='function'){const error=new Error('value is not structured-cloneable');error.name='DataCloneError';throw error}
-  if(seen.has(value))return seen.get(value);
-  const tag=Object.prototype.toString.call(value);
-  if(tag==='[object Date]')return new Date(value.getTime());
-  if(tag==='[object RegExp]')return new RegExp(value.source,value.flags);
-  if(tag==='[object ArrayBuffer]')return value.slice(0);
-  if(typeof ArrayBuffer!=='undefined'&&ArrayBuffer.isView(value)){
-    const buffer=value.buffer.slice(value.byteOffset,value.byteOffset+value.byteLength);
-    return tag==='[object DataView]'?new DataView(buffer):new globalThis[value.constructor.name](buffer);
-  }
-  if(tag==='[object Map]'){const result=new Map();seen.set(value,result);for(const [key,item] of value)result.set(__oryn_structured_clone(key,seen),__oryn_structured_clone(item,seen));return result}
-  if(tag==='[object Set]'){const result=new Set();seen.set(value,result);for(const item of value)result.add(__oryn_structured_clone(item,seen));return result}
-  if(typeof Blob!=='undefined'&&(tag==='[object Blob]'||tag==='[object File]'))return tag==='[object File]'?new File([value.bytes||new Uint8Array()],value.name,{type:value.type,lastModified:value.lastModified}):new Blob([value.bytes||new Uint8Array()],{type:value.type});
-  if(Array.isArray(value)){const result=[];seen.set(value,result);for(const item of value)result.push(__oryn_structured_clone(item,seen));return result}
-  if(tag==='[object Object]'){const result={};seen.set(value,result);for(const key of Object.keys(value))result[key]=__oryn_structured_clone(value[key],seen);return result}
-  const error=new Error('value is not structured-cloneable');error.name='DataCloneError';throw error;
-};
-globalThis.structuredClone=value=>__oryn_structured_clone(value);
+const __oryn_structured_clone=globalThis.structuredClone;
 globalThis.__oryn_deliver_message=(data,targetOrigin='*',source=null,sourceOrigin='')=>{targetOrigin=String(targetOrigin);if(targetOrigin!=='*'&&targetOrigin!=='/'&&targetOrigin!==location.origin)return;const cloned=__oryn_structured_clone(data);__oryn_record_message({origin:String(sourceOrigin),data:cloned});const event=new Event('message',{});event.data=cloned;event.origin=String(sourceOrigin);event.source=source;queueMicrotask(()=>dispatchEvent(event))};
 globalThis.__oryn_make_window_proxy=(deliver,targetOrigin,sourceOrigin,sameOriginTarget=null)=>{const facade={__source:null,__closed:false,origin:String(targetOrigin),get closed(){return this.__closed},focus(){},close(){this.__closed=true},postMessage(data,requestedOrigin='*'){deliver(data,String(requestedOrigin),proxy.__source,String(sourceOrigin))}};const proxy=sameOriginTarget?new Proxy(facade,{get(target,key,receiver){if(Reflect.has(target,key))return Reflect.get(target,key,receiver);return Reflect.get(sameOriginTarget,key,sameOriginTarget)},set(target,key,value,receiver){if(Reflect.has(target,key))return Reflect.set(target,key,value,receiver);return Reflect.set(sameOriginTarget,key,value,sameOriginTarget)},has(target,key){return Reflect.has(target,key)||Reflect.has(sameOriginTarget,key)}}):facade;return proxy};
 globalThis.__oryn_make_provisional_window_proxy=()=>{let target=null;const queued=[];const facade={__source:null,__closed:false,get closed(){return target?target.closed:this.__closed},get origin(){return target?target.origin:''},focus(){if(target)target.focus()},close(){this.__closed=true;if(target)target.close()},postMessage(data,requestedOrigin='*'){if(target)target.postMessage(data,requestedOrigin);else queued.push([data,String(requestedOrigin)])},__bind(committed){target=committed;this.__closed=false;this.__source=committed.__source;while(queued.length){const [data,origin]=queued.shift();target.postMessage(data,origin)}}};return new Proxy(facade,{get(object,key,receiver){if(Reflect.has(object,key))return Reflect.get(object,key,receiver);return target?Reflect.get(target,key,target):undefined},set(object,key,value,receiver){if(Reflect.has(object,key)||!target)return Reflect.set(object,key,value,receiver);return Reflect.set(target,key,value,target)},has(object,key){return Reflect.has(object,key)||(target&&Reflect.has(target,key))}})};
@@ -4407,6 +4388,23 @@ mod tests {
                 .as_array()
                 .is_some_and(|tests| tests.iter().all(|test| test["status"] == 0)),
             "{result:#}"
+        );
+    }
+
+    #[test]
+    fn structured_clone_uses_native_serialization_in_page_runtime() {
+        let mut page=RustExecutableDocument::load(r#"<output id='result'></output><script>
+          const buffer=new ArrayBuffer(8), bytes=new Uint8Array(buffer);bytes[0]=42;
+          const value={buffer,bytes};value.self=value;
+          const copy=structuredClone(value,{transfer:[buffer]});
+          let rejected=false;try{structuredClone(document)}catch(error){rejected=error instanceof DOMException&&error.name==='DataCloneError'}
+          document.getElementById('result').textContent=[copy.self===copy,copy.buffer===copy.bytes.buffer,copy.bytes[0],buffer.byteLength,rejected].join('|');
+        </script>"#).unwrap();
+        assert!(page.diagnostics.is_empty(), "{:?}", page.diagnostics);
+        assert_eq!(
+            page.evaluate("document.getElementById('result').textContent")
+                .unwrap(),
+            "true|true|42|0|true"
         );
     }
 
