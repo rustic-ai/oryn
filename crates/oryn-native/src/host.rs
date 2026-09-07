@@ -1479,6 +1479,12 @@ mod raw_v8 {
                 .map(|state| state.take_history_traversal())
         }
 
+        pub fn take_history_url_update(&self) -> Option<String> {
+            self.binding_states
+                .get(&self.active_realm)
+                .and_then(|state| state.take_history_url_update())
+        }
+
         pub fn configure_trusted_types(
             &mut self,
             config: oryn_js::trusted_types::TrustedTypesConfig,

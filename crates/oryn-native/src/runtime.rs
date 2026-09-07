@@ -7928,6 +7928,12 @@ impl PageState {
         let Some(executable) = self.executable.as_mut() else {
             return;
         };
+        // A realm-local history update commits a URL without requesting a
+        // document load. A subsequent Location assignment can still differ
+        // from this URL and follow the ordinary navigation path.
+        if let Some(url) = executable.take_history_url_update() {
+            self.url = url;
+        }
         let (mutations, truncated) = executable.take_semantic_mutations();
         let document = executable.document.clone();
         if truncated {
@@ -9882,9 +9888,27 @@ mod tests {
     async fn native_navigation_checks_redirects_and_supports_history() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture server");
         let address = listener.local_addr().expect("fixture address");
+        listener.set_nonblocking(true).expect("nonblocking fixture");
+        let (shutdown, stopped) = std::sync::mpsc::channel();
         let server = std::thread::spawn(move || {
-            for _ in 0..6 {
-                let (mut stream, _) = listener.accept().expect("accept request");
+            loop {
+                let (mut stream, _) = match listener.accept() {
+                    Ok(connection) => connection,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if !matches!(
+                            stopped.try_recv(),
+                            Err(std::sync::mpsc::TryRecvError::Empty)
+                        ) {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(1));
+                        continue;
+                    }
+                    Err(error) => panic!("accept request: {error}"),
+                };
+                stream
+                    .set_nonblocking(false)
+                    .expect("blocking response stream");
                 let mut request = [0_u8; 2048];
                 let length = stream.read(&mut request).expect("read request");
                 let request = String::from_utf8_lossy(&request[..length]);
@@ -9944,6 +9968,8 @@ mod tests {
                 .final_url
                 .ends_with("/two")
         );
+        // Cached back/forward restores need not issue network requests.
+        shutdown.send(()).expect("stop fixture server");
         server.join().expect("fixture server");
     }
 
@@ -9953,6 +9979,13 @@ mod tests {
         page.load_html("about:blank", "<!doctype html>")
             .await
             .expect("load initial blank document");
+        #[cfg(feature = "v8-host")]
+        let blank_generation = page
+            .observe()
+            .await
+            .expect("observe blank document")
+            .page
+            .document_generation;
         page.load_html("https://example.test/next", "<title>Next</title>")
             .await
             .expect("load next document");
@@ -9960,7 +9993,15 @@ mod tests {
         let back = page.back().await.expect("return to about:blank");
         assert_eq!(back.final_url, "about:blank");
         assert_eq!(back.status, 200);
-        assert_eq!(back.lifecycle.last(), Some(&LifecycleState::Load));
+        #[cfg(feature = "v8-host")]
+        {
+            assert_eq!(back.document_generation, blank_generation);
+            assert_eq!(back.lifecycle, vec![LifecycleState::Commit]);
+        }
+        #[cfg(not(feature = "v8-host"))]
+        {
+            assert_eq!(back.lifecycle.last(), Some(&LifecycleState::Load));
+        }
         page.wait_for(WaitPredicate::Lifecycle(LifecycleState::NetworkIdle))
             .await
             .expect("wait for blank document quiet period");
@@ -10523,6 +10564,70 @@ mod tests {
                 .revision,
             after.revision,
             "an already-satisfied wait must not publish the same task change twice"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn history_state_url_changes_keep_the_document_and_do_not_fetch() {
+        struct HistoryNavigationFixture(Arc<Mutex<Vec<String>>>);
+        impl NetworkBroker for HistoryNavigationFixture {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                self.0.lock().unwrap().push(request.url.clone());
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: if request.url.ends_with("/start") {
+                        200
+                    } else {
+                        404
+                    },
+                    headers: vec![("content-type".into(), "text/html".into())],
+                    body: b"<!doctype html><p id=marker>original</p>".to_vec(),
+                })
+            }
+        }
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let context = Browser::new().new_context_with_broker(
+            ContextOptions::default(),
+            SharedNetworkBroker::new(HistoryNavigationFixture(requests.clone())),
+        );
+        for method in ["pushState", "replaceState"] {
+            let page = context.new_page();
+            page.goto("https://history.example.test/start")
+                .await
+                .unwrap();
+            page.evaluate("globalThis.originalMarker=document.getElementById('marker');'ready'")
+                .await
+                .unwrap();
+            page.evaluate(format!(
+                "history.{method}({{key:7}},'', '/changed');'changed'"
+            ))
+            .await
+            .unwrap();
+            assert_eq!(page.evaluate("[location.pathname,history.state.key,document.getElementById('marker')===originalMarker].join('|')").await.unwrap(), "/changed|7|true");
+            page.evaluate("history.pushState({key:8},'', '/later');history.back();'back'")
+                .await
+                .unwrap();
+            assert_eq!(page.evaluate("[location.pathname,history.state.key,document.getElementById('marker')===originalMarker].join('|')").await.unwrap(), "/changed|7|true");
+            page.evaluate("location.href='/destination';'requested'")
+                .await
+                .unwrap();
+            assert_eq!(
+                page.evaluate("typeof originalMarker").await.unwrap(),
+                "undefined"
+            );
+        }
+        assert_eq!(
+            *requests.lock().unwrap(),
+            [
+                "https://history.example.test/start",
+                "https://history.example.test/destination",
+                "https://history.example.test/start",
+                "https://history.example.test/destination"
+            ]
         );
     }
 

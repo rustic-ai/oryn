@@ -2639,6 +2639,10 @@ impl RustExecutableDocument {
         self.host.take_history_traversal()
     }
 
+    pub fn take_history_url_update(&self) -> Option<String> {
+        self.host.take_history_url_update()
+    }
+
     pub fn dispatch_page_transition(
         &mut self,
         event_type: &str,

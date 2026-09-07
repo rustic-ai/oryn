@@ -920,6 +920,7 @@ pub struct V8BindingState {
     implementation_documents: RefCell<BTreeMap<u64, NodeId>>,
     history: RefCell<Option<HistoryRecord>>,
     pending_history_traversal: Cell<Option<i64>>,
+    pending_history_url_update: RefCell<Option<String>>,
     storage_fallback: RefCell<[BTreeMap<String, String>; 2]>,
     next_platform_object_id: Cell<u64>,
     platform_objects: RefCell<BTreeMap<u64, PlatformObjectRecord>>,
@@ -1007,6 +1008,11 @@ impl V8BindingState {
     /// navigation after the current JavaScript task reaches a checkpoint.
     pub fn take_history_traversal(&self) -> Option<i64> {
         self.pending_history_traversal.take()
+    }
+
+    /// A URL committed by realm-local history without replacing its document.
+    pub fn take_history_url_update(&self) -> Option<String> {
+        self.pending_history_url_update.borrow_mut().take()
     }
 
     pub fn set_platform_host(&self, host: Rc<dyn PlatformHost>) {
@@ -2942,6 +2948,7 @@ pub fn install_generated_bindings_with_root_for_global(
         implementation_documents: RefCell::new(BTreeMap::new()),
         history: RefCell::new(None),
         pending_history_traversal: Cell::new(None),
+        pending_history_url_update: RefCell::new(None),
         storage_fallback: RefCell::new([BTreeMap::new(), BTreeMap::new()]),
         next_platform_object_id: Cell::new(1),
         platform_objects: RefCell::new(BTreeMap::new()),
@@ -13291,6 +13298,7 @@ fn call_history_operation<'s>(
                 }
             }
             set_location_href(scope, &url)?;
+            *state.pending_history_url_update.borrow_mut() = Some(url);
         }
         "back" | "forward" | "go" => {
             let delta = match member {
@@ -13317,6 +13325,7 @@ fn call_history_operation<'s>(
             };
             if let Some(entry) = selected {
                 set_location_href(scope, &entry.url)?;
+                *state.pending_history_url_update.borrow_mut() = Some(entry.url.clone());
                 let event_state = if let Some(encoded) = entry.state_json.as_deref() {
                     parse_json(scope, encoded)?
                 } else {
