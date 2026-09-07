@@ -9204,7 +9204,7 @@ fn light_children(dom: &DomRuntime, node: NodeId) -> Result<Vec<NodeId>, V8Bindi
         .filter(|child| {
             !matches!(
                 dom.arena().get(*child).map(|record| &record.kind),
-                Ok(NodeKind::ShadowRoot { .. })
+                Ok(NodeKind::Document | NodeKind::ShadowRoot { .. })
             )
         })
         .collect())
@@ -9214,7 +9214,10 @@ fn traversal_nodes(dom: &DomRuntime, root: NodeId) -> Result<Vec<NodeId>, V8Bind
     fn visit(dom: &DomRuntime, node: NodeId, output: &mut Vec<NodeId>) -> Result<(), DomError> {
         output.push(node);
         for child in dom.children(node)? {
-            if matches!(dom.arena().get(*child)?.kind, NodeKind::ShadowRoot { .. }) {
+            if matches!(
+                dom.arena().get(*child)?.kind,
+                NodeKind::Document | NodeKind::ShadowRoot { .. }
+            ) {
                 continue;
             }
             visit(dom, *child, output)?;
@@ -20477,11 +20480,22 @@ fn get_attribute_value<'s>(
         let related = {
             let dom = state.dom.borrow();
             let record = dom.arena().get(node)?;
-            let node_is_shadow_root = matches!(record.kind, NodeKind::ShadowRoot { .. });
+            let node_is_tree_root = matches!(
+                record.kind,
+                NodeKind::Document | NodeKind::ShadowRoot { .. }
+            );
             match member {
-                "parentNode" if node_is_shadow_root => None,
+                "parentNode"
+                | "parentElement"
+                | "previousSibling"
+                | "nextSibling"
+                | "previousElementSibling"
+                | "nextElementSibling"
+                    if node_is_tree_root =>
+                {
+                    None
+                }
                 "parentNode" => record.parent,
-                "parentElement" if node_is_shadow_root => None,
                 "parentElement" => record.parent.filter(|parent| {
                     matches!(
                         dom.arena().get(*parent).ok().map(|record| &record.kind),
@@ -30509,6 +30523,52 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "NotFoundError|WrongDocumentError|true");
+    }
+
+    #[test]
+    fn embedded_documents_are_roots_in_the_public_dom_tree() {
+        initialize_v8();
+        let mut runtime = html::parse("<iframe></iframe>").into_runtime().unwrap();
+        let frame = runtime
+            .query_selector(runtime.document(), "iframe")
+            .unwrap()
+            .unwrap();
+        let fallback = runtime.create_text("fallback");
+        runtime.append_child(frame, fallback).unwrap();
+        let child_document = runtime.create(NodeKind::Document);
+        let child_root = runtime.create_element("html");
+        runtime.append_child(child_document, child_root).unwrap();
+        // The renderer keeps an internal embedding edge; DOM navigation must
+        // expose a separate document tree without that edge.
+        runtime.append_child(frame, child_document).unwrap();
+        let dom = Rc::new(RefCell::new(runtime));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let child = wrap_node(scope, &state, child_document).unwrap();
+        let key = v8::String::new(scope, "childDocument").unwrap();
+        context.global(scope).set(scope, key.into(), child.into());
+        let source = v8::String::new(
+            scope,
+            r#"
+            const frame = document.querySelector('iframe');
+            [childDocument.parentNode === null, childDocument.parentElement === null,
+             childDocument.previousSibling === null, childDocument.nextSibling === null,
+             frame.childNodes.length, frame.firstChild === frame.lastChild,
+             frame.firstChild.nodeValue, frame.getElementsByTagName('*').length,
+             childDocument.firstChild.parentNode === childDocument,
+             childDocument.getRootNode() === childDocument].join('|')
+        "#,
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "true|true|true|true|1|true|fallback|0|true|true");
     }
 
     #[test]
