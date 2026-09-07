@@ -1117,6 +1117,9 @@ interface CSSStyleSheet {
 
 [Exposed=Window]
 interface CSSStyleDeclaration {
+  readonly attribute CSSRule? parentRule;
+  attribute DOMString transition;
+  attribute DOMString webkitTransition;
   attribute DOMString cssText;
   readonly attribute unsigned long length;
   attribute DOMString display;

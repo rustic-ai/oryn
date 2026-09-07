@@ -34,6 +34,7 @@ use crate::{
     trusted_types::{TrustedKind, TrustedTypesConfig, TrustedTypesRegistry, TrustedValue},
 };
 
+mod computed_styles;
 mod global_events;
 mod message_events;
 pub mod structured_clone;
@@ -802,6 +803,7 @@ pub struct V8BindingState {
     mutation_record_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     error_event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     message_event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
+    computed_style_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     global_object: v8::Weak<v8::Object>,
     reporting_exception: Cell<bool>,
@@ -2760,6 +2762,7 @@ pub fn install_generated_bindings_with_root_for_global(
         mutation_record_brand: RefCell::new(None),
         error_event_brand: RefCell::new(None),
         message_event_brand: RefCell::new(None),
+        computed_style_brand: RefCell::new(None),
         event_brand: RefCell::new(None),
         global_object: v8::Weak::new(scope, global_object),
         reporting_exception: Cell::new(false),
@@ -5562,113 +5565,8 @@ fn get_computed_style_callback(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
-    let result = (|| -> Result<v8::Local<v8::Object>, V8BindingError> {
-        let node = argument_node(scope, &state, args.get(0))?;
-        refresh_layout(&state)?;
-        let key = node_key(node);
-        let connected = state.dom.borrow().is_connected(node)?;
-        let mut styles = state
-            .layout
-            .borrow()
-            .styles
-            .get(&key)
-            .cloned()
-            .unwrap_or_default();
-        if !connected {
-            styles.clear();
-        }
-        // Preserve explicitly specified values that the bounded layout bridge
-        // does not yet materialize (notably physical insets). Stylo remains
-        // authoritative whenever it supplied a computed value.
-        if connected
-            && let Ok(record) = state.dom.borrow().arena().get(node)
-            && let Some(inline) = record.attributes.get("style")
-        {
-            for (name, value) in inline_style_entries(inline) {
-                styles.entry(name).or_insert(value);
-            }
-        }
-        if let (Some(x), Some(y)) = (styles.get("overflow-x"), styles.get("overflow-y"))
-            && x == y
-        {
-            styles.insert("overflow".into(), x.clone());
-        }
-        // A computed declaration is not the element's live inline-style
-        // declaration. Sharing the associated wrapper makes the computed
-        // snapshot's own properties shadow generated setters on `element.style`
-        // and prevents later inline mutations from reaching Rust.
-        let object = v8::Object::new(scope);
-        if let Some(name) = v8::String::new(scope, "CSSStyleDeclaration")
-            && let Some(prototype_name) = v8::String::new(scope, "prototype")
-            && let Some(prototype) = scope
-                .get_current_context()
-                .global(scope)
-                .get(scope, name.into())
-                .and_then(|constructor| constructor.to_object(scope))
-                .and_then(|constructor| constructor.get(scope, prototype_name.into()))
-        {
-            object.set_prototype(scope, prototype);
-        }
-        let property_names = styles.keys().cloned().collect::<Vec<_>>();
-        for (index, name) in property_names.iter().enumerate() {
-            let value = v8_string(scope, name)?;
-            object.set_index(scope, index as u32, value);
-        }
-        set_object_property(
-            scope,
-            object,
-            "length",
-            v8::Integer::new_from_unsigned(scope, property_names.len() as u32).into(),
-        )?;
-        let empty_css_text = v8_string(scope, "")?;
-        set_object_property(scope, object, "cssText", empty_css_text)?;
-        for (name, value) in &styles {
-            let mut idl_name = String::new();
-            let mut uppercase = false;
-            for character in name.trim_start_matches('-').chars() {
-                if character == '-' {
-                    uppercase = true;
-                } else if uppercase {
-                    idl_name.extend(character.to_uppercase());
-                    uppercase = false;
-                } else {
-                    idl_name.push(character);
-                }
-            }
-            let Some(value) = v8::String::new(scope, value) else {
-                continue;
-            };
-            for property in [name.as_str(), idl_name.as_str()] {
-                let Some(property) = v8::String::new(scope, property) else {
-                    continue;
-                };
-                object.create_data_property(scope, property.into(), value.into());
-            }
-        }
-        if let Some(interface) = generated_interface("CSSStyleDeclaration") {
-            for member in interface.members {
-                if member.kind != GeneratedMemberKind::Attribute
-                    || matches!(member.name, "length" | "cssText")
-                {
-                    continue;
-                }
-                let property = css_property_name(member.name);
-                let value = styles.get(property).map_or("", String::as_str);
-                let value = v8_string(scope, value)?;
-                set_object_property(scope, object, member.name, value)?;
-            }
-        }
-        let getter = v8::Function::builder(computed_style_get_property_value)
-            .data(v8::BigInt::new_from_u64(scope, node_key(node)).into())
-            .build(scope)
-            .ok_or(V8BindingError::Allocation(
-                "computed CSSStyleDeclaration.getPropertyValue",
-            ))?;
-        let name = v8::String::new(scope, "getPropertyValue")
-            .ok_or(V8BindingError::Allocation("getPropertyValue name"))?;
-        object.create_data_property(scope, name.into(), getter.into());
-        Ok(object)
-    })();
+    let result = argument_node(scope, &state, args.get(0))
+        .and_then(|node| computed_styles::create(scope, &state, node));
     match result {
         Ok(object) => return_value.set(object.into()),
         Err(error) => throw_type_error(scope, &error.to_string()),
@@ -5709,41 +5607,6 @@ fn get_computed_accessibility_callback(
     match result {
         Ok(value) => return_value.set(value.into()),
         Err(error) => throw_binding_error(scope, &error),
-    }
-}
-
-fn computed_style_get_property_value(
-    scope: &mut v8::PinScope,
-    args: v8::FunctionCallbackArguments,
-    mut return_value: v8::ReturnValue,
-) {
-    let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() else {
-        throw_type_error(scope, "generated binding state is unavailable");
-        return;
-    };
-    let Some(key) = exact_u64(args.data()) else {
-        throw_type_error(scope, "computed style target is unavailable");
-        return;
-    };
-    let Some(property) = args.get(0).to_string(scope) else {
-        throw_type_error(scope, "property must be a string");
-        return;
-    };
-    let property = property.to_rust_string_lossy(scope).to_ascii_lowercase();
-    if let Err(error) = refresh_layout(&state) {
-        throw_type_error(scope, &error.to_string());
-        return;
-    }
-    let value = state
-        .layout
-        .borrow()
-        .styles
-        .get(&key)
-        .and_then(|styles| styles.get(&property))
-        .cloned()
-        .unwrap_or_default();
-    if let Some(value) = v8::String::new(scope, &value) {
-        return_value.set(value.into());
     }
 }
 
@@ -8013,6 +7876,15 @@ fn generated_attribute_getter(
         }
         return;
     }
+    if interface == "CSSStyleDeclaration"
+        && computed_styles::is_computed(scope, &state, args.this())
+    {
+        match computed_styles::attribute(scope, &state, args.this(), member) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if interface == "MessageEvent" {
         if let Some(value) = message_events::property(scope, &state, args.this(), member) {
             return_value.set(value);
@@ -8108,6 +7980,15 @@ fn generated_attribute_setter_impl(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "CSSStyleDeclaration"
+        && computed_styles::is_computed(scope, &state, args.this())
+    {
+        // Web IDL string conversion precedes the CSSOM readonly check.
+        if args.get(0).to_string(scope).is_some() {
+            throw_binding_error(scope, &computed_styles::readonly_error());
+        }
+        return;
+    }
     if metadata.replaceable {
         let Some(name) = v8::String::new(scope, member) else {
             throw_type_error(scope, "replaceable attribute name allocation failed");
@@ -8280,6 +8161,16 @@ fn generated_operation_impl<'s>(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "CSSStyleDeclaration"
+        && computed_styles::is_computed(scope, &state, args.this())
+    {
+        match computed_styles::operation(scope, &state, &args, member) {
+            Ok(Some(value)) => return_value.set(value),
+            Ok(None) => {}
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if interface == "MessageEvent" && member == "initMessageEvent" {
         message_events::reinitialize(scope, &state, &args);
         return;
@@ -19365,6 +19256,7 @@ fn css_property_name(member: &str) -> &str {
         "whiteSpace" => "white-space",
         "MozBoxSizing" => "-moz-box-sizing",
         "WebkitBoxSizing" => "-webkit-box-sizing",
+        "webkitTransition" => "transition",
         _ => member,
     }
 }
@@ -20405,6 +20297,7 @@ fn get_attribute_value<'s>(
             scope,
             record.attributes.get("class").map_or("", String::as_str),
         )?,
+        ("CSSStyleDeclaration", "parentRule") => v8::null(scope).into(),
         ("CSSStyleDeclaration", "cssText") => v8_string(
             scope,
             record.attributes.get("style").map_or("", String::as_str),
@@ -26821,6 +26714,76 @@ mod tests {
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert!(script.run(scope).unwrap().boolean_value(scope));
+    }
+
+    #[test]
+    fn computed_style_is_readonly_live_and_preserves_conversion_errors() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<div id='probe'></div>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let probe = dom.borrow().find_by_id("probe").unwrap();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const element = document.getElementById('probe');
+            const computed = getComputedStyle(element);
+            const check = (x) => { if (!x) throw Error('computed declaration regression'); };
+            check(computed !== element.style && computed !== getComputedStyle(element));
+            check(computed.parentRule === null && computed.cssText === '');
+            for (const mutate of [() => computed.cssText = '', () => computed.color = 'blue',
+                () => computed.webkitTransition = '', () => computed.setProperty('unknown', '', 'invalid'),
+                () => computed.removeProperty('--Absent')]) {
+                let error; try { mutate(); } catch (e) { error = e; }
+                check(error instanceof DOMException && error.name === 'NoModificationAllowedError' && error.code === 7);
+            }
+            const sentinel = {};
+            for (const mutate of [() => computed.color = {toString() {throw sentinel}},
+                () => computed.setProperty('color', {toString() {throw sentinel}}),
+                () => computed.setProperty('color', '', {toString() {throw sentinel}})]) {
+                let error; try { mutate(); } catch (e) { error = e; } check(error === sentinel);
+            }
+            let rejected = false;
+            try { CSSStyleDeclaration.prototype.getPropertyValue.call(new Proxy(computed, {}), 'color'); }
+            catch (e) { rejected = e instanceof TypeError; } check(rejected);
+            element.style.color = 'red'; check(element.style.color === 'red');
+        "#).unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        v8::tc_scope!(let scope, scope);
+        let result = script.run(scope);
+        assert!(
+            result.is_some(),
+            "{}",
+            scope
+                .exception()
+                .map(|e| e.to_rust_string_lossy(scope))
+                .unwrap_or_default()
+        );
+        state.set_layout(BindingLayout {
+            styles: BTreeMap::from([(
+                node_key(probe),
+                BTreeMap::from([
+                    ("color".into(), "green".into()),
+                    ("--Case".into(), "yes".into()),
+                ]),
+            )]),
+            ..BindingLayout::default()
+        });
+        let source = v8::String::new(scope, "check(computed.color === 'green'); check(computed.getPropertyValue('--Case') === 'yes'); check(computed.getPropertyValue('--case') === ''); element.remove(); check(computed.color === '' && computed.length === 0);").unwrap();
+        let result = v8::Script::compile(scope, source, None).unwrap().run(scope);
+        assert!(
+            result.is_some(),
+            "{}",
+            scope
+                .exception()
+                .map(|e| e.to_rust_string_lossy(scope))
+                .unwrap_or_default()
+        );
     }
 
     #[test]
