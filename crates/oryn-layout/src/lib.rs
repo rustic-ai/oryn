@@ -247,6 +247,10 @@ pub enum ColorScheme {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutOutput {
+    /// CSSOM used values measured before transforms, including invisible boxes.
+    /// Properties without an applicable layout box retain their computed value.
+    #[serde(default)]
+    pub resolved_values: BTreeMap<u64, BTreeMap<String, String>>,
     pub computed_styles: BTreeMap<u64, BTreeMap<String, String>>,
     pub geometry: BTreeMap<u64, NodeGeometry>,
     /// Untransformed border-box dimensions, including visibility-hidden boxes.
@@ -691,6 +695,7 @@ fn compute_with_styles(
         .collect::<Vec<_>>();
     let mut geometry = BTreeMap::new();
     let mut offset_dimensions = BTreeMap::new();
+    let mut resolved_values = BTreeMap::new();
     let mut text_fragments = BTreeMap::new();
     let mut text_engine = TextEngine::new(&web_fonts);
     let mut cursor_y = 0.0;
@@ -706,6 +711,7 @@ fn compute_with_styles(
             &computed_styles,
             &mut geometry,
             &mut offset_dimensions,
+            &mut resolved_values,
             &mut text_fragments,
             input,
             false,
@@ -748,6 +754,7 @@ fn compute_with_styles(
         },
     );
     Ok(LayoutOutput {
+        resolved_values,
         computed_styles,
         geometry,
         offset_dimensions,
@@ -1722,6 +1729,7 @@ fn layout_node(
     styles: &BTreeMap<u64, BTreeMap<String, String>>,
     geometry: &mut BTreeMap<u64, NodeGeometry>,
     offset_dimensions: &mut BTreeMap<u64, (f64, f64)>,
+    resolved_values: &mut BTreeMap<u64, BTreeMap<String, String>>,
     text_fragments: &mut BTreeMap<u64, Vec<PaintTextFragment>>,
     input: &LayoutInput,
     ancestor_hidden: bool,
@@ -1747,6 +1755,7 @@ fn layout_node(
                 styles,
                 geometry,
                 offset_dimensions,
+                resolved_values,
                 text_fragments,
                 input,
                 true,
@@ -1896,6 +1905,7 @@ fn layout_node(
                 styles,
                 geometry,
                 offset_dimensions,
+                resolved_values,
                 text_fragments,
                 input,
                 false,
@@ -1918,6 +1928,7 @@ fn layout_node(
                 styles,
                 geometry,
                 offset_dimensions,
+                resolved_values,
                 text_fragments,
                 input,
                 false,
@@ -1934,12 +1945,57 @@ fn layout_node(
         font_size,
         input.viewport,
     );
-    let content_height = specified_height
+    let mut content_height = specified_height
         .unwrap_or(intrinsic_text_height + children_height)
         .max(0.0);
+    let border_box_sizing = style_value(style, "box-sizing", "content-box") == "border-box";
+    if border_box_sizing && specified_height.is_some() {
+        content_height =
+            (content_height - padding.top - padding.bottom - border.top - border.bottom).max(0.0);
+    }
     let border_width = outer_width.max(0.0);
     let border_height = content_height + padding.top + padding.bottom + border.top + border.bottom;
     offset_dimensions.insert(id, (border_width, border_height));
+    // CSSOM resolves dimensions from layout, before transforms or visibility
+    // suppress geometry. Non-replaced inline boxes have no used width/height.
+    let replaced = matches!(
+        node.tag.as_str(),
+        "img"
+            | "video"
+            | "audio"
+            | "canvas"
+            | "iframe"
+            | "embed"
+            | "object"
+            | "input"
+            | "textarea"
+            | "select"
+            | "button"
+    ) || (node.namespace == "http://www.w3.org/2000/svg" && node.tag == "svg");
+    if !matches!(display, "none" | "contents") && (display != "inline" || replaced) {
+        let mut values = BTreeMap::new();
+        if !matches!(
+            display,
+            "table-row" | "table-row-group" | "table-header-group" | "table-footer-group"
+        ) {
+            let width = if border_box_sizing {
+                border_width
+            } else {
+                content_width
+            };
+            values.insert("width".into(), format!("{width}px"));
+        }
+        if !matches!(display, "table-column" | "table-column-group") {
+            let height = if border_box_sizing {
+                border_height
+            } else {
+                content_height
+            };
+            values.insert("height".into(), format!("{height}px"));
+        }
+        resolved_values.insert(id, values);
+    }
+
     let document_rect = transform_rect(
         CssRect {
             x,
@@ -3242,6 +3298,41 @@ mod tests {
             output.computed_styles[&1]
         );
         assert!(three.y > one.y, "one={one:?} three={three:?}");
+    }
+
+    #[test]
+    fn cssom_dimensions_use_untransformed_boxes_and_preserve_non_applicable_values() {
+        let mut root = node(1, None, "div", "");
+        root.children = vec![2, 3, 4, 5, 6];
+        let input = LayoutInput {
+            nodes: vec![root, node(2, Some(1), "div", ""), node(3, Some(1), "div", ""), node(4, Some(1), "div", ""), node(5, Some(1), "div", ""), node(6, Some(1), "span", "")],
+            stylesheets: vec!["div { width: 200px } div > div { width: 50%; height: 100px; padding: 5px; border: 2px solid } div > div:nth-child(1) { transform: scale(2) } div > div:nth-child(2) { box-sizing: border-box } div > div:nth-child(3) { visibility: hidden } div > div:nth-child(4) { display: none } span { width: 50%; height: 100px }".into()],
+            custom_states: BTreeMap::new(), focused_node: None,
+            viewport: ViewportState::default(), scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
+        };
+        let output = compute(&input, &LayoutLimits::default()).unwrap();
+        for id in [2, 3, 4] {
+            assert_eq!(output.resolved_values[&id]["width"], "100px");
+            assert_eq!(output.resolved_values[&id]["height"], "100px");
+            assert_eq!(output.computed_styles[&id]["width"], "50%");
+        }
+        assert_eq!(
+            output.geometry[&2]
+                .box_model
+                .as_ref()
+                .unwrap()
+                .border_box
+                .width,
+            228.0
+        );
+        assert_eq!(output.offset_dimensions[&3], (100.0, 100.0));
+        assert_eq!(
+            output.geometry[&4].availability,
+            GeometryAvailability::Hidden
+        );
+        assert!(!output.resolved_values.contains_key(&5));
+        assert!(!output.resolved_values.contains_key(&6));
     }
 
     #[test]

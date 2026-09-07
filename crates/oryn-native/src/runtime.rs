@@ -7045,6 +7045,7 @@ impl PageState {
             Ok(Ok(output)) => output,
             Ok(Err(error)) => return Err(RuntimeError::LayoutUnavailable(error.to_string())),
             Err(_) => oryn_layout::LayoutOutput {
+                resolved_values: BTreeMap::new(),
                 offset_dimensions: BTreeMap::new(),
                 computed_styles: BTreeMap::new(),
                 geometry: BTreeMap::new(),

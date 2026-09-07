@@ -153,9 +153,19 @@ fn binding_layout_from_output(output: &oryn_layout::LayoutOutput) -> BindingLayo
             (*node, value)
         })
         .collect();
+    let mut styles = output.computed_styles.clone();
+    for (node, resolved) in &output.resolved_values {
+        if let Some(values) = styles.get_mut(node) {
+            values.extend(
+                resolved
+                    .iter()
+                    .map(|(name, value)| (name.clone(), value.clone())),
+            );
+        }
+    }
     BindingLayout {
         offset_dimensions: output.offset_dimensions.clone(),
-        styles: output.computed_styles.clone(),
+        styles,
         geometry,
     }
 }
