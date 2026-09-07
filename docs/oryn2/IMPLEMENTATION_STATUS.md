@@ -2,38 +2,39 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> Clean signed-worker baseline `450dd3e`: **2,598/4,022**, with
-> **30 new file passes, 2 lost file passes, and 1,424 remaining failures**
-> versus `728688c` at 2,570/4,022.
+> Clean signed-worker baseline `6ee4710`: **2,608/4,022 (64.8%)**, with
+> **10 new file passes, no lost file passes, and 1,414 remaining failures**
+> versus `450dd3e` at 2,598/4,022.
 
-This candidate routes inline CSSOM declarations through Stylo, exposes its supported
-property accessors and computed insets, and corrects input handling after ancestors hide. The full audit verifies all 4,022 unique IDs,
-passing harness completions, frozen source and binary hashes, and unchanged
-sandbox boundaries and resource limits. Stylo remains the CSS engine.
+The candidate integrates native page rules and declarations through Stylo, standard
+CSSRule constants, stylesheet source separation, and SVG resource retention.
+The complete audit verifies all 4,022 unique IDs, passing harness completions,
+frozen source and binary hashes, and unchanged sandbox boundaries and limits.
+Stylo remains the CSS engine.
 
 | Root | Passed / required |
 |---|---:|
 | IndexedDB | 341/456 |
 | WebIDL | 30/58 |
 | accname | 15/19 |
-| css/css-cascade | 46/97 |
-| css/cssom | 67/190 |
-| css/selectors | 160/277 |
+| css/css-cascade | 47/97 |
+| css/cssom | 73/190 |
+| css/selectors | 161/277 |
 | dom | 382/662 |
 | editing | 118/704 |
 | html/browsers/history | 30/136 |
-| referrer-policy | 1,381/1,391 |
+| referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-[Baseline evidence](CONFORMANCE-CSS-ACCESSORS-BASELINE-2026-09-07.json) records every file delta and artifact hash.
-The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) uses this single
-complete run. The assertion comparison records 390 corrected assertions,
-8 observed pass-to-fail changes, and 12 cumulative unresolved
-missing historical assertion names. Four older frame regressions and eight new SVG
-filter/marker resource regressions remain observed failing. The six editing
-regressions from the previous baseline are corrected. No timing cause is inferred
-from missing names.
-Native MessagePort work and the stylesheet source/rule batch remain isolated.
+[Baseline evidence](CONFORMANCE-PAGE-RULES-BASELINE-2026-09-07.json) records the full
+result and hashes. The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json)
+contains exactly 1,414 open executions from this run. The comparison records 248
+corrected assertions and no observed pass-to-fail changes. Five history assertion
+names changed only in the server port; the evidence records the source and mapping.
+The prior eight SVG assertion regressions are recovered. Twelve historical missing
+assertion names and four older frame regressions remain open.
+Editing-command and shared Range fixes are isolated and awaiting validation.
+Native MessagePort work remains isolated. Complete conformance is not achieved.
 
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.

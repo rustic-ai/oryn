@@ -1,0 +1,670 @@
+{
+  "baseline_ledger_sha256": "b9ff70e5c3c24ceb291c77f8aaff616ff928fde6fe8e9bafebfd42619790272a",
+  "ledger": "artifacts/upstream-conformance/conformance-worker-full-page-rules-6ee4710.json",
+  "ledger_sha256": "dba6a6dfacea8ed24a94fccb7d1a5c5517547a651278ce67248e971b7844bb32",
+  "source": {
+    "commit": "6ee47106d2a35ea1340d1a7d8ab4ce5765781ec8",
+    "dirty": false,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_file_count": 0,
+    "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "binary": {
+    "sha256": "602f4a42a3541f020b14fb7b1d49e268ce5b0910789431f798f4dcc4d57c6816",
+    "size_bytes": 6991440
+  },
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "9a7f55016d5cbbfdeda9a9f112b8cdcb082aa24dc5ac41700a2dac918ebac83d",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "887445ae879a308db36184cd1e0789df850ac6c879c2e4d68780ea7aa04f85ca",
+    "worker_binary_sha256": "4a4ff965bdb4ef5249b8d4c1bfacbb98eacb80df12d57fdb4a5b019d427d0c94",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_protocol_version": 8,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+  "exact_coverage": true,
+  "passed_completions_valid": true,
+  "outcome": {
+    "required_finished": 4022,
+    "required_passed": 2608,
+    "required_total": 4022,
+    "status": "failed"
+  },
+  "counts_by_root": {
+    "IndexedDB": {
+      "passed": 341,
+      "required": 456
+    },
+    "WebIDL": {
+      "passed": 30,
+      "required": 58
+    },
+    "accname": {
+      "passed": 15,
+      "required": 19
+    },
+    "css/css-cascade": {
+      "passed": 47,
+      "required": 97
+    },
+    "css/cssom": {
+      "passed": 73,
+      "required": 190
+    },
+    "css/selectors": {
+      "passed": 161,
+      "required": 277
+    },
+    "dom": {
+      "passed": 382,
+      "required": 662
+    },
+    "editing": {
+      "passed": 118,
+      "required": 704
+    },
+    "html/browsers/history": {
+      "passed": 30,
+      "required": 136
+    },
+    "referrer-policy": {
+      "passed": 1383,
+      "required": 1391
+    },
+    "wai-aria": {
+      "passed": 28,
+      "required": 32
+    }
+  },
+  "failure_domains": {
+    "assertion": 1222,
+    "timeout": 2,
+    "runtime": 51,
+    "harness": 136,
+    "incomplete": 3
+  },
+  "file_gains": [
+    "css/css-cascade/at-scope-parsing.html|window|",
+    "css/cssom/CSSFontFaceRule.html|window|",
+    "css/cssom/CSSStyleSheet.html|window|",
+    "css/cssom/css-style-reparse.html|window|",
+    "css/cssom/cssom-pagerule.html|window|",
+    "css/cssom/selectorSerialize.html|window|",
+    "css/cssom/serialize-namespaced-type-selectors.html|window|",
+    "css/selectors/attribute-selectors/attribute-case/syntax.html|window|",
+    "referrer-policy/css-integration/svg/inline-style-with-differentorigin-base-tag.tentative.html|window|",
+    "referrer-policy/css-integration/svg/inline-style.html|window|"
+  ],
+  "file_losses": [],
+  "zero_assertion_passes": [],
+  "assertion_changes": [
+    {
+      "id": "css/css-cascade/at-scope-parsing.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "@scope (.a) is valid",
+        "@scope (.a + .b) is valid",
+        "@scope (.a:hover) is valid",
+        "@scope (.a:hover, #b, div) is valid",
+        "@scope (:is(div, span)) is valid",
+        "@scope (.a) to (.b) is valid",
+        "@scope (.a)to (.b) is valid",
+        "@scope (.a) to (.b:hover, #c, div) is valid",
+        "@scope is valid",
+        "@scope to (.a) is valid",
+        "@scope (.a) to (&) is valid",
+        "@scope (.a) to (& > &) is valid",
+        "@scope (.a) to (> .b) is valid",
+        "@scope (.a) to (+ .b) is valid",
+        "@scope (.a) to (~ .b) is valid",
+        "@scope () is not valid",
+        "@scope to () is not valid",
+        "@scope () to () is not valid",
+        "@scope (.c <> .d) is not valid",
+        "@scope (.a, .c <> .d) is not valid",
+        "@scope (.a <> .b, .c) is not valid",
+        "@scope (div::before) is not valid",
+        "@scope (div::after) is not valid",
+        "@scope (slotted(div)) is not valid",
+        "@scope (.a) to (div::before) is not valid",
+        "@scope (> &) to (>>) is not valid",
+        "@scope div is not valid",
+        "@scope (.a) unknown (.c) is not valid",
+        "@scope (.a) to unknown (.c) is not valid",
+        "@scope (.a) 1px (.c) is not valid",
+        "@scope (.a) to unknown(c) is not valid",
+        "@scope unknown(.a) is not valid",
+        "@scope 1px is not valid",
+        "@scope creep is not valid",
+        "@scope ))) is not valid",
+        "@scope ( is not valid",
+        "@scope ( {} is not valid",
+        "@scope to is not valid",
+        "@scope } is not valid",
+        "@scope (.a is not valid",
+        "@scope (.a to (.b) is not valid",
+        "@scope ( to (.b) is not valid",
+        "@scope (.a) from (.c) is not valid"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/css-cascade/scope-cssom.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "CSSScopeRule.cssText, implicit scope",
+        "CSSScopeRule.cssText, root only",
+        "CSSScopeRule.cssText, root and limit",
+        "CSSScopeRule.cssText, limit only"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/cssom/CSSFontFaceRule.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "CSSFontFaceRule.cssText doesn't serialize with newlines"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/cssom/CSSStyleRule-set-selectorText-namespace.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "CSSStyleRule: selectorText value: |.style1| isMatch: false",
+        "CSSStyleRule: selectorText value: |p| isMatch: false"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/cssom/CSSStyleSheet-constructable.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "CSSStyleSheet.replaceSync allows, but ignores, import rule inside"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/cssom/CSSStyleSheet.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "addRule with no argument adds \"undefined\" selector"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/cssom/border-shorthand-serialization.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "Border shorthand is serialized correctly if all border-image-* are set to their initial specified values."
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/cssom/css-style-reparse.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "style.textContent modification",
+        "style.innerHTML modification"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/cssom/cssimportrule.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "CSSStyleDeclaration cssText attribute should be updated due to [PutForwards]"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/cssom/cssom-pagerule.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "Page selector is initially the empty string",
+        "Page selector 'cssText' is initially the @page { }",
+        "Set cssText to :left pseudo page",
+        "Set cssText to named page",
+        "Set cssText to named page with :first pseudo page",
+        "Set selectorText to named page with case insensitive :first pseudo page",
+        "Set cssText to named page with case insensitive :first pseudo page",
+        "Set cssText to named page with two :first pseudo page",
+        "Set cssText to named page with pseudo pages of :first, :left, :right, :first in order.",
+        "Cannot set selectorText to named page with pseudo, whitespace between",
+        "Cannot set cssText to named page with pseudo, whitespace between - return default @page { }",
+        "Cannot set selectorText to two pseudos, whitespace between",
+        "Cannot set cssText to two pseudos, whitespace between - return default @page { }",
+        "Cannot set selectorText to invalid pseudo page",
+        "Cannot set cssText to invalid pseudo page - return default @page { }",
+        "Set selectorText to named page after rule was removed"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/cssom/rule-restrictions.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "@page"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/cssom/selectorSerialize.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "escaped character in attribute prefix",
+        "escaped character in both attribute prefix and name",
+        "escaped character (\\) in element name with any namespace with default",
+        "escaped character (*) in element prefix"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/cssom/serialize-media-rule.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "empty media query list",
+        "type - no features",
+        "type - no features - negation",
+        "type - no features - character case normalization",
+        "type - omission of all",
+        "type - inclusion of negated all",
+        "features - preservation of overspecified features",
+        "features - no lexicographical sorting",
+        "media query list"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/cssom/serialize-namespaced-type-selectors.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "Type selector with any namespace",
+        "Universal selector in any namespace",
+        "Type selector with namespace",
+        "Universal selector with namespace",
+        "Type selector with any namespace followed by class",
+        "Type selector with any namespace followed by id",
+        "Type selector with any namespace followed by pseudo class",
+        "Type selector with any namespace followed by pseudo element",
+        "Type selector with any namespace followed by attribute selector",
+        "Universal selector in any namespace followed by class",
+        "Universal selector in any namespace followed by id",
+        "Universal selector in any namespace followed by pseudo class",
+        "Universal selector in any namespace followed by pseudo element",
+        "Universal selector in any namespace followed by attribute selector",
+        "Type selector with namespace followed by class",
+        "Type selector with namespace followed by id",
+        "Type selector with namespace followed by pseudo class",
+        "Type selector with namespace followed by pseudo element",
+        "Type selector with namespace followed by attribute selector",
+        "Universal selector with namespace followed by class",
+        "Universal selector with namespace followed by id",
+        "Universal selector with namespace followed by pseudo class",
+        "Universal selector with namespace followed by pseudo element",
+        "Universal selector with namespace followed by attribute selector",
+        "Type selector with namespace equal to default namespace",
+        "Universal selector with namespace equal to default namespace",
+        "Type selector with namespace equal to default namespace followed by class",
+        "Type selector with namespace equal to default namespace followed by id",
+        "Type selector with namespace equal to default namespace followed by pseudo class",
+        "Type selector with namespace equal to default namespace followed by pseudo element",
+        "Type selector with namespace equal to default namespace followed by attribute selector",
+        "Universal selector with namespace equal to default namespace followed by class",
+        "Universal selector with namespace equal to default namespace followed by id",
+        "Universal selector with namespace equal to default namespace followed by pseudo class",
+        "Universal selector with namespace equal to default namespace followed by pseudo element",
+        "Universal selector with namespace equal to default namespace followed by attribute selector"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/selectors/attribute-selectors/attribute-case/semantics.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A'] /* sanity check (match) */ <div {http://www.w3.org/XML/1998/namespace}lang=\"A\"> in standards mode",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A' i] <div {http://www.w3.org/XML/1998/namespace}lang=\"a\"> in standards mode",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A' s] <div {http://www.w3.org/XML/1998/namespace}lang=\"A\"> in standards mode",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A'] /* sanity check (no match) */ <div {http://www.w3.org/XML/1998/namespace}lang=\"a\"> in standards mode",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A' s] <div {http://www.w3.org/XML/1998/namespace}lang=\"a\"> in standards mode",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A'] /* sanity check (match) */ <div {http://www.w3.org/XML/1998/namespace}lang=\"A\"> in quirks mode",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A' i] <div {http://www.w3.org/XML/1998/namespace}lang=\"a\"> in quirks mode",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A' s] <div {http://www.w3.org/XML/1998/namespace}lang=\"A\"> in quirks mode",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A'] /* sanity check (no match) */ <div {http://www.w3.org/XML/1998/namespace}lang=\"a\"> in quirks mode",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A' s] <div {http://www.w3.org/XML/1998/namespace}lang=\"a\"> in quirks mode",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A'] /* sanity check (match) */ <div {http://www.w3.org/XML/1998/namespace}lang=\"A\"> in XML",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A' i] <div {http://www.w3.org/XML/1998/namespace}lang=\"a\"> in XML",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A' s] <div {http://www.w3.org/XML/1998/namespace}lang=\"A\"> in XML",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A'] /* sanity check (no match) */ <div {http://www.w3.org/XML/1998/namespace}lang=\"a\"> in XML",
+        "@namespace x 'http://www.w3.org/XML/1998/namespace'; [x|lang='A' s] <div {http://www.w3.org/XML/1998/namespace}lang=\"a\"> in XML"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "css/selectors/attribute-selectors/attribute-case/syntax.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "[foo='bar' i {}] in standards mode",
+        "[foo='bar' {} i] in standards mode",
+        "[foo='bar' {i}] in standards mode",
+        "[foo='BAR'] /* sanity check (valid) */ in quirks mode",
+        "[baz='quux'] /* sanity check (valid) */ in quirks mode",
+        "[foo='bar' i] in quirks mode",
+        "[foo='bar' I] in quirks mode",
+        "[foo=bar i] in quirks mode",
+        "[foo=\"bar\" i] in quirks mode",
+        "[foo='bar'i] in quirks mode",
+        "[foo='bar'i ] in quirks mode",
+        "[foo='bar' i ] in quirks mode",
+        "[foo='bar' /**/ i] in quirks mode",
+        "[foo='bar' i /**/ ] in quirks mode",
+        "[foo='bar'/**/i/**/] in quirks mode",
+        "[foo=bar/**/i] in quirks mode",
+        "[foo='bar'\ti\t] /* \\t */ in quirks mode",
+        "[foo='bar'\ni\n] /* \\n */ in quirks mode",
+        "[foo='bar'\ri\r] /* \\r */ in quirks mode",
+        "[foo='bar' \\i] in quirks mode",
+        "[foo='bar' \\69] in quirks mode",
+        "[foo='bar' \\49] in quirks mode",
+        "[foo~='bar' i] in quirks mode",
+        "[foo^='bar' i] in quirks mode",
+        "[foo$='bar' i] in quirks mode",
+        "[foo*='bar' i] in quirks mode",
+        "[foo|='bar' i] in quirks mode",
+        "[|foo='bar' i] in quirks mode",
+        "[*|foo='bar' i] in quirks mode",
+        "[baz='quux' s] in quirks mode",
+        "[baz='quux' S] in quirks mode",
+        "[baz=quux s] in quirks mode",
+        "[baz=\"quux\" s] in quirks mode",
+        "[baz='quux's] in quirks mode",
+        "[baz='quux's ] in quirks mode",
+        "[baz='quux' s ] in quirks mode",
+        "[baz='quux' /**/ s] in quirks mode",
+        "[baz='quux' s /**/ ] in quirks mode",
+        "[baz='quux'/**/s/**/] in quirks mode",
+        "[baz=quux/**/s] in quirks mode",
+        "[baz='quux'\ts\t] /* \\t */ in quirks mode",
+        "[baz='quux'\ns\n] /* \\n */ in quirks mode",
+        "[baz='quux'\rs\r] /* \\r */ in quirks mode",
+        "[baz='quux' \\s] in quirks mode",
+        "[baz='quux' \\73] in quirks mode",
+        "[baz='quux' \\53] in quirks mode",
+        "[baz~='quux' s] in quirks mode",
+        "[baz^='quux' s] in quirks mode",
+        "[baz$='quux' s] in quirks mode",
+        "[baz*='quux' s] in quirks mode",
+        "[baz|='quux' s] in quirks mode",
+        "[|baz='quux' s] in quirks mode",
+        "[*|baz='quux' s] in quirks mode",
+        "[foo='BAR'] /* sanity check (valid) */ in XML",
+        "[baz='quux'] /* sanity check (valid) */ in XML",
+        "[foo='bar' i] in XML",
+        "[foo='bar' I] in XML",
+        "[foo=bar i] in XML",
+        "[foo=\"bar\" i] in XML",
+        "[foo='bar'i] in XML",
+        "[foo='bar'i ] in XML",
+        "[foo='bar' i ] in XML",
+        "[foo='bar' /**/ i] in XML",
+        "[foo='bar' i /**/ ] in XML",
+        "[foo='bar'/**/i/**/] in XML",
+        "[foo=bar/**/i] in XML",
+        "[foo='bar'\ti\t] /* \\t */ in XML",
+        "[foo='bar'\ni\n] /* \\n */ in XML",
+        "[foo='bar'\ri\r] /* \\r */ in XML",
+        "[foo='bar' \\i] in XML",
+        "[foo='bar' \\69] in XML",
+        "[foo='bar' \\49] in XML",
+        "[foo~='bar' i] in XML",
+        "[foo^='bar' i] in XML",
+        "[foo$='bar' i] in XML",
+        "[foo*='bar' i] in XML",
+        "[foo|='bar' i] in XML",
+        "[|foo='bar' i] in XML",
+        "[*|foo='bar' i] in XML",
+        "[baz='quux' s] in XML",
+        "[baz='quux' S] in XML",
+        "[baz=quux s] in XML",
+        "[baz=\"quux\" s] in XML",
+        "[baz='quux's] in XML",
+        "[baz='quux's ] in XML",
+        "[baz='quux' s ] in XML",
+        "[baz='quux' /**/ s] in XML",
+        "[baz='quux' s /**/ ] in XML",
+        "[baz='quux'/**/s/**/] in XML",
+        "[baz=quux/**/s] in XML",
+        "[baz='quux'\ts\t] /* \\t */ in XML",
+        "[baz='quux'\ns\n] /* \\n */ in XML",
+        "[baz='quux'\rs\r] /* \\r */ in XML",
+        "[baz='quux' \\s] in XML",
+        "[baz='quux' \\73] in XML",
+        "[baz='quux' \\53] in XML",
+        "[baz~='quux' s] in XML",
+        "[baz^='quux' s] in XML",
+        "[baz$='quux' s] in XML",
+        "[baz*='quux' s] in XML",
+        "[baz|='quux' s] in XML",
+        "[|baz='quux' s] in XML",
+        "[*|baz='quux' s] in XML"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "dom/ranges/Range-mutations-appendData.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [],
+      "additional_passing_names": [
+        "detachedTextNode.appendData(\"\"), with unselected range on detachedTextNode from 0 to 1"
+      ]
+    },
+    {
+      "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [],
+      "additional_passing_names": [
+        "paras[0].firstChild.textContent += \"\", with unselected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.textContent += \"\", with selected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.textContent += \"foo\", with unselected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.textContent += \"foo\", with selected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.textContent += paras[0].firstChild.textContent, with unselected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.textContent += paras[0].firstChild.textContent, with selected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.nodeValue = \"\", with unselected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.nodeValue = \"\", with selected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.nodeValue = \"foo\", with unselected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.nodeValue = \"foo\", with selected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.nodeValue = paras[0].firstChild.nodeValue, with unselected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.nodeValue = paras[0].firstChild.nodeValue, with selected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.nodeValue += \"\", with unselected range on paras[0].firstChild from 0 to paras[0].firstChild.length",
+        "paras[0].firstChild.nodeValue += \"\", with selected range on paras[0].firstChild from 0 to paras[0].firstChild.length"
+      ]
+    },
+    {
+      "id": "dom/ranges/Range-mutations-insertData.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [],
+      "additional_passing_names": [
+        "detachedTextNode.insertData(376, \"\"), with selected range on detachedTextNode from 0 to 1"
+      ]
+    },
+    {
+      "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [],
+      "additional_passing_names": [
+        "paras[1].firstChild.replaceData(376, 1, \"\"), with unselected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.replaceData(376, 1, \"\"), with selected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.replaceData(0, 1, \"\"), with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.replaceData(0, 1, \"\"), with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.replaceData(1, 1, \"\"), with unselected range collapsed at (paras[1].firstChild, 1)"
+      ]
+    },
+    {
+      "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+      "missing_prior_passes": [
+        "http://localhost:65033/common/blank.html to http://localhost:65033/common/blank.html#newhash should work",
+        "http://localhost:65033/common/blank.html to http://localhost:65033/common/blank.html?newsearch should work",
+        "http://localhost:65033/common/blank.html to http://localhost:65033/newpath should work",
+        "http://localhost:65033/common/blank.html to about:blank should not work",
+        "http://localhost:65033/common/blank.html to about:srcdoc should not work"
+      ],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [],
+      "additional_passing_names": [
+        "http://localhost:63886/common/blank.html to http://localhost:63886/common/blank.html#newhash should work",
+        "http://localhost:63886/common/blank.html to http://localhost:63886/common/blank.html?newsearch should work",
+        "http://localhost:63886/common/blank.html to http://localhost:63886/newpath should work",
+        "http://localhost:63886/common/blank.html to about:blank should not work",
+        "http://localhost:63886/common/blank.html to about:srcdoc should not work"
+      ]
+    },
+    {
+      "id": "referrer-policy/css-integration/svg/inline-style-with-differentorigin-base-tag.tentative.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "Styling SVG from inline styles filter",
+        "Styling SVG from inline styles marker-start",
+        "Styling SVG from inline styles marker-mid",
+        "Styling SVG from inline styles marker-end"
+      ],
+      "additional_passing_names": []
+    },
+    {
+      "id": "referrer-policy/css-integration/svg/inline-style.html|window|",
+      "missing_prior_passes": [],
+      "observed_pass_to_fail": [],
+      "corrected_existing": [
+        "Styling SVG from inline styles filter",
+        "Styling SVG from inline styles marker-start",
+        "Styling SVG from inline styles marker-mid",
+        "Styling SVG from inline styles marker-end"
+      ],
+      "additional_passing_names": []
+    }
+  ],
+  "verified_assertion_renames": [],
+  "schema_version": 1,
+  "release_qualified": false,
+  "inventory_complete_twice": false,
+  "assertion_name_reconciliation": {
+    "audit_sha256": "3ba6ddfd97c3648a57a4e91b4290220f38c73c600c60594f7a94e00ee665b2bf",
+    "test_source": "artifacts/upstream-conformance/wpt-719d5e38fdd0903a18ed9007aba816c98cc491e0/html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html",
+    "test_source_sha256": "d30070f50e41a5b4901cbc9724c7c862538570b5e4855b86b17f648ac23de047",
+    "reason": "Pinned test builds URLs from location.href and includes them in assertion names; only ephemeral localhost port differs. Both names are passing in their respective ledgers.",
+    "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+    "verified_pairs": [
+      {
+        "before": "http://localhost:65033/common/blank.html to http://localhost:65033/common/blank.html#newhash should work",
+        "after": "http://localhost:63886/common/blank.html to http://localhost:63886/common/blank.html#newhash should work"
+      },
+      {
+        "before": "http://localhost:65033/common/blank.html to http://localhost:65033/common/blank.html?newsearch should work",
+        "after": "http://localhost:63886/common/blank.html to http://localhost:63886/common/blank.html?newsearch should work"
+      },
+      {
+        "before": "http://localhost:65033/common/blank.html to http://localhost:65033/newpath should work",
+        "after": "http://localhost:63886/common/blank.html to http://localhost:63886/newpath should work"
+      },
+      {
+        "before": "http://localhost:65033/common/blank.html to about:blank should not work",
+        "after": "http://localhost:63886/common/blank.html to about:blank should not work"
+      },
+      {
+        "before": "http://localhost:65033/common/blank.html to about:srcdoc should not work",
+        "after": "http://localhost:63886/common/blank.html to about:srcdoc should not work"
+      }
+    ],
+    "unexplained_missing_prior_passes": 0
+  },
+  "validation_limitations": [
+    "1414 required executions remain failing.",
+    "Editing and shared Range changes are isolated and not included.",
+    "Historical missing assertion names and older frame regressions remain open; this audit compares against 450dd3e."
+  ]
+}

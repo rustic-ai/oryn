@@ -32,16 +32,14 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The clean **complete full baseline** at `450dd3e` is **2,598/4,022**, with
-1,424 failures: 30 gains and 2 lost file passes versus `728688c` at 2,570/4,022.
-Exact inventory coverage, passing completions, source and binary hashes, and
-unchanged limits were independently checked in the [CSS accessor baseline](CONFORMANCE-CSS-ACCESSORS-BASELINE-2026-09-07.json).
-Inline declarations now use Stylo parsing and mutation, supported CSS accessors are
-exposed, and computed insets and hidden-ancestor input behavior are corrected. The comparison records 390 corrected assertions and
-8 observed pass-to-fail changes. 12 historical passing assertion names
-remain absent and unresolved; 12 historical regressions remain observed failing.
-Missing names and intermittent outcomes require investigation; no timing cause
-is inferred from this run. Native MessagePort work and the stylesheet source/rule batch are not included in the candidate.
+The clean **complete full baseline** at `6ee4710` is **2,608/4,022 (64.8%)**,
+with 1,414 failures: 10 gains and no lost file passes versus `450dd3e`.
+The [page-rule baseline](CONFORMANCE-PAGE-RULES-BASELINE-2026-09-07.json) verifies
+exact coverage, passing completions, frozen hashes, and unchanged resource limits.
+It records 248 corrected assertions, no observed assertion regressions, and five
+verified history names differing only in server port. Older historical missing
+names and frame regressions remain open. Editing commands and shared Range
+ownership are the next isolated implementation batch, not part of this score.
 
 The [historical observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
 retains an earlier complete run. That earlier assertion audit records 25 corrected
@@ -59,7 +57,7 @@ first-error text does not establish a root cause. No ID is silently discarded.
 |---|---|---:|
 | DOM | Clean full baseline | 280 |
 | Editing | Clean full baseline | 586 |
-| CSS | Clean full baseline | 329 |
+| CSS | Clean full baseline | 283 |
 | IndexedDB | Clean full baseline | 115 |
 | HTML | Clean full baseline | 106 |
 | WebIDL | Clean full baseline | 28 |
@@ -135,10 +133,10 @@ Important concentration and dependencies:
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 
-**Baseline completed:** clean source `450dd3e`, signed worker
-`e6a52bfedbe26c482846b5a7ab8a78651899a459db907838fdf158ac36cdec84`,
-ledger `conformance-worker-full-css-accessors-450dd3e.json`. All 4,022 IDs and passing
-completions verified; all 1,424 failures routed. The initial resource batch has
+**Baseline completed:** clean source `6ee4710`, signed worker
+`4a4ff965bdb4ef5249b8d4c1bfacbb98eacb80df12d57fdb4a5b019d427d0c94`,
+ledger `conformance-worker-full-page-rules-6ee4710.json`. All 4,022 IDs and passing
+completions verified; all 1,414 failures routed. The initial resource batch has
 reproducible scaling and GC diagnostics recorded in the
 [foundation report](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 The procedure below remains required for subsequent complete candidates.
