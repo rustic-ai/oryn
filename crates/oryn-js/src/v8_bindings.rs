@@ -10484,31 +10484,82 @@ fn selection_format_value(state: &V8BindingState, command: &str) -> Option<Strin
     None
 }
 
-fn selection_block_alignment(state: &V8BindingState) -> String {
+fn editing_alignment_value(state: &V8BindingState, node: NodeId) -> Result<String, V8BindingError> {
+    refresh_layout(state)?;
     let dom = state.dom.borrow();
-    let mut current = state.selection_anchor.get().map(|point| point.container);
+    let layout = state.layout.borrow();
+    let mut current = Some(node);
     while let Some(node) = current {
-        let Ok(record) = dom.arena().get(node) else {
-            break;
-        };
-        let style = inline_style_entries(record.attributes.get("style").map_or("", String::as_str));
-        if let Some(value) = style.get("text-align").filter(|value| !value.is_empty()) {
-            return match value.as_str() {
-                "start" => "left".into(),
-                "end" => "right".into(),
-                value => value.into(),
-            };
-        }
-        if let Some(value) = record
-            .attributes
-            .get("align")
-            .filter(|value| !value.is_empty())
-        {
-            return value.to_ascii_lowercase();
-        }
+        let record = dom.arena().get(node)?;
         current = record.parent;
+        if !matches!(record.kind, NodeKind::Element { .. }) {
+            continue;
+        }
+        if let Some(style) = layout.styles.get(&node_key(node)) {
+            if matches!(
+                style.get("display").map(String::as_str),
+                Some("inline" | "none")
+            ) {
+                continue;
+            }
+            let alignment = style.get("text-align").map_or("start", String::as_str);
+            let rtl = style.get("direction").is_some_and(|value| value == "rtl");
+            return Ok(resolve_editing_alignment(alignment, rtl).into());
+        }
+        // Binding-only hosts may have no layout provider. Preserve their
+        // attribute fallback without overriding computed styles when available.
+        let mut ancestor = Some(node);
+        let mut alignment = None;
+        let mut direction = None;
+        while let Some(candidate) = ancestor {
+            let record = dom.arena().get(candidate)?;
+            let inline =
+                inline_style_entries(record.attributes.get("style").map_or("", String::as_str));
+            alignment = alignment
+                .or_else(|| inline.get("text-align").cloned())
+                .or_else(|| record.attributes.get("align").cloned());
+            direction = direction
+                .or_else(|| inline.get("direction").cloned())
+                .or_else(|| record.attributes.get("dir").cloned());
+            ancestor = record.parent;
+        }
+        return Ok(resolve_editing_alignment(
+            alignment.as_deref().unwrap_or("start"),
+            direction.as_deref() == Some("rtl"),
+        )
+        .into());
     }
-    "left".into()
+    Ok("left".into())
+}
+
+fn resolve_editing_alignment(alignment: &str, rtl: bool) -> &'static str {
+    match alignment {
+        "start" | "auto" => {
+            if rtl {
+                "right"
+            } else {
+                "left"
+            }
+        }
+        "end" => {
+            if rtl {
+                "left"
+            } else {
+                "right"
+            }
+        }
+        "center" | "-moz-center" | "-webkit-center" => "center",
+        "right" | "-moz-right" | "-webkit-right" => "right",
+        "justify" => "justify",
+        _ => "left",
+    }
+}
+
+fn selection_block_alignment(state: &V8BindingState) -> Result<String, V8BindingError> {
+    match state.selection_anchor.get() {
+        Some(point) => editing_alignment_value(state, point.container),
+        None => Ok("left".into()),
+    }
 }
 
 fn document_is_editable(state: &V8BindingState) -> bool {
@@ -12128,6 +12179,80 @@ fn apply_block_command(
     let Some(anchor) = state.selection_anchor.get() else {
         return Ok(());
     };
+    let alignment = match command {
+        "justifyleft" => "left",
+        "justifycenter" => "center",
+        "justifyright" => "right",
+        "justifyfull" => "justify",
+        _ => return apply_block_command_at_boundary(state, command, value, anchor),
+    };
+    let Some(host) = editing_host(state)? else {
+        return Ok(());
+    };
+    let range = state
+        .selection_range
+        .get()
+        .and_then(|id| state.ranges.borrow().get(&id).cloned())
+        .ok_or(V8BindingError::Allocation("selection range"))?;
+    let targets = {
+        let dom = state.dom.borrow();
+        let mut targets = Vec::new();
+        if range.start_container == range.end_container && range.start_offset == range.end_offset {
+            targets.push(anchor);
+        } else {
+            for node in traversal_nodes(&dom, host)? {
+                if node == host
+                    || !light_children(&dom, node)?.is_empty()
+                    || !matches!(
+                        dom.arena().get(node)?.kind,
+                        NodeKind::Text { .. }
+                            | NodeKind::CDataSection { .. }
+                            | NodeKind::Element { .. }
+                    )
+                    || editing_host_for_node(
+                        &dom,
+                        Some(node),
+                        state.design_mode.get(),
+                        state.document,
+                    )? != Some(host)
+                {
+                    continue;
+                }
+                let before = relative_boundary(&dom, node, false)?;
+                let after = relative_boundary(&dom, node, true)?;
+                if compare_boundary_points(&dom, (range.end_container, range.end_offset), before)?
+                    > 0
+                    && compare_boundary_points(
+                        &dom,
+                        (range.start_container, range.start_offset),
+                        after,
+                    )? < 0
+                {
+                    targets.push(BoundaryPoint {
+                        container: node,
+                        offset: 0,
+                    });
+                }
+            }
+        }
+        targets
+    };
+    // Work from the selected content rather than just the anchor. Re-resolving
+    // each target after a wrap also avoids wrapping the same paragraph twice.
+    for target in targets {
+        if editing_alignment_value(state, target.container)? != alignment {
+            apply_block_command_at_boundary(state, command, value, target)?;
+        }
+    }
+    Ok(())
+}
+
+fn apply_block_command_at_boundary(
+    state: &V8BindingState,
+    command: &str,
+    value: &str,
+    anchor: BoundaryPoint,
+) -> Result<(), V8BindingError> {
     let Some(host) = editing_host(state)? else {
         return Ok(());
     };
@@ -12138,6 +12263,7 @@ fn apply_block_command(
             "justifyleft" | "justifycenter" | "justifyright" | "justifyfull"
         )
     {
+        let anchor_before_wrap = state.selection_anchor.get();
         let focus_before_wrap = state.selection_focus.get();
         let children = light_children(&state.dom.borrow(), host)?;
         let mut top = anchor.container;
@@ -12173,7 +12299,7 @@ fn apply_block_command(
             for child in &children[start..end] {
                 state.dom.borrow_mut().append_child(wrapper, *child)?;
             }
-            if let Some(focus) = focus_before_wrap {
+            if let (Some(selection_anchor), Some(focus)) = (anchor_before_wrap, focus_before_wrap) {
                 // Moving children into a wrapper changes parent-offset boundaries.
                 // Keep boundaries within the moved interval attached to that
                 // content, including selections created with selectAllChildren.
@@ -12193,7 +12319,7 @@ fn apply_block_command(
                         }
                     }
                 };
-                set_selection_boundaries(state, remap(anchor), remap(focus))?;
+                set_selection_boundaries(state, remap(selection_anchor), remap(focus))?;
             }
             block = wrapper;
         }
@@ -22013,19 +22139,19 @@ fn call_operation<'s>(
                     "stylewithcss" => state.style_with_css.get(),
                     "justifyleft" => {
                         state.selection_range.get().is_some()
-                            && selection_block_alignment(state) == "left"
+                            && selection_block_alignment(state)? == "left"
                     }
                     "justifycenter" => {
                         state.selection_range.get().is_some()
-                            && selection_block_alignment(state) == "center"
+                            && selection_block_alignment(state)? == "center"
                     }
                     "justifyright" => {
                         state.selection_range.get().is_some()
-                            && selection_block_alignment(state) == "right"
+                            && selection_block_alignment(state)? == "right"
                     }
                     "justifyfull" => {
                         state.selection_range.get().is_some()
-                            && selection_block_alignment(state) == "justify"
+                            && selection_block_alignment(state)? == "justify"
                     }
                     "bold" | "italic" | "underline" | "strikethrough" | "subscript"
                     | "superscript" => selection_format_value(state, &command).is_some(),
@@ -22041,7 +22167,7 @@ fn call_operation<'s>(
                     }
                     "justifyleft" | "justifycenter" | "justifyright" | "justifyfull" => {
                         if state.selection_range.get().is_some() {
-                            selection_block_alignment(state)
+                            selection_block_alignment(state)?
                         } else {
                             String::new()
                         }

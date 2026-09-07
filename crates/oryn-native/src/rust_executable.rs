@@ -4670,6 +4670,29 @@ mod tests {
     }
 
     #[test]
+    fn justification_queries_use_computed_block_alignment_and_direction() {
+        let mut page = RustExecutableDocument::load(
+            "<style>#editor {text-align:start;direction:rtl} #inline {text-align:center}</style><div id=editor contenteditable><span id=inline>text</span></div>",
+        ).unwrap();
+        assert_eq!(page.evaluate(
+            "const editor=document.getElementById('editor');getSelection().selectAllChildren(document.getElementById('inline').firstChild);const before=document.queryCommandValue('justifyLeft');editor.style.textAlign='end';const after=document.queryCommandValue('justifyRight');editor.style.direction='ltr';[before,after,document.queryCommandValue('justifyRight')].join('|')"
+        ).unwrap(), "right|left|right");
+    }
+
+    #[test]
+    fn justification_skips_aligned_content_and_updates_all_selected_blocks() {
+        let mut page = RustExecutableDocument::load(
+            "<div id=editor contenteditable> <span contenteditable=false>A</span> ; <span contenteditable=false>B</span> ; <span contenteditable=false>C</span> </div>",
+        ).unwrap();
+        assert_eq!(page.evaluate(
+            "const editor=document.getElementById('editor');getSelection().selectAllChildren(editor);const before=editor.innerHTML;document.execCommand('justifyLeft');editor.innerHTML===before"
+        ).unwrap(), "true");
+        assert_eq!(page.evaluate(
+            "editor.innerHTML='<p id=left>one</p><p id=right style=\"text-align:right\">two</p>';const left=document.getElementById('left'),right=document.getElementById('right');getSelection().setBaseAndExtent(left.firstChild,0,right.firstChild,3);const beforeText=getSelection().toString();document.execCommand('justifyLeft');[left.hasAttribute('style'),getComputedStyle(right).textAlign,getSelection().toString()===beforeText].join('|')"
+        ).unwrap(), "false|left|true");
+    }
+
+    #[test]
     fn justification_preserves_backward_parent_offset_selection() {
         let mut page = RustExecutableDocument::load(
             "<div id='editor' contenteditable>one<span>two</span></div>",
