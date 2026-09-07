@@ -5,6 +5,14 @@
 > Latest complete signed-worker measurement `f6be522`: **2,627/4,022 (65.3%)**.
 > **2 recovered file passes, 0 lost file passes, and 1,395 remaining failures** versus `12a64cb`.
 
+The later editing candidate `4fb9d80` measures **215/704** in the complete editing
+selection, versus 124/704 in the full baseline: 92 gains and one lost file pass.
+Its assertion audit finds 70 observed pass-to-fail changes and zero missing prior
+passing assertions. [Selected evidence](CONFORMANCE-SHARED-EDITING-2026-09-07.json)
+retains those regressions; this candidate requires fixes. The selected net gain of
+91 is not added to the overall score. Resolve the regressions before accepting
+this candidate or extending its measurement to a new overall claim.
+
 The full run confirms recovery of history tests `011.html` and `012.html`.
 Same-document history updates retain their document rather than fetching a new page.
 Streamed top-level navigation now dispatches text, XML and image responses by MIME

@@ -32,6 +32,14 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
+The later editing candidate `4fb9d80` measures **215/704** in the complete editing
+selection, versus 124/704 in the full baseline: 92 gains and one lost file pass.
+Its assertion audit finds 70 observed pass-to-fail changes and zero missing prior
+passing assertions. [Selected evidence](CONFORMANCE-SHARED-EDITING-2026-09-07.json)
+retains those regressions; this candidate requires fixes. The selected net gain of
+91 is not added to the overall score. Resolve the regressions before accepting
+this candidate or extending its measurement to a new overall claim.
+
 The latest **complete full measurement** at `f6be522` is **2,627/4,022 (65.3%)**,
 with 1,395 failures. It confirms two recovered history file passes and no whole-test
 losses versus `12a64cb` (2,625). The
