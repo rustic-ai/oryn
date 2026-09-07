@@ -49,7 +49,9 @@ pub struct CssUrlData {
 
 impl ToShmem for CssUrl {
     fn to_shmem(&self, _builder: &mut SharedMemoryBuilder) -> to_shmem::Result<Self> {
-        unimplemented!("If servo wants to share stylesheets across processes, ToShmem for Url must be implemented");
+        unimplemented!(
+            "If servo wants to share stylesheets across processes, ToShmem for Url must be implemented"
+        );
     }
 }
 
@@ -171,21 +173,26 @@ impl ToCss for CssUrl {
 /// A specified url() value for servo.
 pub type SpecifiedUrl = CssUrl;
 
-impl ToComputedValue for SpecifiedUrl {
-    type ComputedValue = ComputedUrl;
-
-    // If we can't resolve the URL from the specified one, we fall back to the original
-    // but still return it as a ComputedUrl::Invalid
-    fn to_computed_value(&self, _: &Context) -> Self::ComputedValue {
+impl CssUrl {
+    /// Servo resolves URLs at parse time, so computing them needs no style context.
+    pub fn to_computed_value_without_context(&self) -> ComputedUrl {
         match self.resolved {
             Some(ref url) => ComputedUrl::Valid(url.clone()),
             None => match self.original {
                 Some(ref url) => ComputedUrl::Invalid(url.clone()),
                 None => {
                     unreachable!("Found specified url with neither resolved or original URI!");
-                },
+                }
             },
         }
+    }
+}
+
+impl ToComputedValue for SpecifiedUrl {
+    type ComputedValue = ComputedUrl;
+
+    fn to_computed_value(&self, _: &Context) -> Self::ComputedValue {
+        self.to_computed_value_without_context()
     }
 
     fn from_computed_value(computed: &ComputedUrl) -> Self {

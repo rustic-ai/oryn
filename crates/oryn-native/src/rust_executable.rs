@@ -5441,6 +5441,38 @@ mod tests {
     }
 
     #[test]
+    fn cssom_svg_urls_follow_cascade_inheritance_and_live_updates() {
+        let mut page = RustExecutableDocument::load(
+            r#"<!doctype html>
+            <style>
+            svg { marker-start: url(https://example.test/inherited.svg#start); }
+            path { filter: url(https://example.test/filter.svg#effect);
+                   marker-mid: url(https://example.test/mid.svg#marker);
+                   marker-end: url(https://example.test/end.svg#marker); }
+            </style><svg><path id='probe'></path></svg>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const probe = document.getElementById('probe');
+            const computed = getComputedStyle(probe);
+            const before = [computed.filter.includes('filter.svg#effect'),
+                computed.markerStart.includes('inherited.svg#start'),
+                computed.markerMid.includes('mid.svg#marker'),
+                computed.markerEnd.includes('end.svg#marker')];
+            probe.style.setProperty('marker-start', 'url(https://example.test/changed.svg#marker)');
+            probe.style.setProperty('filter', 'url(https://example.test/changed.svg#effect)');
+            before.concat([computed.markerStart.includes('changed.svg#marker'),
+                computed.filter.includes('changed.svg#effect')]).join('|')
+        "#
+            )
+            .unwrap(),
+            "true|true|true|true|true|true"
+        );
+    }
+
+    #[test]
     fn cssom_stylesheet_replacement_requires_a_constructed_sheet() {
         let mut page = RustExecutableDocument::load(
             "<!doctype html><style id='sheet'>div { color: red; }</style><body>",

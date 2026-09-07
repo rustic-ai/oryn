@@ -218,6 +218,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn svg_resource_declarations_survive_stylo_round_trip() {
+        for property in ["filter", "marker-start", "marker-mid", "marker-end"] {
+            let source = format!("{property}: url(https://example.test/resource.svg#target)");
+            let view = read_declaration(&source, property, "https://example.test/", false).unwrap();
+            assert!(
+                view.value.contains("resource.svg#target"),
+                "{property}: {view:?}"
+            );
+            let mutation = mutate_declaration(
+                "",
+                property,
+                "url(https://example.test/next.svg#target)",
+                "important",
+                "https://example.test/",
+                false,
+            )
+            .unwrap();
+            let changed = read_declaration(
+                mutation.css_text.as_deref().unwrap(),
+                property,
+                "https://example.test/",
+                false,
+            )
+            .unwrap();
+            assert!(changed.important, "{property}");
+            assert!(changed.value.contains("next.svg#target"), "{property}");
+        }
+    }
+
+    #[test]
     fn stylesheet_replacement_discards_imports_using_the_parser() {
         let rules = read_stylesheet(
             r#"@import url('ignored.css'); @\69mport 'also-ignored.css'; div { color: red; }"#,

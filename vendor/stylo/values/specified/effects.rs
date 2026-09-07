@@ -4,12 +4,9 @@
 
 //! Specified types for CSS values related to effects.
 
+use crate::Zero;
 use crate::derives::*;
 use crate::parser::{Parse, ParserContext};
-use crate::values::computed::effects::BoxShadow as ComputedBoxShadow;
-use crate::values::computed::effects::SimpleShadow as ComputedSimpleShadow;
-#[cfg(feature = "gecko")]
-use crate::values::computed::url::ComputedUrl;
 use crate::values::computed::Angle as ComputedAngle;
 use crate::values::computed::CSSPixelLength as ComputedCSSPixelLength;
 use crate::values::computed::Filter as ComputedFilter;
@@ -18,6 +15,10 @@ use crate::values::computed::NonNegativeNumber as ComputedNonNegativeNumber;
 use crate::values::computed::Number as ComputedNumber;
 use crate::values::computed::NumberOrPercentage as ComputedNumberOrPercentage;
 use crate::values::computed::ZeroToOneNumber as ComputedZeroToOneNumber;
+use crate::values::computed::effects::BoxShadow as ComputedBoxShadow;
+use crate::values::computed::effects::SimpleShadow as ComputedSimpleShadow;
+#[cfg(feature = "gecko")]
+use crate::values::computed::url::ComputedUrl;
 use crate::values::computed::{Context, ToComputedValue};
 use crate::values::generics::effects::BoxShadow as GenericBoxShadow;
 use crate::values::generics::effects::Filter as GenericFilter;
@@ -25,13 +26,9 @@ use crate::values::generics::effects::SimpleShadow as GenericSimpleShadow;
 use crate::values::generics::{NonNegative, ZeroToOne};
 use crate::values::specified::color::Color;
 use crate::values::specified::length::{Length, NonNegativeLength};
-#[cfg(feature = "gecko")]
 use crate::values::specified::url::SpecifiedUrl;
 use crate::values::specified::{Angle, NonNegativeNumberOrPercentage, Number, NumberOrPercentage};
-#[cfg(feature = "servo")]
-use crate::values::Impossible;
-use crate::Zero;
-use cssparser::{match_ignore_ascii_case, BasicParseErrorKind, Parser, Token};
+use cssparser::{BasicParseErrorKind, Parser, Token, match_ignore_ascii_case};
 use style_traits::{ParseError, StyleParseErrorKind, ValueParseErrorKind};
 
 /// A specified value for a single shadow of the `box-shadow` property.
@@ -44,7 +41,7 @@ pub type SpecifiedFilter = GenericFilter<Angle, FilterFactor, Length, SimpleShad
 
 /// A specified value for a single `filter`.
 #[cfg(feature = "servo")]
-pub type SpecifiedFilter = GenericFilter<Angle, FilterFactor, Length, SimpleShadow, Impossible>;
+pub type SpecifiedFilter = GenericFilter<Angle, FilterFactor, Length, SimpleShadow, SpecifiedUrl>;
 
 pub use self::SpecifiedFilter as Filter;
 
@@ -75,11 +72,11 @@ fn clamp_to_one(number: NumberOrPercentage) -> NumberOrPercentage {
         NumberOrPercentage::Percentage(mut percent) => {
             percent.clamp_to_hundred();
             NumberOrPercentage::Percentage(percent)
-        },
+        }
         NumberOrPercentage::Number(mut number) => {
             number.clamp_to_one();
             NumberOrPercentage::Number(number)
-        },
+        }
     }
 }
 
@@ -151,7 +148,7 @@ impl Parse for BoxShadow {
                             Ok(blur) => {
                                 let spread = i.try_parse(|i| Length::parse(context, i)).ok();
                                 (Some(blur.into()), spread)
-                            },
+                            }
                             Err(_) => (None, None),
                         };
                     Ok((horizontal, vertical, blur, spread))
@@ -225,17 +222,17 @@ impl Filter {
                 Ok(ComputedFilter::Brightness(ComputedNonNegativeNumber::from(
                     factor.0.to_computed_value_without_context()?.value(),
                 )))
-            },
+            }
             Filter::Contrast(ref factor) => {
                 Ok(ComputedFilter::Contrast(ComputedNonNegativeNumber::from(
                     factor.0.to_computed_value_without_context()?.value(),
                 )))
-            },
+            }
             Filter::Grayscale(ref factor) => {
                 Ok(ComputedFilter::Grayscale(ComputedZeroToOneNumber::from(
                     factor.0.to_computed_value_without_context()?.value(),
                 )))
-            },
+            }
             Filter::HueRotate(ref angle) => Ok(ComputedFilter::HueRotate(
                 ComputedAngle::from_degrees(angle.degrees().ok_or(())?),
             )),
@@ -243,17 +240,17 @@ impl Filter {
                 Ok(ComputedFilter::Invert(ComputedZeroToOneNumber::from(
                     factor.0.to_computed_value_without_context()?.value(),
                 )))
-            },
+            }
             Filter::Opacity(ref factor) => {
                 Ok(ComputedFilter::Opacity(ComputedZeroToOneNumber::from(
                     factor.0.to_computed_value_without_context()?.value(),
                 )))
-            },
+            }
             Filter::Saturate(ref factor) => {
                 Ok(ComputedFilter::Saturate(ComputedNonNegativeNumber::from(
                     factor.0.to_computed_value_without_context()?.value(),
                 )))
-            },
+            }
             Filter::Sepia(ref factor) => Ok(ComputedFilter::Sepia(ComputedZeroToOneNumber::from(
                 factor.0.to_computed_value_without_context()?.value(),
             ))),
@@ -291,11 +288,13 @@ impl Filter {
                 } else {
                     Err(())
                 }
-            },
+            }
             #[cfg(feature = "gecko")]
             Filter::Url(ref url) => Ok(ComputedFilter::Url(ComputedUrl(url.clone()))),
             #[cfg(feature = "servo")]
-            Filter::Url(_) => Err(()),
+            Filter::Url(ref url) => {
+                Ok(ComputedFilter::Url(url.to_computed_value_without_context()))
+            }
         }
     }
 }
@@ -306,7 +305,6 @@ impl Parse for Filter {
         context: &ParserContext,
         input: &mut Parser<'i, 't>,
     ) -> Result<Self, ParseError<'i>> {
-        #[cfg(feature = "gecko")]
         {
             if let Ok(url) = input.try_parse(|i| SpecifiedUrl::parse(context, i)) {
                 return Ok(GenericFilter::Url(url));
