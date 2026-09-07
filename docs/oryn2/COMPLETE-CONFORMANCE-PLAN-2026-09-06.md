@@ -464,6 +464,14 @@ All 45 public headers match the pinned V8 git blobs. Native validation is 280/29
 with unchanged 13 nonpasses. This hook is not yet installed on production frame
 contexts; the Window whitelist and native frame integration remain open.
 
+Native cross-origin Window descriptor machinery now includes callable/non-callable
+method handling, descriptor attributes, ordered keys, error branding and GC-traced
+WeakMap memoization. The [descriptor evidence](CONFORMANCE-NATIVE-WINDOW-DESCRIPTORS-2026-09-06.json)
+verifies stable values through GC and collection of retired contexts after retained
+callables are released. Native validation is 281/294 with unchanged 13 nonpasses.
+Prototype/extensibility and same-origin indexed behavior still require verification;
+real Window operations and production frame integration remain open.
+
 ## Immediate next execution sequence
 
 1. Correct the four remaining frame assertion regressions through native frame-realm

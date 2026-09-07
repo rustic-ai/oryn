@@ -4419,6 +4419,137 @@ mod raw_v8 {
         }
 
         #[test]
+        fn native_context_window_descriptors_use_native_callbacks_and_caller_realm() {
+            use oryn_js::v8_bindings::window_proxy as window;
+            use v8::MapFnTo;
+            fn original_window(
+                scope: &mut v8::PinScope,
+                args: v8::FunctionCallbackArguments,
+                mut rv: v8::ReturnValue,
+            ) {
+                let context = window::callback_context(scope, &args).unwrap();
+                rv.set(context.global(scope).into());
+            }
+            fn marker(
+                scope: &mut v8::PinScope,
+                args: v8::FunctionCallbackArguments,
+                mut rv: v8::ReturnValue,
+            ) {
+                let context = window::callback_context(scope, &args).unwrap();
+                let marker = context.get_slot::<String>().unwrap();
+                rv.set(v8::String::new(scope, &marker).unwrap().into());
+            }
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<p>parent</p>")
+                    .into_runtime()
+                    .unwrap(),
+            ));
+            host.install_dom(dom, 1).unwrap();
+            let parent = host.contexts.get(&RealmId(0)).unwrap().clone();
+            let child = {
+                v8::scope!(let scope, &mut host.isolate);
+                let parent = v8::Local::new(scope, &parent);
+                let template = v8::ObjectTemplate::new(scope);
+                window::configure_template(scope, template);
+                let child = v8::Context::new(
+                    scope,
+                    v8::ContextOptions {
+                        global_template: Some(template),
+                        ..Default::default()
+                    },
+                );
+                child.set_security_token(v8::String::new(scope, "foreign").unwrap().into());
+                child.set_slot(Rc::new("original".to_owned()));
+                let mut callbacks = [original_window.map_fn_to(); 13];
+                callbacks[12] = marker.map_fn_to();
+                let state = window::install_context(
+                    child,
+                    window::WindowCrossOriginCallbacks {
+                        properties: callbacks,
+                        location_setter: marker.map_fn_to(),
+                    },
+                );
+                state.set_children(vec![v8::Global::new(scope, parent.global(scope))]);
+                {
+                    let scope = &mut v8::ContextScope::new(scope, child);
+                    let source = v8::String::new(scope, "globalThis.postMessage=function(){return 'author replacement'};globalThis.close=23;Object.defineProperty(globalThis,'focus',{configurable:true,get(){throw new Error('author getter must not run')}})").unwrap();
+                    v8::Script::compile(scope, source, None)
+                        .unwrap()
+                        .run(scope)
+                        .unwrap();
+                }
+                {
+                    let scope = &mut v8::ContextScope::new(scope, parent);
+                    let key = v8::String::new(scope, "foreignWindow").unwrap();
+                    parent
+                        .global(scope)
+                        .set(scope, key.into(), child.global(scope).into());
+                }
+                v8::Global::new(scope, child)
+            };
+            host.execute(
+                "globalThis.WeakMap=function(){throw new Error('author WeakMap must not run')}",
+            )
+            .unwrap();
+            assert_eq!(
+                host.evaluate_string("foreignWindow.close+'|'+String(foreignWindow.focus)")
+                    .unwrap(),
+                "23|undefined"
+            );
+            assert_eq!(host.evaluate_string("foreignWindow.window===foreignWindow && foreignWindow.self===foreignWindow && foreignWindow[0]===globalThis").unwrap(), "true");
+            assert_eq!(
+                host.evaluate_string("foreignWindow.postMessage()").unwrap(),
+                "original"
+            );
+            assert_eq!(host.evaluate_string("(()=>{const a=Object.getOwnPropertyDescriptor(foreignWindow,'window'),b=Object.getOwnPropertyDescriptor(foreignWindow,'window');globalThis.savedGetter=a.get;globalThis.savedMethod=foreignWindow.postMessage;return a.get===b.get && a.get instanceof Function && !a.enumerable && a.configurable && a.set===undefined && a.get()===foreignWindow})()").unwrap(), "true");
+            {
+                v8::scope!(let scope, &mut host.isolate);
+                let context = v8::Local::new(scope, &child);
+                let scope = &mut v8::ContextScope::new(scope, context);
+                let source = v8::String::new(scope, "close=99;postMessage=5").unwrap();
+                v8::Script::compile(scope, source, None)
+                    .unwrap()
+                    .run(scope)
+                    .unwrap();
+            }
+            host.isolate.low_memory_notification();
+            assert_eq!(host.evaluate_string("foreignWindow.close+'|'+String(foreignWindow.postMessage===savedMethod)+'|'+String(Object.getOwnPropertyDescriptor(foreignWindow,'window').get===savedGetter)").unwrap(), "23|true|true");
+            assert_eq!(host.evaluate_string("(()=>{const d=Object.getOwnPropertyDescriptor(foreignWindow,'close');return d.value===23 && !d.writable && !d.enumerable && d.configurable})()").unwrap(), "true");
+            assert_eq!(host.evaluate_string("foreignWindow.then===undefined && foreignWindow[Symbol.toStringTag]===undefined && foreignWindow[Symbol.hasInstance]===undefined && foreignWindow[Symbol.isConcatSpreadable]===undefined").unwrap(), "true");
+            assert_eq!(host.evaluate_string("(()=>{const d=Object.getOwnPropertyDescriptor(foreignWindow,'then');return d.value===undefined && !d.writable && !d.enumerable && d.configurable})()").unwrap(), "true");
+            assert_eq!(host.evaluate_string("Reflect.ownKeys(foreignWindow).map(k=>typeof k==='symbol'?k.toString():k).join('|')").unwrap(), "0|window|self|location|close|closed|focus|blur|frames|length|top|opener|parent|postMessage|then|Symbol(Symbol.toStringTag)|Symbol(Symbol.hasInstance)|Symbol(Symbol.isConcatSpreadable)");
+            assert_eq!(host.evaluate_string("(()=>{const Original=DOMException;globalThis.DOMException=function(){throw 1};return [()=>foreignWindow.secret,()=>foreignWindow[1],()=>{foreignWindow.window=1},()=>Object.defineProperty(foreignWindow,'window',{value:1}),()=>{delete foreignWindow.window}].map(action=>{try{action();return 'accepted'}catch(e){return e.name+':'+String(e instanceof Original)}}).join('|')})()").unwrap(), "SecurityError:true|SecurityError:true|SecurityError:true|SecurityError:true|SecurityError:true");
+            let old_weak = {
+                v8::scope!(let scope, &mut host.isolate);
+                let old = v8::Local::new(scope, &child);
+                let proxy = old.global(scope);
+                oryn_js::v8_context_bridge::detach_global(scope, old);
+                let replacement = v8::Context::new(
+                    scope,
+                    v8::ContextOptions {
+                        global_object: Some(proxy.into()),
+                        ..Default::default()
+                    },
+                );
+                replacement.set_slot(Rc::new("replacement".to_owned()));
+                v8::Weak::new(scope, old)
+            };
+            drop(child);
+            host.isolate.low_memory_notification();
+            // The callable's private context remains the original Window realm.
+            assert_eq!(host.evaluate_string("savedMethod()").unwrap(), "original");
+            host.execute("savedGetter=null;savedMethod=null;foreignWindow=null")
+                .unwrap();
+            host.isolate.low_memory_notification();
+            v8::scope!(let scope, &mut host.isolate);
+            assert!(
+                old_weak.to_local(scope).is_none(),
+                "descriptor cache must not root a retired Window"
+            );
+        }
+
+        #[test]
         fn native_context_cross_origin_interceptors_preserve_normal_local_access() {
             use v8::MapFnTo;
             let mut host = host();

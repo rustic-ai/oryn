@@ -35,6 +35,7 @@ use crate::{
 };
 
 mod global_events;
+pub mod window_proxy;
 pub use global_events::{report_exception, report_script_exception};
 
 static NEXT_OBSERVER_REGISTRATION_ORDER: AtomicU64 = AtomicU64::new(1);

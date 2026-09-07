@@ -78,3 +78,13 @@ pub fn set_cross_context_handlers(
     // it never retains a pointer to the Rust configuration record.
     unsafe { oryn_v8_set_cross_context_handlers(&*template, handlers) }
 }
+
+unsafe extern "C" {
+    fn oryn_v8_set_window_failed_access_callback(isolate: v8::UnsafeRawIsolatePtr);
+}
+/// Configure native Window errors for operations bypassing interceptors.
+pub(crate) fn set_window_failed_access_callback(scope: &mut v8::PinScope<'_, '_, ()>) {
+    // SAFETY: The isolate is entered. The fixed C++ callback forwards rooted
+    // current-context and target handles to the native Window binding callback.
+    unsafe { oryn_v8_set_window_failed_access_callback(scope.as_raw_isolate_ptr()) }
+}

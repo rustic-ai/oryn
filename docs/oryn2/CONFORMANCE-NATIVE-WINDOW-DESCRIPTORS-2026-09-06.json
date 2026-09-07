@@ -1,0 +1,83 @@
+{
+  "implementation": "Native cross-origin Window property descriptor machinery and GC-traced memoization; configured native host callbacks are not yet the production Window operation implementations, and production frame contexts do not use the policy yet.",
+  "prior_runtime_commit": "5e48b47",
+  "native_context_tests": {
+    "passed": 7,
+    "failed": 0,
+    "coverage": [
+      "Native named/indexed access and ordered own keys",
+      "Caller-realm native descriptor getter identity and descriptor attributes",
+      "Allowed then and symbol fallbacks",
+      "Non-callable method snapshots; callable replacements use native operations; author getters not invoked",
+      "Memoized values and callable identity stable across forced GC and author mutation",
+      "Retained method preserves original Window context after navigation",
+      "Retired original context collected after retained methods/getters are released",
+      "Definitions and deletions use native SecurityError via public V8 failed-access callback",
+      "Native DOMException branding survives author global constructor replacement"
+    ]
+  },
+  "cache_ownership": {
+    "storage": "Oryn user context embedder data slot 0, offset by rusty_v8 internal slots; no other current Oryn user embedder slots",
+    "memoization": "V8 WeakMap keyed by target original-context key object, with values retained ephemerally; target key and caller map belong to their respective context GC graphs",
+    "intrinsics": "One private pristine V8 context per isolate supplies trusted native WeakMap constructor/get/set; no author JS or cache polyfill executes"
+  },
+  "native_matrix": {
+    "required": 294,
+    "passed": 281,
+    "nonpasses": 13,
+    "baseline_required": 293,
+    "baseline_passed": 280,
+    "same_nonpass_ids": true,
+    "same_complete_failure_bodies_ignoring_source_lines_test_counts_and_timing": true,
+    "diagnostic_timeout_seconds": 15,
+    "nonpass_ids": [
+      "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+      "executable::tests::editing_command_state_reports_paragraph_and_alignment_values",
+      "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm",
+      "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit",
+      "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics",
+      "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks",
+      "host::tests::startup_external_reference_manifest_matches_runtime_order",
+      "runtime::tests::about_blank_is_internal_and_history_safe",
+      "runtime::tests::native_navigation_checks_redirects_and_supports_history",
+      "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action",
+      "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report",
+      "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages",
+      "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported"
+    ]
+  },
+  "checks": {
+    "strict_clippy": "passed",
+    "rustfmt": "passed",
+    "docs_truth": "passed",
+    "diff_check": "passed"
+  },
+  "source_files": {
+    "crates/oryn-js/src/v8_bindings.rs": "dbca2d9e34c58fbb2375ea5c833c11f95e98a4db68b66c682c4133f017494903",
+    "crates/oryn-js/src/v8_bindings/window_proxy.rs": "e57ed027522fdbab3e211ec712856471ba53409df11516f392eef658ee5e3bb0",
+    "crates/oryn-js/src/v8_context_bridge.rs": "cbd10fe92c33f8c622a71ac3d358e3447126df8b14f4bc50f52333e46b03b38c",
+    "crates/oryn-js/src/v8_context_bridge.cc": "a9df009819c5556b3fa1d4e8eb57eff2b1f5b9e5f3de852e3240488ae3310b0f",
+    "crates/oryn-native/src/host.rs": "efa7367fdd07e5eb49b6073de7b3d7498d1abf83bd9c068fb29fde54acf1d16c"
+  },
+  "native_test_binary_sha256": "8d4dd4ebfe548a90baed35909f57923fe31e28a3fc8e77144b7bac837c3d6047",
+  "raw_artifacts": {
+    "artifacts/native-window-descriptors/native-matrix.json": "20a99db650e771fa1317c3da5d52f2895c5da93d0fdcf178f5154dc26d1703ca",
+    "artifacts/native-window-descriptors/denial-after.log": "aa480a17c70f1bbfec4e2ed23dce6ffea29c1958d7defcb2bf4c111f42143e14",
+    "artifacts/native-window-descriptors/clippy.log": "598695663e68c7d11543b59a5b8863f9b1d0a64cd125e59ce3feb77847846c34",
+    "artifacts/native-window-descriptors/context-tests.log": "6bbf1be00f65b5e71f060306082a33c8754bac1a796b6d91fa5c992930c76921",
+    "artifacts/native-window-descriptors/denial-before.log": "7019ace98786b6dbf93d3c3bce4c5f786711f3d8bbc5f81978d018086116ac39"
+  },
+  "historical_denial_logs_note": "Denial-only diagnostics predate corrected method-value/cache semantics. Latest context-tests.log is authoritative for current tests.",
+  "open_requirements": [
+    "Verify and implement WindowProxy prototype, extensibility and same-origin indexed exotic behavior",
+    "Supply real native Window/Location/postMessage operations and navigation permission checks",
+    "Route production initial frame documents and navigation through native WindowProxy contexts",
+    "Verify the four outstanding WPT frame assertion regressions with a signed candidate"
+  ],
+  "full_conformance_baseline_unchanged": {
+    "commit": "5499cc7",
+    "passed": 2561,
+    "required": 4022
+  },
+  "complete_conformance": false
+}

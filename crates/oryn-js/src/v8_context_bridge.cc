@@ -66,3 +66,12 @@ extern "C" void oryn_v8_set_cross_context_handlers(
           h->indexed_deleter, h->indexed_enumerator, h->indexed_definer,
           h->indexed_descriptor));
 }
+
+extern "C" void oryn_v8_window_access_denied(v8::Local<v8::Context>, v8::Local<v8::Object>);
+static void window_access_denied(v8::Local<v8::Object> target, v8::AccessType,
+                                 v8::Local<v8::Value>) {
+  oryn_v8_window_access_denied(v8::Isolate::GetCurrent()->GetCurrentContext(), target);
+}
+extern "C" void oryn_v8_set_window_failed_access_callback(v8::Isolate* isolate) {
+  isolate->SetFailedAccessCheckCallbackFunction(window_access_denied);
+}
