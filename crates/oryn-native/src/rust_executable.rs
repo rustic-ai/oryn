@@ -4683,6 +4683,19 @@ mod tests {
     }
 
     #[test]
+    fn justification_table_align_does_not_set_cell_text_alignment() {
+        let mut page = RustExecutableDocument::load(
+            "<div contenteditable><table id=table align=justify><tr><td id=cell>text</td></tr></table></div>",
+        ).unwrap();
+        assert_eq!(page.evaluate(
+            "const table=document.getElementById('table'),cell=document.getElementById('cell');getSelection().selectAllChildren(cell);const initial=document.queryCommandValue('justifyFull');table.style.textAlign='justify';[initial,document.queryCommandValue('justifyFull')].join('|')"
+        ).unwrap(), "left|justify");
+        assert_eq!(page.evaluate(
+            "table.style.textAlign='';cell.setAttribute('align','JuStIfY');document.queryCommandValue('justifyFull')"
+        ).unwrap(), "justify");
+    }
+
+    #[test]
     fn justification_queries_use_computed_block_alignment_and_direction() {
         let mut page = RustExecutableDocument::load(
             "<style>#editor {text-align:start;direction:rtl} #inline {text-align:center}</style><div id=editor contenteditable><span id=inline>text</span></div>",

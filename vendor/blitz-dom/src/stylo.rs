@@ -992,7 +992,7 @@ impl<'a> TElement for BlitzNode<'a> {
             let name = &attr.name.local;
             let value = attr.value.as_str();
 
-            if *name == local_name!("align") {
+            if *name == local_name!("align") && *tag != local_name!("table") {
                 use style::values::specified::TextAlign;
                 let keyword = match value.to_ascii_lowercase().as_str() {
                     "left" => Some(StyloTextAlign::MozLeft),
