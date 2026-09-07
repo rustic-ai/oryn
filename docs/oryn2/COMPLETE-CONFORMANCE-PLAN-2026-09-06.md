@@ -451,6 +451,12 @@ records the reproduced failure and passing regression, including a subsequent va
 navigation. Native validation is 278/291 with unchanged 13 nonpasses. This corrects
 retirement ordering; native proxy adoption and the four WPT frame regressions remain open.
 
+Frame commits now also clear the previous accessible document mapping when the
+replacement is foreign-origin or opaque. The [frame visibility evidence](CONFORMANCE-NATIVE-FRAME-VISIBILITY-2026-09-06.json)
+verifies origin transitions and returning to a same-origin document. Native validation
+is 279/292 with unchanged 13 nonpasses. This does not close native proxy integration
+or the four WPT frame regressions.
+
 ## Immediate next execution sequence
 
 1. Correct the four remaining frame assertion regressions through native frame-realm

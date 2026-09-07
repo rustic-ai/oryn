@@ -1,0 +1,58 @@
+{
+  "implementation": "Clear the previous accessible document and committed-window mappings when a foreign or opaque frame document commits. Preserve the public WindowProxy mapping.",
+  "prior_runtime_commit": "8afee6f",
+  "regression": {
+    "test": "executable::tests::frame_navigation_updates_content_document_origin_visibility",
+    "before": "failed: contentDocument was non-null after foreign-origin commit",
+    "after": "passed: null after foreign and sandboxed opaque commits, new document restored on same-origin return, public WindowProxy identity retained"
+  },
+  "native_matrix": {
+    "required": 292,
+    "passed": 279,
+    "nonpasses": 13,
+    "baseline_required": 291,
+    "baseline_passed": 278,
+    "same_nonpass_ids": true,
+    "same_complete_failure_bodies_ignoring_source_lines_test_counts_and_timing": true,
+    "diagnostic_timeout_seconds": 15,
+    "nonpass_ids": [
+      "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+      "executable::tests::editing_command_state_reports_paragraph_and_alignment_values",
+      "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm",
+      "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit",
+      "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics",
+      "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks",
+      "host::tests::startup_external_reference_manifest_matches_runtime_order",
+      "runtime::tests::about_blank_is_internal_and_history_safe",
+      "runtime::tests::native_navigation_checks_redirects_and_supports_history",
+      "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action",
+      "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report",
+      "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages",
+      "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported"
+    ]
+  },
+  "checks": {
+    "strict_clippy": "passed",
+    "rustfmt": "passed",
+    "docs_truth": "passed",
+    "diff_check": "passed"
+  },
+  "source_files": {
+    "crates/oryn-js/src/v8_bindings.rs": "a993e97a87803662f84eadba5bd230d78225a4a1fb47162e886c1ef18b64be28",
+    "crates/oryn-native/src/host.rs": "b178d867bc9ab9e52dce464467087d8148dbfc00dcd960500eee13ec08f91ad0",
+    "crates/oryn-native/src/rust_executable.rs": "ff726ecc69402dc4ec009064abe955d9d3fd6b7b68cd63c4307563564720cc19"
+  },
+  "native_test_binary_sha256": "a7cbd61266d8c3aaa7b2387d2e8c914ba79bb602f92c699561dd624ca96229bf",
+  "raw_artifacts": {
+    "artifacts/native-frame-visibility/native-matrix.json": "fc67578bb81eb94cd7f58eec68ac44716b5717852b2bb29d79ae8948e03a1f52",
+    "artifacts/native-frame-visibility/clippy.log": "f4bb8245b768d3a0a9be5d49ac3c34797c73f713e27e667d352b29414ae5e306",
+    "artifacts/native-frame-visibility/before.log": "ce87fd9c96b9c69a508e2aebdc3d72aa80a87e812d80c910c9be807bb1ba58eb",
+    "artifacts/native-frame-visibility/after.log": "53bc696ad28679dcf7fd5193fefb2316932bb200631638e6627eaf44a8d21900"
+  },
+  "full_conformance_baseline_unchanged": {
+    "commit": "5499cc7",
+    "passed": 2561,
+    "required": 4022
+  },
+  "complete_conformance": false
+}

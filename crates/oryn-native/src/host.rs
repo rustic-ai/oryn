@@ -1439,6 +1439,8 @@ mod raw_v8 {
             if let Some(document) = document {
                 active.set_frame_document(frame, document);
                 active.set_frame_committed_window(frame, child_proxy);
+            } else {
+                active.clear_frame_document(frame);
             }
             active.set_frame_window(frame, public_child_proxy);
             Ok(())

@@ -2446,6 +2446,13 @@ impl V8BindingState {
         self.frame_roots.borrow_mut().insert(frame, document);
     }
 
+    /// A cross-origin commit must retire the previous same-origin document
+    /// mapping while preserving the browsing context's public WindowProxy.
+    pub fn clear_frame_document(&self, frame: NodeId) {
+        self.frame_roots.borrow_mut().remove(&frame);
+        self.frame_committed_windows.borrow_mut().remove(&frame);
+    }
+
     pub fn set_frame_window(&self, frame: NodeId, window: v8::Global<v8::Object>) {
         self.frame_windows.borrow_mut().insert(frame, window);
     }

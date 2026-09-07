@@ -5661,6 +5661,33 @@ mod tests {
     }
 
     #[test]
+    fn frame_navigation_updates_content_document_origin_visibility() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<iframe id=frame srcdoc='<p>initial</p>'></iframe>"#,
+            &BTreeMap::from([
+                ("https://foreign.test/child".into(), "<p>foreign</p>".into()),
+                ("/return".into(), "<p>returned</p>".into()),
+            ]),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        page.evaluate("globalThis.frame=document.querySelector('#frame');globalThis.savedWindow=frame.contentWindow;globalThis.savedDocument=frame.contentDocument;frame.removeAttribute('srcdoc');frame.src='https://foreign.test/child'").unwrap();
+        assert_eq!(page.evaluate("String(frame.contentDocument===null)+'|'+String(frame.contentWindow===savedWindow)+'|'+savedDocument.querySelector('p').textContent").unwrap(), "true|true|initial");
+        page.evaluate("frame.src='/return'").unwrap();
+        assert_eq!(page.evaluate("String(frame.contentDocument!==savedDocument)+'|'+String(frame.contentWindow===savedWindow)+'|'+frame.contentDocument.querySelector('p').textContent").unwrap(), "true|true|returned");
+        page.evaluate("frame.setAttribute('sandbox','allow-scripts');frame.srcdoc='<p>opaque</p>'")
+            .unwrap();
+        assert_eq!(
+            page.evaluate(
+                "String(frame.contentDocument===null)+'|'+String(frame.contentWindow===savedWindow)"
+            )
+            .unwrap(),
+            "true|true"
+        );
+    }
+
+    #[test]
     fn uncommitted_frame_navigation_preserves_the_active_document() {
         let mut page = RustExecutableDocument::load_with_environment(
             r#"<iframe id=frame srcdoc='<p>old</p>'></iframe>"#,
