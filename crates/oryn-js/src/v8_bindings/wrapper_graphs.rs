@@ -40,7 +40,9 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
         return 0;
     };
     let revision = dom.mutation_cursor().0;
-    if state.wrapper_graph_revision.get() == Some(revision) {
+    if state.wrapper_graph_revision.get() == Some(revision)
+        && state.wrapper_graph_new_nodes.borrow().is_empty()
+    {
         return 0;
     }
     let (Ok(node_documents), Ok(wrappers), Ok(mut objects)) = (
@@ -53,17 +55,86 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
         state.wrapper_graph_revision.set(None);
         return 0;
     };
+    let mut affected = BTreeSet::new();
+    let mut roots = BTreeMap::new();
+    let mut complete_rebuild = state.wrapper_graph_revision.get().is_none();
+    let mut changed = state.wrapper_graph_new_nodes.borrow().clone();
+    if let Some(previous) = state.wrapper_graph_revision.get() {
+        let batch = dom.mutations_since(oryn_dom::MutationCursor(previous));
+        complete_rebuild |= batch.truncated;
+        for mutation in batch.mutations {
+            match mutation {
+                Mutation::Inserted { node, parent, .. } => {
+                    changed.insert(node);
+                    changed.extend(parent);
+                }
+                Mutation::Removed {
+                    node,
+                    former_parent,
+                    ..
+                } => {
+                    changed.insert(node);
+                    changed.extend(former_parent);
+                }
+                Mutation::ShadowAttached { host, root, .. } => {
+                    changed.extend([host, root]);
+                }
+                Mutation::Attribute { node, .. } => {
+                    changed.insert(node);
+                }
+                Mutation::ChildrenReplaced { .. }
+                | Mutation::CharacterData { .. }
+                | Mutation::StyleSheets { .. }
+                | Mutation::FormState { .. }
+                | Mutation::EventListener { .. }
+                | Mutation::Focus { .. } => {}
+            }
+        }
+    }
+    // A newly materialized owner-document wrapper must become reachable from
+    // every existing detached component that exposes it through ownerDocument.
+    for (node, owner) in node_documents.iter() {
+        if changed.contains(owner)
+            && let Some(object) = wrappers
+                .lookup(state.realm, *node)
+                .and_then(|id| objects.get(&id))
+        {
+            affected.extend(object.retention_component);
+        }
+    }
+    for node in changed {
+        // Both the former and current component matter when a subtree moves.
+        if let Some(object) = wrappers
+            .lookup(state.realm, node)
+            .and_then(|id| objects.get(&id))
+        {
+            affected.extend(object.retention_component);
+        } else {
+            // An unwrapped structural endpoint has no cached former component.
+            // Fall back rather than risk leaving an old traced edge behind.
+            complete_rebuild = true;
+        }
+        affected.extend(native_root(&dom, node, &mut roots));
+    }
+    state.wrapper_graph_new_nodes.borrow_mut().clear();
     state.wrapper_graph_revision.set(Some(revision));
     let mut owners = BTreeMap::new();
     let mut released = 0;
     let mut nodes = BTreeMap::new();
     let mut groups = BTreeMap::<NodeId, Vec<(NodeId, v8::Local<v8::Object>)>>::new();
     {
-        let mut roots = BTreeMap::new();
         for (id, object) in objects.iter_mut() {
             let Some(metadata) = wrappers.metadata(*id) else {
                 continue;
             };
+            if !complete_rebuild
+                && object
+                    .retention_component
+                    .is_some_and(|root| !affected.contains(&root))
+            {
+                continue;
+            }
+            object.retention_component = native_root(&dom, metadata.node, &mut roots);
             let Some(local) = object.handle.to_local(scope) else {
                 continue;
             };
@@ -85,6 +156,15 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
                 owners.insert(metadata.node, *owner);
             }
             nodes.insert(metadata.node, local);
+        }
+    }
+    for owner in owners.values() {
+        if let Some(local) = wrappers
+            .lookup(state.realm, *owner)
+            .and_then(|id| objects.get(&id))
+            .and_then(|object| object.handle.to_local(scope))
+        {
+            nodes.insert(*owner, local);
         }
     }
     drop(objects);
@@ -185,6 +265,11 @@ pub(super) fn attach_new_leaf(
     drop(dom);
     let reference = owner.map_or_else(|| v8::undefined(scope).into(), |owner| owner.into());
     object.set_internal_field(5, reference);
+    if let Some(id) = state.wrappers.borrow().lookup(state.realm, node)
+        && let Some(wrapper) = state.objects.borrow_mut().get_mut(&id)
+    {
+        wrapper.retention_component = Some(node);
+    }
     state.wrapper_graph_revision.set(Some(revision));
     true
 }

@@ -102,6 +102,7 @@ pub enum V8BindingError {
 }
 
 struct WrapperObject {
+    retention_component: Option<NodeId>,
     handle: v8::Weak<v8::Object>,
     connected_root: Option<v8::Global<v8::Object>>,
 }
@@ -879,6 +880,7 @@ pub struct V8BindingState {
     wrappers: Rc<RefCell<WrapperRegistry>>,
     objects: RefCell<BTreeMap<WrapperId, WrapperObject>>,
     wrapper_graph_revision: Cell<Option<u64>>,
+    wrapper_graph_new_nodes: RefCell<BTreeSet<NodeId>>,
     instance_templates: RefCell<BTreeMap<&'static str, v8::Global<v8::ObjectTemplate>>>,
     associated_wrappers: RefCell<BTreeMap<(NodeId, &'static str), v8::Weak<v8::Object>>>,
     custom_states: RefCell<BTreeMap<NodeId, BTreeSet<String>>>,
@@ -2867,6 +2869,7 @@ pub fn install_generated_bindings_with_root_for_global(
         wrappers: Rc::new(RefCell::new(WrapperRegistry::default())),
         objects: RefCell::new(BTreeMap::new()),
         wrapper_graph_revision: Cell::new(None),
+        wrapper_graph_new_nodes: RefCell::new(BTreeSet::new()),
         instance_templates: RefCell::new(BTreeMap::new()),
         associated_wrappers: RefCell::new(BTreeMap::new()),
         custom_states: RefCell::new(BTreeMap::new()),
@@ -7898,12 +7901,13 @@ fn generated_constructor<'s>(
         state.objects.borrow_mut().insert(
             wrapper,
             WrapperObject {
+                retention_component: None,
                 handle: weak,
                 connected_root: None,
             },
         );
         if !wrapper_graphs::attach_new_leaf(scope, &state, document, args.this()) {
-            state.wrapper_graph_revision.set(None);
+            state.wrapper_graph_new_nodes.borrow_mut().insert(document);
         }
         wrapper_graphs::refresh(scope, &state);
         return;
@@ -7965,11 +7969,12 @@ fn generated_constructor<'s>(
         state.objects.borrow_mut().insert(
             wrapper,
             WrapperObject {
+                retention_component: None,
                 handle: weak,
                 connected_root,
             },
         );
-        state.wrapper_graph_revision.set(None);
+        state.wrapper_graph_new_nodes.borrow_mut().insert(node);
         wrapper_graphs::refresh(scope, &state);
         return;
     }
@@ -19299,6 +19304,7 @@ pub fn wrap_node<'s>(
     state.objects.borrow_mut().insert(
         wrapper,
         WrapperObject {
+            retention_component: None,
             handle: weak,
             connected_root,
         },
@@ -19307,7 +19313,7 @@ pub fn wrap_node<'s>(
     // one cannot change a detached tree's traced members; rebuilding all trees
     // here would make wrapping a large connected query result quadratic.
     if detached && !wrapper_graphs::attach_new_leaf(scope, state, node, object) {
-        state.wrapper_graph_revision.set(None);
+        state.wrapper_graph_new_nodes.borrow_mut().insert(node);
     }
     wrapper_graphs::refresh(scope, state);
     Ok(object)
@@ -30776,6 +30782,65 @@ mod tests {
         state.process_weak_releases().unwrap();
         assert!(!dom.borrow().arena().iter().any(|(_, record)|
             matches!(&record.kind, NodeKind::Element { name } if name.local.as_ref() == "i")));
+    }
+
+    #[test]
+    fn detached_wrapper_components_follow_moves_and_release_former_trees() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        {
+            v8::scope!(let inner, scope);
+            let source = v8::String::new(inner, r#"
+                (() => {
+                    const old = document.createElement('aside'); old.marker = 11;
+                    const child = document.createElement('button');
+                    const sibling = document.createElement('i'); sibling.marker = 23;
+                    old.append(child, sibling);
+                    const owner = document.implementation.createHTMLDocument('new'); owner.marker = 31;
+                    const next = owner.createElement('section'); next.marker = 42;
+                    const tail = owner.createTextNode('tail'); tail.marker = 53;
+                    next.append(child, tail);
+                    globalThis.savedMoved = child;
+                })(); true
+            "#).unwrap();
+            assert!(
+                v8::Script::compile(inner, source, None)
+                    .unwrap()
+                    .run(inner)
+                    .unwrap()
+                    .is_true()
+            );
+        }
+        let old = dom
+            .borrow()
+            .arena()
+            .iter()
+            .find_map(|(id, node)| {
+                matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "aside")
+                    .then_some(id)
+            })
+            .unwrap();
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        assert!(
+            dom.borrow().arena().get(old).is_err(),
+            "former tree must not remain traced by the moved child"
+        );
+        let source = v8::String::new(scope, "savedMoved.parentNode.marker === 42 && savedMoved.nextSibling.marker === 53 && savedMoved.ownerDocument.marker === 31").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
     }
 
     #[test]
