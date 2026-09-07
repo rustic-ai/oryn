@@ -736,6 +736,7 @@ pub struct BindingAccessibility {
 mod adopted_stylesheets;
 mod inline_styles;
 mod node_lists;
+mod page_rules;
 mod wrapper_graphs;
 
 /// Authored declaration input passed to the native Stylo provider.
@@ -760,6 +761,7 @@ pub struct BindingDeclarationMutation {
     pub css_text: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct BindingRuleView {
     pub rule_type: u16,
     pub css_text: String,
@@ -767,10 +769,40 @@ pub struct BindingRuleView {
     pub declaration_text: Option<String>,
 }
 
+pub struct BindingPageDeclarationMutation {
+    pub previous_value: String,
+    pub rule: Option<BindingRuleView>,
+}
+
 /// Synchronous style/layout flush used by geometry WebIDL operations. The
 /// implementation lives in the page orchestrator so generated bindings keep
 /// using the same Rust DOM and Stylo/Taffy/Parley pipeline as observations.
 pub trait BindingLayoutProvider {
+    fn read_page_declaration(
+        &self,
+        _request: &BindingDeclarationRequest<'_>,
+    ) -> Option<Result<BindingDeclarationView, String>> {
+        None
+    }
+
+    fn mutate_page_declaration(
+        &self,
+        _request: &BindingDeclarationRequest<'_>,
+        _replace: bool,
+    ) -> Option<Result<BindingPageDeclarationMutation, String>> {
+        None
+    }
+
+    fn set_page_selector(
+        &self,
+        _source: &str,
+        _selector: &str,
+        _base_url: &str,
+        _quirks: bool,
+    ) -> Option<Result<Option<BindingRuleView>, String>> {
+        None
+    }
+
     fn read_stylesheet(
         &self,
         _source: &str,
@@ -912,6 +944,8 @@ pub struct V8BindingState {
     constructed_stylesheets: RefCell<BTreeSet<NodeId>>,
     adopted_stylesheets: RefCell<BTreeMap<NodeId, v8::Weak<v8::Proxy>>>,
     stylesheet_rule_lists: RefCell<BTreeMap<NodeId, v8::Global<v8::Array>>>,
+    page_rules: RefCell<BTreeMap<u64, page_rules::Record>>,
+    next_page_rule_id: Cell<u64>,
     current_script: Cell<Option<NodeId>>,
     parser_input_active: Cell<bool>,
     parser_input_commands: RefCell<VecDeque<ParserInputCommand>>,
@@ -2871,6 +2905,8 @@ pub fn install_generated_bindings_with_root_for_global(
         constructed_stylesheets: RefCell::new(BTreeSet::new()),
         adopted_stylesheets: RefCell::new(BTreeMap::new()),
         stylesheet_rule_lists: RefCell::new(BTreeMap::new()),
+        page_rules: RefCell::new(BTreeMap::new()),
+        next_page_rule_id: Cell::new(1),
         current_script: Cell::new(None),
         parser_input_active: Cell::new(false),
         parser_input_commands: RefCell::new(VecDeque::new()),
@@ -19457,8 +19493,29 @@ fn publish_stylesheet_source(
 
 fn css_rule_object<'s>(
     scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    owner: NodeId,
     css_text: &str,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let base_url = cssom_base_url(scope)?;
+    let document = owner_document_for_node(state, owner)?;
+    let quirks = state
+        .dom
+        .borrow()
+        .arena()
+        .get(document)?
+        .document_metadata
+        .as_ref()
+        .is_some_and(|m| m.quirks);
+    let provider = state.layout_provider.borrow().clone();
+    if let Some(parsed) =
+        provider.and_then(|p| p.read_stylesheet(css_text, &base_url, quirks, true))
+    {
+        let parsed = parsed.map_err(V8BindingError::EventCallback)?;
+        if let Some(view) = parsed.into_iter().next().filter(|r| r.rule_type == 6) {
+            return page_rules::create(scope, state, owner, view, base_url, quirks);
+        }
+    }
     let rule = v8::Object::new(scope);
     let interface = if css_text
         .trim_start()
@@ -19533,8 +19590,41 @@ fn insert_cached_stylesheet_rule(
             rules.set_index(scope, (position + 1) as u32, value);
         }
     }
-    let rule = css_rule_object(scope, css_text)?;
+    let rule = css_rule_object(scope, state, stylesheet, css_text)?;
     rules.set_index(scope, index as u32, rule.into());
+    Ok(())
+}
+
+fn replace_cached_stylesheet_rules(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    stylesheet: NodeId,
+    texts: &[String],
+) -> Result<(), V8BindingError> {
+    let cached = state
+        .stylesheet_rule_lists
+        .borrow()
+        .get(&stylesheet)
+        .cloned();
+    let Some(cached) = cached else {
+        return Ok(());
+    };
+    let rules = v8::Local::new(scope, cached);
+    for index in 0..rules.length() {
+        if let Some(object) = rules
+            .get_index(scope, index)
+            .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
+        {
+            page_rules::detach(scope, state, object);
+        }
+    }
+    let length =
+        v8::String::new(scope, "length").ok_or(V8BindingError::Allocation("rule list length"))?;
+    rules.set(scope, length.into(), v8::Integer::new(scope, 0).into());
+    for (index, text) in texts.iter().enumerate() {
+        let rule = css_rule_object(scope, state, stylesheet, text)?;
+        rules.set_index(scope, index as u32, rule.into());
+    }
     Ok(())
 }
 
@@ -19554,6 +19644,12 @@ fn delete_cached_stylesheet_rule(
     };
     let rules = v8::Local::new(scope, &cached);
     let length = rules.length() as usize;
+    if let Some(object) = rules
+        .get_index(scope, index as u32)
+        .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
+    {
+        page_rules::detach(scope, state, object);
+    }
     for position in index.saturating_add(1)..length {
         if let Some(value) = rules.get_index(scope, position as u32) {
             rules.set_index(scope, (position - 1) as u32, value);
@@ -20020,11 +20116,15 @@ fn get_attribute_value<'s>(
                 .iter()
                 .position(|(existing_text, _)| existing_text == &css_text)
             {
-                v8::Local::new(scope, existing.swap_remove(position).1)
+                v8::Local::new(scope, existing.remove(position).1)
             } else {
-                css_rule_object(scope, &css_text)?
+                css_rule_object(scope, state, node, &css_text)?
             };
             rules.set_index(scope, index as u32, rule.into());
+        }
+        for (_, object) in existing {
+            let object = v8::Local::new(scope, object);
+            page_rules::detach(scope, state, object);
         }
         return Ok(rules.into());
     }
@@ -23238,6 +23338,7 @@ fn call_operation<'s>(
             // result replaces the previous rules with an empty stylesheet.
             let rules = stylesheet_rules_for_owner(scope, state, node, &source, false)?;
             publish_stylesheet_source(state, node, rules.join("\n"))?;
+            replace_cached_stylesheet_rules(scope, state, node, &rules)?;
             if member == "replace" {
                 let receiver = args.this();
                 return Ok(Some(resolved_promise(scope, receiver.into())?.into()));
@@ -27101,6 +27202,92 @@ mod tests {
                 .map(|e| e.to_rust_string_lossy(scope))
                 .unwrap_or_default()
         );
+    }
+
+    #[test]
+    fn retained_page_declarations_trace_rules_and_release_native_records() {
+        struct Provider;
+        impl BindingLayoutProvider for Provider {
+            fn compute_layout(
+                &self,
+                _: &BTreeMap<NodeId, BTreeSet<String>>,
+            ) -> Result<BindingLayout, String> {
+                Ok(BindingLayout::default())
+            }
+        }
+        fn make_rule(
+            scope: &mut v8::PinScope,
+            args: v8::FunctionCallbackArguments,
+            mut rv: v8::ReturnValue,
+        ) {
+            let state = binding_state_for_receiver(scope, args.this()).unwrap();
+            let owner = state.dom.borrow().find_by_id("sheet").unwrap();
+            let rule = page_rules::create(
+                scope,
+                &state,
+                owner,
+                BindingRuleView {
+                    rule_type: 6,
+                    css_text: "@page named { }".into(),
+                    selector_text: Some("named".into()),
+                    declaration_text: Some(String::new()),
+                },
+                "https://example.test/".into(),
+                false,
+            )
+            .unwrap();
+            page_rules::detach(scope, &state, rule);
+            rv.set(rule.into());
+        }
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<style id='sheet'></style>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        *state.layout_provider.borrow_mut() = Some(Rc::new(Provider));
+        let function = v8::Function::builder(make_rule).build(scope).unwrap();
+        let key = v8::String::new(scope, "makePageRule").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), function.into());
+        let source = v8::String::new(
+            scope,
+            "globalThis.retainedDeclaration = makePageRule().style; true",
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        scope.low_memory_notification();
+        assert_eq!(state.page_rules.borrow().len(), 1);
+        let source = v8::String::new(scope, "retainedDeclaration.parentRule.cssText === '@page named { }' && retainedDeclaration.parentRule.parentStyleSheet === null").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        let source = v8::String::new(scope, "delete globalThis.retainedDeclaration; true").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        scope.low_memory_notification();
+        assert!(state.page_rules.borrow().is_empty());
     }
 
     #[test]

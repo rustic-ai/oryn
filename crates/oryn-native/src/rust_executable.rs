@@ -37,6 +37,82 @@ struct LiveLayoutProvider {
 }
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn read_page_declaration(
+        &self,
+        request: &oryn_js::v8_bindings::BindingDeclarationRequest<'_>,
+    ) -> Option<Result<oryn_js::v8_bindings::BindingDeclarationView, String>> {
+        Some(
+            oryn_layout::cssom::read_page_declaration(
+                request.css_text,
+                request.property,
+                request.base_url,
+                request.quirks,
+            )
+            .map(|view| oryn_js::v8_bindings::BindingDeclarationView {
+                css_text: view.css_text,
+                names: view.names,
+                value: view.value,
+                important: view.important,
+            }),
+        )
+    }
+
+    fn mutate_page_declaration(
+        &self,
+        request: &oryn_js::v8_bindings::BindingDeclarationRequest<'_>,
+        replace: bool,
+    ) -> Option<Result<oryn_js::v8_bindings::BindingPageDeclarationMutation, String>> {
+        let result = if replace {
+            oryn_layout::cssom::replace_page_declarations(
+                request.css_text,
+                request.value,
+                request.base_url,
+                request.quirks,
+            )
+        } else {
+            oryn_layout::cssom::mutate_page_declaration(
+                request.css_text,
+                request.property,
+                request.value,
+                request.priority,
+                request.base_url,
+                request.quirks,
+            )
+        };
+        Some(result.map(|mutation| {
+            oryn_js::v8_bindings::BindingPageDeclarationMutation {
+                previous_value: mutation.previous_value,
+                rule: mutation
+                    .rule
+                    .map(|rule| oryn_js::v8_bindings::BindingRuleView {
+                        rule_type: rule.rule_type,
+                        css_text: rule.css_text,
+                        selector_text: rule.selector_text,
+                        declaration_text: rule.declaration_text,
+                    }),
+            }
+        }))
+    }
+
+    fn set_page_selector(
+        &self,
+        source: &str,
+        selector: &str,
+        base_url: &str,
+        quirks: bool,
+    ) -> Option<Result<Option<oryn_js::v8_bindings::BindingRuleView>, String>> {
+        Some(
+            oryn_layout::cssom::set_page_selector(source, selector, base_url, quirks).map(|rule| {
+                rule.map(|rule| oryn_js::v8_bindings::BindingRuleView {
+                    rule_type: rule.rule_type,
+                    css_text: rule.css_text,
+                    selector_text: rule.selector_text,
+                    declaration_text: rule.declaration_text,
+                })
+            }),
+        )
+    }
+
     fn read_stylesheet(
         &self,
         source: &str,
@@ -5438,6 +5514,81 @@ mod tests {
             page.evaluate("order.join('|')").unwrap(),
             "handler:5:true|listener:true|after"
         );
+    }
+
+    #[test]
+    fn cssom_page_declaration_indices_and_style_assignment_are_live() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><style>@page { margin-top: 1cm; }</style>",
+        )
+        .unwrap();
+        assert_eq!(page.evaluate(r#"
+            const rule = document.styleSheets[0].cssRules[0], style = rule.style;
+            const initial = style[0] === 'margin-top';
+            rule.style = 'margin-left: 2cm; margin-right: 3cm';
+            const assigned = rule.style === style && style.length === 2 && style[0] === 'margin-left' && style[1] === 'margin-right';
+            style.removeProperty('margin-left');
+            const shifted = style[0] === 'margin-right' && style[1] === undefined;
+            const descriptor = Object.getOwnPropertyDescriptor(style, '0');
+            [initial, assigned, shifted, descriptor.value === 'margin-right', !descriptor.writable, Object.keys(style).includes('0'), !Reflect.set(style, '0', 'wrong')].join('|')
+        "#).unwrap(), "true|true|true|true|true|true|true");
+    }
+
+    #[test]
+    fn cssom_page_declarations_are_live_and_preserve_nested_rules() {
+        let mut page = RustExecutableDocument::load("<!doctype html><style>@page named { margin: 1cm; @top-left { content: 'heading'; } }</style>").unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = document.styleSheets[0], rule = sheet.cssRules[0], style = rule.style;
+            const stable = style === rule.style && style.parentRule === rule;
+            style.setProperty('margin-left', '2cm', 'important');
+            const set = style.marginLeft === '2cm' && style.getPropertyPriority('margin-left') === 'important' && rule.cssText.includes('heading');
+            const old = style.removeProperty('margin-left');
+            style.cssText = 'margin-top: 3cm; invalid: value';
+            const replaced = style.length === 1 && style.item(0) === 'margin-top' && style.marginTop === '3cm' && rule.cssText.includes('heading');
+            sheet.deleteRule(0);
+            style.marginTop = '4cm';
+            [stable, set, old === '2cm', replaced, style.parentRule === rule, rule.parentStyleSheet === null, rule.cssText.includes('4cm'), sheet.cssRules.length === 0].join('|')
+        "#).unwrap(), "true|true|true|true|true|true|true|true");
+    }
+
+    #[test]
+    fn cssom_page_rule_replacement_detaches_identical_rules_immediately() {
+        let mut page = RustExecutableDocument::load("<!doctype html><body>").unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = new CSSStyleSheet();
+            sheet.replaceSync('@page {}');
+            const list = sheet.cssRules, old = list[0];
+            sheet.replaceSync('@page {}');
+            const replaced = old.parentStyleSheet === null && list.length === 1 && list[0] !== old;
+            old.selectorText = ':right';
+            const independent = list[0].selectorText === '' && old.selectorText === ':right';
+            const current = list[0];
+            current.selectorText = { toString() { sheet.replaceSync('@page named {}'); return ':left'; } };
+            [replaced, independent, current.parentStyleSheet === null,
+                current.selectorText === ':left', list[0].selectorText === 'named'].join('|')
+        "#).unwrap(), "true|true|true|true|true");
+    }
+
+    #[test]
+    fn cssom_page_rule_mutation_preserves_identity_and_detaches() {
+        let mut page =
+            RustExecutableDocument::load("<!doctype html><style>@page {} @page {}</style>")
+                .unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = document.styleSheets[0];
+            const first = sheet.cssRules[0], second = sheet.cssRules[1];
+            const same = sheet.cssRules[0] === first && sheet.cssRules[1] === second;
+            first.selectorText = 'named:First';
+            const changed = first.cssText === '@page named:first { }' &&
+                sheet.cssRules[0] === first && second.selectorText === '';
+            first.selectorText = 'named :first';
+            const invalid = first.selectorText === 'named:first';
+            const parent = first.parentStyleSheet === sheet;
+            sheet.deleteRule(0);
+            const detached = first.parentStyleSheet === null && sheet.cssRules[0] === second;
+            first.selectorText = ':left';
+            [same, changed, invalid, parent, detached, first.cssText === '@page :left { }', second.selectorText === ''].join('|')
+        "#).unwrap(), "true|true|true|true|true|true|true");
     }
 
     #[test]

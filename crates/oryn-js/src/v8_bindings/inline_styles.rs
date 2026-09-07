@@ -5,6 +5,9 @@ fn names(
     scope: &mut v8::PinScope,
     object: v8::Local<v8::Object>,
 ) -> Result<Option<Vec<String>>, V8BindingError> {
+    if let Some(names) = page_rules::declaration_names(scope, object)? {
+        return Ok(Some(names));
+    }
     let Some(state) = binding_state_for_receiver(scope, object) else {
         return Ok(None);
     };
@@ -162,7 +165,7 @@ pub(super) fn configure(instance: v8::Local<v8::ObjectTemplate>) {
     );
 }
 
-fn attribute_names(property: &str) -> BTreeSet<String> {
+pub(super) fn attribute_names(property: &str) -> BTreeSet<String> {
     let mut names = BTreeSet::from([property.to_owned()]);
     let mut camel = String::new();
     let mut uppercase = false;
