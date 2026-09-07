@@ -25489,18 +25489,23 @@ fn argument_node(
         .map_err(|_| BindingError::UnknownWrapper(WrapperId(u64::MAX)))?;
     let wrapper = receiver_wrapper_id(scope, object)
         .ok_or(BindingError::UnknownWrapper(WrapperId(u64::MAX)))?;
-    if let Ok(node) = state.wrappers.borrow().resolve(
-        &state.dom.borrow(),
-        wrapper,
-        state.realm,
-        state.document_generation,
-        InterfaceBrand::Node,
-    ) {
+    let owner = binding_state_for_receiver(scope, object);
+    // Wrapper IDs are local to their registry. A foreign wrapper can have the
+    // same numeric ID as an unrelated local node, so establish ownership first.
+    if owner.as_ref().is_some_and(|owner| Rc::ptr_eq(owner, state))
+        && let Ok(node) = state.wrappers.borrow().resolve(
+            &state.dom.borrow(),
+            wrapper,
+            state.realm,
+            state.document_generation,
+            InterfaceBrand::Node,
+        )
+    {
         return Ok(node);
     }
     let (node, realm, document_generation) =
         embedded_node_identity(scope, object).ok_or(BindingError::UnknownWrapper(wrapper))?;
-    let owner = binding_state_for_receiver(scope, object)
+    let owner = owner
         .filter(|owner| {
             owner.realm == realm
                 && owner.document_generation == document_generation
@@ -30504,6 +30509,40 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "NotFoundError|WrongDocumentError|true");
+    }
+
+    #[test]
+    fn node_arguments_respect_foreign_registry_identity_on_id_collision() {
+        initialize_v8();
+        let mut runtime = html::parse("<main></main>").into_runtime().unwrap();
+        let local_node = runtime.create_text("local");
+        let foreign_node = runtime.create_text("foreign");
+        let dom = Rc::new(RefCell::new(runtime));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let a = v8::Context::new(scope, Default::default());
+        let b = v8::Context::new(scope, Default::default());
+        let state_a;
+        let local_id;
+        {
+            let scope = &mut v8::ContextScope::new(scope, a);
+            state_a = install_generated_bindings(scope, a, dom.clone(), RealmId(0), 1).unwrap();
+            let object = wrap_node(scope, &state_a, local_node).unwrap();
+            local_id = receiver_wrapper_id(scope, object).unwrap();
+        }
+        let scope = &mut v8::ContextScope::new(scope, b);
+        let state_b = install_generated_bindings(scope, b, dom, RealmId(1), 1).unwrap();
+        let foreign = wrap_node(scope, &state_b, foreign_node).unwrap();
+        assert_eq!(receiver_wrapper_id(scope, foreign).unwrap(), local_id);
+        assert_eq!(
+            argument_node(scope, &state_a, foreign.into()).unwrap(),
+            foreign_node
+        );
+        let local = wrap_node(scope, &state_a, local_node).unwrap();
+        assert_eq!(
+            argument_node(scope, &state_b, local.into()).unwrap(),
+            local_node
+        );
     }
 
     #[test]
