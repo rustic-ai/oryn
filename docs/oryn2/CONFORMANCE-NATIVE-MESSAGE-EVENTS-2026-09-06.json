@@ -55,7 +55,7 @@
     "Production frame WindowProxy adoption and native posted-message task/structured serialization",
     "Native worker port and MessageEvent integration; worker bootstrap still overrides constructor",
     "Native ServiceWorker source union member",
-    "Signed candidate rebuild and upstream conformance execution for this change",
+    "Upstream conformance execution for the signed candidate",
     "Full inventory twice and remaining runtime/profile/security release gates"
   ],
   "full_baseline": {
@@ -69,6 +69,26 @@
     "artifacts/native-message-events/clippy.log": "3b11768c144b603d1cbeef74dbb6f49d1758992e84d415f8ad6fc230af794313",
     "artifacts/native-message-events/native.log": "bc1d379ac3855bb0b89eb064bdf55ceff75fd0dd9dd25e0e57caaa91f4780f6e",
     "artifacts/native-message-events/native-matrix.log": "2120bb6ac78748aa8f209d2a9cda1d669e66cda024388ffec015a055209aea11",
-    "artifacts/native-message-events/bindings.log": "08be4b720a74f59ef4f3c367bf1ed928ca24f2f5900901a171dece9f7d50699b"
+    "artifacts/native-message-events/bindings.log": "08be4b720a74f59ef4f3c367bf1ed928ca24f2f5900901a171dece9f7d50699b",
+    "artifacts/native-message-events/signed-build.log": "6dcb1298fa30cdf0a27c116ba152fb0178d870038303de46d7f0faa19da28737",
+    "artifacts/native-message-events/worker-manifest.json": "569ab6bf4b3dc45e1db89d327207ba7ac8abcbd9ea8f3c95dcc0c7ac003dc583"
+  },
+  "signed_candidate": {
+    "source_commit": "53ce8b854005893767198ee1fbbd3d03594a9060",
+    "source_tree_sha256": "99a0bb479eb8d703aea36bc42edc5f561ccf8cfa5f28d415163ff009758eb992",
+    "source_tree_hash_independently_verified": true,
+    "worker_path": "target/v8-core-full/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker",
+    "worker_sha256": "dbf8c387e95f0b939132a39325179d3adc393fd774e6eb81256e71057e0357da",
+    "builder_exit_code": 0,
+    "checks_passed": [
+      "exact entitlements and signing identity",
+      "filesystem, outgoing connection and listener denial",
+      "protocol ping and exit",
+      "parent worker handshake",
+      "DOM mutation smoke",
+      "authorized parent broker request"
+    ],
+    "limits_unchanged": true,
+    "release_qualification": false
   }
 }

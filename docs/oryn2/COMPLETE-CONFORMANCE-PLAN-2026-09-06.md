@@ -506,8 +506,9 @@ constructor conversions, legacy initialization and native global dispatch.
 133 binding passes (two existing ignores), eight WebIDL unit passes, and 285/297
 native outcomes with the same 12 nonpass IDs and reasons. Frame delivery still
 uses facades; worker startup still supplies a JavaScript constructor, and native
-ServiceWorker source objects remain unsupported. No signed WPT execution has
-been run for this change, so the full baseline remains 2,561/4,022.
+ServiceWorker source objects remain unsupported. The signed candidate at `53ce8b8` passes exact-entitlement, sandbox-denial,
+handshake, DOM-mutation and parent-broker checks. No WPT execution has been run
+for this change, so the full baseline remains 2,561/4,022.
 
 ## Immediate next execution sequence
 
