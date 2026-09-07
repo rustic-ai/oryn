@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "status": "isolated_native_qualification_only",
+  "signed_production_artifacts_changed": false,
+  "production_frame_integration_complete": false,
+  "full_conformance_baseline": {
+    "source": "5499cc739523caa7958369b2378f28ef0f20cd9d",
+    "passed": 2561,
+    "total": 4022,
+    "new_full_run": false
+  },
+  "source_base": "adce727",
+  "main_source_files": {
+    "crates/oryn-js/src/v8_bindings.rs": "dbca2d9e34c58fbb2375ea5c833c11f95e98a4db68b66c682c4133f017494903",
+    "crates/oryn-js/src/v8_bindings/window_proxy.rs": "e0f5b4eeb034ff7d41713e3aab458aa3bae99a2449cf267415af39aef754c180",
+    "crates/oryn-js/src/v8_bindings/global_events.rs": "c56c47182edcf8403d8f01f8966035aa10a4ff698c32677482d7e98d174c9125",
+    "crates/oryn-native/src/host.rs": "7fb299b6c12458a1e72db40bdae44c15f1076bb05fcf44c4782709da989a4597",
+    "crates/oryn-native/src/rust_executable.rs": "ff726ecc69402dc4ec009064abe955d9d3fd6b7b68cd63c4307563564720cc19",
+    "crates/oryn-js/src/v8_context_bridge.rs": "6806e1fb855dfc48c0b587afaea3186033d6fba9de67d25f1755fdd05b9af0fa",
+    "crates/oryn-js/src/v8_context_bridge.cc": "d7623e3e0a8c03ab73570d6cc8a38036f185001f7401853ebc1c88d2fb9cca62",
+    "crates/oryn-native/build.rs": "172eabc6f807257a9b086f8526a4f779c9d47472d29566555cdc84c6ac13dd46",
+    "crates/oryn-js/build.rs": "aa4b91dd9beacbea90ba11f09ec32536158f9c20b3646dde7cbf89428489460f",
+    "vendor/v8-api/manifest.json": "de5f742ecb34c45f4ea3d07925d0c85f97c0ea380153a416d1501b358215622a",
+    "Cargo.lock": "76a2cd7c8ef6782d95c751482175188453105e2bb5ddcc190b94b9300c677980"
+  },
+  "qualified_source_files": {
+    "crates/oryn-js/src/v8_bindings.rs": "dbca2d9e34c58fbb2375ea5c833c11f95e98a4db68b66c682c4133f017494903",
+    "crates/oryn-js/src/v8_bindings/window_proxy.rs": "e0f5b4eeb034ff7d41713e3aab458aa3bae99a2449cf267415af39aef754c180",
+    "crates/oryn-js/src/v8_bindings/global_events.rs": "c56c47182edcf8403d8f01f8966035aa10a4ff698c32677482d7e98d174c9125",
+    "crates/oryn-native/src/host.rs": "7fb299b6c12458a1e72db40bdae44c15f1076bb05fcf44c4782709da989a4597",
+    "crates/oryn-native/src/rust_executable.rs": "ff726ecc69402dc4ec009064abe955d9d3fd6b7b68cd63c4307563564720cc19",
+    "crates/oryn-js/src/v8_context_bridge.rs": "6806e1fb855dfc48c0b587afaea3186033d6fba9de67d25f1755fdd05b9af0fa",
+    "crates/oryn-js/src/v8_context_bridge.cc": "896b38b121c76f27f42e96fb449c54e9511762315c062d56b3994ebf5813275d",
+    "crates/oryn-native/build.rs": "172eabc6f807257a9b086f8526a4f779c9d47472d29566555cdc84c6ac13dd46",
+    "crates/oryn-js/build.rs": "aa4b91dd9beacbea90ba11f09ec32536158f9c20b3646dde7cbf89428489460f",
+    "vendor/v8-api/manifest.json": "8f29d5189195f494a9f63e21d6934d99f9c0f2bc3c5d7be2959bcf849a9b5dc2",
+    "Cargo.lock": "76a2cd7c8ef6782d95c751482175188453105e2bb5ddcc190b94b9300c677980"
+  },
+  "qualification_overrides": {
+    "crates/oryn-js/src/v8_context_bridge.cc": "896b38b121c76f27f42e96fb449c54e9511762315c062d56b3994ebf5813275d",
+    "vendor/v8-api/include/v8-template.h": "f59fbd39ca391135bfc8d41bf5b8fde62f7f08f2e0b2fb351bac3dde4941bd8f",
+    "vendor/v8-api/manifest.json": "8f29d5189195f494a9f63e21d6934d99f9c0f2bc3c5d7be2959bcf849a9b5dc2"
+  },
+  "engine": {
+    "patch_sha256": "6610b064bb5507125696bb7208d7fbef3b829972f2fcd5d9ebc74486ba874ff0",
+    "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+    "rusty_v8_version": "150.4.0",
+    "archive_sha256": "dee541b065d6778d6938c66fda52b2ae833f4050a00b3e0f0442c7335380b3b2",
+    "gn_args_sha256": "aeb5710b26a1f4ef64ae146f34fe43591d5312a6009d9532375a237dc95c6ca3",
+    "sandbox_enabled": true,
+    "pointer_compression_enabled": true,
+    "public_api_extension": "ObjectTemplate::SetWindowProxyStructuralSemantics",
+    "profile_gates_complete": false
+  },
+  "native_context_tests": {
+    "passed": 9,
+    "failed": 0,
+    "covers": [
+      "ordinary objects and unmarked global controls",
+      "cross-origin Reflect structural completions",
+      "cross-origin Object structural completions",
+      "protected property SecurityError retained",
+      "same-origin immutable prototype and extensibility",
+      "same-origin indexed descriptors, write/define/delete and child removal",
+      "native global identity and fresh Window state through proxy reuse",
+      "existing cross-context descriptors, GC and incumbent-realm checks"
+    ]
+  },
+  "native_matrix": {
+    "total": 296,
+    "passed": 283,
+    "nonpasses": [
+      {
+        "test": "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+        "reason": "called `Result::unwrap()` on an `Err` value: Execution(\"ReferenceError: dedicated is not defined\\n    at <anonymous>:1:70\")"
+      },
+      {
+        "test": "executable::tests::editing_command_state_reports_paragraph_and_alignment_values",
+        "reason": "assertion `left == right` failed\n  left: \"div|left|true||true|true|p|left|false\"\n right: \"div|left|true||true|true|p|center|true\""
+      },
+      {
+        "test": "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm",
+        "reason": "assertion `left == right` failed\n  left: \"pending\"\n right: \"https://frame.example.test/source|complete\""
+      },
+      {
+        "test": "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit",
+        "reason": "assertion `left == right` failed\n  left: \"pending\"\n right: \"true|true|https://child.example.test|reply:early\""
+      },
+      {
+        "test": "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics",
+        "reason": "WPT did not publish a completion result"
+      },
+      {
+        "test": "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks",
+        "reason": "assertion failed: started.elapsed() >= Duration::from_millis(10)"
+      },
+      {
+        "test": "host::tests::startup_external_reference_manifest_matches_runtime_order",
+        "reason": "assertion `left == right` failed\n  left: [\"fetch_async_callback\", \"context_callback\", \"stream_read_async_callback\", \"crypto_callback\", \"timer_schedule_callback\", \"timer_cancel_callback\", \"dedicated_worker_create_callback\", \"dedicated_worker_post_callback\", \"dedicated_worker_take_callback\", \"dedicated_worker_terminate_callback\", \"dedicated_worker_emit_callback\", \"dedicated_worker_close_callback\"]\n right: [\"fetch_async_callback\", \"context_callback\", \"stream_read_async_callback\", \"crypto_callback\", \"timer_schedule_callback\", \"timer_cancel_callback\", \"dedicated_worker_create_callback\", \"dedicated_worker_post_callback\", \"dedicated_worker_take_callback\", \"dedicated_worker_terminate_callback\", \"dedicated_worker_emit_callback\", \"dedicated_worker_close_callback\", \"import_scripts_callback\"]"
+      },
+      {
+        "test": "runtime::tests::about_blank_is_internal_and_history_safe",
+        "reason": "assertion `left == right` failed\n  left: Some(Commit)\n right: Some(Load)"
+      },
+      {
+        "test": "runtime::tests::native_navigation_checks_redirects_and_supports_history",
+        "reason": "diagnostic timeout 15"
+      },
+      {
+        "test": "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action",
+        "reason": "assertion failed: matches!(error, RuntimeError::StaleSemanticRef)"
+      },
+      {
+        "test": "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report",
+        "reason": "assertion `left == right` failed\n  left: \"[\\\"script-src:report\\\",\\\"script-src:report\\\"]\"\n right: \"[\\\"script-src:report\\\"]\""
+      },
+      {
+        "test": "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages",
+        "reason": "assertion `left == right` failed\n  left: 3\n right: 2"
+      },
+      {
+        "test": "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported",
+        "reason": "assertion `left == right` failed\n  left: \"generated binding XMLHttpRequest.synchronous requests is not implemented\"\n right: \"synchronous main-thread XHR is unsupported\""
+      }
+    ],
+    "new_nonpasses": [],
+    "resolved_prior_nonpasses": [],
+    "all_13_prior_reasons_match": true,
+    "binary_sha256": "e14cb192725b0daa29d4a020516b54c89c088eb8b2fe1ec7fa33df8497e1d878"
+  },
+  "bindings": {
+    "passed": 131,
+    "failed": 0,
+    "ignored": 2
+  },
+  "strict_clippy": "passed for main JS/native source",
+  "patch_integrity_checks": [
+    "exact base applicability",
+    "exact patched hashes",
+    "apply and repeat apply",
+    "modified-source rejection"
+  ],
+  "raw_artifacts": {
+    "artifacts/native-window-structural-engine/native-context.log": "a2cafa84a77a9c2be3ecc7552c3a6c35fe70f1576effe752a4ebb01deb5eb3ae",
+    "artifacts/native-window-structural-engine/native-matrix.json": "92e92b583b7db055e743ee23fbd5456497a1a21f75fd2872540dbcc438bfb484",
+    "artifacts/native-window-structural-engine/bindings.log": "4ad1b31dd5b697ade935fe07597a8781bbd5f0f25f6231a10c07ce7a1b0f9d04",
+    "artifacts/native-window-structural-engine/baseline-controls.log": "0baaaa27d56d2ff50d3e93eae356cd6dea10926f23403ed2d7e2a9b269daf2f7",
+    "artifacts/native-window-structural-engine/clippy.log": "47a7f356063f5b91bd2440a150675921942e1ddfc3d110ba8e39055a15ba62ba",
+    "artifacts/native-window-structural-engine/engine-build.log": "5af5f0ebff066228d0a4a1a8aa13f36416c9c03afe57b14d50a8c0fb03a1f70a",
+    "artifacts/native-window-structural-engine/args.gn": "aeb5710b26a1f4ef64ae146f34fe43591d5312a6009d9532375a237dc95c6ca3"
+  },
+  "remaining": [
+    "Integrate the qualified opt-in into the reproducible profile build and synchronize public headers.",
+    "Qualify new snapshots, signed worker, profile equivalence and sandbox-denial gates.",
+    "Install native WindowProxy machinery on production frame contexts with native Window/Location/message operations.",
+    "Close the four pinned frame assertion regressions and all remaining workstreams.",
+    "Run all 4022 inventory IDs twice on one frozen passing candidate."
+  ]
+}

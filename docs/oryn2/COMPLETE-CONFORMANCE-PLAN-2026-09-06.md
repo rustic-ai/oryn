@@ -472,6 +472,19 @@ callables are released. Native validation is 281/294 with unchanged 13 nonpasses
 Prototype/extensibility and same-origin indexed behavior still require verification;
 real Window operations and production frame integration remain open.
 
+Same-origin indexed behavior and immutable prototypes are now implemented. An
+isolated opt-in V8 extension also verifies cross-origin structural completions:
+preventing extensions returns false; setting the observable null prototype succeeds;
+other prototype changes fail. Protected property reads still throw SecurityError.
+The [structural evidence](CONFORMANCE-NATIVE-WINDOW-STRUCTURAL-2026-09-06.json)
+records nine context passes, 131 binding passes (two existing ignores), and 283/296
+native outcomes with all 13 prior nonpass IDs and reasons retained. Navigation
+checks preserve global-proxy identity and expose fresh Window state. This engine
+patch is not installed in production profiles: the unpatched engine still fails
+the new normative structural test. Reproducible profile integration, synchronized
+headers, snapshots, signed-worker and sandbox/profile gates must precede adoption.
+The full baseline and four production frame regressions remain unchanged.
+
 ## Immediate next execution sequence
 
 1. Correct the four remaining frame assertion regressions through native frame-realm

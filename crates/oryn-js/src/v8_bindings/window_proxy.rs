@@ -518,10 +518,73 @@ fn indexed_setter(
     v8::Intercepted::kYes
 }
 
+fn local_indexed_getter(
+    scope: &mut v8::PinScope,
+    index: u32,
+    args: v8::PropertyCallbackArguments,
+    mut rv: v8::ReturnValue,
+) -> v8::Intercepted {
+    if let Some(value) = indexed_value(scope, args.holder(), index) {
+        rv.set(value.into());
+        v8::Intercepted::kYes
+    } else {
+        v8::Intercepted::kNo
+    }
+}
+fn local_indexed_descriptor(
+    scope: &mut v8::PinScope,
+    index: u32,
+    args: v8::PropertyCallbackArguments,
+    mut rv: v8::ReturnValue,
+) -> v8::Intercepted {
+    if let Some(value) = indexed_value(scope, args.holder(), index) {
+        if let Some(desc) = data_descriptor(scope, value.into(), true) {
+            rv.set(desc.into());
+        }
+        v8::Intercepted::kYes
+    } else {
+        v8::Intercepted::kNo
+    }
+}
+fn local_indexed_query(
+    scope: &mut v8::PinScope,
+    index: u32,
+    args: v8::PropertyCallbackArguments,
+    mut rv: v8::ReturnValue<v8::Integer>,
+) -> v8::Intercepted {
+    if indexed_value(scope, args.holder(), index).is_some() {
+        rv.set_int32(v8::PropertyAttribute::READ_ONLY.as_u32() as i32);
+        v8::Intercepted::kYes
+    } else {
+        v8::Intercepted::kNo
+    }
+}
+fn local_indexed_deleter(
+    scope: &mut v8::PinScope,
+    index: u32,
+    args: v8::PropertyCallbackArguments,
+    mut rv: v8::ReturnValue<v8::Boolean>,
+) -> v8::Intercepted {
+    rv.set_bool(indexed_value(scope, args.holder(), index).is_none());
+    v8::Intercepted::kYes
+}
 pub fn configure_template(
     scope: &mut v8::PinScope<'_, '_, ()>,
     template: v8::Local<v8::ObjectTemplate>,
 ) {
+    template.set_immutable_proto();
+    crate::v8_context_bridge::set_window_index_handlers(
+        scope,
+        template,
+        &CrossContextHandlers {
+            indexed_getter: Some(local_indexed_getter.map_fn_to()),
+            indexed_query: Some(local_indexed_query.map_fn_to()),
+            indexed_deleter: Some(local_indexed_deleter.map_fn_to()),
+            indexed_enumerator: Some(indexed_enumerator.map_fn_to()),
+            indexed_descriptor: Some(local_indexed_descriptor.map_fn_to()),
+            ..Default::default()
+        },
+    );
     crate::v8_context_bridge::set_window_failed_access_callback(scope);
     set_cross_context_handlers(
         scope,

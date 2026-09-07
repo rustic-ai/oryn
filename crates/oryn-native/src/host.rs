@@ -4419,6 +4419,130 @@ mod raw_v8 {
         }
 
         #[test]
+        fn native_context_plain_globals_keep_structural_semantics() {
+            let mut host = host();
+            let parent = host.contexts.get(&RealmId(0)).unwrap().clone();
+            {
+                v8::scope!(let scope, &mut host.isolate);
+                let parent = v8::Local::new(scope, &parent);
+                let child = v8::Context::new(scope, Default::default());
+                child.set_security_token(parent.get_security_token(scope));
+                let scope = &mut v8::ContextScope::new(scope, parent);
+                let key = v8::String::new(scope, "ordinaryGlobal").unwrap();
+                parent
+                    .global(scope)
+                    .set(scope, key.into(), child.global(scope).into());
+            }
+            assert_eq!(host.evaluate_string("(()=>{const w=ordinaryGlobal,p={};return [Reflect.setPrototypeOf(w,p),Object.getPrototypeOf(w)===p,Reflect.isExtensible(w),Reflect.preventExtensions(w),!Reflect.isExtensible(w),!Reflect.setPrototypeOf(w,{})].every(Boolean)})()").unwrap(), "true");
+            assert_eq!(host.evaluate_string("(()=>{const o={},p={};return [Reflect.setPrototypeOf(o,p),Object.getPrototypeOf(o)===p,Reflect.preventExtensions(o),!Reflect.isExtensible(o)].every(Boolean)})()").unwrap(), "true");
+        }
+
+        #[test]
+        fn native_context_window_structural_exotics_match_window_proxy_contract() {
+            use oryn_js::v8_bindings::window_proxy as window;
+            use v8::MapFnTo;
+            fn unused(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {}
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<p>parent</p>")
+                    .into_runtime()
+                    .unwrap(),
+            ));
+            host.install_dom(dom, 1).unwrap();
+            let parent = host.contexts.get(&RealmId(0)).unwrap().clone();
+            let (child, state) = {
+                v8::scope!(let scope, &mut host.isolate);
+                let parent = v8::Local::new(scope, &parent);
+                let template = v8::ObjectTemplate::new(scope);
+                window::configure_template(scope, template);
+                let child = v8::Context::new(
+                    scope,
+                    v8::ContextOptions {
+                        global_template: Some(template),
+                        ..Default::default()
+                    },
+                );
+                child.set_security_token(v8::String::new(scope, "foreign").unwrap().into());
+                let state = window::install_context(
+                    child,
+                    window::WindowCrossOriginCallbacks {
+                        properties: [unused.map_fn_to(); 13],
+                        location_setter: unused.map_fn_to(),
+                    },
+                );
+                state.set_children(vec![v8::Global::new(scope, parent.global(scope))]);
+                let scope = &mut v8::ContextScope::new(scope, parent);
+                let key = v8::String::new(scope, "structuralWindow").unwrap();
+                parent
+                    .global(scope)
+                    .set(scope, key.into(), child.global(scope).into());
+                (v8::Global::new(scope, child), state)
+            };
+            let foreign = host.evaluate_string("[()=>Object.getPrototypeOf(structuralWindow)===null,()=>Reflect.isExtensible(structuralWindow),()=>Reflect.preventExtensions(structuralWindow),()=>Reflect.setPrototypeOf(structuralWindow,null),()=>Reflect.setPrototypeOf(structuralWindow,{})].map(f=>{try{return String(f())}catch(e){return e.name}}).join('|')").unwrap();
+            let foreign_objects = host.evaluate_string("[()=>Object.setPrototypeOf(structuralWindow,null)===structuralWindow,()=>Object.setPrototypeOf(structuralWindow,{}),()=>Object.preventExtensions(structuralWindow),()=>Object.seal(structuralWindow),()=>Object.freeze(structuralWindow),()=>structuralWindow.document].map(f=>{try{return String(f())}catch(e){return e.name}}).join('|')").unwrap();
+            {
+                v8::scope!(let scope, &mut host.isolate);
+                let parent = v8::Local::new(scope, &parent);
+                let child = v8::Local::new(scope, &child);
+                child.set_security_token(parent.get_security_token(scope));
+            }
+            assert_eq!(host.evaluate_string("(()=>{const w=structuralWindow,d=Object.getOwnPropertyDescriptor(w,'0');return [w[0]===globalThis,w[1]===undefined,d.value===globalThis,d.enumerable,!d.writable,d.configurable,'0' in w,!('1' in w),!Reflect.set(w,'0',1),!Reflect.set(w,'1',1),!Reflect.defineProperty(w,'0',{value:1}),!Reflect.defineProperty(w,'1',{value:1}),!Reflect.deleteProperty(w,'0'),Reflect.deleteProperty(w,'1')].every(Boolean)})()").unwrap(), "true");
+            assert_eq!(host.evaluate_string("[()=>{ 'use strict'; structuralWindow[0]=1 },()=>Object.defineProperty(structuralWindow,'0',{value:1})].map(f=>{try{f();return 'accepted'}catch(e){return e.name}}).join('|')").unwrap(), "TypeError|TypeError");
+            state.set_children(Vec::new());
+            assert_eq!(host.evaluate_string("structuralWindow[0]===undefined && Reflect.deleteProperty(structuralWindow,'0')").unwrap(), "true");
+            let local = host.evaluate_string("[()=>Reflect.setPrototypeOf(structuralWindow,Object.getPrototypeOf(structuralWindow)),()=>Reflect.setPrototypeOf(structuralWindow,{}),()=>Reflect.isExtensible(structuralWindow),()=>Reflect.preventExtensions(structuralWindow)].map(f=>{try{return String(f())}catch(e){return e.name}}).join('|')").unwrap();
+            assert_eq!(
+                format!("{foreign};{local}"),
+                "true|true|false|true|false;true|false|true|false"
+            );
+            assert_eq!(
+                foreign_objects,
+                "true|TypeError|TypeError|TypeError|TypeError|SecurityError"
+            );
+            host.execute(
+                "var retainedStructuralWindow=structuralWindow;structuralWindow.retiredValue=17",
+            )
+            .unwrap();
+            let replacement = {
+                v8::scope!(let scope, &mut host.isolate);
+                let child = v8::Local::new(scope, &child);
+                let global = child.global(scope);
+                oryn_js::v8_context_bridge::detach_global(scope, child);
+                let template = v8::ObjectTemplate::new(scope);
+                window::configure_template(scope, template);
+                let replacement = v8::Context::new(
+                    scope,
+                    v8::ContextOptions {
+                        global_template: Some(template),
+                        global_object: Some(global.into()),
+                        ..Default::default()
+                    },
+                );
+                replacement.set_security_token(
+                    v8::String::new(scope, "foreign-replacement")
+                        .unwrap()
+                        .into(),
+                );
+                window::install_context(
+                    replacement,
+                    window::WindowCrossOriginCallbacks {
+                        properties: [unused.map_fn_to(); 13],
+                        location_setter: unused.map_fn_to(),
+                    },
+                );
+                v8::Global::new(scope, replacement)
+            };
+            assert_eq!(host.evaluate_string("retainedStructuralWindow===structuralWindow && Object.getPrototypeOf(structuralWindow)===null && Reflect.isExtensible(structuralWindow) && !Reflect.preventExtensions(structuralWindow) && Reflect.setPrototypeOf(structuralWindow,null) && !Reflect.setPrototypeOf(structuralWindow,{})").unwrap(), "true");
+            {
+                v8::scope!(let scope, &mut host.isolate);
+                let parent = v8::Local::new(scope, &parent);
+                let replacement = v8::Local::new(scope, &replacement);
+                replacement.set_security_token(parent.get_security_token(scope));
+            }
+            assert_eq!(host.evaluate_string("structuralWindow.retiredValue===undefined && !Reflect.setPrototypeOf(structuralWindow,{}) && !Reflect.preventExtensions(structuralWindow)").unwrap(), "true");
+        }
+
+        #[test]
         fn native_context_window_descriptors_use_native_callbacks_and_caller_realm() {
             use oryn_js::v8_bindings::window_proxy as window;
             use v8::MapFnTo;

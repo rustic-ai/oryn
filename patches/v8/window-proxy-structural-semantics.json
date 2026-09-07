@@ -1,0 +1,22 @@
+{
+  "status": "isolated_native_qualified_not_in_production_build",
+  "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+  "rusty_v8_version": "150.4.0",
+  "patch_sha256": "6610b064bb5507125696bb7208d7fbef3b829972f2fcd5d9ebc74486ba874ff0",
+  "base_files": {
+    "include/v8-template.h": "fd4c13b90a534a569bdfa96fd97e8bf1eb65e2d096d77bdc9073b46da1737437",
+    "src/objects/templates.tq": "810d30ae58abcbeb184ee773510d41c4bf81f1ca143610cd1d9abaacfb61570c",
+    "src/objects/templates.h": "80df8e3600a4bd393eb15b8d391d064fd0016e1b8c09fbc649902901a16c9986",
+    "src/objects/templates-inl.h": "3f867235e83a9cc0afd2ba02c278f253341cb0e2156608d7274954872f654e8f",
+    "src/api/api.cc": "28c17ea3a6895b392dd8176f09fa90c53b1c03f04a4f7455e9da54aadaf2f685",
+    "src/objects/js-objects.cc": "f9396331f8cba5e6f0bef80d6069b5c34e11573ccfc883b7851409755e2ddcd8"
+  },
+  "patched_files": {
+    "include/v8-template.h": "f59fbd39ca391135bfc8d41bf5b8fde62f7f08f2e0b2fb351bac3dde4941bd8f",
+    "src/objects/templates.tq": "69480df074f5af9b885694ec82866ffc344dd9845ed7688ca149584910514a3e",
+    "src/objects/templates.h": "443302d75b81d76aadbf3b117fab677232fd4ead5c1459d4f79a3533e0510d38",
+    "src/objects/templates-inl.h": "3e4b29f7dfe5365fdb09b944d2d3f53ad6a310b99b3e556e1ef7f726d3d05ad8",
+    "src/api/api.cc": "352a5d5f8b519d4a77d4e61403e9c4b136abf6f3266f3da56bcb2bed05b6e6a3",
+    "src/objects/js-objects.cc": "19cde40325741fdd77cf28fbe3d156e7a471544981f2a3c296d1ab4290bdaa6c"
+  }
+}

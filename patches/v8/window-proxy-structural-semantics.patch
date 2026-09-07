@@ -1,0 +1,169 @@
+--- a/include/v8-template.h
++++ b/include/v8-template.h
+@@ -1145,6 +1145,16 @@
+   void SetImmutableProto();
+ 
+   /**
++   * Opt a Context global template into HTML WindowProxy structural semantics.
++   * For the resulting global proxy, preventing extensions fails, and a
++   * cross-origin prototype update succeeds only when the requested prototype
++   * is null (its cross-origin observable prototype). Other objects and global
++   * templates retain ordinary V8 behavior. Configure before Context creation.
++   * The embedder must also configure immutable prototypes and access checks.
++   */
++  void SetWindowProxyStructuralSemantics();
++
++  /**
+    * Support for TC39 "dynamic code brand checks" proposal.
+    *
+    * This API allows to mark (& query) objects as "code like", which causes
+--- a/src/objects/templates.tq
++++ b/src/objects/templates.tq
+@@ -111,6 +111,7 @@
+   is_immutable_prototype: bool: 1 bit;
+   is_code_kind: bool: 1 bit;
+   embedder_field_count: int32: 28 bit;
++  has_window_proxy_structural_semantics: bool: 1 bit;
+ }
+ 
+ @cppObjectLayoutDefinition
+--- a/src/objects/templates.h
++++ b/src/objects/templates.h
+@@ -442,6 +442,7 @@
+  public:
+   DECL_INT_ACCESSORS(embedder_field_count)
+   DECL_BOOLEAN_ACCESSORS(immutable_proto)
++  DECL_BOOLEAN_ACCESSORS(window_proxy_structural_semantics)
+   DECL_BOOLEAN_ACCESSORS(code_like)
+ 
+   // Starting from given object template's constructor walk up the inheritance
+--- a/src/objects/templates-inl.h
++++ b/src/objects/templates-inl.h
+@@ -350,6 +350,14 @@
+   return set_data(IsImmutablePrototypeBit::update(data(), immutable));
+ }
+ 
++bool ObjectTemplateInfo::window_proxy_structural_semantics() const {
++  return HasWindowProxyStructuralSemanticsBit::decode(data());
++}
++
++void ObjectTemplateInfo::set_window_proxy_structural_semantics(bool enabled) {
++  set_data(HasWindowProxyStructuralSemanticsBit::update(data(), enabled));
++}
++
+ bool ObjectTemplateInfo::code_like() const {
+   return IsCodeKindBit::decode(data());
+ }
+@@ -611,7 +619,8 @@
+ 
+ int ObjectTemplateInfo::data() const { return data_.load().value(); }
+ void ObjectTemplateInfo::set_data(int value) {
+-  data_.store(this, Smi::FromInt(value));
++  // The opt-in bit occupies the top bit of the 31-bit Smi payload.
++  data_.store(this, Smi::From31BitPattern(value));
+ }
+ 
+ Tagged<FixedArray> DictionaryTemplateInfo::property_names() const {
+--- a/src/api/api.cc
++++ b/src/api/api.cc
+@@ -1823,6 +1823,13 @@
+   self->set_immutable_proto(true);
+ }
+ 
++void ObjectTemplate::SetWindowProxyStructuralSemantics() {
++  auto self = Utils::OpenDirectHandle(this);
++  i::Isolate* i_isolate = i::Isolate::Current();
++  EnterV8NoScriptNoExceptionScope api_scope(i_isolate);
++  self->set_window_proxy_structural_semantics(true);
++}
++
+ bool ObjectTemplate::IsCodeLike() const {
+   return Utils::OpenDirectHandle(this)->code_like();
+ }
+@@ -6649,6 +6656,10 @@
+       proxy_template =
+           ObjectTemplate::New(reinterpret_cast<v8::Isolate*>(i_isolate));
+       proxy_constructor = EnsureConstructor(i_isolate, *proxy_template);
++      Utils::OpenDirectHandle(*proxy_template)
++          ->set_window_proxy_structural_semantics(
++              Utils::OpenDirectHandle(*global_template)
++                  ->window_proxy_structural_semantics());
+ 
+       // Set the global template to be the prototype template of
+       // global proxy template.
+--- a/src/objects/js-objects.cc
++++ b/src/objects/js-objects.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "src/objects/js-objects.h"
++#include "src/objects/templates-inl.h"
+ 
+ #include <limits>
+ #include <optional>
+@@ -3671,6 +3672,28 @@
+ #endif
+ }
+ 
++namespace {
++// This flag belongs to an embedder template, never an author-visible property.
++// Global proxies can carry either a template or its instantiated API function
++// as their constructor. Detached/non-API objects have no opt-in semantics.
++bool HasWindowProxyStructuralSemantics(Tagged<JSObject> object) {
++  if (!IsJSGlobalProxy(object)) return false;
++  Tagged<Object> constructor = object->map()->GetConstructor();
++  Tagged<FunctionTemplateInfo> info;
++  if (IsFunctionTemplateInfo(constructor)) {
++    info = Cast<FunctionTemplateInfo>(constructor);
++  } else if (IsJSFunction(constructor) &&
++             Cast<JSFunction>(constructor)->shared()->IsApiFunction()) {
++    info = Cast<JSFunction>(constructor)->shared()->api_func_data();
++  } else {
++    return false;
++  }
++  Tagged<Object> instance = info->GetInstanceTemplate();
++  return IsObjectTemplateInfo(instance) &&
++         Cast<ObjectTemplateInfo>(instance)->window_proxy_structural_semantics();
++}
++}  // namespace
++
+ // static
+ bool JSObject::TryMigrateInstance(Isolate* isolate,
+                                   DirectHandle<JSObject> object) {
+@@ -4402,6 +4425,11 @@
+ Maybe<bool> JSObject::PreventExtensions(Isolate* isolate,
+                                         DirectHandle<JSObject> object,
+                                         ShouldThrow should_throw) {
++  if (HasWindowProxyStructuralSemantics(*object)) {
++    RETURN_FAILURE(isolate, should_throw,
++                   NewTypeError(MessageTemplate::kCannotPreventExt));
++  }
++
+   if (!object->HasSloppyArgumentsElements()) {
+     return PreventExtensionsWithTransition<NONE>(isolate, object, should_throw);
+   }
+@@ -4523,6 +4551,11 @@
+ template <PropertyAttributes attrs>
+ Maybe<bool> JSObject::PreventExtensionsWithTransition(
+     Isolate* isolate, DirectHandle<JSObject> object, ShouldThrow should_throw) {
++  if (HasWindowProxyStructuralSemantics(*object)) {
++    RETURN_FAILURE(isolate, should_throw,
++                   NewTypeError(MessageTemplate::kCannotPreventExt));
++  }
++
+   static_assert(attrs == NONE || attrs == SEALED || attrs == FROZEN);
+ 
+   // Sealing/freezing sloppy arguments or namespace objects should be handled
+@@ -5405,6 +5438,12 @@
+   if (from_javascript) {
+     if (IsAccessCheckNeeded(*object) &&
+         !isolate->MayAccess(isolate->native_context(), object)) {
++      if (HasWindowProxyStructuralSemantics(*object)) {
++        if (IsNull(*value_obj)) return Just(true);
++        RETURN_FAILURE(isolate, should_throw,
++                       NewTypeError(MessageTemplate::kImmutablePrototypeSet,
++                                    object));
++      }
+       RETURN_ON_EXCEPTION_VALUE(
+           isolate, isolate->ReportFailedAccessCheck(object), Nothing<bool>());
+       UNREACHABLE();

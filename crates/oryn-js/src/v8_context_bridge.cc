@@ -75,3 +75,25 @@ static void window_access_denied(v8::Local<v8::Object> target, v8::AccessType,
 extern "C" void oryn_v8_set_window_failed_access_callback(v8::Isolate* isolate) {
   isolate->SetFailedAccessCheckCallbackFunction(window_access_denied);
 }
+
+// WindowProxy rejects every indexed assignment/definition. Use the modern
+// boolean callbacks: rusty_v8 currently exposes the legacy void signatures,
+// which cannot report a false completion without throwing an exception.
+static v8::Intercepted window_index_set(
+    uint32_t, v8::Local<v8::Value>, const v8::PropertyCallbackInfo<v8::Boolean>& info) {
+  info.GetReturnValue().Set(false);
+  return v8::Intercepted::kYes;
+}
+static v8::Intercepted window_index_define(
+    uint32_t, const v8::PropertyDescriptor&,
+    const v8::PropertyCallbackInfo<v8::Boolean>& info) {
+  info.GetReturnValue().Set(false);
+  return v8::Intercepted::kYes;
+}
+extern "C" void oryn_v8_set_window_index_handlers(
+    v8::ObjectTemplate* object_template, const OrynCrossContextHandlers* h) {
+  object_template->SetHandler(v8::IndexedPropertyHandlerConfiguration(
+      h->indexed_getter, window_index_set, h->indexed_query,
+      h->indexed_deleter, h->indexed_enumerator, window_index_define,
+      h->indexed_descriptor));
+}

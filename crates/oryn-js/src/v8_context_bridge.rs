@@ -88,3 +88,21 @@ pub(crate) fn set_window_failed_access_callback(scope: &mut v8::PinScope<'_, '_,
     // current-context and target handles to the native Window binding callback.
     unsafe { oryn_v8_set_window_failed_access_callback(scope.as_raw_isolate_ptr()) }
 }
+
+unsafe extern "C" {
+    fn oryn_v8_set_window_index_handlers(
+        template: *const v8::ObjectTemplate,
+        handlers: *const CrossContextHandlers,
+    );
+}
+/// Install normal Window indexed handlers with false-returning write hooks.
+pub(crate) fn set_window_index_handlers(
+    scope: &mut v8::PinScope<'_, '_, ()>,
+    template: v8::Local<v8::ObjectTemplate>,
+    handlers: &CrossContextHandlers,
+) {
+    let template = v8::Local::new(scope, template);
+    // SAFETY: The template is rooted; V8 synchronously copies the public C
+    // callback pointers. The C++ adapter supplies the modern boolean write ABI.
+    unsafe { oryn_v8_set_window_index_handlers(&*template, handlers) }
+}
