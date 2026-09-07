@@ -2659,7 +2659,6 @@ mod raw_v8 {
 
     const DEDICATED_WORKER_BOOTSTRAP: &str = r#"
         (() => {
-          const listeners = new Map();
           const WorkerEvent = globalThis.Event || class WorkerEvent {
             constructor(type, init = {}) { this.type = String(type); this.defaultPrevented = false; Object.assign(this, init); }
             preventDefault() { this.defaultPrevented = true; }
@@ -2780,20 +2779,8 @@ mod raw_v8 {
             }
           }
           globalThis.Worker = NestedWorker;
-          globalThis.addEventListener = (type, callback) => {
-            const key = String(type), list = listeners.get(key) || [];
-            list.push(callback); listeners.set(key, list);
-          };
-          globalThis.removeEventListener = (type, callback) => {
-            const key = String(type);
-            listeners.set(key, (listeners.get(key) || []).filter(item => item !== callback));
-          };
-          globalThis.dispatchEvent = event => {
-            for (const callback of listeners.get(event.type) || []) callback.call(globalThis, event);
-            const handler = globalThis['on' + event.type];
-            if (typeof handler === 'function') handler.call(globalThis, event);
-            return true;
-          };
+          // Generated bindings already install the global EventTarget methods.
+          // Keep their identity and native listener registry across worker startup.
           globalThis.postMessage = value => __oryn_worker_emit(cloneJson(value));
           globalThis.close = () => __oryn_worker_close();
           const sharedPort = new WorkerEventTarget();
@@ -4508,6 +4495,64 @@ mod tests {
         let messages: Vec<String> = serde_json::from_str(&messages).unwrap();
         let payload: serde_json::Value = serde_json::from_str(&messages[0]).unwrap();
         assert_eq!(payload, serde_json::json!({"ports": 1, "source": true}));
+    }
+
+    #[test]
+    fn worker_globals_preserve_native_event_target_dispatch() {
+        let mut host = RawV8Host::new();
+        for kind in ["dedicatedworker", "sharedworker", "serviceworker"] {
+            let source = serde_json::to_string(
+                r#"
+                const order = [];
+                const identity = ['addEventListener', 'removeEventListener', 'dispatchEvent']
+                  .every(name => self[name] === EventTarget.prototype[name]);
+                function removed() { order.push('removed'); }
+                addEventListener('probe', () => {
+                  order.push('once');
+                  removeEventListener('probe', removed);
+                  dispatchEvent(new Event('probe'));
+                }, {once: true});
+                addEventListener('probe', removed);
+                addEventListener('probe', event => {
+                  order.push('listener:' + (event.target === self && event.currentTarget === self));
+                  event.preventDefault();
+                });
+                const event = new Event('probe', {cancelable: true});
+                const accepted = dispatchEvent(event);
+                let invalidReceiver = false;
+                try { EventTarget.prototype.addEventListener.call({}, 'probe', () => {}); }
+                catch (error) { invalidReceiver = error instanceof TypeError; }
+                postMessage({identity, order, accepted, canceled: event.defaultPrevented,
+                  cleaned: event.currentTarget === null, invalidReceiver});
+                "#,
+            )
+            .unwrap();
+            let id = host
+                .evaluate_string(&format!(
+                    "__oryn_worker_create({source},'https://example.test/worker.js',false,'{kind}')"
+                ))
+                .unwrap();
+            let messages = host
+                .evaluate_string(&format!("__oryn_worker_take({id})"))
+                .unwrap();
+            let messages: Vec<String> = serde_json::from_str(&messages).unwrap();
+            assert_eq!(messages.len(), 1, "{kind}: {messages:?}");
+            let payload: serde_json::Value = serde_json::from_str(&messages[0]).unwrap();
+            assert_eq!(
+                payload,
+                serde_json::json!({
+                    "identity": true,
+                    "order": ["once", "listener:true", "listener:true"],
+                    "accepted": false,
+                    "canceled": true,
+                    "cleaned": true,
+                    "invalidReceiver": true
+                }),
+                "{kind}"
+            );
+            host.execute(&format!("__oryn_worker_terminate({id})"))
+                .unwrap();
+        }
     }
 
     #[test]

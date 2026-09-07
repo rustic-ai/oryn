@@ -38,7 +38,10 @@ DOM passes 382/662 and CSS 235/564. Exact inventory coverage, passing completion
 source and signed artifacts were verified. The five CSS losses expose previously
 aborted test registration, now caught by native error reporting. Six observed
 assertion regressions remain open: four frame Window proxy failures and two worker
-EventTarget null-receiver failures. Fix these before expanding feature work.
+EventTarget receiver-check failures. Worker startup overrides native global methods,
+so the pinned IDL harness no longer recognizes their implicit-global identity.
+Preserve the native methods and registry; do not reject valid global receivers.
+Fix these regressions before expanding feature work.
 
 The [previous observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
 retains the preceding complete run. The new assertion audit records 25 corrected
@@ -421,8 +424,9 @@ M5 passes; a smaller achievable batch is progress, not completion.
 
 ## Immediate next execution sequence
 
-1. Correct the six assertion regressions with native receiver and frame-realm
-   semantics; test null/undefined receivers, valid global receivers and frame teardown.
+1. Correct the six assertion regressions by preserving native worker EventTarget
+   methods through startup and implementing native frame-realm semantics. Test
+   global method identity, listener lifecycle, invalid receivers and frame teardown.
 2. Restore complete CSS test registration through initial frame documents, live
    Window named properties, selectedOptions and declarative shadow parsing.
 3. Diagnose the missing Range assertions and remaining runtime/harness outcomes;

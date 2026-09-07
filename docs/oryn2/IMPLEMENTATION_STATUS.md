@@ -38,9 +38,10 @@ assertion, 48 runtime, 140 harness,
 
 The assertion audit found 25 corrected existing assertions, 850 additional passing
 names and six observed pass-to-fail changes. Four regressions involve frame Window
-proxies calling native APIs; two involve worker EventTarget null receivers. These
+proxies calling native APIs; two involve worker EventTarget receiver checks after
+startup overrides the native methods. These
 are the immediate implementation priority. Five earlier passing Range assertions
-are absent from partial results and remain unresolved. Five history name changes
+are absent from partial results that report worker wall-time limits and remain unresolved. Five history name changes
 were verified as passing counterparts with different fixture ports.
 
 Stylo owns the rendering style pipeline and selector matching. CSSOM declaration

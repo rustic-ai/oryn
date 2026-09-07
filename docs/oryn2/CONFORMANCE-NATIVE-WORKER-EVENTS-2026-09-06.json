@@ -1,0 +1,38 @@
+{
+  "baseline_commit": "5499cc739523caa7958369b2378f28ef0f20cd9d",
+  "source_files": {
+    "crates/oryn-native/src/host.rs": "f18f110772d8fa434fd80c0e78920169dff48772a65956e801c782bf1f2d28cf"
+  },
+  "change": "Preserve generated native global EventTarget methods during dedicated/shared/service worker startup; remove the competing JavaScript global listener registry.",
+  "root_cause": "Pinned idlharness checks inherited global method identity when deciding whether null receivers have implicit-global behavior. Startup overrides broke that identity while the generated operations correctly accepted the native global.",
+  "standards_reference": "https://webidl.spec.whatwg.org/#es-operations",
+  "native_validation": {
+    "command": "cargo test --locked --release -p oryn-native --features v8-host,v8-sandbox --lib worker_ -- --test-threads=1 --include-ignored",
+    "passed": 18,
+    "failed": 1,
+    "new_regression": "host::tests::worker_globals_preserve_native_event_target_dispatch",
+    "coverage": [
+      "all three worker globals preserve EventTarget method identity",
+      "once removed before reentrant dispatch",
+      "removal suppresses later listener invocation",
+      "cancelable event result and defaultPrevented",
+      "currentTarget cleanup",
+      "invalid object receiver throws TypeError",
+      "existing worker message delivery and shared connect event"
+    ],
+    "existing_failure": {
+      "test": "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+      "reason": "ReferenceError: dedicated is not defined",
+      "baseline_evidence": "CONFORMANCE-NATIVE-NODE-ERRORS-2026-09-06.json"
+    },
+    "additional_passed_test": "executable::tests::data_url_workers_report_opaque_indexed_db_security_errors"
+  },
+  "checks": {
+    "strict_js_native_clippy": true,
+    "rustfmt": true,
+    "docs_truth": true,
+    "diff_check": true
+  },
+  "signed_inventory_validation": "pending",
+  "complete_conformance": false
+}
