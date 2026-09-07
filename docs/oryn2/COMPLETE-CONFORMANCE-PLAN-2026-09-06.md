@@ -32,16 +32,19 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The clean **complete full baseline** at `eb54e11` is **2,559/4,022**, with
-1,463 failures: 20 gains and 0 lost file passes versus `c12167f` at 2,539/4,022.
-DOM passes 375/662 and CSS 240/564.
-Exact inventory coverage, reported passing completions, source and signed artifacts
-were verified. No file that passed the previous complete baseline became a failure in this run.
+The clean **complete full baseline** at `5499cc7` is **2,561/4,022**, with
+1,461 failures: seven gains and five lost file passes versus `eb54e11` at 2,559/4,022.
+DOM passes 382/662 and CSS 235/564. Exact inventory coverage, passing completions,
+source and signed artifacts were verified. The five CSS losses expose previously
+aborted test registration, now caught by native error reporting. Six observed
+assertion regressions remain open: four frame Window proxy failures and two worker
+EventTarget null-receiver failures. Fix these before expanding feature work.
 
-The [previous normalization baseline](CONFORMANCE-NORMALIZATION-BASELINE-2026-09-06.json)
-retains its four lost passes and isolated history rechecks as historical evidence.
-The current full run incorporates the subsequent compound/focus, move/custom-name,
-and observer-ordering/scheduling changes; selected results are not added to its score.
+The [previous observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
+retains the preceding complete run. The new assertion audit records 25 corrected
+assertions, 850 additional passing names, five unresolved missing Range assertions
+and five verified history fixture-port name changes. Selected passes are not added
+to the score, and this result does not establish complete conformance.
 
 The [planning backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) now uses that
 single full ledger, replacing the original mixed-candidate planning index.
@@ -51,9 +54,9 @@ first-error text does not establish a root cause. No ID is silently discarded.
 
 | Root | Latest evidence used for planning | Open executions |
 |---|---|---:|
-| DOM | Clean full baseline | 287 |
+| DOM | Clean full baseline | 280 |
 | Editing | Clean full baseline | 586 |
-| CSS | Clean full baseline | 324 |
+| CSS | Clean full baseline | 329 |
 | IndexedDB | Clean full baseline | 115 |
 | HTML | Clean full baseline | 106 |
 | WebIDL | Clean full baseline | 29 |
@@ -129,10 +132,10 @@ Important concentration and dependencies:
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 
-**Baseline completed:** clean source `eb54e11`, signed worker
-`58bc9a61b046222447b6e82bbb1e5a74bed0a58f9d137f594c6c747a8d8f8406`,
-ledger `conformance-worker-full-observer-microtasks-eb54e11.json`. All 4,022 IDs and passing
-completions verified; all 1,463 failures routed. The initial resource batch has
+**Baseline completed:** clean source `5499cc7`, signed worker
+`f0194f2688cf829f1ca97d34cdadcfb5bc593e109c85d173af2e951c79f6ff73`,
+ledger `conformance-worker-full-native-error-reporting-5499cc7.json`. All 4,022 IDs and passing
+completions verified; all 1,461 failures routed. The initial resource batch has
 reproducible scaling and GC diagnostics recorded in the
 [foundation report](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 The procedure below remains required for subsequent complete candidates.
@@ -418,17 +421,17 @@ M5 passes; a smaller achievable batch is progress, not completion.
 
 ## Immediate next execution sequence
 
-1. Build clean `10f9b46` (or a later explicitly recorded candidate) and run all 4,022
-   IDs; refresh the backlog and inspect every runtime/harness/incomplete outcome.
-2. In the same diagnosis cycle, profile `name-validation` wall time and Range RSS;
-   inspect XML frame MIME routing/parser suitability, and reduce one whitespace-join
-   family to its shared Range/style contract.
-3. Implement the confirmed document/ownership and binding prerequisites. Validate
-   creation/adoption/realm tests and the entire DOM root; retain the new namespace passes.
-4. Begin the event/lifecycle and CSSOM adapter contracts and the high-multiplicity
-   editing families as their dependencies become testable; run transaction work on the
-   same well-defined scheduling contracts.
-5. Continue through the remaining workstream gates, then execute M5 without exemptions.
+1. Correct the six assertion regressions with native receiver and frame-realm
+   semantics; test null/undefined receivers, valid global receivers and frame teardown.
+2. Restore complete CSS test registration through initial frame documents, live
+   Window named properties, selectedOptions and declarative shadow parsing.
+3. Diagnose the missing Range assertions and remaining runtime/harness outcomes;
+   preserve limits and require actual testharness completion.
+4. Integrate CSSOM declaration mutation with Stylo and continue document ownership,
+   event lifecycle, editing, history and IndexedDB workstreams in dependency order.
+5. After each validated runtime batch, build a clean signed candidate, run the exact
+   inventory and refresh evidence. Execute M5 twice on one frozen passing candidate
+   only after all workstream and native validation gates pass.
 
 The existing release/product/platform action plan still applies independently.
 A paid evaluation, deployment, or publication is not necessary to claim that this

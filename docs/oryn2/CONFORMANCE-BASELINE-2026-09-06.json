@@ -1,236 +1,158 @@
 {
   "assertion_audit": {
     "counts": {
-      "additional_passing_assertions": 62,
-      "gained_assertions": 485,
-      "missing_previously_passing_assertions": 17,
-      "regressed_assertions": 0
+      "additional_passing_names": 850,
+      "corrected_existing": 25,
+      "missing_prior_passes": 10,
+      "observed_pass_to_fail": 6
     },
-    "ledger": "conformance-worker-full-observer-microtasks-eb54e11-assertion-audit.json",
-    "note": "12 earlier passing assertions are absent from the partial results of two Range files. Both current primary diagnostics report WorkerLimitExceeded wall time; this remains unresolved.",
-    "sha256": "dff369bc09977d187e54c208ada7fd8921b15b452b94dd025693da69f17f82e5",
-    "unresolved_missing_previously_passing_assertions": 12,
-    "verified_fixture_port_renames": 5
+    "ledger": "native-error-reporting-5499cc7-audit.json",
+    "open_regressions": [
+      {
+        "additional_passing_names": [],
+        "corrected_existing": [],
+        "id": "dom/events/scrolling/scroll-event-fired-to-iframe.html|window|",
+        "missing_prior_passes": [],
+        "observed_pass_to_fail": [
+          "scrollX and scrollY being set with the same value.",
+          "scrollX and scrollY being set with invalid scroll Scroll."
+        ]
+      },
+      {
+        "additional_passing_names": [],
+        "corrected_existing": [
+          "Event interface: new Event(\"foo\") must inherit property \"composed\" with the proper type",
+          "Event interface: new CustomEvent(\"foo\") must inherit property \"composed\" with the proper type",
+          "Event interface: attribute composed"
+        ],
+        "id": "dom/idlharness.any.js|dedicatedworker|",
+        "missing_prior_passes": [],
+        "observed_pass_to_fail": [
+          "EventTarget interface: operation addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean))",
+          "EventTarget interface: operation removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean))"
+        ]
+      },
+      {
+        "additional_passing_names": [],
+        "corrected_existing": [],
+        "id": "dom/observable/tentative/observable-constructor.window.js|window|",
+        "missing_prior_passes": [],
+        "observed_pass_to_fail": [
+          "Subscriber.error() does not \"report the exception\" even when an `error()` handler is not present, when it is invoked in a detached document",
+          "Cannot subscribe to an Observable in a detached document"
+        ]
+      }
+    ],
+    "sha256": "1d92d86072cf953f4d2adf88378a17384b85e021e023a82f184e9d1472e92019",
+    "unresolved_missing": [
+      {
+        "additional_passing_names": [],
+        "corrected_existing": [],
+        "id": "dom/ranges/Range-mutations-appendData.html|window|",
+        "missing_prior_passes": [
+          "detachedTextNode.appendData(\"\"), with unselected range collapsed at (detachedTextNode, 0)",
+          "detachedTextNode.appendData(\"\"), with selected range collapsed at (detachedTextNode, 0)",
+          "detachedTextNode.appendData(\"\"), with unselected range collapsed at (detachedTextNode, 1)"
+        ],
+        "observed_pass_to_fail": []
+      },
+      {
+        "additional_passing_names": [],
+        "corrected_existing": [],
+        "id": "dom/ranges/Range-mutations-deleteData.html|window|",
+        "missing_prior_passes": [
+          "xmlTextNode.deleteData(376, 2), with selected range on xmlTextNode from 0 to 1",
+          "xmlTextNode.deleteData(0, 2), with unselected range collapsed at (xmlTextNode, 0)"
+        ],
+        "observed_pass_to_fail": []
+      }
+    ],
+    "unresolved_missing_prior_passes": 5,
+    "verified_fixture_port_renames": [
+      {
+        "current_name": "http://localhost:54675/common/blank.html to http://localhost:54675/common/blank.html#newhash should work",
+        "previous_name": "http://localhost:63729/common/blank.html to http://localhost:63729/common/blank.html#newhash should work"
+      },
+      {
+        "current_name": "http://localhost:54675/common/blank.html to http://localhost:54675/common/blank.html?newsearch should work",
+        "previous_name": "http://localhost:63729/common/blank.html to http://localhost:63729/common/blank.html?newsearch should work"
+      },
+      {
+        "current_name": "http://localhost:54675/common/blank.html to http://localhost:54675/newpath should work",
+        "previous_name": "http://localhost:63729/common/blank.html to http://localhost:63729/newpath should work"
+      },
+      {
+        "current_name": "http://localhost:54675/common/blank.html to about:blank should not work",
+        "previous_name": "http://localhost:63729/common/blank.html to about:blank should not work"
+      },
+      {
+        "current_name": "http://localhost:54675/common/blank.html to about:srcdoc should not work",
+        "previous_name": "http://localhost:63729/common/blank.html to about:srcdoc should not work"
+      }
+    ]
   },
-  "baseline_ledger": "conformance-worker-full-normalize-window-c12167f.json",
+  "baseline_ledger": "conformance-worker-full-observer-microtasks-eb54e11.json",
   "binary": {
-    "sha256": "c2c546a7395113100d0c90e4c6644c7df32fe9d3d737a48a99a9355e9c254137",
+    "sha256": "21b790aa74f72f9dd032d3df06845c267c27c9bfd91130a694023468290e7fbf",
     "size_bytes": 6991440
   },
   "diagnostic_only": true,
   "exact_inventory_and_pass_completion_verified": true,
-  "failure_domain_changes": [
-    {
-      "current": null,
-      "id": "css/css-cascade/scope-focus.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "css/selectors/focus-visible-005.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "css/selectors/focus-visible-015.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": "runtime",
-      "id": "css/selectors/focus-visible-018-2.html|window|",
-      "previous": "incomplete"
-    },
-    {
-      "current": null,
-      "id": "css/selectors/focus-visible-script-focus-008-b.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "css/selectors/focus-visible-script-focus-008.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "css/selectors/focus-visible-script-focus-009.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "css/selectors/focus-visible-script-focus-010.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "css/selectors/focus-visible-script-focus-011.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "css/selectors/focus-visible-script-focus-018.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "css/selectors/focus-visible-script-focus-019.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "css/selectors/focus-visible-script-focus-020.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "css/selectors/focus-within-009.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "css/selectors/invalidation/is-where-pseudo-containing-hard-pseudo-and-never-matching.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": "runtime",
-      "id": "dom/events/Event-dispatch-on-disabled-elements.html|window|",
-      "previous": "incomplete"
-    },
-    {
-      "current": "harness",
-      "id": "dom/events/scrolling/scrollend-event-not-fired-after-removing-scroller.tentative.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "dom/nodes/MutationObserver-attributes.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "dom/nodes/MutationObserver-document.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": null,
-      "id": "dom/nodes/MutationObserver-textContent.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": "incomplete",
-      "id": "dom/nodes/Node-textContent.html|window|",
-      "previous": "runtime"
-    },
-    {
-      "current": null,
-      "id": "dom/nodes/moveBefore/mutation-observer.html|window|",
-      "previous": "assertion"
-    },
-    {
-      "current": "runtime",
-      "id": "dom/ranges/Range-mutations-appendData.html|window|",
-      "previous": "incomplete"
-    },
-    {
-      "current": "runtime",
-      "id": "dom/ranges/Range-mutations-dataChange.html|window|",
-      "previous": "incomplete"
-    },
-    {
-      "current": "runtime",
-      "id": "dom/ranges/Range-mutations-deleteData.html|window|",
-      "previous": "incomplete"
-    },
-    {
-      "current": "runtime",
-      "id": "dom/ranges/Range-mutations-insertData.html|window|",
-      "previous": "incomplete"
-    },
-    {
-      "current": "runtime",
-      "id": "dom/ranges/Range-mutations-replaceData.html|window|",
-      "previous": "incomplete"
-    },
-    {
-      "current": null,
-      "id": "html/browsers/history/the-history-interface/008.html|window|",
-      "previous": "incomplete"
-    },
-    {
-      "current": null,
-      "id": "html/browsers/history/the-history-interface/011.html|window|",
-      "previous": "incomplete"
-    },
-    {
-      "current": null,
-      "id": "html/browsers/history/the-history-interface/012.html|window|",
-      "previous": "incomplete"
-    },
-    {
-      "current": "runtime",
-      "id": "html/browsers/history/the-history-interface/combination_history_005.html|window|",
-      "previous": "harness"
-    },
-    {
-      "current": "runtime",
-      "id": "html/browsers/history/the-history-interface/combination_history_007.html|window|",
-      "previous": "harness"
-    },
-    {
-      "current": "harness",
-      "id": "html/browsers/history/the-history-interface/history_forward.html|window|",
-      "previous": "runtime"
-    },
-    {
-      "current": "harness",
-      "id": "html/browsers/history/the-history-interface/history_go_minus.html|window|",
-      "previous": "runtime"
-    },
-    {
-      "current": "harness",
-      "id": "html/browsers/history/the-history-interface/history_go_zero_which_document.window.js|window|",
-      "previous": "runtime"
-    }
-  ],
   "failure_domains": {
-    "assertion": 1274,
-    "harness": 129,
+    "assertion": 1269,
+    "harness": 140,
     "incomplete": 3,
-    "runtime": 56,
+    "runtime": 48,
     "timeout": 1
   },
   "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
-  "ledger": "conformance-worker-full-observer-microtasks-eb54e11.json",
-  "ledger_sha256": "981b95e030e622b758e305a4ff0645eafceea434c165a9ad77162055864f6f40",
+  "ledger": "conformance-worker-full-native-error-reporting-5499cc7.json",
+  "ledger_sha256": "c109467ecc8eb14950a0177665da006b06493a9812b3048f00934bb493dd4cea",
+  "lost_file_diagnoses": [
+    {
+      "diagnosis": "Initial iframe document missing; one passing prefix assertion.",
+      "id": "css/cssom/getComputedStyle-detached-subtree.html|window|"
+    },
+    {
+      "diagnosis": "Dynamic Window named properties missing after ID mutation; fourteen prefix assertions.",
+      "id": "css/selectors/invalidation/attribute-or-elemental-selectors-in-has.html|window|"
+    },
+    {
+      "diagnosis": "Dynamic Window named properties missing; four prefix assertions.",
+      "id": "css/selectors/invalidation/has-invalidation-for-wiping-an-element.html|window|"
+    },
+    {
+      "diagnosis": "HTMLSelectElement.selectedOptions absent; three prefix assertions.",
+      "id": "css/selectors/invalidation/has-with-pseudo-class.html|window|"
+    },
+    {
+      "diagnosis": "Declarative shadow root absent; one prefix assertion.",
+      "id": "css/selectors/invalidation/host-has-shadow-tree-element-at-subject-position.html|window|"
+    }
+  ],
   "newly_passing": [
-    "css/css-cascade/scope-focus.html|window|",
-    "css/selectors/focus-visible-005.html|window|",
-    "css/selectors/focus-visible-015.html|window|",
-    "css/selectors/focus-visible-script-focus-008-b.html|window|",
-    "css/selectors/focus-visible-script-focus-008.html|window|",
-    "css/selectors/focus-visible-script-focus-009.html|window|",
-    "css/selectors/focus-visible-script-focus-010.html|window|",
-    "css/selectors/focus-visible-script-focus-011.html|window|",
-    "css/selectors/focus-visible-script-focus-018.html|window|",
-    "css/selectors/focus-visible-script-focus-019.html|window|",
-    "css/selectors/focus-visible-script-focus-020.html|window|",
-    "css/selectors/focus-within-009.html|window|",
-    "css/selectors/invalidation/is-where-pseudo-containing-hard-pseudo-and-never-matching.html|window|",
-    "dom/nodes/MutationObserver-attributes.html|window|",
-    "dom/nodes/MutationObserver-document.html|window|",
-    "dom/nodes/MutationObserver-textContent.html|window|",
-    "dom/nodes/moveBefore/mutation-observer.html|window|",
-    "html/browsers/history/the-history-interface/008.html|window|",
-    "html/browsers/history/the-history-interface/011.html|window|",
-    "html/browsers/history/the-history-interface/012.html|window|"
+    "dom/events/Event-dispatch-throwing.html|window|",
+    "dom/events/EventListener-handleEvent.html|window|",
+    "dom/events/EventTarget-dispatchEvent.html|window|",
+    "dom/events/EventTarget-this-of-listener.html|window|",
+    "dom/events/remove-all-listeners.html|window|",
+    "dom/events/window-composed-path.html|window|",
+    "dom/window-extends-event-target.html|window|"
   ],
   "outcome": {
     "required_finished": 4022,
-    "required_passed": 2559,
+    "required_passed": 2561,
     "required_total": 4022,
     "status": "failed"
   },
-  "previous_baseline_archive": "CONFORMANCE-NORMALIZATION-BASELINE-2026-09-06.json",
-  "regressions": [],
+  "previous_baseline_archive": "CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json",
+  "regressions": [
+    "css/cssom/getComputedStyle-detached-subtree.html|window|",
+    "css/selectors/invalidation/attribute-or-elemental-selectors-in-has.html|window|",
+    "css/selectors/invalidation/has-invalidation-for-wiping-an-element.html|window|",
+    "css/selectors/invalidation/has-with-pseudo-class.html|window|",
+    "css/selectors/invalidation/host-has-shadow-tree-element-at-subject-position.html|window|"
+  ],
   "release_qualified": false,
   "roots": {
     "IndexedDB": {
@@ -249,13 +171,13 @@
       "required": 19
     },
     "css": {
-      "failed": 324,
-      "passed": 240,
+      "failed": 329,
+      "passed": 235,
       "required": 564
     },
     "dom": {
-      "failed": 287,
-      "passed": 375,
+      "failed": 280,
+      "passed": 382,
       "required": 662
     },
     "editing": {
@@ -279,7 +201,7 @@
       "required": 32
     }
   },
-  "run_fingerprint": "96686202db9476ce0eeb0db30c5f585cd8364e0af83cd8c9341752851a4b81c4",
+  "run_fingerprint": "edb559a5510c53047ae3b81b2c8014dd13d71f48b35b9c7bdbd4c97acba37257",
   "runtime_metadata": {
     "binding_abi_version": 3,
     "box_engine_version": "taffy-0.14",
@@ -346,16 +268,16 @@
     "transport_mode": "async_streaming_parent_broker",
     "v8_heap_sandbox": true,
     "v8_version": "15.0.245.2-rusty",
-    "webidl_manifest_sha256": "bd301e64153039409e8b66614bf8c14db544bd2ef2e2ef09e7023cea6af3a071",
-    "worker_binary_sha256": "58bc9a61b046222447b6e82bbb1e5a74bed0a58f9d137f594c6c747a8d8f8406",
+    "webidl_manifest_sha256": "ab596d409cf8754b4ee4925a64f6b413acf7569bb016cc35ea63adede856a9af",
+    "worker_binary_sha256": "f0194f2688cf829f1ca97d34cdadcfb5bc593e109c85d173af2e951c79f6ff73",
     "worker_bundle_id": "ai.rustic.oryn.page-worker",
     "worker_protocol_version": 8,
     "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
     "worker_team_id": "5HVA9VFF8K"
   },
-  "scope_note": "Full-run delta includes all changes since c12167f, including compound mutations, Stylo focus, moveBefore focus, literal custom names, and observer ordering/scheduling. Native exception reporting remains incomplete; this is diagnostic evidence, not a complete-conformance claim.",
+  "scope_note": "Native global, parser, module and node callback exception reporting. Five lost CSS file statuses expose aborted registration after passing prefixes; six assertion regressions remain open. This is a failing baseline, not release qualification.",
   "source": {
-    "commit": "eb54e110ea9a18cd2f530cd542fe58ee22887b5d",
+    "commit": "5499cc739523caa7958369b2378f28ef0f20cd9d",
     "dirty": false,
     "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "untracked_file_count": 0,
@@ -363,5 +285,5 @@
   },
   "source_and_binaries_reverified_after_completion": true,
   "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
-  "worker_sha256": "58bc9a61b046222447b6e82bbb1e5a74bed0a58f9d137f594c6c747a8d8f8406"
+  "worker_sha256": "f0194f2688cf829f1ca97d34cdadcfb5bc593e109c85d173af2e951c79f6ff73"
 }

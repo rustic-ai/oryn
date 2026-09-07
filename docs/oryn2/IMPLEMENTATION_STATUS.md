@@ -2,14 +2,15 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> Clean signed-worker baseline `eb54e11`: **2,559/4,022**, with
-> **20 new file passes, 0 lost file passes, and 1,463 remaining failures**
-> versus the previous complete run at 2,539/4,022 (`c12167f`).
+> Clean signed-worker baseline `5499cc7`: **2,561/4,022**, with
+> **7 new file passes, 5 lost file passes, and 1,461 remaining failures**
+> versus `eb54e11` at 2,559/4,022.
 
-This full run includes compound text/HTML mutations, native focus projected into
-Stylo, focus-preserving moves, literal custom-element upgrade names, and native
-observer ordering and microtask scheduling. It supersedes separate root selections
-for current planning. The full-run delta includes all changes since `c12167f`.
+This full run includes native global, parser, module and node callback exception
+reporting. Seven DOM event files now pass. Five CSS files previously passed only
+an assertion prefix before an unreported script error aborted registration; those
+errors now correctly fail the harness. Their missing frame, named-property,
+selectedOptions and declarative-shadow prerequisites remain open.
 
 Exact inventory coverage and every reported passing testharness completion were
 independently checked. Source, CLI and signed worker remained fixed. The 256 MiB
@@ -21,32 +22,33 @@ sandbox are unchanged. This failing result does not qualify a release.
 | IndexedDB | 341/456 |
 | WebIDL | 29/58 |
 | accname | 15/19 |
-| css | 240/564 |
-| dom | 375/662 |
+| css | 235/564 |
+| dom | 382/662 |
 | editing | 118/704 |
 | html | 30/136 |
 | referrer-policy | 1,383/1,391 |
 | wai-aria | 28/32 |
 
-The full ledger is `artifacts/upstream-conformance/conformance-worker-full-observer-microtasks-eb54e11.json`.
+The full ledger is `artifacts/upstream-conformance/conformance-worker-full-native-error-reporting-5499cc7.json`.
 [Baseline evidence](CONFORMANCE-BASELINE-2026-09-06.json) binds the outcomes to source
 and artifact hashes. [The failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json)
-uses this single full run. Remaining outcomes comprise 1,274
-assertion, 56 runtime, 129 harness,
+uses this single full run. Remaining outcomes comprise 1,269
+assertion, 48 runtime, 140 harness,
 3 incomplete and 1 timeout failures.
 
-No file that passed the previous complete baseline became a failure in this run.
-The assertion audit found 485 corrected existing assertions and no observed
-pass-to-fail changes. Twelve earlier passing assertions are missing from two
-partial Range results with worker wall-time failures; these remain unresolved.
-Five other name mismatches were verified as passing tests with changed fixture ports.
+The assertion audit found 25 corrected existing assertions, 850 additional passing
+names and six observed pass-to-fail changes. Four regressions involve frame Window
+proxies calling native APIs; two involve worker EventTarget null receivers. These
+are the immediate implementation priority. Five earlier passing Range assertions
+are absent from partial results and remain unresolved. Five history name changes
+were verified as passing counterparts with different fixture ports.
 
 Stylo owns the rendering style pipeline and selector matching. CSSOM declaration
 mutation still uses a separate binding helper that must be integrated with Stylo. Remaining
 shared gaps include fragment/outerHTML mutation grouping, transient registrations,
 complete event-handler slots/options, module load timing, initial frame realms and indexed Window child
 access, Range/editing, document ownership, XML navigation/fragments, CSSOM, history,
-accessibility and IndexedDB lifecycle behavior. The historical baseline predates native parser error delivery and remains diagnostic.
+accessibility and IndexedDB lifecycle behavior. The current baseline includes native parser error delivery and remains diagnostic.
 Classic parser scripts now report uncaught errors through native Window handlers;
 [validation](CONFORMANCE-NATIVE-PARSER-ERRORS-2026-09-06.json) includes the pinned
 testharness accepting explicitly allowed exceptions and rejecting unexpected ones.

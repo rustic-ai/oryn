@@ -1,0 +1,367 @@
+{
+  "assertion_audit": {
+    "counts": {
+      "additional_passing_assertions": 62,
+      "gained_assertions": 485,
+      "missing_previously_passing_assertions": 17,
+      "regressed_assertions": 0
+    },
+    "ledger": "conformance-worker-full-observer-microtasks-eb54e11-assertion-audit.json",
+    "note": "12 earlier passing assertions are absent from the partial results of two Range files. Both current primary diagnostics report WorkerLimitExceeded wall time; this remains unresolved.",
+    "sha256": "dff369bc09977d187e54c208ada7fd8921b15b452b94dd025693da69f17f82e5",
+    "unresolved_missing_previously_passing_assertions": 12,
+    "verified_fixture_port_renames": 5
+  },
+  "baseline_ledger": "conformance-worker-full-normalize-window-c12167f.json",
+  "binary": {
+    "sha256": "c2c546a7395113100d0c90e4c6644c7df32fe9d3d737a48a99a9355e9c254137",
+    "size_bytes": 6991440
+  },
+  "diagnostic_only": true,
+  "exact_inventory_and_pass_completion_verified": true,
+  "failure_domain_changes": [
+    {
+      "current": null,
+      "id": "css/css-cascade/scope-focus.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-005.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-015.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": "runtime",
+      "id": "css/selectors/focus-visible-018-2.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-008-b.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-008.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-009.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-010.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-011.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-018.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-019.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-visible-script-focus-020.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/focus-within-009.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "css/selectors/invalidation/is-where-pseudo-containing-hard-pseudo-and-never-matching.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": "runtime",
+      "id": "dom/events/Event-dispatch-on-disabled-elements.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": "harness",
+      "id": "dom/events/scrolling/scrollend-event-not-fired-after-removing-scroller.tentative.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "dom/nodes/MutationObserver-attributes.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "dom/nodes/MutationObserver-document.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": null,
+      "id": "dom/nodes/MutationObserver-textContent.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": "incomplete",
+      "id": "dom/nodes/Node-textContent.html|window|",
+      "previous": "runtime"
+    },
+    {
+      "current": null,
+      "id": "dom/nodes/moveBefore/mutation-observer.html|window|",
+      "previous": "assertion"
+    },
+    {
+      "current": "runtime",
+      "id": "dom/ranges/Range-mutations-appendData.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": "runtime",
+      "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": "runtime",
+      "id": "dom/ranges/Range-mutations-deleteData.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": "runtime",
+      "id": "dom/ranges/Range-mutations-insertData.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": "runtime",
+      "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": null,
+      "id": "html/browsers/history/the-history-interface/008.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": null,
+      "id": "html/browsers/history/the-history-interface/011.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": null,
+      "id": "html/browsers/history/the-history-interface/012.html|window|",
+      "previous": "incomplete"
+    },
+    {
+      "current": "runtime",
+      "id": "html/browsers/history/the-history-interface/combination_history_005.html|window|",
+      "previous": "harness"
+    },
+    {
+      "current": "runtime",
+      "id": "html/browsers/history/the-history-interface/combination_history_007.html|window|",
+      "previous": "harness"
+    },
+    {
+      "current": "harness",
+      "id": "html/browsers/history/the-history-interface/history_forward.html|window|",
+      "previous": "runtime"
+    },
+    {
+      "current": "harness",
+      "id": "html/browsers/history/the-history-interface/history_go_minus.html|window|",
+      "previous": "runtime"
+    },
+    {
+      "current": "harness",
+      "id": "html/browsers/history/the-history-interface/history_go_zero_which_document.window.js|window|",
+      "previous": "runtime"
+    }
+  ],
+  "failure_domains": {
+    "assertion": 1274,
+    "harness": 129,
+    "incomplete": 3,
+    "runtime": 56,
+    "timeout": 1
+  },
+  "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+  "ledger": "conformance-worker-full-observer-microtasks-eb54e11.json",
+  "ledger_sha256": "981b95e030e622b758e305a4ff0645eafceea434c165a9ad77162055864f6f40",
+  "newly_passing": [
+    "css/css-cascade/scope-focus.html|window|",
+    "css/selectors/focus-visible-005.html|window|",
+    "css/selectors/focus-visible-015.html|window|",
+    "css/selectors/focus-visible-script-focus-008-b.html|window|",
+    "css/selectors/focus-visible-script-focus-008.html|window|",
+    "css/selectors/focus-visible-script-focus-009.html|window|",
+    "css/selectors/focus-visible-script-focus-010.html|window|",
+    "css/selectors/focus-visible-script-focus-011.html|window|",
+    "css/selectors/focus-visible-script-focus-018.html|window|",
+    "css/selectors/focus-visible-script-focus-019.html|window|",
+    "css/selectors/focus-visible-script-focus-020.html|window|",
+    "css/selectors/focus-within-009.html|window|",
+    "css/selectors/invalidation/is-where-pseudo-containing-hard-pseudo-and-never-matching.html|window|",
+    "dom/nodes/MutationObserver-attributes.html|window|",
+    "dom/nodes/MutationObserver-document.html|window|",
+    "dom/nodes/MutationObserver-textContent.html|window|",
+    "dom/nodes/moveBefore/mutation-observer.html|window|",
+    "html/browsers/history/the-history-interface/008.html|window|",
+    "html/browsers/history/the-history-interface/011.html|window|",
+    "html/browsers/history/the-history-interface/012.html|window|"
+  ],
+  "outcome": {
+    "required_finished": 4022,
+    "required_passed": 2559,
+    "required_total": 4022,
+    "status": "failed"
+  },
+  "previous_baseline_archive": "CONFORMANCE-NORMALIZATION-BASELINE-2026-09-06.json",
+  "regressions": [],
+  "release_qualified": false,
+  "roots": {
+    "IndexedDB": {
+      "failed": 115,
+      "passed": 341,
+      "required": 456
+    },
+    "WebIDL": {
+      "failed": 29,
+      "passed": 29,
+      "required": 58
+    },
+    "accname": {
+      "failed": 4,
+      "passed": 15,
+      "required": 19
+    },
+    "css": {
+      "failed": 324,
+      "passed": 240,
+      "required": 564
+    },
+    "dom": {
+      "failed": 287,
+      "passed": 375,
+      "required": 662
+    },
+    "editing": {
+      "failed": 586,
+      "passed": 118,
+      "required": 704
+    },
+    "html": {
+      "failed": 106,
+      "passed": 30,
+      "required": 136
+    },
+    "referrer-policy": {
+      "failed": 8,
+      "passed": 1383,
+      "required": 1391
+    },
+    "wai-aria": {
+      "failed": 4,
+      "passed": 28,
+      "required": 32
+    }
+  },
+  "run_fingerprint": "96686202db9476ce0eeb0db30c5f585cd8364e0af83cd8c9341752851a4b81c4",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "82e483160802d3c7495aec26420443e9485bb40922f7eb983f20174502d7591a",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "3e64d70089b6ce478680bba85d50c320b039cc4f2160d1f72214028017c7f00c",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "bd301e64153039409e8b66614bf8c14db544bd2ef2e2ef09e7023cea6af3a071",
+    "worker_binary_sha256": "58bc9a61b046222447b6e82bbb1e5a74bed0a58f9d137f594c6c747a8d8f8406",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_protocol_version": 8,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "scope_note": "Full-run delta includes all changes since c12167f, including compound mutations, Stylo focus, moveBefore focus, literal custom names, and observer ordering/scheduling. Native exception reporting remains incomplete; this is diagnostic evidence, not a complete-conformance claim.",
+  "source": {
+    "commit": "eb54e110ea9a18cd2f530cd542fe58ee22887b5d",
+    "dirty": false,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_file_count": 0,
+    "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "source_and_binaries_reverified_after_completion": true,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "worker_sha256": "58bc9a61b046222447b6e82bbb1e5a74bed0a58f9d137f594c6c747a8d8f8406"
+}
