@@ -8869,7 +8869,7 @@ pub(crate) fn layout_input(
         .filter_map(|(id, _)| {
             let node = document.dom.get(*id).ok()?;
             matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "style")
-                .then(|| document.dom.text_content(*id).ok())
+                .then(|| document.dom.stylesheet_text(*id).ok())
                 .flatten()
         })
         .collect();
@@ -8877,7 +8877,7 @@ pub(crate) fn layout_input(
         stylesheets.extend(
             root.adopted_stylesheets
                 .iter()
-                .filter_map(|sheet| document.dom.text_content(*sheet).ok()),
+                .filter_map(|sheet| document.dom.stylesheet_text(*sheet).ok()),
         );
     }
     oryn_layout::LayoutInput {

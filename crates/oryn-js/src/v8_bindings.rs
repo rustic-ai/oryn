@@ -760,10 +760,27 @@ pub struct BindingDeclarationMutation {
     pub css_text: Option<String>,
 }
 
+pub struct BindingRuleView {
+    pub rule_type: u16,
+    pub css_text: String,
+    pub selector_text: Option<String>,
+    pub declaration_text: Option<String>,
+}
+
 /// Synchronous style/layout flush used by geometry WebIDL operations. The
 /// implementation lives in the page orchestrator so generated bindings keep
 /// using the same Rust DOM and Stylo/Taffy/Parley pipeline as observations.
 pub trait BindingLayoutProvider {
+    fn read_stylesheet(
+        &self,
+        _source: &str,
+        _base_url: &str,
+        _quirks: bool,
+        _allow_imports: bool,
+    ) -> Option<Result<Vec<BindingRuleView>, String>> {
+        None
+    }
+
     fn supported_css_properties(&self) -> Vec<(String, String)> {
         Vec::new()
     }
@@ -19381,6 +19398,51 @@ fn stylesheet_rule_texts(source: &str) -> Vec<String> {
     rules
 }
 
+/// Read the same parsed rule sequence for enumeration and indexed mutations.
+fn stylesheet_rules_for_owner(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+    source: &str,
+    allow_imports: bool,
+) -> Result<Vec<String>, V8BindingError> {
+    let base_url = cssom_base_url(scope)?;
+    let document = owner_document_for_node(state, node)?;
+    let quirks = {
+        let dom = state.dom.borrow();
+        dom.arena()
+            .get(document)?
+            .document_metadata
+            .as_ref()
+            .is_some_and(|metadata| metadata.quirks)
+    };
+    let provider = state.layout_provider.borrow().clone();
+    if let Some(parsed) = provider
+        .as_ref()
+        .and_then(|provider| provider.read_stylesheet(source, &base_url, quirks, allow_imports))
+    {
+        return parsed
+            .map(|rules| rules.into_iter().map(|rule| rule.css_text).collect())
+            .map_err(V8BindingError::EventCallback);
+    }
+    Ok(stylesheet_rule_texts(source))
+}
+
+/// Update the stylesheet without replacing its owner's DOM children.
+fn publish_stylesheet_source(
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+    source: String,
+) -> Result<(), V8BindingError> {
+    state.dom.borrow_mut().set_stylesheet_text(node, source)?;
+    state.prepared_stylesheets.borrow_mut().remove(&node);
+    state
+        .pending_dynamic_stylesheets
+        .borrow_mut()
+        .retain(|pending| *pending != node);
+    prepare_dynamic_stylesheet_subtree(state, node)
+}
+
 fn css_rule_object<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     css_text: &str,
@@ -19902,22 +19964,8 @@ fn get_attribute_value<'s>(
         return associated_node_array(scope, state, &styles, "CSSStyleSheet");
     }
     if interface == "CSSStyleSheet" && matches!(member, "cssRules" | "rules") {
-        let source = state.dom.borrow().arena().text_content(node)?;
-        let rule_texts = stylesheet_rule_texts(&source)
-            .into_iter()
-            .filter_map(|rule| {
-                if rule.trim_start().starts_with('@') {
-                    return Some(rule);
-                }
-                let (selector, body) = rule.split_once('{')?;
-                let provider = state.layout_provider.borrow();
-                let selector = provider.as_ref().map_or_else(
-                    || Some(selector.trim().to_string()),
-                    |provider| provider.canonicalize_selector(selector.trim()).ok(),
-                )?;
-                Some(format!("{selector} {{{body}"))
-            })
-            .collect::<Vec<_>>();
+        let source = state.dom.borrow().arena().stylesheet_text(node)?;
+        let rule_texts = stylesheet_rules_for_owner(scope, state, node, &source, true)?;
         let rules = if let Some(rules) = state.stylesheet_rule_lists.borrow().get(&node) {
             v8::Local::new(scope, rules)
         } else {
@@ -23068,8 +23116,8 @@ fn call_operation<'s>(
                     })?;
                 rule = format!("{selector} {{{body}");
             }
-            let current = state.dom.borrow().arena().text_content(node)?;
-            let mut rules = stylesheet_rule_texts(&current);
+            let current = state.dom.borrow().arena().stylesheet_text(node)?;
+            let mut rules = stylesheet_rules_for_owner(scope, state, node, &current, true)?;
             let index = if args.length() > 1 {
                 args.get(1).uint32_value(scope).unwrap_or(0) as usize
             } else {
@@ -23083,10 +23131,7 @@ fn call_operation<'s>(
             }
             rules.insert(index, rule);
             let inserted = rules[index].clone();
-            state
-                .dom
-                .borrow_mut()
-                .set_text_content(node, rules.join("\n"))?;
+            publish_stylesheet_source(state, node, rules.join("\n"))?;
             insert_cached_stylesheet_rule(scope, state, node, index, &inserted)?;
             Ok(Some(
                 v8::Integer::new_from_unsigned(scope, index as u32).into(),
@@ -23094,8 +23139,8 @@ fn call_operation<'s>(
         }
         ("CSSStyleSheet", "deleteRule") => {
             let index = args.get(0).uint32_value(scope).unwrap_or(0) as usize;
-            let current = state.dom.borrow().arena().text_content(node)?;
-            let mut rules = stylesheet_rule_texts(&current);
+            let current = state.dom.borrow().arena().stylesheet_text(node)?;
+            let mut rules = stylesheet_rules_for_owner(scope, state, node, &current, true)?;
             if index >= rules.len() {
                 return Err(V8BindingError::Unsupported {
                     interface: "CSSStyleSheet".into(),
@@ -23103,10 +23148,7 @@ fn call_operation<'s>(
                 });
             }
             rules.remove(index);
-            state
-                .dom
-                .borrow_mut()
-                .set_text_content(node, rules.join("\n"))?;
+            publish_stylesheet_source(state, node, rules.join("\n"))?;
             delete_cached_stylesheet_rule(scope, state, node, index)?;
             Ok(None)
         }
@@ -23116,8 +23158,8 @@ fn call_operation<'s>(
             } else {
                 0
             };
-            let current = state.dom.borrow().arena().text_content(node)?;
-            let mut rules = stylesheet_rule_texts(&current);
+            let current = state.dom.borrow().arena().stylesheet_text(node)?;
+            let mut rules = stylesheet_rules_for_owner(scope, state, node, &current, true)?;
             if index >= rules.len() {
                 return Err(V8BindingError::Unsupported {
                     interface: "CSSStyleSheet".into(),
@@ -23125,10 +23167,7 @@ fn call_operation<'s>(
                 });
             }
             rules.remove(index);
-            state
-                .dom
-                .borrow_mut()
-                .set_text_content(node, rules.join("\n"))?;
+            publish_stylesheet_source(state, node, rules.join("\n"))?;
             delete_cached_stylesheet_rule(scope, state, node, index)?;
             Ok(None)
         }
@@ -23146,8 +23185,8 @@ fn call_operation<'s>(
             if !declarations.trim().is_empty() && !declarations.trim_end().ends_with(';') {
                 declarations.push(';');
             }
-            let current = state.dom.borrow().arena().text_content(node)?;
-            let mut rules = stylesheet_rule_texts(&current);
+            let current = state.dom.borrow().arena().stylesheet_text(node)?;
+            let mut rules = stylesheet_rules_for_owner(scope, state, node, &current, true)?;
             let index = if args.length() > 2 {
                 args.get(2).uint32_value(scope).unwrap_or(0) as usize
             } else {
@@ -23160,10 +23199,7 @@ fn call_operation<'s>(
                 });
             }
             rules.insert(index, format!("{selector} {{ {declarations} }}"));
-            state
-                .dom
-                .borrow_mut()
-                .set_text_content(node, rules.join("\n"))?;
+            publish_stylesheet_source(state, node, rules.join("\n"))?;
             let inserted = rules
                 .get(index)
                 .cloned()
@@ -23173,19 +23209,23 @@ fn call_operation<'s>(
         }
         ("CSSStyleSheet", "replaceSync") | ("CSSStyleSheet", "replace") => {
             let source = required_string(scope, args, 0)?;
-            // Parse the complete rule list before mutating so malformed input
-            // cannot leave a partially replaced stylesheet.
-            let rules = stylesheet_rule_texts(&source);
-            if !source.trim().is_empty() && rules.is_empty() {
+            if !state.constructed_stylesheets.borrow().contains(&node) {
+                if member == "replace" {
+                    let resolver = v8::PromiseResolver::new(scope)
+                        .ok_or(V8BindingError::Allocation("stylesheet replacement promise"))?;
+                    let exception = dom_exception_value(scope, "NotAllowedError")?;
+                    resolver.reject(scope, exception);
+                    return Ok(Some(resolver.get_promise(scope).into()));
+                }
                 return Err(V8BindingError::Unsupported {
                     interface: "CSSStyleSheet".into(),
-                    member: "replacement contains no complete CSS rule".into(),
+                    member: "NotAllowedError".into(),
                 });
             }
-            state
-                .dom
-                .borrow_mut()
-                .set_text_content(node, rules.join("\n"))?;
+            // Stylesheet parsing recovers from invalid input. An empty parsed
+            // result replaces the previous rules with an empty stylesheet.
+            let rules = stylesheet_rules_for_owner(scope, state, node, &source, false)?;
+            publish_stylesheet_source(state, node, rules.join("\n"))?;
             if member == "replace" {
                 let receiver = args.this();
                 return Ok(Some(resolved_promise(scope, receiver.into())?.into()));
@@ -24072,7 +24112,7 @@ fn prepare_dynamic_stylesheet_subtree(
                     || dom.is_element(*node, "http://www.w3.org/2000/svg", "style"))
                     && dom
                         .arena()
-                        .text_content(*node)
+                        .stylesheet_text(*node)
                         .is_ok_and(|css| css.contains("url(") || css.contains("@import"));
                 let inline = [
                     "style",

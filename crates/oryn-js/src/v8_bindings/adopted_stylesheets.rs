@@ -454,7 +454,7 @@ pub(super) fn styles(
         for i in 0..target.length() {
             let value = target.get_index(scope, i).ok_or(error("TypeError"))?;
             let node = validate(scope, state, *root, value)?;
-            sheets.push(state.dom.borrow().arena().text_content(node)?);
+            sheets.push(state.dom.borrow().arena().stylesheet_text(node)?);
         }
         result.insert(*root, sheets);
     }

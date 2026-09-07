@@ -37,6 +37,30 @@ struct LiveLayoutProvider {
 }
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn read_stylesheet(
+        &self,
+        source: &str,
+        base_url: &str,
+        quirks: bool,
+        allow_imports: bool,
+    ) -> Option<Result<Vec<oryn_js::v8_bindings::BindingRuleView>, String>> {
+        Some(
+            oryn_layout::cssom::read_stylesheet(source, base_url, quirks, allow_imports).map(
+                |rules| {
+                    rules
+                        .into_iter()
+                        .map(|rule| oryn_js::v8_bindings::BindingRuleView {
+                            rule_type: rule.rule_type,
+                            css_text: rule.css_text,
+                            selector_text: rule.selector_text,
+                            declaration_text: rule.declaration_text,
+                        })
+                        .collect()
+                },
+            ),
+        )
+    }
+
     fn supported_css_properties(&self) -> Vec<(String, String)> {
         oryn_layout::cssom::supported_properties()
     }
@@ -3133,7 +3157,7 @@ impl RustExecutableDocument {
                             .is_ok_and(|name| name.eq_ignore_ascii_case("style"))
                         {
                             dom.arena()
-                                .text_content(stylesheet)
+                                .stylesheet_text(stylesheet)
                                 .map_err(|error| HostError::Execution(error.to_string()))?
                         } else {
                             [
@@ -5413,6 +5437,114 @@ mod tests {
         assert_eq!(
             page.evaluate("order.join('|')").unwrap(),
             "handler:5:true|listener:true|after"
+        );
+    }
+
+    #[test]
+    fn cssom_stylesheet_replacement_requires_a_constructed_sheet() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><style id='sheet'>div { color: red; }</style><body>",
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const sheet = document.getElementById('sheet').sheet;
+            const before = sheet.cssRules[0].cssText;
+            let syncError = '';
+            try { sheet.replaceSync('div { color: blue; }'); }
+            catch (error) { syncError = error.name + ':' + (error instanceof DOMException); }
+            globalThis.replacementError = '';
+            const result = sheet.replace('div { color: green; }');
+            result.catch(error => { globalThis.replacementError = error.name; });
+            [syncError, result instanceof Promise, sheet.cssRules[0].cssText === before].join('|')
+        "#
+            )
+            .unwrap(),
+            "NotAllowedError:true|true|true"
+        );
+        assert_eq!(
+            page.evaluate("replacementError").unwrap(),
+            "NotAllowedError"
+        );
+    }
+
+    #[test]
+    fn cssom_stylesheet_replacement_accepts_empty_parse_results() {
+        let mut page = RustExecutableDocument::load("<!doctype html><body>").unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const sheet = new CSSStyleSheet();
+            sheet.replaceSync('div { color: red; }');
+            const before = sheet.cssRules.length;
+            sheet.replaceSync('@unknown { ignored: yes; }');
+            const empty = sheet.cssRules.length;
+            sheet.replaceSync('@import url("ignored.css"); div { color: blue; }');
+            const mixed = sheet.cssRules.length;
+            sheet.replaceSync('@import url("ignored.css");');
+            [before, empty, mixed, sheet.cssRules.length].join('|')
+        "#
+            )
+            .unwrap(),
+            "1|0|1|0"
+        );
+    }
+
+    #[test]
+    fn cssom_stylesheet_indices_follow_the_parsed_rule_list() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><style id='sheet'>@unknown { ignored: yes; } #probe { width: 10px; } #probe { width: 20px; }</style><div id='probe'></div>",
+        ).unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const owner = document.getElementById('sheet');
+            const sheet = owner.sheet;
+            const before = sheet.cssRules.length;
+            sheet.deleteRule(0);
+            [before, sheet.cssRules.length,
+             sheet.cssRules[0].cssText.includes('20px'),
+             owner.textContent.includes('@unknown')].join('|')
+        "#
+            )
+            .unwrap(),
+            "2|1|true|true"
+        );
+    }
+
+    #[test]
+    fn cssom_stylesheet_edits_preserve_dom_children_and_update_rendering() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><style id='sheet'>#probe { width: 10px; }</style><div id='probe'></div>",
+        ).unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const owner = document.getElementById('sheet');
+            const probe = document.getElementById('probe');
+            const sheet = owner.sheet;
+            const child = owner.firstChild;
+            const authored = owner.textContent;
+            const observer = new MutationObserver(() => {});
+            observer.observe(owner, { childList: true, characterData: true, subtree: true });
+            const computed = getComputedStyle(probe);
+            const widths = [computed.width];
+            sheet.insertRule('#probe { width: 20px; }', 1);
+            widths.push(computed.width);
+            sheet.deleteRule(0);
+            widths.push(computed.width);
+            const unchanged = owner.firstChild === child && owner.textContent === authored;
+            const records = observer.takeRecords().length;
+            const clone = owner.cloneNode(true);
+            child.data = '#probe { width: 30px; }';
+            widths.push(computed.width);
+            [widths.join(','), unchanged, records, clone.textContent === authored,
+             sheet.cssRules.length, sheet.cssRules[0].cssText.includes('30px')].join('|')
+        "#
+            )
+            .unwrap(),
+            "10px,20px,20px,30px|true|0|true|1|true"
         );
     }
 

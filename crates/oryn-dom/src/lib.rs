@@ -140,6 +140,8 @@ pub struct Node {
     pub event_listeners: BTreeSet<String>,
     /// Constructed stylesheets adopted by this document or shadow root, in cascade order.
     pub adopted_stylesheets: Vec<NodeId>,
+    /// Native CSSOM source, independent of the owner's DOM text children.
+    pub stylesheet_override: Option<String>,
     /// Inert template contents, outside the light DOM tree.
     pub template_content: Option<NodeId>,
     pub value: Option<String>,
@@ -301,6 +303,7 @@ impl DomArena {
         if self.ancestors(parent)?.contains(&child) {
             return Err(DomError::Cycle);
         }
+        self.invalidate_stylesheet_ancestors(Some(parent))?;
         self.detach(child)?;
         self.get_mut(child)?.parent = Some(parent);
         self.get_mut(parent)?.children.push(child);
@@ -309,6 +312,7 @@ impl DomArena {
 
     pub fn detach(&mut self, id: NodeId) -> Result<(), DomError> {
         if let Some(parent) = self.get(id)?.parent {
+            self.invalidate_stylesheet_ancestors(Some(parent))?;
             self.get_mut(parent)?.children.retain(|child| *child != id);
             self.get_mut(id)?.parent = None;
         }
@@ -320,6 +324,7 @@ impl DomArena {
             .get(sibling)?
             .parent
             .ok_or(DomError::StaleNode(sibling))?;
+        self.invalidate_stylesheet_ancestors(Some(parent))?;
         self.detach(node)?;
         let index = self
             .get(parent)?
@@ -401,6 +406,26 @@ impl DomArena {
         })
     }
 
+    /// Effective source consumed by the style engine after CSSOM edits.
+    pub fn stylesheet_text(&self, id: NodeId) -> Result<String, DomError> {
+        match &self.get(id)?.stylesheet_override {
+            Some(source) => Ok(source.clone()),
+            None => self.text_content(id),
+        }
+    }
+
+    fn invalidate_stylesheet_ancestors(
+        &mut self,
+        mut node: Option<NodeId>,
+    ) -> Result<(), DomError> {
+        while let Some(id) = node {
+            let record = self.get_mut(id)?;
+            record.stylesheet_override = None;
+            node = record.parent;
+        }
+        Ok(())
+    }
+
     pub fn text_content(&self, id: NodeId) -> Result<String, DomError> {
         let node = self.get(id)?;
         if let NodeKind::Text { data }
@@ -440,6 +465,7 @@ fn new_node(kind: NodeKind) -> Node {
         attributes: BTreeMap::new(),
         event_listeners: BTreeSet::new(),
         adopted_stylesheets: Vec::new(),
+        stylesheet_override: None,
         template_content: None,
         value: None,
         sensitive_value: false,
@@ -1133,6 +1159,13 @@ impl DomRuntime {
         self.remove_child(parent, child)
     }
 
+    /// Publish CSSOM source without rewriting DOM text or emitting DOM records.
+    pub fn set_stylesheet_text(&mut self, node: NodeId, source: String) -> Result<(), DomError> {
+        self.arena.get_mut(node)?.stylesheet_override = Some(source);
+        self.mutations.push(Mutation::StyleSheets { node });
+        Ok(())
+    }
+
     /// Update internal CSSOM state without exposing a synthetic HTML attribute
     /// or a DOM MutationObserver record. Native roots preserve adopted sheets
     /// independently of wrapper collection, including repeated adoption.
@@ -1487,6 +1520,7 @@ impl DomRuntime {
             | NodeKind::Comment { data } => data.clone(),
             _ => return Err(DomError::StaleNode(node)),
         };
+        self.arena.invalidate_stylesheet_ancestors(Some(node))?;
         let mut units = old_value.encode_utf16().collect::<Vec<_>>();
         let start = (offset as usize).min(units.len());
         let end = start.saturating_add(count as usize).min(units.len());
@@ -2572,6 +2606,53 @@ mod tests {
         dom.release_mutation_roots(&mutations).unwrap();
         assert!(dom.arena().get(content).is_err());
         assert!(dom.serialize(clone).unwrap().contains("nested"));
+    }
+
+    #[test]
+    fn cssom_stylesheet_source_is_separate_from_dom_text() {
+        let mut dom = html::parse("<style id='sheet'>div { color: red; }</style>")
+            .into_runtime()
+            .unwrap();
+        let sheet = dom.find_by_id("sheet").unwrap();
+        let original = dom.arena().text_content(sheet).unwrap();
+        dom.drain_mutations();
+        dom.set_stylesheet_text(sheet, "div { color: blue; }".into())
+            .unwrap();
+        assert_eq!(
+            dom.arena().stylesheet_text(sheet).unwrap(),
+            "div { color: blue; }"
+        );
+        assert_eq!(dom.arena().text_content(sheet).unwrap(), original);
+        assert!(
+            matches!(dom.drain_mutations().as_slice(), [Mutation::StyleSheets { node }] if *node == sheet)
+        );
+        let clone = dom.clone_node(sheet, true).unwrap();
+        assert_eq!(dom.arena().stylesheet_text(clone).unwrap(), original);
+        let text = dom.arena().get(sheet).unwrap().children[0];
+        dom.set_text(text, "div { color: green; }").unwrap();
+        assert_eq!(
+            dom.arena().stylesheet_text(sheet).unwrap(),
+            "div { color: green; }"
+        );
+        dom.set_stylesheet_text(sheet, "div { color: blue; }".into())
+            .unwrap();
+        let extra = dom.create(NodeKind::Text {
+            data: "p { color: black; }".into(),
+        });
+        dom.append_child(sheet, extra).unwrap();
+        assert!(
+            dom.arena()
+                .get(sheet)
+                .unwrap()
+                .stylesheet_override
+                .is_none()
+        );
+        assert!(
+            dom.arena()
+                .stylesheet_text(sheet)
+                .unwrap()
+                .contains("color: black")
+        );
     }
 
     #[test]

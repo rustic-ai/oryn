@@ -9,6 +9,79 @@ use style::{
 };
 use style_traits::ParsingMode;
 
+/// A CSSOM rule view produced by Stylo, including its actual rule kind.
+/// The binding layer assigns identity; it must not infer kinds or declaration
+/// boundaries by splitting the serialized CSS text.
+#[derive(Debug, PartialEq, Eq)]
+pub struct RuleView {
+    pub rule_type: u16,
+    pub css_text: String,
+    pub selector_text: Option<String>,
+    pub declaration_text: Option<String>,
+}
+
+pub fn read_stylesheet(
+    source: &str,
+    base_url: &str,
+    quirks: bool,
+    allow_imports: bool,
+) -> Result<Vec<RuleView>, String> {
+    use cssparser::ToCss;
+    use style::{
+        media_queries::MediaList,
+        servo_arc::Arc,
+        shared_lock::{SharedRwLock, ToCssWithGuard},
+        stylesheets::{AllowImportRules, CssRule, Stylesheet, StylesheetInDocument},
+    };
+    let lock = SharedRwLock::new();
+    let sheet = Stylesheet::from_str(
+        source,
+        UrlExtraData::from(url::Url::parse(base_url).map_err(|error| error.to_string())?),
+        Origin::Author,
+        Arc::new(lock.wrap(MediaList::empty())),
+        lock.clone(),
+        None,
+        None,
+        if quirks {
+            QuirksMode::Quirks
+        } else {
+            QuirksMode::NoQuirks
+        },
+        if allow_imports {
+            AllowImportRules::Yes
+        } else {
+            AllowImportRules::No
+        },
+    );
+    let guard = sheet.shared_lock.read();
+    let contents = sheet.contents(&guard);
+    contents
+        .rules
+        .read_with(&guard)
+        .0
+        .iter()
+        .map(|rule| {
+            let (selector_text, declaration_text) = if let CssRule::Style(rule) = rule {
+                let rule = rule.read_with(&guard);
+                let mut declarations = String::new();
+                rule.block
+                    .read_with(&guard)
+                    .to_css(&mut declarations)
+                    .map_err(|error| error.to_string())?;
+                (Some(rule.selectors.to_css_string()), Some(declarations))
+            } else {
+                (None, None)
+            };
+            Ok(RuleView {
+                rule_type: rule.rule_type() as u16,
+                css_text: rule.to_css_string(&guard).to_string(),
+                selector_text,
+                declaration_text,
+            })
+        })
+        .collect()
+}
+
 /// Result of a declaration mutation. `None` leaves the attribute untouched,
 /// including its original spelling and any mutation-observer bookkeeping.
 #[derive(Debug, PartialEq, Eq)]
@@ -143,6 +216,49 @@ pub fn supported_properties() -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stylesheet_replacement_discards_imports_using_the_parser() {
+        let rules = read_stylesheet(
+            r#"@import url('ignored.css'); @\69mport 'also-ignored.css'; div { color: red; }"#,
+            "https://example.test/main.css",
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].selector_text.as_deref(), Some("div"));
+    }
+
+    #[test]
+    fn stylesheet_views_use_parser_boundaries_and_declaration_validation() {
+        let rules = read_stylesheet(
+            r#"/* } */ .a, .b { --text: "};:"; width: -1px; margin: 1px 2px; }
+               @media (min-width: 10px) { .nested { color: red; } }
+               #last { height: 3px; }"#,
+            "https://example.test/styles/main.css",
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(rules.len(), 3);
+        assert_eq!(rules[0].rule_type, CssRuleType::Style as u16);
+        assert_eq!(rules[0].selector_text.as_deref(), Some(".a, .b"));
+        let declaration = read_declaration(
+            rules[0].declaration_text.as_deref().unwrap(),
+            "width",
+            "about:blank",
+            false,
+        )
+        .unwrap();
+        assert_eq!(declaration.value, "");
+        assert!(declaration.css_text.contains("};:"));
+        assert_eq!(rules[1].rule_type, CssRuleType::Media as u16);
+        assert!(rules[1].selector_text.is_none());
+        assert!(rules[1].declaration_text.is_none());
+        assert!(rules[1].css_text.contains(".nested"));
+        assert_eq!(rules[2].selector_text.as_deref(), Some("#last"));
+    }
 
     #[test]
     fn readback_expands_shorthands_and_preserves_token_boundaries() {
