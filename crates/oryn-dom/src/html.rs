@@ -265,6 +265,10 @@ pub(crate) struct OrynTreeSink {
 }
 
 impl OrynTreeSink {
+    pub(crate) fn new_html_document() -> Self {
+        Self::new()
+    }
+
     fn new() -> Self {
         let dom = std::rc::Rc::new(RefCell::new(DomRuntime::new()));
         let document = dom.borrow().document();

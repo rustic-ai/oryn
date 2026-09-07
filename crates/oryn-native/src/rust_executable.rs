@@ -2367,7 +2367,11 @@ impl RustExecutableDocument {
                     )),
                 });
             }
-            let child = oryn_dom::xml::parse_by_mime(&frame_html, content_type.as_deref());
+            let child = oryn_dom::xml::parse_navigation(
+                &frame_html,
+                content_type.as_deref(),
+                frame_url.as_ref().map_or("about:blank", Url::as_str),
+            );
             let child_referrer_policy = child
                 .events
                 .iter()
@@ -3793,7 +3797,8 @@ impl RustExecutableDocument {
                         )),
                     });
                 }
-                let parsed = oryn_dom::xml::parse_by_mime(&source, content_type.as_deref());
+                let parsed =
+                    oryn_dom::xml::parse_navigation(&source, content_type.as_deref(), &url);
                 if let Some(content) = parsed
                     .events
                     .iter()

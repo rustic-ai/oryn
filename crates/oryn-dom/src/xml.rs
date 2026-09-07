@@ -5,6 +5,61 @@ use markup5ever::interface::{ElementFlags, NodeOrText, TreeSink};
 use xml::name::OwnedName;
 use xml::reader::{ParserConfig, XmlEvent};
 
+/// Load a navigation response, including image documents backed by a resource URL.
+pub fn parse_navigation(source: &str, content_type: Option<&str>, url: &str) -> ParsedDocument {
+    let essence = content_type
+        .unwrap_or("text/html")
+        .split(';')
+        .next()
+        .unwrap_or("text/html")
+        .trim()
+        .to_ascii_lowercase();
+    if matches!(
+        essence.as_str(),
+        "image/bmp" | "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+    ) {
+        let sink = OrynTreeSink::new_html_document();
+        let document = sink.get_document();
+        let mut parent = document;
+        for tag in ["html", "body", "img"] {
+            let element = sink.create_element(
+                QualName::new(None, "http://www.w3.org/1999/xhtml".into(), tag.into()),
+                if tag == "img" {
+                    vec![Attribute {
+                        name: QualName::new(None, "".into(), "src".into()),
+                        value: url.into(),
+                    }]
+                } else {
+                    Vec::new()
+                },
+                ElementFlags::default(),
+            );
+            sink.append(&parent, NodeOrText::AppendNode(element));
+            if tag == "html" {
+                let head = sink.create_element(
+                    QualName::new(None, "http://www.w3.org/1999/xhtml".into(), "head".into()),
+                    Vec::new(),
+                    ElementFlags::default(),
+                );
+                sink.append(&element, NodeOrText::AppendNode(head));
+            }
+            parent = element;
+        }
+        let mut parsed = sink.finish();
+        parsed
+            .dom
+            .get_mut(document)
+            .unwrap()
+            .document_metadata
+            .as_mut()
+            .unwrap()
+            .content_type = essence;
+        parsed
+    } else {
+        parse_by_mime(source, content_type)
+    }
+}
+
 /// Dispatch a loaded document by its response MIME essence.
 pub fn parse_by_mime(source: &str, content_type: Option<&str>) -> ParsedDocument {
     let essence = content_type
@@ -237,6 +292,53 @@ mod tests {
         assert!(
             html.dom
                 .get(html.document)
+                .unwrap()
+                .document_metadata
+                .as_ref()
+                .unwrap()
+                .is_html
+        );
+    }
+
+    #[test]
+    fn image_navigation_builds_a_media_host_without_parsing_response_bytes() {
+        let url = "https://example.test/picture?quote=\"&tag=<script>";
+        for mime in [
+            "Image/PNG; charset=binary",
+            "image/jpeg",
+            "image/gif",
+            "image/bmp",
+            "image/webp",
+        ] {
+            let parsed = parse_navigation("<script>unexpected()</script>", Some(mime), url);
+            let document = parsed.dom.get(parsed.document).unwrap();
+            let metadata = document.document_metadata.as_ref().unwrap();
+            assert!(metadata.is_html && !metadata.quirks);
+            assert_eq!(
+                metadata.content_type,
+                mime.split(';').next().unwrap().to_ascii_lowercase()
+            );
+            assert_eq!(document.children.len(), 1);
+            let html = parsed.dom.get(document.children[0]).unwrap();
+            assert_eq!(html.children.len(), 2);
+            let body = parsed.dom.get(html.children[1]).unwrap();
+            assert_eq!(body.children.len(), 1);
+            let image = parsed.dom.get(body.children[0]).unwrap();
+            assert!(
+                matches!(&image.kind, NodeKind::Element { name } if name.local.as_ref() == "img" && name.ns.as_ref() == "http://www.w3.org/1999/xhtml")
+            );
+            assert_eq!(image.attributes.get("src").map(String::as_str), Some(url));
+            assert!(parsed.events.is_empty());
+            assert_eq!(parsed.dom.text_content(parsed.document).unwrap(), "");
+        }
+        let svg = parse_navigation(
+            "<svg xmlns='http://www.w3.org/2000/svg'/>",
+            Some("image/svg+xml"),
+            url,
+        );
+        assert!(
+            !svg.dom
+                .get(svg.document)
                 .unwrap()
                 .document_metadata
                 .as_ref()
