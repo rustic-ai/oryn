@@ -32,24 +32,25 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The clean **complete full baseline** at `5499cc7` is **2,561/4,022**, with
-1,461 failures: seven gains and five lost file passes versus `eb54e11` at 2,559/4,022.
-DOM passes 382/662 and CSS 235/564. Exact inventory coverage, passing completions,
-source and signed artifacts were verified. The five CSS losses expose previously
-aborted test registration, now caught by native error reporting. Six observed
-assertion regressions remain open: four frame Window proxy failures and two worker
-EventTarget receiver-check failures. Worker startup overrides native global methods,
-so the pinned IDL harness no longer recognizes their implicit-global identity.
-Preserve the native methods and registry; do not reject valid global receivers.
-The worker startup fix at `6c20c99` is now verified across all 273 worker executions:
-three corrected assertions (including both receiver regressions), no lost file
-passes, no assertion regressions and no missing prior passes. See the
-[worker evidence](CONFORMANCE-NATIVE-WORKER-EVENTS-2026-09-06.json). Four frame
-regressions remain immediate priorities. The selected run does not change this
-full baseline.
+The clean **complete full baseline** at `19feaac` is **2,562/4,022**, with
+1,460 failures: one gain and no lost file passes versus `5499cc7` at 2,561/4,022.
+DOM remains 382/662 and CSS 235/564; WebIDL is now 30/58. Exact inventory coverage,
+passing completions and frozen source/CLI/signed-worker hashes were independently
+verified in the [serialization baseline](CONFORMANCE-SERIALIZATION-BASELINE-2026-09-07.json).
+Seven assertions were corrected, with no observed pass-to-fail changes. The two
+historical worker receiver regressions are corrected in this full run; the four
+historical frame regressions remain immediate priorities.
 
-The [previous observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
-retains the preceding complete run. The new assertion audit records 25 corrected
+The five CSS file losses from the earlier native-error-reporting baseline remain
+open prerequisites: initial frame documents, Window named properties,
+selectedOptions and declarative shadow parsing. Eight historical Range assertion
+names are absent from current wall-time-limited failures (four newly absent and
+four carried forward); one previous missing name is now passing. Five history
+fixture-port renames were verified. Timing causes remain unresolved; isolated
+compilation ran concurrently, so this is not performance-isolation evidence.
+
+The [historical observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
+retains an earlier complete run. That earlier assertion audit records 25 corrected
 assertions, 850 additional passing names, five unresolved missing Range assertions
 and five verified history fixture-port name changes. Selected passes are not added
 to the score, and this result does not establish complete conformance.
@@ -67,7 +68,7 @@ first-error text does not establish a root cause. No ID is silently discarded.
 | CSS | Clean full baseline | 329 |
 | IndexedDB | Clean full baseline | 115 |
 | HTML | Clean full baseline | 106 |
-| WebIDL | Clean full baseline | 29 |
+| WebIDL | Clean full baseline | 28 |
 | Referrer policy | Clean full baseline | 8 |
 | Accessible Name | Clean full baseline | 4 |
 | WAI-ARIA | Clean full baseline | 4 |
@@ -140,10 +141,10 @@ Important concentration and dependencies:
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 
-**Baseline completed:** clean source `5499cc7`, signed worker
-`f0194f2688cf829f1ca97d34cdadcfb5bc593e109c85d173af2e951c79f6ff73`,
-ledger `conformance-worker-full-native-error-reporting-5499cc7.json`. All 4,022 IDs and passing
-completions verified; all 1,461 failures routed. The initial resource batch has
+**Baseline completed:** clean source `19feaac`, signed worker
+`ab8f3ce6c3451c1ea92a429e33c016f2e47a27d76ca65dfef93c77903ce924e9`,
+ledger `conformance-worker-full-native-serialization-19feaac.json`. All 4,022 IDs and passing
+completions verified; all 1,460 failures routed. The initial resource batch has
 reproducible scaling and GC diagnostics recorded in the
 [foundation report](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).
 The procedure below remains required for subsequent complete candidates.
@@ -245,11 +246,11 @@ single patch. Shared prerequisites may resolve failures in several workstreams.
 | Workstream | Routed open IDs | Primary owner | Required result |
 |---|---:|---|---|
 | W1: native documents, DOM, Range and traversal | 190 | `oryn-dom`, native parser; `oryn-js` bindings | Correct document/tree ownership, node APIs and live boundary behavior, with bounded lifetimes |
-| W2: bindings, interfaces and realms | 40 | `oryn-webidl`, `oryn-js` generated registry | Real required interfaces with correct conversions, brands, descriptors and realm behavior |
-| W3: events, input and task scheduling | 86 | `oryn-js`, native scheduler/default actions | Correct event paths, ordering, activation and cancellation across required environments |
+| W2: bindings, interfaces and realms | 38 | `oryn-webidl`, `oryn-js` generated registry | Real required interfaces with correct conversions, brands, descriptors and realm behavior |
+| W3: events, input and task scheduling | 80 | `oryn-js`, native scheduler/default actions | Correct event paths, ordering, activation and cancellation across required environments |
 | W4: browsing contexts, history and referrer | 114 | Native runtime/context service and bindings | Document activation and session history with correct origin, realm and policy behavior |
-| W5: CSSOM | 158 | Native stylesheet owner, generated CSSOM bindings, Stylo adapter | Live rule objects, editing, serialization, ownership and exceptions |
-| W6: selectors and cascade | 166 | `oryn-layout`, Stylo/Blitz adapters | Correct tree/state/mode inputs, scope/cascade semantics and mutation invalidation |
+| W5: CSSOM | 159 | Native stylesheet owner, generated CSSOM bindings, Stylo adapter | Live rule objects, editing, serialization, ownership and exceptions |
+| W6: selectors and cascade | 170 | `oryn-layout`, Stylo/Blitz adapters | Correct tree/state/mode inputs, scope/cascade semantics and mutation invalidation |
 | W7: editing | 586 | Native editing algorithms, Range/Selection and input | Correct DOM transformations, selection and input-event behavior across every variant |
 | W8: IndexedDB | 115 | Storage host, structured clone, JS transaction/task bridge | Correct keys, transactions, cursor scheduling, abort/upgrade and origin isolation |
 | W9: accessibility semantics | 8 | Native semantic projection with DOM/style inputs | Correct generated-content names, role resolution, reflection and invalidation |
@@ -517,7 +518,9 @@ serializes native Blob/File and DOMException data into the destination realm.
 135 binding passes (two existing ignores), three selected native passes and 286/298
 native outcomes with the same 12 nonpass IDs and reasons. Native MessagePort
 transfer/delivery, Window operations and posted-message scheduling remain open.
-The full conformance baseline is unchanged pending a fresh signed inventory run.
+The fresh signed inventory run at `19feaac` is complete: 2,562/4,022, one file gain,
+no lost file passes, and 1,460 remaining failures. The baseline evidence above
+records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 

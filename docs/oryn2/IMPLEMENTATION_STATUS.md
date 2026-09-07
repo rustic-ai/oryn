@@ -2,25 +2,26 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> Clean signed-worker baseline `5499cc7`: **2,561/4,022**, with
-> **7 new file passes, 5 lost file passes, and 1,461 remaining failures**
-> versus `eb54e11` at 2,559/4,022.
+> Clean signed-worker baseline `19feaac`: **2,562/4,022**, with
+> **1 new file pass, 0 lost file passes, and 1,460 remaining failures**
+> versus `5499cc7` at 2,561/4,022.
 
-This full run includes native global, parser, module and node callback exception
-reporting. Seven DOM event files now pass. Five CSS files previously passed only
-an assertion prefix before an unreported script error aborted registration; those
-errors now correctly fail the harness. Their missing frame, named-property,
-selectedOptions and declarative-shadow prerequisites remain open.
+The full run includes native MessageEvent and structured serialization, worker
+EventTarget startup fixes, and the integrated WindowProxy engine profile. The new
+file pass is the Window variant of WebIDL's no-RegExp-special-casing test. The
+assertion audit records seven corrected assertions and no observed pass-to-fail
+changes. The two historical worker receiver regressions are corrected; four
+historical frame regressions remain open.
 
-Exact inventory coverage and every reported passing testharness completion were
-independently checked. Source, CLI and signed worker remained fixed. The 256 MiB
-heap, 512 MiB RSS, 10 s command and 30 s navigation limits, App Sandbox and V8 heap
-sandbox are unchanged. This failing result does not qualify a release.
+All 4,022 IDs and every reported passing completion were independently verified
+against source, CLI and signed-worker hashes. Limits remain 256 MiB heap, 512 MiB
+RSS, 10 s command and 30 s navigation; sandbox boundaries and Stylo ownership are
+unchanged. This failing diagnostic result does not qualify a release.
 
 | Root | Passed / required |
 |---|---:|
 | IndexedDB | 341/456 |
-| WebIDL | 29/58 |
+| WebIDL | 30/58 |
 | accname | 15/19 |
 | css | 235/564 |
 | dom | 382/662 |
@@ -29,83 +30,17 @@ sandbox are unchanged. This failing result does not qualify a release.
 | referrer-policy | 1,383/1,391 |
 | wai-aria | 28/32 |
 
-The full ledger is `artifacts/upstream-conformance/conformance-worker-full-native-error-reporting-5499cc7.json`.
-[Baseline evidence](CONFORMANCE-BASELINE-2026-09-06.json) binds the outcomes to source
-and artifact hashes. [The failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json)
-uses this single full run. Remaining outcomes comprise 1,269
-assertion, 48 runtime, 140 harness,
-3 incomplete and 1 timeout failures.
+[Baseline evidence](CONFORMANCE-SERIALIZATION-BASELINE-2026-09-07.json) identifies
+the full ledger and artifact hashes. [The failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json)
+uses this single run: 1,268 assertion, 51 runtime, 136 harness, three incomplete and
+two timeout failures.
 
-The assertion audit found 25 corrected existing assertions, 850 additional passing
-names and six observed pass-to-fail changes. Four regressions involve frame Window
-proxies calling native APIs; two involve worker EventTarget receiver checks after
-startup overrides the native methods. These
-are the immediate implementation priority. Five earlier passing Range assertions
-are absent from partial results that report worker wall-time limits and remain unresolved. Five history name changes
-were verified as passing counterparts with different fixture ports.
-
-The subsequent native worker startup fix at `6c20c99` preserves the generated
-EventTarget methods and listener registry. [Signed worker validation](CONFORMANCE-NATIVE-WORKER-EVENTS-2026-09-06.json)
-covers all 273 worker executions: 202/265 dedicated, 4/4 shared and 4/4 service.
-Three assertions are corrected, including both worker receiver regressions, with
-no lost file passes, observed assertion regressions or missing prior passes.
-The four frame regressions remain open. These selections do not change the full score.
-
-The [native context foundation](CONFORMANCE-NATIVE-CONTEXT-LIFECYCLE-2026-09-06.json)
-now exposes V8's incumbent-context and global-detachment APIs through a scoped C
-bridge. A frame-realm replacement primitive preserves native proxy identity and
-retained old environments while installing fresh navigation state and origin tokens.
-Three context tests pass; the full native matrix is 275/288, with all 13 prior
-nonpasses matching their previous reasons. Strict Clippy passes. Page frame loading
-still needs integration, initial about:blank handling and native message delivery;
-this foundation does not close the four frame regressions or change the full score.
-
-Stylo owns the rendering style pipeline and selector matching. CSSOM declaration
-mutation still uses a separate binding helper that must be integrated with Stylo. Remaining
-shared gaps include fragment/outerHTML mutation grouping, transient registrations,
-complete event-handler slots/options, module load timing, initial frame realms and indexed Window child
-access, Range/editing, document ownership, XML navigation/fragments, CSSOM, history,
-accessibility and IndexedDB lifecycle behavior. The current baseline includes native parser error delivery and remains diagnostic.
-Classic parser scripts now report uncaught errors through native Window handlers;
-[validation](CONFORMANCE-NATIVE-PARSER-ERRORS-2026-09-06.json) includes the pinned
-testharness accepting explicitly allowed exceptions and rejecting unexpected ones.
-Seven new regressions pass, 126 binding tests pass, and the native matrix is 262/275
-with the same 13 existing nonpasses and failure reasons. Modules, inline document
-line offsets, precise CORS tainting and other callback paths still require work.
-
-[Native module reporting](CONFORMANCE-NATIVE-MODULE-ERRORS-2026-09-06.json) now covers
-compile/link errors and evaluation rejection after top-level await. Inline modules
-have distinct roots with shared dependencies. Thirteen parser/module regressions
-and 126 binding tests pass; strict Clippy passes. The complete native comparison is
-268/281 with the same 13 prior nonpasses and failure reasons. This does not establish
-a new signed-worker score or close module load-barrier and fetch/CORS requirements.
-
-
-
-[Native node/platform reporting](CONFORMANCE-NATIVE-NODE-ERRORS-2026-09-06.json) now
-continues dispatch after reported callback exceptions, preserves once/removal behavior,
-and correctly classifies termination. Sixteen native reporting regressions and 131
-binding tests pass. The native comparison is 271/284 with no new nonpass IDs; the
-Range fixture now loads canonical resources but still lacks WPT completion. The next
-full signed-worker run must remeasure the historical conformance score.
-
-
-[Native scheduling evidence](CONFORMANCE-NATIVE-OBSERVER-SCHEDULING-2026-09-06.json)
-records 117 passing V8 tests (two existing ignores), strict JS/native Clippy, and all
-265 native test outcomes: 252 passed, 12 failed and one timeout. The normally ignored
-Range diagnostic was explicitly run. All native failures and the timeout reproduce
-on clean `96d742f`; they remain completion gates.
-
-The [native global-event change](CONFORMANCE-NATIVE-GLOBAL-EVENTS-2026-09-06.json)
-replaces bootstrap global listener dispatch and reports observer/global-listener
-exceptions in the callback realm. It passes 126 V8 binding tests (two existing
-ignores), three new native page tests, and strict JS/native Clippy. The complete
-native matrix has 255/268 passes; all 12 failures and one timeout retain the prior
-failure reasons. Parser/module and node-listener reporting remain open. This
-change has not yet established a new signed-worker WPT result.
-
-Complete conformance requires two full 4,022/4,022 runs of the same frozen candidate
-and all independent verification, native correctness and security gates in the plan.
+Five changed history assertion names were verified as fixture-port renames. Four
+newly missing Range names and four carried from the previous audit remain
+unresolved in wall-time-limited files; one historical Range name reappeared as
+passing. Concurrent isolated compilation means this run does not isolate the
+cause of timing changes. Native MessagePort work remains separate and is not
+included in this baseline.
 
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.

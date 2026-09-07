@@ -58,20 +58,42 @@
     "Posted-message task source and source/origin semantics",
     "Native worker MessageEvent and ports; worker message transport remains JSON",
     "Other serializable platform interfaces and WebAssembly module serialization; no isolated shared-memory agent cluster",
-    "Signed candidate and complete pinned inventory rerun",
     "Complete inventory twice plus native/profile/security release gates"
   ],
   "full_baseline": {
-    "source": "5499cc739523caa7958369b2378f28ef0f20cd9d",
-    "passed": 2561,
+    "source": "19feaac41c684396a99fe0d3b0f97b4ac2aeb97e",
+    "passed": 2562,
     "total": 4022,
-    "unchanged": true
+    "unchanged": false
   },
   "raw_artifacts": {
     "artifacts/native-structured-clone/native-matrix.json": "990f628b903795453c3fad6b722b81d17bf52ce6f4d72ef2e4d77bc79fec70ac",
     "artifacts/native-structured-clone/clippy.log": "a85b25068e240e8bdd3259be30d465f02c768739cb379559a9751786131deb83",
     "artifacts/native-structured-clone/native.log": "7c5e5ab73af1bc97e732355ed819dbb61e730395452096357ef909ae4f23e445",
     "artifacts/native-structured-clone/native-matrix.log": "13f48f10a50bd74d19559e34556546c092f3a7b037ef8da445a106a24ccb7bd3",
-    "artifacts/native-structured-clone/bindings.log": "b6a3c9443bd2c28ab6f0c327c7c39cd5f0ed13bb5a02982215ffd9ec78ffd2e6"
+    "artifacts/native-structured-clone/bindings.log": "b6a3c9443bd2c28ab6f0c327c7c39cd5f0ed13bb5a02982215ffd9ec78ffd2e6",
+    "artifacts/native-structured-clone/worker-manifest.json": "fcbc129a77cc7bd87f50a9fccfde712b9550967de9f7b9a4e42e440e896f6c6a",
+    "artifacts/native-structured-clone/signed-build.log": "d166e2372a700666614c8dc717a5545eaa6d037868952cf82b9490a530d70464",
+    "artifacts/native-structured-clone/signed-candidate.json": "1a3d8ddec1aa10e57246f15eaee2e3043264980e756759ac864749639aa77120"
+  },
+  "signed_candidate": {
+    "source_commit": "19feaac41c684396a99fe0d3b0f97b4ac2aeb97e",
+    "source_tree_sha256": "60f0449ca23612baa30bbb9ffec94df250d3f5c21d621db7814f70c419b2d433",
+    "worker_sha256": "ab8f3ce6c3451c1ea92a429e33c016f2e47a27d76ca65dfef93c77903ce924e9",
+    "cli_sha256": "d73301f6b360155f43030d12d9a715309fae830b6d8f8ace89d822d02ef5daa0",
+    "signed_builder_exit_code": 0,
+    "source_hash_independently_verified": true,
+    "all_signing_sandbox_protocol_dom_broker_checks_passed": true
+  },
+  "full_inventory_result": {
+    "baseline_evidence": "CONFORMANCE-SERIALIZATION-BASELINE-2026-09-07.json",
+    "outcome": {
+      "required_finished": 4022,
+      "required_passed": 2562,
+      "required_total": 4022,
+      "status": "failed"
+    },
+    "exact_coverage_verified": true,
+    "ledger_sha256": "5aa50fd435388f31aef243812630679b652f4c0253b3ed2ffe6780036851e11b"
   }
 }
