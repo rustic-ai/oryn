@@ -475,7 +475,7 @@ fn run_script_record(
         }
     }
     host.execute("__oryn_refresh_window_named_properties()")?;
-    host.set_current_script(Some(*script))?;
+    host.set_current_script((script_type.as_deref() != Some("module")).then_some(*script))?;
     if let Some(src) = src
         && resource_entry(resources, src).is_none()
     {
@@ -488,9 +488,10 @@ fn run_script_record(
     }
     let result = if script_type.as_deref() == Some("module") {
         let resource = src.as_ref().and_then(|src| resource_entry(resources, src));
-        let name = resource
-            .map(|(name, _)| name.to_owned())
-            .unwrap_or_else(|| "oryn:inline-module".into());
+        let name = match resource {
+            Some((name, _)) => name.to_owned(),
+            None => host.evaluate_string("location.href")?,
+        };
         let source = resource
             .map(|(_, source)| source.to_owned())
             .unwrap_or_else(|| inline.clone());
@@ -498,7 +499,7 @@ fn run_script_record(
         if let Some((client, page_id, _)) = context {
             preload_module_graph(client, *page_id, &name, &source, resources)?;
         }
-        host.execute_module(&name, &source, resources)
+        host.execute_module_script(&name, &source, resources, src.is_some())
             .map_err(|error| script_diagnostic_at(error, &name))
     } else {
         let source = src
@@ -557,6 +558,9 @@ fn parser_checkpoint(
     // resumes or at the document load barrier.
     host.execute("__oryn_run_custom_reactions()")?;
     host.run_dom_observer_checkpoint()?;
+    for report in host.take_module_error_reports() {
+        diagnostics.push(script_diagnostic(HostError::Execution(report)));
+    }
     for rejection in host.take_unhandled_promise_rejections() {
         diagnostics.push(script_diagnostic(HostError::Execution(format!(
             "unhandled promise rejection: {rejection}"
@@ -2905,6 +2909,10 @@ impl RustExecutableDocument {
                 self.host.execute("__oryn_drain()")?;
                 self.host.execute("__oryn_run_custom_reactions()")?;
                 self.host.run_dom_observer_checkpoint()?;
+                for report in self.host.take_module_error_reports() {
+                    self.diagnostics
+                        .push(script_diagnostic(HostError::Execution(report)));
+                }
                 for rejection in self.host.take_unhandled_promise_rejections() {
                     self.diagnostics
                         .push(script_diagnostic(HostError::Execution(format!(
@@ -2915,6 +2923,10 @@ impl RustExecutableDocument {
             }
         }
         self.host.activate_realm(self.top_realm)?;
+        for report in self.host.take_module_error_reports() {
+            self.diagnostics
+                .push(script_diagnostic(HostError::Execution(report)));
+        }
         for rejection in self.host.take_unhandled_promise_rejections() {
             self.diagnostics
                 .push(script_diagnostic(HostError::Execution(format!(
@@ -3932,7 +3944,7 @@ impl RustExecutableDocument {
                     )?;
                 }
                 self.host
-                    .execute_module(&resource_name, &source, &self.resources)
+                    .execute_module_script(&resource_name, &source, &self.resources, true)
             } else {
                 let previous_policy = self
                     .host
@@ -4919,6 +4931,164 @@ mod tests {
                 .unwrap(),
             "3:3"
         );
+    }
+
+    #[test]
+    fn module_error_native_inline_roots_preserve_values_and_identity() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<script>
+          globalThis.errors=[];globalThis.conversions=0;globalThis.payload={toString(){conversions++;throw 'unexpected conversion'}};globalThis.order=[];
+          onerror=(m,f,l,c,e)=>{errors.push(e);return true};
+        </script><script type="module">throw payload</script>
+        <script type="module">throw null</script><script type="module">throw undefined</script>
+        <script type="module">order.push(import.meta.url,document.currentScript===null)</script>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://example.test/page").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(page.evaluate("JSON.stringify([errors.length,errors[0]===payload,errors[1]===null,errors[2]===undefined,conversions,...order])").unwrap(),
+          "[3,true,true,true,0,\"https://example.test/page\",true]");
+    }
+
+    #[test]
+    fn module_error_native_compile_and_link_failures_report_syntax_errors() {
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "https://example.test/dep.js".into(),
+            "export const available=1".into(),
+        );
+        let mut page=RustExecutableDocument::load_with_environment(r#"<script>
+          globalThis.errors=[];onerror=(m,f,l,c,e)=>{errors.push(e instanceof SyntaxError);return true};
+        </script><script type="module">let = ;</script>
+        <script type="module">import {missing} from './dep.js'</script>"#,
+          &resources,None,Some(Url::parse("https://example.test/page").unwrap())).unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(errors)").unwrap(),
+            "[true,true]"
+        );
+    }
+
+    #[test]
+    fn module_error_native_delayed_rejection_reports_once_and_is_handled() {
+        let mut page=RustExecutableDocument::load(r#"<script>
+          globalThis.errors=[];globalThis.payload={};onerror=(m,f,l,c,e)=>{errors.push(e);return true};
+        </script><script type="module">await new Promise((resolve,reject)=>globalThis.rejectModule=reject)</script>"#).unwrap();
+        assert_eq!(page.evaluate("errors.length").unwrap(), "0");
+        page.evaluate("rejectModule(payload)").unwrap();
+        assert_eq!(
+            page.evaluate("errors.length+':'+(errors[0]===payload)")
+                .unwrap(),
+            "1:true"
+        );
+        assert!(page.host.take_unhandled_promise_rejections().is_empty());
+        assert!(page.host.take_module_error_reports().is_empty());
+        page.host.execute("onerror=()=>false").unwrap();
+        page.host
+            .execute_module_script(
+                "https://example.test/late.js",
+                "await new Promise((resolve,reject)=>globalThis.rejectAgain=reject)",
+                &BTreeMap::new(),
+                true,
+            )
+            .unwrap();
+        page.host.execute("rejectAgain(payload)").unwrap();
+        assert_eq!(page.host.take_module_error_reports().len(), 1);
+        assert!(page.host.take_unhandled_promise_rejections().is_empty());
+    }
+
+    #[test]
+    fn module_error_native_api_propagation_and_shared_dependencies_are_preserved() {
+        let mut page = RustExecutableDocument::load(
+            "<script>globalThis.errors=0;onerror=()=>{errors++;return true}</script>",
+        )
+        .unwrap();
+        assert!(
+            page.host
+                .execute_module(
+                    "https://example.test/syntax.js",
+                    "let = ;",
+                    &BTreeMap::new()
+                )
+                .is_err()
+        );
+        assert!(
+            page.host
+                .execute_module(
+                    "https://example.test/runtime.js",
+                    "throw 42",
+                    &BTreeMap::new()
+                )
+                .is_err()
+        );
+        assert_eq!(page.evaluate("errors").unwrap(), "0");
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "https://example.test/dep.js".into(),
+            "globalThis.count=(globalThis.count||0)+1;export const value={}".into(),
+        );
+        for name in ["a", "b", "a"] {
+            page.host
+                .execute_module_script(
+                    &format!("https://example.test/{name}.js"),
+                    "import {value} from './dep.js';globalThis.seen=value;globalThis.roots=(globalThis.roots||0)+1",
+                    &resources,
+                    true,
+                )
+                .unwrap();
+        }
+        assert_eq!(page.evaluate("count+':'+roots").unwrap(), "1:2");
+    }
+
+    #[test]
+    fn module_error_native_reporting_obeys_wall_deadline() {
+        let mut page =
+            RustExecutableDocument::load("<script>onerror=()=>{while(true){}}</script>").unwrap();
+        page.host
+            .set_execution_wall_limit(std::time::Duration::from_millis(50));
+        assert!(matches!(
+            page.host.execute_module_script(
+                "https://example.test/fail.js",
+                "throw 1",
+                &BTreeMap::new(),
+                true
+            ),
+            Err(HostError::LimitExceeded { .. })
+        ));
+        assert_eq!(page.evaluate("1+1").unwrap(), "2");
+    }
+
+    #[test]
+    #[ignore = "requires the pinned upstream WPT checkout in ORYN_WPT_ROOT"]
+    fn module_error_native_pinned_testharness_rejects_unexpected_errors() {
+        let root =
+            std::path::PathBuf::from(std::env::var("ORYN_WPT_ROOT").expect("pinned WPT root"));
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "https://example.test/testharness.js".into(),
+            std::fs::read_to_string(root.join("resources/testharness.js")).unwrap(),
+        );
+        for allow in [false, true] {
+            let html = format!(
+                r#"<script src="https://example.test/testharness.js"></script>
+              <script>setup({{explicit_done:true,allow_uncaught_exception:{allow}}});
+              globalThis.completion=null;add_completion_callback((tests,status)=>completion=[tests.length,status.status]);</script>
+              <script type="module">throw new Error('module-contract')</script>
+              <script type="module">test(()=>assert_true(true),'later registration');done()</script>"#
+            );
+            let mut page = RustExecutableDocument::load_with_environment(
+                &html,
+                &resources,
+                None,
+                Some(Url::parse("https://example.test/page").unwrap()),
+            )
+            .unwrap();
+            assert_eq!(
+                page.evaluate("JSON.stringify(completion)").unwrap(),
+                if allow { "[1,0]" } else { "[0,1]" },
+                "allow_uncaught_exception={allow}"
+            );
+        }
     }
 
     #[test]

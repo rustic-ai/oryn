@@ -235,6 +235,9 @@ mod raw_v8 {
     #[derive(Default)]
     struct PromiseRejections(BTreeMap<i32, String>);
 
+    #[derive(Default)]
+    struct ModuleErrorReports(Vec<String>);
+
     #[derive(Clone)]
     struct FetchState {
         broker: SharedNetworkBroker,
@@ -958,6 +961,7 @@ mod raw_v8 {
             isolate.set_host_import_module_dynamically_callback(dynamic_import);
             isolate.set_host_initialize_import_meta_object_callback(initialize_import_meta);
             isolate.set_slot(PromiseRejections::default());
+            isolate.set_slot(ModuleErrorReports::default());
             isolate.set_slot(AsyncFetches::default());
             isolate.set_slot(DedicatedWorkers::default());
             isolate.set_slot(TimerRegistry::default());
@@ -2275,7 +2279,29 @@ mod raw_v8 {
             source: &str,
             dependencies: &BTreeMap<String, String>,
         ) -> Result<(), HostError> {
-            let _deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
+            self.execute_module_inner(resource_name, source, dependencies, false, true)
+        }
+
+        /// Run a document's module script, including errors after top-level await.
+        pub fn execute_module_script(
+            &mut self,
+            resource_name: &str,
+            source: &str,
+            dependencies: &BTreeMap<String, String>,
+            cache_root: bool,
+        ) -> Result<(), HostError> {
+            self.execute_module_inner(resource_name, source, dependencies, true, cache_root)
+        }
+
+        fn execute_module_inner(
+            &mut self,
+            resource_name: &str,
+            source: &str,
+            dependencies: &BTreeMap<String, String>,
+            report_errors: bool,
+            cache_root: bool,
+        ) -> Result<(), HostError> {
+            let deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
             self.isolate.set_slot(ModuleSources(dependencies.clone()));
             v8::scope!(let handle_scope, &mut self.isolate);
             let context = v8::Local::new(
@@ -2285,74 +2311,125 @@ mod raw_v8 {
                     .expect("active realm context exists"),
             );
             let scope = &mut v8::ContextScope::new(handle_scope, context);
-            let cache_key = (current_realm_identity(scope), resource_name.into());
-            let cached = scope
-                .get_slot::<ModuleCache>()
-                .and_then(|cache| cache.0.get(&cache_key))
-                .cloned();
-            let module = if let Some(cached) = cached {
-                v8::Local::new(scope, cached)
-            } else {
-                let mut source = module_source(scope, resource_name, source)?;
-                let module = v8::script_compiler::compile_module(scope, &mut source)
-                    .ok_or_else(|| HostError::Execution("module compilation failed".into()))?;
-                if let Some(names) = scope.get_slot_mut::<ModuleNames>() {
-                    names
-                        .0
-                        .insert(module.get_identity_hash().get(), resource_name.into());
+            v8::tc_scope!(let scope, scope);
+            let result = (|| {
+                let cache_key = (current_realm_identity(scope), resource_name.into());
+                let cached = cache_root
+                    .then(|| {
+                        scope
+                            .get_slot::<ModuleCache>()
+                            .and_then(|cache| cache.0.get(&cache_key))
+                            .cloned()
+                    })
+                    .flatten();
+                let module = if let Some(cached) = cached {
+                    v8::Local::new(scope, cached)
+                } else {
+                    let mut source = module_source(scope, resource_name, source)?;
+                    let module = v8::script_compiler::compile_module(scope, &mut source)
+                        .ok_or_else(|| HostError::Execution("module compilation failed".into()))?;
+                    if let Some(names) = scope.get_slot_mut::<ModuleNames>() {
+                        names
+                            .0
+                            .insert(module.get_identity_hash().get(), resource_name.into());
+                    }
+                    let global = v8::Global::new(scope, module);
+                    if cache_root {
+                        scope
+                            .get_slot_mut::<ModuleCache>()
+                            .expect("module cache installed")
+                            .0
+                            .insert(cache_key, global);
+                    }
+                    module
+                };
+                if module.get_status() == v8::ModuleStatus::Uninstantiated {
+                    let instantiated = module
+                        .instantiate_module(scope, resolve_module)
+                        .ok_or_else(|| HostError::Execution("module linking failed".into()))?;
+                    if !instantiated {
+                        return Err(HostError::Execution("module linking failed".into()));
+                    }
                 }
-                let global = v8::Global::new(scope, module);
-                scope
-                    .get_slot_mut::<ModuleCache>()
-                    .expect("module cache installed")
-                    .0
-                    .insert(cache_key, global);
-                module
-            };
-            if module.get_status() == v8::ModuleStatus::Uninstantiated {
-                let instantiated = module
-                    .instantiate_module(scope, resolve_module)
-                    .ok_or_else(|| HostError::Execution("module linking failed".into()))?;
-                if !instantiated {
-                    return Err(HostError::Execution("module linking failed".into()));
+                if module.get_status() == v8::ModuleStatus::Errored {
+                    let exception = module.get_exception();
+                    scope.throw_exception(exception);
+                    return Err(HostError::Execution("module evaluation failed".into()));
                 }
-            }
-            if matches!(module.get_status(), v8::ModuleStatus::Evaluated) {
-                return Ok(());
-            }
-            queue_mutation_observer_microtask(scope);
-            let Some(evaluation) = module.evaluate(scope) else {
-                if _deadline.expired() || scope.is_execution_terminating() {
-                    scope.cancel_terminate_execution();
-                    reset_mutation_observer_microtask_after_termination(scope);
-                    return Err(HostError::LimitExceeded {
-                        resource: "wall time".into(),
-                    });
+                queue_mutation_observer_microtask(scope);
+                let evaluation = module
+                    .evaluate(scope)
+                    .ok_or_else(|| HostError::Execution("module evaluation failed".into()))?;
+                if report_errors {
+                    let promise = v8::Local::<v8::Promise>::try_from(evaluation).map_err(|_| {
+                        HostError::Execution("module evaluation did not return a promise".into())
+                    })?;
+                    install_module_error_reporter(scope, promise)?;
                 }
-                return Err(HostError::Execution("module evaluation failed".into()));
-            };
-            queue_mutation_observer_microtask(scope);
-            scope.perform_microtask_checkpoint();
-            if let Ok(promise) = v8::Local::<v8::Promise>::try_from(evaluation)
-                && promise.state() == v8::PromiseState::Rejected
-            {
-                return Err(HostError::Execution(format!(
-                    "module evaluation rejected: {}",
-                    promise.result(scope).to_rust_string_lossy(scope)
-                )));
-            }
-            if _deadline.expired() || scope.is_execution_terminating() {
+                queue_mutation_observer_microtask(scope);
+                scope.perform_microtask_checkpoint();
+                if !report_errors
+                    && let Ok(promise) = v8::Local::<v8::Promise>::try_from(evaluation)
+                    && promise.state() == v8::PromiseState::Rejected
+                {
+                    return Err(HostError::Execution(format!(
+                        "module evaluation rejected: {}",
+                        promise.result(scope).to_rust_string_lossy(scope)
+                    )));
+                }
+                Ok(())
+            })();
+            if deadline.expired() || scope.is_execution_terminating() {
                 scope.cancel_terminate_execution();
                 reset_mutation_observer_microtask_after_termination(scope);
                 return Err(HostError::LimitExceeded {
                     resource: "wall time".into(),
                 });
             }
-            Ok(())
+            let result = if scope.has_caught() {
+                let exception = scope.exception();
+                let message = scope.message();
+                let detail = message
+                    .map(|message| message.get(scope).to_rust_string_lossy(scope))
+                    .unwrap_or_else(|| "module execution failed".into());
+                scope.reset();
+                if report_errors && let Some(exception) = exception {
+                    let resolver = v8::PromiseResolver::new(scope).ok_or_else(|| {
+                        HostError::Execution("module error promise allocation failed".into())
+                    })?;
+                    let promise = resolver.get_promise(scope);
+                    install_module_error_reporter(scope, promise)?;
+                    resolver.reject(scope, exception).ok_or_else(|| {
+                        HostError::Execution("module error promise rejection failed".into())
+                    })?;
+                    queue_mutation_observer_microtask(scope);
+                    scope.perform_microtask_checkpoint();
+                    Ok(())
+                } else {
+                    Err(HostError::Execution(detail))
+                }
+            } else {
+                result
+            };
+            if deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
+            result
         }
 
         pub fn set_module_sources(&mut self, sources: &BTreeMap<String, String>) {
             self.isolate.set_slot(ModuleSources(sources.clone()));
+        }
+
+        pub fn take_module_error_reports(&mut self) -> Vec<String> {
+            self.isolate
+                .get_slot_mut::<ModuleErrorReports>()
+                .map(|reports| std::mem::take(&mut reports.0))
+                .unwrap_or_default()
         }
 
         pub fn take_unhandled_promise_rejections(&mut self) -> Vec<String> {
@@ -2370,6 +2447,36 @@ mod raw_v8 {
         }
     }
 
+    fn install_module_error_reporter(
+        scope: &mut v8::PinScope,
+        promise: v8::Local<v8::Promise>,
+    ) -> Result<(), HostError> {
+        // Allocated after snapshot restoration; this callback is never serialized.
+        // V8's reaction keeps its creation realm alive until the promise settles.
+        let handler = v8::Function::new(scope, module_error_report_callback)
+            .ok_or_else(|| HostError::Execution("module error handler allocation failed".into()))?;
+        promise.catch(scope, handler).ok_or_else(|| {
+            HostError::Execution("module rejection handler installation failed".into())
+        })?;
+        Ok(())
+    }
+
+    fn module_error_report_callback(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        _rv: v8::ReturnValue,
+    ) {
+        let exception = args.get(0);
+        let message = v8::Exception::create_message(scope, exception);
+        let detail = message.get(scope).to_rust_string_lossy(scope);
+        if let Ok(false) = oryn_js::v8_bindings::report_exception(scope, exception, Some(message))
+            && !scope.is_execution_terminating()
+            && let Some(reports) = scope.get_slot_mut::<ModuleErrorReports>()
+        {
+            reports.0.push(detail);
+        }
+    }
+
     extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
         v8::callback_scope!(unsafe scope, &message);
         let promise = message.get_promise();
@@ -2378,6 +2485,7 @@ mod raw_v8 {
             v8::PromiseRejectEvent::PromiseRejectWithNoHandler => {
                 let detail = message
                     .get_value()
+                    .and_then(|value| value.to_detail_string(scope))
                     .map(|value| value.to_rust_string_lossy(scope))
                     .unwrap_or_else(|| "promise rejected without a value".into());
                 if let Some(rejections) = scope.get_slot_mut::<PromiseRejections>() {

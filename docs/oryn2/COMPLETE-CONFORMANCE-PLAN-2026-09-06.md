@@ -187,6 +187,18 @@ records seven passing regressions, 126 binding passes and all 275 native outcome
 (262 passes; the same 13 prior nonpasses and reasons). No new signed-worker score is claimed.
 
 
+Document module scripts now retain compile/link exceptions and use native promise
+reactions to report evaluation rejection, including rejection after top-level await.
+Canceled errors suppress diagnostics; uncanceled delayed errors are recorded once.
+Inline roots no longer collide in the module cache, dependencies remain shared, and
+module execution exposes null `document.currentScript`. Ordinary host module APIs
+continue to return errors without Window reporting. [Validation](CONFORMANCE-NATIVE-MODULE-ERRORS-2026-09-06.json)
+records 13 passing parser/module regressions (including both pinned harness proofs),
+126 binding passes, strict Clippy, and 281 native outcomes: 268 pass with the same
+13 prior nonpasses and reasons. Pending-module load barriers, fetch/CORS semantics,
+complete source-coordinate handling, node listeners and worker reporting remain open.
+
+
 Create a reduced regression for each confirmed shared cause. Record its dependency
 contracts, affected IDs, expected behavior and decisive check. First failing assertions
 are a starting point: inspect later assertions after each fix, and track assertion-level

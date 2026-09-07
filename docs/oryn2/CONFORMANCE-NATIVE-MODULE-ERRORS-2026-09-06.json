@@ -1,0 +1,91 @@
+{
+  "parent_revision": "3a3323f",
+  "scope": "Native document module exception reporting and inline root identity; not a signed-worker conformance result",
+  "source_files": {
+    "crates/oryn-js/src/v8_bindings.rs": "3dbde825ed623ede3cca13469ecf55ff0c78de16254166605a06ba7ce248a3ec",
+    "crates/oryn-js/src/v8_bindings/global_events.rs": "92c99516a73814283836a039c1b1257f33d836ec137415f04a5d4af3e475f441",
+    "crates/oryn-native/src/host.rs": "4b1cf5870764df6d94065a7d13e5892873627e9a17726ef61b8fe0c1df587c1c",
+    "crates/oryn-native/src/rust_executable.rs": "36bf12adedac010838de6a997a1c903cc79cc71b5ffd85346c19582e53a0b9bd"
+  },
+  "native_test_binary_sha256": "f65e044494813860b35c01892be84aa51f66599f2da853da94fda57f4dc0ac1a",
+  "pinned_wpt_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "testharness_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+  "targeted_tests": {
+    "passed": 13,
+    "failed": 0,
+    "ignored": 0,
+    "new_module_tests": 6,
+    "existing_parser_regressions": 7,
+    "fixture_note": "Both pinned-harness tests are normally ignored because they require ORYN_WPT_ROOT; both were explicitly executed with --include-ignored, in both allow_uncaught_exception modes.",
+    "names": [
+      "executable::tests::module_error_native_api_propagation_and_shared_dependencies_are_preserved",
+      "executable::tests::module_error_native_compile_and_link_failures_report_syntax_errors",
+      "executable::tests::module_error_native_delayed_rejection_reports_once_and_is_handled",
+      "executable::tests::module_error_native_inline_roots_preserve_values_and_identity",
+      "executable::tests::module_error_native_pinned_testharness_rejects_unexpected_errors",
+      "executable::tests::module_error_native_reporting_obeys_wall_deadline",
+      "executable::tests::parser_error_native_cross_origin_details_are_muted",
+      "executable::tests::parser_error_native_external_source_location_and_cancellation",
+      "executable::tests::parser_error_native_handler_exceptions_do_not_recurse",
+      "executable::tests::parser_error_native_pinned_testharness_rejects_unexpected_errors",
+      "executable::tests::parser_error_native_preserves_values_and_continues_scripts",
+      "executable::tests::parser_error_native_reporting_keeps_wall_deadline",
+      "executable::tests::parser_error_native_reports_syntax_and_runs_queued_jobs"
+    ]
+  },
+  "bindings": {
+    "passed": 126,
+    "failed": 0,
+    "existing_ignored": 2
+  },
+  "native_matrix": {
+    "total": 281,
+    "passed": 268,
+    "failed": 12,
+    "timeout": 1,
+    "timeout_seconds": 15,
+    "new_nonpasses": [],
+    "fixed_prior_nonpasses": [],
+    "same_failure_reasons": [
+      "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+      "executable::tests::editing_command_state_reports_paragraph_and_alignment_values",
+      "executable::tests::nested_named_frame_navigation_reports_through_its_owner_realm",
+      "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit",
+      "executable::tests::pinned_wpt_range_clone_executes_with_resource_diagnostics",
+      "executable::tests::timers_wait_for_deadlines_and_checkpoint_microtasks_between_tasks",
+      "host::tests::startup_external_reference_manifest_matches_runtime_order",
+      "runtime::tests::about_blank_is_internal_and_history_safe",
+      "runtime::tests::native_navigation_checks_redirects_and_supports_history",
+      "runtime::tests::removed_dom_nodes_invalidate_semantic_references_before_layout_or_action",
+      "runtime::tests::report_only_policy_dispatches_dom_event_and_parent_report",
+      "runtime::tests::target_blank_links_and_forms_create_opener_scoped_pages",
+      "runtime::tests::xhr_sync_main_thread_is_truthfully_unsupported"
+    ],
+    "fixture_note": "All tests executed separately with --include-ignored and ORYN_WPT_ROOT configured."
+  },
+  "checks": {
+    "strict_clippy_js_and_native": "passed with -D warnings",
+    "rustfmt": "passed",
+    "generated_registry": "passed",
+    "docs_truth": "passed",
+    "wpt_runner_unit_tests": 28
+  },
+  "contracts": [
+    "Compile/link exceptions are caught before loss of their original value, then reported through rejected-promise reactions.",
+    "Native rejection handlers remain attached across top-level await; cancellation suppresses diagnostics; uncanceled delayed errors are recorded once without duplicate unhandled-promise reporting.",
+    "Ordinary execute_module API continues to return failures without Window error delivery.",
+    "Inline root modules are distinct, dependency instances remain shared, and reusing an external root does not rerun its body.",
+    "Inline import.meta.url uses the document URL and document.currentScript is null.",
+    "Rejection diagnostics do not invoke an arbitrary payload toString.",
+    "The existing wall deadline terminates an infinite module error handler and the host recovers."
+  ],
+  "limitations": [
+    "Module load-event and document-load barriers while evaluation promises remain pending are not implemented by this change.",
+    "Module fetch failures, CORS response metadata, and complete source URL/base handling still require validation and fixes.",
+    "Precise source coordinates for arbitrary primitive promise rejections are not validated; inline HTML document offsets remain open.",
+    "Node-listener exceptions, callback script muting, initial frame realms, worker propagation and remaining global event handlers remain open.",
+    "No new signed-worker full run; baseline remains 2559/4022."
+  ],
+  "raw_evidence_directory": "artifacts/native-module-error-reporting",
+  "normative_reference": "https://html.spec.whatwg.org/multipage/webappapis.html#run-a-module-script"
+}
