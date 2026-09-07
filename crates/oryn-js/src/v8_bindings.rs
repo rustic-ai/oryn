@@ -12111,6 +12111,69 @@ fn apply_inline_format(
     Ok(())
 }
 
+// Editing moves keep boundaries attached to moved content instead of applying
+// the ordinary DOM removal rule that relocates them to the old parent.
+fn move_editing_node_preserving_ranges(
+    state: &V8BindingState,
+    node: NodeId,
+    new_parent: NodeId,
+    new_index: u32,
+) -> Result<(), V8BindingError> {
+    synchronize_live_ranges(state)?;
+    let (old_parent, old_index, reference) = {
+        let dom = state.dom.borrow();
+        let old_parent = dom.parent(node)?;
+        let old_index = old_parent
+            .map(|parent| relative_boundary(&dom, node, false).map(|point| (parent, point.1)))
+            .transpose()?
+            .map(|(_, index)| index);
+        let children = light_children(&dom, new_parent)?;
+        if new_index as usize > children.len() {
+            return Err(V8BindingError::Allocation("editing move index"));
+        }
+        (
+            old_parent,
+            old_index,
+            children.get(new_index as usize).copied(),
+        )
+    };
+    let mut ranges = state.ranges.borrow().clone();
+    let static_ranges = state.static_ranges.borrow().clone();
+    for (id, range) in &mut ranges {
+        if static_ranges.contains(id) {
+            continue;
+        }
+        for (container, offset) in [
+            (&mut range.start_container, &mut range.start_offset),
+            (&mut range.end_container, &mut range.end_offset),
+        ] {
+            if *container == new_parent && *offset > new_index {
+                *offset += 1;
+            }
+            if Some(*container) == old_parent {
+                let old_index = old_index.expect("parent has an index");
+                if *offset == old_index || *offset == old_index + 1 {
+                    *container = new_parent;
+                    *offset = new_index + (*offset - old_index);
+                } else if *offset > old_index + 1 {
+                    *offset -= 1;
+                }
+            }
+        }
+    }
+    state
+        .dom
+        .borrow_mut()
+        .insert_before(new_parent, node, reference)?;
+    for (id, range) in ranges {
+        if !static_ranges.contains(&id) {
+            state.ranges.borrow_mut().insert(id, range);
+            persist_live_range(state, id)?;
+        }
+    }
+    synchronize_live_ranges(state)
+}
+
 fn unwrap_element(dom: &mut DomRuntime, node: NodeId) -> Result<(), V8BindingError> {
     let parent = dom.parent(node)?.ok_or(V8BindingError::Unsupported {
         interface: "Document".into(),
@@ -12225,8 +12288,17 @@ fn alignment_node_is_visible(
     Ok(match &dom.arena().get(node)?.kind {
         NodeKind::Text { data } | NodeKind::CDataSection { data } => !data.is_empty(),
         NodeKind::Element { .. } => {
-            alignment_node_is_block(dom, layout, node)
-                || matches!(element_local_name(dom, node), Some("img" | "br"))
+            let mut visible = alignment_node_is_block(dom, layout, node)
+                || matches!(element_local_name(dom, node), Some("img" | "br"));
+            if !visible {
+                for child in light_children(dom, node)? {
+                    if alignment_node_is_visible(dom, layout, child)? {
+                        visible = true;
+                        break;
+                    }
+                }
+            }
+            visible
         }
         _ => false,
     })
@@ -12317,14 +12389,20 @@ fn extend_alignment_boundary(
     Ok(point)
 }
 
-fn selected_editing_alignment_targets(
+struct EditingAlignmentRange {
+    host: NodeId,
+    start: (NodeId, u32),
+    end: (NodeId, u32),
+}
+
+fn editing_alignment_range(
     state: &V8BindingState,
-) -> Result<Vec<BoundaryPoint>, V8BindingError> {
-    let Some(_anchor) = state.selection_anchor.get() else {
-        return Ok(Vec::new());
-    };
+) -> Result<Option<EditingAlignmentRange>, V8BindingError> {
+    if state.selection_anchor.get().is_none() {
+        return Ok(None);
+    }
     let Some(host) = editing_host(state)? else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let range = state
         .selection_range
@@ -12332,23 +12410,36 @@ fn selected_editing_alignment_targets(
         .and_then(|id| state.ranges.borrow().get(&id).cloned())
         .ok_or(V8BindingError::Allocation("selection range"))?;
     refresh_layout(state)?;
-    let targets = {
-        let dom = state.dom.borrow();
-        let layout = state.layout.borrow();
-        let start = extend_alignment_boundary(
+    let dom = state.dom.borrow();
+    let layout = state.layout.borrow();
+    Ok(Some(EditingAlignmentRange {
+        host,
+        start: extend_alignment_boundary(
             &dom,
             &layout,
             host,
             (range.start_container, range.start_offset),
             true,
-        )?;
-        let end = extend_alignment_boundary(
+        )?,
+        end: extend_alignment_boundary(
             &dom,
             &layout,
             host,
             (range.end_container, range.end_offset),
             false,
-        )?;
+        )?,
+    }))
+}
+
+fn selected_editing_alignment_targets(
+    state: &V8BindingState,
+) -> Result<Vec<BoundaryPoint>, V8BindingError> {
+    let Some(EditingAlignmentRange { host, start, end }) = editing_alignment_range(state)? else {
+        return Ok(Vec::new());
+    };
+    let targets = {
+        let dom = state.dom.borrow();
+        let layout = state.layout.borrow();
         let mut targets = Vec::new();
         {
             for node in traversal_nodes(&dom, host)? {
@@ -12387,6 +12478,368 @@ fn selected_editing_alignment_targets(
     Ok(targets)
 }
 
+fn contained_alignment_nodes(
+    state: &V8BindingState,
+    range: &EditingAlignmentRange,
+) -> Result<Vec<NodeId>, V8BindingError> {
+    let dom = state.dom.borrow();
+    let mut nodes = Vec::new();
+    for node in traversal_nodes(&dom, range.host)? {
+        if node == range.host
+            || editing_host_for_node(&dom, Some(node), state.design_mode.get(), state.document)?
+                != Some(range.host)
+        {
+            continue;
+        }
+        let before = relative_boundary(&dom, node, false)?;
+        let after = relative_boundary(&dom, node, true)?;
+        if compare_boundary_points(&dom, range.start, before)? <= 0
+            && compare_boundary_points(&dom, after, range.end)? <= 0
+        {
+            nodes.push(node);
+        }
+    }
+    Ok(nodes)
+}
+
+fn alignment_allows_div_child(dom: &DomRuntime, node: NodeId) -> Result<bool, V8BindingError> {
+    Ok(match &dom.arena().get(node)?.kind {
+        NodeKind::Element { .. } => !matches!(
+            element_local_name(dom, node),
+            Some(
+                "body"
+                    | "caption"
+                    | "col"
+                    | "colgroup"
+                    | "frame"
+                    | "frameset"
+                    | "head"
+                    | "html"
+                    | "tbody"
+                    | "td"
+                    | "tfoot"
+                    | "th"
+                    | "thead"
+                    | "tr"
+                    | "dd"
+                    | "dt"
+                    | "li"
+            )
+        ),
+        NodeKind::Text { .. } | NodeKind::CDataSection { .. } | NodeKind::Comment { .. } => true,
+        _ => false,
+    })
+}
+
+fn clear_contained_alignment(state: &V8BindingState) -> Result<(), V8BindingError> {
+    let Some(range) = editing_alignment_range(state)? else {
+        return Ok(());
+    };
+    let nodes = contained_alignment_nodes(state, &range)?;
+    for node in nodes {
+        let needs_cleanup = {
+            let dom = state.dom.borrow();
+            matches!(dom.arena().get(node)?.kind, NodeKind::Element { .. })
+                && (dom.attribute(node, "align")?.is_some()
+                    || element_local_name(&dom, node) == Some("center")
+                    || dom.attribute(node, "style")?.is_some_and(|style| {
+                        style.split(';').any(|declaration| {
+                            declaration.split_once(':').is_some_and(|(name, _)| {
+                                name.trim().eq_ignore_ascii_case("text-align")
+                            })
+                        })
+                    }))
+        };
+        if !needs_cleanup {
+            continue;
+        }
+        {
+            let mut dom = state.dom.borrow_mut();
+            dom.remove_attribute(node, "align")?;
+            set_inline_style_property(&mut dom, node, "text-align", "")?;
+            if dom.attribute(node, "style")? == Some("") {
+                dom.remove_attribute(node, "style")?;
+            }
+        }
+        let (name, attributes, parent) = {
+            let dom = state.dom.borrow();
+            (
+                element_local_name(&dom, node).unwrap_or("").to_owned(),
+                dom.arena().get(node)?.attributes.clone(),
+                dom.parent(node)?,
+            )
+        };
+        let Some(parent) = parent else {
+            continue;
+        };
+        if matches!(name.as_str(), "div" | "span" | "center") && attributes.is_empty() {
+            let children = light_children(&state.dom.borrow(), node)?;
+            for child in children {
+                let (_, index) = relative_boundary(&state.dom.borrow(), node, false)?;
+                move_editing_node_preserving_ranges(state, child, parent, index)?;
+            }
+            state.dom.borrow_mut().remove_child(parent, node)?;
+            synchronize_live_ranges(state)?;
+        } else if name == "center" {
+            let replacement = state.dom.borrow_mut().create_element("div");
+            {
+                let mut dom = state.dom.borrow_mut();
+                dom.insert_before(parent, replacement, Some(node))?;
+                for (name, value) in attributes {
+                    dom.set_attribute(replacement, &name, &value)?;
+                }
+            }
+            let children = light_children(&state.dom.borrow(), node)?;
+            for child in children {
+                let index = boundary_length(&state.dom.borrow(), replacement)?;
+                move_editing_node_preserving_ranges(state, child, replacement, index)?;
+            }
+            state.dom.borrow_mut().remove_child(parent, node)?;
+            synchronize_live_ranges(state)?;
+        }
+    }
+    Ok(())
+}
+
+fn reusable_alignment_wrapper(dom: &DomRuntime, node: NodeId, alignment: &str) -> bool {
+    if element_local_name(dom, node) != Some("div") {
+        return false;
+    }
+    dom.arena().get(node).is_ok_and(|record| {
+        record
+            .attributes
+            .iter()
+            .all(|(name, value)| match name.as_str() {
+                "align" => value.eq_ignore_ascii_case(alignment),
+                "style" => {
+                    let declarations = value
+                        .split(';')
+                        .filter(|part| !part.trim().is_empty())
+                        .collect::<Vec<_>>();
+                    declarations.len() == 1
+                        && declarations[0]
+                            .split_once(':')
+                            .is_some_and(|(property, value)| {
+                                property.trim().eq_ignore_ascii_case("text-align")
+                                    && value.trim().eq_ignore_ascii_case(alignment)
+                            })
+                }
+                _ => false,
+            })
+    })
+}
+
+fn separate_alignment_inline_runs(
+    state: &V8BindingState,
+    wrapper: NodeId,
+    incoming: &[NodeId],
+    prepend: bool,
+) -> Result<(), V8BindingError> {
+    refresh_layout(state)?;
+    let needs_break = {
+        let dom = state.dom.borrow();
+        let layout = state.layout.borrow();
+        let children = light_children(&dom, wrapper)?;
+        let visible = |nodes: &[NodeId]| -> Result<Vec<NodeId>, V8BindingError> {
+            let mut result = Vec::new();
+            for node in nodes {
+                if alignment_node_is_visible(&dom, &layout, *node)? {
+                    result.push(*node);
+                }
+            }
+            Ok(result)
+        };
+        let existing = visible(&children)?;
+        let incoming_visible = visible(incoming)?;
+        let (left, right, last) = if prepend {
+            (incoming_visible.last(), existing.first(), incoming.last())
+        } else {
+            (existing.last(), incoming_visible.first(), children.last())
+        };
+        alignment_node_is_block(&dom, &layout, wrapper)
+            && left.zip(right).is_some_and(|(left, right)| {
+                !alignment_node_is_block(&dom, &layout, *left)
+                    && !alignment_node_is_block(&dom, &layout, *right)
+            })
+            && !last.is_some_and(|node| element_local_name(&dom, *node) == Some("br"))
+    };
+    if needs_break {
+        let reference = if prepend {
+            light_children(&state.dom.borrow(), wrapper)?
+                .first()
+                .copied()
+        } else {
+            None
+        };
+        let mut dom = state.dom.borrow_mut();
+        let br = dom.create_element("br");
+        dom.insert_before(wrapper, br, reference)?;
+    }
+    Ok(())
+}
+
+fn wrap_alignment_contents(state: &V8BindingState, alignment: &str) -> Result<(), V8BindingError> {
+    let Some(range) = editing_alignment_range(state)? else {
+        return Ok(());
+    };
+    let mut selected = Vec::new();
+    for node in contained_alignment_nodes(state, &range)? {
+        let covered = {
+            let dom = state.dom.borrow();
+            let mut parent = dom.parent(node)?;
+            let mut covered = false;
+            while let Some(ancestor) = parent {
+                if selected.contains(&ancestor) {
+                    covered = true;
+                    break;
+                }
+                parent = dom.parent(ancestor)?;
+            }
+            covered || !alignment_allows_div_child(&dom, node)?
+        };
+        if !covered && editing_alignment_value(state, node)? != alignment {
+            selected.push(node);
+        }
+    }
+    let mut index = 0;
+    while index < selected.len() {
+        let first = selected[index];
+        let (parent, position) = relative_boundary(&state.dom.borrow(), first, false)?;
+        let mut end = index + 1;
+        {
+            let dom = state.dom.borrow();
+            let siblings = light_children(&dom, parent)?;
+            while end < selected.len()
+                && siblings.get(position as usize + end - index) == Some(&selected[end])
+            {
+                end += 1;
+            }
+        }
+        let mut has_visible_content = false;
+        {
+            let dom = state.dom.borrow();
+            let layout = state.layout.borrow();
+            for node in &selected[index..end] {
+                if alignment_node_is_visible(&dom, &layout, *node)?
+                    || element_local_name(&dom, *node) == Some("br")
+                {
+                    has_visible_content = true;
+                    break;
+                }
+            }
+        }
+        if !has_visible_content {
+            index = end;
+            continue;
+        }
+        let (run, position) = {
+            let dom = state.dom.borrow();
+            let layout = state.layout.borrow();
+            let siblings = light_children(&dom, parent)?;
+            let mut start = position as usize;
+            let mut limit = start + end - index;
+            let last = siblings[limit - 1];
+            if !alignment_node_is_block(&dom, &layout, last)
+                && element_local_name(&dom, last) != Some("br")
+                && siblings
+                    .get(limit)
+                    .is_some_and(|node| element_local_name(&dom, *node) == Some("br"))
+            {
+                limit += 1;
+            }
+            while start > 0 && !alignment_node_is_visible(&dom, &layout, siblings[start - 1])? {
+                start -= 1;
+            }
+            while limit < siblings.len()
+                && !alignment_node_is_visible(&dom, &layout, siblings[limit])?
+            {
+                limit += 1;
+            }
+            (siblings[start..limit].to_vec(), start as u32)
+        };
+        while end < selected.len() && run.contains(&selected[end]) {
+            end += 1;
+        }
+        let first = run[0];
+        let (previous, next) = {
+            let dom = state.dom.borrow();
+            let siblings = light_children(&dom, parent)?;
+            (
+                position
+                    .checked_sub(1)
+                    .and_then(|i| siblings.get(i as usize))
+                    .copied()
+                    .filter(|node| reusable_alignment_wrapper(&dom, *node, alignment)),
+                siblings
+                    .get(position as usize + run.len())
+                    .copied()
+                    .filter(|node| reusable_alignment_wrapper(&dom, *node, alignment)),
+            )
+        };
+        let wrapper = if let Some(previous) = previous {
+            previous
+        } else if let Some(next) = next {
+            next
+        } else {
+            let wrapper = state.dom.borrow_mut().create_element("div");
+            set_inline_style_property(
+                &mut state.dom.borrow_mut(),
+                wrapper,
+                "text-align",
+                alignment,
+            )?;
+            state
+                .dom
+                .borrow_mut()
+                .insert_before(parent, wrapper, Some(first))?;
+            synchronize_live_ranges(state)?;
+            let ids = state.ranges.borrow().keys().copied().collect::<Vec<_>>();
+            for id in ids {
+                if state.static_ranges.borrow().contains(&id) {
+                    continue;
+                }
+                {
+                    let mut ranges = state.ranges.borrow_mut();
+                    let range = ranges.get_mut(&id).expect("registered range");
+                    if range.start_container == parent && range.start_offset == position {
+                        range.start_offset += 1;
+                    }
+                    if range.end_container == parent && range.end_offset == position {
+                        range.end_offset += 1;
+                    }
+                }
+                persist_live_range(state, id)?;
+            }
+            synchronize_live_ranges(state)?;
+            wrapper
+        };
+        let prepend = previous.is_none() && next.is_some();
+        separate_alignment_inline_runs(state, wrapper, &run, prepend)?;
+        if prepend {
+            for node in run.iter().rev() {
+                move_editing_node_preserving_ranges(state, *node, wrapper, 0)?;
+            }
+        } else {
+            for node in &run {
+                let offset = boundary_length(&state.dom.borrow(), wrapper)?;
+                move_editing_node_preserving_ranges(state, *node, wrapper, offset)?;
+            }
+        }
+        if let Some(next) = next.filter(|next| *next != wrapper) {
+            let children = light_children(&state.dom.borrow(), next)?;
+            separate_alignment_inline_runs(state, wrapper, &children, false)?;
+            for child in children {
+                let offset = boundary_length(&state.dom.borrow(), wrapper)?;
+                move_editing_node_preserving_ranges(state, child, wrapper, offset)?;
+            }
+            state.dom.borrow_mut().remove_child(parent, next)?;
+            synchronize_live_ranges(state)?;
+        }
+        index = end;
+    }
+    synchronize_live_ranges(state)
+}
+
 fn apply_block_command(
     state: &V8BindingState,
     command: &str,
@@ -12402,15 +12855,8 @@ fn apply_block_command(
         "justifyfull" => "justify",
         _ => return apply_block_command_at_boundary(state, command, value, anchor),
     };
-    let targets = selected_editing_alignment_targets(state)?;
-    // Work from the selected content rather than just the anchor. Re-resolving
-    // each target after a wrap also avoids wrapping the same paragraph twice.
-    for target in targets {
-        if editing_alignment_value(state, target.container)? != alignment {
-            apply_block_command_at_boundary(state, command, value, target)?;
-        }
-    }
-    Ok(())
+    clear_contained_alignment(state)?;
+    wrap_alignment_contents(state, alignment)
 }
 
 fn apply_block_command_at_boundary(
@@ -12422,112 +12868,8 @@ fn apply_block_command_at_boundary(
     let Some(host) = editing_host(state)? else {
         return Ok(());
     };
-    let mut block = nearest_editing_block(&state.dom.borrow(), anchor.container, host)?;
-    if matches!(
-        command,
-        "justifyleft" | "justifycenter" | "justifyright" | "justifyfull"
-    ) {
-        refresh_layout(state)?;
-        let dom = state.dom.borrow();
-        let layout = state.layout.borrow();
-        let mut current = anchor.container;
-        loop {
-            if current == host {
-                block = host;
-                break;
-            }
-            if matches!(dom.arena().get(current)?.kind, NodeKind::Element { .. })
-                && layout
-                    .styles
-                    .get(&node_key(current))
-                    .and_then(|style| style.get("display"))
-                    .is_some_and(|display| {
-                        !matches!(display.as_str(), "inline" | "none" | "contents")
-                    })
-            {
-                block = current;
-                break;
-            }
-            current = dom.parent(current)?.unwrap_or(host);
-        }
-    }
-    if block == host
-        && matches!(
-            command,
-            "justifyleft" | "justifycenter" | "justifyright" | "justifyfull"
-        )
-    {
-        let anchor_before_wrap = state.selection_anchor.get();
-        let focus_before_wrap = state.selection_focus.get();
-        let children = light_children(&state.dom.borrow(), host)?;
-        let mut top = anchor.container;
-        while top != host {
-            let parent = state.dom.borrow().parent(top)?;
-            if parent == Some(host) {
-                break;
-            }
-            top = parent.unwrap_or(host);
-        }
-        let selected_index = if top == host {
-            (anchor.offset as usize).min(children.len().saturating_sub(1))
-        } else {
-            children
-                .iter()
-                .position(|candidate| *candidate == top)
-                .unwrap_or(0)
-        };
-        let mut start = selected_index;
-        while start > 0 && !is_editing_block(&state.dom.borrow(), children[start - 1]) {
-            start -= 1;
-        }
-        let mut end = selected_index.saturating_add(1).min(children.len());
-        while end < children.len() && !is_editing_block(&state.dom.borrow(), children[end]) {
-            end += 1;
-        }
-        if start < end {
-            let wrapper = state.dom.borrow_mut().create_element("div");
-            state
-                .dom
-                .borrow_mut()
-                .insert_before(host, wrapper, Some(children[start]))?;
-            for child in &children[start..end] {
-                state.dom.borrow_mut().append_child(wrapper, *child)?;
-            }
-            if let (Some(selection_anchor), Some(focus)) = (anchor_before_wrap, focus_before_wrap) {
-                // Moving children into a wrapper changes parent-offset boundaries.
-                // Keep boundaries within the moved interval attached to that
-                // content, including selections created with selectAllChildren.
-                let remap = |point: BoundaryPoint| {
-                    if point.container != host || (point.offset as usize) < start {
-                        return point;
-                    }
-                    if (point.offset as usize) <= end {
-                        BoundaryPoint {
-                            container: wrapper,
-                            offset: point.offset - start as u32,
-                        }
-                    } else {
-                        BoundaryPoint {
-                            container: host,
-                            offset: point.offset - (end - start) as u32 + 1,
-                        }
-                    }
-                };
-                set_selection_boundaries(state, remap(selection_anchor), remap(focus))?;
-            }
-            block = wrapper;
-        }
-    }
+    let block = nearest_editing_block(&state.dom.borrow(), anchor.container, host)?;
     match command {
-        "justifyleft" | "justifycenter" | "justifyright" | "justifyfull" => {
-            let value = match command {
-                "justifyleft" => "left",
-                "justifycenter" => "center",
-                "justifyright" => "right",
-                _ => "justify",
-            };
-            set_inline_style_property(&mut state.dom.borrow_mut(), block, "text-align", value)?;
-        }
         "indent" => {
             set_inline_style_property(&mut state.dom.borrow_mut(), block, "margin-left", "40px")?;
         }

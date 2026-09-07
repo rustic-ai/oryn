@@ -4670,6 +4670,19 @@ mod tests {
     }
 
     #[test]
+    fn justification_wraps_blocks_and_separates_merged_inline_runs() {
+        let mut page =
+            RustExecutableDocument::load("<div id=editor contenteditable><xmp>text</xmp></div>")
+                .unwrap();
+        assert_eq!(page.evaluate(
+            "const editor=document.getElementById('editor');getSelection().selectAllChildren(editor.firstChild);document.execCommand('justifyCenter');[editor.firstChild.localName,editor.firstChild.style.textAlign,editor.firstChild.firstChild.localName,getSelection().toString()].join('|')"
+        ).unwrap(), "div|center|xmp|text");
+        assert_eq!(page.evaluate(
+            "editor.innerHTML='<div style=\"text-align:center\">one</div>two<div style=\"text-align:center\">three</div>';getSelection().selectAllChildren(editor.childNodes[1]);document.execCommand('justifyCenter');[editor.children.length,editor.firstChild.innerHTML,document.queryCommandState('justifyCenter')].join('|')"
+        ).unwrap(), "1|one<br>two<br>three|true");
+    }
+
+    #[test]
     fn justification_queries_use_computed_block_alignment_and_direction() {
         let mut page = RustExecutableDocument::load(
             "<style>#editor {text-align:start;direction:rtl} #inline {text-align:center}</style><div id=editor contenteditable><span id=inline>text</span></div>",
@@ -4688,8 +4701,8 @@ mod tests {
             "const editor=document.getElementById('editor');getSelection().selectAllChildren(editor);const before=editor.innerHTML;document.execCommand('justifyLeft');editor.innerHTML===before"
         ).unwrap(), "true");
         assert_eq!(page.evaluate(
-            "editor.innerHTML='<p id=left>one</p><p id=right style=\"text-align:right\">two</p>';const left=document.getElementById('left'),right=document.getElementById('right');getSelection().setBaseAndExtent(left.firstChild,0,right.firstChild,3);const beforeText=getSelection().toString();document.execCommand('justifyLeft');[left.hasAttribute('style'),getComputedStyle(right).textAlign,getSelection().toString()===beforeText].join('|')"
-        ).unwrap(), "false|left|true");
+            "editor.innerHTML='<p id=left>one</p><p id=right style=\"text-align:right\">two</p>';const left=document.getElementById('left'),right=document.getElementById('right');getSelection().setBaseAndExtent(left.firstChild,0,right.firstChild,3);const beforeText=getSelection().toString();document.execCommand('justifyLeft');[left.hasAttribute('style'),right.hasAttribute('style'),getComputedStyle(right).textAlign,document.queryCommandValue('justifyLeft'),getSelection().toString()===beforeText].join('|')"
+        ).unwrap(), "false|false|start|left|true");
     }
 
     #[test]
