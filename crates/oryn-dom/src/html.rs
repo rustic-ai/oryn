@@ -97,6 +97,27 @@ pub fn parse_streamed(input: &str, max_chunk_bytes: usize) -> ParsedDocument {
     parser.finish()
 }
 
+/// Load a decoded text response without interpreting its contents as markup.
+pub fn parse_text_document(input: &str, content_type: &str) -> ParsedDocument {
+    let mut parser = parse_document(OrynTreeSink::new(), ParseOpts::default());
+    parser.process(StrTendril::from("<pre>\n"));
+    parser.tokenizer.set_plaintext_state();
+    parser.process(StrTendril::from(input));
+    let mut parsed = parser.finish();
+    // Text documents always use no-quirks mode, regardless of their contents.
+    parsed.quirks_mode = QuirksMode::NoQuirks;
+    let metadata = parsed
+        .dom
+        .get_mut(parsed.document)
+        .unwrap()
+        .document_metadata
+        .as_mut()
+        .unwrap();
+    metadata.content_type = content_type.into();
+    metadata.quirks = false;
+    parsed
+}
+
 pub fn parse_fragment(input: &str, context_local_name: &str) -> ParsedDocument {
     let context = QualName::new(
         None,

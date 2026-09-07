@@ -16,6 +16,32 @@ pub fn parse_by_mime(source: &str, content_type: Option<&str>) -> ParsedDocument
         .to_ascii_lowercase();
     if matches!(essence.as_str(), "application/xml" | "text/xml") || essence.ends_with("+xml") {
         parse(source, &essence)
+    } else if matches!(
+        essence.as_str(),
+        "text/plain"
+            | "text/css"
+            | "text/vtt"
+            | "text/javascript"
+            | "text/ecmascript"
+            | "text/javascript1.0"
+            | "text/javascript1.1"
+            | "text/javascript1.2"
+            | "text/javascript1.3"
+            | "text/javascript1.4"
+            | "text/javascript1.5"
+            | "text/jscript"
+            | "text/livescript"
+            | "text/x-ecmascript"
+            | "text/x-javascript"
+            | "application/javascript"
+            | "application/ecmascript"
+            | "application/x-ecmascript"
+            | "application/x-javascript"
+            | "application/json"
+            | "text/json"
+    ) || essence.ends_with("+json")
+    {
+        crate::html::parse_text_document(source, &essence)
     } else {
         crate::html::parse_streamed(source, 4096)
     }
@@ -217,6 +243,45 @@ mod tests {
                 .unwrap()
                 .is_html
         );
+    }
+
+    #[test]
+    fn text_responses_preserve_mime_and_never_discover_markup_resources() {
+        let source = "\n<script src='x'>run()</script>&amp;\r\n<style>x{}</style>";
+        for mime in ["Text/Plain; charset=utf-8", "text/css", "application/json"] {
+            let parsed = parse_by_mime(source, Some(mime));
+            let metadata = parsed
+                .dom
+                .get(parsed.document)
+                .unwrap()
+                .document_metadata
+                .as_ref()
+                .unwrap();
+            assert_eq!(
+                metadata.content_type,
+                mime.split(';').next().unwrap().to_ascii_lowercase()
+            );
+            assert!(metadata.is_html);
+            assert!(!metadata.quirks);
+            assert_eq!(
+                parsed.quirks_mode,
+                markup5ever::interface::QuirksMode::NoQuirks
+            );
+            assert!(parsed.events.is_empty());
+            let pre = parsed
+                .dom
+                .iter()
+                .find_map(|(id, node)| {
+                    matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "pre")
+                        .then_some(id)
+                })
+                .unwrap();
+            assert_eq!(
+                parsed.dom.text_content(pre).unwrap(),
+                source.replace("\r\n", "\n")
+            );
+            assert_eq!(parsed.dom.get(pre).unwrap().children.len(), 1);
+        }
     }
 
     #[test]
