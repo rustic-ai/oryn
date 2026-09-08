@@ -186,6 +186,7 @@ pub struct DomArena {
     free: Vec<u32>,
     attribute_nodes: BTreeMap<(NodeId, String), NodeId>,
     stylesheet_revisions: BTreeMap<NodeId, u64>,
+    name_attribute_revisions: BTreeMap<NodeId, u64>,
 }
 
 impl DomArena {
@@ -206,6 +207,7 @@ impl DomArena {
             free: Vec::new(),
             attribute_nodes: BTreeMap::new(),
             stylesheet_revisions: BTreeMap::new(),
+            name_attribute_revisions: BTreeMap::new(),
         };
         for id in retained {
             if let Some(slot) = arena.slots.get_mut(id.slot as usize) {
@@ -349,6 +351,7 @@ impl DomArena {
         slot.generation = slot.generation.wrapping_add(1);
         self.free.push(id.slot);
         self.stylesheet_revisions.remove(&id);
+        self.name_attribute_revisions.remove(&id);
         if let NodeKind::Attribute {
             owner: Some(owner),
             name,
@@ -1289,6 +1292,11 @@ impl DomRuntime {
             (None, name.clone())
         };
         let value = value.into();
+        let replaced_unqualified_name = name == "name"
+            && self.arena.get(node)?.attributes.contains_key("name")
+            && self.arena.existing_attribute_node(node, "name").is_none_or(|attribute| {
+                self.arena.get(attribute).is_ok_and(|record| matches!(&record.kind, NodeKind::Attribute { namespace, .. } if namespace.is_none()))
+            });
         let old_value = self
             .arena
             .get_mut(node)?
@@ -1340,6 +1348,10 @@ impl DomRuntime {
                 .attribute_nodes
                 .insert((node, name.clone()), attribute);
         }
+        if name == "name" && (namespace.is_none() || replaced_unqualified_name) {
+            let revision = self.arena.name_attribute_revisions.entry(node).or_default();
+            *revision = revision.saturating_add(1);
+        }
         self.mutations.push(Mutation::Attribute {
             node,
             name,
@@ -1373,6 +1385,10 @@ impl DomRuntime {
             self.ids.remove(old);
         }
         if old_value.is_some() {
+            if name == "name" && namespace.is_none() {
+                let revision = self.arena.name_attribute_revisions.entry(node).or_default();
+                *revision = revision.saturating_add(1);
+            }
             self.mutations.push(Mutation::Attribute {
                 node,
                 name: name.to_string(),
@@ -1382,6 +1398,18 @@ impl DomRuntime {
             });
         }
         Ok(())
+    }
+
+    /// Revision of unqualified name writes, including assignments of the same
+    /// value. Browsing-context target names can diverge from this attribute.
+    pub fn name_attribute_revision(&self, node: NodeId) -> Result<u64, DomError> {
+        self.arena.get(node)?;
+        Ok(self
+            .arena
+            .name_attribute_revisions
+            .get(&node)
+            .copied()
+            .unwrap_or(0))
     }
 
     pub fn attribute(&self, node: NodeId, name: &str) -> Result<Option<&str>, DomError> {

@@ -1225,6 +1225,9 @@ mod raw_v8 {
                     HostError::Execution("frame realm descriptor is unavailable".into())
                 })?;
             let same_origin = document.is_some() && parent_origin == child_origin;
+            if let Some(child) = self.binding_states.get(&realm) {
+                active.bind_frame_target_name(frame, child);
+            }
             v8::scope!(let handle_scope, &mut self.isolate);
             let parent_context_local = v8::Local::new(handle_scope, &parent_context);
             let child_context_local = v8::Local::new(handle_scope, &child_context);

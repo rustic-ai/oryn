@@ -1,3 +1,8 @@
+[Exposed=Window]
+interface Window : EventTarget {
+  attribute DOMString name;
+};
+
 [Exposed=(Window,Worker)]
 interface EventTarget {
   constructor();
@@ -586,6 +591,7 @@ interface HTMLCanvasElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLImageElement : HTMLElement {
+  attribute DOMString name;
   attribute DOMString src;
   attribute DOMString crossOrigin;
   attribute DOMString referrerPolicy;

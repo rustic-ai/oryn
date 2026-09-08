@@ -5,6 +5,9 @@ mod named;
 #[derive(Clone)]
 pub(super) enum ElementFilter {
     Children,
+    WindowName {
+        name: String,
+    },
     Tag {
         name: String,
         html: bool,
@@ -105,6 +108,56 @@ fn identity_as(
     Ok(id)
 }
 
+/// HTML named access includes all element IDs, plus names on four HTML types.
+/// https://html.spec.whatwg.org/multipage/nav-history-apis.html#named-access-on-the-window-object
+pub(super) fn window_named_match(dom: &DomRuntime, node: NodeId, wanted: &str) -> bool {
+    if wanted.is_empty() {
+        return false;
+    }
+    let Ok(record) = dom.arena().get(node) else {
+        return false;
+    };
+    let NodeKind::Element { name } = &record.kind else {
+        return false;
+    };
+    let matches_attribute = |key: &str| {
+        record
+            .attributes
+            .get(key)
+            .is_some_and(|value| value == wanted)
+            && dom
+                .arena()
+                .existing_attribute_node(node, key)
+                .is_none_or(|attribute| {
+                    dom.arena().get(attribute).is_ok_and(|attribute| {
+                        matches!(&attribute.kind,
+                    NodeKind::Attribute { namespace, .. } if namespace.is_none())
+                    })
+                })
+    };
+    matches_attribute("id")
+        || (name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+            && matches!(name.local.as_ref(), "embed" | "form" | "img" | "object")
+            && matches_attribute("name"))
+}
+
+/// Resolve against the current light tree on every access. The same selection
+/// drives Window's single-element result and its live duplicate collection.
+pub(super) fn window_named_nodes(
+    dom: &DomRuntime,
+    root: NodeId,
+    wanted: &str,
+) -> Result<Vec<NodeId>, V8BindingError> {
+    if wanted.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(traversal_nodes(dom, root)?
+        .into_iter()
+        .skip(1)
+        .filter(|node| window_named_match(dom, *node, wanted))
+        .collect())
+}
+
 fn contents(state: &V8BindingState, id: u64) -> Result<Vec<NodeId>, V8BindingError> {
     let value = state
         .node_lists
@@ -128,6 +181,10 @@ fn contents(state: &V8BindingState, id: u64) -> Result<Vec<NodeId>, V8BindingErr
             }
             (root, nodes)
         }
+        Contents::Elements {
+            root,
+            filter: ElementFilter::WindowName { name },
+        } => (root, window_named_nodes(&state.dom.borrow(), root, &name)?),
         Contents::Elements { root, filter } => {
             let dom = state.dom.borrow();
             let candidates = if matches!(&filter, ElementFilter::Children) {
@@ -146,6 +203,7 @@ fn contents(state: &V8BindingState, id: u64) -> Result<Vec<NodeId>, V8BindingErr
                     };
                     match &filter {
                         ElementFilter::Children => true,
+                        ElementFilter::WindowName { name } => window_named_match(&dom, *id, name),
                         ElementFilter::Tag { name: wanted, html } => {
                             let qualified = name.prefix.as_ref().map_or_else(
                                 || name.local.to_string(),
@@ -447,6 +505,7 @@ fn create<'s>(
             Contents::Named { name, .. } => name.len(),
             Contents::Elements { filter, .. } => match filter {
                 ElementFilter::Children => 0,
+                ElementFilter::WindowName { name } => name.len(),
                 ElementFilter::Tag { name, .. } => name.len(),
                 ElementFilter::Namespace { namespace, local } => {
                     namespace.as_ref().map_or(0, String::len) + local.len()
@@ -794,4 +853,74 @@ pub(super) fn named_item<'s>(
 
 pub(super) fn configure_named(instance: v8::Local<v8::ObjectTemplate>) {
     named::configure(instance);
+}
+
+#[cfg(test)]
+mod window_named_tests {
+    use super::*;
+
+    #[test]
+    fn window_named_selection_tracks_connection_order_and_renaming() {
+        let mut dom = DomRuntime::new();
+        let root = dom.document();
+        let host = dom.create_element_with_local_name("http://www.w3.org/1999/xhtml", "div");
+        let first = dom.create_element_with_local_name("http://www.w3.org/1999/xhtml", "img");
+        let second = dom.create_element_with_local_name("http://www.w3.org/1999/xhtml", "form");
+        dom.set_attribute(first, "id", "shared").unwrap();
+        dom.set_attribute(first, "name", "shared").unwrap();
+        dom.set_attribute(second, "name", "shared").unwrap();
+        dom.append_child(host, first).unwrap();
+        dom.append_child(host, second).unwrap();
+        assert!(window_named_nodes(&dom, root, "shared").unwrap().is_empty());
+        dom.append_child(root, host).unwrap();
+        assert_eq!(
+            window_named_nodes(&dom, root, "shared").unwrap(),
+            vec![first, second]
+        );
+        dom.append_child(host, first).unwrap();
+        assert_eq!(
+            window_named_nodes(&dom, root, "shared").unwrap(),
+            vec![second, first]
+        );
+        dom.set_attribute(second, "name", "renamed").unwrap();
+        assert_eq!(
+            window_named_nodes(&dom, root, "shared").unwrap(),
+            vec![first]
+        );
+        assert_eq!(
+            window_named_nodes(&dom, root, "renamed").unwrap(),
+            vec![second]
+        );
+        dom.remove_child(root, host).unwrap();
+        assert!(window_named_nodes(&dom, root, "shared").unwrap().is_empty());
+        assert!(
+            window_named_nodes(&dom, root, "renamed")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn window_named_filter_uses_current_unqualified_attributes_and_allowed_names() {
+        let mut dom = DomRuntime::new();
+        for tag in ["embed", "form", "img", "object", "div", "input", "iframe"] {
+            let node = dom.create_element_with_local_name("http://www.w3.org/1999/xhtml", tag);
+            dom.set_attribute(node, "name", "named").unwrap();
+            assert_eq!(
+                window_named_match(&dom, node, "named"),
+                matches!(tag, "embed" | "form" | "img" | "object")
+            );
+            dom.set_attribute(node, "id", "identified").unwrap();
+            assert!(window_named_match(&dom, node, "identified"));
+            dom.remove_attribute(node, "id").unwrap();
+            assert!(!window_named_match(&dom, node, "identified"));
+        }
+        let svg = dom.create_element_with_local_name("http://www.w3.org/2000/svg", "svg");
+        dom.set_attribute(svg, "id", "vector").unwrap();
+        assert!(window_named_match(&dom, svg, "vector"));
+        dom.set_attribute_ns(svg, Some("urn:test".into()), "id", "foreign")
+            .unwrap();
+        assert!(!window_named_match(&dom, svg, "foreign"));
+        assert!(!window_named_match(&dom, svg, ""));
+    }
 }

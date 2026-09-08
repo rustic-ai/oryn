@@ -1,0 +1,109 @@
+{
+  "candidate": "live Window named properties",
+  "date": "2026-09-08",
+  "source_files": [
+    {
+      "path": "crates/oryn-dom/src/lib.rs",
+      "sha256": "0f489584efb1c4663f66a9a70aa8aae931eaa907a53b61b85923a99938820b00"
+    },
+    {
+      "path": "crates/oryn-js/src/v8_bindings.rs",
+      "sha256": "8afce9d87e0f432dccefdf65992ef5e2b8e0b353513a3cf50efb2764430c594b"
+    },
+    {
+      "path": "crates/oryn-js/src/v8_bindings/window_named.rs",
+      "sha256": "1d9a32693e4be447cfdd9131254b8cff46bb34776021a42d96100a1cb4212357"
+    },
+    {
+      "path": "crates/oryn-js/src/v8_bindings/node_lists.rs",
+      "sha256": "872f88bbbb5ced8958148f4c25f5601cd8968fb30782be8ece04a9c02caf896c"
+    },
+    {
+      "path": "crates/oryn-js/src/generated/browser.rs",
+      "sha256": "05bc5b6a985e652c68353f1c978faed3589c4c9739f7b22ac423621bd4da0498"
+    },
+    {
+      "path": "crates/oryn-layout/src/cssom.rs",
+      "sha256": "127f4ae54ed4627c6fdf97464aa4419b850c8f277fb2cf1c5cdb1bb12f5250c9"
+    },
+    {
+      "path": "crates/oryn-native/src/host.rs",
+      "sha256": "c42bc68700c5a1607851b6b3799b6faffbbf648bf7b473d3c0dd72db3e71e739"
+    },
+    {
+      "path": "crates/oryn-native/src/rust_executable.rs",
+      "sha256": "e51b31c3d8d3fa83d09f3a57e1fb3e837a13e6fc40b1a12a5793fab175137485"
+    },
+    {
+      "path": "crates/oryn-webidl/idl/browser.webidl",
+      "sha256": "37b8a407774da6e94839124ef253fb0d7b6e422fb807e385231ba572e5217c61"
+    }
+  ],
+  "native_checks": {
+    "javascript": {
+      "passed": 155,
+      "ignored": 2
+    },
+    "dom": {
+      "passed": 50
+    },
+    "layout": {
+      "passed": 64
+    },
+    "named_window_page": {
+      "passed": 4
+    },
+    "cssom": {
+      "passed": 32
+    },
+    "window_proxy": {
+      "passed": 3
+    },
+    "canonical_generation": true,
+    "strict_native_clippy": true
+  },
+  "recovered_native_check": "parser_iframe_exposes_stable_window_proxy_before_child_commit",
+  "logs": [
+    {
+      "path": "artifacts/upstream-conformance/native-window-named/oryn-window-named-native-v1.log",
+      "sha256": "bf9862feac3e5f10ecf25320afa88d288951761721781f2f5449da8773f23e8a"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-window-named/oryn-window-named-native-v2.log",
+      "sha256": "e7fb6f1e6e540a6f02a0c6b61e0c0ec00fda4249b8b4fa3a895f314cabdae789"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-window-named/oryn-window-named-native-v3.log",
+      "sha256": "107a3f71b7b4d5c0e78e162384f69db6747529a34ff694c817cd72a616a0bff8"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-window-named/oryn-window-named-global-attribute-v3.log",
+      "sha256": "d0b1fb7c239a19eebc0bce60c9c9d1f6e26463b3eeccc1907f5b1cb1328b19ed"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-window-named/oryn-window-named-gates-v1.log",
+      "sha256": "af672d580e19fd1d75490153a3f0a2a8c4d9842e50cc2e2f962f707f559b633e"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-window-named/oryn-window-named-retention-v1.log",
+      "sha256": "283db388732ff6eeb294f18f058e3301b72d409e62ac5b33e6f553088621168f"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-window-named/oryn-unnamed-container-layout-v1.log",
+      "sha256": "b7857535fe1ee68602869e7f3897a9bf626ff0af4684f2935831f59e41a9f769"
+    }
+  ],
+  "full_conformance_measured": false,
+  "last_full": {
+    "commit": "fff8d563adf25fc62285133a97fdcc228abae2f8",
+    "passed": 2925,
+    "required": 4022
+  },
+  "remaining": [
+    "Full signed candidate inventory measurement and regression audit",
+    "URL-less iframe origin behavior",
+    "Window naming navigation/reset and detached frame lifecycle coverage",
+    "Complete all remaining inventory failures and release qualification gates"
+  ],
+  "qualification_complete": false
+}

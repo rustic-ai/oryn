@@ -194,7 +194,11 @@ fn rule_view(
                 .iter()
                 .map(|condition| {
                     (
-                        condition.name().to_css_string(),
+                        if condition.name().is_none() {
+                            String::new()
+                        } else {
+                            condition.name().to_css_string()
+                        },
                         condition
                             .query_condition()
                             .map_or_else(String::new, |query| query.to_css_string()),
@@ -922,6 +926,23 @@ pub fn supported_properties() -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unnamed_container_cssom_names_are_empty_strings() {
+        let rules = read_stylesheet(
+            "@container (min-width: 100px) {}",
+            "https://example.test/",
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(rules[0].properties["containerName"], "");
+        assert_eq!(
+            rules[0].conditions,
+            [(String::new(), "(min-width: 100px)".into())]
+        );
+        assert_eq!(rules[0].properties["conditionText"], "(min-width: 100px)");
+    }
 
     #[test]
     fn page_selector_transaction_preserves_full_sheet_and_nested_margin_rules() {

@@ -741,6 +741,7 @@ mod inline_styles;
 mod node_lists;
 mod page_rules;
 mod stylesheet_ownership;
+mod window_named;
 mod wrapper_graphs;
 
 /// Authored declaration input passed to the native Stylo provider.
@@ -1041,6 +1042,8 @@ pub struct V8BindingState {
     layout_provider: RefCell<Option<Rc<dyn BindingLayoutProvider>>>,
     frame_roots: RefCell<BTreeMap<NodeId, NodeId>>,
     frame_windows: RefCell<BTreeMap<NodeId, v8::Global<v8::Object>>>,
+    window_target_name: RefCell<Rc<RefCell<window_named::TargetName>>>,
+    frame_target_names: RefCell<BTreeMap<NodeId, Rc<RefCell<window_named::TargetName>>>>,
     frame_committed_windows: RefCell<BTreeMap<NodeId, v8::Global<v8::Object>>>,
     intrinsic_reflect_set: v8::Global<v8::Function>,
     constructed_stylesheets: RefCell<BTreeSet<NodeId>>,
@@ -2680,7 +2683,22 @@ impl V8BindingState {
     }
 
     pub fn set_frame_window(&self, frame: NodeId, window: v8::Global<v8::Object>) {
+        self.frame_target_names
+            .borrow_mut()
+            .entry(frame)
+            .or_insert_with(|| {
+                Rc::new(RefCell::new(window_named::TargetName::for_frame(
+                    &self.dom, frame,
+                )))
+            });
         self.frame_windows.borrow_mut().insert(frame, window);
+    }
+
+    /// Share the browsing context's name across its parent and committed realm.
+    pub fn bind_frame_target_name(&self, frame: NodeId, child: &V8BindingState) {
+        if let Some(name) = self.frame_target_names.borrow().get(&frame) {
+            *child.window_target_name.borrow_mut() = Rc::clone(name);
+        }
     }
 
     pub fn set_frame_committed_window(&self, frame: NodeId, window: v8::Global<v8::Object>) {
@@ -3041,6 +3059,10 @@ pub fn install_generated_bindings_with_root_for_global(
         layout_provider: RefCell::new(None),
         frame_roots: RefCell::new(BTreeMap::new()),
         frame_windows: RefCell::new(BTreeMap::new()),
+        window_target_name: RefCell::new(Rc::new(
+            RefCell::new(window_named::TargetName::default()),
+        )),
+        frame_target_names: RefCell::new(BTreeMap::new()),
         frame_committed_windows: RefCell::new(BTreeMap::new()),
         intrinsic_reflect_set: adopted_stylesheets::capture_reflect_set(scope)?,
         constructed_stylesheets: RefCell::new(BTreeSet::new()),
@@ -3610,36 +3632,10 @@ fn begin_custom_element_upgrade(
 pub fn publish_named_window_properties(
     scope: &mut v8::PinScope,
     context: v8::Local<v8::Context>,
-    state: &Rc<V8BindingState>,
-    document: NodeId,
+    _state: &Rc<V8BindingState>,
+    _document: NodeId,
 ) -> Result<(), V8BindingError> {
-    let nodes = state.dom.borrow().query_selector_all(document, "*")?;
-    for node in nodes {
-        let names = {
-            let dom = state.dom.borrow();
-            let record = dom.arena().get(node)?;
-            if !matches!(record.kind, NodeKind::Element { .. }) {
-                continue;
-            }
-            [dom.attribute(node, "id")?, dom.attribute(node, "name")?]
-                .into_iter()
-                .flatten()
-                .filter(|name| !name.is_empty())
-                .map(str::to_owned)
-                .collect::<BTreeSet<_>>()
-        };
-        for name in names {
-            let key = v8::String::new(scope, &name)
-                .ok_or(V8BindingError::Allocation("named window property"))?;
-            let global = context.global(scope);
-            if global.has_own_property(scope, key.into()).unwrap_or(false) {
-                continue;
-            }
-            let wrapper = wrap_node(scope, state, node)?;
-            global.create_data_property(scope, key.into(), wrapper.into());
-        }
-    }
-    Ok(())
+    window_named::install(scope, context)
 }
 
 fn generated_constant_value<'s>(
@@ -8166,6 +8162,17 @@ fn generated_attribute_getter(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "Window" && member == "name" {
+        if !global_events::is_global(scope, &state, args.this()) {
+            throw_type_error(scope, "Window.name requires a Window receiver");
+        } else if global_events::check_window_access(scope, &state, args.this()) {
+            let name = state.window_target_name.borrow().borrow_mut().get();
+            if let Some(value) = v8::String::new(scope, &name) {
+                return_value.set(value.into());
+            }
+        }
+        return;
+    }
     if interface == "MediaList" {
         match page_rules::media_lists::attribute(scope, &state, args.this(), member) {
             Ok(value) => return_value.set(value),
@@ -8317,6 +8324,20 @@ fn generated_attribute_setter_impl(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "Window" && member == "name" {
+        if !global_events::is_global(scope, &state, args.this()) {
+            throw_type_error(scope, "Window.name requires a Window receiver");
+        } else if global_events::check_window_access(scope, &state, args.this())
+            && let Some(value) = args.get(0).to_string(scope)
+        {
+            state
+                .window_target_name
+                .borrow()
+                .borrow_mut()
+                .set(value.to_rust_string_lossy(scope));
+        }
+        return;
+    }
     if matches!(interface, "CSSMediaRule" | "CSSStyleRule" | "CSSPageRule") {
         if let Err(error) =
             page_rules::set_attribute(scope, &state, args.this(), interface, member, args.get(0))
@@ -30845,6 +30866,118 @@ mod tests {
                 .run(scope)
                 .unwrap()
                 .is_true()
+        );
+    }
+
+    #[test]
+    fn window_named_properties_prioritize_shared_frame_target_names() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(html::parse("<body><div id='childName'></div><iframe name='childName' id='frameId'></iframe></body>").into_runtime().unwrap()));
+        let frame = dom
+            .borrow()
+            .query_selector_all(dom.borrow().document(), "iframe")
+            .unwrap()[0];
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = context.get_slot::<V8BindingState>().unwrap();
+        let proxy = v8::Object::new(scope);
+        state.set_frame_window(frame, v8::Global::new(scope, proxy));
+        let key = v8::String::new(scope, "expectedFrame").unwrap();
+        context.global(scope).set(scope, key.into(), proxy.into());
+        let source = v8::String::new(
+            scope,
+            "childName===expectedFrame && frameId===document.querySelector('iframe')",
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        state.bind_frame_target_name(frame, &state);
+        let source=v8::String::new(scope,"globalThis.name='renamedFrame';renamedFrame===expectedFrame && childName===document.querySelector('div')").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
+    fn window_named_properties_keep_the_owning_realm() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let caller = v8::Context::new(scope, Default::default());
+        let owner = v8::Context::new(scope, Default::default());
+        owner.set_security_token(caller.get_security_token(scope));
+        for (index, context) in [caller, owner].into_iter().enumerate() {
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let dom = Rc::new(RefCell::new(html::parse("<body><div id='sharedName'></div><img name='sharedName'><div id='singleName'></div></body>").into_runtime().unwrap()));
+            install_generated_bindings(scope, context, dom, RealmId(index as u32), 1).unwrap();
+        }
+        let foreign = owner.global(scope);
+        let scope = &mut v8::ContextScope::new(scope, caller);
+        let key = v8::String::new(scope, "foreignWindow").unwrap();
+        caller.global(scope).set(scope, key.into(), foreign.into());
+        let source = v8::String::new(scope, r#"(()=>{
+            const foreign=foreignWindow;
+            const list=foreign.sharedName;
+            if(!(list instanceof foreign.HTMLCollection)||list instanceof HTMLCollection)throw Error('collection realm');
+            if(list[0]!==foreign.document.querySelector('div'))throw Error('node identity');
+            if(!(foreign.singleName instanceof foreign.HTMLElement)||foreign.singleName instanceof HTMLElement)throw Error('node realm');
+            foreign.document.querySelector('img').remove();
+            if(list.length!==1||foreign.sharedName!==list[0])throw Error('foreign live');
+            return true;
+        })()"#).unwrap();
+        v8::tc_scope!(let tc, scope);
+        let value = v8::Script::compile(tc, source, None).unwrap().run(tc);
+        assert!(
+            value.is_some_and(|v| v.is_true()),
+            "{:?}",
+            tc.exception().map(|e| e.to_rust_string_lossy(tc))
+        );
+    }
+
+    #[test]
+    fn window_named_properties_are_live_inherited_and_shadowable() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+            const nameDescriptor=Object.getOwnPropertyDescriptor(globalThis,'name');
+            if(!nameDescriptor||typeof nameDescriptor.get!=='function'||!nameDescriptor.enumerable||!nameDescriptor.configurable||Object.hasOwn(Window.prototype,'name'))throw Error('name placement');
+            const a=document.createElement('div'), b=document.createElement('img');
+            a.id='liveNamed'; b.name='liveNamed';
+            document.body.appendChild(a);
+            if(globalThis.liveNamed!==a) throw Error('insert');
+            const npo=Object.getPrototypeOf(Window.prototype);
+            if(Object.getPrototypeOf(npo)!==EventTarget.prototype) throw Error('prototype');
+            if(Object.hasOwn(globalThis,'liveNamed')) throw Error('global own');
+            const d=Object.getOwnPropertyDescriptor(npo,'liveNamed');
+            if(d.value!==a||!d.writable||d.enumerable||!d.configurable) throw Error('descriptor');
+            globalThis.liveNamed=42;
+            if(globalThis.liveNamed!==42||npo.liveNamed!==a) throw Error('shadow');
+            delete globalThis.liveNamed;
+            document.body.appendChild(b);
+            const list=globalThis.liveNamed;
+            if(!(list instanceof HTMLCollection)||list.length!==2||list[0]!==a) throw Error('duplicate');
+            a.remove();
+            if(list.length!==1||list[0]!==b||globalThis.liveNamed!==b) throw Error('live list');
+            b.name='renamedLive';
+            if(globalThis.liveNamed!==undefined||globalThis.renamedLive!==b||list.length!==0) throw Error('rename');
+            EventTarget.prototype.renamedLive=7;
+            if(globalThis.renamedLive!==7||Object.getOwnPropertyDescriptor(npo,'renamedLive')!==undefined) throw Error('inherited shadow');
+            delete EventTarget.prototype.renamedLive;
+            if(Reflect.ownKeys(npo).includes('renamedLive')) throw Error('own keys');
+            if(Reflect.defineProperty(npo,'fresh',{value:1})||Reflect.deleteProperty(npo,'fresh')||Reflect.preventExtensions(npo)) throw Error('exotic');
+            return true;
+        })()"#,
         );
     }
 

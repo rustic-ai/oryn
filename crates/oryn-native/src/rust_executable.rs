@@ -731,7 +731,6 @@ fn run_script_record(
             }
         }
     }
-    host.execute("__oryn_refresh_window_named_properties()")?;
     host.set_current_script((script_type.as_deref() != Some("module")).then_some(*script))?;
     if let Some(src) = src
         && resource_entry(resources, src).is_none()
@@ -1675,28 +1674,6 @@ Object.defineProperty(globalThis,'origin',{configurable:true,enumerable:true,get
 globalThis.__oryn_layout={styles:{},geometry:{},viewport:{width:1280,height:720,device_pixel_ratio:1},scroll:{},media:{}};
 globalThis.innerWidth=1280;globalThis.innerHeight=720;
 globalThis.__oryn_install_layout=value=>{globalThis.__oryn_layout=value;globalThis.innerWidth=Number(value.viewport?.width||0);globalThis.innerHeight=Number(value.viewport?.height||0)};
-globalThis.__oryn_window_named_properties=new Map();
-globalThis.__oryn_refresh_window_named_properties=()=>{
-  const bindings=__oryn_window_named_properties,next=new Set();
-  for(const [name,binding] of bindings){
-    const current=Object.getOwnPropertyDescriptor(globalThis,name);
-    if(!current||current.get!==binding.get||current.set!==binding.set)bindings.delete(name);
-  }
-  for(const element of document.querySelectorAll('[id]')){
-    const name=String(element.id||'');if(!name)continue;
-    if(Object.prototype.hasOwnProperty.call(globalThis,name)&&!bindings.has(name))continue;
-    next.add(name);
-    if(bindings.has(name))continue;
-    const binding={configurable:true,enumerable:true,
-      get(){return document.getElementById(name)||undefined},
-      set(value){
-        Object.defineProperty(this,name,{value,writable:true,configurable:true,enumerable:true});
-        if(this===globalThis)bindings.delete(name);
-      }};
-    Object.defineProperty(globalThis,name,binding);bindings.set(name,binding);
-  }
-  for(const name of bindings.keys())if(!next.has(name)){delete globalThis[name];bindings.delete(name)}
-};
 globalThis.scrollX=globalThis.pageXOffset=0;globalThis.scrollY=globalThis.pageYOffset=0;
 globalThis.scrollTo=(x=0,y=0)=>{if(x&&typeof x==='object'){y=x.top??scrollY;x=x.left??scrollX}scrollX=pageXOffset=Number(x)||0;scrollY=pageYOffset=Number(y)||0};
 globalThis.scrollBy=(x=0,y=0)=>{if(x&&typeof x==='object'){y=x.top??0;x=x.left??0}scrollTo(scrollX+(Number(x)||0),scrollY+(Number(y)||0))};
@@ -5034,12 +5011,52 @@ mod tests {
     }
 
     #[test]
+    fn frame_named_window_properties_follow_child_and_attribute_names() {
+        let mut page = RustExecutableDocument::load_with_environment(r#"<body><div id="originalName"></div><iframe id="theFrame" name="originalName" srcdoc="<script>window.name='childName'</script>"></iframe></body>"#, &BTreeMap::new(), None, Some(Url::parse("https://parent.example.test/").unwrap())).unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const frame=document.querySelector('iframe'),proxy=frame.contentWindow;
+            if(childName!==proxy||proxy.name!=='childName')return 'child rename';
+            if(originalName!==document.querySelector('div'))return 'old name';
+            frame.name='originalName';
+            if(originalName!==proxy||proxy.name!=='originalName'||typeof childName!=='undefined')return 'identical attribute';
+            proxy.name='childAgain';
+            frame.setAttribute('name','attributeName');
+            if(attributeName!==proxy||proxy.name!=='attributeName'||typeof childAgain!=='undefined')return 'attribute write';
+            frame.removeAttribute('name');
+            if(typeof attributeName!=='undefined'||proxy.name!=='')return 'remove name';
+            if(theFrame!==frame)return 'id';
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn dynamic_named_window_properties_use_native_prototype_and_live_collections() {
+        let mut page = RustExecutableDocument::load("<body></body>").unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const a=document.createElement('div'),b=document.createElement('img');
+            a.id='dynamicNamed'; b.name='dynamicNamed';
+            document.body.appendChild(a);
+            if(dynamicNamed!==a||Object.hasOwn(globalThis,'dynamicNamed'))return 'insertion';
+            document.body.appendChild(b);const collection=dynamicNamed;
+            if(!(collection instanceof HTMLCollection)||collection.length!==2)return 'duplicates';
+            a.remove();b.name='changedNamed';
+            if(collection.length!==0||typeof dynamicNamed!=='undefined'||changedNamed!==b)return 'mutation';
+            if(Object.getPrototypeOf(Object.getPrototypeOf(Window.prototype))!==EventTarget.prototype)return 'prototype';
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
     fn script_assignments_shadow_named_window_properties() {
         let mut page = RustExecutableDocument::load(
             "<main id='n00'></main><div id='explicit'></div><i id='transient'></i><script>var n00=document.getElementById('n00');n00.id='changed';n00.setAttribute('kept','yes');Object.defineProperty(globalThis,'explicit',{value:42,writable:true,configurable:true});document.getElementById('transient').remove()</script><script>globalThis.namedAssignments=n00===document.getElementById('changed')&&n00.getAttribute('kept')==='yes'&&explicit===42&&typeof transient==='undefined'</script>",
         ).unwrap();
         assert_eq!(page.evaluate("namedAssignments").unwrap(), "true");
-        assert_eq!(page.evaluate("__oryn_refresh_window_named_properties();n00.id='again';__oryn_refresh_window_named_properties();n00===document.getElementById('again')&&explicit===42").unwrap(), "true");
+        assert_eq!(
+            page.evaluate("n00.id='again';n00===document.getElementById('again')&&explicit===42")
+                .unwrap(),
+            "true"
+        );
     }
 
     #[test]
