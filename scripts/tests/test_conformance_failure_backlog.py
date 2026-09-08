@@ -90,3 +90,50 @@ class ConformanceBacklogTests(unittest.TestCase):
                     row["result_transport"] = "isolated_dom_probe"
                 with self.assertRaises(SystemExit):
                     self.build(result)
+
+    def diagnosis(self):
+        self.ledger.write_text(json.dumps(self.result))
+        path = Path(self.temporary.name) / 'diagnoses.json'
+        data = {'schema_version': 1, 'entries': [{
+            'id': 'dom/nodes/example.html|window|?x',
+            'cause': 'A reproduced shared mechanism',
+            'observations': [{
+                'ledger_sha256': hashlib.sha256(self.ledger.read_bytes()).hexdigest(),
+                'source_commit': 'test',
+                'assertion_names': ['failing test'],
+                'evidence': ['Reproduction and source analysis'],
+            }],
+        }]}
+        path.write_text(json.dumps(data))
+        return path, data
+
+    def test_diagnosis_survives_regeneration_without_confirming_new_candidates(self):
+        path, _ = self.diagnosis()
+        report = BACKLOG.build_backlog(self.ledger, self.inventory, path)
+        self.assertEqual(report['entries'][0]['confirmed_root_cause'],
+                         'A reproduced shared mechanism')
+        self.result['source']['commit'] = 'next-candidate'
+        self.ledger.write_text(json.dumps(self.result))
+        report = BACKLOG.build_backlog(self.ledger, self.inventory, path)
+        self.assertIsNone(report['entries'][0]['confirmed_root_cause'])
+        self.assertEqual(report['entries'][0]['diagnosis']['state'], 'needs_revalidation')
+        self.assertEqual(len(report['entries'][0]['diagnosis']['observations']), 1)
+
+    def test_diagnosis_rejects_unmatched_assertions_source_and_duplicate_ids(self):
+        for kind in ('assertion', 'source', 'duplicate', 'unknown', 'evidence'):
+            with self.subTest(kind=kind):
+                path, data = self.diagnosis()
+                entry = data['entries'][0]
+                if kind == 'assertion':
+                    entry['observations'][0]['assertion_names'] = ['unobserved']
+                elif kind == 'source':
+                    entry['observations'][0]['source_commit'] = 'wrong'
+                elif kind == 'duplicate':
+                    data['entries'].append(entry)
+                elif kind == 'unknown':
+                    entry['id'] = 'unknown'
+                else:
+                    entry['observations'][0]['evidence'] = []
+                path.write_text(json.dumps(data))
+                with self.assertRaises(ValueError):
+                    BACKLOG.build_backlog(self.ledger, self.inventory, path)

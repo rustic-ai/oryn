@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "purpose": "Durable per-execution causal evidence. Confirmations apply only to the identified full ledger; a future candidate requires revalidation. A diagnosis can explain a subset of failed assertions without explaining the entire execution.",
+  "entries": [
+    {
+      "id": "WebIDL/ecmascript-binding/global-object-implicit-this-value.any.js|window|",
+      "cause": "Document.all is absent, so the incompatible receiver test passes undefined to the Window.name setter instead of an HTMLAllCollection.",
+      "observations": [
+        {
+          "ledger_sha256": "3658ef9f3c0177ce7c845eb04634bbd16b3cf40c59308ece9196a6d04ea481da",
+          "source_commit": "50993c39b2314dcb5412d4f7b95a60e9decd6766",
+          "assertion_names": [
+            "Global object's setter throws when called on incompatible object (document.all)"
+          ],
+          "evidence": [
+            "docs/oryn2/CONFORMANCE-WINDOW-NAMED-FULL-2026-09-08.json",
+            "The 50993c3 generated Document interface has no all attribute; document.all evaluates to undefined.",
+            "Window.name correctly accepts an undefined receiver as the global object. The missing HTMLAllCollection prevents exercising the required incompatible-object check."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dom/nodes/MutationObserver-document.html|window|",
+      "cause": "Parser script preparation lacks its required microtask checkpoint after removal of an unrelated Window named-property refresh.",
+      "observations": [
+        {
+          "ledger_sha256": "3658ef9f3c0177ce7c845eb04634bbd16b3cf40c59308ece9196a6d04ea481da",
+          "source_commit": "50993c39b2314dcb5412d4f7b95a60e9decd6766",
+          "assertion_names": [
+            "parser insertion mutations",
+            "parser script insertion mutation",
+            "removal of parent during parsing"
+          ],
+          "evidence": [
+            "docs/oryn2/CONFORMANCE-WINDOW-NAMED-FULL-2026-09-08.json",
+            "Commit 50993c3 removed host.execute(__oryn_refresh_window_named_properties()) from run_script_record. JavaScriptHost::execute previously drained microtasks after this refresh.",
+            "execute_parser_script queues pending observer notifications before script execution but drains them only after it. The pinned fixture needs parser insertions delivered before the next script and its disconnect call.",
+            "HTML parsing text insertion mode requires a microtask checkpoint at the script end tag: https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-incdata"
+          ]
+        }
+      ]
+    }
+  ]
+}

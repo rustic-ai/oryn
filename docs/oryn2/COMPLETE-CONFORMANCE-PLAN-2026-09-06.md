@@ -81,9 +81,10 @@ for full-inventory progress. Clear the new regressions before integrating anothe
 feature batch: validate HTMLAllCollection for the Window setter receiver case and
 reproduce the three parser MutationObserver failures with the pinned fixtures.
 
-The generated backlog currently resets `confirmed_root_cause` to null. Maintain
-confirmed causes and their reproductions in a separate durable diagnosis ledger,
-keyed by inventory ID, and join it when generating the backlog. Subsystem routing
+The backlog now joins the durable [diagnosis ledger](CONFORMANCE-DIAGNOSES.json),
+keyed by inventory ID. A confirmed cause is bound to the full result hash, source
+commit and observed failed assertion names. A later candidate retains the diagnosis
+as history requiring revalidation; it does not inherit a confirmation automatically. Subsystem routing
 alone is not a confirmed shared cause. Rank subsequent batches by the number of
 failures linked to a reproduced common mechanism, then validate that mechanism
 against unchanged affected fixtures before paying for another full signed run.
