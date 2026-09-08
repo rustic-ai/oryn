@@ -49,12 +49,78 @@ assertion regressions remain observed failing; the evidence preserves their iden
 and links the complete assertion audit and cumulative reconciliation. This is one
 measured full run, not complete conformance or broader release qualification.
 
-Next: finish canonical native URL and Location integration, beginning with the
-reproduced bootstrap URL mutation/resolution defects. The isolated native URL
-setter foundation still needs runtime verification and production integration.
-Keep unfinished Range and formatBlock work separate, with their failures tracked.
-Every remaining execution stays in scope; completion still requires 4,022/4,022
-twice on the same frozen signed candidate and all qualification gates.
+## Strategy correction: require a production path and whole-execution evidence
+
+The second review found that the backlog is complete as an inventory but not as
+a diagnosis: all 992 entries initially had a null `confirmed_root_cause`. Five Location causes
+are now recorded against the signed baseline after the production-path milestone. Routing labels
+must not be treated as demonstrated shared causes. Of these outcomes, 811 are
+assertion failures, 135 harness failures, 42 runtime failures, 3 incomplete and
+1 timeout. The 181 non-assertion outcomes need diagnosis; they are not evidence
+that the harness itself is defective, and remain failures.
+
+The isolated native URL/URLSearchParams v4 implementation passes three native
+binding tests, 67 layout tests and relevant strict Clippy. However, production
+`rust_executable.rs` still replaces both global constructors with bootstrap
+classes. Location is a proxy around that bootstrap URL class. This is a verified
+integration gap: isolated binding success cannot establish production gains.
+Native Location is now connected to the isolated production path. All five initial
+WPT fixtures below pass completely (nine assertions); the 136-execution history
+run is in progress. The broader binding suite reports 178 passes, two remaining
+plain-object Location setup failures, and two existing ignores. Promotion remains
+blocked on completing validation and resolving regressions, not on user approval.
+
+Execute these milestones in order:
+
+1. **Close the production URL/Location path.** Wire canonical generated Location
+   bindings, remove the bootstrap URL replacements, and connect initial URL
+   hydration, committed history updates and requested navigation to native state.
+   Preserve distinct replace/reload behavior, realm ownership, security checks,
+   blob URL operations and the distinction between URL origin and security origin.
+   Start with the five complete target fixtures below. Read every assertion and
+   dependency before expanding implementation; do not count first-error removal
+   as fixture completion.
+2. **Measure the integrated candidate.** Run the five unchanged pinned fixtures
+   through the production page path, then all 136 history executions and relevant
+   passing regression coverage. Record every whole gain/loss and assertion loss
+   or missing observation. If two implementation/verification cycles produce no
+   whole gain, diagnose the remaining blockers before another expansion. Preserve
+   the useful patch separately if another dependency must be fixed first.
+3. **Re-rank from evidence.** Diagnose representative failures in DOM (260),
+   editing (311), CSS (218) and IndexedDB (55), recording reproduced causes,
+   complete fixture blockers, production ownership and exact affected IDs.
+   Prioritize shared causes with demonstrated whole-execution impact. Investigate
+   the 181 non-assertion outcomes alongside their owning subsystem. Do not promise
+   that a URL fix clears all 104 history failures: frames, traversal, document
+   lifecycle, scrolling and ancestor origins are separate dependencies.
+4. **Promote coherent, measured batches.** After focused checks establish gains
+   and regressions are addressed, commit a clean candidate and run the signed full
+   4,022 inventory. Only this result changes the published overall score. Carry
+   forward all 85 missing observations and 11 historical assertion regressions.
+   Keep unfinished Range/formatBlock changes isolated. Stylo remains the CSS engine.
+5. **Finish qualification.** Repeat until every required execution passes, then
+   rerun the same frozen signed candidate and complete all gates specified above.
+
+The initial five target fixtures under
+`html/browsers/history/the-location-interface/` are:
+
+- `location-tojson.html`
+- `location-non-configurable-toString-valueOf.html`
+- `location-symbol-toprimitive.html`
+- `location-valueof.html`
+- `location-prototype-no-toString-valueOf.html`
+
+These fixtures were read in full and fail in the signed baseline. They exercise
+native object ownership and descriptors without depending on frame navigation.
+They are an initial acceptance milestone, not an inventory reduction. Five local whole gains are now established;
+no signed overall gain is claimed. See
+[the milestone evidence](CONFORMANCE-NATIVE-LOCATION-MILESTONE-2026-09-08.json). In contrast, `location_hash.html` also requires srcdoc
+fragment scrolling, and `location-protocol-setter.html` requires data/srcdoc frame
+messaging. Parser corrections alone cannot establish either whole fixture passing.
+
+Progress reports must lead with the signed whole-execution count, followed by
+unqualified local gains, regressions and the next exact acceptance gate. Unit-test
+counts and corrected assertions are supporting evidence, not overall conformance.
 
 | Root | Passed / required |
 |---|---:|

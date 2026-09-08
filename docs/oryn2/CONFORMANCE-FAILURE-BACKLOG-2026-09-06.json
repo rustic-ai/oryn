@@ -51,7 +51,7 @@
   },
   "diagnosis_source": {
     "path": "docs/oryn2/CONFORMANCE-DIAGNOSES.json",
-    "sha256": "c8de4d747da7358c425dba42ac220ef98d5c0c3136708ecd980df6697d8ce7ed"
+    "sha256": "885f2eaf42d9a95ca20bf4175112e63da34582ad82ebd435505cf084a1c569f0"
   },
   "entries": [
     {
@@ -10466,7 +10466,27 @@
       "failure_domain": "assertion",
       "first_failing_test": "'toString' redefinition with accessor fails",
       "first_failure_message": "assert_own_property: expected property \"toString\" missing",
-      "confirmed_root_cause": null
+      "confirmed_root_cause": "Production Location lacks its own unforgeable stringifier and immutable own valueOf property.",
+      "diagnosis": {
+        "id": "html/browsers/history/the-location-interface/location-non-configurable-toString-valueOf.html|window|",
+        "cause": "Production Location lacks its own unforgeable stringifier and immutable own valueOf property.",
+        "observations": [
+          {
+            "ledger_sha256": "e24ec58c9c3198dc5dd9aecea3a024b3d8f40b267f1aff6134b42b67d9c40c20",
+            "source_commit": "a3acd6cc453eb7057d7a4386202a7e2fa5eea1ce",
+            "assertion_names": [
+              "'toString' redefinition with accessor fails",
+              "'valueOf' redefinition with accessor fails"
+            ],
+            "evidence": [
+              "docs/oryn2/CONFORMANCE-NATIVE-LOCATION-MILESTONE-2026-09-08.json",
+              "Pinned fixture read in full; native production candidate completes every baseline assertion with status 0.",
+              "Baseline rust_executable.rs replaces URL and URLSearchParams and constructs Location as a proxy over OrynURL; no generated Location interface."
+            ]
+          }
+        ],
+        "state": "confirmed_for_this_run"
+      }
     },
     {
       "id": "html/browsers/history/the-location-interface/location-origin-idna.sub.window.js|window|",
@@ -10554,7 +10574,29 @@
       "failure_domain": "assertion",
       "first_failing_test": "'toString' accessor property is defined",
       "first_failure_message": "Location is not defined",
-      "confirmed_root_cause": null
+      "confirmed_root_cause": "The canonical generated Location interface and its distinct prototype are absent from the production baseline.",
+      "diagnosis": {
+        "id": "html/browsers/history/the-location-interface/location-prototype-no-toString-valueOf.html|window|",
+        "cause": "The canonical generated Location interface and its distinct prototype are absent from the production baseline.",
+        "observations": [
+          {
+            "ledger_sha256": "e24ec58c9c3198dc5dd9aecea3a024b3d8f40b267f1aff6134b42b67d9c40c20",
+            "source_commit": "a3acd6cc453eb7057d7a4386202a7e2fa5eea1ce",
+            "assertion_names": [
+              "'toString' accessor property is defined",
+              "'toString' data property is created via [[Set]]",
+              "'valueOf' accessor property is defined",
+              "'valueOf' data property is created via [[Set]]"
+            ],
+            "evidence": [
+              "docs/oryn2/CONFORMANCE-NATIVE-LOCATION-MILESTONE-2026-09-08.json",
+              "Pinned fixture read in full; native production candidate completes every baseline assertion with status 0.",
+              "Baseline rust_executable.rs replaces URL and URLSearchParams and constructs Location as a proxy over OrynURL; no generated Location interface."
+            ]
+          }
+        ],
+        "state": "confirmed_for_this_run"
+      }
     },
     {
       "id": "html/browsers/history/the-location-interface/location-prototype-setting-cross-origin-domain.sub.html|window|",
@@ -10620,7 +10662,26 @@
       "failure_domain": "assertion",
       "first_failing_test": "Location Symbol.toPrimitive",
       "first_failure_message": "Cannot read properties of undefined (reading 'enumerable')",
-      "confirmed_root_cause": null
+      "confirmed_root_cause": "Production Location lacks the required own immutable Symbol.toPrimitive property.",
+      "diagnosis": {
+        "id": "html/browsers/history/the-location-interface/location-symbol-toprimitive.html|window|",
+        "cause": "Production Location lacks the required own immutable Symbol.toPrimitive property.",
+        "observations": [
+          {
+            "ledger_sha256": "e24ec58c9c3198dc5dd9aecea3a024b3d8f40b267f1aff6134b42b67d9c40c20",
+            "source_commit": "a3acd6cc453eb7057d7a4386202a7e2fa5eea1ce",
+            "assertion_names": [
+              "Location Symbol.toPrimitive"
+            ],
+            "evidence": [
+              "docs/oryn2/CONFORMANCE-NATIVE-LOCATION-MILESTONE-2026-09-08.json",
+              "Pinned fixture read in full; native production candidate completes every baseline assertion with status 0.",
+              "Baseline rust_executable.rs replaces URL and URLSearchParams and constructs Location as a proxy over OrynURL; no generated Location interface."
+            ]
+          }
+        ],
+        "state": "confirmed_for_this_run"
+      }
     },
     {
       "id": "html/browsers/history/the-location-interface/location-tojson.html|window|",
@@ -10631,7 +10692,26 @@
       "failure_domain": "assertion",
       "first_failing_test": "Location has no toJSON",
       "first_failure_message": "assert_equals: expected (undefined) undefined but got (function) function \"toJSON(){return this.href}\"",
-      "confirmed_root_cause": null
+      "confirmed_root_cause": "Production Location is a proxy around the bootstrap URL class, so it incorrectly inherits URL.toJSON.",
+      "diagnosis": {
+        "id": "html/browsers/history/the-location-interface/location-tojson.html|window|",
+        "cause": "Production Location is a proxy around the bootstrap URL class, so it incorrectly inherits URL.toJSON.",
+        "observations": [
+          {
+            "ledger_sha256": "e24ec58c9c3198dc5dd9aecea3a024b3d8f40b267f1aff6134b42b67d9c40c20",
+            "source_commit": "a3acd6cc453eb7057d7a4386202a7e2fa5eea1ce",
+            "assertion_names": [
+              "Location has no toJSON"
+            ],
+            "evidence": [
+              "docs/oryn2/CONFORMANCE-NATIVE-LOCATION-MILESTONE-2026-09-08.json",
+              "Pinned fixture read in full; native production candidate completes every baseline assertion with status 0.",
+              "Baseline rust_executable.rs replaces URL and URLSearchParams and constructs Location as a proxy over OrynURL; no generated Location interface."
+            ]
+          }
+        ],
+        "state": "confirmed_for_this_run"
+      }
     },
     {
       "id": "html/browsers/history/the-location-interface/location-valueof.html|window|",
@@ -10642,7 +10722,26 @@
       "failure_domain": "assertion",
       "first_failing_test": "Location valueOf",
       "first_failure_message": "Cannot read properties of undefined (reading 'enumerable')",
-      "confirmed_root_cause": null
+      "confirmed_root_cause": "Production Location inherits valueOf instead of defining the required own immutable intrinsic valueOf property.",
+      "diagnosis": {
+        "id": "html/browsers/history/the-location-interface/location-valueof.html|window|",
+        "cause": "Production Location inherits valueOf instead of defining the required own immutable intrinsic valueOf property.",
+        "observations": [
+          {
+            "ledger_sha256": "e24ec58c9c3198dc5dd9aecea3a024b3d8f40b267f1aff6134b42b67d9c40c20",
+            "source_commit": "a3acd6cc453eb7057d7a4386202a7e2fa5eea1ce",
+            "assertion_names": [
+              "Location valueOf"
+            ],
+            "evidence": [
+              "docs/oryn2/CONFORMANCE-NATIVE-LOCATION-MILESTONE-2026-09-08.json",
+              "Pinned fixture read in full; native production candidate completes every baseline assertion with status 0.",
+              "Baseline rust_executable.rs replaces URL and URLSearchParams and constructs Location as a proxy over OrynURL; no generated Location interface."
+            ]
+          }
+        ],
+        "state": "confirmed_for_this_run"
+      }
     },
     {
       "id": "html/browsers/history/the-location-interface/location_assign.html|window|",

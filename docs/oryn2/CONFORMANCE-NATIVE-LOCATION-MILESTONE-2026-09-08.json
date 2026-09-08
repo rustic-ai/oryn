@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "qualification": "Five pinned fixtures through isolated production page path; not signed full-inventory or release qualification",
+  "baseline": {
+    "commit": "a3acd6cc453eb7057d7a4386202a7e2fa5eea1ce",
+    "ledger": "artifacts/upstream-conformance/conformance-worker-full-dom-boundaries-a3acd6c.json",
+    "ledger_sha256": "e24ec58c9c3198dc5dd9aecea3a024b3d8f40b267f1aff6134b42b67d9c40c20",
+    "passed": 3030,
+    "required": 4022
+  },
+  "candidate": {
+    "files": {
+      "crates/oryn-js/src/v8_bindings.rs": "4cf2e4a0b3dbf5ab1df6e78ede2cceb195f626628e7de1239d851a119ce8638b",
+      "crates/oryn-js/src/v8_bindings/location.rs": "7d7cbb8a2465fae5c155f703bfc83771937359f594f32cb9ae4106f2572e72bd",
+      "crates/oryn-js/src/v8_bindings/url_objects.rs": "5a69bac0113c45161d41e25253a31c130973a0e787b08e7597a93ccc67f1cbeb",
+      "crates/oryn-js/src/generated/browser.rs": "4f9966f2916ddf0592c138a1c055bb33da8464305043035e411f3ef64b583284",
+      "crates/oryn-webidl/idl/browser.webidl": "aab8da2a5e8dddf695b58e2ad0e28ede01ab3029e51539ec686c308b4cf6ef98",
+      "crates/oryn-native/src/host.rs": "28b348ddfbc483fb175ecf4ffd0a8aa6a26ebc0b13a363be2a6990d94c6829dd",
+      "crates/oryn-native/src/rust_executable.rs": "a349c54e6fa2f6817d3c59de8ea3897712f591f06b2d749af638f395672d1d4e",
+      "crates/oryn-native/src/runtime.rs": "2ea65f51a35a97b277a8ac9f7518731ff703615a79f76c2b923213e933f6ed28"
+    },
+    "probe_source_sha256": "6dca1b4feb5be0e7eeb0430163eee86c59fabfe8d27ca368dbfa9acb2760debf",
+    "purpose": "Isolated production path qualification; not signed overall conformance",
+    "baseline": "a3acd6c",
+    "probe_sha256": "31e018eed50ce8bb6547294ed74f5543ee8965fee7f604c83e9a1aa99d512b8a"
+  },
+  "evidence_archive": "artifacts/upstream-conformance/native-location-integrated-v3",
+  "results": [
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "html/browsers/history/the-location-interface/location-tojson.html",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "harnessMessage": "",
+        "harnessStack": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Location has no toJSON",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "html/browsers/history/the-location-interface/location-non-configurable-toString-valueOf.html",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "harnessMessage": "",
+        "harnessStack": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "'toString' redefinition with accessor fails",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "'valueOf' redefinition with accessor fails",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "html/browsers/history/the-location-interface/location-symbol-toprimitive.html",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "harnessMessage": "",
+        "harnessStack": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Location Symbol.toPrimitive",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "html/browsers/history/the-location-interface/location-valueof.html",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "harnessMessage": "",
+        "harnessStack": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Location valueOf",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "html/browsers/history/the-location-interface/location-prototype-no-toString-valueOf.html",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "harnessMessage": "",
+        "harnessStack": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "'toString' accessor property is defined",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "'toString' data property is created via [[Set]]",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "'valueOf' accessor property is defined",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "'valueOf' data property is created via [[Set]]",
+            "status": 0
+          }
+        ]
+      }
+    }
+  ],
+  "exact_execution_count": 5,
+  "whole_gains": 5,
+  "corrected_assertions": 9,
+  "whole_losses_in_selection": 0,
+  "missing_prior_assertions_in_selection": 0,
+  "validation": {
+    "native_url_location_tests": {
+      "passed": 4,
+      "failed": 0
+    },
+    "strict_clippy": "Passed before final bootstrap helper restoration; final candidate still requires rerun",
+    "all_binding_tests": {
+      "passed": 178,
+      "failed": 2,
+      "ignored": 2,
+      "failures": [
+        "generated_blob_urls_feed_fetch_and_xhr_without_parent_network",
+        "generated_indexeddb_lists_parent_owned_origin_databases"
+      ],
+      "diagnosis": "Both still assign globalThis.location={origin:...}; native unforgeable Location interprets assignment as navigation and correctly rejects the unparseable object string. Update URL setup through commit_location without changing assertions, then rerun."
+    }
+  },
+  "remaining": [
+    "Complete all 136 history executions and audit gains, losses and assertion retention",
+    "Update two remaining native test setup stubs and rerun all binding gates",
+    "Verify frame origins, deferred cross-document URL visibility, frame navigation and same-document history ownership",
+    "Implement remaining Location behavior including ancestorOrigins and cross-origin exotic semantics",
+    "Qualify a clean signed candidate against all 4022 executions; no overall gain claimed here",
+    "Final objective still requires 4022/4022 twice on one frozen signed candidate and all release gates"
+  ]
+}
