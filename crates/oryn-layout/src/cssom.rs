@@ -65,12 +65,15 @@ impl style::stylesheets::StylesheetLoader for CssomImportLoader {
 /// A CSSOM rule view produced by Stylo, including its actual rule kind.
 /// The binding layer assigns identity; it must not infer kinds or declaration
 /// boundaries by splitting the serialized CSS text.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuleView {
     pub rule_type: u16,
     pub css_text: String,
     pub selector_text: Option<String>,
     pub declaration_text: Option<String>,
+    pub children: Vec<RuleView>,
+    pub properties: std::collections::BTreeMap<String, String>,
+    pub conditions: Vec<(String, String)>,
 }
 
 pub fn read_stylesheet(
@@ -79,12 +82,11 @@ pub fn read_stylesheet(
     quirks: bool,
     allow_imports: bool,
 ) -> Result<Vec<RuleView>, String> {
-    use cssparser::ToCss;
     use style::{
         media_queries::MediaList,
         servo_arc::Arc,
-        shared_lock::{SharedRwLock, ToCssWithGuard},
-        stylesheets::{AllowImportRules, CssRule, Stylesheet, StylesheetInDocument},
+        shared_lock::SharedRwLock,
+        stylesheets::{AllowImportRules, Stylesheet, StylesheetInDocument},
     };
     let lock = SharedRwLock::new();
     let loader = CssomImportLoader {
@@ -121,34 +123,188 @@ pub fn read_stylesheet(
         .read_with(&guard)
         .0
         .iter()
-        .map(|rule| {
-            let (selector_text, declaration_text) = if let CssRule::Style(rule) = rule {
-                let rule = rule.read_with(&guard);
-                let mut declarations = String::new();
-                rule.block
-                    .read_with(&guard)
-                    .to_css(&mut declarations)
-                    .map_err(|error| error.to_string())?;
-                (Some(rule.selectors.to_css_string()), Some(declarations))
-            } else if let CssRule::Page(rule) = rule {
-                let rule = rule.read_with(&guard);
-                let mut declarations = String::new();
-                rule.block
-                    .read_with(&guard)
-                    .to_css(&mut declarations)
-                    .map_err(|error| error.to_string())?;
-                (Some(rule.selectors.to_css_string()), Some(declarations))
-            } else {
-                (None, None)
-            };
-            Ok(RuleView {
-                rule_type: rule.rule_type() as u16,
-                css_text: rule.to_css_string(&guard).to_string(),
-                selector_text,
-                declaration_text,
-            })
-        })
+        .map(|rule| rule_view(rule, &guard))
         .collect()
+}
+
+/// Project native nodes recursively while the stylesheet lock is held. In
+/// particular, namespace-sensitive selectors are never reparsed in isolation.
+fn rule_view(
+    rule: &style::stylesheets::CssRule,
+    guard: &style::shared_lock::SharedRwLockReadGuard,
+) -> Result<RuleView, String> {
+    use cssparser::ToCss;
+    use style::{shared_lock::ToCssWithGuard, stylesheets::CssRule};
+    let mut view = RuleView {
+        rule_type: rule.rule_type() as u16,
+        css_text: rule.to_css_string(guard).to_string(),
+        children: rule
+            .children(guard)
+            .iter()
+            .map(|child| rule_view(child, guard))
+            .collect::<Result<_, _>>()?,
+        ..RuleView::default()
+    };
+    let declaration = |block: &style::properties::PropertyDeclarationBlock| {
+        let mut text = String::new();
+        block.to_css(&mut text).map_err(|error| error.to_string())?;
+        Ok::<_, String>(text)
+    };
+    match rule {
+        CssRule::Style(rule) => {
+            let rule = rule.read_with(guard);
+            view.selector_text = Some(rule.selectors.to_css_string());
+            view.declaration_text = Some(declaration(rule.block.read_with(guard))?);
+        }
+        CssRule::Page(rule) => {
+            let rule = rule.read_with(guard);
+            view.selector_text = Some(rule.selectors.to_css_string());
+            view.declaration_text = Some(declaration(rule.block.read_with(guard))?);
+        }
+        CssRule::Media(rule) => {
+            view.properties.insert(
+                "conditionText".into(),
+                rule.media_queries.read_with(guard).to_css_string(),
+            );
+        }
+        CssRule::Supports(rule) => {
+            view.properties
+                .insert("conditionText".into(), rule.condition.to_css_string());
+        }
+        CssRule::Container(rule) => {
+            view.properties
+                .insert("conditionText".into(), rule.conditions.to_css_string());
+            view.conditions = rule
+                .conditions
+                .0
+                .iter()
+                .map(|condition| {
+                    (
+                        condition.name().to_css_string(),
+                        condition
+                            .query_condition()
+                            .map_or_else(String::new, |query| query.to_css_string()),
+                    )
+                })
+                .collect();
+            // CSS Conditional 5: the legacy attributes are empty for multiple conditions.
+            // https://drafts.csswg.org/css-conditional-5/#the-csscontainerrule-interface
+            let (name, query) = if view.conditions.len() == 1 {
+                view.conditions[0].clone()
+            } else {
+                (String::new(), String::new())
+            };
+            view.properties.insert("containerName".into(), name);
+            view.properties.insert("containerQuery".into(), query);
+        }
+
+        CssRule::Document(rule) => {
+            view.properties
+                .insert("conditionText".into(), rule.condition.to_css_string());
+        }
+        CssRule::Namespace(rule) => {
+            view.properties.insert(
+                "prefix".into(),
+                rule.prefix
+                    .as_ref()
+                    .map_or_else(String::new, |prefix| prefix.0.to_string()),
+            );
+            view.properties
+                .insert("namespaceURI".into(), rule.url.to_string());
+        }
+        CssRule::Keyframes(rule) => {
+            let rule = rule.read_with(guard);
+            view.properties
+                .insert("name".into(), rule.name.as_atom().to_string());
+            view.children = rule
+                .keyframes
+                .iter()
+                .map(|child| {
+                    let child = child.read_with(guard);
+                    Ok(RuleView {
+                        rule_type: CssRuleType::Keyframe as u16,
+                        css_text: child.to_css_string(guard).to_string(),
+                        declaration_text: Some(declaration(child.block.read_with(guard))?),
+                        properties: std::collections::BTreeMap::from([(
+                            "keyText".into(),
+                            child.selector.to_css_string(),
+                        )]),
+                        ..RuleView::default()
+                    })
+                })
+                .collect::<Result<_, String>>()?;
+        }
+        CssRule::Margin(rule) => {
+            view.properties.insert("name".into(), rule.name().into());
+            view.declaration_text = Some(declaration(rule.block.read_with(guard))?);
+        }
+        CssRule::FontFace(rule) => {
+            view.declaration_text = Some(rule.read_with(guard).descriptors.to_css_string());
+        }
+        CssRule::CounterStyle(rule) => {
+            let rule = rule.read_with(guard);
+            view.properties
+                .insert("name".into(), rule.name().0.to_string());
+            view.declaration_text = Some(rule.descriptors().to_css_string());
+        }
+        CssRule::FontFeatureValues(rule) => {
+            view.properties.insert(
+                "fontFamily".into(),
+                rule.family_names
+                    .iter()
+                    .map(|name| name.to_css_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
+        CssRule::FontPaletteValues(rule) => {
+            view.properties
+                .insert("name".into(), rule.name.0.to_string());
+            view.properties.insert(
+                "fontFamily".into(),
+                rule.family_names
+                    .iter()
+                    .map(|name| name.to_css_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
+        CssRule::LayerBlock(rule) => {
+            view.properties.insert(
+                "name".into(),
+                rule.name
+                    .as_ref()
+                    .map_or_else(String::new, |name| name.to_css_string()),
+            );
+        }
+        CssRule::Scope(rule) => {
+            if let Some(start) = &rule.bounds.start {
+                view.properties
+                    .insert("start".into(), start.to_css_string());
+            }
+            if let Some(end) = &rule.bounds.end {
+                view.properties.insert("end".into(), end.to_css_string());
+            }
+        }
+        CssRule::PositionTry(rule) => {
+            let rule = rule.read_with(guard);
+            view.properties
+                .insert("name".into(), rule.name.0.to_string());
+            view.declaration_text = Some(declaration(rule.block.read_with(guard))?);
+        }
+        CssRule::NestedDeclarations(rule) => {
+            view.declaration_text =
+                Some(declaration(rule.read_with(guard).block.read_with(guard))?);
+        }
+        CssRule::Import(rule) => {
+            let rule = rule.read_with(guard);
+            if let Some(url) = rule.url.url() {
+                view.properties.insert("href".into(), url.to_string());
+            }
+        }
+        _ => {}
+    }
+    Ok(view)
 }
 
 /// Mutate a page selector through Stylo, preserving declarations and nested rules.
@@ -232,6 +388,218 @@ pub fn set_page_selector(
 pub struct PageDeclarationMutation {
     pub previous_value: String,
     pub rule: Option<RuleView>,
+}
+
+/// Set a style selector using the original sheet namespace and nesting context.
+pub fn set_style_rule_selector(
+    source: &str,
+    path: &[usize],
+    selector: &str,
+    base_url: &str,
+    quirks: bool,
+) -> Result<Option<Vec<RuleView>>, String> {
+    use style::{
+        media_queries::MediaList,
+        servo_arc::Arc,
+        shared_lock::SharedRwLock,
+        stylesheets::{AllowImportRules, CssRule, Stylesheet, StylesheetInDocument},
+    };
+    let url_data = UrlExtraData::from(url::Url::parse(base_url).map_err(|e| e.to_string())?);
+    let quirks_mode = if quirks {
+        QuirksMode::Quirks
+    } else {
+        QuirksMode::NoQuirks
+    };
+    let lock = SharedRwLock::new();
+    let loader = CssomImportLoader {
+        base_url: url_data.clone(),
+        quirks: quirks_mode,
+    };
+    let sheet = Stylesheet::from_str(
+        source,
+        url_data.clone(),
+        Origin::Author,
+        Arc::new(lock.wrap(MediaList::empty())),
+        lock.clone(),
+        Some(&loader),
+        None,
+        quirks_mode,
+        AllowImportRules::Yes,
+    );
+    let (rule, selectors) = {
+        use selectors::{SelectorList, parser::ParseRelative};
+        let guard = lock.read();
+        let contents = sheet.contents(&guard);
+        let mut rules = contents.rules.read_with(&guard).0.as_slice();
+        let (&last, ancestors) = path.split_last().ok_or("Empty CSS rule path")?;
+        let mut relative = ParseRelative::No;
+        for &index in ancestors {
+            let rule = rules.get(index).ok_or("CSS rule path out of bounds")?;
+            match rule {
+                CssRule::Style(_) => relative = ParseRelative::ForNesting,
+                CssRule::Scope(_) => relative = ParseRelative::ForScope,
+                _ => {}
+            }
+            rules = rule.children(&guard);
+        }
+        let CssRule::Style(rule) = rules.get(last).ok_or("CSS rule path out of bounds")? else {
+            return Err("CSS rule is not a style rule".into());
+        };
+        let selector_parser = style::selector_parser::SelectorParser {
+            stylesheet_origin: Origin::Author,
+            namespaces: &contents.namespaces,
+            url_data: &url_data,
+            for_supports_rule: false,
+        };
+        let mut input = cssparser::ParserInput::new(selector);
+        let mut parser = cssparser::Parser::new(&mut input);
+        let selectors = match parser
+            .parse_entirely(|input| SelectorList::parse(&selector_parser, input, relative))
+        {
+            Ok(selectors) => selectors,
+            Err(_) => return Ok(None),
+        };
+        (rule.clone(), selectors)
+    };
+    rule.write_with(&mut lock.write()).selectors = selectors;
+    let guard = lock.read();
+    let rules = sheet
+        .contents(&guard)
+        .rules
+        .read_with(&guard)
+        .0
+        .iter()
+        .map(|rule| rule_view(rule, &guard))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Some(rules))
+}
+
+/// Result of a declaration edit in its original stylesheet context.
+#[derive(Debug)]
+pub struct RuleDeclarationMutation {
+    pub previous_value: String,
+    /// None means that the declaration operation made no change.
+    pub rules: Option<Vec<RuleView>>,
+}
+
+/// Edit a native declaration block at a rule path. Parsing the complete sheet
+/// preserves namespace declarations, URL resolution and nested selector context.
+/// Paths are transaction-local positions; bindings retain their own rule identities.
+pub fn mutate_rule_declaration(
+    source: &str,
+    path: &[usize],
+    property: Option<&str>,
+    value: &str,
+    priority: &str,
+    base_url: &str,
+    quirks: bool,
+) -> Result<RuleDeclarationMutation, String> {
+    use style::{
+        media_queries::MediaList,
+        servo_arc::Arc,
+        shared_lock::SharedRwLock,
+        stylesheets::{AllowImportRules, CssRule, Stylesheet, StylesheetInDocument},
+    };
+    let url_data = UrlExtraData::from(url::Url::parse(base_url).map_err(|e| e.to_string())?);
+    let quirks_mode = if quirks {
+        QuirksMode::Quirks
+    } else {
+        QuirksMode::NoQuirks
+    };
+    let lock = SharedRwLock::new();
+    let loader = CssomImportLoader {
+        base_url: url_data.clone(),
+        quirks: quirks_mode,
+    };
+    let sheet = Stylesheet::from_str(
+        source,
+        url_data.clone(),
+        Origin::Author,
+        Arc::new(lock.wrap(MediaList::empty())),
+        lock.clone(),
+        Some(&loader),
+        None,
+        quirks_mode,
+        AllowImportRules::Yes,
+    );
+    let (block, kind, declarations) = {
+        let guard = lock.read();
+        let contents = sheet.contents(&guard);
+        let mut rules = contents.rules.read_with(&guard).0.as_slice();
+        let (&last, ancestors) = path.split_last().ok_or("Empty CSS rule path")?;
+        let (block, kind) = 'target: {
+            for (depth, &index) in ancestors.iter().enumerate() {
+                let rule = rules.get(index).ok_or("CSS rule path out of bounds")?;
+                if let CssRule::Keyframes(rule) = rule {
+                    if depth + 1 != ancestors.len() {
+                        return Err("Keyframe rules cannot contain child rules".into());
+                    }
+                    let keyframes = rule.read_with(&guard);
+                    let keyframe = keyframes
+                        .keyframes
+                        .get(last)
+                        .ok_or("CSS keyframe path out of bounds")?;
+                    break 'target (
+                        keyframe.read_with(&guard).block.clone(),
+                        CssRuleType::Keyframe,
+                    );
+                }
+                rules = rule.children(&guard);
+            }
+            let rule = rules.get(last).ok_or("CSS rule path out of bounds")?;
+            let block = match rule {
+                CssRule::Style(rule) => rule.read_with(&guard).block.clone(),
+                CssRule::Page(rule) => rule.read_with(&guard).block.clone(),
+                CssRule::Margin(rule) => rule.block.clone(),
+                CssRule::PositionTry(rule) => rule.read_with(&guard).block.clone(),
+                CssRule::NestedDeclarations(rule) => rule.read_with(&guard).block.clone(),
+                _ => return Err("CSS rule does not contain a property declaration block".into()),
+            };
+            (block, rule.rule_type())
+        };
+        let mut declarations = String::new();
+        block
+            .read_with(&guard)
+            .to_css(&mut declarations)
+            .map_err(|e| e.to_string())?;
+        (block, kind, declarations)
+    };
+    let mutation = match property {
+        Some(property) => mutate_declaration_in_rule(
+            &declarations,
+            property,
+            value,
+            priority,
+            base_url,
+            quirks,
+            kind,
+        )?,
+        None => DeclarationMutation {
+            previous_value: String::new(),
+            css_text: Some(value.into()),
+        },
+    };
+    let Some(text) = mutation.css_text else {
+        return Ok(RuleDeclarationMutation {
+            previous_value: mutation.previous_value,
+            rules: None,
+        });
+    };
+    *block.write_with(&mut lock.write()) =
+        parse_style_attribute(&text, &url_data, None, quirks_mode, kind);
+    let guard = lock.read();
+    let rules = sheet
+        .contents(&guard)
+        .rules
+        .read_with(&guard)
+        .0
+        .iter()
+        .map(|rule| rule_view(rule, &guard))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RuleDeclarationMutation {
+        previous_value: mutation.previous_value,
+        rules: Some(rules),
+    })
 }
 
 /// Edit the native declaration block without reconstructing the page's nested rules.
@@ -511,6 +879,261 @@ pub fn supported_properties() -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn style_selector_edits_preserve_namespace_and_nested_context() {
+        let source = r#"@namespace svg url("http://www.w3.org/2000/svg");
+            @media screen { svg|rect { color: red; & > svg|circle { opacity: .5; } } }
+            aside { color: green; }"#;
+        let base = "https://example.test/";
+        let before = read_stylesheet(source, base, false, true).unwrap();
+        let after =
+            set_style_rule_selector(source, &[1, 0], "svg|circle[data-token=\"{\"]", base, false)
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            after[1].children[0].selector_text.as_deref(),
+            Some("svg|circle[data-token=\"{\"]")
+        );
+        assert_eq!(
+            after[1].children[0].children,
+            before[1].children[0].children
+        );
+        assert_eq!(
+            after[1].children[0].declaration_text,
+            before[1].children[0].declaration_text
+        );
+        assert_eq!(after[0], before[0]);
+        assert_eq!(after[2], before[2]);
+        let after = set_style_rule_selector(source, &[1, 0, 0], "> svg|path", base, false)
+            .unwrap()
+            .unwrap();
+        assert!(
+            after[1].children[0].children[0]
+                .selector_text
+                .as_ref()
+                .unwrap()
+                .contains("svg|path")
+        );
+        assert_eq!(
+            after[1].children[0].children[0].declaration_text,
+            before[1].children[0].children[0].declaration_text
+        );
+        for invalid in ["", "missing|rect", "a { color: blue }", "a,"] {
+            assert!(
+                set_style_rule_selector(source, &[1, 0], invalid, base, false)
+                    .unwrap()
+                    .is_none(),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn keyframe_declaration_edits_preserve_siblings_and_key_text() {
+        let source = "@keyframes pulse { from { opacity: 0; } 50%, to { opacity: 1; } }";
+        let base = "https://example.test/";
+        let before = read_stylesheet(source, base, false, true).unwrap();
+        let edited =
+            mutate_rule_declaration(source, &[0, 1], Some("opacity"), "0.75", "", base, false)
+                .unwrap()
+                .rules
+                .unwrap();
+        assert_eq!(edited[0].children[0], before[0].children[0]);
+        assert_eq!(
+            edited[0].children[1].properties,
+            before[0].children[1].properties
+        );
+        assert_eq!(
+            edited[0].children[1].declaration_text.as_deref(),
+            Some("opacity: 0.75;")
+        );
+        assert!(
+            mutate_rule_declaration(source, &[0, 1, 0], None, "opacity: 0", "", base, false)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn rule_declaration_edits_preserve_whole_sheet_context() {
+        let source = r#"@namespace svg url("http://www.w3.org/2000/svg");
+            @media screen { svg|rect { color: red; & > svg|circle { opacity: .5; } } }
+            @page chapter { margin: 1px; @top-left { content: "a{b}"; } }
+            aside { color: green; }"#;
+        let base = "https://example.test/css/main.css";
+        let before = read_stylesheet(source, base, false, true).unwrap();
+        let edited = mutate_rule_declaration(
+            source,
+            &[1, 0],
+            Some("color"),
+            "blue",
+            "important",
+            base,
+            false,
+        )
+        .unwrap();
+        assert_eq!(edited.previous_value, "red");
+        let after = edited.rules.unwrap();
+        assert_eq!(after[0], before[0]);
+        assert_eq!(after[2..], before[2..]);
+        assert_eq!(
+            after[1].children[0].selector_text,
+            before[1].children[0].selector_text
+        );
+        assert_eq!(
+            after[1].children[0].children,
+            before[1].children[0].children
+        );
+        assert_eq!(
+            after[1].children[0].declaration_text.as_deref(),
+            Some("color: blue !important;")
+        );
+        let edited =
+            mutate_rule_declaration(source, &[1, 0, 0], None, "opacity: .75", "", base, false)
+                .unwrap()
+                .rules
+                .unwrap();
+        assert_eq!(
+            edited[1].children[0].children[0]
+                .declaration_text
+                .as_deref(),
+            Some("opacity: 0.75;")
+        );
+        assert_eq!(
+            edited[1].children[0].declaration_text,
+            before[1].children[0].declaration_text
+        );
+        let edited = mutate_rule_declaration(
+            source,
+            &[2, 0],
+            Some("content"),
+            "\"new{value}\"",
+            "",
+            base,
+            false,
+        )
+        .unwrap()
+        .rules
+        .unwrap();
+        assert_eq!(
+            edited[2].children[0].declaration_text.as_deref(),
+            Some("content: \"new{value}\";")
+        );
+        assert_eq!(edited[2].declaration_text, before[2].declaration_text);
+        assert_eq!(edited[0..2], before[0..2]);
+        assert!(
+            mutate_rule_declaration(
+                source,
+                &[1, 0],
+                Some("color"),
+                "not-a-color",
+                "",
+                base,
+                false
+            )
+            .unwrap()
+            .rules
+            .is_none()
+        );
+        for path in [&[][..], &[99][..], &[1, 99][..], &[0][..]] {
+            assert!(
+                mutate_rule_declaration(source, path, None, "color: red", "", base, false).is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn native_rule_tree_preserves_nested_context_and_descriptor_blocks() {
+        let rules = read_stylesheet(
+            r#"
+            @namespace svg url("http://www.w3.org/2000/svg");
+            @media screen { @supports (color: red) {
+                svg|rect { color: red; & > svg|circle { opacity: .5; } }
+            } }
+            @keyframes "two words" { from { opacity: 0; } 50%, to { opacity: 1; } }
+            @page chapter { margin: 1px; @top-left { content: "a{b}"; } }
+            @font-face { font-family: "Tree"; src: url(font.woff2); }
+            @layer theme { a { color: blue; } }
+            @container card (width > 10px) { b { color: green; } }
+            @counter-style custom { system: cyclic; symbols: "x"; suffix: " "; }
+        "#,
+            "https://example.test/styles/main.css",
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            rules.iter().map(|r| r.rule_type).collect::<Vec<_>>(),
+            [10, 4, 7, 6, 5, 16, 18, 11]
+        );
+        assert_eq!(rules[0].properties["prefix"], "svg");
+        assert_eq!(
+            rules[0].properties["namespaceURI"],
+            "http://www.w3.org/2000/svg"
+        );
+        assert_eq!(rules[1].properties["conditionText"], "screen");
+        let supports = &rules[1].children[0];
+        assert_eq!(supports.rule_type, 12);
+        assert_eq!(supports.properties["conditionText"], "(color: red)");
+        let style = &supports.children[0];
+        assert_eq!(style.selector_text.as_deref(), Some("svg|rect"));
+        assert_eq!(style.declaration_text.as_deref(), Some("color: red;"));
+        assert_eq!(style.children.len(), 1);
+        assert!(
+            style.children[0]
+                .selector_text
+                .as_ref()
+                .unwrap()
+                .contains("svg|circle")
+        );
+        assert_eq!(rules[2].properties["name"], "two words");
+        assert_eq!(rules[2].children.len(), 2);
+        assert_eq!(rules[2].children[0].rule_type, 8);
+        assert_eq!(rules[2].children[0].properties["keyText"], "0%");
+        assert_eq!(
+            rules[2].children[1].declaration_text.as_deref(),
+            Some("opacity: 1;")
+        );
+        assert_eq!(rules[3].children.len(), 1);
+        assert_eq!(rules[3].children[0].rule_type, 9);
+        assert_eq!(rules[3].children[0].properties["name"], "top-left");
+        assert_eq!(
+            rules[3].children[0].declaration_text.as_deref(),
+            Some("content: \"a{b}\";")
+        );
+        assert!(
+            rules[4]
+                .declaration_text
+                .as_ref()
+                .unwrap()
+                .contains("font-family")
+        );
+        assert_eq!(rules[5].properties["name"], "theme");
+        assert_eq!(rules[5].children.len(), 1);
+        assert!(rules[6].properties["conditionText"].starts_with("card "));
+        assert_eq!(rules[6].children.len(), 1);
+        assert_eq!(rules[6].properties["containerName"], "card");
+        assert_eq!(rules[6].properties["containerQuery"], "(width > 10px)");
+        assert_eq!(rules[7].properties["name"], "custom");
+        assert!(
+            rules[7]
+                .declaration_text
+                .as_ref()
+                .unwrap()
+                .contains("symbols:")
+        );
+        let multiple = read_stylesheet(
+            "@container sidebar (width > 1px), (height > 2px) {}",
+            "https://example.test/",
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(multiple.len(), 1);
+        assert_eq!(multiple[0].conditions.len(), 2);
+        assert_eq!(multiple[0].properties["containerName"], "");
+        assert_eq!(multiple[0].properties["containerQuery"], "");
+    }
 
     #[test]
     fn page_declaration_replacement_preserves_nested_rules_and_reads_priority() {

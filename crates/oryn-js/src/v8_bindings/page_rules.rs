@@ -1,4 +1,4 @@
-//! Native page-rule state; JavaScript objects carry only opaque identity.
+//! Native CSS rule state; JavaScript objects carry only opaque identity.
 use super::*;
 
 pub(super) struct Record {
@@ -6,6 +6,8 @@ pub(super) struct Record {
     parent: Option<NodeId>,
     base_url: String,
     quirks: bool,
+    source: Rc<str>,
+    index: usize,
     _wrapper: v8::Weak<v8::Object>,
 }
 
@@ -28,6 +30,10 @@ pub(super) fn detach(
         && let Some(record) = state.page_rules.borrow_mut().get_mut(&id)
     {
         record.parent = None;
+        if let Some(name) = v8::String::new(scope, "oryn.css.rule.sheet") {
+            let key = v8::Private::for_api(scope, Some(name));
+            object.delete_private(scope, key);
+        }
     }
 }
 
@@ -38,9 +44,17 @@ pub(super) fn create<'s>(
     view: BindingRuleView,
     base_url: String,
     quirks: bool,
+    index: usize,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
     let object = v8::Object::new(scope);
-    if let Some(template) = state.instance_templates.borrow().get("CSSPageRule") {
+    let interface = match view.rule_type {
+        1 => "CSSStyleRule",
+        4 => "CSSMediaRule",
+        6 => "CSSPageRule",
+        10 => "CSSNamespaceRule",
+        _ => "CSSRule",
+    };
+    if let Some(template) = state.instance_templates.borrow().get(interface) {
         let template = v8::Local::new(scope, template);
         if let Some(instance) = template.new_instance(scope)
             && let Some(prototype) = instance.get_prototype(scope)
@@ -59,14 +73,26 @@ pub(super) fn create<'s>(
         .ok_or(V8BindingError::Allocation("page rule owner"))?;
     let key = v8::Private::for_api(scope, Some(name));
     object.set_private(scope, key, node.into());
-    for name in [
-        "cssText",
-        "type",
-        "selectorText",
-        "parentStyleSheet",
-        "parentRule",
-        "style",
-    ] {
+    let sheet = associated_wrapper(scope, state, owner, "CSSStyleSheet")?;
+    let name = v8::String::new(scope, "oryn.css.rule.sheet")
+        .ok_or(V8BindingError::Allocation("CSS rule parent"))?;
+    let key = v8::Private::for_api(scope, Some(name));
+    object.set_private(scope, key, sheet);
+    for name in if view.rule_type == 1 {
+        &["selectorText", "style"][..]
+    } else if view.rule_type != 6 {
+        &[][..]
+    } else {
+        &[
+            "cssText",
+            "type",
+            "selectorText",
+            "parentStyleSheet",
+            "parentRule",
+            "style",
+        ][..]
+    } {
+        let name = *name;
         let key =
             v8::String::new(scope, name).ok_or(V8BindingError::Allocation("page property"))?;
         let get = v8::Function::builder(getter)
@@ -108,10 +134,95 @@ pub(super) fn create<'s>(
             parent: Some(owner),
             base_url,
             quirks,
+            source: stylesheet_ownership::source_snapshot(state, owner)?,
+            index,
             _wrapper: wrapper,
         },
     );
     Ok(object)
+}
+
+/// Generated prototype accessors validate the opaque native receiver, never
+/// a mutable JavaScript prototype chain.
+pub(super) fn attribute<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    object: v8::Local<v8::Object>,
+    interface: &str,
+    member: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    let invalid = || V8BindingError::Unsupported {
+        interface: interface.into(),
+        member: "incompatible receiver".into(),
+    };
+    let identity = id(scope, object).ok_or_else(invalid)?;
+    let (view, parent) = {
+        let records = state.page_rules.borrow();
+        let record = records.get(&identity).ok_or_else(invalid)?;
+        if interface == "CSSNamespaceRule" && record.view.rule_type != 10 {
+            return Err(invalid());
+        }
+        (record.view.clone(), record.parent)
+    };
+    match member {
+        "cssText" => v8_string(scope, &view.css_text),
+        "type" => Ok(v8::Integer::new(
+            scope,
+            if view.rule_type >= 16 {
+                0
+            } else {
+                i32::from(view.rule_type)
+            },
+        )
+        .into()),
+        "parentRule" => Ok(v8::null(scope).into()),
+        "parentStyleSheet" => match parent {
+            Some(owner) => associated_wrapper(scope, state, owner, "CSSStyleSheet"),
+            None => Ok(v8::null(scope).into()),
+        },
+        "prefix" | "namespaceURI" if view.rule_type == 10 => v8_string(
+            scope,
+            view.properties.get(member).map_or("", String::as_str),
+        ),
+        _ => Err(invalid()),
+    }
+}
+
+fn mutation_context(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    identity: u64,
+) -> Result<(String, usize), V8BindingError> {
+    let (parent, source, index) = {
+        let records = state.page_rules.borrow();
+        let record = records
+            .get(&identity)
+            .ok_or(V8BindingError::Allocation("CSS rule record"))?;
+        (record.parent, record.source.to_string(), record.index)
+    };
+    if let Some(owner) = parent {
+        let cached = state
+            .stylesheet_rule_lists
+            .borrow()
+            .get(&owner)
+            .and_then(|array| array.to_local(scope));
+        if let Some(cached) = cached {
+            let rules = cached;
+            for index in 0..rules.length() {
+                if let Some(object) = rules
+                    .get_index(scope, index)
+                    .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
+                    && id(scope, object) == Some(identity)
+                {
+                    return Ok((
+                        state.dom.borrow().arena().stylesheet_text(owner)?,
+                        index as usize,
+                    ));
+                }
+            }
+        }
+    }
+    Ok((source, index))
 }
 
 fn getter(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
@@ -165,6 +276,22 @@ fn setter(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8
                 record.quirks,
             )
         };
+        let kind = state
+            .page_rules
+            .borrow()
+            .get(&identity)
+            .map(|r| r.view.rule_type);
+        if kind == Some(1) {
+            let (source, index) = mutation_context(scope, &state, identity)?;
+            let provider = state.layout_provider.borrow().clone();
+            if let Some(result) = provider.and_then(|p| {
+                p.set_style_rule_selector(&source, &[index], &selector, &base_url, quirks)
+            }) && let Some(rules) = result.map_err(V8BindingError::EventCallback)?
+            {
+                publish_rule_transaction(scope, &state, identity, parent, index, rules)?;
+            }
+            return Ok(());
+        }
         let provider = state.layout_provider.borrow().clone();
         let Some(result) =
             provider.and_then(|p| p.set_page_selector(&source, &selector, &base_url, quirks))
@@ -182,6 +309,31 @@ fn setter(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8
     }
 }
 
+fn publish_rule_transaction(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    identity: u64,
+    parent: Option<NodeId>,
+    index: usize,
+    rules: Vec<BindingRuleView>,
+) -> Result<(), V8BindingError> {
+    let view = rules
+        .get(index)
+        .cloned()
+        .ok_or(V8BindingError::Allocation("CSS rule transaction result"))?;
+    let source = rules
+        .iter()
+        .map(|r| r.css_text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    publish_view(scope, state, identity, parent, view)?;
+    if let Some(record) = state.page_rules.borrow_mut().get_mut(&identity) {
+        record.source = Rc::from(source);
+        record.index = index;
+    }
+    Ok(())
+}
+
 fn publish_view(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
@@ -190,9 +342,13 @@ fn publish_view(
     view: BindingRuleView,
 ) -> Result<(), V8BindingError> {
     if let Some(owner) = parent {
-        let cached = state.stylesheet_rule_lists.borrow().get(&owner).cloned();
+        let cached = state
+            .stylesheet_rule_lists
+            .borrow()
+            .get(&owner)
+            .and_then(|array| array.to_local(scope));
         if let Some(cached) = cached {
-            let rules = v8::Local::new(scope, cached);
+            let rules = cached;
             let source = state.dom.borrow().arena().stylesheet_text(owner)?;
             let mut texts = stylesheet_rules_for_owner(scope, state, owner, &source, true)?;
             for index in 0..rules.length() {
@@ -247,7 +403,7 @@ fn read_style(
         .ok_or(V8BindingError::Allocation("page declaration state"))?;
     let identity =
         id(scope, rule).ok_or(V8BindingError::Allocation("page declaration identity"))?;
-    let (text, base_url, quirks) = {
+    let (text, base_url, quirks, kind) = {
         let records = state.page_rules.borrow();
         let record = records
             .get(&identity)
@@ -256,6 +412,7 @@ fn read_style(
             record.view.declaration_text.clone().unwrap_or_default(),
             record.base_url.clone(),
             record.quirks,
+            record.view.rule_type,
         )
     };
     let provider = state
@@ -263,16 +420,21 @@ fn read_style(
         .borrow()
         .clone()
         .ok_or(V8BindingError::Allocation("page declaration provider"))?;
-    provider
-        .read_page_declaration(&BindingDeclarationRequest {
-            css_text: &text,
-            property,
-            value: "",
-            priority: "",
-            base_url: &base_url,
-            quirks,
-        })
-        .ok_or(V8BindingError::Allocation("page declaration read"))?
+    let request = BindingDeclarationRequest {
+        css_text: &text,
+        property,
+        value: "",
+        priority: "",
+        base_url: &base_url,
+        quirks,
+    };
+    let result = if kind == 1 {
+        provider.read_declaration(&request)
+    } else {
+        provider.read_page_declaration(&request)
+    };
+    result
+        .ok_or(V8BindingError::Allocation("rule declaration read"))?
         .map_err(V8BindingError::EventCallback)
 }
 
@@ -306,6 +468,33 @@ fn mutate_style(
         .borrow()
         .clone()
         .ok_or(V8BindingError::Allocation("page declaration provider"))?;
+    let kind = state
+        .page_rules
+        .borrow()
+        .get(&identity)
+        .map(|r| r.view.rule_type);
+    if kind == Some(1) {
+        let (source, index) = mutation_context(scope, &state, identity)?;
+        let mutation = provider
+            .mutate_rule_declaration(
+                &BindingDeclarationRequest {
+                    css_text: &source,
+                    property,
+                    value,
+                    priority,
+                    base_url: &base_url,
+                    quirks,
+                },
+                &[index],
+                replace,
+            )
+            .ok_or(V8BindingError::Allocation("CSS declaration mutation"))?
+            .map_err(V8BindingError::EventCallback)?;
+        if let Some(rules) = mutation.rules {
+            publish_rule_transaction(scope, &state, identity, parent, index, rules)?;
+        }
+        return Ok(mutation.previous_value);
+    }
     let mutation = provider
         .mutate_page_declaration(
             &BindingDeclarationRequest {
@@ -326,106 +515,90 @@ fn mutate_style(
     Ok(mutation.previous_value)
 }
 
-fn style_getter(
-    scope: &mut v8::PinScope,
-    args: v8::FunctionCallbackArguments,
-    mut rv: v8::ReturnValue,
-) {
-    let result = (|| {
-        let name = args.data().to_rust_string_lossy(scope);
-        if name == "@parentRule" {
-            return Ok(declaration_rule(scope, args.this())?.into());
-        }
-        let view = read_style(
-            scope,
-            args.this(),
-            if name.starts_with('@') { "" } else { &name },
-        )?;
-        match name.as_str() {
-            "@cssText" => v8_string(scope, &view.css_text),
-            "@length" => Ok(v8::Integer::new_from_unsigned(scope, view.names.len() as u32).into()),
-            _ => v8_string(scope, &view.value),
-        }
-    })();
-    match result {
-        Ok(value) => rv.set(value),
-        Err(error) => throw_binding_error(scope, &error),
+pub(super) fn is_declaration(scope: &mut v8::PinScope, object: v8::Local<v8::Object>) -> bool {
+    !object.is_proxy() && declaration_rule(scope, object).is_ok()
+}
+
+pub(super) fn declaration_attribute<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    object: v8::Local<v8::Object>,
+    member: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if member == "parentRule" {
+        return Ok(declaration_rule(scope, object)?.into());
+    }
+    let property = if matches!(member, "cssText" | "length") {
+        ""
+    } else {
+        css_property_name(member)
+    };
+    let view = read_style(scope, object, property)?;
+    match member {
+        "cssText" => v8_string(scope, &view.css_text),
+        "length" => Ok(v8::Integer::new_from_unsigned(scope, view.names.len() as u32).into()),
+        _ => v8_string(scope, &view.value),
     }
 }
 
-fn style_setter(
+pub(super) fn set_declaration_attribute(
     scope: &mut v8::PinScope,
-    args: v8::FunctionCallbackArguments,
-    _rv: v8::ReturnValue,
-) {
-    let result = (|| {
-        let property = args.data().to_rust_string_lossy(scope);
-        let replace = property == "@cssText";
-        let value = cssom_string(scope, args.get(0), !replace)?;
-        mutate_style(scope, args.this(), &property, &value, "", replace)?;
-        Ok(())
-    })();
-    if let Err(error) = result {
-        throw_binding_error(scope, &error);
-    }
+    object: v8::Local<v8::Object>,
+    member: &str,
+    input: v8::Local<v8::Value>,
+) -> Result<(), V8BindingError> {
+    let replace = member == "cssText";
+    let value = cssom_string(scope, input, !replace)?;
+    mutate_style(
+        scope,
+        object,
+        css_property_name(member),
+        &value,
+        "",
+        replace,
+    )?;
+    Ok(())
 }
 
-fn style_method(
-    scope: &mut v8::PinScope,
-    args: v8::FunctionCallbackArguments,
-    mut rv: v8::ReturnValue,
-) {
-    let name = args.data().to_rust_string_lossy(scope);
-    let required = if name == "setProperty" { 2 } else { 1 };
-    if args.length() < required {
-        throw_type_error(
+pub(super) fn declaration_operation<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: &v8::FunctionCallbackArguments<'s>,
+    method: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if method == "item" {
+        let index = args
+            .get(0)
+            .uint32_value(scope)
+            .ok_or(V8BindingError::JavaScriptException)?;
+        let view = read_style(scope, args.this(), "")?;
+        return v8_string(
             scope,
-            "CSSStyleDeclaration method called with too few arguments",
+            view.names.get(index as usize).map_or("", String::as_str),
         );
-        return;
     }
-    let result = (|| {
-        let method = args.data().to_rust_string_lossy(scope);
-        if method == "item" {
-            let index = args
-                .get(0)
-                .uint32_value(scope)
-                .ok_or(V8BindingError::JavaScriptException)?;
-            let view = read_style(scope, args.this(), "")?;
-            return v8_string(
-                scope,
-                view.names.get(index as usize).map_or("", String::as_str),
-            );
+    let property = cssom_string(scope, args.get(0), false)?;
+    match method {
+        "getPropertyValue" => {
+            let view = read_style(scope, args.this(), &property)?;
+            v8_string(scope, &view.value)
         }
-        let property = cssom_string(scope, args.get(0), false)?;
-        match method.as_str() {
-            "getPropertyValue" => {
-                let view = read_style(scope, args.this(), &property)?;
-                v8_string(scope, &view.value)
-            }
-            "getPropertyPriority" => {
-                let view = read_style(scope, args.this(), &property)?;
-                v8_string(scope, if view.important { "important" } else { "" })
-            }
-            "removeProperty" => {
-                let previous = mutate_style(scope, args.this(), &property, "", "", false)?;
-                v8_string(scope, &previous)
-            }
-            _ => {
-                let value = cssom_string(scope, args.get(1), true)?;
-                let priority = if args.length() < 3 || args.get(2).is_undefined() {
-                    String::new()
-                } else {
-                    cssom_string(scope, args.get(2), true)?
-                };
-                mutate_style(scope, args.this(), &property, &value, &priority, false)?;
-                Ok(v8::undefined(scope).into())
-            }
+        "getPropertyPriority" => {
+            let view = read_style(scope, args.this(), &property)?;
+            v8_string(scope, if view.important { "important" } else { "" })
         }
-    })();
-    match result {
-        Ok(value) => rv.set(value),
-        Err(error) => throw_binding_error(scope, &error),
+        "removeProperty" => {
+            let previous = mutate_style(scope, args.this(), &property, "", "", false)?;
+            v8_string(scope, &previous)
+        }
+        _ => {
+            let value = cssom_string(scope, args.get(1), true)?;
+            let priority = if args.length() < 3 || args.get(2).is_undefined() {
+                String::new()
+            } else {
+                cssom_string(scope, args.get(2), true)?
+            };
+            mutate_style(scope, args.this(), &property, &value, &priority, false)?;
+            Ok(v8::undefined(scope).into())
+        }
     }
 }
 
@@ -451,58 +624,6 @@ fn style_object<'s>(
         .ok_or(V8BindingError::Allocation("declaration owner"))?;
     let key = v8::Private::for_api(scope, Some(key));
     style.set_private(scope, key, rule.into());
-    let provider = state
-        .layout_provider
-        .borrow()
-        .clone()
-        .ok_or(V8BindingError::Allocation("declaration provider"))?;
-    let mut names = BTreeMap::new();
-    for (name, canonical) in provider.supported_css_properties() {
-        for attribute in inline_styles::attribute_names(&name) {
-            names.insert(attribute, canonical.clone());
-        }
-    }
-    for name in ["cssText", "length", "parentRule"] {
-        names.insert(name.into(), format!("@{name}"));
-    }
-    for (name, property) in names {
-        let key = v8::String::new(scope, &name)
-            .ok_or(V8BindingError::Allocation("declaration property"))?;
-        let data = v8::String::new(scope, &property)
-            .ok_or(V8BindingError::Allocation("declaration property data"))?;
-        let get = v8::Function::builder(style_getter)
-            .data(data.into())
-            .build(scope)
-            .ok_or(V8BindingError::Allocation("declaration getter"))?;
-        let set: v8::Local<v8::Value> = if property == "@length" || property == "@parentRule" {
-            v8::undefined(scope).into()
-        } else {
-            v8::Function::builder(style_setter)
-                .data(data.into())
-                .build(scope)
-                .ok_or(V8BindingError::Allocation("declaration setter"))?
-                .into()
-        };
-        let mut descriptor = v8::PropertyDescriptor::new_from_get_set(get.into(), set);
-        descriptor.set_enumerable(true);
-        descriptor.set_configurable(true);
-        style.define_property(scope, key.into(), &descriptor);
-    }
-    for name in [
-        "item",
-        "getPropertyValue",
-        "getPropertyPriority",
-        "setProperty",
-        "removeProperty",
-    ] {
-        let data = v8::String::new(scope, name)
-            .ok_or(V8BindingError::Allocation("declaration method name"))?;
-        let method = v8::Function::builder(style_method)
-            .data(data.into())
-            .build(scope)
-            .ok_or(V8BindingError::Allocation("declaration method"))?;
-        set_object_property(scope, style, name, method.into())?;
-    }
     let key = v8::String::new(scope, "oryn.page.declaration")
         .ok_or(V8BindingError::Allocation("declaration cache"))?;
     let key = v8::Private::for_api(scope, Some(key));

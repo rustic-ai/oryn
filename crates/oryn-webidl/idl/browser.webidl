@@ -1090,8 +1090,17 @@ interface IDBObjectStore {
 };
 
 [Exposed=Window]
+interface CSSRuleList {
+  getter CSSRule? item(unsigned long index);
+  readonly attribute unsigned long length;
+};
+
+[Exposed=Window]
 interface CSSRule {
   attribute DOMString cssText;
+  readonly attribute CSSRule? parentRule;
+  readonly attribute CSSStyleSheet? parentStyleSheet;
+  readonly attribute unsigned short type;
   const unsigned short STYLE_RULE = 1;
   const unsigned short CHARSET_RULE = 2;
   const unsigned short IMPORT_RULE = 3;
@@ -1100,6 +1109,12 @@ interface CSSRule {
   const unsigned short PAGE_RULE = 6;
   const unsigned short MARGIN_RULE = 9;
   const unsigned short NAMESPACE_RULE = 10;
+};
+
+[Exposed=Window]
+interface CSSNamespaceRule : CSSRule {
+  readonly attribute DOMString namespaceURI;
+  readonly attribute DOMString prefix;
 };
 
 [Exposed=Window]
@@ -1113,8 +1128,8 @@ interface CSSMediaRule : CSSRule {
 [Exposed=Window]
 interface CSSStyleSheet {
   constructor();
-  readonly attribute sequence<any> cssRules;
-  readonly attribute sequence<any> rules;
+  [SameObject] readonly attribute CSSRuleList cssRules;
+  [SameObject] readonly attribute CSSRuleList rules;
   unsigned long insertRule(DOMString rule, optional unsigned long index = 0);
   undefined deleteRule(unsigned long index);
   long addRule(optional DOMString selector, optional DOMString style, optional unsigned long index);

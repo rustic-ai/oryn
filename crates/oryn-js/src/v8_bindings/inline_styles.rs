@@ -195,6 +195,9 @@ fn property_getter(
         let state = binding_state_for_receiver(scope, args.this())
             .ok_or(V8BindingError::Allocation("CSS property receiver"))?;
         let property = args.data().to_rust_string_lossy(scope);
+        if page_rules::is_declaration(scope, args.this()) {
+            return page_rules::declaration_attribute(scope, args.this(), &property);
+        }
         if computed_styles::is_computed(scope, &state, args.this()) {
             return computed_styles::attribute(scope, &state, args.this(), &property);
         }
@@ -216,6 +219,14 @@ fn property_setter(
         let state = binding_state_for_receiver(scope, args.this())
             .ok_or(V8BindingError::Allocation("CSS property receiver"))?;
         let property = args.data().to_rust_string_lossy(scope);
+        if page_rules::is_declaration(scope, args.this()) {
+            return page_rules::set_declaration_attribute(
+                scope,
+                args.this(),
+                &property,
+                args.get(0),
+            );
+        }
         if computed_styles::is_computed(scope, &state, args.this()) {
             cssom_string(scope, args.get(0), true)?;
             return Err(computed_styles::readonly_error());

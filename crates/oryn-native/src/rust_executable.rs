@@ -37,6 +37,51 @@ struct LiveLayoutProvider {
 }
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn set_style_rule_selector(
+        &self,
+        source: &str,
+        path: &[usize],
+        selector: &str,
+        base_url: &str,
+        quirks: bool,
+    ) -> Option<Result<Option<Vec<oryn_js::v8_bindings::BindingRuleView>>, String>> {
+        Some(
+            oryn_layout::cssom::set_style_rule_selector(source, path, selector, base_url, quirks)
+                .map(|rules| rules.map(|rules| rules.into_iter().map(binding_rule_view).collect())),
+        )
+    }
+
+    fn mutate_rule_declaration(
+        &self,
+        request: &oryn_js::v8_bindings::BindingDeclarationRequest<'_>,
+        path: &[usize],
+        replace: bool,
+    ) -> Option<Result<oryn_js::v8_bindings::BindingRuleDeclarationMutation, String>> {
+        Some(
+            oryn_layout::cssom::mutate_rule_declaration(
+                request.css_text,
+                path,
+                if replace {
+                    None
+                } else {
+                    Some(request.property)
+                },
+                request.value,
+                request.priority,
+                request.base_url,
+                request.quirks,
+            )
+            .map(
+                |mutation| oryn_js::v8_bindings::BindingRuleDeclarationMutation {
+                    previous_value: mutation.previous_value,
+                    rules: mutation
+                        .rules
+                        .map(|rules| rules.into_iter().map(binding_rule_view).collect()),
+                },
+            ),
+        )
+    }
+
     fn read_page_declaration(
         &self,
         request: &oryn_js::v8_bindings::BindingDeclarationRequest<'_>,
@@ -79,19 +124,12 @@ impl BindingLayoutProvider for LiveLayoutProvider {
                 request.quirks,
             )
         };
-        Some(result.map(|mutation| {
-            oryn_js::v8_bindings::BindingPageDeclarationMutation {
+        Some(result.map(
+            |mutation| oryn_js::v8_bindings::BindingPageDeclarationMutation {
                 previous_value: mutation.previous_value,
-                rule: mutation
-                    .rule
-                    .map(|rule| oryn_js::v8_bindings::BindingRuleView {
-                        rule_type: rule.rule_type,
-                        css_text: rule.css_text,
-                        selector_text: rule.selector_text,
-                        declaration_text: rule.declaration_text,
-                    }),
-            }
-        }))
+                rule: mutation.rule.map(binding_rule_view),
+            },
+        ))
     }
 
     fn set_page_selector(
@@ -102,14 +140,8 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         quirks: bool,
     ) -> Option<Result<Option<oryn_js::v8_bindings::BindingRuleView>, String>> {
         Some(
-            oryn_layout::cssom::set_page_selector(source, selector, base_url, quirks).map(|rule| {
-                rule.map(|rule| oryn_js::v8_bindings::BindingRuleView {
-                    rule_type: rule.rule_type,
-                    css_text: rule.css_text,
-                    selector_text: rule.selector_text,
-                    declaration_text: rule.declaration_text,
-                })
-            }),
+            oryn_layout::cssom::set_page_selector(source, selector, base_url, quirks)
+                .map(|rule| rule.map(binding_rule_view)),
         )
     }
 
@@ -121,19 +153,8 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         allow_imports: bool,
     ) -> Option<Result<Vec<oryn_js::v8_bindings::BindingRuleView>, String>> {
         Some(
-            oryn_layout::cssom::read_stylesheet(source, base_url, quirks, allow_imports).map(
-                |rules| {
-                    rules
-                        .into_iter()
-                        .map(|rule| oryn_js::v8_bindings::BindingRuleView {
-                            rule_type: rule.rule_type,
-                            css_text: rule.css_text,
-                            selector_text: rule.selector_text,
-                            declaration_text: rule.declaration_text,
-                        })
-                        .collect()
-                },
-            ),
+            oryn_layout::cssom::read_stylesheet(source, base_url, quirks, allow_imports)
+                .map(|rules| rules.into_iter().map(binding_rule_view).collect()),
         )
     }
 
@@ -5737,6 +5758,123 @@ mod tests {
     }
 
     #[test]
+    fn cssom_reconnecting_style_preserves_old_sheets_and_reparses_authored_text() {
+        let mut page = RustExecutableDocument::load("<!doctype html><div id='host'><style id='styles'>#probe { width: 10px; }</style></div><div id='probe'></div>").unwrap();
+        assert_eq!(page.evaluate(r#"
+            const owner = document.getElementById('styles'), host = document.getElementById('host');
+            const sheet = owner.sheet, rules = sheet.cssRules;
+            sheet.insertRule('#probe { width: 20px; }', 1);
+            host.remove();
+            const checks = [owner.sheet === null, rules.length === 2];
+            document.body.append(host);
+            const next = owner.sheet;
+            checks.push(next !== sheet, next.cssRules.length === 1, rules.length === 2,
+                getComputedStyle(document.getElementById('probe')).width === '10px');
+            rules[1].style.width = '40px';
+            checks.push(rules[1].style.width === '40px', getComputedStyle(document.getElementById('probe')).width === '10px');
+            checks.every(Boolean)
+        "#).unwrap(), "true");
+    }
+
+    #[test]
+    fn cssom_rule_lists_are_live_readonly_native_collections() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><style id='styles'>a { color: red; }</style>",
+        )
+        .unwrap();
+        assert_eq!(page.evaluate(r#"
+            const element = document.getElementById('styles'), sheet = element.sheet, list = sheet.cssRules, first = list[0];
+            const checks = [list instanceof CSSRuleList, !Array.isArray(list), list === sheet.rules,
+                list === sheet.cssRules, list.length === 1, list.item(0) === first, list.item(9) === null, list[9] === undefined];
+            const descriptor = Object.getOwnPropertyDescriptor(list, '0');
+            checks.push(descriptor.value === first, !descriptor.writable, descriptor.enumerable,
+                !Reflect.set(list, '0', null), !Reflect.defineProperty(list, '0', {value: null}), !Reflect.deleteProperty(list, '0'), Reflect.deleteProperty(list, '9'));
+            sheet.insertRule('b { color: blue; }', 0);
+            checks.push(list.length === 2, list[1] === first, list.item(0).style.color === 'blue');
+            sheet.deleteRule(0);
+            checks.push(list.length === 1, list[0] === first, Object.keys(list).join(',') === '0');
+            const getter = Object.getOwnPropertyDescriptor(CSSRuleList.prototype, 'length').get;
+            for (const receiver of [{}, Object.create(list), new Proxy(list, {})]) {
+                try { getter.call(receiver); checks.push(false); } catch (e) { checks.push(e instanceof TypeError); }
+            }
+            element.textContent = 'c { color: green; } d { color: purple; }';
+            const nextSheet = element.sheet, nextList = nextSheet.cssRules;
+            checks.push(nextSheet !== sheet, nextList !== list, list.length === 1, list[0] === first,
+                first.parentStyleSheet === sheet, nextList.length === 2, nextList[0].selectorText === 'c');
+            checks.push(nextList.item({valueOf() { nextSheet.deleteRule(0); return 0; }}).selectorText === 'd');
+            sheet.insertRule('aside { color: orange; }', 0);
+            checks.push(list.length === 2, nextList.length === 1, nextList[0].selectorText === 'd');
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
+    fn cssom_style_declarations_are_live_and_use_prototype_methods() {
+        let mut page = RustExecutableDocument::load(r#"<!doctype html><style>#target { color: red; & span { opacity: .5; } }</style><div id="target"></div><div id="other"></div>"#).unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = document.styleSheets[0], rule = sheet.cssRules[0], style = rule.style;
+            const proto = CSSStyleDeclaration.prototype;
+            const checks = [style instanceof CSSStyleDeclaration, style.parentRule === rule, style === rule.style,
+                !Object.hasOwn(style, 'color'), !Object.hasOwn(style, 'setProperty'), rule.type === 1];
+            proto.setProperty.call(style, 'color', 'blue', 'important');
+            checks.push(proto.getPropertyValue.call(style, 'color') === 'blue', style.color === 'blue',
+                proto.getPropertyPriority.call(style, 'color') === 'important', getComputedStyle(document.getElementById('target')).color === 'rgb(0, 0, 255)');
+            sheet.insertRule('aside { color: green; }', 0);
+            style.color = 'purple';
+            checks.push(rule === sheet.cssRules[1], sheet.cssRules[0].style.color === 'green');
+            rule.selectorText = '#other';
+            checks.push(rule.selectorText === '#other', rule.cssText.includes('opacity: 0.5'),
+                getComputedStyle(document.getElementById('other')).color === 'rgb(128, 0, 128)');
+            rule.selectorText = 'invalid {';
+            checks.push(rule.selectorText === '#other');
+            rule.style = 'color: orange; width: 10px';
+            checks.push(rule.style === style, style[0] === 'color', style.length === 2, rule.cssText.includes('opacity: 0.5'));
+            sheet.deleteRule(1);
+            proto.setProperty.call(style, 'color', 'red');
+            checks.push(rule.parentStyleSheet === null, style.parentRule === rule, style.color === 'red', sheet.cssRules.length === 1);
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
+    fn cssom_namespace_rules_have_native_brands_and_parent_links() {
+        let mut page = RustExecutableDocument::load(
+            r#"<!doctype html><style>@namespace svg url("http://www.w3.org/2000/svg");</style>"#,
+        )
+        .unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = document.styleSheets[0], rule = sheet.cssRules[0];
+            const getter = Object.getOwnPropertyDescriptor(CSSNamespaceRule.prototype, 'prefix').get;
+            const rejects = receiver => { try { getter.call(receiver); return false; } catch(e) { return e instanceof TypeError; } };
+            const before = rule.cssText;
+            rule.cssText = 'discarded';
+            const checks = [rule instanceof CSSNamespaceRule, rule instanceof CSSRule, rule.type === 10,
+                rule.prefix === 'svg', rule.namespaceURI === 'http://www.w3.org/2000/svg', rule.parentRule === null,
+                rule.parentStyleSheet === sheet, rule === sheet.cssRules[0], rule.cssText === before,
+                rejects({}), rejects(Object.create(rule)), rejects(new Proxy(rule, {})), !Object.hasOwn(rule, 'prefix')];
+            sheet.deleteRule(0);
+            checks.push(rule.parentStyleSheet === null, rule.prefix === 'svg');
+            checks.every(Boolean)
+        "#).unwrap(), "true");
+    }
+
+    #[test]
+    fn cssom_rule_views_keep_selector_strings_and_namespace_context() {
+        let mut page = RustExecutableDocument::load(
+            r#"<!doctype html><style>
+            @namespace svg url("http://www.w3.org/2000/svg");
+            svg|rect[data-token="{"] { color: red; & > svg|circle { color: blue; } }
+        </style>"#,
+        )
+        .unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = document.styleSheets[0];
+            const rule = sheet.cssRules[1];
+            [sheet.cssRules.length === 2, rule.selectorText === 'svg|rect[data-token="{"]', rule.style.color === 'red', rule === sheet.cssRules[1]].join('|')
+        "#).unwrap(), "true|true|true|true");
+    }
+
+    #[test]
     fn cssom_page_declaration_indices_and_style_assignment_are_live() {
         let mut page = RustExecutableDocument::load(
             "<!doctype html><style>@page { margin-top: 1cm; }</style>",
@@ -5988,11 +6126,12 @@ mod tests {
             child.data = '#probe { width: 30px; }';
             widths.push(computed.width);
             [widths.join(','), unchanged, records, clone.textContent === authored,
-             sheet.cssRules.length, sheet.cssRules[0].cssText.includes('30px')].join('|')
+             sheet.cssRules.length, sheet.cssRules[0].cssText.includes('20px'),
+             owner.sheet !== sheet, owner.sheet.cssRules[0].cssText.includes('30px')].join('|')
         "#
             )
             .unwrap(),
-            "10px,20px,20px,30px|true|0|true|1|true"
+            "10px,20px,20px,30px|true|0|true|1|true|true|true"
         );
     }
 
@@ -6871,5 +7010,17 @@ mod tests {
             .evaluate("__oryn_drain(true);document.querySelector('#result').textContent+'|'+dedicated.__closed+'|'+JSON.stringify(__oryn_take_context_trace())")
             .unwrap();
         assert!(value.starts_with("dedicated|false|"), "{value}");
+    }
+}
+
+fn binding_rule_view(rule: oryn_layout::cssom::RuleView) -> oryn_js::v8_bindings::BindingRuleView {
+    oryn_js::v8_bindings::BindingRuleView {
+        rule_type: rule.rule_type,
+        css_text: rule.css_text,
+        selector_text: rule.selector_text,
+        declaration_text: rule.declaration_text,
+        children: rule.children.into_iter().map(binding_rule_view).collect(),
+        properties: rule.properties,
+        conditions: rule.conditions,
     }
 }

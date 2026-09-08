@@ -185,6 +185,7 @@ pub struct DomArena {
     slots: Vec<Slot>,
     free: Vec<u32>,
     attribute_nodes: BTreeMap<(NodeId, String), NodeId>,
+    stylesheet_revisions: BTreeMap<NodeId, u64>,
 }
 
 impl DomArena {
@@ -204,6 +205,7 @@ impl DomArena {
                 .collect(),
             free: Vec::new(),
             attribute_nodes: BTreeMap::new(),
+            stylesheet_revisions: BTreeMap::new(),
         };
         for id in retained {
             if let Some(slot) = arena.slots.get_mut(id.slot as usize) {
@@ -307,6 +309,7 @@ impl DomArena {
         self.detach(child)?;
         self.get_mut(child)?.parent = Some(parent);
         self.get_mut(parent)?.children.push(child);
+        self.invalidate_stylesheet_subtree(child)?;
         Ok(())
     }
 
@@ -315,6 +318,7 @@ impl DomArena {
             self.invalidate_stylesheet_ancestors(Some(parent))?;
             self.get_mut(parent)?.children.retain(|child| *child != id);
             self.get_mut(id)?.parent = None;
+            self.invalidate_stylesheet_subtree(id)?;
         }
         Ok(())
     }
@@ -333,6 +337,7 @@ impl DomArena {
             .position(|child| *child == sibling)
             .ok_or(DomError::StaleNode(sibling))?;
         self.get_mut(node)?.parent = Some(parent);
+        self.invalidate_stylesheet_subtree(node)?;
         self.get_mut(parent)?.children.insert(index, node);
         Ok(())
     }
@@ -343,6 +348,7 @@ impl DomArena {
         let node = slot.node.take().ok_or(DomError::StaleNode(id))?;
         slot.generation = slot.generation.wrapping_add(1);
         self.free.push(id.slot);
+        self.stylesheet_revisions.remove(&id);
         if let NodeKind::Attribute {
             owner: Some(owner),
             name,
@@ -414,6 +420,33 @@ impl DomArena {
         }
     }
 
+    /// DOM stylesheet generations are arena bookkeeping, not structural node data.
+    pub fn stylesheet_revision(&self, node: NodeId) -> Result<u64, DomError> {
+        self.get(node)?;
+        Ok(self.stylesheet_revisions.get(&node).copied().unwrap_or(0))
+    }
+
+    fn bump_stylesheet_revision(&mut self, node: NodeId) {
+        let revision = self.stylesheet_revisions.entry(node).or_default();
+        *revision = revision.saturating_add(1);
+    }
+
+    fn invalidate_stylesheet_subtree(&mut self, root: NodeId) -> Result<(), DomError> {
+        let mut pending = vec![root];
+        while let Some(node) = pending.pop() {
+            let record = self.get_mut(node)?;
+            let sheet = matches!(&record.kind, NodeKind::Element { name } if matches!(name.local.as_ref(), "style" | "link"));
+            if sheet {
+                record.stylesheet_override = None;
+            }
+            pending.extend(record.children.iter().copied());
+            if sheet {
+                self.bump_stylesheet_revision(node);
+            }
+        }
+        Ok(())
+    }
+
     fn invalidate_stylesheet_ancestors(
         &mut self,
         mut node: Option<NodeId>,
@@ -421,7 +454,11 @@ impl DomArena {
         while let Some(id) = node {
             let record = self.get_mut(id)?;
             record.stylesheet_override = None;
+            let sheet = matches!(&record.kind, NodeKind::Element { name } if matches!(name.local.as_ref(), "style" | "link"));
             node = record.parent;
+            if sheet {
+                self.bump_stylesheet_revision(id);
+            }
         }
         Ok(())
     }
@@ -2673,6 +2710,39 @@ mod tests {
                 .unwrap()
                 .contains("color: black")
         );
+    }
+
+    #[test]
+    fn stylesheet_revisions_track_dom_changes_but_not_cssom_publication() {
+        let mut dom =
+            html::parse("<div id='host'><style id='sheet'>a { color: red; }</style></div>")
+                .into_runtime()
+                .unwrap();
+        let sheet = dom.find_by_id("sheet").unwrap();
+        let host = dom.find_by_id("host").unwrap();
+        let before = dom.arena().stylesheet_revision(sheet).unwrap();
+        dom.set_stylesheet_text(sheet, "a { color: blue; }".into())
+            .unwrap();
+        assert_eq!(dom.arena().stylesheet_revision(sheet).unwrap(), before);
+        let text = dom.create(NodeKind::Text {
+            data: "b { color: green; }".into(),
+        });
+        dom.append_child(sheet, text).unwrap();
+        let changed = dom.arena().stylesheet_revision(sheet).unwrap();
+        assert!(changed > before);
+        assert!(
+            dom.arena()
+                .get(sheet)
+                .unwrap()
+                .stylesheet_override
+                .is_none()
+        );
+        let sibling = dom.create_element("aside");
+        dom.append_child(host, sibling).unwrap();
+        assert_eq!(dom.arena().stylesheet_revision(sheet).unwrap(), changed);
+        let parent = dom.arena().get(host).unwrap().parent.unwrap();
+        dom.remove_child(parent, host).unwrap();
+        assert!(dom.arena().stylesheet_revision(sheet).unwrap() > changed);
     }
 
     #[test]

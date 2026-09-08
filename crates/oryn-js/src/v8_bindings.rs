@@ -736,9 +736,11 @@ pub struct BindingAccessibility {
 }
 
 mod adopted_stylesheets;
+mod css_rule_lists;
 mod inline_styles;
 mod node_lists;
 mod page_rules;
+mod stylesheet_ownership;
 mod wrapper_graphs;
 
 /// Authored declaration input passed to the native Stylo provider.
@@ -763,12 +765,20 @@ pub struct BindingDeclarationMutation {
     pub css_text: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct BindingRuleView {
     pub rule_type: u16,
     pub css_text: String,
     pub selector_text: Option<String>,
     pub declaration_text: Option<String>,
+    pub children: Vec<BindingRuleView>,
+    pub properties: BTreeMap<String, String>,
+    pub conditions: Vec<(String, String)>,
+}
+
+pub struct BindingRuleDeclarationMutation {
+    pub previous_value: String,
+    pub rules: Option<Vec<BindingRuleView>>,
 }
 
 pub struct BindingPageDeclarationMutation {
@@ -780,6 +790,26 @@ pub struct BindingPageDeclarationMutation {
 /// implementation lives in the page orchestrator so generated bindings keep
 /// using the same Rust DOM and Stylo/Taffy/Parley pipeline as observations.
 pub trait BindingLayoutProvider {
+    fn set_style_rule_selector(
+        &self,
+        _source: &str,
+        _path: &[usize],
+        _selector: &str,
+        _base_url: &str,
+        _quirks: bool,
+    ) -> Option<Result<Option<Vec<BindingRuleView>>, String>> {
+        None
+    }
+
+    fn mutate_rule_declaration(
+        &self,
+        _request: &BindingDeclarationRequest<'_>,
+        _path: &[usize],
+        _replace: bool,
+    ) -> Option<Result<BindingRuleDeclarationMutation, String>> {
+        None
+    }
+
     fn read_page_declaration(
         &self,
         _request: &BindingDeclarationRequest<'_>,
@@ -951,8 +981,9 @@ pub struct V8BindingState {
     frame_committed_windows: RefCell<BTreeMap<NodeId, v8::Global<v8::Object>>>,
     intrinsic_reflect_set: v8::Global<v8::Function>,
     constructed_stylesheets: RefCell<BTreeSet<NodeId>>,
+    stylesheet_ownership: stylesheet_ownership::Store,
     adopted_stylesheets: RefCell<BTreeMap<NodeId, v8::Weak<v8::Proxy>>>,
-    stylesheet_rule_lists: RefCell<BTreeMap<NodeId, v8::Global<v8::Array>>>,
+    stylesheet_rule_lists: RefCell<BTreeMap<NodeId, v8::Weak<v8::Array>>>,
     page_rules: RefCell<BTreeMap<u64, page_rules::Record>>,
     next_page_rule_id: Cell<u64>,
     current_script: Cell<Option<NodeId>>,
@@ -2554,7 +2585,7 @@ impl V8BindingState {
     /// Returns the number of roots released so the host can request GC only
     /// when it can reclaim detached wrapper graphs.
     pub fn refresh_connected_wrapper_roots(&self, scope: &mut v8::PinScope<'_, '_>) -> usize {
-        let released = refresh_range_wrapper_roots(scope, self);
+        let released = refresh_range_wrapper_roots(scope, self) + stylesheet_ownership::sweep(self);
         apply_range_memory_accounting(scope, self);
         node_lists::account_memory(scope, self);
         released + wrapper_graphs::refresh(scope, self)
@@ -2979,6 +3010,7 @@ pub fn install_generated_bindings_with_root_for_global(
         frame_committed_windows: RefCell::new(BTreeMap::new()),
         intrinsic_reflect_set: adopted_stylesheets::capture_reflect_set(scope)?,
         constructed_stylesheets: RefCell::new(BTreeSet::new()),
+        stylesheet_ownership: stylesheet_ownership::Store::default(),
         adopted_stylesheets: RefCell::new(BTreeMap::new()),
         stylesheet_rule_lists: RefCell::new(BTreeMap::new()),
         page_rules: RefCell::new(BTreeMap::new()),
@@ -3076,6 +3108,9 @@ pub fn install_generated_bindings_with_root_for_global(
             }
             if interface.name == "CSSStyleDeclaration" {
                 inline_styles::configure(instance);
+            }
+            if interface.name == "CSSRuleList" {
+                css_rule_lists::configure(instance);
             }
             if interface.name == "HTMLCollection" {
                 node_lists::configure_named(instance);
@@ -8091,10 +8126,31 @@ fn generated_attribute_getter(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "CSSRuleList" && member == "length" {
+        match css_rule_lists::length(scope, args.this()) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if matches!(interface, "CSSRule" | "CSSNamespaceRule") {
+        match page_rules::attribute(scope, &state, args.this(), interface, member) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if matches!(interface, "NodeList" | "HTMLCollection") && member == "length" {
         let result = node_lists::length(scope, &state, args.this(), interface);
         node_lists::account_memory(scope, &state);
         match result {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if interface == "CSSStyleDeclaration" && page_rules::is_declaration(scope, args.this()) {
+        match page_rules::declaration_attribute(scope, args.this(), member) {
             Ok(value) => return_value.set(value),
             Err(error) => throw_binding_error(scope, &error),
         }
@@ -8204,6 +8260,24 @@ fn generated_attribute_setter_impl(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "CSSRule" && member == "cssText" {
+        // CSSRule.cssText has a no-op setter, after receiver validation and
+        // Web IDL string conversion.
+        if let Err(error) = page_rules::attribute(scope, &state, args.this(), interface, member) {
+            throw_binding_error(scope, &error);
+        } else {
+            let _ = cssom_string(scope, args.get(0), false);
+        }
+        return;
+    }
+    if interface == "CSSStyleDeclaration" && page_rules::is_declaration(scope, args.this()) {
+        if let Err(error) =
+            page_rules::set_declaration_attribute(scope, args.this(), member, args.get(0))
+        {
+            throw_binding_error(scope, &error);
+        }
+        return;
+    }
     if interface == "CSSStyleDeclaration"
         && computed_styles::is_computed(scope, &state, args.this())
     {
@@ -8385,6 +8459,20 @@ fn generated_operation_impl<'s>(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "CSSRuleList" && member == "item" {
+        match css_rule_lists::item(scope, args.this(), args.get(0)) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if interface == "CSSStyleDeclaration" && page_rules::is_declaration(scope, args.this()) {
+        match page_rules::declaration_operation(scope, &args, member) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if interface == "CSSStyleDeclaration"
         && computed_styles::is_computed(scope, &state, args.this())
     {
@@ -21239,13 +21327,13 @@ fn stylesheet_rule_texts(source: &str) -> Vec<String> {
 }
 
 /// Read the same parsed rule sequence for enumeration and indexed mutations.
-fn stylesheet_rules_for_owner(
+fn stylesheet_views_for_owner(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     node: NodeId,
     source: &str,
     allow_imports: bool,
-) -> Result<Vec<String>, V8BindingError> {
+) -> Result<Vec<BindingRuleView>, V8BindingError> {
     let base_url = cssom_base_url(scope)?;
     let document = owner_document_for_node(state, node)?;
     let quirks = {
@@ -21261,11 +21349,30 @@ fn stylesheet_rules_for_owner(
         .as_ref()
         .and_then(|provider| provider.read_stylesheet(source, &base_url, quirks, allow_imports))
     {
-        return parsed
-            .map(|rules| rules.into_iter().map(|rule| rule.css_text).collect())
-            .map_err(V8BindingError::EventCallback);
+        return parsed.map_err(V8BindingError::EventCallback);
     }
-    Ok(stylesheet_rule_texts(source))
+    Ok(stylesheet_rule_texts(source)
+        .into_iter()
+        .map(|css_text| BindingRuleView {
+            css_text,
+            ..BindingRuleView::default()
+        })
+        .collect())
+}
+
+fn stylesheet_rules_for_owner(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+    source: &str,
+    allow_imports: bool,
+) -> Result<Vec<String>, V8BindingError> {
+    Ok(
+        stylesheet_views_for_owner(scope, state, node, source, allow_imports)?
+            .into_iter()
+            .map(|view| view.css_text)
+            .collect(),
+    )
 }
 
 /// Update the stylesheet without replacing its owner's DOM children.
@@ -21274,7 +21381,22 @@ fn publish_stylesheet_source(
     node: NodeId,
     source: String,
 ) -> Result<(), V8BindingError> {
-    state.dom.borrow_mut().set_stylesheet_text(node, source)?;
+    let owner = if stylesheet_ownership::is_sheet(state, node) {
+        stylesheet_ownership::active_owner(state, node)?
+    } else {
+        Some(node)
+    };
+    state
+        .dom
+        .borrow_mut()
+        .set_stylesheet_text(node, source.clone())?;
+    let Some(owner) = owner else {
+        return Ok(());
+    };
+    if owner != node {
+        state.dom.borrow_mut().set_stylesheet_text(owner, source)?;
+    }
+    let node = owner;
     state.prepared_stylesheets.borrow_mut().remove(&node);
     state
         .pending_dynamic_stylesheets
@@ -21287,7 +21409,8 @@ fn css_rule_object<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
     owner: NodeId,
-    css_text: &str,
+    view: BindingRuleView,
+    index: usize,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
     let base_url = cssom_base_url(scope)?;
     let document = owner_document_for_node(state, owner)?;
@@ -21299,43 +21422,59 @@ fn css_rule_object<'s>(
         .document_metadata
         .as_ref()
         .is_some_and(|m| m.quirks);
-    let provider = state.layout_provider.borrow().clone();
-    if let Some(parsed) =
-        provider.and_then(|p| p.read_stylesheet(css_text, &base_url, quirks, true))
-    {
-        let parsed = parsed.map_err(V8BindingError::EventCallback)?;
-        if let Some(view) = parsed.into_iter().next().filter(|r| r.rule_type == 6) {
-            return page_rules::create(scope, state, owner, view, base_url, quirks);
-        }
+    if matches!(view.rule_type, 1 | 6 | 10) {
+        return page_rules::create(scope, state, owner, view, base_url, quirks, index);
     }
-    let rule = v8::Object::new(scope);
-    let interface = if css_text
-        .trim_start()
-        .to_ascii_lowercase()
-        .starts_with("@media")
-    {
-        "CSSMediaRule"
+    let css_text = view.css_text.as_str();
+    let rule = if view.rule_type != 0 {
+        page_rules::create(scope, state, owner, view.clone(), base_url, quirks, index)?
     } else {
-        "CSSStyleRule"
+        let rule = v8::Object::new(scope);
+        let interface = if css_text
+            .trim_start()
+            .to_ascii_lowercase()
+            .starts_with("@media")
+        {
+            "CSSMediaRule"
+        } else {
+            "CSSStyleRule"
+        };
+        if let Some(name) = v8::String::new(scope, interface)
+            && let Some(prototype_name) = v8::String::new(scope, "prototype")
+            && let Some(prototype) = scope
+                .get_current_context()
+                .global(scope)
+                .get(scope, name.into())
+                .and_then(|constructor| constructor.to_object(scope))
+                .and_then(|constructor| constructor.get(scope, prototype_name.into()))
+        {
+            rule.set_prototype(scope, prototype);
+        }
+        let serialized = v8_string(scope, css_text)?;
+        set_object_property(scope, rule, "cssText", serialized)?;
+        rule
     };
-    if let Some(name) = v8::String::new(scope, interface)
-        && let Some(prototype_name) = v8::String::new(scope, "prototype")
-        && let Some(prototype) = scope
-            .get_current_context()
-            .global(scope)
-            .get(scope, name.into())
-            .and_then(|constructor| constructor.to_object(scope))
-            .and_then(|constructor| constructor.get(scope, prototype_name.into()))
-    {
-        rule.set_prototype(scope, prototype);
-    }
-    let serialized = v8_string(scope, css_text)?;
-    set_object_property(scope, rule, "cssText", serialized)?;
-    if let Some((selector, declarations)) = css_text.split_once('{') {
-        let declarations = declarations
-            .rsplit_once('}')
-            .map_or(declarations, |item| item.0);
-        let selector = v8_string(scope, selector.trim())?;
+    // Native declaration boundaries exclude child rules and braces in selector
+    // strings. The text fallback is only for providers without CSSOM support.
+    let fallback = if view.rule_type == 0 {
+        css_text.split_once('{').map(|(selector, declarations)| {
+            (
+                selector.trim(),
+                declarations
+                    .rsplit_once('}')
+                    .map_or(declarations, |item| item.0),
+            )
+        })
+    } else {
+        None
+    };
+    let fields = view
+        .selector_text
+        .as_deref()
+        .zip(view.declaration_text.as_deref())
+        .or(fallback);
+    if let Some((selector, declarations)) = fields {
+        let selector = v8_string(scope, selector)?;
         set_object_property(scope, rule, "selectorText", selector)?;
         let style = v8::Object::new(scope);
         for (name, value) in inline_style_entries(declarations) {
@@ -21347,42 +21486,33 @@ fn css_rule_object<'s>(
     Ok(rule)
 }
 
-fn css_rule_list_item(
-    scope: &mut v8::PinScope,
-    args: v8::FunctionCallbackArguments,
-    mut return_value: v8::ReturnValue,
-) {
-    let index = args.get(0).uint32_value(scope).unwrap_or(0);
-    let value = args.this().get_index(scope, index);
-    return_value.set(match value {
-        Some(value) if !value.is_undefined() => value,
-        _ => v8::null(scope).into(),
-    });
-}
-
 fn insert_cached_stylesheet_rule(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     stylesheet: NodeId,
     index: usize,
-    css_text: &str,
 ) -> Result<(), V8BindingError> {
     let cached = state
         .stylesheet_rule_lists
         .borrow()
         .get(&stylesheet)
-        .cloned();
+        .and_then(|array| array.to_local(scope));
     let Some(cached) = cached else {
         return Ok(());
     };
-    let rules = v8::Local::new(scope, &cached);
+    let source = state.dom.borrow().arena().stylesheet_text(stylesheet)?;
+    let view = stylesheet_views_for_owner(scope, state, stylesheet, &source, true)?
+        .into_iter()
+        .nth(index)
+        .ok_or(V8BindingError::Allocation("inserted native rule"))?;
+    let rule = css_rule_object(scope, state, stylesheet, view, index)?;
+    let rules = cached;
     let length = rules.length() as usize;
     for position in (index..length).rev() {
         if let Some(value) = rules.get_index(scope, position as u32) {
             rules.set_index(scope, (position + 1) as u32, value);
         }
     }
-    let rule = css_rule_object(scope, state, stylesheet, css_text)?;
     rules.set_index(scope, index as u32, rule.into());
     Ok(())
 }
@@ -21397,11 +21527,11 @@ fn replace_cached_stylesheet_rules(
         .stylesheet_rule_lists
         .borrow()
         .get(&stylesheet)
-        .cloned();
+        .and_then(|array| array.to_local(scope));
     let Some(cached) = cached else {
         return Ok(());
     };
-    let rules = v8::Local::new(scope, cached);
+    let rules = cached;
     for index in 0..rules.length() {
         if let Some(object) = rules
             .get_index(scope, index)
@@ -21413,8 +21543,9 @@ fn replace_cached_stylesheet_rules(
     let length =
         v8::String::new(scope, "length").ok_or(V8BindingError::Allocation("rule list length"))?;
     rules.set(scope, length.into(), v8::Integer::new(scope, 0).into());
-    for (index, text) in texts.iter().enumerate() {
-        let rule = css_rule_object(scope, state, stylesheet, text)?;
+    let views = stylesheet_views_for_owner(scope, state, stylesheet, &texts.join("\n"), false)?;
+    for (index, view) in views.into_iter().enumerate() {
+        let rule = css_rule_object(scope, state, stylesheet, view, index)?;
         rules.set_index(scope, index as u32, rule.into());
     }
     Ok(())
@@ -21430,11 +21561,11 @@ fn delete_cached_stylesheet_rule(
         .stylesheet_rule_lists
         .borrow()
         .get(&stylesheet)
-        .cloned();
+        .and_then(|array| array.to_local(scope));
     let Some(cached) = cached else {
         return Ok(());
     };
-    let rules = v8::Local::new(scope, &cached);
+    let rules = cached;
     let length = rules.length() as usize;
     if let Some(object) = rules
         .get_index(scope, index as u32)
@@ -21865,19 +21996,20 @@ fn get_attribute_value<'s>(
     }
     if interface == "CSSStyleSheet" && matches!(member, "cssRules" | "rules") {
         let source = state.dom.borrow().arena().stylesheet_text(node)?;
-        let rule_texts = stylesheet_rules_for_owner(scope, state, node, &source, true)?;
-        let rules = if let Some(rules) = state.stylesheet_rule_lists.borrow().get(&node) {
-            v8::Local::new(scope, rules)
+        let rule_views = stylesheet_views_for_owner(scope, state, node, &source, true)?;
+        let rules = if let Some(rules) = state
+            .stylesheet_rule_lists
+            .borrow()
+            .get(&node)
+            .and_then(|array| array.to_local(scope))
+        {
+            rules
         } else {
             let rules = v8::Array::new(scope, 0);
-            let item = v8::Function::builder(css_rule_list_item)
-                .build(scope)
-                .ok_or(V8BindingError::Allocation("CSSRuleList.item"))?;
-            set_object_property(scope, rules.into(), "item", item.into())?;
             state
                 .stylesheet_rule_lists
                 .borrow_mut()
-                .insert(node, v8::Global::new(scope, rules));
+                .insert(node, v8::Weak::new(scope, rules));
             rules
         };
         let mut existing = Vec::new();
@@ -21901,16 +22033,16 @@ fn get_attribute_value<'s>(
         rules.set(
             scope,
             length.into(),
-            v8::Integer::new_from_unsigned(scope, rule_texts.len() as u32).into(),
+            v8::Integer::new_from_unsigned(scope, rule_views.len() as u32).into(),
         );
-        for (index, css_text) in rule_texts.into_iter().enumerate() {
+        for (index, view) in rule_views.into_iter().enumerate() {
             let rule = if let Some(position) = existing
                 .iter()
-                .position(|(existing_text, _)| existing_text == &css_text)
+                .position(|(existing_text, _)| existing_text == &view.css_text)
             {
                 v8::Local::new(scope, existing.remove(position).1)
             } else {
-                css_rule_object(scope, state, node, &css_text)?
+                css_rule_object(scope, state, node, view, index)?
             };
             rules.set_index(scope, index as u32, rule.into());
         }
@@ -21918,7 +22050,7 @@ fn get_attribute_value<'s>(
             let object = v8::Local::new(scope, object);
             page_rules::detach(scope, state, object);
         }
-        return Ok(rules.into());
+        return Ok(css_rule_lists::wrap(scope, state, node, rules)?.into());
     }
     // Documents made by DOMImplementation have no browsing context. Their
     // metadata must not alias the location or Window of the creating realm.
@@ -25144,9 +25276,8 @@ fn call_operation<'s>(
                 });
             }
             rules.insert(index, rule);
-            let inserted = rules[index].clone();
             publish_stylesheet_source(state, node, rules.join("\n"))?;
-            insert_cached_stylesheet_rule(scope, state, node, index, &inserted)?;
+            insert_cached_stylesheet_rule(scope, state, node, index)?;
             Ok(Some(
                 v8::Integer::new_from_unsigned(scope, index as u32).into(),
             ))
@@ -25214,11 +25345,7 @@ fn call_operation<'s>(
             }
             rules.insert(index, format!("{selector} {{ {declarations} }}"));
             publish_stylesheet_source(state, node, rules.join("\n"))?;
-            let inserted = rules
-                .get(index)
-                .cloned()
-                .ok_or(V8BindingError::Allocation("inserted CSS rule"))?;
-            insert_cached_stylesheet_rule(scope, state, node, index, &inserted)?;
+            insert_cached_stylesheet_rule(scope, state, node, index)?;
             Ok(Some(v8::Integer::new(scope, -1).into()))
         }
         ("CSSStyleSheet", "replaceSync") | ("CSSStyleSheet", "replace") => {
@@ -26293,6 +26420,14 @@ fn associated_wrapper<'s>(
     node: NodeId,
     interface: &'static str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    let node = if interface == "CSSStyleSheet" {
+        let Some(sheet) = stylesheet_ownership::for_node(state, node)? else {
+            return Ok(v8::null(scope).into());
+        };
+        sheet
+    } else {
+        node
+    };
     if let Some(object) = state
         .associated_wrappers
         .borrow()
@@ -29345,9 +29480,11 @@ mod tests {
                     css_text: "@page named { }".into(),
                     selector_text: Some("named".into()),
                     declaration_text: Some(String::new()),
+                    ..BindingRuleView::default()
                 },
                 "https://example.test/".into(),
                 false,
+                0,
             )
             .unwrap();
             page_rules::detach(scope, &state, rule);

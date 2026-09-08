@@ -719,7 +719,7 @@ impl<'a, 'i> AtRuleParser<'i> for NestedRuleParser<'a, 'i> {
             "font-face" => {
                 AtRulePrelude::FontFace
             },
-            "container" if cfg!(feature = "gecko") => {
+            "container" => {
                 let conditions = input.parse_comma_separated(|input| {
                     ContainerCondition::parse(&self.context, input)
                 })?;
@@ -744,7 +744,7 @@ impl<'a, 'i> AtRuleParser<'i> for NestedRuleParser<'a, 'i> {
                 let name = DashedIdent::parse(&self.context, input)?;
                 AtRulePrelude::FontPaletteValues(name)
             },
-            "counter-style" if cfg!(feature = "gecko") => {
+            "counter-style" => {
                 let name = parse_counter_style_name_definition(input)?;
                 AtRulePrelude::CounterStyle(name)
             },
