@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `f6be522`, measured on 2026-09-07.
+Current full-run evidence: signed candidate `cdead0a`, measured on 2026-09-07.
 This is the active forward plan. Earlier batch sections in the runtime action plan remain history.
 
 ## Objective and definition of done
@@ -32,37 +32,35 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The later editing candidate `4fb9d80` measures **215/704** in the complete editing
-selection, versus 124/704 in the full baseline: 92 gains and one lost file pass.
-Its assertion audit finds 70 observed pass-to-fail changes and zero missing prior
-passing assertions. [Selected evidence](CONFORMANCE-SHARED-EDITING-2026-09-07.json)
-retains those regressions; this candidate requires fixes. The selected net gain of
-91 is not added to the overall score. Resolve the regressions before accepting
-this candidate or extending its measurement to a new overall claim.
+The latest complete full measurement at `cdead0a` is **2,728/4,022 (67.8%)**,
+with **1,294 failures**, **101 gained whole-test passes** and **zero whole-test losses**
+versus `f6be522`. Editing independently measures **225/704**, versus 124/704 in that
+full baseline. The [full evidence](CONFORMANCE-EDITING-FULL-2026-09-07.json) verifies
+exact coverage, nonempty passing completions, frozen hashes and unchanged limits.
 
-The latest **complete full measurement** at `f6be522` is **2,627/4,022 (65.3%)**,
-with 1,395 failures. It confirms two recovered history file passes and no whole-test
-losses versus `12a64cb` (2,625). The
-[measurement](CONFORMANCE-STREAM-MIME-BASELINE-2026-09-07.json) verifies exact
-coverage, successful passing completions, frozen hashes, and unchanged limits.
-There are no observed assertion pass-to-fail changes. Twenty-four earlier passing
-assertions are missing from three partial Range mutation runs with worker wall-time
-limits; these remain unresolved. Five server-port-dependent names reconcile by
-complete normalized assertion name/status multisets. Earlier editing/frame
-regressions remain open. This is not a release candidate.
+The comparison still contains **11 observed assertion regressions** and **29 missing
+prior passing assertions** in three incomplete Range runs with worker wall-time
+limits. Five server-port name changes reconcile by complete normalized name/status
+multisets. The 11 editing expectations differ from isolated reference-browser results,
+but remain open requirements; no fixture or assertion is waived. Earlier unresolved
+comparisons remain documented in historical reports. This measured improvement is
+not a regression-free acceptance baseline or a release candidate.
 
-Text, XML and supported image MIME dispatch now reaches streamed top-level
-navigation as well as frames. This integration adds no further whole-test gains
-in the pinned full inventory. Audio/video documents, JavaScript-URL documents,
-XHR document responses and broader MIME behavior remain open.
+Stylo supplies whitespace values and winning author provenance to editing. Placeholder
+cleanup precedes text insertion so MutationObservers see text insertion last. Selected
+paragraph boundaries with intervening whitespace use the same line-joining behavior
+as collapsed deletion. All nine preformatted-paragraph join variants pass. The final
+selected audits retain all prior passes and assertions versus both recent editing
+candidates (`4fb9d80`, `62c9aa0`). Native and lint evidence is recorded in the
+[boundary report](CONFORMANCE-EDITING-BOUNDARIES-2026-09-07.json).
 
-The immediate implementation priority is shared editing algorithms: whitespace
-joining (180 failing variants), paragraph insertion (88 failing variants), caret
-placement and preservation of computed style. Validate representative native
-behavior, then all 704 editing executions and their prior passing assertions.
-An isolated draft or a passing local test does not update the overall score.
-Retain Range resource failures in the backlog; avoid another micro-optimization
-cycle without evidence that it enables a whole failing group to complete.
+The next implementation priority is the **164 remaining whitespace-joining variants**:
+rendered block adjacency, nested paragraph boundaries and inline editing-host boundaries.
+Validate representative native behavior, all 704 editing executions and their prior
+passing assertions, then the full inventory. Keep the 11 regressions and Range resource
+failures open; avoid another Range micro-optimization cycle without evidence that it
+allows a whole failing group to complete. Isolated or selected passes do not update the
+overall score.
 
 The [historical observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
 retains an earlier complete run. That earlier assertion audit records 25 corrected
@@ -71,7 +69,7 @@ and five verified history fixture-port name changes. Selected passes are not add
 to the score, and this result does not establish complete conformance.
 
 The [planning backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) uses the
-`f6be522` full ledger, replacing the original mixed-candidate planning index.
+`cdead0a` full ledger, replacing the previous full-candidate planning index.
 Each open ID retains its source evidence, failure domain, first observed failing
 assertion when available, and workstream assignment. Routing remains provisional;
 first-error text does not establish a root cause. No ID is silently discarded.
@@ -79,14 +77,17 @@ first-error text does not establish a root cause. No ID is silently discarded.
 | Root | Latest evidence used for planning | Open executions |
 |---|---|---:|
 | DOM | Latest full measurement | 269 |
-| Editing | Latest full measurement | 580 |
-| CSS | Clean full baseline | 283 |
-| IndexedDB | Clean full baseline | 115 |
+| Editing | Latest full measurement | 479 |
+| CSS | Latest full measurement | 283 |
+| IndexedDB | Latest full measurement | 115 |
 | HTML | Latest full measurement | 104 |
-| WebIDL | Clean full baseline | 28 |
-| Referrer policy | Clean full baseline | 8 |
-| Accessible Name | Clean full baseline | 4 |
-| WAI-ARIA | Clean full baseline | 4 |
+| WebIDL | Latest full measurement | 28 |
+| Referrer policy | Latest full measurement | 8 |
+| Accessible Name | Latest full measurement | 4 |
+| WAI-ARIA | Latest full measurement | 4 |
+
+The following paragraphs retain historical implementation evidence; current planning
+counts and the latest regression audit are above.
 
 Later root checks at `a14bc15` reached 372/662 DOM and 240/564 CSS. Assertion-level
 regressions found during that work were corrected and verified at `ab88096`;
@@ -135,13 +136,13 @@ zero lost file passes does not establish freedom from all regressions.
 
 Important concentration and dependencies:
 
-- Editing has 580 failing executions. Three whitespace-joining
-  files account for 180 variants; two paragraph-insertion files account for another
-  88. These are high-priority shared algorithms, not hundreds of independent fixes.
+- Editing has 479 failing executions. Three whitespace-joining files account for
+  164 variants, and the cannot-have-div paragraph-insertion file has 12 remaining
+  variants. Prioritize the shared algorithms and preserve prior passing assertions.
 - CSS splits into 117 CSSOM, 116 selector and 50 cascade failures. Stylo owns
-  the rendering style pipeline and selector matching. CSSOM declaration mutation
-  still uses a separate binding helper; integrate it with Stylo's declaration API.
-  Also investigate adapter state, stylesheet ownership and invalidation.
+  the rendering style pipeline, selector matching, and CSSOM declaration parsing
+  and mutation through the native provider. Investigate remaining binding behavior,
+  adapter state, stylesheet ownership and invalidation; do not replace Stylo.
 - All 104 HTML failures are history/browsing-context tests. Treat them together with
   frame activation, navigation tasks and the eight referrer-inheritance failures.
 - The XML/XHTML iframe parser and missing interfaces exposed by createElementNS
@@ -156,10 +157,10 @@ Important concentration and dependencies:
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 
-**Measurement completed:** clean source `12a64cb`, signed worker
-`34764c8fcd54cabc6e303e12d4d71cb55867aaa4f9879078e094eb2687bc3dbf`,
-ledger `conformance-worker-full-dom-boundaries-12a64cb.json`. All 4,022 IDs and passing
-completions verified; all 1,397 failures routed. Assertion regressions and missing
+**Measurement completed:** clean source `cdead0a`, signed worker
+`2eae1fb3d0874fb9f596afa17cc17ca0a95676457f12bcf0039e64a9f06a764d`,
+ledger `conformance-worker-full-dom-boundaries-cdead0a.json`. All 4,022 IDs and passing
+completions verified; all 1,294 failures routed. Assertion regressions and missing
 coverage remain open as recorded above. The initial resource batch has
 reproducible scaling and GC diagnostics recorded in the
 [foundation report](CONFORMANCE-FOUNDATION-DIAGNOSTICS-2026-09-06.md).

@@ -1,0 +1,428 @@
+{
+  "baseline_ledger_sha256": "7eb613547754579713cd59b7cff9fb2f06518875a198c5455e9a7408bf817d5b",
+  "ledger": "artifacts/upstream-conformance/conformance-worker-full-dom-boundaries-cdead0a.json",
+  "ledger_sha256": "fe3fa4eb89c613208869d26945836c3a586005e35bfea7c81acafaf0fd94ddee",
+  "source": {
+    "commit": "cdead0af1aec384ba5ccb2a491fe883d57656fc2",
+    "dirty": false,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_file_count": 0,
+    "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "binary": {
+    "sha256": "52c1c6a55da8b36a784287a1cc41b21cc8202d52f4f00e0a3439bda4283e0aaa",
+    "size_bytes": 6991456
+  },
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "9a7f55016d5cbbfdeda9a9f112b8cdcb082aa24dc5ac41700a2dac918ebac83d",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "887445ae879a308db36184cd1e0789df850ac6c879c2e4d68780ea7aa04f85ca",
+    "worker_binary_sha256": "2eae1fb3d0874fb9f596afa17cc17ca0a95676457f12bcf0039e64a9f06a764d",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_protocol_version": 8,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+  "exact_coverage": true,
+  "passed_completions_valid": true,
+  "outcome": {
+    "required_finished": 4022,
+    "required_passed": 2728,
+    "required_total": 4022,
+    "status": "failed"
+  },
+  "counts_by_root": {
+    "IndexedDB": {
+      "passed": 341,
+      "required": 456
+    },
+    "WebIDL": {
+      "passed": 30,
+      "required": 58
+    },
+    "accname": {
+      "passed": 15,
+      "required": 19
+    },
+    "css/css-cascade": {
+      "passed": 47,
+      "required": 97
+    },
+    "css/cssom": {
+      "passed": 73,
+      "required": 190
+    },
+    "css/selectors": {
+      "passed": 161,
+      "required": 277
+    },
+    "dom": {
+      "passed": 393,
+      "required": 662
+    },
+    "editing": {
+      "passed": 225,
+      "required": 704
+    },
+    "html/browsers/history": {
+      "passed": 32,
+      "required": 136
+    },
+    "referrer-policy": {
+      "passed": 1383,
+      "required": 1391
+    },
+    "wai-aria": {
+      "passed": 28,
+      "required": 32
+    }
+  },
+  "failure_domains": {
+    "assertion": 1104,
+    "timeout": 1,
+    "runtime": 43,
+    "harness": 143,
+    "incomplete": 3
+  },
+  "file_gains": [
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre&display=block&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre&display=block&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre&display=inline&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre&display=inline&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre&display=inline-block&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre&display=inline-block&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre-line&display=block&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre-line&display=block&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre-line&display=inline&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre-line&display=inline&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre-line&display=inline-block&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre-line&display=inline-block&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre-wrap&display=block&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre-wrap&display=block&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre-wrap&display=inline&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre-wrap&display=inline&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre-wrap&display=inline-block&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=pre-wrap&display=inline-block&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre&display=block&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre&display=block&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre&display=inline&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre&display=inline&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre&display=inline-block&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre&display=inline-block&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre-line&display=block&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre-line&display=block&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre-line&display=inline&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre-line&display=inline&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre-line&display=inline-block&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre-line&display=inline-block&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre-wrap&display=block&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre-wrap&display=block&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre-wrap&display=inline&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre-wrap&display=inline&command=insertText",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre-wrap&display=inline-block&command=insertParagraph",
+    "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=pre-wrap&display=inline-block&command=insertText",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=normal&display=block&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=normal&display=block&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=normal&display=inline&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=normal&display=inline&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=normal&display=inline-block&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=normal&display=inline-block&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=normal&display=list-item&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=normal&display=list-item&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=normal&display=table-cell&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=normal&display=table-cell&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre&display=block&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre&display=block&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre&display=inline&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre&display=inline&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre&display=inline-block&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre&display=inline-block&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre&display=list-item&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre&display=list-item&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre&display=table-cell&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre&display=table-cell&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-line&display=block&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-line&display=block&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-line&display=inline&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-line&display=inline&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-line&display=inline-block&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-line&display=inline-block&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-line&display=list-item&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-line&display=list-item&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-line&display=table-cell&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-line&display=table-cell&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-wrap&display=block&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-wrap&display=block&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-wrap&display=inline&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-wrap&display=inline&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-wrap&display=inline-block&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-wrap&display=inline-block&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-wrap&display=list-item&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-wrap&display=list-item&method=shift-enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-wrap&display=table-cell&method=enter",
+    "editing/other/insertparagraph-in-inline-editing-host.tentative.html|window|?white-space=pre-wrap&display=table-cell&method=shift-enter",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=normal&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=normal&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=normal&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=normal&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=nowrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=nowrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=nowrap&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=pre&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=pre&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=pre&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=pre-line&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=pre-line&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=pre-line&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=pre-wrap&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=pre-wrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=forwarddelete&left-white-space=pre-wrap&right-white-space=pre-line",
+    "editing/other/join-pre-and-other-block.html|window|?method=backspace&block=blockquote",
+    "editing/other/join-pre-and-other-block.html|window|?method=backspace&block=div",
+    "editing/other/join-pre-and-other-block.html|window|?method=backspace&block=p",
+    "editing/other/join-pre-and-other-block.html|window|?method=forwarddelete&block=blockquote",
+    "editing/other/join-pre-and-other-block.html|window|?method=forwarddelete&block=div",
+    "editing/other/join-pre-and-other-block.html|window|?method=forwarddelete&block=p",
+    "editing/other/join-pre-and-other-block.html|window|?method=select-boundary&block=blockquote",
+    "editing/other/join-pre-and-other-block.html|window|?method=select-boundary&block=div",
+    "editing/other/join-pre-and-other-block.html|window|?method=select-boundary&block=p"
+  ],
+  "file_losses": [],
+  "zero_assertion_passes": [],
+  "verified_assertion_renames": [],
+  "assertion_change_counts": {
+    "missing_prior_passes": 34,
+    "observed_pass_to_fail": 11,
+    "corrected_existing": 5438,
+    "additional_passing_names": 19
+  },
+  "full_assertion_delta_artifact": {
+    "path": "artifacts/upstream-conformance/dom-boundaries-cdead0a-full-audit.json",
+    "sha256": "4daf5dc8d0fb7bf2dceb143e1280f4a65c0344221edf72f6cd21b1e02890f80a"
+  },
+  "assertion_regressions": [
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=block&command=insertText",
+      "names": [
+        "<p contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+      ]
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline&command=insertText",
+      "names": [
+        "<p contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+      ]
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline-block&command=insertText",
+      "names": [
+        "<p contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+      ]
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=block&command=insertText",
+      "names": [
+        "<span contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+      ]
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline&command=insertText",
+      "names": [
+        "<span contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+      ]
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline-block&command=insertText",
+      "names": [
+        "<span contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+      ]
+    },
+    {
+      "id": "editing/run/delete.html|window|?5001-6000",
+      "names": [
+        "[[\"defaultparagraphseparator\",\"div\"],[\"delete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML",
+        "[[\"defaultparagraphseparator\",\"p\"],[\"delete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML"
+      ]
+    },
+    {
+      "id": "editing/run/forwarddelete.html|window|?1001-2000",
+      "names": [
+        "[[\"forwarddelete\",\"\"]] \"<ol><li>foo[]<li>bar<br>baz</ol>\" compare innerHTML"
+      ]
+    },
+    {
+      "id": "editing/run/forwarddelete.html|window|?5001-6000",
+      "names": [
+        "[[\"defaultparagraphseparator\",\"div\"],[\"forwarddelete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML",
+        "[[\"defaultparagraphseparator\",\"p\"],[\"forwarddelete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML"
+      ]
+    }
+  ],
+  "verified_server_port_reconciliations": [
+    {
+      "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+      "missing_raw_names": [
+        "http://localhost:65443/common/blank.html to http://localhost:65443/common/blank.html#newhash should work",
+        "http://localhost:65443/common/blank.html to http://localhost:65443/common/blank.html?newsearch should work",
+        "http://localhost:65443/common/blank.html to http://localhost:65443/newpath should work",
+        "http://localhost:65443/common/blank.html to about:blank should not work",
+        "http://localhost:65443/common/blank.html to about:srcdoc should not work"
+      ],
+      "normalization": "http://localhost:\\d+ -> http://localhost:PORT",
+      "complete_name_status_multisets_equal": true,
+      "assertion_count_in_each_run": 7
+    }
+  ],
+  "unresolved_missing_prior_passes": [
+    {
+      "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+      "names": [
+        "paras[1].firstChild.textContent += \"foo\", with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.textContent += paras[1].firstChild.textContent, with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.textContent += paras[1].firstChild.textContent, with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue = \"\", with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue = \"\", with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue = \"foo\", with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue = \"foo\", with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue = paras[1].firstChild.nodeValue, with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue = paras[1].firstChild.nodeValue, with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue += \"\", with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue += \"\", with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue += \"foo\", with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue += \"foo\", with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue += paras[1].firstChild.nodeValue, with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue += paras[1].firstChild.nodeValue, with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.data = \"\", with unselected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.data = \"\", with selected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.data = \"foo\", with unselected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.data = \"foo\", with selected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.data = paras[1].firstChild.data, with unselected range on paras[1].firstChild from 0 to 1"
+      ],
+      "failure_domain": "runtime",
+      "complete": false,
+      "diagnostics": [
+        "Error: Runtime(WorkerLimitExceeded { resource: \"wall time\" })"
+      ]
+    },
+    {
+      "id": "dom/ranges/Range-mutations-deleteData.html|window|",
+      "names": [
+        "detachedForeignTextNode.deleteData(3, 0), with selected range on detachedForeignTextNode from 1 to 3"
+      ],
+      "failure_domain": "runtime",
+      "complete": false,
+      "diagnostics": [
+        "Error: Runtime(WorkerLimitExceeded { resource: \"wall time\" })"
+      ]
+    },
+    {
+      "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+      "names": [
+        "foreignTextNode.replaceData(0, 47, \"\"), with unselected range collapsed at (foreignTextNode, 0)",
+        "foreignTextNode.replaceData(0, 47, \"\"), with selected range collapsed at (foreignTextNode, 0)",
+        "foreignTextNode.replaceData(1, 47, \"\"), with unselected range collapsed at (foreignTextNode, 1)",
+        "foreignTextNode.replaceData(1, 47, \"\"), with selected range collapsed at (foreignTextNode, 1)",
+        "foreignTextNode.replaceData(foreignTextNode.length, 47, \"\"), with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.replaceData(foreignTextNode.length, 47, \"\"), with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.replaceData(1, 47, \"\"), with unselected range on foreignTextNode from 1 to 3",
+        "foreignTextNode.replaceData(1, 47, \"\"), with selected range on foreignTextNode from 1 to 3"
+      ],
+      "failure_domain": "runtime",
+      "complete": false,
+      "diagnostics": [
+        "Error: Runtime(WorkerLimitExceeded { resource: \"wall time\" })"
+      ]
+    }
+  ],
+  "selected_audits": {
+    "selected": {
+      "path": "artifacts/upstream-conformance/shared-editing-cdead0a-selected-audit.json",
+      "sha256": "12275fc9f790e90e0f6490cba3b826e3ce54e557eae25a3e54a0ab9b454cbe55",
+      "whole_gains": 101,
+      "whole_losses": 0,
+      "observed_pass_to_fail": 11,
+      "missing_prior_passes": 0
+    },
+    "retention": {
+      "path": "artifacts/upstream-conformance/shared-editing-cdead0a-retention-audit.json",
+      "sha256": "c064e9954f85710842f189aae9a24756bb0d997cd83487d44684f0209a731628",
+      "whole_gains": 10,
+      "whole_losses": 0,
+      "observed_pass_to_fail": 0,
+      "missing_prior_passes": 0
+    },
+    "followup": {
+      "path": "artifacts/upstream-conformance/shared-editing-cdead0a-followup-audit.json",
+      "sha256": "33fee093679a6d5bee1582de90f00866cdcdd3896ab08c6fccc022ff66e10d1a",
+      "whole_gains": 3,
+      "whole_losses": 0,
+      "observed_pass_to_fail": 0,
+      "missing_prior_passes": 0
+    }
+  },
+  "qualification": "Latest measured candidate, not a regression-free acceptance baseline or completed conformance. All 4022 executions finished, but 1294 fail. There are 11 observed assertion regressions versus f6be522 and 29 missing prior passing assertions in incomplete Range runs with worker wall-time diagnostics. Five additional raw name changes reconcile by full name/status multisets after server-port normalization. Reference-browser discrepancies do not waive the 11 regressions. Earlier unresolved comparisons remain documented in historical reports and are not closed by this immediate-baseline comparison. Complete conformance still requires 4022/4022 twice on one frozen candidate plus all required gates."
+}

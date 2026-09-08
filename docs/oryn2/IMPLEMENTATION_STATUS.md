@@ -2,30 +2,32 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> Latest complete signed-worker measurement `f6be522`: **2,627/4,022 (65.3%)**.
-> **2 recovered file passes, 0 lost file passes, and 1,395 remaining failures** versus `12a64cb`.
+> Latest complete signed-worker measurement `cdead0a`: **2,728/4,022 (67.8%)**.
+> **101 gained file passes, 0 lost file passes, and 1,294 remaining failures** versus `f6be522`.
 
-The later editing candidate `4fb9d80` measures **215/704** in the complete editing
-selection, versus 124/704 in the full baseline: 92 gains and one lost file pass.
-Its assertion audit finds 70 observed pass-to-fail changes and zero missing prior
-passing assertions. [Selected evidence](CONFORMANCE-SHARED-EDITING-2026-09-07.json)
-retains those regressions; this candidate requires fixes. The selected net gain of
-91 is not added to the overall score. Resolve the regressions before accepting
-this candidate or extending its measurement to a new overall claim.
+The complete inventory independently reproduces **225/704 editing passes**, up from
+124/704 in the previous full run. The final candidate retains every whole-test pass
+from both recent editing candidates. The final selected audits also find no new assertion regressions
+or missing prior passes versus `4fb9d80` or `62c9aa0`. This overall score comes from
+a complete 4,022-execution run, not an overlay of selected results.
 
-The full run confirms recovery of history tests `011.html` and `012.html`.
-Same-document history updates retain their document rather than fetching a new page.
-Streamed top-level navigation now dispatches text, XML and image responses by MIME
-and keeps XML lookalike elements out of HTML resource discovery. The full inventory
-shows no additional whole-test gains from that MIME integration. Stylo remains the CSS engine.
+Stylo remains the CSS engine and already owns CSSOM declaration parsing and mutation.
+Editing now consumes the winning author whitespace provenance separately from CSSOM
+values, preserves caret/formatting when joining paragraphs, handles selected boundaries
+with intervening whitespace, and removes redundant placeholders before text insertion.
+All nine preformatted-paragraph join variants pass. Validation includes 1,197 native
+editing cases, 48 layout tests, 148 binding tests (two existing ignores), broader
+native regressions, strict Clippy, and signed-worker sandbox checks.
 
-The audit verifies all 4,022 unique IDs, passing harness completions, frozen source
-and binary hashes, and unchanged sandbox boundaries and limits. No observed
-assertion pass-to-fail changes occurred against `12a64cb`. However, 24 formerly
-passing assertions are absent from three partial Range mutation results that hit
-worker wall-time limits. Those missing results remain unresolved. Five other name
-changes reconcile through identical complete assertion name/status multisets after
-normalizing only the test server port. Earlier editing/frame regressions remain open.
+The full audit verifies all 4,022 unique IDs, nonempty successful passing completions,
+frozen source/binary hashes, and unchanged inventory, sandbox boundaries and limits.
+**Eleven observed assertion regressions remain versus `f6be522`.** Six concern normal
+whitespace newline insertion and five concern legacy paragraph/list joining. Their
+reference-browser discrepancies remain investigations, not fixture waivers.
+**Twenty-nine prior passing assertions are missing** from three partial Range runs
+that hit worker wall-time limits. Five other raw name changes reconcile through equal
+complete assertion name/status multisets after normalizing only the server port.
+Historical unresolved comparisons remain recorded in earlier evidence.
 
 | Root | Passed / required |
 |---|---:|
@@ -36,18 +38,19 @@ normalizing only the test server port. Earlier editing/frame regressions remain 
 | css/cssom | 73/190 |
 | css/selectors | 161/277 |
 | dom | 393/662 |
-| editing | 124/704 |
+| editing | 225/704 |
 | html/browsers/history | 32/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-[Measurement evidence](CONFORMANCE-STREAM-MIME-BASELINE-2026-09-07.json) records
-results, hashes, gains, unresolved missing assertions, and limitations. The
-[failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,395
-open executions from this single full run. The next implementation priority is the
-shared editing line-break, paragraph-insertion and first-line-joining algorithms;
-isolated drafts are not counted as conformance progress. Native MessagePort work
-remains isolated. Complete conformance is not achieved.
+[Full measurement evidence](CONFORMANCE-EDITING-FULL-2026-09-07.json) records the
+result, fingerprints, gains and unresolved comparisons. The
+[failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly
+1,294 open executions from this full run. The next shared editing priority is the
+164 remaining variants across three whitespace-joining families, especially rendered
+block adjacency, nested paragraph boundaries and inline editing-host boundaries.
+Retain the 11 regressions and Range resource failures as open work. Native MessagePort
+work remains isolated. Complete conformance is not achieved.
 
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.
