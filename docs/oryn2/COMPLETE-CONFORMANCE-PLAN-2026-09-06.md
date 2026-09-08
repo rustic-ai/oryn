@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `50993c3`, measured on 2026-09-08.
+Current full-run evidence: signed candidate `f63e10c`, measured on 2026-09-08.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,64 +32,53 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `50993c3` gains six whole tests and loses one versus `fff8d56`,
-for a net gain of five. It corrects 62 existing assertions, but has four observed
-assertion regressions: one involving missing `document.all` and three in
-`MutationObserver-document.html`. Neither regression is waived. The full audit
-verifies exact inventory coverage, passing completions, source/binary fingerprints,
-and unchanged limits and sandbox boundaries.
+The signed run at `f63e10c` passes **2,944/4,022 (73.2%)**, with **1,078 remaining**.
+It gains 14 whole tests versus `50993c3`, with no whole-test losses or observed
+assertion regressions. It corrects 99 existing assertions and exposes 62 additional
+passing names. All four previous candidate assertion regressions now pass.
+The audit verifies exact inventory coverage, passing completions, source/binary
+fingerprints, and unchanged limits and sandbox boundaries.
 
 Five history port-name differences reconcile by complete normalized assertion
-multisets. There are 26 newly unobserved passing assertions; two of the previous
-60 gaps now pass and 58 remain absent. The combined tracked gap count is 84.
+multisets. Three newly unobserved assertions remain; 36 of the previous 84 gaps
+now pass and 48 remain absent. The combined tracked gap count is 51.
 All 11 historical editing assertion regressions still fail.
 
-[Full evidence](CONFORMANCE-WINDOW-NAMED-FULL-2026-09-08.json) records the audit.
-Stylo remains the CSS engine. The new native Window named-properties object
-supports live element names, duplicate collections, prototype shadowing, owning
-realms, and shared frame target names. Native checks include 155 JavaScript tests
-(two existing ignores), 50 DOM, 64 layout, four page naming tests, 32 CSSOM and
-three WindowProxy tests. The historical early iframe WindowProxy check now passes.
-[Native evidence](CONFORMANCE-WINDOW-NAMED-NATIVE-2026-09-08.json) binds these checks
-to source. These results do not establish complete conformance or qualification.
+[Full evidence](CONFORMANCE-IDB-KEYS-FULL-2026-09-08.json) records the audit.
+Stylo remains the CSS engine. The integrated HTMLAllCollection/parser fixes and
+shared IndexedDB key transport are verified by this full run. IndexedDB gains
+12 whole tests and DOM gains two. Native key/storage evidence remains recorded in
+[the native proof](CONFORMANCE-IDB-KEYS-NATIVE-2026-09-08.json).
+These results do not establish complete conformance or qualification.
 
-Next: fix and verify the four observed assertion regressions, validate the drafted
-HTMLAllCollection implementation, and continue closing all remaining failures.
+Next: validate the isolated IndexedDB event path, handler ordering, open-request
+boundary and getter-exception preservation against native tests and unchanged
+fixtures, then measure a signed candidate. Keep every remaining failure in scope.
 
 | Root | Passed / required |
 |---|---:|
-| IndexedDB | 341/456 |
+| IndexedDB | 353/456 |
 | WebIDL | 30/58 |
 | accname | 15/19 |
 | css/css-cascade | 54/97 |
 | css/cssom | 95/190 |
 | css/selectors | 165/277 |
-| dom | 398/662 |
+| dom | 400/662 |
 | editing | 389/704 |
 | html/browsers/history | 32/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,092 failed IDs from this run.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,078 failed IDs from this run.
 
 
 ## Immediate execution correction
 
-The latest batch produced only five net whole-test gains and four assertion
-regressions. Native checks validate implementation details; they do not substitute
-for full-inventory progress. Clear the new regressions before integrating another
-feature batch. Native candidate `bb8be42` now recovers all four assertions in the
-unchanged affected fixtures: the parser checkpoint is explicit, and HTMLAllCollection
-provides the actual incompatible Window setter receiver. Its 41-assertion collection
-fixture also passes. Signed full-run recovery remains unverified; see the
-[native evidence](CONFORMANCE-HTML-ALL-PARSER-NATIVE-2026-09-08.json).
-
-The IndexedDB key transport failure is reproduced and fixed in the native candidate.
-Bindings and parent storage now share typed keys, ordering, key-path extraction and
-index-entry extraction. Native tests cover the storage boundary and preservation of
-existing behavior; see the [evidence](CONFORMANCE-IDB-KEYS-NATIVE-2026-09-08.json).
-Build the signed integrated candidate and measure the full inventory next. Keep all
-other failure workstreams in scope and do not infer full-suite gains from native checks.
+The latest batch gained 14 whole tests with no observed assertion regressions.
+The four previous candidate regressions are verified recovered in the signed run.
+Further progress requires closing shared failure chains, not counting native checks
+as whole-inventory gains. The isolated event and exception fixes are under native
+validation; they have no signed full-run evidence yet.
 
 The backlog now joins the durable [diagnosis ledger](CONFORMANCE-DIAGNOSES.json),
 keyed by inventory ID. A confirmed cause is bound to the full result hash, source
