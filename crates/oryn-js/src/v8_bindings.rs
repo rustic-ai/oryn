@@ -114,6 +114,7 @@ struct EventRecord {
     target: Option<NodeId>,
     current_target: Option<NodeId>,
     platform_target: Option<u64>,
+    platform_path: Vec<u64>,
     platform_current_target: Option<u64>,
     bubbles: bool,
     cancelable: bool,
@@ -375,6 +376,8 @@ struct WebSocketRecord {
 }
 
 struct IdbRequestRecord {
+    internal: bool,
+    open_request: bool,
     result: Option<v8::Global<v8::Value>>,
     error: Option<String>,
     transaction_id: Option<u64>,
@@ -1230,7 +1233,7 @@ impl V8BindingState {
                     } else {
                         IdbHostCommand::AbortTransaction { token, database }
                     };
-                    let hidden = new_idb_request(self, None);
+                    let hidden = new_internal_idb_request(self, None);
                     submit_idb(
                         scope,
                         self,
@@ -1445,7 +1448,7 @@ impl V8BindingState {
             }
             dispatch_platform_event(scope, self, request_id, "error", None)?;
         } else {
-            let hidden = new_idb_request(self, None);
+            let hidden = new_internal_idb_request(self, None);
             submit_idb(
                 scope,
                 self,
@@ -2121,7 +2124,7 @@ impl V8BindingState {
                                 database.upgrade_transaction_id = None;
                                 (database.name.clone(), database.old_version)
                             };
-                            let hidden = new_idb_request(self, None);
+                            let hidden = new_internal_idb_request(self, None);
                             submit_idb(
                                 scope,
                                 self,
@@ -2487,39 +2490,20 @@ impl V8BindingState {
                         request.transaction_id
                     };
                     self.activate_idb_request_transaction(request_id)?;
-                    let event = v8::Object::new(scope);
-                    let mut threw = dispatch_platform_event_capturing(
+                    let event = generated_event(scope, "error")?;
+                    let event_record_id = event_id(scope, event)?;
+                    if let Some(record) = self.events.borrow_mut().get_mut(&event_record_id) {
+                        record.bubbles = true;
+                        record.cancelable = true;
+                        record.is_trusted = true;
+                    }
+                    let threw = dispatch_platform_event_capturing(
                         scope,
                         self,
                         request_id,
                         "error",
                         Some(event),
                     )?;
-                    let mut database_id = None;
-                    if let Some(transaction_id) = transaction_id {
-                        database_id = match &*platform_object(self, transaction_id)? {
-                            PlatformObjectRecord::IdbTransaction(transaction) => {
-                                Some(transaction.database_id)
-                            }
-                            _ => None,
-                        };
-                        threw |= dispatch_platform_event_capturing(
-                            scope,
-                            self,
-                            transaction_id,
-                            "error",
-                            Some(event),
-                        )?;
-                    }
-                    if let Some(database_id) = database_id {
-                        threw |= dispatch_platform_event_capturing(
-                            scope,
-                            self,
-                            database_id,
-                            "error",
-                            Some(event),
-                        )?;
-                    }
                     let default_prevented = v8::String::new(scope, "defaultPrevented")
                         .and_then(|key| event.get(scope, key.into()))
                         .is_some_and(|value| value.boolean_value(scope));
@@ -4398,7 +4382,9 @@ fn idb_key_from_value_inner(
             {
                 return Err(data_error());
             }
-            let item = array.get_index(scope, index).ok_or_else(data_error)?;
+            let item = array
+                .get_index(scope, index)
+                .ok_or(V8BindingError::JavaScriptException)?;
             keys.push(idb_key_from_value_inner(scope, item, depth + 1, seen)?);
         }
         return Ok(IdbKey::Array(keys));
@@ -4626,14 +4612,32 @@ fn idb_value_to_json_inner(
         }));
     }
     if let Ok(array) = v8::Local::<v8::Array>::try_from(value) {
-        let values = (0..array.length())
-            .map(|index| {
-                array
-                    .get_index(scope, index)
-                    .ok_or(V8BindingError::Allocation("IndexedDB array element"))
-                    .and_then(|value| idb_value_to_json_inner(scope, state, value, depth + 1))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut values = Vec::with_capacity(array.length() as usize);
+        for index in 0..array.length() {
+            let key = v8::String::new(scope, &index.to_string())
+                .ok_or(V8BindingError::Allocation("IndexedDB array key"))?;
+            let descriptor = array
+                .get_own_property_descriptor(scope, key.into())
+                .ok_or(V8BindingError::JavaScriptException)?;
+            let enumerable = if let Ok(descriptor) = v8::Local::<v8::Object>::try_from(descriptor) {
+                let name = v8::String::new(scope, "enumerable")
+                    .ok_or(V8BindingError::Allocation("property enumerable"))?;
+                descriptor
+                    .get(scope, name.into())
+                    .ok_or(V8BindingError::JavaScriptException)?
+                    .boolean_value(scope)
+            } else {
+                false
+            };
+            if !enumerable {
+                values.push(serde_json::json!({"__oryn_clone_type":"array_hole"}));
+                continue;
+            }
+            let value = array
+                .get_index(scope, index)
+                .ok_or(V8BindingError::JavaScriptException)?;
+            values.push(idb_value_to_json_inner(scope, state, value, depth + 1)?);
+        }
         let names = array
             .get_own_property_names(scope, v8::GetPropertyNamesArgs::default())
             .ok_or(V8BindingError::Allocation("IndexedDB array properties"))?;
@@ -4720,7 +4724,7 @@ fn idb_value_to_json_inner(
             let key_string = key.to_rust_string_lossy(scope);
             let child = object
                 .get(scope, key)
-                .ok_or(V8BindingError::Allocation("IndexedDB property"))?;
+                .ok_or(V8BindingError::JavaScriptException)?;
             result.insert(
                 key_string,
                 idb_value_to_json_inner(scope, state, child, depth + 1)?,
@@ -4828,8 +4832,17 @@ fn idb_json_to_value<'s>(
             .unwrap_or_default();
         let array = v8::Array::new(scope, values.len() as i32);
         for (index, value) in values.iter().enumerate() {
+            if value
+                .get("__oryn_clone_type")
+                .and_then(serde_json::Value::as_str)
+                == Some("array_hole")
+            {
+                continue;
+            }
             let value = idb_json_to_value(scope, state, value)?;
-            array.set_index(scope, index as u32, value);
+            let key = v8::String::new(scope, &index.to_string())
+                .ok_or(V8BindingError::Allocation("IndexedDB array key"))?;
+            array.create_data_property(scope, key.into(), value);
         }
         if let Some(properties) = value
             .get("properties")
@@ -5099,6 +5112,16 @@ fn current_platform_origin(scope: &mut v8::PinScope) -> String {
         .unwrap_or_else(|| "null".into())
 }
 
+fn new_internal_idb_request(state: &V8BindingState, transaction_id: Option<u64>) -> u64 {
+    let id = new_idb_request(state, transaction_id);
+    if let PlatformObjectRecord::IdbRequest(request) =
+        &mut *platform_object_mut(state, id).expect("new request")
+    {
+        request.internal = true;
+    }
+    id
+}
+
 fn new_idb_request(state: &V8BindingState, transaction_id: Option<u64>) -> u64 {
     new_idb_request_for_source(state, transaction_id, None)
 }
@@ -5111,6 +5134,8 @@ fn new_idb_request_for_source(
     register_platform_object(
         state,
         PlatformObjectRecord::IdbRequest(IdbRequestRecord {
+            internal: false,
+            open_request: false,
             result: None,
             error: None,
             transaction_id,
@@ -5394,7 +5419,7 @@ fn finalize_failed_idb_upgrade(
         database.closed = true;
         (database.name.clone(), database.old_version)
     };
-    let hidden = new_idb_request(state, None);
+    let hidden = new_internal_idb_request(state, None);
     submit_idb(
         scope,
         state,
@@ -7474,6 +7499,7 @@ fn initialize_error_event<'s>(
             target: None,
             current_target: None,
             platform_target: None,
+            platform_path: Vec::new(),
             platform_current_target: None,
             bubbles,
             cancelable,
@@ -7635,6 +7661,7 @@ fn generated_constructor<'s>(
                 target: None,
                 current_target: None,
                 platform_target: None,
+                platform_path: Vec::new(),
                 platform_current_target: None,
                 bubbles,
                 cancelable,
@@ -9022,6 +9049,10 @@ fn dispatch_platform_event_capturing(
     {
         request.done = true;
     }
+    if matches!(&*platform_object(state, id)?, PlatformObjectRecord::IdbRequest(request) if request.internal)
+    {
+        return Ok(false);
+    }
     let event = match existing {
         Some(event) => event,
         None => generated_event(scope, event_type)?,
@@ -9052,6 +9083,22 @@ fn dispatch_platform_event_capturing(
                 record.cancelable = true;
             }
         }
+    }
+    if let Some(event_id) = generated_event_id
+        && matches!(
+            &*platform_object(state, id)?,
+            PlatformObjectRecord::IdbRequest(_)
+                | PlatformObjectRecord::IdbTransaction(_)
+                | PlatformObjectRecord::IdbDatabase(_)
+        )
+    {
+        if existing.is_none()
+            && event_type == "abort"
+            && let Some(record) = state.events.borrow_mut().get_mut(&event_id)
+        {
+            record.bubbles = true;
+        }
+        return dispatch_idb_event_path(scope, state, id, event, event_id);
     }
     let default_prevented = v8::String::new(scope, "defaultPrevented")
         .ok_or(V8BindingError::Allocation("event defaultPrevented"))?;
@@ -9118,6 +9165,17 @@ fn dispatch_platform_event_capturing(
     let receiver = target.map_or_else(|| v8::undefined(scope).into(), Into::into);
     let mut threw = false;
     for listener in callbacks {
+        if listener.global_handler
+            && matches!(
+                &*platform_object(state, id)?,
+                PlatformObjectRecord::IdbRequest(_)
+                    | PlatformObjectRecord::IdbTransaction(_)
+                    | PlatformObjectRecord::IdbDatabase(_)
+            )
+        {
+            continue;
+        }
+
         if listener.signal_id.is_some_and(|signal_id| {
             matches!(
                 &*platform_object(state, signal_id).expect("validated AbortSignal listener"),
@@ -9177,6 +9235,185 @@ fn dispatch_platform_event_capturing(
         && let Some(record) = state.events.borrow_mut().get_mut(&event_id)
     {
         record.platform_current_target = None;
+    }
+    Ok(threw)
+}
+
+// IndexedDB's event parent chain is request -> transaction -> connection.
+// Snapshot the path once, while listener lists are snapshotted at each phase.
+fn dispatch_idb_event_path(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    target: u64,
+    event: v8::Local<v8::Object>,
+    event_id: u64,
+) -> Result<bool, V8BindingError> {
+    let mut path = vec![target];
+    loop {
+        let parent = match &*platform_object(state, *path.last().unwrap())? {
+            PlatformObjectRecord::IdbRequest(request) if !request.open_request => {
+                request.transaction_id
+            }
+            PlatformObjectRecord::IdbTransaction(transaction) => Some(transaction.database_id),
+            _ => None,
+        };
+        match parent {
+            Some(parent) => path.push(parent),
+            None => break,
+        }
+    }
+    state
+        .events
+        .borrow_mut()
+        .get_mut(&event_id)
+        .unwrap()
+        .platform_path = path.clone();
+    let mut threw = false;
+    for &current in path.iter().rev() {
+        if state
+            .events
+            .borrow()
+            .get(&event_id)
+            .unwrap()
+            .propagation_stopped
+        {
+            break;
+        }
+        threw |= invoke_idb_event_phase(
+            scope,
+            state,
+            current,
+            event,
+            event_id,
+            true,
+            if current == target { 2 } else { 1 },
+        )?;
+    }
+    for &current in &path {
+        let stopped = {
+            let events = state.events.borrow();
+            let record = events.get(&event_id).unwrap();
+            record.propagation_stopped || (current != target && !record.bubbles)
+        };
+        if stopped {
+            break;
+        }
+        threw |= invoke_idb_event_phase(
+            scope,
+            state,
+            current,
+            event,
+            event_id,
+            false,
+            if current == target { 2 } else { 3 },
+        )?;
+    }
+    Ok(threw)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn invoke_idb_event_phase(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    current: u64,
+    event: v8::Local<v8::Object>,
+    event_id: u64,
+    capture: bool,
+    phase: u16,
+) -> Result<bool, V8BindingError> {
+    let event = v8::Local::new(scope, event);
+    let event_type = {
+        let mut events = state.events.borrow_mut();
+        let record = events.get_mut(&event_id).unwrap();
+        record.platform_current_target = Some(current);
+        record.phase = phase;
+        record.event_type.clone()
+    };
+    let interface = platform_interface_for_id(state, current)
+        .ok_or(V8BindingError::Allocation("IndexedDB event target"))?;
+    let receiver = new_platform_object(scope, state, interface, current)?;
+    let callbacks = state
+        .platform_listeners
+        .borrow()
+        .get(&(current, event_type.clone()))
+        .cloned()
+        .unwrap_or_default();
+    let mut threw = false;
+    for listener in callbacks
+        .into_iter()
+        .filter(|listener| listener.capture == capture)
+    {
+        if scope.is_execution_terminating()
+            || state
+                .events
+                .borrow()
+                .get(&event_id)
+                .unwrap()
+                .immediate_stopped
+        {
+            break;
+        }
+        let active = state
+            .platform_listeners
+            .borrow()
+            .get(&(current, event_type.clone()))
+            .is_some_and(|listeners| {
+                listeners
+                    .iter()
+                    .any(|entry| entry.registration_id == listener.registration_id)
+            });
+        if !active
+            || listener.signal_id.is_some_and(|signal_id| {
+                matches!(
+                    &*platform_object(state, signal_id).expect("validated AbortSignal listener"),
+                    PlatformObjectRecord::AbortSignal(signal) if signal.aborted
+                )
+            })
+        {
+            continue;
+        }
+        if listener.once
+            && let Some(listeners) = state
+                .platform_listeners
+                .borrow_mut()
+                .get_mut(&(current, event_type.clone()))
+        {
+            listeners.retain(|entry| entry.registration_id != listener.registration_id);
+        }
+        state
+            .events
+            .borrow_mut()
+            .get_mut(&event_id)
+            .unwrap()
+            .in_passive_listener = listener.passive;
+        if listener.global_handler {
+            let handler = state
+                .platform_handlers
+                .borrow()
+                .get(&(current, event_type.clone()))
+                .cloned();
+            if let Some(handler) = handler {
+                let callback = v8::Local::new(scope, &handler);
+                let result =
+                    global_events::invoke(scope, callback, receiver.into(), &[event.into()]);
+                threw |= result.is_none();
+                if result.is_some_and(|value| value.is_false()) {
+                    let mut events = state.events.borrow_mut();
+                    let record = events.get_mut(&event_id).unwrap();
+                    if record.cancelable {
+                        record.default_prevented = true;
+                    }
+                }
+            }
+        } else {
+            threw |= invoke_platform_listener(scope, &listener.callback, receiver.into(), event);
+        }
+        state
+            .events
+            .borrow_mut()
+            .get_mut(&event_id)
+            .unwrap()
+            .in_passive_listener = false;
     }
     Ok(threw)
 }
@@ -15857,6 +16094,30 @@ fn set_platform_attribute(
         return Ok(());
     }
     if let Some(event_type) = member.strip_prefix("on") {
+        if matches!(
+            &*platform_object(state, id)?,
+            PlatformObjectRecord::IdbRequest(_)
+                | PlatformObjectRecord::IdbTransaction(_)
+                | PlatformObjectRecord::IdbDatabase(_)
+        ) {
+            let mut all_listeners = state.platform_listeners.borrow_mut();
+            let listeners = all_listeners.entry((id, event_type.into())).or_default();
+            if value.is_null_or_undefined() {
+                listeners.retain(|listener| !listener.global_handler);
+            } else if !listeners.iter().any(|listener| listener.global_handler) {
+                let registration_id = state.next_event_listener_id.get();
+                state.next_event_listener_id.set(registration_id + 1);
+                listeners.push(PlatformEventListener {
+                    registration_id,
+                    global_handler: true,
+                    callback: v8::Global::new(scope, value),
+                    capture: false,
+                    once: false,
+                    passive: false,
+                    signal_id: None,
+                });
+            }
+        }
         state
             .platform_handlers
             .borrow_mut()
@@ -15936,7 +16197,7 @@ fn set_platform_attribute(
         if let PlatformObjectRecord::IdbObjectStore(store) = &mut *platform_object_mut(state, id)? {
             store.name = new_name.clone();
         }
-        let hidden = new_idb_request(state, Some(transaction_id));
+        let hidden = new_internal_idb_request(state, Some(transaction_id));
         submit_idb(
             scope,
             state,
@@ -16021,7 +16282,7 @@ fn set_platform_attribute(
             if let PlatformObjectRecord::IdbIndex(index) = &mut *platform_object_mut(state, id)? {
                 index.name = new_name.clone();
             }
-            let hidden = new_idb_request(state, Some(transaction_id));
+            let hidden = new_internal_idb_request(state, Some(transaction_id));
             submit_idb(
                 scope,
                 state,
@@ -16386,6 +16647,11 @@ fn call_platform_operation<'s>(
                 integer as u64
             };
             let request_id = new_idb_request(state, None);
+            if let PlatformObjectRecord::IdbRequest(request) =
+                &mut *platform_object_mut(state, request_id)?
+            {
+                request.open_request = true;
+            }
             submit_idb(
                 scope,
                 state,
@@ -16403,6 +16669,11 @@ fn call_platform_operation<'s>(
         ("IDBFactory", "deleteDatabase") => {
             let name = required_string(scope, args, 0)?;
             let request_id = new_idb_request(state, None);
+            if let PlatformObjectRecord::IdbRequest(request) =
+                &mut *platform_object_mut(state, request_id)?
+            {
+                request.open_request = true;
+            }
             submit_idb(
                 scope,
                 state,
@@ -16565,7 +16836,7 @@ fn call_platform_operation<'s>(
             {
                 transaction.object_stores.push(name.clone());
             }
-            let hidden = new_idb_request(state, Some(transaction_id));
+            let hidden = new_internal_idb_request(state, Some(transaction_id));
             submit_idb(
                 scope,
                 state,
@@ -16637,7 +16908,7 @@ fn call_platform_operation<'s>(
                     object_store.deleted = true;
                 }
             }
-            let hidden = new_idb_request(state, None);
+            let hidden = new_internal_idb_request(state, None);
             submit_idb(
                 scope,
                 state,
@@ -16922,7 +17193,7 @@ fn call_platform_operation<'s>(
                         _ => {}
                     }
                 }
-                let hidden = new_idb_request(state, None);
+                let hidden = new_internal_idb_request(state, None);
                 submit_idb(
                     scope,
                     state,
@@ -16990,7 +17261,9 @@ fn call_platform_operation<'s>(
                             },
                         )?);
                     }
-                    None if !auto_increment || !value.is_object() => {
+                    None if !auto_increment
+                        || !crate::indexed_db::can_inject_key_path(&value, &key_path) =>
+                    {
                         return Err(V8BindingError::Unsupported {
                             interface: "IDBObjectStore".into(),
                             member: "DataError".into(),
@@ -17106,7 +17379,7 @@ fn call_platform_operation<'s>(
                     deleted: false,
                 }),
             );
-            let hidden = new_idb_request(state, Some(transaction_id));
+            let hidden = new_internal_idb_request(state, Some(transaction_id));
             submit_idb(
                 scope,
                 state,
@@ -17274,7 +17547,7 @@ fn call_platform_operation<'s>(
                 PlatformObjectRecord::IdbDatabase(database) => database.name.clone(),
                 _ => return Err(V8BindingError::Allocation("IDBDatabase record")),
             };
-            let hidden = new_idb_request(state, Some(transaction_id));
+            let hidden = new_internal_idb_request(state, Some(transaction_id));
             submit_idb(
                 scope,
                 state,
@@ -26987,6 +27260,7 @@ fn create_event_object_with_interface<'s>(
             target: None,
             current_target: None,
             platform_target: None,
+            platform_path: Vec::new(),
             platform_current_target: None,
             bubbles,
             cancelable,
@@ -27033,6 +27307,7 @@ fn create_input_event_object<'s>(
             target: None,
             current_target: None,
             platform_target: None,
+            platform_path: Vec::new(),
             platform_current_target: None,
             bubbles: true,
             cancelable,
@@ -27168,6 +27443,23 @@ fn call_event_operation<'s>(
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let id = event_id(scope, object)?;
     if member == "composedPath" {
+        let platform_path = state
+            .events
+            .borrow()
+            .get(&id)
+            .ok_or(V8BindingError::Allocation("event record"))?
+            .platform_path
+            .clone();
+        if !platform_path.is_empty() {
+            let path = v8::Array::new(scope, platform_path.len() as i32);
+            for (index, target) in platform_path.into_iter().enumerate() {
+                let interface = platform_interface_for_id(state, target)
+                    .ok_or(V8BindingError::Allocation("event path target"))?;
+                let target = new_platform_object(scope, state, interface, target)?;
+                path.set_index(scope, index as u32, target.into());
+            }
+            return Ok(Some(path.into()));
+        }
         let path = v8::Array::new(scope, 0);
         let target = get_event_attribute(scope, state, object, "currentTarget")?;
         if !target.is_null() {
@@ -27226,6 +27518,7 @@ impl Drop for EventDispatchGuard<'_> {
     fn drop(&mut self) {
         if let Some(event) = self.state.events.borrow_mut().get_mut(&self.id) {
             event.dispatching = false;
+            event.platform_path.clear();
             event.phase = 0;
             event.current_target = None;
             event.platform_current_target = None;
@@ -28373,12 +28666,150 @@ mod tests {
     }
 
     #[test]
+    fn indexeddb_events_follow_parent_path_and_listener_mutation_rules() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let database = register_platform_object(
+            &state,
+            PlatformObjectRecord::IdbDatabase(IdbDatabaseRecord {
+                name: "events".into(),
+                version: 1,
+                old_version: 1,
+                object_stores: vec![],
+                object_store_definitions: BTreeMap::new(),
+                upgrade_base_object_stores: vec![],
+                upgrade_base_definitions: BTreeMap::new(),
+                upgrade_transaction_id: None,
+                closed: false,
+            }),
+        );
+        let transaction = register_platform_object(
+            &state,
+            PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
+                database_id: database,
+                request_id: None,
+                mode: "readwrite".into(),
+                object_stores: vec![],
+                aborted: false,
+                error: None,
+                pending_requests: 0,
+                completion_requested: false,
+                completion_queued: false,
+                explicit_commit: false,
+                active: true,
+                finished: false,
+            }),
+        );
+        let request = new_idb_request(&state, Some(transaction));
+        let open_request = new_idb_request(&state, Some(transaction));
+        if let PlatformObjectRecord::IdbRequest(request) =
+            &mut *platform_object_mut(&state, open_request).unwrap()
+        {
+            request.open_request = true;
+        }
+        for (name, interface, id) in [
+            ("db", "IDBDatabase", database),
+            ("tx", "IDBTransaction", transaction),
+            ("rq", "IDBRequest", request),
+            ("opening", "IDBOpenDBRequest", open_request),
+        ] {
+            let value = new_platform_object(scope, &state, interface, id).unwrap();
+            let name = v8::String::new(scope, name).unwrap();
+            context.global(scope).set(scope, name.into(), value.into());
+        }
+        let source = v8::String::new(scope, r#"(()=>{
+            const errors=[];function check(value,message){if(!value)errors.push(message)}
+            let openCalls=0;
+            for(const target of [db,tx]) target.addEventListener('upgradeneeded',()=>openCalls+=100,true);
+            opening.onupgradeneeded=e=>{
+                check(opening.transaction===tx,'open transaction remains exposed');
+                check(e.target===opening && e.composedPath().length===1 && e.composedPath()[0]===opening,'open event boundary');
+                openCalls++;
+            };
+            opening.dispatchEvent(new Event('upgradeneeded',{bubbles:true}));
+            check(openCalls===1,'open request propagated to transaction');
+            const order=[];
+            for(const [name,target] of [['db',db],['tx',tx],['rq',rq]]) {
+                for(const capture of [true,false]) target.addEventListener('probe',function(e){
+                    check(e.target===rq,'target retained');
+                    const path=e.composedPath();
+                    check(path.length===3 && path[0]===rq && path[1]===tx && path[2]===db,'event path');
+                    check(e.currentTarget===this && this===target,'current target');
+                    check(e.eventPhase===(target===rq?2:capture?1:3),'phase');
+                    order.push(name+(capture?'C':'B'));
+                },capture);
+            }
+            const e=new Event('probe',{bubbles:true,cancelable:true});
+            db.addEventListener('probe',e=>e.preventDefault());
+            check(rq.dispatchEvent(e)===false && e.defaultPrevented,'cancellation reaches caller');
+            check(order.join(',')==='dbC,txC,rqC,rqB,txB,dbB','bubble order '+order);
+            check(e.target===rq && e.currentTarget===null && e.eventPhase===0 && e.composedPath().length===0,'dispatch cleanup');
+            order.length=0;
+            rq.dispatchEvent(new Event('probe'));
+            check(order.join(',')==='dbC,txC,rqC,rqB','nonbubbling capture '+order);
+            const handlerOrder=[];
+            rq.addEventListener('success',()=>{handlerOrder.push('first');rq.onsuccess=()=>handlerOrder.push('replacement')});
+            rq.onsuccess=()=>handlerOrder.push('stale');
+            rq.addEventListener('success',()=>handlerOrder.push('last'));
+            rq.dispatchEvent(new Event('success'));
+            check(handlerOrder.join(',')==='first,replacement,last','handler replacement position '+handlerOrder);
+            rq.onsuccess=null;
+            rq.onsuccess=()=>handlerOrder.push('new');
+            handlerOrder.length=0;
+            rq.dispatchEvent(new Event('success'));
+            check(handlerOrder.join(',')==='first,last,replacement','handler reactivation position '+handlerOrder);
+            rq.onerror=()=>false;
+            check(!rq.dispatchEvent(new Event('error',{cancelable:true})),'handler return false');
+            rq.onerror=null;
+            let stopped='';
+            tx.addEventListener('stop',e=>{stopped+='first';e.stopImmediatePropagation()},true);
+            tx.addEventListener('stop',()=>stopped+='bad',true);
+            rq.addEventListener('stop',()=>stopped+='target');
+            rq.dispatchEvent(new Event('stop',{bubbles:true}));
+            check(stopped==='first','stop immediate');
+            let calls=0;
+            function removed(){calls+=100}
+            rq.addEventListener('mutation',()=>{rq.removeEventListener('mutation',removed);rq.addEventListener('mutation',removed)},{once:true});
+            rq.addEventListener('mutation',removed);
+            rq.addEventListener('mutation',()=>calls++,{once:true});
+            rq.dispatchEvent(new Event('mutation'));
+            check(calls===1,'removed snapshot listener revived');
+            rq.dispatchEvent(new Event('mutation'));
+            check(calls===101,'once listener repeated');
+            rq.addEventListener('passive',e=>e.preventDefault(),{passive:true});
+            check(rq.dispatchEvent(new Event('passive',{cancelable:true})),'passive cancellation');
+            if(errors.length)throw Error(errors.join("; "));
+            return true;
+        })()"#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
     fn indexeddb_key_conversion_preserves_infinities_utf16_and_array_identity() {
         check_global_event_prototype_script(
             r#"(()=>{
             const keys=[-Infinity,-1,-0,Infinity,new Date(0),'\uD800','💡','\uE000',new Uint8Array([0]),[]];
             for(let i=1;i<keys.length;i++)if(indexedDB.cmp(keys[i-1],keys[i])!==-1)throw Error('order '+i);
             if(indexedDB.cmp(-0,0)!==0)throw Error('zero');
+            const marker={};
+            const throwing=[0];Object.defineProperty(throwing,0,{get(){throw marker}});
+            for(const operation of [()=>indexedDB.cmp(throwing,0),()=>IDBKeyRange.only(throwing)]) {
+                let caught;try{operation()}catch(error){caught=error}
+                if(caught!==marker)throw Error('key getter exception replaced');
+            }
             const repeated=[];
             const sparse=new Array(1);Array.prototype[0]=1;
             try{
@@ -28389,6 +28820,100 @@ mod tests {
             } finally {delete Array.prototype[0]}
             return true;
         })()"#,
+        );
+    }
+
+    #[test]
+    fn indexeddb_store_clone_preserves_getter_exception_identity() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source = v8::String::new(
+            scope,
+            r#"
+            globalThis.location={href:'https://example.test/',origin:'https://example.test'};
+            let cloneChecks=0;
+            const opening=indexedDB.open('getter-exceptions',2);
+            opening.onupgradeneeded=()=>{
+                const store=opening.result.createObjectStore('records');
+                const marker={};
+                const value={get key(){throw marker}};
+                for(const operation of [()=>store.add(value,1),()=>store.put(value,1)]) {
+                    let caught;try{operation()}catch(error){caught=error}
+                    if(caught===marker)cloneChecks++;
+                }
+            };
+        "#,
+        )
+        .unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        for _ in 0..8 {
+            state.drain_platform_completions(scope, 8).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        let source = v8::String::new(scope, "cloneChecks===2").unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+
+    #[test]
+    fn indexeddb_array_clone_preserves_holes_without_prototype_access() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            let inheritedCalls=0;
+            const sparse=new Array(5);sparse[3]=undefined;sparse[4]=4;
+            Object.defineProperty(sparse,'2',{value:2,enumerable:false});
+            Object.defineProperty(Object.prototype,'1',{configurable:true,get(){inheritedCalls++;return 1}});
+            sparse
+        "#).unwrap();
+        let value = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let stored = idb_value_to_json(scope, &state, value).unwrap();
+        assert!(crate::indexed_db::key_from_stored(&stored).is_none());
+        let restored = idb_json_to_value(scope, &state, &stored).unwrap();
+        let key = v8::String::new(scope, "restored").unwrap();
+        context.global(scope).set(scope, key.into(), restored);
+        let source = v8::String::new(
+            scope,
+            r#"
+            delete Object.prototype[1];
+            inheritedCalls===0 && restored.length===5 && !Object.hasOwn(restored,0)
+                && !Object.hasOwn(restored,1) && !Object.hasOwn(restored,2)
+                && Object.hasOwn(restored,3) && restored[3]===undefined && restored[4]===4
+        "#,
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
         );
     }
 

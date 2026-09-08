@@ -255,6 +255,35 @@ pub fn key_path(value: &Value, path: &str) -> Option<Value> {
     Some(current)
 }
 
+/// Check the cloned value before a generated key is submitted to storage.
+/// Missing intermediate properties can be created, but primitives cannot own them.
+pub fn can_inject_key_path(value: &Value, path: &str) -> bool {
+    if path.is_empty() || path.starts_with("__oryn_compound_key_path__:") {
+        return false;
+    }
+    let mut current = value.clone();
+    let mut parts = path.split('.').peekable();
+    while let Some(part) = parts.next() {
+        if !current.is_object() && !current.is_array() {
+            return false;
+        }
+        if matches!(
+            current.get("__oryn_clone_type").and_then(Value::as_str),
+            Some("undefined" | "number" | "string")
+        ) {
+            return false;
+        }
+        if parts.peek().is_none() {
+            return true;
+        }
+        match property(&current, part) {
+            Some(value) => current = value,
+            None => return true,
+        }
+    }
+    false
+}
+
 fn property(value: &Value, name: &str) -> Option<Value> {
     match value {
         Value::String(s) if name == "length" => Some(json!(s.encode_utf16().count())),
@@ -282,6 +311,20 @@ fn property(value: &Value, name: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn generated_key_injection_rejects_existing_primitive_parents() {
+        assert!(can_inject_key_path(&json!({}), "a.b.c"));
+        assert!(can_inject_key_path(&json!({"a":{}}), "a.b.c"));
+        assert!(!can_inject_key_path(&json!({"a":123}), "a.b"));
+        assert!(!can_inject_key_path(&json!({"a":{"b":"foo"}}), "a.b.c"));
+        assert!(!can_inject_key_path(&json!({"a":null}), "a.b"));
+        assert!(!can_inject_key_path(&json!("text"), "key"));
+        assert!(can_inject_key_path(
+            &json!({"__oryn_clone_type":"object","properties":{"a":{}}}),
+            "a.b"
+        ));
+    }
+
     #[test]
     fn transport_roundtrips_and_orders_all_key_types() {
         let keys = [

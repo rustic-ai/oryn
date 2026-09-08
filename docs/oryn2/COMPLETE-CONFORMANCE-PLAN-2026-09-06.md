@@ -51,9 +51,13 @@ shared IndexedDB key transport are verified by this full run. IndexedDB gains
 [the native proof](CONFORMANCE-IDB-KEYS-NATIVE-2026-09-08.json).
 These results do not establish complete conformance or qualification.
 
-Next: validate the isolated IndexedDB event path, handler ordering, open-request
-boundary and getter-exception preservation against native tests and unchanged
-fixtures, then measure a signed candidate. Keep every remaining failure in scope.
+The IndexedDB event, exception, sparse-array, range and key-injection batch now
+passes strict Clippy, 167 JavaScript tests (two existing ignores), 18 storage tests
+and 17 overlapping native IndexedDB checks. Eight unchanged fixtures pass all
+97 assertions with successful harness completion; see the
+[native evidence](CONFORMANCE-IDB-EVENTS-NATIVE-2026-09-08.json).
+Next: build and verify the signed candidate, measure all 4,022 executions, and audit
+whole-test and assertion deltas. Every remaining failure stays in scope.
 
 | Root | Passed / required |
 |---|---:|
@@ -77,8 +81,8 @@ The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exac
 The latest batch gained 14 whole tests with no observed assertion regressions.
 The four previous candidate regressions are verified recovered in the signed run.
 Further progress requires closing shared failure chains, not counting native checks
-as whole-inventory gains. The isolated event and exception fixes are under native
-validation; they have no signed full-run evidence yet.
+as whole-inventory gains. The event and exception fixes pass native validation and all 97 assertions in
+eight unchanged fixtures; they have no signed full-run evidence yet.
 
 The backlog now joins the durable [diagnosis ledger](CONFORMANCE-DIAGNOSES.json),
 keyed by inventory ID. A confirmed cause is bound to the full result hash, source

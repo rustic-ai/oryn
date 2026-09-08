@@ -1,0 +1,612 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "799ebc9fab93b437a2b295bb4b6181d126b63aac",
+  "runtime_source_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "e3e0dd686c1a9b72be5a567093f0dff202f202de91b1f7ebce20d3876bcac3d0",
+    "crates/oryn-js/src/v8_bindings/message_events.rs": "0d10b3c747a46c2e2fc5a7aaa85301d59c36e0a0983d879795acfd3dfc967f7a",
+    "crates/oryn-js/src/indexed_db.rs": "1c665f60bde1cf3c1c884af3cdc97d5063dc5351ad10a53aa280ef66542cad16",
+    "crates/oryn-native/src/storage.rs": "656ecef25c5c5f7e869927b773e051bed2253c4a7174b6c656c361ee815e73aa"
+  },
+  "scope": "Native validation only; signed 4022-inventory measurement required.",
+  "changes": [
+    "IndexedDB event parent paths, phases, cancellation, listener identity and handler ordering",
+    "Open-request event isolation and suppression of internal metadata request events",
+    "Getter exception identity and sparse array clone preservation",
+    "Parent-storage range lookup and synchronous generated-key injection validation"
+  ],
+  "native_gates": {
+    "strict_clippy": true,
+    "javascript": {
+      "passed": 167,
+      "ignored_existing": 2
+    },
+    "storage": {
+      "passed": 18
+    },
+    "native_indexed_db": {
+      "passed": 17,
+      "overlaps_storage": true
+    }
+  },
+  "fixtures": [
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "IndexedDB/request_bubble-and-capture.any.js",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "tests": [
+          {
+            "message": null,
+            "name": "IndexedDB Request Event Propagation: Bubbling and Capturing",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "IndexedDB/idbobjectstore_add.any.js",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "tests": [
+          {
+            "message": null,
+            "name": "Attempt to 'add()' a record that does not meet the constraints of an   object store's inline key requirements",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Attempt to call 'add()' without a key parameter when the object store uses out-of-line keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Attempt to 'add()' a record where the record's key does not meet the constraints of a valid key",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Attempt to 'add()' a record where the record's in-line key is not  defined",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Attempt to 'add()' a record where the out of line key provided does not meet the constraints of a valid key",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "If the object store has been deleted, the implementation must throw a DOMException of type InvalidStateError",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "add() a record where a value being indexed does not meet the constraints of a valid key",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "add() record with same key already exists",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "add() where an index has unique:true specified",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "add() with an inline key",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "add() with an out-of-line key",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "add() object store's key path is an object attribute",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "If the transaction this IDBObjectStore belongs to has its mode set to readonly, throw ReadOnlyError",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "add() autoIncrement and inline keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "add() autoIncrement and out-of-line keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Object store has autoIncrement:true and the key path is an object attribute",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "IndexedDB/idbobjectstore_get.any.js",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "tests": [
+          {
+            "message": null,
+            "name": "Attempts to retrieve a record that doesn't exist",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "When a transaction is aborted, throw TransactionInactiveError",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "When an invalid key is used, throw DataError",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key is a number",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key is a string",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key is a date",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Returns the record with the first key in the range",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "IndexedDB/idbobjectstore_put.any.js",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "tests": [
+          {
+            "message": null,
+            "name": "Attempt to put() a record that does not meet the constraints of an object store's inline key requirements",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Attempt to call put() without an key parameter when the object store uses out-of-line keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Attempt to put() a record where the record's key does not meet the constraints of a valid key",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Attempt to put() a record where the record's in-line key is not defined",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Attempt to put() a record where the out of line key provided does not meet the constraints of a valid key",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "If the object store has been deleted, the implementation must throw a DOMException of type InvalidStateError",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "put() a record where a value being indexed does not meet the constraints of a valid key",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "put() where an index has unique:true specified",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "put() with an inline key",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "put() with an out-of-line key",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "put() record with key already exists",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Object store's key path is an object attribute",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "If the transaction this IDBObjectStore belongs to has its mode set to readonly, throw ReadOnlyError",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "autoIncrement and inline keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "autoIncrement and out-of-line keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Object store has autoIncrement:true and the key path is an object attribute",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "IndexedDB/idbtransaction_abort.any.js",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "tests": [
+          {
+            "message": null,
+            "name": "Abort event should fire during transaction",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Abort during auto-committing should throw InvalidStateError.",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Abort on completed transaction should throw InvalidStateError.",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "IndexedDB/keygenerator.any.js",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "tests": [
+          {
+            "message": null,
+            "name": "put() throws if key cannot be injected - single segment path",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "put() throws if key cannot be injected - multi-segment path",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Keygenerator overflow",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Keygenerator - starts at one, and increments by one",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Keygenerator - increments by one from last set key",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Keygenerator ConstraintError when using same id as already generated",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Keygenerator - don't increment when new key is not bigger than current",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key generator vs. explicit key 53 bits",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key generator vs. explicit key greater than 53 bits, less than 64 bits",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key generator vs. explicit key greater than 53 bits, less than 64 bits (negative)",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key generator vs. explicit key 63 bits",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key generator vs. explicit key 63 bits (negative)",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key generator vs. explicit key 64 bits",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key generator vs. explicit key 64 bits (negative)",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key generator vs. explicit key greater than 64 bits, but still finite",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key generator vs. explicit key greater than 64 bits, but still finite (negative)",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key generator vs. explicit key equal to Infinity",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key is injected into value - single segment path",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key generator vs. explicit key equal to -Infinity",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key is injected into value - multi-segment path",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key is injected into value - multi-segment path, partially populated",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "IndexedDB/key-conversion-exceptions.any.js",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "tests": [
+          {
+            "message": null,
+            "name": "IDBFactory cmp() static with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBKeyRange only() static with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBKeyRange lowerBound() static with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBKeyRange upperBound() static with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBKeyRange bound() static with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBCursor continue() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "key-conversion-exceptions",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBCursor update() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBObjectStore add() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBObjectStore put() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBObjectStore delete() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBObjectStore get() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBObjectStore getKey() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBObjectStore count() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBObjectStore openCursor() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBObjectStore openKeyCursor() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBIndex get() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBIndex getKey() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBIndex count() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBIndex openCursor() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBIndex openKeyCursor() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBObjectStore getAll() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBObjectStore getAllKeys() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBObjectStore getAllRecords() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBIndex getAll() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBIndex getAllKeys() method with throwing/invalid keys",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "IDBIndex getAllRecords() method with throwing/invalid keys",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "execution_mode": "isolated_native_context_fixture",
+      "fixture": "IndexedDB/keypath-exceptions.any.js",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "tests": [
+          {
+            "message": null,
+            "name": "The last element of keypath is validated",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key path evaluation: Exceptions from non-enumerable getters",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key path evaluation: Exceptions from enumerable getters",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key path evaluation: Exceptions from non-enumerable getters on prototype",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Key path evaluation: Exceptions from enumerable getters on prototype",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Array key conversion should not invoke prototype getters",
+            "status": 0
+          }
+        ]
+      }
+    }
+  ],
+  "fixture_assertions_passed": 97,
+  "diagnostic_limitations": [
+    "Uses explicit in-process-probe with native browser-context storage, not signed sandboxed worker.",
+    "Earlier RustExecutableDocument diagnostic attempts used compatibility IndexedDB and are not native evidence."
+  ],
+  "artifacts": {
+    "artifacts/upstream-conformance/native-idb-events/oryn-idb-event-context-fixtures-v3.log": "5367fc56d0ca83a24dc1ca3a7ded86ce84b4c74ee41dae230190ad38f00ac2e1",
+    "artifacts/upstream-conformance/native-idb-events/oryn-idb-event-context-fixtures-v4.log": "94f0ead757ec1fb1553b25927cf6abd6a2905a4db2a0548931a654a265b8e6c5",
+    "artifacts/upstream-conformance/native-idb-events/oryn-test-idb-key-gates-v3.py": "1d6083fd7e2b16aea88fba94efd1bd7cb967ed6b33bd8c3f2d2878c2933677eb",
+    "artifacts/upstream-conformance/native-idb-events/oryn-idb-event-v7-source-hashes.json": "9ecab4c79f967052a933697ad1719cb7da1d98aee87f922c914e7f5948da4310",
+    "artifacts/upstream-conformance/native-idb-events/conformance_idb_context_probe.rs": "252034748898af9114932c9fcea2e221872bf7f2b6d6dbe139ecc82029f2008a",
+    "artifacts/upstream-conformance/native-idb-events/oryn-idb-event-gates-v7.log": "284338fe5a3d25d869ec1b40abf8ee1e26c0d4bfbb25302b655f5bcc5816da8c",
+    "artifacts/upstream-conformance/native-idb-events/oryn-run-idb-event-context-fixtures.py": "62626735b9d4bfae2725e079492051b0da4d1ddbe5788b686b226ab98ce3a34a"
+  }
+}

@@ -1176,8 +1176,19 @@ fn execute_idb(
             key,
         } => {
             let store_data = store_ref(databases, origin, &database, &store)?;
-            let encoded = encode_key(&key)?;
-            let stored = store_data.records.get(&encoded);
+            let stored = if key
+                .get("__oryn_key_range")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+            {
+                store_data
+                    .records
+                    .values()
+                    .filter(|record| indexed_db_key_matches(&key, &record.key))
+                    .min_by(|left, right| compare_indexed_db_keys(&left.key, &right.key))
+            } else {
+                store_data.records.get(&encode_key(&key)?)
+            };
             IdbResponse {
                 value: stored.map(|record| record.value.clone()),
                 value_present: stored.is_some(),

@@ -234,6 +234,7 @@ pub(super) fn construct<'s>(
             target: None,
             current_target: None,
             platform_target: None,
+            platform_path: Vec::new(),
             platform_current_target: None,
             bubbles,
             cancelable,

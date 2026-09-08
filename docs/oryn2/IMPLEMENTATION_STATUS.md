@@ -22,9 +22,13 @@ shared IndexedDB key transport are verified by this full run. IndexedDB gains
 [the native proof](CONFORMANCE-IDB-KEYS-NATIVE-2026-09-08.json).
 These results do not establish complete conformance or qualification.
 
-Next: validate the isolated IndexedDB event path, handler ordering, open-request
-boundary and getter-exception preservation against native tests and unchanged
-fixtures, then measure a signed candidate. Keep every remaining failure in scope.
+The IndexedDB event, exception, sparse-array, range and key-injection batch now
+passes strict Clippy, 167 JavaScript tests (two existing ignores), 18 storage tests
+and 17 overlapping native IndexedDB checks. Eight unchanged fixtures pass all
+97 assertions with successful harness completion; see the
+[native evidence](CONFORMANCE-IDB-EVENTS-NATIVE-2026-09-08.json).
+Next: build and verify the signed candidate, measure all 4,022 executions, and audit
+whole-test and assertion deltas. Every remaining failure stays in scope.
 
 | Root | Passed / required |
 |---|---:|
