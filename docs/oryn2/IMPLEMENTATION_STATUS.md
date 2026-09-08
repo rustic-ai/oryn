@@ -24,8 +24,15 @@ three WindowProxy tests. The historical early iframe WindowProxy check now passe
 [Native evidence](CONFORMANCE-WINDOW-NAMED-NATIVE-2026-09-08.json) binds these checks
 to source. These results do not establish complete conformance or qualification.
 
-Next: fix and verify the four observed assertion regressions, validate the drafted
-HTMLAllCollection implementation, and continue closing all remaining failures.
+Native candidate `bb8be42` recovers the four new assertion regressions in isolated
+fixture runs. HTMLAllCollection passes 41/41 assertions and legacy `document.all`
+passes 2/2. Native checks pass 158 JavaScript tests (two existing ignores), 50 DOM,
+10 WebIDL, 22 parser, 32 CSSOM and three WindowProxy checks, plus selected observer
+and naming checks. [Native evidence](CONFORMANCE-HTML-ALL-PARSER-NATIVE-2026-09-08.json)
+records the limits of these results; signed full-run recovery remains unverified.
+
+Next: reproduce and fix the shared IndexedDB key-type transport and key-path gaps,
+then measure the integrated candidate. All remaining failures stay in scope.
 
 | Root | Passed / required |
 |---|---:|

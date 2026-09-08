@@ -78,8 +78,17 @@ The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exac
 The latest batch produced only five net whole-test gains and four assertion
 regressions. Native checks validate implementation details; they do not substitute
 for full-inventory progress. Clear the new regressions before integrating another
-feature batch: validate HTMLAllCollection for the Window setter receiver case and
-reproduce the three parser MutationObserver failures with the pinned fixtures.
+feature batch. Native candidate `bb8be42` now recovers all four assertions in the
+unchanged affected fixtures: the parser checkpoint is explicit, and HTMLAllCollection
+provides the actual incompatible Window setter receiver. Its 41-assertion collection
+fixture also passes. Signed full-run recovery remains unverified; see the
+[native evidence](CONFORMANCE-HTML-ALL-PARSER-NATIVE-2026-09-08.json).
+
+The next shared cause candidate is IndexedDB key transport and extraction. Source
+inspection finds Date keys collapsed into numbers at the transport boundary and
+missing type-specific key-path accessors. Reproduce the affected storage operations
+before assigning confirmed causes, then fix binding and storage behavior together.
+Keep all other failure workstreams in scope.
 
 The backlog now joins the durable [diagnosis ledger](CONFORMANCE-DIAGNOSES.json),
 keyed by inventory ID. A confirmed cause is bound to the full result hash, source
