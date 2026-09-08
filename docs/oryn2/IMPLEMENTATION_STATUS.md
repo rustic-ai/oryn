@@ -2,68 +2,62 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> Latest full measurement: **2,880/4,022 (71.6%)**, **1,142 remaining**.
+> Latest full measurement: **2,906/4,022 (72.3%)**, **1,116 remaining**.
 
-The latest complete signed-worker run at `70352c7` measures **2,880/4,022 (71.6%)**,
-with **1,142 failing executions**. Versus `cdead0a`, it gains **152 whole-test
-passes** and loses **0**. Editing independently reproduces **377/704**, up from
-225/704. The selected editing audit finds zero assertion regressions or missing prior
-passes and 4,433 corrected existing assertions. The overall score comes from the
-complete inventory, not an overlay of selected results.
+The latest complete signed-worker run at `c43d732` measures **2,906/4,022 (72.3%)**,
+with **1,116 failing executions**. Compared with `70352c7`, it gains **27 whole-test
+passes** and loses **1**, for a net gain of **26**. CSS gains 15 executions and editing
+gains 12; DOM loses one. These are measured full-inventory results, not selected-run overlays.
 
-The full comparison records **0 observed assertion regressions** and **5
-unresolved missing prior passing assertions**. It reconciles 5 history assertion
-name changes only after complete normalized name/status multisets match. The 11 earlier
-editing assertion regressions remain. Explicit name matching finds 28 of the 29
-previously missing Range assertions passing now; 1 remains unobserved in
-addition to the 5 newly missing assertions. Those Range executions remain incomplete;
-passing assertion recovery does not establish whole-test completion or resolve other
-historical comparison gaps.
+The full audit finds **3 observed assertion regressions** in the lost DOM execution:
+`Node-appendChild-script-and-style.html`. Fragment and multi-node insertion run an
+earlier script before a later stylesheet sibling is connected. The new stylesheet
+lifetime checks expose this insertion-order defect; the regression is not waived.
+An isolated fix attaches and prepares the full insertion batch before executing its
+post-connection scripts. It is pending validation and is not part of this measured candidate.
 
-The audit verifies exact coverage of 4,022 unique IDs, nonempty successful passing
-completions, frozen source/binary hashes, and unchanged inventory, limits and sandbox
-boundaries. This remains an incomplete conformance result, not a release candidate.
+There are **45 newly unobserved prior passing assertions** in incomplete Range
+runs (25 dataChange, 9 insertData, 11 replaceData). Five history assertion-name changes
+reconcile only after the complete normalized name/status multisets match. All five
+previously missing appendData assertions are now observed passing, but that execution
+remains incomplete. The older replaceData assertion remains unobserved. The **11
+historical editing assertion regressions still fail**. None of these gaps is closed by
+selected test results or by the net increase in passing executions.
 
-Stylo remains the CSS engine and supplies the native declaration provider.
-Ordinary rule wrappers still lack complete typed objects and live declaration behavior.
-The new editing resolver handles nested and inline paragraph boundaries, preserves
-inherited author whitespace for bare text, reuses suitable inline formatting containers,
-and preserves structural metadata. Validation includes 300 new native cases, the existing
-editing regressions, 48 layout tests, 148 binding tests (two existing ignores), strict
-Clippy and signed-worker security checks. [Full evidence](CONFORMANCE-RENDERED-JOINS-FULL-2026-09-07.json) and
-[native evidence](CONFORMANCE-RENDERED-JOINS-2026-09-07.json) retain the results.
+The audit verifies all 4,022 unique IDs, nonempty successful passing completions,
+frozen source/binary fingerprints, and unchanged inventory, resource limits and sandbox
+boundaries. [Full evidence](CONFORMANCE-NATIVE-CSSOM-FULL-2026-09-07.json) records gains,
+losses, assertion deltas, retained historical gaps and native/selected evidence hashes.
+This remains an incomplete conformance result, not a release candidate.
 
-The subsequent signed candidate `0095097` passes **all 180 executions across the three
-whitespace-join families**. Its complete editing run reaches **389/704**, gaining 12
-whole-test passes with zero whole losses, assertion regressions or missing prior passes
-versus `70352c7`. It also recovers all three regressions from the intermediate candidate.
-[Selected evidence](CONFORMANCE-INLINE-JOIN-RETENTION-2026-09-07.json) binds both audits,
-exact coverage and signed-worker fingerprints. The overall score and canonical backlog
-remain tied to the full `70352c7` measurement; these 12 selected gains are not added to it.
+Stylo remains the CSS engine. Native rule projection now retains whole-sheet namespace
+and nesting context; style declarations and read-only rule lists are live; stylesheet
+identity survives owner replacement and detachment. Both first-line selector spellings
+use the native parser. Full-run CSS totals are cascade 49/97, CSSOM 85/190 and selectors
+162/277. Editing retains 389/704, including all 180 whitespace-join executions.
 
-The next implementation priority is **native CSSOM rule ownership, typed rule trees,
-live declarations and generated interface coverage**. Most non-page rule wrappers discard
-parsed rule metadata, expose plain declaration objects and lack the required IDL surface.
-Retain stylesheet context for namespaces and nested rule mutations, stable parent/child
-identity, live read-only rule collections and detached rule behavior. Use Stylo parsing
-and native state through the generated bindings. Then measure the broader candidate with
-the full inventory. Keep earlier editing regressions and Range resource failures open.
+The immediate work is to fix the insertion-order regression and validate the shared
+native rule-list mutation path. The isolated draft routes stylesheet insert/delete
+through Stylo's parser and hierarchy checks, with tests for namespaces, error precedence,
+conversion side effects and wrapper identity. Then complete nested rule ownership,
+live child collections, grouping mutations and generated typed interfaces. Media lists,
+other CSSOM interfaces, Range resource failures and the remaining inventory stay open.
 
 | Root | Passed / required |
 |---|---:|
 | IndexedDB | 341/456 |
 | WebIDL | 30/58 |
 | accname | 15/19 |
-| css/css-cascade | 47/97 |
-| css/cssom | 73/190 |
-| css/selectors | 161/277 |
-| dom | 393/662 |
-| editing | 377/704 |
+| css/css-cascade | 49/97 |
+| css/cssom | 85/190 |
+| css/selectors | 162/277 |
+| dom | 392/662 |
+| editing | 389/704 |
 | html/browsers/history | 32/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,142 failed IDs from this run.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,116 failed IDs from this run.
 
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.
