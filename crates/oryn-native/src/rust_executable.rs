@@ -805,7 +805,7 @@ fn parser_checkpoint(
     host: &mut RawV8Host,
     diagnostics: &mut Vec<oryn_common::v3::CapabilityDiagnostic>,
 ) -> Result<(), HostError> {
-    host.execute("void 0")?;
+    host.run_microtask_checkpoint()?;
     // The platform host receives Fetch/XHR/IndexedDB submissions immediately,
     // but their completions are page tasks, not parser microtasks. Polling
     // completions here can resume an `await` before html5ever has consumed the
@@ -1361,7 +1361,7 @@ fn parse_live_document(
         if chunk.is_empty() {
             continue;
         }
-        let progress = parser.push_until_blocked(&chunk);
+        let progress = parser.push_until_script(&chunk);
         let suffix = chunk.split_off(progress.consumed_bytes);
         for event in parser.take_events() {
             #[cfg(unix)]
@@ -1439,6 +1439,7 @@ fn parse_live_document(
                 host.ensure_provisional_frame_window(*node)?;
             }
             if let html::ParserEvent::ScriptReady { node, scheduling } = &event {
+                host.run_microtask_checkpoint()?;
                 let record = script_record(&live_dom.borrow(), *node)?;
                 let asynchronous = live_dom
                     .borrow()
@@ -1529,6 +1530,9 @@ fn parse_live_document(
         }
 
         if let Some(event @ html::ParserEvent::ScriptReady { node, .. }) = progress.blocked_on {
+            // HTML's script end-tag algorithm checkpoints before preparing the
+            // script, independently of Window named-property publication.
+            host.run_microtask_checkpoint()?;
             all_events.push(event);
             let record = script_record(&live_dom.borrow(), node)?;
             run_script_record(
@@ -6766,6 +6770,59 @@ mod tests {
                 .unwrap(),
             "true"
         );
+    }
+
+    #[test]
+    fn parser_script_checkpoint_delivers_insertions_before_script_execution() {
+        let mut page = RustExecutableDocument::load(
+            r#"<body><script id=first>
+            globalThis.order=[];
+            const observer=new MutationObserver(records=>{
+                order.push('observer:'+records.length);
+                Promise.resolve().then(()=>order.push('promise'));
+            });
+            observer.observe(document,{childList:true,subtree:true});
+            </script><p id=between></p><script id=second>
+            order.push('second');
+            const inserted=document.createElement('span');
+            document.getElementById('between').appendChild(inserted);
+            </script><script id=third>
+            order.push('third');observer.disconnect();
+            </script>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("order.join('|')").unwrap(),
+            "observer:3|promise|second|observer:1|promise|observer:2|promise|third"
+        );
+    }
+
+    #[test]
+    fn parser_script_checkpoint_also_precedes_nonblocking_script_preparation() {
+        for attributes in [
+            "type=application/json",
+            "type=module",
+            "defer src=absent.js",
+            "async src=absent.js",
+        ] {
+            let html = format!(
+                r#"<body><script>
+                globalThis.boundarySeen=false;
+                const observer=new MutationObserver(records=>{{
+                    if(records.some(record=>[...record.addedNodes].some(node=>node.id==='boundary'))) {{
+                        boundarySeen=!document.getElementById('later');observer.disconnect();
+                    }}
+                }});
+                observer.observe(document,{{childList:true,subtree:true}});
+                </script><script id=boundary {attributes}></script><p id=later></p>"#
+            );
+            let mut page = RustExecutableDocument::load(&html).unwrap();
+            assert_eq!(
+                page.evaluate("boundarySeen").unwrap(),
+                "true",
+                "{attributes}"
+            );
+        }
     }
 
     #[test]

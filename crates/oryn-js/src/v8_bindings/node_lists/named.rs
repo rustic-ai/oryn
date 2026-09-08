@@ -8,6 +8,12 @@ fn supported_index(name: &str) -> bool {
 
 fn names(state: &V8BindingState, id: u64) -> Result<Vec<(String, usize)>, V8BindingError> {
     let nodes = contents(state, id)?;
+    let all = state
+        .node_lists
+        .lists
+        .borrow()
+        .get(&id)
+        .is_some_and(|list| matches!(list.contents, Contents::All(_)));
     let dom = state.dom.borrow();
     let mut seen = BTreeSet::new();
     let mut names = Vec::new();
@@ -20,6 +26,7 @@ fn names(state: &V8BindingState, id: u64) -> Result<Vec<(String, usize)>, V8Bind
             }
             if let Some(name) = record.attributes.get(attribute)
                 && !name.is_empty()
+                && (!all || all_named_match(&dom, node, name))
                 && seen.insert(name.clone())
             {
                 names.push((name.clone(), index));
@@ -90,6 +97,35 @@ pub(super) fn item<'s>(
     }
 }
 
+fn value_at<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    id: u64,
+    index: usize,
+    key: v8::Local<v8::Name>,
+) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    let document = {
+        let lists = state.node_lists.lists.borrow();
+        lists.get(&id).and_then(|list| match list.contents {
+            Contents::All(root) => Some(root),
+            _ => None,
+        })
+    };
+    if let Some(document) = document {
+        let name = key.to_rust_string_lossy(scope);
+        let global = state
+            .global_object
+            .to_local(scope)
+            .ok_or_else(invalid_receiver)?;
+        let context = global
+            .get_creation_context(scope)
+            .ok_or_else(invalid_receiver)?;
+        let scope = &mut v8::ContextScope::new(scope, context);
+        return all::named_value(scope, state, document, name).map(Some);
+    }
+    Ok(node_at(scope, state, id, index as u32)?.map(Into::into))
+}
+
 fn getter(
     scope: &mut v8::PinScope,
     key: v8::Local<v8::Name>,
@@ -98,12 +134,12 @@ fn getter(
 ) -> v8::Intercepted {
     match resolve(scope, args.holder(), key, true).and_then(|found| {
         found
-            .map(|(state, id, index)| node_at(scope, &state, id, index as u32))
+            .map(|(state, id, index)| value_at(scope, &state, id, index, key))
             .transpose()
             .map(Option::flatten)
     }) {
         Ok(Some(node)) => {
-            rv.set(node.into());
+            rv.set(node);
             v8::Intercepted::kYes
         }
         Ok(None) => v8::Intercepted::kNo,
@@ -145,14 +181,14 @@ fn descriptor(
 ) -> v8::Intercepted {
     match resolve(scope, args.holder(), key, true).and_then(|found| {
         found
-            .map(|(state, id, index)| node_at(scope, &state, id, index as u32))
+            .map(|(state, id, index)| value_at(scope, &state, id, index, key))
             .transpose()
             .map(Option::flatten)
     }) {
         Ok(Some(node)) => {
             let descriptor = v8::Object::new(scope);
             for (name, value) in [
-                ("value", node.into()),
+                ("value", node),
                 ("writable", v8::Boolean::new(scope, false).into()),
                 ("enumerable", v8::Boolean::new(scope, false).into()),
                 ("configurable", v8::Boolean::new(scope, true).into()),

@@ -676,11 +676,28 @@ fn parse_member(member: &str) -> Result<Member, ParseError> {
         .strip_prefix("getter ")
         .map_or((false, member), |member| (true, member));
     if !readonly
-        && let Some((head, tail)) = member.split_once('(')
-        && let Some(arguments) = tail.strip_suffix(')')
-        && let Some((return_type, name)) = split_type_and_name(head)
+        && let Some((head, arguments)) = operation_signature(member)
+        && let Some((return_type, name)) = if getter
+            && (split_type_and_name(head).is_none()
+                || head.trim().ends_with(')')
+                || head.trim().ends_with(")?")
+                || matches!(
+                    head.trim(),
+                    "unsigned short"
+                        | "unsigned long"
+                        | "long long"
+                        | "unsigned long long"
+                        | "unrestricted float"
+                        | "unrestricted double"
+                )) {
+            Some((head.trim(), ""))
+        } else {
+            split_type_and_name(head)
+        }
     {
-        validate_identifier(name)?;
+        if !name.is_empty() {
+            validate_identifier(name)?;
+        }
         let arguments = parse_arguments(arguments)?;
         if getter
             && (arguments.len() != 1
@@ -934,6 +951,26 @@ fn parse_includes(input: &str) -> Result<Definition, ParseError> {
     })
 }
 
+// Find the operation's argument list without confusing a union return type
+// or a generic type's parentheses with that list.
+fn operation_signature(input: &str) -> Option<(&str, &str)> {
+    let mut parentheses = 0usize;
+    let mut angles = 0usize;
+    for (index, character) in input.char_indices() {
+        match character {
+            '<' => angles += 1,
+            '>' => angles = angles.saturating_sub(1),
+            '(' if parentheses == 0 && angles == 0 && index > 0 => {
+                return Some((input[..index].trim(), input[index + 1..].strip_suffix(')')?));
+            }
+            '(' => parentheses += 1,
+            ')' => parentheses = parentheses.checked_sub(1)?,
+            _ => {}
+        }
+    }
+    None
+}
+
 fn split_type_and_name(input: &str) -> Option<(&str, &str)> {
     let index = input.rfind(char::is_whitespace)?;
     let type_name = input[..index].trim();
@@ -1087,6 +1124,26 @@ mod tests {
         assert!(generated.contains("name: \"margin-top\""));
         assert!(generated.contains("name: \"page-orientation\""));
         assert!(parse_definitions("interface -Invalid { };").is_err());
+    }
+
+    #[test]
+    fn anonymous_indexed_getters_preserve_metadata_without_a_method_name() {
+        let definitions = parse_definitions("[Exposed=Window] interface HTMLAllCollection { getter Element (unsigned long index); getter (HTMLCollection or Element)? namedItem(DOMString name); (HTMLCollection or Element)? item(optional DOMString nameOrIndex); };").unwrap();
+        let interfaces = merge_partial_interfaces(&definitions).unwrap();
+        assert!(
+            matches!(&interfaces[0].members[0], Member::Operation { name, indexed_getter: true, .. } if name.is_empty())
+        );
+        assert!(matches!(
+            &interfaces[0].members[1],
+            Member::Operation {
+                named_getter: true,
+                return_type_descriptor: TypeDescriptor::Nullable(_),
+                ..
+            }
+        ));
+        let generated = emit_binding_registry(&definitions).unwrap();
+        assert!(generated.contains("name: \"\""));
+        assert!(generated.contains("indexed_getter: true"));
     }
 
     #[test]

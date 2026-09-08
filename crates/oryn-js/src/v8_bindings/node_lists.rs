@@ -1,11 +1,16 @@
 //! Native NodeList ownership, indexed properties, and live child-node views.
 use super::*;
+pub(super) mod all;
 mod named;
 
 #[derive(Clone)]
 pub(super) enum ElementFilter {
     Children,
+    Links,
     WindowName {
+        name: String,
+    },
+    AllName {
         name: String,
     },
     Tag {
@@ -24,6 +29,7 @@ pub(super) enum ElementFilter {
 
 #[derive(Clone)]
 enum Contents {
+    All(NodeId),
     Children(NodeId),
     Named { root: NodeId, name: String },
     Snapshot(Vec<NodeId>),
@@ -49,6 +55,8 @@ pub(super) struct Store {
     children: RefCell<BTreeMap<NodeId, u64>>,
     element_children: RefCell<BTreeMap<NodeId, u64>>,
     collection_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
+    all_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
+    all: RefCell<BTreeMap<NodeId, u64>>,
     brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     memory_delta: Cell<i64>,
     static_template: RefCell<Option<v8::Global<v8::ObjectTemplate>>>,
@@ -75,10 +83,15 @@ fn identity(
         .ok_or_else(invalid_receiver)?;
     let brand = state.node_lists.brand.borrow();
     let collection_brand = state.node_lists.collection_brand.borrow();
-    if ![brand.as_ref(), collection_brand.as_ref()]
-        .into_iter()
-        .flatten()
-        .any(|brand| actual.strict_equals(v8::Local::new(scope, brand).into()))
+    let all_brand = state.node_lists.all_brand.borrow();
+    if ![
+        brand.as_ref(),
+        collection_brand.as_ref(),
+        all_brand.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|brand| actual.strict_equals(v8::Local::new(scope, brand).into()))
     {
         return Err(invalid_receiver());
     }
@@ -111,6 +124,14 @@ fn identity_as(
 /// HTML named access includes all element IDs, plus names on four HTML types.
 /// https://html.spec.whatwg.org/multipage/nav-history-apis.html#named-access-on-the-window-object
 pub(super) fn window_named_match(dom: &DomRuntime, node: NodeId, wanted: &str) -> bool {
+    named_element_match(dom, node, wanted, false)
+}
+
+pub(super) fn all_named_match(dom: &DomRuntime, node: NodeId, wanted: &str) -> bool {
+    named_element_match(dom, node, wanted, true)
+}
+
+fn named_element_match(dom: &DomRuntime, node: NodeId, wanted: &str, all: bool) -> bool {
     if wanted.is_empty() {
         return false;
     }
@@ -137,7 +158,20 @@ pub(super) fn window_named_match(dom: &DomRuntime, node: NodeId, wanted: &str) -
     };
     matches_attribute("id")
         || (name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
-            && matches!(name.local.as_ref(), "embed" | "form" | "img" | "object")
+            && (matches!(name.local.as_ref(), "embed" | "form" | "img" | "object")
+                || (all
+                    && matches!(
+                        name.local.as_ref(),
+                        "a" | "button"
+                            | "frame"
+                            | "frameset"
+                            | "iframe"
+                            | "input"
+                            | "map"
+                            | "meta"
+                            | "select"
+                            | "textarea"
+                    )))
             && matches_attribute("name"))
 }
 
@@ -167,6 +201,19 @@ fn contents(state: &V8BindingState, id: u64) -> Result<Vec<NodeId>, V8BindingErr
         .map(|list| list.contents.clone())
         .ok_or_else(invalid_receiver)?;
     let (root, nodes) = match value {
+        Contents::All(root) => {
+            let dom = state.dom.borrow();
+            let nodes = traversal_nodes(&dom, root)?
+                .into_iter()
+                .skip(1)
+                .filter(|node| {
+                    dom.arena()
+                        .get(*node)
+                        .is_ok_and(|record| matches!(record.kind, NodeKind::Element { .. }))
+                })
+                .collect();
+            (root, nodes)
+        }
         Contents::Children(root) => (root, light_children(&state.dom.borrow(), root)?),
         Contents::Named { root, name } => {
             let dom = state.dom.borrow();
@@ -203,7 +250,12 @@ fn contents(state: &V8BindingState, id: u64) -> Result<Vec<NodeId>, V8BindingErr
                     };
                     match &filter {
                         ElementFilter::Children => true,
+                        ElementFilter::Links => name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                            && matches!(name.local.as_ref(), "a" | "area")
+                            && record.attributes.contains_key("href")
+                            && dom.arena().existing_attribute_node(*id, "href").is_none_or(|attribute| dom.arena().get(attribute).is_ok_and(|attribute| matches!(&attribute.kind, NodeKind::Attribute { namespace, .. } if namespace.is_none()))),
                         ElementFilter::WindowName { name } => window_named_match(&dom, *id, name),
+                        ElementFilter::AllName { name } => all_named_match(&dom, *id, name),
                         ElementFilter::Tag { name: wanted, html } => {
                             let qualified = name.prefix.as_ref().map_or_else(
                                 || name.local.to_string(),
@@ -330,6 +382,12 @@ pub(super) fn collect(state: &V8BindingState) -> Result<(), BindingError> {
         .collect::<Vec<_>>();
     for id in dead {
         let list = lists.remove(&id).expect("enumerated list");
+        if let Contents::All(root) = &list.contents {
+            let cached_id = state.node_lists.all.borrow().get(root).copied();
+            if cached_id == Some(id) {
+                state.node_lists.all.borrow_mut().remove(root);
+            }
+        }
         if let Contents::Children(root) = &list.contents {
             let cached_id = state.node_lists.children.borrow().get(root).copied();
             if cached_id == Some(id) {
@@ -378,6 +436,7 @@ fn create<'s>(
         collect(state)?;
     }
     let child_cache = match &value {
+        Contents::All(root) => Some((*root, &state.node_lists.all)),
         Contents::Children(root) => Some((*root, &state.node_lists.children)),
         Contents::Elements {
             root,
@@ -399,10 +458,10 @@ fn create<'s>(
             return Ok(object.into());
         }
     }
-    let interface = if matches!(&value, Contents::Elements { .. }) {
-        "HTMLCollection"
-    } else {
-        "NodeList"
+    let interface = match &value {
+        Contents::All(_) => "HTMLAllCollection",
+        Contents::Elements { .. } => "HTMLCollection",
+        _ => "NodeList",
     };
     let id = state.node_lists.next.get().saturating_add(1);
     state.node_lists.next.set(id);
@@ -438,7 +497,9 @@ fn create<'s>(
         object.set_internal_field(1, v8::BigInt::new_from_u64(scope, state.instance_id).into());
     }
     let brand = {
-        let mut brand = if interface == "HTMLCollection" {
+        let mut brand = if interface == "HTMLAllCollection" {
+            state.node_lists.all_brand.borrow_mut()
+        } else if interface == "HTMLCollection" {
             state.node_lists.collection_brand.borrow_mut()
         } else {
             state.node_lists.brand.borrow_mut()
@@ -451,7 +512,8 @@ fn create<'s>(
     };
     object.set_internal_field(2, brand.into());
     let nodes = match &value {
-        Contents::Children(root)
+        Contents::All(root)
+        | Contents::Children(root)
         | Contents::Named { root, .. }
         | Contents::Elements { root, .. } => vec![*root],
         Contents::Snapshot(nodes) => nodes.clone(),
@@ -501,11 +563,11 @@ fn create<'s>(
             * (std::mem::size_of::<NodeId>() + std::mem::size_of::<v8::Weak<v8::Object>>())
         + match &value {
             Contents::Snapshot(nodes) => nodes.len() * std::mem::size_of::<NodeId>(),
-            Contents::Children(_) => 0,
+            Contents::Children(_) | Contents::All(_) => 0,
             Contents::Named { name, .. } => name.len(),
             Contents::Elements { filter, .. } => match filter {
-                ElementFilter::Children => 0,
-                ElementFilter::WindowName { name } => name.len(),
+                ElementFilter::Children | ElementFilter::Links => 0,
+                ElementFilter::WindowName { name } | ElementFilter::AllName { name } => name.len(),
                 ElementFilter::Tag { name, .. } => name.len(),
                 ElementFilter::Namespace { namespace, local } => {
                     namespace.as_ref().map_or(0, String::len) + local.len()
@@ -537,6 +599,14 @@ fn create<'s>(
         .set(state.node_lists.memory_delta.get() + bytes);
     account_memory(scope, state);
     Ok(object.into())
+}
+
+pub(super) fn all<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    document: NodeId,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    create(scope, state, Contents::All(document))
 }
 
 pub(super) fn elements<'s>(
@@ -858,6 +928,28 @@ pub(super) fn configure_named(instance: v8::Local<v8::ObjectTemplate>) {
 #[cfg(test)]
 mod window_named_tests {
     use super::*;
+
+    #[test]
+    fn all_named_selection_includes_legacy_names_without_expanding_window_names() {
+        let mut dom = DomRuntime::new();
+        for tag in [
+            "a", "button", "embed", "form", "frame", "frameset", "iframe", "img", "input", "map",
+            "meta", "object", "select", "textarea", "div", "span", "area",
+        ] {
+            let node = dom.create_element_with_local_name("http://www.w3.org/1999/xhtml", tag);
+            dom.set_attribute(node, "name", "legacy").unwrap();
+            assert_eq!(
+                all_named_match(&dom, node, "legacy"),
+                !matches!(tag, "div" | "span" | "area")
+            );
+            assert_eq!(
+                window_named_match(&dom, node, "legacy"),
+                matches!(tag, "embed" | "form" | "img" | "object")
+            );
+            dom.set_attribute(node, "id", "identified").unwrap();
+            assert!(all_named_match(&dom, node, "identified"));
+        }
+    }
 
     #[test]
     fn window_named_selection_tracks_connection_order_and_renaming() {

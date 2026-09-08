@@ -724,6 +724,55 @@ mod raw_v8 {
     }
 
     impl RawV8Host {
+        /// Run the agent's pending microtasks without executing a synthetic script
+        /// or polling platform tasks. The parser calls this at script end tags.
+        pub fn run_microtask_checkpoint(&mut self) -> Result<(), HostError> {
+            let deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
+            v8::scope!(let handle_scope, &mut self.isolate);
+            let context = v8::Local::new(
+                handle_scope,
+                self.contexts
+                    .get(&self.active_realm)
+                    .expect("active realm context exists"),
+            );
+            let scope = &mut v8::ContextScope::new(handle_scope, context);
+            v8::tc_scope!(let scope, scope);
+            queue_mutation_observer_microtask(scope);
+            scope.perform_microtask_checkpoint();
+            if deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
+            if scope.has_caught() {
+                let exception = scope.exception();
+                let message = scope.message();
+                let detail = message
+                    .map(|message| message.get(scope).to_rust_string_lossy(scope))
+                    .unwrap_or_else(|| "microtask checkpoint failed".into());
+                scope.reset();
+                if let Some(exception) = exception {
+                    let canceled = oryn_js::v8_bindings::report_script_exception(
+                        scope, exception, message, false,
+                    )
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                    if !canceled {
+                        return Err(HostError::Execution(detail));
+                    }
+                }
+            }
+            if deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
+            Ok(())
+        }
+
         /// Execute a parser-owned classic script and report uncaught exceptions to its realm.
         /// API execution continues to use `JavaScriptHost::execute` and propagate errors.
         pub fn execute_parser_script(

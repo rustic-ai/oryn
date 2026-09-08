@@ -1,0 +1,423 @@
+{
+  "schema_version": 1,
+  "purpose": "Native implementation and diagnostic fixture evidence; not a signed full-inventory conformance result.",
+  "base_commit": "eb58d6429163a23ca4b37cfb4536a5c74befc6f4",
+  "runtime_source_sha256": {
+    "crates/oryn-dom/src/html.rs": "6979bc7b6a0a77b03139a4e0afde16fb0c57bfdda4171bcba06dc867d1d22744",
+    "crates/oryn-js/src/v8_context_bridge.cc": "1fc9d7edc2769fbf4efd416926a84cb18ad9a807ad8edd776d3f972cff9d4a17",
+    "crates/oryn-js/src/v8_context_bridge.rs": "cdaa76c3138b71c6727f688d80e8ff16f7851fd6841ef3d0f25ee07d34576937",
+    "crates/oryn-js/src/v8_bindings/node_lists.rs": "584571ca3411fad658fd3c3c25925da3099256ddbff93cde349e6c42ab2a0cf3",
+    "crates/oryn-js/src/v8_bindings/node_lists/all.rs": "076964b546f00208f897fc2454420dfa4cf6b0c1b6f4811d366e4a43fbdd8b6e",
+    "crates/oryn-js/src/v8_bindings/node_lists/named.rs": "2fbbeb5dd389dcf22bc484ca93f4f3a5275e0d345eb89c9327194e7ab054ce51",
+    "crates/oryn-webidl/src/lib.rs": "d130188bb5ab831f3c33dbe7be96db2a27f019fd074f09e3df4492d0762200ad",
+    "crates/oryn-js/src/v8_bindings.rs": "2e428a64a691ce51be2aebe8ad46e6d070a3808fb5c848abe77814cc921a4321",
+    "crates/oryn-webidl/idl/browser.webidl": "e122306fbbf90f46827c3ca8c7375deb9787787a13f37ea2f358a0229a992412",
+    "crates/oryn-js/src/generated/browser.rs": "59289fee7b10da572e278483f1aaeca195dc4f91ca901bdf40f154ce355b9784",
+    "crates/oryn-native/src/host.rs": "3c2a460c8069b66ed28ff5b1babec920d918f339a988886ff964d971db3254ce",
+    "crates/oryn-native/src/rust_executable.rs": "b892a9d594fa7f975ce4012df5e2f693c442a0780578bf40f8536fbd3061aad8"
+  },
+  "native_checks": {
+    "javascript": {
+      "passed": 158,
+      "ignored_existing": 2
+    },
+    "dom": 50,
+    "webidl": 10,
+    "parser": 22,
+    "mutation_observers": 1,
+    "observer_microtasks": 2,
+    "window_named": 4,
+    "cssom": 32,
+    "window_proxy": 3,
+    "strict_native_clippy": "passed",
+    "canonical_generation": "passed",
+    "workspace_format": "passed"
+  },
+  "fixture_results": [
+    {
+      "diagnostics": [],
+      "execution_mode": "isolated_native_fixture",
+      "fixture": "dom/nodes/MutationObserver-document.html",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "tests": [
+          {
+            "message": null,
+            "name": "parser insertion mutations",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "parser script insertion mutation",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "removal of parent during parsing",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "setup test",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "diagnostics": [],
+      "execution_mode": "isolated_native_fixture",
+      "fixture": "WebIDL/ecmascript-binding/global-object-implicit-this-value.any.js",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "tests": [
+          {
+            "message": "assert_throws_js: function \"() => { Object.create(globalThis).self; }\" did not throw",
+            "name": "Global object's getter throws when called on incompatible object",
+            "status": 1
+          },
+          {
+            "message": "assert_throws_js: function \"() => { Object.create(globalThis).origin = origin; }\" did not throw",
+            "name": "Global object's setter throws when called on incompatible object",
+            "status": 1
+          },
+          {
+            "message": "assert_throws_js: function \"() => { Object.create(globalThis).setInterval(() => {}, 100); }\" did not throw",
+            "name": "Global object's operation throws when called on incompatible object",
+            "status": 1
+          },
+          {
+            "message": null,
+            "name": "Global object's getter throws when called on incompatible object (document.all)",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "Global object's setter throws when called on incompatible object (document.all)",
+            "status": 0
+          },
+          {
+            "message": "assert_throws_js: function \"() => { focus.call(document.all); }\" did not throw",
+            "name": "Global object's operation throws when called on incompatible object (document.all)",
+            "status": 1
+          },
+          {
+            "message": "Cannot read properties of undefined (reading 'call')",
+            "name": "Global object's getter works when called on null / undefined",
+            "status": 1
+          },
+          {
+            "message": "Cannot read properties of undefined (reading 'call')",
+            "name": "Global object's setter works when called on null / undefined",
+            "status": 1
+          },
+          {
+            "message": null,
+            "name": "Global object's operation works when called on null / undefined",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "diagnostics": [],
+      "execution_mode": "isolated_native_fixture",
+      "fixture": "html/infrastructure/common-dom-interfaces/collections/htmlallcollection.html",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "tests": [
+          {
+            "message": null,
+            "name": "document.all is an HTMLAllCollection",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "length attribute",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "indexed property getter",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "indexed property getter out of range",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "named property getter",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "named property getter with dot syntax",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "named property getter with invalid name",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "named property getter returning collection",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "named property getter with \"array index property name\"",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "named property getter with invalid \"array index property name\"",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "named property getter with undefined",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "named property getter with null",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "namedItem method",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "namedItem method with invalid name",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "namedItem method returning collection",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "namedItem method with \"array index property name\"",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "namedItem method with invalid \"array index property name\"",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "namedItem method with undefined",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "namedItem method with null",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "namedItem method with no argument",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "legacy caller",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "legacy caller with invalid name",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "legacy caller returning collection",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "legacy caller with \"array index property name\"",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "legacy caller with \"array index property name\" as number",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "legacy caller with invalid \"array index property name\"",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "legacy caller with undefined",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "legacy caller with null",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "legacy caller with no argument",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "legacy caller is not a constructor",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "legacy caller with arbitrary this value",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "item method",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "item method with invalid name",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "item method returning collection",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "item method with \"array index property name\"",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "item method with \"array index property name\" as number",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "item method with invalid \"array index property name\"",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "item method with undefined",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "item method with null",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "item method with no argument",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "collections are new live HTMLCollection instances",
+            "status": 0
+          }
+        ]
+      }
+    },
+    {
+      "diagnostics": [],
+      "execution_mode": "isolated_native_fixture",
+      "fixture": "html/obsolete/requirements-for-implementations/other-elements-attributes-and-apis/document-all.html",
+      "result": {
+        "complete": true,
+        "harness": 0,
+        "tests": [
+          {
+            "message": null,
+            "name": "'unusual behaviors' of document.all",
+            "status": 0
+          },
+          {
+            "message": null,
+            "name": "'unusual behaviors' of document.all with assignment",
+            "status": 0
+          }
+        ]
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "artifacts/upstream-conformance/native-html-all-parser/oryn-html-all-native-v1.log",
+      "sha256": "0a76dafccc5e7f1960927680ed2ad8ad9c2753fa87812e9692f3f74ce5145167"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-html-all-parser/oryn-parser-checkpoint-v1.log",
+      "sha256": "6da23a6494ffbab8f9949a30d5903c67d8426a0985535ec80fee6d404e2c3cc1"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-html-all-parser/oryn-parser-checkpoint-v2.log",
+      "sha256": "af009c4973461fd25581f456c463789b3ff8dbdfa14871ccc40e22f59d82198a"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-html-all-parser/oryn-html-all-retention-v1.log",
+      "sha256": "f7e2cd643987eacd1885f6150a7c125f258e75e7cf6de9b887b9d4dd0a12baca"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-html-all-parser/oryn-html-all-native-retention-v2.log",
+      "sha256": "0cb2079dc3101c6c36a7bb1d45e6834b68309d72d6d372e96c307f1be78fe013"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-html-all-parser/oryn-html-all-fixtures-v1.log",
+      "sha256": "3bcb17637707121ced6c95703c09942d6ad9e60f9d90bc38bd40ccff6dffc498"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-html-all-parser/oryn-html-all-fixtures-v2.log",
+      "sha256": "5bdb032f36afbef87f1c7122508abb8e8f743e0c3f37049f294347a17d3bfaf9"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-html-all-parser/oryn-html-all-fixtures-v3.log",
+      "sha256": "f003df2236a4dc9eca253f4af17593e5ab7973b5ca53f05fe273a9373bc14cd2"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-html-all-parser/oryn-html-all-webidl.log",
+      "sha256": "95e07accb5242326e27495f324d560446fb5838d7773e9405caa26d74cccc0d6"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-html-all-parser/conformance_fixture_probe.rs",
+      "sha256": "e2991b086ea1ee423420c03405181245e21880241d47b9dbf788fabb1e59e077"
+    }
+  ],
+  "failed_attempts": [
+    "Initial strict Clippy found two redundant Value conversions; corrected before passing validation.",
+    "First fixture probe lacked relative resource aliases and produced no fixture result; corrected in subsequent runs.",
+    "Initial broader parser check lacked ORYN_WPT_ROOT; unchanged runtime passed all22 parser checks after supplying the pinned fixture path.",
+    "Initial HTMLAll fixture had35/41 assertions passing; missing Document.scripts and HTMLAnchorElement.name were implemented before41/41 rerun."
+  ],
+  "qualification": {
+    "complete": false,
+    "reason": "Current signed full result is 2,930/4,022 at 50993c3. Native results recover four observed assertion regressions but require signed full-run verification; six other global receiver assertions still fail in the diagnostic fixture."
+  },
+  "wpt_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "fixture_sha256": {
+    "dom/nodes/MutationObserver-document.html": "68d44922f7d0bcd1b8c87f79d50bce7100622e40e18b2b608be96a0c57a23342",
+    "WebIDL/ecmascript-binding/global-object-implicit-this-value.any.js": "2aaccd6b7e82e4b7f6631c903ed811cd29fc81bd6322db6e9418f8cf8c546fef",
+    "html/infrastructure/common-dom-interfaces/collections/htmlallcollection.html": "40fbb6ff53d433aa715424d196883bb89d8de04dadc6a527a7156700354c9bc1",
+    "html/obsolete/requirements-for-implementations/other-elements-attributes-and-apis/document-all.html": "840cc34fe3df28a964a91c03f7f34fb3ea87009c7e72aebca5e6e393f7002ad0",
+    "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e"
+  },
+  "diagnostic_binary_sha256": "9fc63ef2a34bab7c50da885945b833810a4304a2cae8cf1cac7c28902c749abf"
+}

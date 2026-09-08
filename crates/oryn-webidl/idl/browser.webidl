@@ -297,6 +297,14 @@ interface SecurityPolicyViolationEvent : Event {
 };
 
 [Exposed=Window, LegacyUnenumerableNamedProperties]
+interface HTMLAllCollection {
+  readonly attribute unsigned long length;
+  getter Element (unsigned long index);
+  getter (HTMLCollection or Element)? namedItem(DOMString name);
+  (HTMLCollection or Element)? item(optional DOMString nameOrIndex);
+};
+
+[Exposed=Window, LegacyUnenumerableNamedProperties]
 interface HTMLCollection {
   readonly attribute unsigned long length;
   getter Element? item(unsigned long index);
@@ -676,6 +684,7 @@ interface HTMLFormElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLAnchorElement : HTMLElement {
+  [CEReactions] attribute DOMString name;
   attribute DOMString href;
   attribute DOMString target;
   attribute DOMString referrerPolicy;
@@ -737,6 +746,13 @@ interface HTMLDialogElement : HTMLElement {
 
 [Exposed=Window]
 interface Document : Node {
+  [SameObject] readonly attribute HTMLAllCollection all;
+  [SameObject] readonly attribute HTMLCollection images;
+  [SameObject] readonly attribute HTMLCollection embeds;
+  [SameObject] readonly attribute HTMLCollection plugins;
+  [SameObject] readonly attribute HTMLCollection links;
+  [SameObject] readonly attribute HTMLCollection forms;
+  [SameObject] readonly attribute HTMLCollection scripts;
   attribute ObservableArray<CSSStyleSheet> adoptedStyleSheets;
   constructor();
   readonly attribute DOMImplementation implementation;

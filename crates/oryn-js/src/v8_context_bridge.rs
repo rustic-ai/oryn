@@ -106,3 +106,22 @@ pub(crate) fn set_window_index_handlers(
     // callback pointers. The C++ adapter supplies the modern boolean write ABI.
     unsafe { oryn_v8_set_window_index_handlers(&*template, handlers) }
 }
+
+unsafe extern "C" {
+    fn oryn_v8_configure_html_all_collection(
+        template: *const v8::ObjectTemplate,
+        callback: v8::FunctionCallback,
+    );
+}
+
+/// Configure HTMLAllCollection's native call behavior and [[IsHTMLDDA]] flag.
+/// Call before instantiating the template; the callback must implement the
+/// collection's legacy call algorithm and validate its native owner.
+pub fn configure_html_all_collection(
+    template: v8::Local<v8::ObjectTemplate>,
+    callback: v8::FunctionCallback,
+) {
+    // SAFETY: The local roots the template, and FunctionCallback has the V8
+    // callback ABI. V8 retains the function pointer, not a Rust reference.
+    unsafe { oryn_v8_configure_html_all_collection(&*template, callback) }
+}

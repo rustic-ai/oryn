@@ -98,3 +98,11 @@ extern "C" void oryn_v8_set_window_index_handlers(
       h->indexed_deleter, h->indexed_enumerator, window_index_define,
       h->indexed_descriptor));
 }
+
+// HTMLAllCollection is a callable legacy object with [[IsHTMLDDA]]. These
+// public V8 template APIs provide its language-level behavior directly.
+extern "C" void oryn_v8_configure_html_all_collection(
+    v8::ObjectTemplate* object_template, v8::FunctionCallback callback) {
+  object_template->MarkAsUndetectable();
+  object_template->SetCallAsFunctionHandler(callback);
+}

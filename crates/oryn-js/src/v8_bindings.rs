@@ -3174,6 +3174,9 @@ pub fn install_generated_bindings_with_root_for_global(
             if interface.name == "CSSRuleList" {
                 css_rule_lists::configure(instance);
             }
+            if interface.name == "HTMLAllCollection" {
+                node_lists::all::configure(instance);
+            }
             if interface.name == "HTMLCollection" {
                 node_lists::configure_named(instance);
             }
@@ -3204,6 +3207,11 @@ pub fn install_generated_bindings_with_root_for_global(
                 );
             }
             for (member_position, member) in members.iter().enumerate() {
+                // Anonymous special operations describe interceptors, not
+                // callable properties on the interface prototype.
+                if member.kind == GeneratedMemberKind::Operation && member.name.is_empty() {
+                    continue;
+                }
                 if members[..member_position]
                     .iter()
                     .any(|previous| previous.name == member.name && previous.kind == member.kind)
@@ -8194,7 +8202,11 @@ fn generated_attribute_getter(
         }
         return;
     }
-    if matches!(interface, "NodeList" | "HTMLCollection") && member == "length" {
+    if matches!(
+        interface,
+        "NodeList" | "HTMLCollection" | "HTMLAllCollection"
+    ) && member == "length"
+    {
         let result = node_lists::length(scope, &state, args.this(), interface);
         node_lists::account_memory(scope, &state);
         match result {
@@ -8604,6 +8616,20 @@ fn generated_operation_impl<'s>(
     }
     if interface == "MessageEvent" && member == "initMessageEvent" {
         message_events::reinitialize(scope, &state, &args);
+        return;
+    }
+    if interface == "HTMLAllCollection" && matches!(member, "item" | "namedItem") {
+        match node_lists::all::operation(
+            scope,
+            &state,
+            args.this(),
+            args.get(0),
+            member == "namedItem",
+        ) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        node_lists::account_memory(scope, &state);
         return;
     }
     if matches!(interface, "NodeList" | "HTMLCollection") && member == "item" {
@@ -22080,6 +22106,9 @@ fn get_attribute_value<'s>(
     interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if interface == "Document" && member == "all" {
+        return node_lists::all(scope, state, node);
+    }
     if interface == "CSSStyleDeclaration"
         && member != "parentRule"
         && let Some(view) =
@@ -22518,6 +22547,45 @@ fn get_attribute_value<'s>(
     ) && member == "children"
     {
         return node_lists::elements(scope, state, node, node_lists::ElementFilter::Children);
+    }
+    if interface == "Document"
+        && matches!(
+            member,
+            "images" | "embeds" | "plugins" | "links" | "forms" | "scripts"
+        )
+    {
+        let member = if member == "plugins" {
+            "embeds"
+        } else {
+            member
+        };
+        let document = wrap_node(scope, state, node)?;
+        let cache_name = v8::String::new(scope, &format!("oryn.document.collection.{member}"))
+            .ok_or(V8BindingError::Allocation("document collection cache key"))?;
+        let cache_key = v8::Private::for_api(scope, Some(cache_name));
+        if let Some(cached) = document.get_private(scope, cache_key)
+            && cached.is_object()
+        {
+            return Ok(cached);
+        }
+        let filter = if member == "links" {
+            node_lists::ElementFilter::Links
+        } else {
+            node_lists::ElementFilter::Namespace {
+                namespace: Some("http://www.w3.org/1999/xhtml".into()),
+                local: match member {
+                    "images" => "img",
+                    "embeds" => "embed",
+                    "forms" => "form",
+                    "scripts" => "script",
+                    _ => unreachable!(),
+                }
+                .into(),
+            }
+        };
+        let collection = node_lists::elements(scope, state, node, filter)?;
+        document.set_private(scope, cache_key, collection);
+        return Ok(collection);
     }
     if interface == "Document" && member == "documentElement" {
         let document_element = state.dom.borrow().first_element_child(node)?;
@@ -30907,6 +30975,59 @@ mod tests {
                 .run(scope)
                 .unwrap()
                 .is_true()
+        );
+    }
+
+    #[test]
+    fn document_html_collections_are_live_same_object_and_namespace_filtered() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+            const scripts=document.scripts,links=document.links;
+            if(scripts!==document.scripts||links!==document.links||document.embeds!==document.plugins)throw Error('identity');
+            for(const [tag,member] of [['img','images'],['embed','embeds'],['form','forms'],['script','scripts']]) {
+                const list=document[member],before=list.length,node=document.createElement(tag);
+                document.body.appendChild(node);
+                if(document[member]!==list||list.length!==before+1||list[list.length-1]!==node)throw Error(member+' insertion');
+                node.remove();if(list.length!==before)throw Error(member+' removal');
+            }
+            const anchor=document.createElement('a'),area=document.createElement('area'),svg=document.createElementNS('http://www.w3.org/2000/svg','a');
+            document.body.append(anchor,area,svg);anchor.href='';area.href='';svg.setAttribute('href','');
+            if(links.length!==2||links[0]!==anchor||links[1]!==area)throw Error('links');
+            anchor.removeAttribute('href');if(links.length!==1||links[0]!==area)throw Error('attribute');
+            document.body.appendChild(document.createElementNS('http://www.w3.org/2000/svg','script'));
+            const host=document.createElement('div');document.body.appendChild(host);host.attachShadow({mode:'open'}).appendChild(document.createElement('script'));
+            if(scripts.length!==0)throw Error('namespace or shadow');
+            return true;
+        })()"#,
+        );
+    }
+
+    #[test]
+    fn html_all_collection_is_live_callable_and_undetectable() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+            const all=document.all;
+            if(all!==document.all||!(all instanceof HTMLAllCollection)||all instanceof HTMLCollection)throw Error('brand');
+            if(Boolean(all)||typeof all!=='undefined'||all!=null||all!=undefined||all===null||all===undefined)throw Error('IsHTMLDDA');
+            if(all[0]!==document.documentElement||all.item(0)!==all[0]||all(0)!==all[0])throw Error('index');
+            const first=document.createElement('a'),second=document.createElement('a');
+            first.name=second.name='duplicateAll';
+            document.body.append(first,second);
+            const list=all.namedItem('duplicateAll');
+            if(!(list instanceof HTMLCollection)||list.length!==2||list[0]!==first||list[1]!==second)throw Error('named collection');
+            if(all.duplicateAll===list||all('duplicateAll')===list)throw Error('fresh collections');
+            first.remove();if(list.length!==1||all.duplicateAll!==second)throw Error('live');
+            if(all()!==null||all(undefined)!==null||all.item()!==null||all.item(undefined)!==null)throw Error('missing');
+            if(Function.prototype.call.call(all,{},'duplicateAll')!==second)throw Error('call this');
+            const setter=Object.getOwnPropertyDescriptor(globalThis,'name').set;
+            let rejected=false;try{setter.call(all)}catch(error){rejected=error instanceof TypeError}
+            if(!rejected)throw Error('Window receiver');
+            rejected=false;try{new all()}catch(error){rejected=error instanceof TypeError}
+            if(!rejected)throw Error('constructor');
+            rejected=false;try{new (new Proxy(all,{construct(){return {}}}))()}catch(error){rejected=error instanceof TypeError}
+            if(!rejected)throw Error('proxy constructor');
+            return true;
+        })()"#,
         );
     }
 

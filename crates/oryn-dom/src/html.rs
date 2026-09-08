@@ -207,6 +207,17 @@ impl StreamingParser {
     /// Feed input until a parser-blocking script closes. The unconsumed suffix
     /// remains with the caller, which executes the script and resumes parsing.
     pub fn push_until_blocked(&mut self, input: &str) -> ParseProgress {
+        self.push_until_script_boundary(input, false)
+    }
+
+    /// Pause at every script end tag so the host can perform the parser's
+    /// microtask checkpoint before preparing even deferred or data scripts.
+    /// Nonblocking scripts remain in the event queue, preserving scheduling.
+    pub fn push_until_script(&mut self, input: &str) -> ParseProgress {
+        self.push_until_script_boundary(input, true)
+    }
+
+    fn push_until_script_boundary(&mut self, input: &str, every_script: bool) -> ParseProgress {
         let mut consumed = 0;
         while consumed < input.len() {
             // A parser-inserted script cannot become ready before its closing
@@ -224,17 +235,22 @@ impl StreamingParser {
             if let Some(index) = self.pending_events.iter().position(|event| {
                 matches!(
                     event,
+                    ParserEvent::ScriptReady { scheduling, .. }
+                        if every_script || *scheduling == ScriptScheduling::Blocking
+                )
+            }) {
+                let blocking = matches!(
+                    self.pending_events[index],
                     ParserEvent::ScriptReady {
                         scheduling: ScriptScheduling::Blocking,
                         ..
                     }
-                )
-            }) {
-                let event = self.pending_events.remove(index);
+                );
+                let blocked_on = blocking.then(|| self.pending_events.remove(index));
                 self.inner.tokenizer.sink.sink.flush_text();
                 return ParseProgress {
                     consumed_bytes: consumed,
-                    blocked_on: Some(event),
+                    blocked_on,
                 };
             }
         }
