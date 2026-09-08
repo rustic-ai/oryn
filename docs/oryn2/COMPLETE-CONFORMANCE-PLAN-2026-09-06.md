@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `3f754fc`, measured on 2026-09-08.
+Current full-run evidence: signed candidate `a3acd6c`, measured on 2026-09-08.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,29 +32,29 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `3f754fc` passes **3,025/4,022 (75.2%)**, with **997 remaining**.
-It gains six whole tests and loses none versus `689c7e5`: focus-visible automation
-ordering, keyboard deletion in body-hosted shadow controls, and four plaintext
-Enter variants improve. Both previous shadow-control assertion regressions recover.
+The signed run at `a3acd6c` passes **3,030/4,022 (75.3%)**, with **992 remaining**.
+It gains 5 whole executions and loses 0 versus `3f754fc`.
+Stylo now parses and matches `:dir()` using shared HTML directionality for DOM
+queries and style snapshots. The full ledger lists every measured gain and loss.
 
-The audit validates exact inventory coverage, passing completions, source and
-binary fingerprints, and unchanged limits and sandbox settings. It records zero
-observed passing-to-failing assertions, 163 corrected assertions, and 16 additional
-passing names. Five server-port name differences reconcile; three newly missing
-prior passes in Range-mutations-insertData remain unresolved. Eleven older gaps
-recover, 108 remain absent, and the combined tracked missing count is 111.
-Missing assertions are not passes. All 11 historical editing assertion regressions
-still fail; cumulative regression tracking preserves unresolved older failures.
+The audit verifies exact inventory coverage, successful passing completions,
+source and binary fingerprints, and unchanged resource limits and sandbox settings.
+It records 0 observed passing-to-failing assertions,
+52 corrected existing assertions, and 35 additional passing names.
+After reconciliation, 85 prior passing assertions remain unobserved across
+tracked generations. Missing observations are not passes. 11 historical
+assertion regressions remain observed failing; the evidence preserves their identities.
 
-[Full evidence](CONFORMANCE-AUTOMATION-ENTER-FULL-2026-09-08.json) records the audit.
-Stylo remains the CSS engine. Automation ordering, native shadow keyboard targeting,
-and editing-host Enter semantics are implemented and measured in the signed suite.
+[Full evidence](CONFORMANCE-CSS-DIRECTION-FULL-2026-09-08.json) records this candidate
+and links the complete assertion audit and cumulative reconciliation. This is one
+measured full run, not complete conformance or broader release qualification.
 
-Next: qualify the isolated CSS direction candidate in the signed full suite.
-Its 277-selector diagnostic has four whole-execution gains and no losses or
-unresolved assertion-retention gaps. Keep the unfinished Range and formatBlock
-changes preserved separately, with their failures tracked. Every remaining failure
-stays in scope; complete conformance is not established.
+Next: finish canonical native URL and Location integration, beginning with the
+reproduced bootstrap URL mutation/resolution defects. The isolated native URL
+setter foundation still needs runtime verification and production integration.
+Keep unfinished Range and formatBlock work separate, with their failures tracked.
+Every remaining execution stays in scope; completion still requires 4,022/4,022
+twice on the same frozen signed candidate and all qualification gates.
 
 | Root | Passed / required |
 |---|---:|
@@ -63,17 +63,16 @@ stays in scope; complete conformance is not established.
 | accname | 15/19 |
 | css/css-cascade | 54/97 |
 | css/cssom | 95/190 |
-| css/selectors | 193/277 |
-| dom | 401/662 |
+| css/selectors | 197/277 |
+| dom | 402/662 |
 | editing | 393/704 |
 | html/browsers/history | 32/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 997 failed IDs from this run.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 992 failed IDs from this run.
 
-
-## Current execution decision: separate CSS promotion from Range investigation
+## Previous execution decision: separate CSS promotion from Range investigation
 
 The signed overall baseline is still **3,025/4,022**, not the sum of local
 assertion improvements. The direction implementation has passed all four target
