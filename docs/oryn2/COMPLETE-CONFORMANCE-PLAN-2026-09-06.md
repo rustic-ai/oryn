@@ -73,23 +73,71 @@ run. Every remaining failure stays in scope; complete conformance is not establi
 The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 997 failed IDs from this run.
 
 
-## Immediate execution correction
+## Strategy reassessment after the formatBlock iterations
 
-The latest batch gained six whole tests without whole-test losses. Prioritize
-shared editing query semantics across the remaining 311 editing failures, while
-retaining all 393 current passes and tracking missing assertions. A diagnostic
-cluster is not a projected gain: reproduce its common mechanism and measure the
-unchanged affected fixtures before promoting implementation changes.
+The verified baseline remains 3,025/4,022. The isolated formatBlock work has
+corrected 795 assertions against that baseline but has not made a whole fixture
+pass, and five observed assertion regressions remain. These are implementation
+results, not overall conformance gains. Do not continue this family indefinitely
+because its assertion counts improve.
 
-The backlog now joins the durable [diagnosis ledger](CONFORMANCE-DIAGNOSES.json),
-keyed by inventory ID. A confirmed cause is bound to the full result hash, source
-commit and observed failed assertion names. A later candidate retains the diagnosis
-as history requiring revalidation; it does not inherit a confirmation automatically. Subsystem routing
-alone is not a confirmed shared cause. Rank subsequent batches by the number of
-failures linked to a reproduced common mechanism, then validate that mechanism
-against unchanged affected fixtures before paying for another full signed run.
-Record whole-test gains, losses, assertion regressions and missing assertions for
-every full candidate; retain the completion gates above without exceptions.
+The signed baseline contains 265 failed executions with exactly one failed
+assertion and complete harness execution: DOM 96, CSS 71, editing 49, HTML 25,
+IndexedDB 14, WebIDL 9, and referrer policy 1. Another 181 executions fail outside
+the assertion domain. These counts identify investigation opportunities, not
+promised gains or permission to skip harder cases.
+
+The v11 batch terminated with 90/91 fixture results: zero whole-execution gains
+or losses among observed results, five observed assertion regressions, and six
+missing prior passing assertions requiring reconciliation. `Range-insertNode.html`
+aborted with a stack overflow in both the batch and an isolated rerun using the
+same binary. This is an unresolved execution failure, not an omitted test or a
+proven new regression. The exact-coverage audit correctly refused the batch;
+partial evidence is `/private/tmp/oryn-range-format-partial-audit-v11.json`.
+The signed `3f754fc` ledger also records this stack overflow, establishing that
+it predates v11. A release linker map resolves the recursive crash path to
+`DomRuntime::mark_disconnected_with_focus`, reached from `Range.insertNode`
+through `insert_at_boundary`. Range bypasses ordinary pre-insertion validation,
+allowing an ancestor insertion to create a cycle. An isolated correction now
+validates before mutation, including before text splitting; verification remains
+pending. This does not establish a whole-execution gain.
+
+
+The selector investigation confirms that Stylo's Servo functional pseudo-class
+parser lacks `:dir()` and Oryn's DOM query matcher lacks direction matching.
+Four pinned direction-selector fixtures are investigation targets; no gains are
+claimed before all their assertions pass. Heading and other parsing failures
+are separate mechanisms and must not be counted as direction-selector gains.
+
+1. Resolve the missing execution and audit the 91-execution Range/Selection/formatBlock batch.
+   Preserve all failures and missing assertions. Separate the shared Range.toString
+   correction from unfinished formatBlock work if its independent regression
+   coverage supports promotion. Do not promote the entire draft with known regressions.
+2. Re-triage across DOM, CSS, HTML, and editing using the pinned baseline. For each
+   candidate mechanism, reproduce the cause, list affected execution IDs, and list
+   every additional failure that would still prevent those executions from passing.
+   Repeated error text alone is insufficient. Start with selector SyntaxErrors,
+   scrolling tests blocked by missing animation support, and DOM single-failure
+   cases; select implementation order only after examining their actual dependencies.
+3. Choose batches by demonstrated whole-execution impact and implementation
+   dependencies. Complete the shared mechanism and its remaining blockers across
+   the affected fixtures. Stop expanding a batch when its measured results show
+   that another mechanism controls fixture completion; preserve the unfinished
+   work and move to the best-supported opportunity. All 997 failures remain in scope.
+4. Keep one serial build lane. Gather related fixes and direct regressions into a
+   coherent candidate before compiling. Avoid alternating release native-test and
+   probe builds for each small edit. Use the existing built probe for diagnostic
+   cases when source is unchanged; run appropriate native, generated, and strict
+   checks at batch boundaries. Do not change pinned resource limits or profiles.
+5. Report whole executions gained/lost first, assertion regressions and missing
+   observations second, and implementation details last. Run a signed full suite
+   after an affected batch demonstrates whole-execution gains and its regression
+   gates pass. Completion still requires all 4,022 executions twice on the same
+   frozen signed candidate and all qualification gates above.
+
+Stylo remains the CSS engine. The next CSS investigation must distinguish missing
+engine integration or configuration from missing CSS implementation before adding
+new behavior. No fixture changes, exclusions, assertion substitutions, or cap changes.
 
 ## Throughput correction after the IndexedDB batch
 
