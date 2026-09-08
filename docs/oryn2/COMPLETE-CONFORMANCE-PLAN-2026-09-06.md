@@ -73,6 +73,40 @@ run. Every remaining failure stays in scope; complete conformance is not establi
 The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 997 failed IDs from this run.
 
 
+## Current execution decision: separate CSS promotion from Range investigation
+
+The signed overall baseline is still **3,025/4,022**, not the sum of local
+assertion improvements. The direction implementation has passed all four target
+fixtures (51 assertions) in the combined candidate, while unfinished Range work
+has not produced a complete additional fixture. Do not make the CSS candidate
+wait for Range completion. Stylo remains the CSS engine.
+
+Preserve the Range changes separately and restore the baseline Range source in
+the CSS candidate. Validate that candidate against all 277 pinned selector
+executions, retain the raw assertion-name audit, and reconcile transport-only
+name differences using complete name/status multisets. Then run appropriate
+native and strict checks and the signed full inventory before claiming an
+overall increase. No full-inventory result has yet qualified this candidate.
+
+The combined Range v2 run returned 94 of 95 fixtures. The missing
+`Range-surroundContents.html` process consumed a CPU core beyond its deadline
+and was manually interrupted for diagnosis; this is not a spontaneous crash or
+a passing execution. A matching release linker map resolves the busy stack to
+`wrapper_graphs::refresh`, through `wrap_node` and `call_operation`. The cause
+is not yet established. Preserve the interruption evidence and investigate the
+native loop independently; do not promote the Range optimization on partial
+coverage.
+
+For subsequent batches, record the affected execution IDs, their remaining
+blockers, and the implementation dependencies before editing. Rank shared
+mechanisms across all roots by demonstrated fixture impact. A batch showing
+only assertion gains must identify its next concrete completion blocker before
+another iteration; otherwise preserve it and move to another supported
+opportunity. Report signed whole-execution gains/losses first, local candidate
+gains separately, and regressions/missing observations explicitly. All 997
+failures remain in scope; completion requires 4,022/4,022 twice on one frozen
+signed candidate plus the qualification gates.
+
 ## Strategy reassessment after the formatBlock iterations
 
 The verified baseline remains 3,025/4,022. The isolated formatBlock work has
