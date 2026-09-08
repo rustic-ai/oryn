@@ -1,33 +1,31 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Latest full measurement: **3,019/4,022 (75.1%)**, **1,003 remaining**.
+> Latest full measurement: **3,025/4,022 (75.2%)**, **997 remaining**.
 
-The signed run at `689c7e5` passes **3,019/4,022 (75.1%)**, with **1,003 remaining**.
-It gains eight whole tests and loses one versus `e83615c`: seven focus selector
-cases and one DOM case improve, while editing a text control in a body-hosted
-shadow root regresses. The signed focus subset passes 44/61.
+The signed run at `3f754fc` passes **3,025/4,022 (75.2%)**, with **997 remaining**.
+It gains six whole tests and loses none versus `689c7e5`: focus-visible automation
+ordering, keyboard deletion in body-hosted shadow controls, and four plaintext
+Enter variants improve. Both previous shadow-control assertion regressions recover.
 
 The audit validates exact inventory coverage, passing completions, source and
-binary fingerprints, and unchanged limits and sandbox settings. It records two
-passing-to-failing assertions, 71 corrected assertions, and 15 additional passing
-names. Five server-port name differences reconcile; five newly missing prior
-passes remain unresolved. Seven older gaps recover, 114 remain absent, and the
-combined tracked missing count is 119. Missing assertions are not passes.
-All 11 historical editing assertion regressions still fail.
+binary fingerprints, and unchanged limits and sandbox settings. It records zero
+observed passing-to-failing assertions, 163 corrected assertions, and 16 additional
+passing names. Five server-port name differences reconcile; three newly missing
+prior passes in Range-mutations-insertData remain unresolved. Eleven older gaps
+recover, 108 remain absent, and the combined tracked missing count is 111.
+Missing assertions are not passes. All 11 historical editing assertion regressions
+still fail; cumulative regression tracking preserves unresolved older failures.
 
-[Full evidence](CONFORMANCE-FOCUS-EVENTS-FULL-2026-09-08.json) records the audit.
-Stylo remains the CSS engine. The new regression affects Backspace in input and
-textarea controls inside the body's shadow root and must be recovered before
-promoting the next candidate.
+[Full evidence](CONFORMANCE-AUTOMATION-ENTER-FULL-2026-09-08.json) records the audit.
+Stylo remains the CSS engine. Automation ordering, native shadow keyboard targeting,
+and editing-host Enter semantics are implemented and measured in the signed suite.
 
-The isolated next draft defers automation dispatch until its promise is returned
-and uses effective plaintext editability for Enter. It is not yet compiled or
-validated. Next: repair shadow keyboard targeting, run native gates and the
-broader automation fixture batch, then measure and audit the signed full suite.
-Shared editing command queries also need computed-style and selected-range
-semantics. Every remaining failure stays in scope; complete conformance is not
-established.
+Next: implement shared editing command queries using computed styles and normalized
+selected ranges. The isolated formatBlock draft still needs correct collapsed
+whitespace and extraneous-line-break visibility before compilation and validation.
+Validate affected unchanged fixtures and native gates before the next signed full
+run. Every remaining failure stays in scope; complete conformance is not established.
 
 | Root | Passed / required |
 |---|---:|
@@ -36,14 +34,14 @@ established.
 | accname | 15/19 |
 | css/css-cascade | 54/97 |
 | css/cssom | 95/190 |
-| css/selectors | 192/277 |
+| css/selectors | 193/277 |
 | dom | 401/662 |
-| editing | 388/704 |
+| editing | 393/704 |
 | html/browsers/history | 32/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,003 failed IDs from this run.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 997 failed IDs from this run.
 
 ## P0 — complete
 
